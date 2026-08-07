@@ -118,3 +118,22 @@ This is the better engineering answer regardless of licensing. The long tail of 
 - **Treat every fetched map as untrusted input** (per the global security standard): no baked-in mirror URLs, sanitize any path derived from a demo's map name before it touches the filesystem (`Path.GetFullPath` plus a prefix check — a map name is attacker-controlled text inside a demo someone downloaded), and validate what comes back before parsing it.
 
 **Not yet decided:** whether the fetch step ships at all in v1, or whether resolution is install-and-cache only, with fetching left to the user. Decide when Phase 2 actually needs a map we do not have.
+
+## D10. Rendering API for Phase 3: Direct3D 11 via Vortice, not DX9
+
+Decided 2026-08-07, ahead of the work, because the question ("TF2 is a DX9 game, shouldn't the viewer be DX9?") is reasonable enough that it will be asked again otherwise.
+
+**The premise to reject first: TF2's rendering API and ours are independent.** We are not reimplementing Valve's renderer; we are reading Valve's *data formats*. BSP brushes, MDL meshes and VTF textures are bytes on disk with no API affinity — nothing about parsing them becomes easier by matching the API the game happened to ship with. "We know DX9 works" is evidence about TF2, not about this viewer.
+
+**Why not DX9:**
+
+- On current Windows it frequently runs through `d3d9on12` translation anyway, so the "closer to the metal" intuition is inverted — you land on D3D12 with a translation layer in between.
+- Tooling is the real cost. RenderDoc and PIX are first-class on D3D11/12 and poor-to-absent on D3D9. The first time brush geometry renders inside-out, a frame debugger is the difference between an hour and a day.
+- Shader model 3 ceiling, fixed-function-era baggage, single-threaded-era design.
+- Vortice's maintained surface is D3D11/12; choosing DX9 means fighting the binding library as well as the API.
+
+**Why D3D11 rather than D3D12:** D3D12's control — manual descriptor heaps, explicit fences, resource-state tracking — only pays off when CPU-bound on draw-call submission. Phase 3.0 renders roughly 3,110 brushes and a couple of dozen player capsules (measured from `koth_harvest_final.bsp`), which is nowhere near that regime. D3D12 would cost full complexity for no gain. D3D11 also runs on any GPU from roughly 2009 onward, which in practice is broader real-world coverage than DX9, since DX9-only hardware has aged out.
+
+**The DX9-era detail that does matter, and is not an API question:** Source's formats encode 2004 conventions — DXT1/3/5 texture compression, VMT shader parameters, and a right-handed **Z-up** world space. Direct3D's convention is left-handed Y-up, so a coordinate transform is required no matter which API is chosen. Getting it wrong is the classic "everything renders sideways/mirrored" bug. This is parsing and math work, identical under DX9 or DX11, and it should not be confused with the API decision.
+
+Revisit only if Phase 3.x fidelity work (real models, materials, lightmaps, particles) turns out to be draw-call bound — which would be a measured finding, not an assumption, per D2's standing rule about profiling before reaching for more machinery.
