@@ -1,4 +1,4 @@
-# tf2-demo-parser
+# tf2-demo-salvage
 
 A standalone parser (and, eventually, viewer) for Team Fortress 2 `.dem` files — built to work on demos from any era of TF2's 18-year history, including ones Valve's own client updates have broken.
 

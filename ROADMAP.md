@@ -59,7 +59,7 @@ Given you're fine with C++ *if* it's genuinely needed: recommend staying clean-r
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
-tf2-demo-parser/
+tf2-demo-salvage/
   native/libtf2dem/      placeholder only — not used unless Phase 3 proves it necessary
   managed/
     Tf2Demo.Core/        the actual decode engine (Phase 1) + object model
