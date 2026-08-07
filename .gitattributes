@@ -7,9 +7,11 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.sh text eol=lf
-# Demo files: plain binary for now (small corpus). If tools/corpus/demos grows
-# large, migrate to Git LFS: `git lfs install && git lfs migrate import --include="*.dem"`.
-*.dem binary
+# Demo files live in Git LFS (migrated 2026-08-07, when the corpus went from one 8.9 MB
+# file to three totalling ~131 MB). Plain git would keep every byte of every version in
+# history forever, and every clone would pay for it; LFS stores a ~130-byte pointer here
+# and fetches blobs on demand. Anyone cloning needs `git lfs install` first.
+# The LFS filter line below is further down, written by `git lfs track`.
 # Phase 2/3 asset formats, listed ahead of time so none of them can be mangled on first commit.
 *.bsp binary
 *.mdl binary

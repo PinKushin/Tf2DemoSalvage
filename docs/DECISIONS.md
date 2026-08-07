@@ -137,3 +137,19 @@ Decided 2026-08-07, ahead of the work, because the question ("TF2 is a DX9 game,
 **The DX9-era detail that does matter, and is not an API question:** Source's formats encode 2004 conventions — DXT1/3/5 texture compression, VMT shader parameters, and a right-handed **Z-up** world space. Direct3D's convention is left-handed Y-up, so a coordinate transform is required no matter which API is chosen. Getting it wrong is the classic "everything renders sideways/mirrored" bug. This is parsing and math work, identical under DX9 or DX11, and it should not be confused with the API decision.
 
 Revisit only if Phase 3.x fidelity work (real models, materials, lightmaps, particles) turns out to be draw-call bound — which would be a measured finding, not an assumption, per D2's standing rule about profiling before reaching for more machinery.
+
+## D11. Demo corpus storage: Git LFS, with the bandwidth tradeoff stated
+
+Decided 2026-08-07 when the corpus went from one 8.9 MB file to three totalling ~131 MB. `z1800.dem` was already committed as a plain blob, so `git lfs migrate import --include="*.dem" --everything` rewrote history — cheap at 6 commits with no remote and no collaborators, painful later. Tag `pre-lfs-backup` marks the pre-migration state; integrity was verified by SHA-256 against the manifest after checkout.
+
+**The reasoning first offered for this was wrong and is recorded so it is not repeated.** The initial argument was git's "every version of every file, forever". Demos are write-once artefacts — a recorded demo is never edited — so there is only ever one version and that multiplication never happens. The owner caught this.
+
+The arguments that actually hold:
+
+- **GitHub refuses any single file over 100 MB in normal git.** This is the decisive one. Our SourceTV demo is 75.6 MB for a 30-minute match; a 40-minute STV demo clears 100 MB and then simply cannot be committed at all. LFS raises the per-file ceiling to 2 GB.
+- **Clone cost falls on everyone.** Without LFS a contributor who only wants the C# code still downloads every demo byte. With LFS they get ~130-byte pointers and fetch blobs on demand.
+- **The corpus is meant to grow** (D5), and compressed binaries do not delta-compress, so repository size is simply the sum of file sizes.
+
+**The tradeoff pointing the other way, stated because it may reverse this decision later:** on a *public* repository, LFS bandwidth is billed to the repository owner — 1 GB/month on the free tier, paid beyond. Ordinary git clones cost the owner nothing. If this repository ever attracts real traffic, LFS becomes the more expensive option, and the demos should move to release assets or a fetch-on-demand model with checksums in `manifest.json`. That is a volume problem, not a correctness one, and can be decided when it happens.
+
+**Practical consequence:** anyone cloning needs `git lfs install` first, or the `.dem` files arrive as pointer stubs. `git lfs checkout` restores them if that happens — as it did during this migration.
