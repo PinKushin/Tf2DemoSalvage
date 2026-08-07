@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- TargetFramework must stay here, not in Directory.Build.props - see note there. -->
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tf2DemoSalvage.Core.Tests</RootNamespace>
     <IsTestProject>true</IsTestProject>
     <!-- Test methods are Method_Scenario_Expected; xUnit theories return object[]. -->

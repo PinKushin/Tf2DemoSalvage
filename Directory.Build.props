@@ -1,7 +1,15 @@
 <Project>
 
+  <!--
+    TargetFramework is deliberately NOT set here - it is declared per-project.
+
+    Stryker.NET's project analysis (Buildalyzer) fails outright with
+    "Failed to analyze project builds" when the TFM comes from Directory.Build.props
+    rather than the .csproj; its diagnostic log says only "No analyzer results to log",
+    with no MSBuild error pointing at the cause. Bisected 2026-08-07. Every other
+    property below is safe to centralize.
+  -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
 
     <!-- D6 / global standards: explicit usings, non-null by default, zero warnings. -->

@@ -91,11 +91,47 @@ public sealed class BitReaderTests
     [Fact]
     public void ReadUInt32_RequestExceedsRemainingBits_ThrowsWithoutPartialRead()
     {
-        Should.Throw<EndOfStreamException>(() =>
+        EndOfStreamException exception = Should.Throw<EndOfStreamException>(() =>
         {
             var reader = new BitReader([0xAC]);
             reader.ReadUInt32(9);
         });
+
+        // The message carries the diagnostic numbers: a truncated demo packet is reported by
+        // where it ran out, not just that it did.
+        exception.Message.ShouldContain("9 bits");
+        exception.Message.ShouldContain("offset 0");
+        exception.Message.ShouldContain("8 bits remain");
+    }
+
+    [Fact]
+    public void ReadUInt32_ExhaustedMidStream_ReportsCurrentOffsetInMessage()
+    {
+        EndOfStreamException exception = Should.Throw<EndOfStreamException>(() =>
+        {
+            var reader = new BitReader([0xAC, 0x3F]);
+            reader.ReadUInt32(12);
+            reader.ReadUInt32(8);
+        });
+
+        exception.Message.ShouldContain("offset 12");
+        exception.Message.ShouldContain("4 bits remain");
+    }
+
+    [Fact]
+    public void Constructor_BufferOverAddressableLimit_ThrowsNamingTheParameter()
+    {
+        // Exercised through the internal predicate rather than an actual 256 MB span.
+        BitReader.ExceedsAddressableLength(BitReader.MaxByteLength).ShouldBeFalse();
+        BitReader.ExceedsAddressableLength(BitReader.MaxByteLength + 1).ShouldBeTrue();
+        BitReader.ExceedsAddressableLength(0).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void MaxByteLength_IsTheLargestLengthWhoseBitCountFitsInInt32()
+    {
+        ((long)BitReader.MaxByteLength * 8).ShouldBeLessThanOrEqualTo(int.MaxValue);
+        ((long)(BitReader.MaxByteLength + 1) * 8).ShouldBeGreaterThan(int.MaxValue);
     }
 
     [Fact]

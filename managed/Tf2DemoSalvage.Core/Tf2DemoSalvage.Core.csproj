@@ -3,11 +3,20 @@
   <!--
     Phase 1 decode engine (D2): container parsing, bit/varint primitives,
     SendTable-driven entity decode. Pure C# - no P/Invoke, no native dependency.
-    Shared properties (TFM, nullability, analyzers) live in Directory.Build.props.
+    Shared properties (nullability, analyzers) live in Directory.Build.props;
+    TargetFramework must stay here - see the note in that file.
   -->
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tf2DemoSalvage.Core</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Boundary rules that are impractical to exercise through the public API (e.g. the
+         bit-addressable length limit, which would need a quarter-gigabyte buffer) are internal
+         and tested directly. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Core.Tests" />
+  </ItemGroup>
 
 </Project>

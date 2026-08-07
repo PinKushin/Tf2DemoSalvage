@@ -20,21 +20,28 @@ public ref struct BitReader
     private const int BitsPerByte = 8;
     private const int MaxBitsPerRead = 32;
 
+    /// <summary>
+    /// Largest buffer whose bit count still fits in an <see cref="int"/>. Demo payloads are
+    /// chunked far below this; exceeding it means the caller passed something that is not a
+    /// packet.
+    /// </summary>
+    internal const int MaxByteLength = int.MaxValue / BitsPerByte;
+
     private readonly ReadOnlySpan<byte> _data;
     private int _bitPosition;
 
     /// <summary>Creates a reader positioned at the first bit of <paramref name="data"/>.</summary>
     /// <exception cref="ArgumentException">
-    /// <paramref name="data"/> is large enough that its bit count would overflow an
-    /// <see cref="int"/>. Demo payloads are chunked well below this, so hitting it means the
-    /// caller passed something that is not a packet.
+    /// <paramref name="data"/> exceeds <see cref="MaxByteLength"/>.
     /// </exception>
     public BitReader(ReadOnlySpan<byte> data)
     {
-        if (data.Length > int.MaxValue / BitsPerByte)
+        if (ExceedsAddressableLength(data.Length))
         {
             throw new ArgumentException(
-                "Buffer is too large for a bit-addressable reader.", nameof(data));
+                $"Buffer of {data.Length} bytes exceeds the bit-addressable limit of " +
+                $"{MaxByteLength} bytes.",
+                nameof(data));
         }
 
         _data = data;
@@ -46,6 +53,13 @@ public ref struct BitReader
 
     /// <summary>Number of bits still available.</summary>
     public readonly int BitsRemaining => (_data.Length * BitsPerByte) - _bitPosition;
+
+    /// <summary>
+    /// Whether a buffer of <paramref name="byteLength"/> bytes is too large to bit-address.
+    /// Split out from the constructor so the boundary is testable without allocating a
+    /// quarter-gigabyte span.
+    /// </summary>
+    internal static bool ExceedsAddressableLength(int byteLength) => byteLength > MaxByteLength;
 
     /// <summary>Reads a single bit.</summary>
     /// <exception cref="EndOfStreamException">The buffer is exhausted.</exception>
@@ -70,11 +84,6 @@ public ref struct BitReader
         ArgumentOutOfRangeException.ThrowIfNegative(bitCount);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(bitCount, MaxBitsPerRead);
 
-        if (bitCount == 0)
-        {
-            return 0;
-        }
-
         if (bitCount > BitsRemaining)
         {
             throw new EndOfStreamException(
@@ -86,19 +95,27 @@ public ref struct BitReader
         int bitOffset = _bitPosition % BitsPerByte;
 
         // At most 5 bytes can straddle a 32-bit read that starts unaligned, so a 64-bit window
-        // is always wide enough to hold the span before shifting the field down.
-        int bytesTouched = ((bitOffset + bitCount) + (BitsPerByte - 1)) / BitsPerByte;
+        // is always wide enough to hold the span before shifting the field down. A zero-width
+        // read touches no bytes and masks to 0, so it needs no special case.
+        int bytesTouched = (bitOffset + bitCount + (BitsPerByte - 1)) / BitsPerByte;
+
         ulong window = 0;
         for (int i = 0; i < bytesTouched; i++)
         {
+            // Stryker disable once Assignment: each iteration writes a disjoint byte lane of a
+            // zero-initialised window, so |= and ^= are indistinguishable here. Equivalent
+            // mutant, not a missing test.
             window |= (ulong)_data[bytePosition + i] << (i * BitsPerByte);
         }
 
         _bitPosition += bitCount;
 
-        ulong value = window >> bitOffset;
-        return bitCount == MaxBitsPerRead
-            ? (uint)value
-            : (uint)(value & ((1UL << bitCount) - 1));
+        // Stryker disable once Bitwise: window is unsigned, so >> is already a logical shift and
+        // >>> is the same operation. Equivalent mutant.
+        ulong field = window >> bitOffset;
+
+        // bitCount is at most 32, so 1UL << bitCount cannot wrap a 64-bit shift - the 32-bit
+        // case needs no separate branch.
+        return (uint)(field & ((1UL << bitCount) - 1));
     }
 }
