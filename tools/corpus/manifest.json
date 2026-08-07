@@ -1,0 +1,23 @@
+{
+  "demos": [
+    {
+      "file": "demos/z1800.dem",
+      "sha256": "1d1f5bd8ff7f89489c82a0ec5700ed960df6dcf136505bcf0a7d96d92559e0ea",
+      "sizeBytes": 8964241,
+      "source": "owner's personal collection, uploaded 2026-08-07",
+      "demoProtocol": 3,
+      "networkProtocol": 24,
+      "serverName": "FACEIT.com register to play here",
+      "clientName": "SourceTV Demo",
+      "map": "koth_harvest_final",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 863.2649536132812,
+      "playbackTicks": 57551,
+      "playbackFrames": 14386,
+      "signonLengthBytes": 912640,
+      "estimatedEra": "~2015 (network protocol 24 matches the TF2 build documented as active July 2015)",
+      "knownIssues": "Fails to play in the current live TF2 client (client-side SendTable schema validation, same class of failure as the July 2023 break). File itself is structurally intact per header consistency checks.",
+      "notes": "First confirmed corpus entry. See docs/FORMAT_NOTES.md for full detail."
+    }
+  ]
+}

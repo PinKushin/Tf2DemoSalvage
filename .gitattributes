@@ -1,0 +1,11 @@
+# Normalize text files
+*.md text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.cs text eol=lf
+*.json text eol=lf
+
+# Demo files: plain binary for now (small corpus). If tools/corpus/demos grows
+# large, migrate to Git LFS: `git lfs install && git lfs migrate import --include="*.dem"`.
+*.dem binary
+*.dem filter=lfs diff=lfs merge=lfs -text

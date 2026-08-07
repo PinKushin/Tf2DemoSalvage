@@ -1,0 +1,30 @@
+# Visual Studio / MSBuild
+.vs/
+bin/
+obj/
+x64/
+x86/
+Debug/
+Release/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# C build artifacts
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+!tools/**/*.dll
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+*.swp
