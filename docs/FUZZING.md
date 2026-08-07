@@ -1,10 +1,11 @@
 # Fuzzing
 
 > **Status: accepted as D8 (2026-08-07). Partially implemented.**
-> The `BitReader` target and the deterministic mutation layer exist; the
-> coverage-guided workflow does not, because the repo has no CI yet. See
-> `DECISIONS.md` D8 for the decision record — this document is the reasoning
-> and the setup detail behind it.
+> The `BitReader` target and the deterministic mutation layer exist, and the
+> coverage-guided path has been run locally under WSL (see "Running it locally"
+> below). What does not exist is the *scheduled* workflow, because the repo has
+> no CI yet. See `DECISIONS.md` D8 for the decision record — this document is
+> the reasoning and the setup detail behind it.
 
 ## Why this project needs it more than most
 
@@ -153,6 +154,57 @@ distribution rather than assuming it. `BitReaderFuzzPropertyTests` already
 asserts the seeded corpus reaches every width from 1 to 32; that assertion is
 there to fail loudly when real-world seeds are introduced, not because random
 bytes were ever in doubt.
+
+## Running it locally
+
+Verified end to end on Ubuntu 26.04 under WSL2 on 2026-08-07, not merely
+described. `dotnet` lives in `~/.dotnet` and is **not** on the login PATH, so
+every step needs the export:
+
+```bash
+export DOTNET_ROOT=$HOME/.dotnet
+export PATH=$DOTNET_ROOT:$HOME/.dotnet/tools:$PATH
+
+cd /mnt/c/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage
+dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o ~/tf2fuzz/publish
+
+# Instrument the code under test - not the harness assembly.
+# Re-run this after EVERY publish; publishing silently un-instruments.
+sharpfuzz ~/tf2fuzz/publish/Tf2DemoSalvage.Core.dll
+
+mkdir -p ~/tf2fuzz/corpus
+~/libfuzzer-dotnet \
+  --target_path=$DOTNET_ROOT/dotnet \
+  --target_arg=$HOME/tf2fuzz/publish/Tf2DemoSalvage.Fuzz.dll \
+  ~/tf2fuzz/corpus -max_total_time=60 -print_final_stats=1
+```
+
+Instrumentation is confirmed by file growth: `Tf2DemoSalvage.Core.dll` went
+6,144 → 6,656 bytes. If that number does not change, everything below is
+meaningless.
+
+First run, 60 seconds, empty starting corpus:
+
+| | |
+|---|---|
+| Executions | 805,921 at ~13,200/s |
+| Features (`ft:`) | 110 |
+| Corpus | 13 entries, largest 45 bytes |
+| Crashes / timeouts | none |
+
+**The interesting result is not the clean run — it is that `ft:` stopped moving
+after roughly 15,000 executions.** The remaining ~790,000 found nothing new.
+That is the correct outcome for a target this small: `BitReader` has very few
+distinct paths, and the fuzzer exhausts them almost immediately. Two things
+follow:
+
+- A long run against `BitReader` alone is a waste of budget. Seconds, not
+  minutes, is the honest setting for this target today.
+- The case for a *scheduled* long-running job only materialises with targets #3
+  and #4 (string-table and SendTable delta decode, then whole-file parse), where
+  the state space is genuinely large. Wiring the workflow up now would produce a
+  green badge that proves nothing, which is the exact failure mode the setup
+  notes warn about.
 
 ## What this would cost
 
