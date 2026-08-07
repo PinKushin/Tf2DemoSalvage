@@ -5,8 +5,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tf2DemoSalvage.Core.Tests</RootNamespace>
     <IsTestProject>true</IsTestProject>
-    <!-- Test methods are Method_Scenario_Expected; xUnit theories return object[]. -->
-    <NoWarn>$(NoWarn);CA1861</NoWarn>
+    <!-- CA1861: fixture arrays are passed inline by design.
+         CA5394: D8's deterministic layer needs a *seeded* generator so a failure names a
+         reproducible case. A cryptographic RNG cannot be seeded - the "insecurity" CA5394
+         warns about is exactly the property being relied on here. -->
+    <NoWarn>$(NoWarn);CA1861;CA5394</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,6 +22,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+    <!-- D8's cheap layer drives the same property definitions the coverage-guided runner does,
+         so the two cannot disagree about what a valid parse is. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Fuzz\Tf2DemoSalvage.Fuzz.csproj" />
   </ItemGroup>
 
 </Project>

@@ -57,3 +57,17 @@ Owner's standing global preference for all work, not specific to this project, b
 ## D7. License: MIT, public repo
 
 Public so the wider TF2 demo-tooling community (demos.tf, tf-demo-parser maintainers, etc.) can contribute schema fixes for versions the owner doesn't personally have test demos for. MIT chosen as a simple permissive default; easy to revisit if a reason to change comes up.
+
+## D8. Fuzzing: adopted, two layers, primitives first
+
+Accepted 2026-08-07. Full reasoning and the toolchain setup traps live in `FUZZING.md`; this entry is the decision record, not a duplicate of it.
+
+The case rests on two facts about this project compounding. The decode primitives are hand-written at the bit level — `BitReader` and everything after it are original code with no `Utf8JsonReader`-style layer underneath that has already absorbed a decade of adversarial input. And D5 says the corpus is one demo and will probably stay that way. A fuzzer can't manufacture a 2009 demo, but it manufactures hundreds of thousands of *malformed* ones from the file already in hand, which is exactly the input class a sparse corpus never supplies. Fuzzing is therefore the second hedge against D5, alongside the schema-driven decoder design.
+
+- **The property, at every level:** a parse either succeeds, or throws an exception this project documents as meaning "that input was not valid" — currently `EndOfStreamException` and `ArgumentException`. An `IndexOutOfRangeException`, `NullReferenceException`, `OutOfMemoryException`, or a non-terminating loop is a defect, because a caller can't defend against those when the bytes came from a file someone downloaded.
+- **Two layers, because they cost different amounts.** A deterministic, seeded mutation suite runs in the normal test suite on every build — milliseconds, reproducible failures, catches obvious regressions. Coverage-guided fuzzing (SharpFuzz + libFuzzer) runs on a slower cadence and is where inputs nobody would think to write actually come from.
+- **Target order:** `BitReader`, then the varint reader, then string-table and SendTable delta decode, then whole-file parse seeded with `z1800.dem`. Primitives first because a crash in one is trivially localised; a crash in the whole-file parse is not.
+- **Scope limit, stated so it isn't oversold:** fuzzing proves the parser didn't fall over. It proves nothing about whether the bits were decoded *correctly*. It does not reduce the need for real demos (D5) — it covers a different axis. Correctness still comes from unit tests and golden-corpus regression.
+- **Relationship to D6:** unit tests ask "right answer on input we thought of", Stryker asks "would the tests notice if the code were wrong", fuzzing asks "what happens on input nobody thought of". Three different questions; none substitutes for another.
+
+Deliberately deferred: the scheduled coverage-guided workflow. Its toolchain is Linux-first (WSL on Windows) and the repo has no CI and no remote yet, so it lands when CI does. The deterministic layer has no such dependency and is in place now.

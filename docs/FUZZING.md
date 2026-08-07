@@ -1,10 +1,10 @@
 # Fuzzing
 
-> **Status: proposed, not implemented.** Written from outside the current
-> implementation effort, so nothing here has been wired up. It should become a
-> numbered entry in `DECISIONS.md` (D8) once someone acts on it — left
-> unnumbered deliberately, to avoid colliding with a decision being written
-> concurrently.
+> **Status: accepted as D8 (2026-08-07). Partially implemented.**
+> The `BitReader` target and the deterministic mutation layer exist; the
+> coverage-guided workflow does not, because the repo has no CI yet. See
+> `DECISIONS.md` D8 for the decision record — this document is the reasoning
+> and the setup detail behind it.
 
 ## Why this project needs it more than most
 
