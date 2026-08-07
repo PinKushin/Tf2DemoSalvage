@@ -79,10 +79,16 @@ One rule, and it is the same shape at every level:
 > never by hanging.
 
 `EndOfStreamException` and `ArgumentException` are already used that way in
-`BitReader`. An `IndexOutOfRangeException`, a `NullReferenceException`, an
+`BitReader`, and `VarInt` adds `InvalidDataException` for an encoding that is
+structurally impossible — a varint asking for more bytes than its type can hold.
+An `IndexOutOfRangeException`, a `NullReferenceException`, an
 `OutOfMemoryException` or a non-terminating loop are all defects, because a
 caller cannot reasonably defend against them when the input came from a file
 someone downloaded.
+
+The bound on varint length is *part of the property*, not an implementation
+detail. An unbounded decoder handed `FF FF FF FF …` does not crash — it reads on,
+which is worse, because a hang looks like slowness rather than a bug.
 
 ## Two layers, because they cost different amounts
 
