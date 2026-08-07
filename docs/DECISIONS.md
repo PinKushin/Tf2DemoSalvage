@@ -34,11 +34,34 @@ Source SDK 2013 does **not** contain the demo/net parser or renderer (`engine.dl
 
 For Phase 3 asset parsing (BSP/MDL/VTF), default is clean-room parsing from community-documented formats (Valve Developer Community wiki, cross-checked against prior art like SourceIO/Crowbar/HLLib) to avoid the SDK's license ambiguity (written around non-commercial mods requiring the base game — a standalone public tool is a gray-area fit) and to avoid pulling C++ into the codebase. Reconsider **only** if a specific format (most likely MDL/VVD/VTX skeletal animation) proves too error-prone to reverse-engineer cleanly — and if so, wrap it behind a C ABI shim like the core, don't let C++ leak into the rest of the codebase.
 
-## D5. Corpus strategy: opportunistic, not a gate
+## D5. Corpus strategy: two different problems, not one
 
-Confirmed: only one demo in hand (`z1800.dem`, ~2015 era — see `FORMAT_NOTES.md`). TF2's earliest competitive era (~2008–2010) ran mostly on live Mumble casts, not recorded STV, and no centralized demo archive existed before demos.tf — recovering anything from that far back depends on an individual having personally kept a file for 15+ years. Low probability at scale.
+**Rewritten 2026-08-07.** The original version treated corpus scarcity as a single problem and rested on a factual error: it described `z1800.dem` as "~2015 era", inferred from its protocol pair. Reading the file's own string tables dates it to **mid-2020 or later** (`sum20_fire_fighter_style1`, `@20_handsome_devil`, `rglgg_medal`, Competitive Mode voice lines). Demo protocol 3 / network protocol 24 was current in July 2015 *and stayed current for years* — see `SPEC.md`. Protocol numbers tell you which decode quirks apply and nothing whatever about age.
 
-Decision: build and validate Phase 1 against `z1800.dem` now. Treat community outreach (r/tf2, TF2 Discords, ETF2L/teamfortress.tv forums) as a parallel, non-blocking side effort, not a dependency for starting implementation. The schema-driven decoder design (D1/D2) is itself the hedge against a sparse corpus — it shouldn't need architectural rework if/when older specimens surface.
+That correction splits the problem in half, and the halves need opposite strategies.
+
+### Modern demos (roughly 2016 onward): abundant, and we were treating them as scarce
+
+They are freely available from demos.tf, and the owner can record new ones on demand. This is not a constraint at all, and three things follow that the old decision missed:
+
+- **Self-recorded demos are the only source of correctness ground truth we have.** For a demo you recorded, you know what happened — map, classes, a kill at a known moment — so the parser's output can be checked against reality. Neither `z1800.dem` (nobody knows what is in it) nor fuzzing (D8 proves the parser does not fall over, explicitly not that it decodes correctly) can do this. It is the only axis that catches a decoder that runs cleanly and reports the wrong thing.
+- **Two eras side by side is how version quirks get found.** One specimen cannot show which behaviours are version-gated. A second era can, by disagreeing.
+- **`z1800.dem` is still a good first target**, but for a reason we had wrong. It is not rare — it is a *2020 demo broken by the July 2023 schema change*, which is precisely the failure this project exists to work around. That makes it representative of the common case, not of a historical edge case.
+
+### Historical demos (pre-2016): genuinely scarce, and we currently have **zero**
+
+The original reasoning here still holds. TF2's early competitive era (~2008–2010) ran mostly on live Mumble casts rather than recorded STV, no centralised archive existed before demos.tf, and sizzlingstats — which did keep demos — has been gone for years. Recovering anything from that far back depends on an individual having personally kept a file for 15+ years.
+
+What changed is the count. We believed we had one mid-2010s specimen; we have none. **The parser currently has no historical coverage of any kind, and no test that would detect its absence.**
+
+### Decision
+
+- **Build against modern demos, and say plainly that this is what we have tested.** Do not let a green suite imply era coverage we do not possess.
+- **Add modern specimens deliberately, not incidentally**: demos.tf for variety, self-recorded for ground truth. Each one gets an entry in `tools/corpus/manifest.json` and a regression fixture in `tests/`.
+- **Date every acquired demo from its assets**, never its protocol numbers, and record the evidence in the manifest. This is cheap and would have caught the original error immediately.
+- **Historical outreach stays parallel and non-blocking** (r/tf2, TF2 Discords, ETF2L/teamfortress.tv forums). Still worth doing, still not a dependency.
+- **The schema-driven design (D1/D2) remains the hedge**, and the correction strengthens the case for it rather than weakening it: we now know we have no way to test the historical path, so the architecture has to be right by construction rather than by verification.
+- **`z1800.dem`'s one-byte truncation is a free fixture** for the salvage case (`SPEC.md`), independent of era.
 
 ## D6. Engineering practice: TDD, SOLID, DRY — applied everywhere, not just talked about
 
