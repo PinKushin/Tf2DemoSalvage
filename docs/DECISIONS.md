@@ -61,7 +61,7 @@ What changed is the count. We believed we had one mid-2010s specimen; we have no
 - **Date every acquired demo from its assets**, never its protocol numbers, and record the evidence in the manifest. This is cheap and would have caught the original error immediately.
 - **Historical outreach stays parallel and non-blocking** (r/tf2, TF2 Discords, ETF2L/teamfortress.tv forums). Still worth doing, still not a dependency.
 - **The schema-driven design (D1/D2) remains the hedge**, and the correction strengthens the case for it rather than weakening it: we now know we have no way to test the historical path, so the architecture has to be right by construction rather than by verification.
-- **`z1800.dem`'s one-byte truncation is a free fixture** for the salvage case (`SPEC.md`), independent of era.
+- **The one-byte-short `dem_stop` is not a salvage fixture.** It was recorded as one; two further demos showed every TF2 demo ends that way, so it is the normal terminator (`SPEC.md`).
 
 ## D6. Engineering practice: TDD, SOLID, DRY — applied everywhere, not just talked about
 

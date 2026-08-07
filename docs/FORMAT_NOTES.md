@@ -81,11 +81,13 @@ it: protocol 3 / 24 carrying assets that did not exist until 2020. **Never infer
 demo's age from its protocol numbers.** Use the string-table asset names instead; they
 are dated by construction, because Valve names seasonal items after the event year.
 
-**3. "Structurally intact" was too strong** — the file is truncated by one byte; its
-final `dem_stop` command header is missing the last of its four tick bytes. Harmless,
-since `dem_stop` has no payload and its tick is unused, but it is a real property of
-the file and our parser must treat it as a normal end rather than corruption. See
-`SPEC.md`.
+**3. The one-byte short `dem_stop` is normal TF2 behaviour, not damage.** This entry
+first said "structurally intact" was too strong because the file looked truncated. Two
+further demos (ETF2L 12025 POV and 12030 SourceTV, both July 2020, unrelated servers)
+end byte-for-byte the same way, and the three trailing bytes decode as the low bytes of
+each file's own `playback_ticks`. The missing byte is the tick's always-zero high byte.
+So "structurally intact" was right after all — the parser must simply treat EOF inside a
+`dem_stop` header as the normal end. See `SPEC.md`.
 
 Also softened: **the server identity is self-declared.** `Server Name` is the
 `hostname` cvar — free text the operator chooses, frequently an advert, and not

@@ -94,7 +94,7 @@ Command header, **5 bytes** at demo protocol 3:
 | `dem_consolecmd` | 4 | `RawData` | 0 |
 | `dem_usercmd` | 5 | `int32` outgoing seq + `RawData` | 0 |
 | `dem_datatables` | 6 | `RawData` | 1 |
-| `dem_stop` | 7 | *(none)* | 1 (truncated, see below) |
+| `dem_stop` | 7 | *(none)* | 1 (short header, see below) |
 | `dem_stringtables` | 8 | `RawData` | 1 |
 
 `RawData` is `int32 size` followed by `size` bytes.
@@ -111,22 +111,36 @@ declared 14,386 frames. That is the strongest single validation available for th
 container layout — an off-by-one in any payload size would drift and never land
 on the nose.
 
-**2. `z1800.dem` is truncated by exactly one byte.** — **CONFIRMED**
+**2. Every TF2 demo ends one byte short of a complete `dem_stop` header.** — **CONFIRMED**
 
-The last command begins at offset 8,964,237 with `0x07` (`dem_stop`), and only
-3 of its 4 tick bytes are present. The file is one byte short of complete.
+The file's last command is `0x07` (`dem_stop`) followed by **three** bytes, not the four a
+tick field needs.
 
-This is harmless in practice: `dem_stop` has no payload and its tick is never
-used, which is why every parser reads the file without complaint. But it has
-direct consequences for us:
+This was first recorded as "`z1800.dem` is truncated by one byte." **That was wrong**, and
+the correction matters because it changes the rule from "tolerate this damaged file" to
+"this is the normal terminator." Three demos from three unrelated servers, in both POV and
+SourceTV flavours, all end identically — and the three bytes present decode as the low bytes
+of the demo's own tick count:
 
-- **`FORMAT_NOTES.md` saying "structurally intact" is too strong.** Corrected there.
-- **The parser must tolerate this**, not throw. Hitting EOF while reading a
-  `dem_stop` header is a normal end-of-demo, not corruption. The reference parser
-  agrees — `demostf/parser`'s `RawPacketStream` explicitly detects "incomplete
-  data" as a stop condition.
-- **It is our first real regression fixture.** A demo that ends one byte early is
-  precisely the salvage case this project exists for, and we already have one.
+| demo | trailing bytes | value | header `playback_ticks` |
+|---|---|---|---|
+| `z1800.dem` | `cf e0 00` | 57,551 | 57,551 |
+| ETF2L 12025 (POV) | `32 d7 01` | 120,626 | 120,626 |
+| ETF2L 12030 (STV) | `67 d8 01` | 120,935 | 120,935 |
+
+The absent byte is the tick's most significant one, always `0x00` because a tick count never
+approaches 2^24. So TF2's writer emits `dem_stop` plus a tick and the file ends one byte
+early, every time.
+
+Consequences:
+
+- **Reaching EOF while reading a `dem_stop` header is the normal end of a demo.** A parser
+  that demands the full 5-byte header rejects every valid TF2 demo. `demostf/parser`'s
+  `RawPacketStream` detecting "incomplete data" as a stop condition is the same
+  accommodation.
+- **`dem_stop`'s tick equals the header's `playback_ticks`**, which is a free consistency
+  check worth asserting.
+- This is *not* a salvage fixture, as previously claimed. It is the baseline.
 
 ---
 
@@ -233,8 +247,8 @@ disagree with.
 3. **Entity decode will not be settled by reading.** No public bit-level spec
    exists. Plan for prior-art cross-checking plus byte-level experiment against
    `z1800.dem`, and budget accordingly.
-4. **We already have a truncation fixture.** The one-byte shortfall is a real
-   salvage case, free.
+4. **The one-byte shortfall is normal, not a salvage case.** Corrected after two more
+   demos showed the identical ending. Parsers must accept it as the terminator.
 5. **The corpus is modern-era only, and D5 needs rewriting.** `z1800.dem` was
    assumed to be a rare ~2015 specimen; it is from 2020 or later. Combined with
    modern demos being freely obtainable from demos.tf, the position is now: the
