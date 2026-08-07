@@ -61,6 +61,10 @@ What changed is the count. We believed we had one mid-2010s specimen; we have no
 - **Date every acquired demo from its assets**, never its protocol numbers, and record the evidence in the manifest. This is cheap and would have caught the original error immediately.
 - **Historical outreach stays parallel and non-blocking** (r/tf2, TF2 Discords, ETF2L/teamfortress.tv forums). Still worth doing, still not a dependency.
 - **The schema-driven design (D1/D2) remains the hedge**, and the correction strengthens the case for it rather than weakening it: we now know we have no way to test the historical path, so the architecture has to be right by construction rather than by verification.
+- **Prefer publicly published demos; never commit a self-recorded one.** A POV demo's `client_name` header field is the recording player's name, and the string tables carry player names and SteamIDs. Committing the owner's own POV demo would bind their handle to a public repository permanently, and in LFS history at that. Public league demos carry other players' names too, but those matches were published by the league itself, so committing them exposes nothing new.
+  - Format coverage needs no self-recording: ETF2L publishes POV demos (`etf2l-12025-pov-2020-07-21.dem` is one), which covers the POV-only command paths.
+  - Correctness ground truth still does, since nobody knows what happened inside a public demo. Record those into a git-ignored `tools/corpus/local/` and use them for validation without committing, or record under a throwaway alias if a fixture genuinely needs to ship.
+
 - **The one-byte-short `dem_stop` is not a salvage fixture.** It was recorded as one; two further demos showed every TF2 demo ends that way, so it is the normal terminator (`SPEC.md`).
 
 ## D6. Engineering practice: TDD, SOLID, DRY — applied everywhere, not just talked about

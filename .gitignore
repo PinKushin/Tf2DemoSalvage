@@ -33,3 +33,7 @@ Thumbs.db
 # Editors
 .idea/
 *.swp
+
+# Self-recorded demos used for correctness ground truth (D5): kept local so the
+# owner's screen name and SteamID never enter a public repo.
+tools/corpus/local/
