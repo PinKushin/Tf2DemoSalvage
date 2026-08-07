@@ -46,7 +46,7 @@ Parsed directly from the file (not assumed) on 2026-08-07:
 
 - Stamp: `HL2DEMO`
 - Demo Protocol: **3**
-- Network Protocol: **24** — matches the exact pair documented as active in TF2 as of July 2015 in the demboyz writeup, so this file most likely dates to roughly 2015–2016, not earlier.
+- Network Protocol: **24**
 - Server Name: `FACEIT.com register to play here`
 - Client Name: `SourceTV Demo` (this is an STV/observer demo, not a player POV demo)
 - Map: `koth_harvest_final`
@@ -56,6 +56,46 @@ Parsed directly from the file (not assumed) on 2026-08-07:
 - Playback Frames: 14,386
 - Signon Length: 912,640 bytes
 - File size: 8,964,241 bytes
+
+### Corrections from the 2026-08-07 evidence pass
+
+Three earlier claims in this file were wrong or overstated. Recorded rather than
+silently edited, because two of them are the kind of mistake that is easy to repeat.
+
+**1. The demo is from mid-2020 or later, not 2015–2016.** The earlier estimate
+inferred a date from the protocol pair, which does not work. Reading the asset names
+out of the string tables dates it directly:
+
+| Evidence | Earliest possible date |
+|---|---|
+| `sum20_fire_fighter_style1`, `@20_handsome_devil` | Summer 2020 |
+| `hwn2019_bat_hat` | Halloween 2019 |
+| `rglgg_medal` | RGL.gg era |
+| `etf2l_2018_bronze` | 2018 |
+| `vo/compmode/*`, `scenes/.../cm_*_comp_*.vcd` | Competitive Mode, 2016 |
+
+**2. Demo protocol 3 / network protocol 24 does not date a TF2 demo.** This is the
+generalisable lesson. The demboyz writeup documents that pair as current in July 2015,
+and it was — but TF2 kept the same values for years afterwards, and this file proves
+it: protocol 3 / 24 carrying assets that did not exist until 2020. **Never infer a
+demo's age from its protocol numbers.** Use the string-table asset names instead; they
+are dated by construction, because Valve names seasonal items after the event year.
+
+**3. "Structurally intact" was too strong** — the file is truncated by one byte; its
+final `dem_stop` command header is missing the last of its four tick bytes. Harmless,
+since `dem_stop` has no payload and its tick is unused, but it is a real property of
+the file and our parser must treat it as a normal end rather than corruption. See
+`SPEC.md`.
+
+Also softened: **the server identity is self-declared.** `Server Name` is the
+`hostname` cvar — free text the operator chooses, frequently an advert, and not
+evidence of who ran the machine. What the bytes support is that the server
+identified itself as FACEIT in two independent fields (`hostname`, and a `FACEIT TV`
+string in the tables). Treat it as "the server called itself FACEIT", not as
+established provenance.
+
+One consequence worth stating plainly: this specimen is **modern-era**, so the corpus
+currently contains *zero* pre-2020 demos. See D5.
 
 Sanity check: ticks / time = 57551 / 863.265 ≈ 66.67, matching TF2's standard tick rate exactly — header fields are internally consistent, file is structurally intact, not corrupted or truncated.
 
