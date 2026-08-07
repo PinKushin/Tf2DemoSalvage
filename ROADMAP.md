@@ -22,8 +22,8 @@ Prior art worth studying (not depending on, given license/language mismatch, but
 
 Per your call: no Rust, no C++, no Python — and per further discussion, **no native C either, until/unless Phase 3 actually proves it necessary.** Modern C# (`unsafe`, `Span<T>`, `stackalloc`, `MemoryMarshal`, `System.Numerics` SIMD) is fast enough for bit-level demo decoding and bulk corpus processing. Pure C# for Phase 1 and 2.
 
-- **`managed/Tf2Demo.Core` (C#)** — the actual decode engine lives here now, not in a separate native library: container parser, bit-reader/varint primitives, SendTable-driven entity delta decoder, string table decoder, plus the object model (ticks, entities, game events, chat) built on top of it.
-- **`managed/Tf2Demo.Cli`, `Tf2Demo.Viewer2D`** — batch/parallel processing of a demo backlog, JSON/CSV/SQLite export, and the 2D viewer, all consuming `Tf2Demo.Core`.
+- **`managed/Tf2DemoSalvage.Core` (C#)** — the actual decode engine lives here now, not in a separate native library: container parser, bit-reader/varint primitives, SendTable-driven entity delta decoder, string table decoder, plus the object model (ticks, entities, game events, chat) built on top of it.
+- **`managed/Tf2DemoSalvage.Cli`, `Tf2DemoSalvage.Viewer2D`** — batch/parallel processing of a demo backlog, JSON/CSV/SQLite export, and the 2D viewer, all consuming `Tf2DemoSalvage.Core`.
 - **`native/libtf2dem`** — kept as a placeholder folder only. Not started for Phase 1/2. Revisit only if Phase 3 profiling shows a specific piece (most likely a per-frame render-loop step, not demo decoding) genuinely needs native code after `unsafe` C# has actually been tried and measured — a last resort, not a default. If that trigger ever fires: default to C, with Zig as an open long-shot alternative (not C++) — it exports a plain C ABI natively, so it's the same P/Invoke story as C with real memory-safety improvements and none of C++'s naming-convention/template baggage, at the cost of its own build step outside the main `.sln`. See `docs/DECISIONS.md` D2 for the full reasoning.
 
 **Native build, if it's ever needed: MSBuild/vcxproj**, not CMake — would live as a native project in the same Visual Studio solution as the C# projects. Trade-off already accepted for that hypothetical: Windows/MSVC-only, no cheap Linux ASan/UBSan fuzzing CI. This only matters if D2's "revisit if Phase 3 proves it necessary" ever actually triggers.
@@ -32,7 +32,7 @@ Per your call: no Rust, no C++, no Python — and per further discussion, **no n
 
 **Phase 0 — Corpus & spec-mining.** Collect reference demos spanning eras: pre-2013 (pre-SteamPipe), 2013–2015, ~2018 (64-bit update), 2020–2022, immediately before/after the July 2023 break, and current. This corpus is both ground truth and the regression suite. **This is the one input only you can supply** — do you have a personal stash of old demos, and/or should we plan to pull from community archives (comp league demo archives like RGL/ETF2L/ozfortress, teamfortress.tv, demos.tf's own public archive)?
 
-**Phase 1 — Core parser (C#, `Tf2Demo.Core`), text/structured output.** Envelope + `dem_datatables`/`dem_stringtables` parsing, generic SendTable-driven entity decode, normalized event stream (entity spawn/update/delete, game events, chat, user messages, tick timing). Output: a Quake-style readable text dump, plus JSON Lines and/or a per-demo SQLite file (self-contained, queryable with plain SQL, pairs naturally with a C core). **This alone delivers the core "recover lost demos" goal**, independent of any viewer.
+**Phase 1 — Core parser (C#, `Tf2DemoSalvage.Core`), text/structured output.** Envelope + `dem_datatables`/`dem_stringtables` parsing, generic SendTable-driven entity decode, normalized event stream (entity spawn/update/delete, game events, chat, user messages, tick timing). Output: a Quake-style readable text dump, plus JSON Lines and/or a per-demo SQLite file (self-contained, queryable with plain SQL, pairs naturally with a C core). **This alone delivers the core "recover lost demos" goal**, independent of any viewer.
 
 **Phase 2 — 2D top-down viewer (C#).** Player positions/orientation/deaths/objective state scrubbed over time on a top-down map projection. Use TF2's shipped overview/radar images where they exist, fall back to a wireframe top-down projected from BSP world brushes where they don't.
 
@@ -59,13 +59,13 @@ Given you're fine with C++ *if* it's genuinely needed: recommend staying clean-r
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
-tf2-demo-salvage/
+Tf2DemoSalvage/
   native/libtf2dem/      placeholder only — not used unless Phase 3 proves it necessary
   managed/
-    Tf2Demo.Core/        the actual decode engine (Phase 1) + object model
-    Tf2Demo.Cli/         batch parse, text/JSON/SQLite export
-    Tf2Demo.Viewer2D/    phase 2
-    Tf2Demo.Viewer3D/    phase 3 (v0.1 primitives, then fidelity work)
+    Tf2DemoSalvage.Core/        the actual decode engine (Phase 1) + object model
+    Tf2DemoSalvage.Cli/         batch parse, text/JSON/SQLite export
+    Tf2DemoSalvage.Viewer2D/    phase 2
+    Tf2DemoSalvage.Viewer3D/    phase 3 (v0.1 primitives, then fidelity work)
   tools/corpus/          manifest + demo files
   docs/                  per-era format notes, ADRs
   tests/                 golden-output regression tests, one per corpus demo

@@ -1,4 +1,4 @@
-# tf2-demo-salvage
+# Tf2DemoSalvage
 
 A standalone parser (and, eventually, viewer) for Team Fortress 2 `.dem` files — built to work on demos from any era of TF2's 18-year history, including ones Valve's own client updates have broken.
 
@@ -24,7 +24,7 @@ Pure C# (`managed/`) — decode engine, CLI, and both viewers all live there. `n
 
 ```
 native/libtf2dem/     placeholder — not used unless Phase 3 proves it necessary
-managed/               decode engine (Tf2Demo.Core), CLI, viewers — all C#
+managed/               decode engine (Tf2DemoSalvage.Core), CLI, viewers — all C#
 tools/corpus/          reference demos + manifest
 docs/                  decisions, format notes
 tests/                 golden-output regression tests

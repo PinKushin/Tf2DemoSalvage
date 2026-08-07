@@ -1,6 +1,6 @@
 # libtf2dem (placeholder — not currently used)
 
-Originally planned as a native C decode core; superseded (see `../../docs/DECISIONS.md` D2). Decision now: pure C# for Phase 1/2, no native code by default. `Tf2Demo.Core` (`../../managed/Tf2Demo.Core`) is the actual decode engine.
+Originally planned as a native C decode core; superseded (see `../../docs/DECISIONS.md` D2). Decision now: pure C# for Phase 1/2, no native code by default. `Tf2DemoSalvage.Core` (`../../managed/Tf2DemoSalvage.Core`) is the actual decode engine.
 
 This folder stays as a placeholder in case Phase 3 (3D viewer) profiling ever shows a specific piece — most likely a per-frame render-loop step, not demo decoding — genuinely needs native code after `unsafe` C# has been tried and measured. Do not start implementation here otherwise.
 
