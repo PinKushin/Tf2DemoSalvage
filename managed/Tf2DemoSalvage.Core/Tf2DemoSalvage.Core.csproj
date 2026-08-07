@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 1 decode engine (D2): container parsing, bit/varint primitives,
+    SendTable-driven entity decode. Pure C# - no P/Invoke, no native dependency.
+    Shared properties (TFM, nullability, analyzers) live in Directory.Build.props.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Tf2DemoSalvage.Core</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>
