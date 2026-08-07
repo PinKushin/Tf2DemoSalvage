@@ -30,6 +30,15 @@ Command types: `dem_signon`=1, `dem_packet`=2, `dem_synctick`=3, `dem_consolecmd
 - Exact set of demo protocol version values TF2 has used across its life (this doc only confirms protocol 3 was in use mid-2015; earlier/later values unconfirmed here).
 - Whether/when `dem_customdata` was introduced and its payload shape.
 - Bit-packing/varint helper differences, if any, tied to demo protocol bumps.
+  - Sharpened 2026-08-07: **whether protocol 24 uses varints at all on the paths we decode is
+    unconfirmed.** The encoding is not original to Source — GoldSrc (1998) and Source (2004)
+    both predate protobuf's 2008 open-sourcing, and the original netcode used hand-rolled bit
+    packing. `bf_read::ReadVarInt32` appears in the protobuf-adoption era (~2011–12) and is
+    present in the Source 2013 SDK, but TF2's `NET_Messages` at this vintage are still the
+    older `bf_read` style. `Tf2DemoSalvage.Core.Primitives.VarInt` exists and is tested, but
+    its necessity here is a question to settle against real packet bytes, not an assumption.
+    (The encoding itself long predates protobuf too — LEB128 in DWARF, and MIDI's big-endian
+    cousin from 1983 — so "protobuf-style" names the popular user, not the inventor.)
 
 ## Corpus: `z1800.dem`
 
