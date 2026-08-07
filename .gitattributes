@@ -1,11 +1,19 @@
-# Normalize text files
-*.md text eol=lf
-*.c text eol=lf
-*.h text eol=lf
-*.cs text eol=lf
-*.json text eol=lf
+# LF everywhere, in the repo and in the working tree. `text=auto eol=lf` rather than a bare
+# `text=auto`: the latter stores LF but checks out CRLF on Windows, so every tool that writes LF
+# leaves the working tree disagreeing with what is committed.
+* text=auto eol=lf
 
+# Correctness overrides, not style: these two formats require a specific ending to execute.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf
 # Demo files: plain binary for now (small corpus). If tools/corpus/demos grows
 # large, migrate to Git LFS: `git lfs install && git lfs migrate import --include="*.dem"`.
 *.dem binary
+# Phase 2/3 asset formats, listed ahead of time so none of them can be mangled on first commit.
+*.bsp binary
+*.mdl binary
+*.vtf binary
+*.png binary
+*.jpg binary
 *.dem filter=lfs diff=lfs merge=lfs -text

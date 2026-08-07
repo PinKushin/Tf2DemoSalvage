@@ -11,6 +11,11 @@ Release/
 *.userosscache
 *.sln.docstates
 
+# Test / analysis output
+TestResults/
+StrykerOutput/
+artifacts/
+
 # C build artifacts
 *.obj
 *.pdb
