@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Tf2DemoSalvage.Fuzz;
 
 namespace Tf2DemoSalvage.Core.Tests.Primitives;
@@ -149,6 +150,57 @@ public sealed class BitReaderFuzzPropertyTests
         BitReaderFuzzTarget.ConsumeAndCountReads([0x1F, 0x00, 0x00, 0x00, 0x00]).ShouldBe(5);
 
         BitReaderFuzzTarget.ConsumeAndCountReads([]).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The harness picks each field width from the buffer's own bytes, so the corpus decides
+    /// which code paths are reachable at all. Measured, never assumed.
+    /// </summary>
+    /// <remarks>
+    /// Random bytes were never in doubt - this assertion exists to fail loudly the moment real
+    /// seed data is introduced (target #4 seeds with <c>z1800.dem</c>). Real bytes are not
+    /// uniformly distributed, which is exactly what makes them good seeds, so they cluster on a
+    /// narrow set of widths and silently stop exercising the rest. That is invisible from
+    /// outside: the run still looks healthy.
+    /// </remarks>
+    [Fact]
+    public void SeededCorpus_ReachesEveryFieldWidth()
+    {
+        var widths = new HashSet<int>();
+        var random = new Random(Seed);
+
+        for (int i = 0; i < RandomCaseCount; i++)
+        {
+            byte[] data = new byte[random.Next(0, MaxRandomLength + 1)];
+            random.NextBytes(data);
+
+            BitReaderFuzzTarget.ConsumeAndCountReads(data, widths);
+        }
+
+        IEnumerable<int> missing = Enumerable.Range(1, 32).Except(widths);
+
+        missing.ShouldBeEmpty(
+            "the seeded corpus never exercises these field widths, so nothing about them is " +
+            "actually being fuzzed");
+    }
+
+    /// <summary>
+    /// Proves the width measurement above can actually fail. A corpus that dispatches to one
+    /// branch must be reported as reaching one width - otherwise
+    /// <see cref="SeededCorpus_ReachesEveryFieldWidth"/> passes for free and guards nothing.
+    /// </summary>
+    [Fact]
+    public void WidthRecording_ClusteredCorpus_ReportsOnlyTheWidthsItReaches()
+    {
+        var widths = new HashSet<int>();
+
+        // Every byte 0x00 selects width 1, and nothing else, however much of it there is.
+        for (int i = 0; i < 50; i++)
+        {
+            BitReaderFuzzTarget.ConsumeAndCountReads(new byte[16], widths);
+        }
+
+        widths.ShouldBe([1]);
     }
 
     [Fact]

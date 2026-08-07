@@ -97,10 +97,21 @@ explores. This is where inputs nobody would think to write actually come from.
 ## Setup notes worth having in advance
 
 These were learned setting the same thing up in `TcgDex.CSharpSdk`, where the
-weekly run does 4.4M executions in 300 seconds. They cost an afternoon to find:
+weekly run does ~1.82M executions in 180 seconds across seven modes
+(`docs/measuring.md` there has the current figures). They cost an afternoon to
+find:
 
 - **The toolchain is Linux-first.** On Windows this means WSL, and `clang` is
   the only step needing root — everything else is per-user.
+- **Run `apt-get update` before installing anything.** A stale index reports a
+  candidate version that then cannot be fetched. It reads as a broken mirror and
+  is not one.
+- **`sharpfuzz` instrumentation is per build, and a fresh `dotnet publish`
+  silently undoes it.** The fuzzer then runs at full speed finding nothing,
+  which looks identical to a clean run. Instrument *after* every publish, and
+  confirm by file size (see below). This is the trap most likely to bite.
+- **Work out of `~`, not `/tmp`.** WSL discards `/tmp` when it shuts down on
+  idle, which takes the corpus with it.
 - **Export `DOTNET_ROOT`** if .NET came from `dotnet-install.sh` rather than a
   package. Otherwise `sharpfuzz` fails with "Download the .NET runtime",
   because its apphost looks for a system install and does not find `~/.dotnet`.
@@ -121,6 +132,27 @@ weekly run does 4.4M executions in 300 seconds. They cost an afternoon to find:
 - **Build `libfuzzer-dotnet` from source** rather than pulling a prebuilt
   binary, which matches the supply-chain posture the analyzer and dependency
   gates in D6 already take.
+
+## The seeding trap, which this harness is exposed to
+
+Borrowed from the same effort in `TcgDex.CSharpSdk`, where it cost real fuzzing
+budget before anyone noticed:
+
+> Whenever a harness dispatches on part of its input, check what the seeds
+> actually dispatch *to*.
+
+Our `BitReader` target does exactly that — it picks each field width from the
+buffer's own bytes (`data[cursor] % 32 + 1`). With uniformly random input every
+width appears. With **real** seed data it will not: real bytes are not uniformly
+distributed, which is precisely what makes them good seeds, and they will
+cluster on a narrow set of widths. Nothing about that is visible from the
+outside — the run looks healthy and simply never exercises the other paths.
+
+So when `z1800.dem` is added as a seed (target #4), *compute* the width
+distribution rather than assuming it. `BitReaderFuzzPropertyTests` already
+asserts the seeded corpus reaches every width from 1 to 32; that assertion is
+there to fail loudly when real-world seeds are introduced, not because random
+bytes were ever in doubt.
 
 ## What this would cost
 

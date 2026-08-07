@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Tf2DemoSalvage.Core.Primitives;
@@ -46,7 +47,26 @@ public static class BitReaderFuzzTarget
     /// the same failure mode as a libFuzzer run that executes nothing and still reports green.
     /// </remarks>
     /// <returns>The number of reads that completed before the buffer was exhausted.</returns>
-    public static int ConsumeAndCountReads(ReadOnlySpan<byte> data)
+    public static int ConsumeAndCountReads(ReadOnlySpan<byte> data) =>
+        ConsumeAndCountReads(data, widthsObserved: null);
+
+    /// <summary>
+    /// <see cref="ConsumeAndCountReads(ReadOnlySpan{byte})"/>, additionally recording every field
+    /// width it actually used into <paramref name="widthsObserved"/>.
+    /// </summary>
+    /// <remarks>
+    /// This target dispatches on its own input - each field width comes from the buffer's bytes -
+    /// and that is a known way to fuzz blind. Uniformly random input reaches every width, but real
+    /// seed data is not uniformly distributed (which is exactly what makes it good seed data), so
+    /// it clusters on a narrow set of widths and silently never exercises the rest. Nothing about
+    /// that is visible from outside: the run looks healthy.
+    ///
+    /// So the distribution gets measured rather than assumed. This overload is how.
+    /// </remarks>
+    /// <param name="data">Buffer to read.</param>
+    /// <param name="widthsObserved">Collects each width used, or <c>null</c> to skip recording.</param>
+    /// <returns>The number of reads that completed before the buffer was exhausted.</returns>
+    public static int ConsumeAndCountReads(ReadOnlySpan<byte> data, ICollection<int>? widthsObserved)
     {
         if (data.IsEmpty)
         {
@@ -75,6 +95,7 @@ public static class BitReaderFuzzTarget
             int positionBefore = reader.BitsRead;
             uint value = reader.ReadUInt32(bitCount);
             reads++;
+            widthsObserved?.Add(bitCount);
 
             if (reader.BitsRead != positionBefore + bitCount)
             {
