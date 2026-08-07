@@ -2,7 +2,9 @@
 
 A standalone parser (and, eventually, viewer) for Team Fortress 2 `.dem` files — built to work on demos from any era of TF2's 18-year history, including ones Valve's own client updates have broken.
 
-Independent, clean-room project. Not affiliated with Valve. Ships no TF2 game assets.
+Independent, clean-room project. Not affiliated with Valve. Ships no Valve-authored game
+assets — maps are resolved from your own TF2 install or a source you configure, not bundled
+(see `docs/DECISIONS.md` D9).
 
 ## Status
 

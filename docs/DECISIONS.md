@@ -71,3 +71,25 @@ The case rests on two facts about this project compounding. The decode primitive
 - **Relationship to D6:** unit tests ask "right answer on input we thought of", Stryker asks "would the tests notice if the code were wrong", fuzzing asks "what happens on input nobody thought of". Three different questions; none substitutes for another.
 
 Deliberately deferred: the *scheduled* coverage-guided workflow. The coverage-guided path itself runs locally under WSL and has been verified (805,921 executions, no crashes — see `FUZZING.md`), but the repo has no CI and no remote yet, so the job lands when CI does. There is a second reason not to rush it: against `BitReader` alone the feature count saturates after ~15,000 executions, so a scheduled long run today would burn budget and produce a green badge that proves nothing. It earns its place once targets #3 and #4 exist and the state space is actually large.
+
+## D9. Map assets: resolved at runtime, not bundled — and no blanket "ships no assets" promise
+
+Decided 2026-08-07, replacing the earlier README/ROADMAP line "ships no TF2 game assets," which was an over-promise made without the owner's agreement. Phases 2 and 3 genuinely need map geometry, and a tool that refuses to touch maps is useless for the corpus it exists to serve.
+
+**Default: resolve, don't bundle.** A map is located, in order:
+
+1. The user's own TF2 install (`.../steamapps/common/Team Fortress 2/tf/maps`, and any custom/download directories). They own the game; Valve's maps are legitimately on their disk already.
+2. A local cache directory owned by this tool.
+3. A source the *user* configures — a league fastdl, TF2Maps, wherever they already get maps.
+
+This is the better engineering answer regardless of licensing. The long tail of community comp maps is unbounded and changes every season; no bundle can cover it, so a resolver is strictly more capable than shipping a fixed set. Bundling only ever solves maps we anticipated.
+
+**Rules that follow:**
+
+- **Never bundle Valve-authored content.** Not a legal opinion, just the one clear-cut case, and the user already has those files.
+- **Community maps may be bundled case by case**, when the author's terms actually permit redistribution — recorded in a manifest naming the map, author, license, and source. Not ruled out; just not done by default and never done silently. Worth being precise here: community maps are not Valve's, but that means the copyright is the *mapmaker's*, not that it is unowned. Permission to host a map for play (which is what fastdl relies on) is not automatically permission to redistribute it inside a separate tool. Usually the author is fine with it; occasionally not; checking per map is a real research cost that scales badly. The resolver avoids the question entirely.
+- **MIT covers this project's code only.** Any asset that ever does get bundled keeps its own license, stated in that manifest.
+- **Write to our own cache, never into the TF2 install.** Downloads land in a tool-owned directory. Writing into someone's game directory is invasive, hard to undo, and risks colliding with Steam's own file validation.
+- **Treat every fetched map as untrusted input** (per the global security standard): no baked-in mirror URLs, sanitize any path derived from a demo's map name before it touches the filesystem (`Path.GetFullPath` plus a prefix check — a map name is attacker-controlled text inside a demo someone downloaded), and validate what comes back before parsing it.
+
+**Not yet decided:** whether the fetch step ships at all in v1, or whether resolution is install-and-cache only, with fetching left to the user. Decide when Phase 2 actually needs a map we do not have.
