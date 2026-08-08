@@ -42,6 +42,9 @@ aspiration, not capability.
 - `docs/RISKS.md` — anticipated blockers, ordered by when they bite.
 - `docs/FORMAT_NOTES.md` — findings per corpus demo, including corrections to earlier claims.
 - `docs/FUZZING.md`, `docs/RENDERING_NOTES.md` — D8 and Phase 2/3 groundwork.
+- `docs/memory/` — the AI assistant's working memory, committed so it survives a machine
+  wipe. Includes the findings that cost the most to establish, and the corrections to
+  earlier wrong ones.
 - `CLAUDE.md` — handoff brief.
 
 ### Prior art (referenced, not copied)

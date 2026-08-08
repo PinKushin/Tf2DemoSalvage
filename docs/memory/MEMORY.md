@@ -1,0 +1,6 @@
+- [Stryker needs TargetFramework in the csproj](stryker-targetframework-must-be-in-csproj.md) — props-file TFM kills mutation testing with a useless error message.
+- [Build gates reject stubs and global using System](tf2demosalvage-build-gates.md) — analyzer strictness changes how the TDD red step works here.
+- [Fuzzing belongs here](fuzzing-belongs-here.md) — the bit-level parser plus D5's one-demo corpus make this a strong candidate; proposed, not implemented, and `docs/FUZZING.md` has the detail.
+- [z1800.dem is modern, not 2015](z1800-is-modern-not-2015.md) — date demos by seasonal assets, never protocol numbers; file is truncated one byte.
+- [Split branches, keep Rust off WSL](branch-scope-and-toolchain-prefs.md) — branch names must stay accurate; rustup native on Windows, WSL only for libFuzzer.
+- [Prefers PowerShell over cmd](prefers-powershell.md) — pwsh 7 beats cmd; Bash is fine, no need to avoid it.
