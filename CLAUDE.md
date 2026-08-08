@@ -23,6 +23,17 @@ There is currently **one** confirmed reference demo: `tools/corpus/demos/z1800.d
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
 
+## AI memory is mirrored into this repo
+
+`docs/memory/` holds the assistant's working memory, committed so it survives a machine
+wipe or a move to another computer. **Write every memory change to both places** — the
+assistant's own memory directory *and* `docs/memory/`. Updating only one silently diverges
+the local copy or leaves the backup restoring something stale.
+
+Read `docs/memory/MEMORY.md` at session start alongside this file. Several entries record
+corrections to earlier wrong conclusions; those are deliberate, because a memory that keeps
+only the conclusion is the kind that gets confidently repeated.
+
 ## Where to start
 
 Phase 1 (see `ROADMAP.md` §3): `managed/Tf2DemoSalvage.Core`, pure C# — container parsing, then `dem_datatables`/`dem_stringtables`, then generic SendTable-driven entity delta decode, emitting a normalized event stream. Validate against `z1800.dem` end to end once the primitives are unit-tested individually. Output target: a Quake-style readable text dump plus JSON Lines / per-demo SQLite. Do not create anything under `native/libtf2dem` for this phase.
