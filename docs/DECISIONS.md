@@ -219,8 +219,18 @@ Two things that cost time before they were understood:
   them triggered a full pass of unnecessary work. The undisturbed runs that day were 98.12% and
   99.57%.
 
-**The score is not the target.** `break` stays at 80. As the codebase grows, a clean sweep stops
-being achievable — the survivors that remain are the ones that are neither worth killing nor
-cleanly equivalent, and rewriting code so a mutant dies is a change-detector test in disguise.
-Report which mutants survived and why they are acceptable. This is D6's "read the survivors, not
-the score", and it is meant literally.
+**The score is not the target, and the threshold is not fixed.** `break` is 80 today. The skill
+is recognising when it needs to come *down* — when the survivors that remain are ones not worth
+killing, holding the number where it is only buys busywork. Lower it and say why.
+
+Two things not to do, which matter more than the number:
+
+- **Don't trace dead ends.** A survivor that turns out to be equivalent, or in code whose
+  behaviour nothing depends on, is finished the moment that is established. Write the one-line
+  reason and move on. Chasing it further is time spent proving something already known.
+- **Don't write tests for tests' sake.** A test that exists to kill a mutant, rather than to
+  pin behaviour someone depends on, is a change-detector — it fails on every future refactor
+  and catches nothing. Rewriting production code so a mutant dies is the same mistake wearing a
+  disguise; `IsSupported` was rewritten today and was borderline.
+
+This is D6's "read the survivors, not the score", meant literally.
