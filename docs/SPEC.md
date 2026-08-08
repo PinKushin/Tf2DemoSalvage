@@ -160,6 +160,40 @@ Not yet mined from the sources. **OPEN** for now:
   `svc_UpdateStringTable`, `svc_UserMessage`, `net_Tick`).
 - Whether protocol 24 uses varints anywhere on these paths — see below.
 
+### Game events — **DOCUMENTED**, and decodable generically
+
+Game events are defined in resource files and their descriptor list is transmitted
+(`svc_GameEventList`), so a demo carries the schema for its own events — the same
+self-describing property that makes entity decode possible. Field types are small
+and fixed:
+
+| Type | Wire encoding |
+|---|---|
+| `string` | zero-terminated |
+| `bool` | 1 bit |
+| `byte` | 8-bit unsigned |
+| `short` | 16-bit signed |
+| `long` | 32-bit signed |
+| `float` | 32-bit |
+
+Event names are at most 32 characters. Kills, captures and round outcomes all arrive
+this way, so the readable-dump goal is reachable without reverse-engineering anything.
+
+### User messages — **CONFIRMED not self-describing.** See `RISKS.md` B1
+
+The exception to the project's central premise. VDC is explicit that user messages
+"aren't automatically serialized or unserialized" and that client and server code must
+both change when one changes. A user message is a name, a size registered in code, and
+opaque bytes — the demo does not describe its layout.
+
+This matters because **chat is a user message** (`SayText2`), and chat extraction is a
+stated Phase 1 output. Recovering *which* message fired and its raw bytes is always
+possible; interpreting the bytes needs a per-version table. Payloads are capped at 255
+bytes, which bounds the problem.
+
+Decode game events first. Treat user messages as opaque except the specific few that
+matter.
+
 ### The varint question — **OPEN, and it has already cost us**
 
 `Tf2DemoSalvage.Core.Primitives.VarInt` exists, is tested, and is
