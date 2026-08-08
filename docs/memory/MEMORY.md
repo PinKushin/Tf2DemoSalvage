@@ -6,3 +6,4 @@
 - [Write tests before codecs](tests-before-codecs.md) — mutation testing caught the same after-the-fact lapse twice (5 then 53 survivors); corpus tests cannot cover branches the demos never take.
 - [Layer 2 is a dependency chain](layer2-is-a-dependency-chain.md) — no length prefixes, so implement whatever blocks the stream, not whatever looks useful; PacketEntities is the wall.
 - [Fixtures are the weak point](fixtures-are-the-weak-point.md) — hand-written fixtures caused more bugs than the decoders; prefer round-trip properties where an encoder exists.
+- [Numeric decoding traps](numeric-decoding-traps.md) — NaN from derived square roots, sign extension, and range-encoded floats; all fail as plausible numbers, never as errors.

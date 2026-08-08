@@ -54,7 +54,13 @@ public static class SendPropDecoder
         }
 
         // Sign-extend from the property's width. Without this a negative value read at 11 bits
-        // comes back as a large positive one, which is wrong in a way that still looks numeric.
+        // comes back as 2047 - not a crash, just a plausible number.
+        //
+        // Sign costs no storage here: the same bits are transmitted either way and the sign is
+        // only how the top bit is read. What it costs is range, which is why SPROP_UNSIGNED is
+        // a per-property flag - an 11-bit signed value spans -1024..1023 rather than 0..2047.
+        // Range loss becomes a storage cost the moment the range is needed: holding 65,535
+        // signed means moving to 32 bits, because 16-bit signed stops at 32,767.
         int shift = 32 - property.BitCount;
         return (int)raw << shift >> shift;
     }
@@ -114,6 +120,14 @@ public static class SendPropDecoder
         // next property.
         bool negative = reader.ReadBit();
         float squared = (x * x) + (y * y);
+
+        // The clamp is not only for malformed input. x and y are quantised to 11 bits each, so
+        // they are already approximations, and squaring amplifies that - float rounding alone
+        // can push the sum just above 1 for a legitimately unit-length normal. sqrt of a small
+        // negative is NaN, which does not throw and does not stop anything; it propagates
+        // silently and surfaces much later as a position that will not render.
+        // Stryker disable once Equality: at exactly 1 both comparisons give zero - the else
+        // branch returns 0f and sqrt(1 - 1) is also 0. Equivalent mutant.
         float z = squared < 1f ? MathF.Sqrt(1f - squared) : 0f;
 
         return (x, y, negative ? -z : z);
