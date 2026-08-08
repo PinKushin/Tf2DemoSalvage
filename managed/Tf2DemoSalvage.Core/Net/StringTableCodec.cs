@@ -17,10 +17,10 @@ namespace Tf2DemoSalvage.Core.Net;
 /// </remarks>
 internal static class StringTableCodec
 {
-    /// <summary>Strings remembered for back-references. Source keeps the last 32.</summary>
-    /// <summary>Width of the four-byte magic naming a payload compression scheme.</summary>
+    /// <summary>Width of the four-byte magic naming a payload's compression scheme.</summary>
     private const int MagicBytes = 4;
 
+    /// <summary>Strings remembered for back-references. Source keeps the last 32.</summary>
     private const int HistorySize = 32;
 
     private const int HistoryIndexBits = 5;
@@ -122,16 +122,14 @@ internal static class StringTableCodec
     }
 
     /// <summary>
-    /// Reads table entries, resolving back-references against a rolling 32-string history.
-    /// </summary>
-    /// <summary>
     /// Unwraps a compressed table payload: two sizes, a four-byte magic, then the payload.
     /// </summary>
     /// <remarks>
-    /// Two schemes appear in the wild. <c>LZSS</c> is Valve's own and is implemented;
-    /// <c>SNAP</c> is Snappy and is not. An unknown magic is reported by name rather than
-    /// guessed at, because decompressing with the wrong scheme still yields bytes, and those
-    /// bytes still parse as entries.
+    /// Two schemes appear in the wild and the magic decides, not the era. <c>SNAP</c> is
+    /// Snappy, which every compressed table in the current corpus uses; <c>LZSS</c> is Valve's
+    /// older scheme. An unknown magic is reported by its bytes rather than guessed at, because
+    /// decompressing with the wrong scheme still produces bytes and those bytes still parse as
+    /// entries.
     /// </remarks>
     private static byte[] Decompress(ReadOnlySpan<byte> body)
     {
@@ -145,13 +143,14 @@ internal static class StringTableCodec
             magic[i] = reader.ReadByte();
         }
 
-        if (!magic.SequenceEqual(Lzss.Magic))
+        bool isLzss = magic.SequenceEqual(Lzss.Magic);
+        bool isSnappy = magic.SequenceEqual(Lzss.SnappyMagic);
+
+        if (!isLzss && !isSnappy)
         {
-            throw new InvalidDataException(magic.SequenceEqual(Lzss.SnappyMagic)
-                ? "table uses Snappy compression, which is not implemented"
-                : string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"unknown compression magic 0x{Convert.ToHexString(magic)}"));
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"unknown compression magic 0x{Convert.ToHexString(magic)}"));
         }
 
         if (compressedSize < MagicBytes || compressedSize - MagicBytes > body.Length)
@@ -168,9 +167,26 @@ internal static class StringTableCodec
             payload[i] = reader.ReadByte();
         }
 
-        return Lzss.Decompress(payload, decompressedSize);
+        // Every compressed table in the current corpus is Snappy; LZSS is the older scheme and
+        // is kept because the magic is what decides, not the era.
+        byte[] decompressed = isLzss
+            ? Lzss.Decompress(payload, decompressedSize)
+            : Snappy.Decompress(payload);
+
+        if (decompressed.Length != decompressedSize)
+        {
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"decompressed to {decompressed.Length} bytes, not the {decompressedSize} " +
+                $"the table declared"));
+        }
+
+        return decompressed;
     }
 
+    /// <summary>
+    /// Reads table entries, resolving back-references against a rolling 32-string history.
+    /// </summary>
     private static List<StringTableEntry> ReadEntries(
         ref BitReader reader,
         int entryCount,
