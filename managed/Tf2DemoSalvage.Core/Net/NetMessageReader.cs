@@ -40,6 +40,12 @@ public static class NetMessageReader
     /// <summary>Its fixed length width before that.</summary>
     private const int TempEntitiesLegacyLengthBits = 17;
 
+    /// <summary>Width of <c>svc_SetView</c>'s entity index.</summary>
+    private const int SetViewBits = 11;
+
+    /// <summary>Quality value at which <c>svc_VoiceInit</c> also carries a sample rate.</summary>
+    private const int VoiceVariableRateQuality = 255;
+
     /// <summary>Width of <c>net_Tick</c>'s body: a 32-bit tick and two 16-bit values.</summary>
     private const int NetTickBodyBits = 64;
 
@@ -240,6 +246,30 @@ public static class NetMessageReader
                             _ = NetBitReading.CopyBits(ref reader, eventBits);
                             break;
                         }
+
+                    case NetMessageType.SetView:
+                        // Which entity the client's view follows. One index, nothing else.
+                        _ = reader.ReadUInt32(SetViewBits);
+                        break;
+
+                    case NetMessageType.SignOnState:
+                        _ = reader.ReadUInt32(8);
+                        _ = reader.ReadUInt32(32);
+                        break;
+
+                    case NetMessageType.VoiceInit:
+                    {
+                        // The sample rate is only transmitted at quality 255. Older messages
+                        // imply it from the codec name — 22050 for celt, 11025 otherwise — so
+                        // reading sixteen bits unconditionally would consume what follows.
+                        _ = NetBitReading.ReadString(ref reader);
+                        if (reader.ReadUInt32(8) == VoiceVariableRateQuality)
+                        {
+                            _ = reader.ReadUInt32(16);
+                        }
+
+                        break;
+                    }
 
                     default:
                         return Stopped(messages, lastGoodBit, type, string.Create(

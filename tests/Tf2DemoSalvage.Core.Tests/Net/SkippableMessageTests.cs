@@ -93,6 +93,51 @@ public sealed class SkippableMessageTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
+    [Fact]
+    public void SetView_IsElevenBits()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.SetView).Write(1500, 11);
+        writer.NetTick(111, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(111);
+    }
+
+    [Fact]
+    public void SignOnState_IsAByteAndAThirtyTwoBitCount()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.SignOnState).Write(6, 8).Write(42, 32);
+        writer.NetTick(222, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(222);
+    }
+
+    [Fact]
+    public void VoiceInit_OmitsTheSampleRateUnlessQualityIs255()
+    {
+        // The rate is only on the wire for quality 255; older messages imply it from the codec
+        // name. Reading sixteen bits unconditionally would eat whatever follows.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.VoiceInit).String("vaudio_celt").Write(5, 8);
+        writer.NetTick(333, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(333);
+    }
+
+    [Fact]
+    public void VoiceInit_ReadsTheSampleRateWhenQualityIs255()
+    {
+        // The other half of the same branch. Skipping the rate here would leave sixteen bits
+        // to be read as a message type and body.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.VoiceInit).String("vaudio_speex")
+            .Write(255, 8).Write(22050, 16);
+        writer.NetTick(444, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(444);
+    }
+
     private static System.Collections.Generic.IReadOnlyList<INetMessage> Read(BitWriter writer) =>
         ReadResult(writer).Messages;
 
