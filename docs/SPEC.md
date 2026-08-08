@@ -243,6 +243,57 @@ That constancy is also the strongest cross-check available at this layer: two ti
 encoded completely differently — a little-endian int32 in the container versus 32 bits read
 from a bit stream at an arbitrary offset — agreeing to the tick, every packet.
 
+### `svc_ServerInfo` (id 8) — **CONFIRMED**
+
+No length prefix, and it is the first message in a SourceTV demo's signon stream, so it gates
+everything behind it: the string tables, the class list, the game event definitions and the
+entity schema. Every field width has to be exact or none of that is reachable.
+
+| Field | Width | Notes |
+|---|---|---|
+| network protocol | 16 | Matches the demo header's. |
+| server count | 32 | Spawn counter, bumped on map change. |
+| is SourceTV | 1 | |
+| is dedicated | 1 | |
+| map CRC | 32 | |
+| max classes | 16 | **Load-bearing:** entity class ids are sized from this. |
+| map hash | 16 bytes | 4 bytes at protocol ≤ 17. |
+| player slot | 8 | |
+| max players | 8 | |
+| interval per tick | 32 (float) | 0.015 for TF2's 66.67 tick rate. |
+| platform | 8 (char) | `l` or `w`. |
+| game, map, skybox, server name | NUL-terminated strings | |
+| is replay | 1 | Protocol ≥ 16 only. |
+
+Verified against all three corpus demos, and the cross-checks are strong because they come
+through unrelated paths:
+
+| Demo | Map (header vs ServerInfo) | Skybox | STV flag | Tick rate |
+|---|---|---|---|---|
+| `etf2l-12025-pov` | `cp_process_final` = `cp_process_final` | `sky_trainyard_01` | false | 66.67 |
+| `etf2l-12030-stv` | `cp_process_final` = `cp_process_final` | `sky_trainyard_01` | true | 66.67 |
+| `z1800` | `koth_harvest_final` = `koth_harvest_final` | `sky_harvest_01` | true | 66.67 |
+
+The map name agreeing with a fixed-offset header field is the headline check, but the skybox is
+the more persuasive one: `sky_harvest_01` for Harvest and `sky_trainyard_01` for Process are
+map-appropriate values nothing but a correctly aligned read would produce. The SourceTV flag
+being false on exactly the point-of-view demo is a third independent agreement.
+
+The protocol ≤ 17 and ≤ 15 branches are implemented from the reference parser and have **no
+specimen behind them** — the corpus is entirely protocol 24. They are pinned by tests so the
+intended behaviour is fixed, but they are not verified.
+
+**Relevant to D9's map resolver:** this message carries both the map name and a 16-byte map
+hash, which is exactly what is needed to confirm a downloaded community map is the same version
+the demo was recorded on. Same name, different version is the main hazard there.
+
+### Trivially decoded, and useful for reaching further
+
+`svc_Print` (7) is one string. `net_StringCmd` (4) is one string. `net_SetConVar` (5) is an
+8-bit count followed by that many name/value string pairs. All three appear early in a
+point-of-view demo's signon — its stream opens with `svc_Print`, not `svc_ServerInfo` — so
+implementing them is what makes ServerInfo reachable in POV demos at all.
+
 Still **OPEN**:
 
 - Which messages carry the data Phase 1 needs (`svc_PacketEntities`,

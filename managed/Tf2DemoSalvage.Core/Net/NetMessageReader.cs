@@ -87,6 +87,37 @@ public static class NetMessageReader
                         (ushort)reader.ReadUInt32(16)));
                     break;
 
+                case NetMessageType.Print:
+                    messages.Add(new PrintMessage(NetBitReading.ReadString(ref reader)));
+                    break;
+
+                case NetMessageType.StringCmd:
+                    messages.Add(new StringCmdMessage(NetBitReading.ReadString(ref reader)));
+                    break;
+
+                case NetMessageType.SetConVar:
+                {
+                    int count = (int)reader.ReadUInt32(8);
+                    List<KeyValuePair<string, string>> variables = new(count);
+                    for (int i = 0; i < count; i++)
+                    {
+                        string key = NetBitReading.ReadString(ref reader);
+                        variables.Add(new KeyValuePair<string, string>(
+                            key, NetBitReading.ReadString(ref reader)));
+                    }
+
+                    messages.Add(new SetConVarMessage(variables));
+                    break;
+                }
+
+                case NetMessageType.ServerInfo:
+                {
+                    ServerInfoMessage info = ReadServerInfo(ref reader);
+                    state.ServerInfo = info;
+                    messages.Add(info);
+                    break;
+                }
+
                 case NetMessageType.GameEventList:
                 {
                     GameEventListMessage list = GameEventCodec.ReadList(ref reader);
@@ -111,6 +142,59 @@ public static class NetMessageReader
         }
 
         return new NetMessageReadResult { Messages = messages, BitsConsumed = lastGoodBit };
+    }
+
+    /// <summary>
+    /// Reads <c>svc_ServerInfo</c>. No length prefix, so every width below must be exact or
+    /// the entire signon stream behind it becomes unreadable.
+    /// </summary>
+    private static ServerInfoMessage ReadServerInfo(ref BitReader reader)
+    {
+        ushort protocol = (ushort)reader.ReadUInt32(16);
+        uint serverCount = reader.ReadUInt32(32);
+        bool sourceTv = reader.ReadBit();
+        bool dedicated = reader.ReadBit();
+        uint mapCrc = reader.ReadUInt32(32);
+        ushort maxClasses = (ushort)reader.ReadUInt32(16);
+
+        // Protocol 18 replaced the 4-byte map CRC with a 16-byte hash. Our corpus is all
+        // protocol 24; the older branch is written from the reference implementation and has
+        // no specimen to verify it against, so it is flagged rather than trusted.
+        byte[] mapHash = new byte[protocol > 17 ? 16 : 4];
+        for (int i = 0; i < mapHash.Length; i++)
+        {
+            mapHash[i] = reader.ReadByte();
+        }
+
+        byte playerSlot = reader.ReadByte();
+        byte maxPlayers = reader.ReadByte();
+        float intervalPerTick = BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32));
+        char platform = (char)reader.ReadByte();
+
+        string game = NetBitReading.ReadString(ref reader);
+        string map = NetBitReading.ReadString(ref reader);
+        string skybox = NetBitReading.ReadString(ref reader);
+        string serverName = NetBitReading.ReadString(ref reader);
+
+        bool replay = protocol > 15 && reader.ReadBit();
+
+        return new ServerInfoMessage(
+            protocol,
+            serverCount,
+            sourceTv,
+            dedicated,
+            mapCrc,
+            maxClasses,
+            mapHash,
+            playerSlot,
+            maxPlayers,
+            intervalPerTick,
+            platform,
+            game,
+            map,
+            skybox,
+            serverName,
+            replay);
     }
 
     private static NetMessageReadResult Stopped(
