@@ -30,6 +30,10 @@ wipe or a move to another computer. **Write every memory change to both places**
 assistant's own memory directory *and* `docs/memory/`. Updating only one silently diverges
 the local copy or leaves the backup restoring something stale.
 
+**No personal or identifying information goes in `docs/memory/`** — this repo is meant to be
+public. Personal preferences belong in the assistant's global memory (`~/.claude/memory/`).
+The test: would it help on a different project? Then it is global.
+
 Read `docs/memory/MEMORY.md` at session start alongside this file. Several entries record
 corrections to earlier wrong conclusions; those are deliberate, because a memory that keeps
 only the conclusion is the kind that gets confidently repeated.

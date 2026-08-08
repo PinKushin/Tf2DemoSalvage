@@ -20,6 +20,22 @@ its own memory directory; this directory is the backup that makes it portable. A
 written to only one of them is a bug — the local copy silently diverges, or the backup
 goes stale and restores something wrong.
 
+## No personal data in here
+
+**This directory is committed and this repository is intended to be public.** Anything
+personal or identifying — the owner's name, handles, machine details, account identifiers —
+belongs in the assistant's *global* memory (`~/.claude/memory/`), not here, and not in the
+project memory directory that mirrors here.
+
+That rule cost a history rewrite to establish: a note recording the owner's shell preference,
+which named him, was committed here before the distinction was drawn. It was purged from
+history rather than merely deleted, because deleting a file leaves it in every earlier commit.
+Cheap while the repository had no remote; effectively permanent after a public push.
+
+The test to apply: *would this still be useful to a future assistant working on a different
+project?* If yes, it is probably a personal or cross-project preference and belongs globally.
+If it is only meaningful next to this codebase, it belongs here.
+
 ## What is here
 
 `MEMORY.md` is the index: one line per entry. Each other file holds a single fact, with
