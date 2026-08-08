@@ -222,9 +222,16 @@ public static class SendPropDecoder
     /// </remarks>
     private static float ReadCoord(ref BitReader reader, int flags)
     {
+        // Strict first-match precedence, as the engine's FloatDefinition does it: COORD, then
+        // COORD_MP, then LOWPRECISION, then INTEGRAL. These are not independent modifiers, and
+        // treating them as such is a width bug rather than a cosmetic one - a property
+        // carrying COORD_MP and LOWPRECISION together reads five fraction bits, not three.
         bool plainCoord = (flags & CoordFlag) != 0;
-        bool integral = !plainCoord && (flags & CoordMpIntegralFlag) != 0;
-        bool lowPrecision = !plainCoord && (flags & CoordMpLowPrecisionFlag) != 0;
+        bool multiplayer = !plainCoord && (flags & CoordMpFlag) != 0;
+        bool lowPrecision = !plainCoord && !multiplayer &&
+                            (flags & CoordMpLowPrecisionFlag) != 0;
+        bool integral = !plainCoord && !multiplayer && !lowPrecision &&
+                        (flags & CoordMpIntegralFlag) != 0;
 
         // SPROP_COORD has no in-bounds bit; its first two bits say which parts are present.
         bool inBounds = !plainCoord && reader.ReadBit();

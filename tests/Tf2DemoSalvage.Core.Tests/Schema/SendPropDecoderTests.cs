@@ -599,6 +599,28 @@ public sealed class SendPropDecoderTests
             .ShouldBe(expected, 0.0001f);
     }
 
+    [Theory]
+    [InlineData(CoordMp | CoordMpLowPrecision)]
+    [InlineData(CoordMp | CoordMpIntegral)]
+    [InlineData(CoordMp | CoordMpLowPrecision | CoordMpIntegral)]
+    public void CoordFlags_AreFirstMatchNotIndependentModifiers(int flags)
+    {
+        // The engine tests these in order and takes the first: COORD, COORD_MP, LOWPRECISION,
+        // INTEGRAL. Treating the later ones as modifiers that refine COORD_MP changes how many
+        // bits a value occupies - five fraction bits become three, or vanish entirely - which
+        // desynchronises every property after it rather than returning a wrong number.
+        //
+        // Asserted by where the reader lands as much as by the value, since that is what the
+        // next property depends on.
+        BitWriter writer = new();
+        WriteCoordMp(writer, inBounds: true, 100, 8, negative: false);
+        writer.Write(0x7F, 7);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: flags)).ShouldBe(100.25f, 0.0001f);
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
     [Fact]
     public void CoordVector_ReadsThreeCoordComponents()
     {

@@ -10,3 +10,4 @@
 - [Span guards testable without allocation](span-guards-testable-without-allocation.md) — MemoryMarshal fabricates the Length, so "too big to construct" is rarely a valid Stryker disable.
 - [Differential beats fixtures](differential-beats-fixtures.md) — fixtures cannot falsify your own reading of a spec; the flattening order died in one diff against another parser.
 - [Mutation score is not the goal](mutation-score-is-not-the-goal.md) — 80 is a floor not a target; skip dead ends, no tests for tests' sake.
+- [Research before code](research-before-code.md) — guessing while researching is expected; coding on an unverified guess when the answer was one grep away is the costly part.

@@ -357,3 +357,41 @@ the fault is in something deltas reach that a full snapshot does not. Candidates
 **The differential is the instrument again**, exactly as in B12. `parse_demo` decodes these
 files completely, so a per-snapshot comparison of entity ids and property indices will localise
 the first divergence rather than leaving it to be guessed at.
+
+
+### B13 — what research has ruled out, and what to read next
+
+Two fix attempts moved the measurement not at all, which means the model of the format is
+wrong rather than the code. Recording what has been checked so that the next session reads
+rather than guesses.
+
+**Ruled out by reading the reference:**
+
+- **Array count width.** `demostf/parser` uses `log_base2(element_count) + 1`, and its
+  `log_base2` is `bit_width - 1 - leading_zeros`, i.e. floor. That matches `ClassIdBits` after
+  the B12 fix, so array counts are right.
+- **Signon packets being special.** The oracle parses `Signon` and `Message` packets through
+  the same `MessagePacket::parse`, so entity messages in the signon are not treated differently
+  and must not be skipped here either.
+- **Entity-baseline availability.** `instancebaseline` decodes now. It carries default property
+  values per class and never carried the entity-to-class mapping, which only an Enter provides.
+
+**Fixed while looking, though it was not the cause:** coordinate flags are strict first-match in
+the engine — `COORD`, then `COORD_MP`, then `LOWPRECISION`, then `INTEGRAL` — not independent
+modifiers. A property carrying `COORD_MP` and `LOWPRECISION` together reads five fraction bits,
+not three. No property in the current corpus carries both, so the numbers did not move, but the
+old code was wrong against the SDK.
+
+**Still to read, in this order:**
+
+1. `ParserState::handle_packet_entities` in the oracle — what it does with entities *after*
+   parsing, particularly the `update_baseline` flag and the two baseline slots. This parser
+   ignores both, and a baseline swap that changes how a later delta is interpreted would look
+   exactly like this.
+2. The SDK's `CBaseClientState::ReadPacketEntities` and `CEntityReadInfo`, for anything between
+   entities that this parser does not consume.
+3. The oracle's own tests under `src/demo/`, which encode expectations no prose states.
+
+**Then build the per-snapshot differential**, as in B12: compare entity ids and property indices
+snapshot by snapshot against `parse_demo` and let the first divergence name itself. That is what
+settled the flattening order in one diff after days of guessing.
