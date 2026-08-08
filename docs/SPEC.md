@@ -336,6 +336,33 @@ the *container's* tick and failed. Those are different clocks — `delta from` i
 clock, like `net_Tick`, and the two differ by a constant offset. The test was wrong, not the
 parser.
 
+### Property value encodings — **PARTIAL**
+
+Implemented and round-trip tested: signed and unsigned integers (sign-extended from the
+property's own width), `SPROP_NOSCALE` floats (bit-exact by design), range-encoded floats,
+`SPROP_NORMAL`, vectors, `VectorXY`, and length-prefixed strings.
+
+Note the string convention differs from the message layer: entity strings carry a **9-bit
+length prefix**, while network messages use NUL termination. Confusing them desynchronises the
+entity rather than failing.
+
+**The coordinate encodings are not implemented, and throw rather than approximate.** Measured
+against the corpus:
+
+| Scope | Decodable |
+|---|---|
+| `CTFPlayer` | 725 of 740 (98.0%) |
+| All 362 classes | 49,218 of 49,944 (98.5%) |
+
+**The blocked 2% is the part that matters**: `m_vecOrigin`, `m_vecOrigin[2]`,
+`m_vecPunchAngle`, `m_vecPunchAngleVel`. Player position is exactly what a viewer exists to
+draw, and it uses `SPROP_COORD_MP` — the flag the SDK documents and VDC does not mention at
+all. This confirms empirically what reading `dt_common.h` predicted.
+
+They throw deliberately. A wrong coordinate is a plausible position, and a viewer drawing
+plausible-but-wrong positions is worse than one that refuses. These get implemented against
+the `gamestate` binary from the reference parser (`docs/DIFFERENTIAL.md`), not from a guess.
+
 Still **OPEN**:
 
 - Which messages carry the data Phase 1 needs (`svc_PacketEntities`,

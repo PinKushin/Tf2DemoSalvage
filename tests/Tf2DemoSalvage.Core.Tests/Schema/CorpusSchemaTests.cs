@@ -192,6 +192,40 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         Corpus.Files().ShouldNotBeEmpty();
     }
 
+    [Fact]
+    public void ReportHowMuchOfTheSchemaIsDecodable()
+    {
+        // Quantifies what the coordinate encodings actually cost. SPROP_COORD_MP is
+        // undocumented in VDC and unimplemented here, and this says how much of the schema
+        // that leaves out of reach rather than leaving it to be guessed at.
+        foreach (string path in Corpus.Files())
+        {
+            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
+            ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
+            IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, player);
+
+            int decodable = flat.Count(f => SendPropDecoder.IsSupported(f.Property));
+            string[] blocked = [.. flat
+                .Where(f => !SendPropDecoder.IsSupported(f.Property))
+                .Select(f => f.Property.Name)
+                .Distinct()
+                .Take(6)];
+
+            output.WriteLine(
+                $"{Path.GetFileName(path)}: CTFPlayer {decodable}/{flat.Count} properties " +
+                $"decodable ({100.0 * decodable / flat.Count:F1}%)");
+            output.WriteLine($"  blocked examples: {string.Join(", ", blocked)}");
+
+            int allProps = schema.ServerClasses.Sum(c => SchemaFlattener.Flatten(schema, c).Count);
+            int allOk = schema.ServerClasses.Sum(c =>
+                SchemaFlattener.Flatten(schema, c).Count(f => SendPropDecoder.IsSupported(f.Property)));
+            output.WriteLine($"  across all classes: {allOk}/{allProps} ({100.0 * allOk / allProps:F1}%)");
+            output.WriteLine(string.Empty);
+        }
+
+        Corpus.Files().ShouldNotBeEmpty();
+    }
+
     private static DemoSchema? ParseSchema(string path)
     {
         byte[] bytes = File.ReadAllBytes(path);

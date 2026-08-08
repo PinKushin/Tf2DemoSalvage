@@ -2,7 +2,8 @@
   "notes": [
     "Demo files are stored in Git LFS (see .gitattributes). Clone with `git lfs install` first, or the .dem files arrive as ~130-byte pointer stubs.",
     "Per D5, every entry records how its era was established. Date demos from seasonal asset names in their string tables, never from protocol numbers - protocol 3 / network 24 spans at least 2015 through 2026 and dates nothing.",
-    "Reproduce any field below with `python tools/inspect_demo.py walk|date <file>`."
+    "Reproduce any field below with `python tools/inspect_demo.py walk|date <file>`.",
+    "Asset dating works better on older demos than newer ones, which is convenient given that older demos are the ones hardest to date otherwise. Competitive players bought heavily early in TF2's life - unusuals were everywhere until people noticed the visual noise was a competitive disadvantage with no upside - so early comp demos carry plenty of dated cosmetics. A modern comp demo like serveme-627619 carries almost none, which is why its asset dating yields only ' 2019 or later' against a true date of 2026."
   ],
   "demos": [
     {
@@ -92,6 +93,34 @@
       "era": "2020-07-23",
       "eraEvidence": "ETF2L listing timestamp plus the .dem's own mtime inside the archive.",
       "whyItMatters": "Second SourceTV demo, from an unrelated server (serveme.tf) and a different map. Together with the POV file it established that the one-byte-short dem_stop terminator is universal TF2 behaviour rather than damage to z1800.dem."
+    },
+    {
+      "file": "demos/serveme-627619-stv-2026-08-07.dem",
+      "sha256": "9f631df85f432cbaf5d4b8ba112b8ef43293f35a776ec6e66c6804cca087b0ea",
+      "sizeBytes": 46027761,
+      "source": "owner-supplied, serveme.tf reservation #627619, recorded 2026-08-07",
+      "pointOfView": "SourceTV",
+      "demoProtocol": 3,
+      "networkProtocol": 24,
+      "serverName": "na.serveme.tf #627619",
+      "clientName": "SourceTV Demo",
+      "map": "cp_sunshine",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 1098.1949462890625,
+      "playbackTicks": 73213,
+      "playbackFrames": 73183,
+      "signonLengthBytes": 1032565,
+      "commandCounts": {
+        "dem_signon": 3,
+        "dem_packet": 73183,
+        "dem_synctick": 1,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "2026-08-07",
+      "eraEvidence": "Filename timestamp and the serveme.tf reservation id. Asset dating gives only '  2019 or later' for this file - a competitive server carries few seasonal cosmetics, so the technique that dated z1800 precisely gives a weak lower bound here. Worth knowing as a limitation of that method rather than a problem with this demo.",
+      "whyItMatters": "Six years newer than the rest of the corpus and still demo protocol 3 / network protocol 24, which is the strongest evidence yet that protocol numbers do not date a demo - the pair now spans 2015 documentation through 2020 and 2026 files. Also a fourth independent confirmation that every TF2 demo ends with a dem_stop header one byte short."
     }
   ],
   "corpusGaps": {

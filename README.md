@@ -18,7 +18,7 @@ real demos. Entity data — where player positions live — does not yet.
 | Command stream | Done. Walks all three demos; counts match their headers exactly. |
 | Text dump + CLI | Done. `tf2demosalvage <demo.dem>` prints a readable dump. |
 | **Net messages (layer 2)** | **Partial.** See the table below. |
-| **Entity schema (layer 3)** | **Partial.** `dem_datatables` parses — 517 tables, 362 classes, 5,441 properties. Flattening and `svc_PacketEntities` are not started. |
+| **Entity schema (layer 3)** | **Partial.** `dem_datatables` parses and flattens; `svc_PacketEntities` headers decode; 98% of property *value* encodings are implemented. Entity iteration is not started, and the missing 2% includes `m_vecOrigin`. |
 | 2D viewer (Phase 2), 3D viewer (Phase 3) | Not started. |
 
 Network messages decoded so far:
