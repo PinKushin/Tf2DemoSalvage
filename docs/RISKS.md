@@ -125,6 +125,25 @@ need a small harness over their `DemoTicker` API.
 D2 bans Rust *from this codebase*. A test-only oracle is arguably outside that, but
 it is the owner's call. Not needed until there is output worth diffing.
 
+**Largely resolved 2026-08-07.** [UntitledParser](https://github.com/UncraftedName/UntitledParser)
+is a Source demo parser written in **C#** and licensed **MIT** (GitHub reports NOASSERTION
+only because the file is `LICENSE.txt`; the text itself is plain MIT). A same-language oracle
+can be a project reference in the test suite — no Rust toolchain, no cargo, no WSL. It targets
+HL2 and Portal rather than TF2, so it is the weaker oracle for our format, but it removes the
+toolchain objection entirely.
+
+Licences of both references, for the record:
+
+| Project | Language | Licence |
+|---|---|---|
+| `tf-demo-parser` | Rust | MIT OR Apache-2.0 (per crates.io metadata) |
+| `UntitledParser` | C# | MIT |
+
+Both permit reference *and* copying with attribution. Also worth noting as evidence rather
+than reassurance: UntitledParser supports many Source engine versions, which is direct proof
+that D1's "small table of quirks per version" is a workable pattern and not an optimistic
+assumption.
+
 ## B9. Memory pressure at corpus scale — **anticipated, not yet measured**
 
 A 75 MB demo yields ~120,000 commands. `DemoCommandReader` yields
