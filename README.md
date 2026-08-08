@@ -8,20 +8,34 @@ assets — maps are resolved from your own TF2 install or a source you configure
 
 ## Status — early, and honest about it
 
-**Phase 1 partially built. Nothing user-facing exists yet: there is no CLI, no output, no viewer.**
-What works is the bottom of the stack, tested hard.
+**Phase 1 in progress.** The container and much of the network message layer decode against
+real demos. Entity data — where player positions live — does not yet.
 
 | Layer | State |
 |---|---|
 | Bit reader, varint decoding | Done. Unit tested, mutation tested, fuzzed. |
 | Demo header | Done. Parses all three corpus demos. |
 | Command stream | Done. Walks all three demos; counts match their headers exactly. |
-| Net messages inside packets (layer 2) | **Not started.** Message ids unmined — next. |
-| Entity/SendTable decode (layer 3) | **Not started.** No public wire spec exists. |
 | Text dump + CLI | Done. `tf2demosalvage <demo.dem>` prints a readable dump. |
+| **Net messages (layer 2)** | **Partial.** See the table below. |
+| **Entity/SendTable decode (layer 3)** | **Not started.** `dem_datatables` is unparsed. |
 | 2D viewer (Phase 2), 3D viewer (Phase 3) | Not started. |
 
-137 tests, zero build warnings, zero surviving mutants.
+Network messages decoded so far:
+
+| Message | Notes |
+|---|---|
+| `net_NOP`, `net_Tick` | Tick runs on the *server's* clock, offset from the demo's. |
+| `net_StringCmd`, `net_SetConVar`, `svc_Print` | Trivial, but they gate the POV demo's signon. |
+| `svc_ServerInfo` | Gates everything else in signon. Verified against the file header. |
+| `svc_ClassInfo` | Class list; sizes the class-id field every entity update uses. |
+| `svc_CreateStringTable`, `svc_UpdateStringTable` | 15 of 20 tables decode; 5 are LZSS-compressed and skipped. |
+| `svc_GameEventList`, `svc_GameEvent` | Implemented; not yet reached in the corpus. |
+
+Where decoding currently stops: **`svc_SignonState`** in the signon stream (trivial, not yet
+done), and **`svc_PacketEntities`** in roughly 90% of gameplay packets — that one is layer 3.
+
+246 tests, zero build warnings, zero surviving mutants.
 
 ```
 tf2demosalvage <demo.dem>            # readable dump to stdout

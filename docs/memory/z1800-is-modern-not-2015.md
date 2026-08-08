@@ -39,3 +39,9 @@ and no test that would reveal its absence.
 
 See [[fuzzing-belongs-here]] and `docs/SPEC.md`, which carries the full consolidated
 format spec with per-claim confidence tags.
+
+**A demo names its own map file.** Added 2026-08-08: the `downloadables` string table contains
+`maps\<name>.bsp` outright, and `svc_ServerInfo` carries a 16-byte map hash alongside the map
+name. D9's resolver can work from what the demo states rather than inferring from the map name,
+and the hash catches the real hazard — a community map with the right name but the wrong
+version.
