@@ -204,6 +204,25 @@ public sealed class GameEventCodecTests
     }
 
     [Fact]
+    public void GameEvent_FieldTypeOutsideTheWireRange_Throws()
+    {
+        // The 3-bit type field covers exactly the eight handled values, so this guard is
+        // unreachable from wire data. It can only fire on a definition seeded through the
+        // public API - a programming error, which is why it throws rather than reporting.
+        NetDecodeState state = new();
+        state.AddEventDefinitions(
+            [new GameEventDefinition(5, "corrupt", [new GameEventField("f", (GameEventValueType)9)])]);
+
+        BitWriter body = new BitWriter().Write(5, 9);
+
+        System.InvalidOperationException exception =
+            Should.Throw<System.InvalidOperationException>(
+                () => NetMessageReader.Read(WrapEvent(body), state));
+
+        exception.Message.ShouldBe("Unhandled game event value type 9.");
+    }
+
+    [Fact]
     public void AddEventDefinitions_NullDefinitions_Throws()
     {
         Should.Throw<System.ArgumentNullException>(

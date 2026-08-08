@@ -405,6 +405,34 @@ public sealed class StringTableCodecTests
     }
 
     [Fact]
+    public void Create_WithABodyTooShortForItsEntries_ReportsWhyRatherThanThrowing()
+    {
+        // Create's twin of the update-side truncation test: one declared entry, zero body
+        // bits. The length prefix already advanced the outer reader, so the failure is
+        // reported on the message rather than thrown - and the report says exactly where the
+        // bits ran out.
+        BitWriter writer = new BitWriter().Message(NetMessageType.CreateStringTable);
+        writer.String("broken").Write(64, 16);
+        writer.Write(1, TableBuilder.BitsFor(64) + 1);  // one entry claimed...
+        WriteVarInt(writer, 0);                         // ...in a zero-bit body
+        writer.Write(0, 1)      // not fixed user data size
+            .Write(0, 1);       // not compressed
+
+        CreateStringTableMessage message = ReadWithProtocol(writer.Build())
+            .Messages[0].ShouldBeOfType<CreateStringTableMessage>();
+
+        message.Name.ShouldBe("broken");
+        message.MaxEntries.ShouldBe(64);
+        message.IsDecoded.ShouldBeFalse();
+        message.Entries.ShouldBeEmpty();
+        // Not compressed: the two undecodable paths are reported differently on purpose, and a
+        // consumer that saw this flag set would blame compression for a truncation.
+        message.IsCompressed.ShouldBeFalse();
+        message.UndecodedReason.ShouldBe(
+            "entry decode failed: Requested 1 bits at bit offset 0, but only 0 bits remain.");
+    }
+
+    [Fact]
     public void Update_CarriesUserDataUsingTheVariableLengthEncoding()
     {
         TableBuilder table = new TableBuilder(256).Next("who", userData: [9, 8]);
