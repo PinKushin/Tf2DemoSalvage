@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Primitives;
@@ -125,6 +126,24 @@ public sealed class BitReaderTests
         BitReader.ExceedsAddressableLength(BitReader.MaxByteLength).ShouldBeFalse();
         BitReader.ExceedsAddressableLength(BitReader.MaxByteLength + 1).ShouldBeTrue();
         BitReader.ExceedsAddressableLength(0).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Constructor_SpanOverTheAddressableLimit_ThrowsBeforeTouchingTheBuffer()
+    {
+        // A span whose Length is fabricated with MemoryMarshal over a single byte: the
+        // constructor must reject on Length alone and never dereference, so the throw itself
+        // is reachable without allocating a quarter-gigabyte buffer.
+        ArgumentException exception = Should.Throw<ArgumentException>(() =>
+        {
+            byte placeholder = 0;
+            _ = new BitReader(
+                MemoryMarshal.CreateReadOnlySpan(ref placeholder, int.MaxValue));
+        });
+
+        exception.ParamName.ShouldBe("data");
+        exception.Message.ShouldStartWith(
+            "Buffer of 2147483647 bytes exceeds the bit-addressable limit of 268435455 bytes.");
     }
 
     [Fact]

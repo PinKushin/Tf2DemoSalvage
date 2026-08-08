@@ -174,6 +174,19 @@ public sealed class SchemaFlattenerTests
     }
 
     [Fact]
+    public void Flatten_NonCollapsibleCircularReference_TerminatesAndKeepsBothTables()
+    {
+        // The collapsible cycle test above exercises the guard inside Iterate; this one
+        // drives the cycle through Collect, whose own guard is a separate early return. The
+        // non-collapsible rule still applies: B's group lands before A's own properties.
+        DemoSchema schema = Schema(
+            Table("DT_A", Prop("a"), Nested("loop", "DT_B")),
+            Table("DT_B", Prop("b"), Nested("back", "DT_A")));
+
+        Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["b", "a"]);
+    }
+
+    [Fact]
     public void Flatten_MissingReferencedTable_IsSkippedRatherThanThrowing()
     {
         DemoSchema schema = Schema(Table("DT_A", Prop("a"), Nested("sub", "DT_MISSING")));

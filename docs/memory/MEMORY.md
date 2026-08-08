@@ -7,3 +7,4 @@
 - [Layer 2 is a dependency chain](layer2-is-a-dependency-chain.md) — no length prefixes, so implement whatever blocks the stream, not whatever looks useful; PacketEntities is the wall.
 - [Fixtures are the weak point](fixtures-are-the-weak-point.md) — hand-written fixtures caused more bugs than the decoders; prefer round-trip properties where an encoder exists.
 - [Numeric decoding traps](numeric-decoding-traps.md) — NaN from derived square roots, sign extension, and range-encoded floats; all fail as plausible numbers, never as errors.
+- [Span guards testable without allocation](span-guards-testable-without-allocation.md) — MemoryMarshal fabricates the Length, so "too big to construct" is rarely a valid Stryker disable.
