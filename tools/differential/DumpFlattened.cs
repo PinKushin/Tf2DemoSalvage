@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
@@ -91,9 +92,22 @@ foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader
         {
             Console.WriteLine(
                 $"{snapshot}\t{entity.EntityIndex}\t{entity.UpdateType}\t{entity.ClassId}\t" +
-                string.Join(",", entity.Properties.Select(p => $"{p.Index}={p.Value}")));
+                string.Join(",", entity.Properties.Select(p => $"{p.Index}={Show(p.Value)}")));
         }
 
         snapshot++;
     }
 }
+
+// Round-trippable formatting, so a textual diff against the oracle reports only real
+// differences. PropertyValue.ToString rounds floats for readability, which is right for a text
+// dump and useless for a differential.
+static string Show(PropertyValue value) => value.Kind switch
+{
+    PropertyValueKind.Float => value.AsFloat.ToString("R", CultureInfo.InvariantCulture),
+    PropertyValueKind.Vector => FormattableString.Invariant(
+        $"({value.AsVector.X:R}, {value.AsVector.Y:R}, {value.AsVector.Z:R})"),
+    PropertyValueKind.VectorXY => FormattableString.Invariant(
+        $"({value.AsVectorXY.X:R}, {value.AsVectorXY.Y:R})"),
+    _ => value.ToString(),
+};

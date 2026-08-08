@@ -501,3 +501,37 @@ snapshot 19; values match wherever they have been compared so far, which is only
 The next run should diff values across snapshots 0-19 with float formatting normalised, and
 read the *first* line where a value differs — that names the property whose width is wrong,
 which is what the index-level diff cannot do.
+
+
+#### B13 — narrowed to one array property, `m_hViewModel`
+
+With float formatting normalised, the value differential runs clean and names a single property.
+Snapshot 0, entity 2: **81 properties on each side, 80 of them identical**, and one differs.
+
+| Index | Property | Oracle | Ours |
+|---|---|---|---|
+| 701 | `DT_BasePlayer.m_hViewModel` | `[9548541464807]` | `[2]` |
+
+`m_hViewModel` is an `Array` with `ElementCount = 2`, so its count field is
+`floor(log2(2)) + 1 = 2` bits — which is what this parser uses. **The width formula is not the
+bug.** Every property before index 701 in the same entity matches, so alignment entering the
+array is correct.
+
+The two renderings are not directly comparable yet, and that is the immediate obstacle: this
+parser's `PropertyValue.ToString` prints an array as `[count]`, so `[2]` means "two elements"
+and says nothing about their values, while the oracle prints element contents. One of two things
+is true and the dump cannot currently distinguish them:
+
+1. The count is read correctly as 2 and the *elements* are decoded at the wrong width.
+2. The count is misread, and the oracle's single large value is one element where this parser
+   found two.
+
+The oracle's value is suggestive: 9,548,541,464,807 is about 2^43, far wider than an entity
+handle, which hints its own rendering is a concatenation or an `i64` and not a plain element.
+**Do not conclude from it** — read `SendPropValue`'s `Display` impl for the array case before
+drawing anything from that number.
+
+**Next step, concretely:** make the C# dumper print array elements rather than a count, re-run
+the same diff, and read index 701 on snapshot 0 entity 2. That single line decides between the
+two possibilities above, and it is the last unknown standing between here and continuous
+decoding.
