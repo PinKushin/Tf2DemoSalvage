@@ -24,6 +24,8 @@ public sealed class SendPropDecoderTests
     private const int NoScale = 1 << 2;
     private const int Normal = 1 << 5;
     private const int CoordMp = 1 << 13;
+    private const int CoordMpLowPrecision = 1 << 14;
+    private const int CoordMpIntegral = 1 << 15;
 
     private static SendProperty Property(
         SendPropType type = SendPropType.Int,
@@ -319,45 +321,228 @@ public sealed class SendPropDecoderTests
             .ShouldBe(expected, 0.5f);
     }
 
-    [Theory]
-    [InlineData(Coord)]
-    [InlineData(CoordMp)]
-    [InlineData(1 << 14)]
-    [InlineData(1 << 15)]
-    public void CoordinateEncodings_ThrowRatherThanGuess(int flags)
+    // --- Coordinate encodings ---
+    //
+    // Bit layouts read from the reference parser's decoder and the SDK's bf_read; the fixture
+    // writers below mirror the SDK's bf_write, so a layout misread would have to be made
+    // twice, in two different shapes, to go unnoticed. The integer part is stored minus one
+    // (a present integer is never zero), which is exactly the kind of off-by-one that decodes
+    // to a plausible position rather than an error.
+
+    /// <summary>Writes <c>SPROP_COORD</c>: presence bits, sign, 14-bit integer, 5-bit fraction.</summary>
+    private static BitWriter WriteCoord(BitWriter writer, int intPart, int frac, bool negative)
     {
-        // Checked through every entry point, not just ReadFloat - a vector reaching the
-        // component decoder one flag at a time would otherwise slip past the guard.
-        Should.Throw<NotSupportedException>(() =>
+        writer.Write(intPart != 0 ? 1u : 0u, 1).Write(frac != 0 ? 1u : 0u, 1);
+        if (intPart != 0 || frac != 0)
         {
-            BitReader vectorReader = new(new byte[16]);
-            SendPropDecoder.ReadVector(ref vectorReader, Property(SendPropType.Vector, flags));
-        });
+            writer.Write(negative ? 1u : 0u, 1);
+            if (intPart != 0)
+            {
+                writer.Write((uint)(intPart - 1), 14);
+            }
 
-        Should.Throw<NotSupportedException>(() =>
-        {
-            BitReader xyReader = new(new byte[16]);
-            SendPropDecoder.ReadVectorXY(ref xyReader, Property(SendPropType.VectorXY, flags));
-        });
-        // The most important behaviour in this file. A wrong coordinate is a plausible
-        // position, and TF2 almost certainly uses SPROP_COORD_MP for player origins - a flag
-        // VDC does not document at all. Refusing is the only safe answer until it is
-        // implemented and verified against the reference parser.
-        SendPropDecoder.IsSupported(Property(flags: flags)).ShouldBeFalse();
+            if (frac != 0)
+            {
+                writer.Write((uint)frac, 5);
+            }
+        }
 
-        Should.Throw<NotSupportedException>(() =>
+        return writer;
+    }
+
+    /// <summary>Writes <c>SPROP_COORD_MP</c> and its integral / low-precision variants.</summary>
+    private static BitWriter WriteCoordMp(
+        BitWriter writer,
+        bool inBounds,
+        int intPart,
+        int frac,
+        bool negative,
+        bool integral = false,
+        bool lowPrecision = false)
+    {
+        writer.Write(inBounds ? 1u : 0u, 1).Write(intPart != 0 ? 1u : 0u, 1);
+        if (integral)
         {
-            BitReader reader = new(new byte[16]);
-            SendPropDecoder.ReadFloat(ref reader, Property(flags: flags));
-        });
+            if (intPart != 0)
+            {
+                writer.Write(negative ? 1u : 0u, 1);
+                writer.Write((uint)(intPart - 1), inBounds ? 11 : 14);
+            }
+
+            return writer;
+        }
+
+        writer.Write(negative ? 1u : 0u, 1);
+        if (intPart != 0)
+        {
+            writer.Write((uint)(intPart - 1), inBounds ? 11 : 14);
+        }
+
+        return writer.Write((uint)frac, lowPrecision ? 3 : 5);
     }
 
     [Fact]
-    public void SupportedEncodings_AreReportedAsSuch()
+    public void Coord_WithNeitherPartPresent_IsZeroAfterExactlyTwoBits()
     {
-        SendPropDecoder.IsSupported(Property(flags: NoScale)).ShouldBeTrue();
-        SendPropDecoder.IsSupported(Property(flags: Normal)).ShouldBeTrue();
-        SendPropDecoder.IsSupported(Property(flags: Unsigned)).ShouldBeTrue();
-        SendPropDecoder.IsSupported(Property()).ShouldBeTrue();
+        BitWriter writer = new();
+        WriteCoord(writer, 0, 0, negative: false).Write(0x7F, 7); // sentinel must remain unread
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: Coord)).ShouldBe(0f);
+        reader.BitsRead.ShouldBe(2);
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
+    [Theory]
+    [InlineData(5, 0, false, 5f)]
+    [InlineData(0, 16, false, 0.5f)]
+    [InlineData(3, 16, false, 3.5f)]
+    [InlineData(3, 16, true, -3.5f)]
+    [InlineData(16384, 31, false, 16384.96875f)]
+    public void Coord_KnownValues(int intPart, int frac, bool negative, float expected)
+    {
+        BitWriter writer = new();
+        WriteCoord(writer, intPart, frac, negative);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: Coord))
+            .ShouldBe(expected, 0.0001f);
+    }
+
+    [SuppressMessage("Major Code Smell", "S1244:Do not check floating point equality",
+        Justification = "Coordinates quantise to multiples of 1/32, every one of which is " +
+                        "exactly representable in a float. A tolerance would accept a decoder " +
+                        "that landed on the wrong grid point, which is the failure being tested.")]
+    [Fact]
+    public void Coord_RoundTripsAcrossItsWholeGrid()
+    {
+        // Every representable coordinate is a multiple of 1/32, which is exact in a float, so
+        // this is equality rather than tolerance. The zero-parts case writes a different
+        // layout and has its own test.
+        Gen.Select(Gen.Int[0, 16384], Gen.Int[0, 31], Gen.Bool)
+            .Where(t => t.Item1 != 0 || t.Item2 != 0)
+            .Sample(t =>
+            {
+                (int intPart, int frac, bool negative) = t;
+
+                BitWriter writer = new();
+                WriteCoord(writer, intPart, frac, negative);
+                BitReader reader = new(writer.Build());
+
+                float expected = (intPart + (frac / 32f)) * (negative ? -1f : 1f);
+                return SendPropDecoder.ReadFloat(ref reader, Property(flags: Coord)) == expected;
+            });
+    }
+
+    [Theory]
+    [InlineData(true, 0, 16, false, 0.5f)]
+    [InlineData(true, 100, 8, false, 100.25f)]
+    [InlineData(false, 5000, 0, false, 5000f)]
+    [InlineData(true, 0, 16, true, -0.5f)]
+    public void CoordMp_KnownValues(bool inBounds, int intPart, int frac, bool negative, float expected)
+    {
+        // The in-bounds bit narrows the integer to 11 bits; out of bounds keeps the full 14.
+        // 5000 does not fit in 11 bits, so the out-of-bounds row fails if the width selection
+        // is inverted.
+        BitWriter writer = new();
+        WriteCoordMp(writer, inBounds, intPart, frac, negative);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMp))
+            .ShouldBe(expected, 0.0001f);
+    }
+
+    [SuppressMessage("Major Code Smell", "S1244:Do not check floating point equality",
+        Justification = "As above - the 1/32 grid is exact in a float, and a tolerance would " +
+                        "hide a decoder landing on an adjacent grid point.")]
+    [Fact]
+    public void CoordMp_RoundTripsAcrossTheGrid()
+    {
+        Gen.Select(Gen.Bool, Gen.Int[0, 2048], Gen.Int[0, 31], Gen.Bool).Sample(t =>
+        {
+            (bool inBounds, int intPart, int frac, bool negative) = t;
+
+            BitWriter writer = new();
+            WriteCoordMp(writer, inBounds, intPart, frac, negative);
+            BitReader reader = new(writer.Build());
+
+            float expected = (intPart + (frac / 32f)) * (negative ? -1f : 1f);
+            return SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMp)) == expected;
+        });
+    }
+
+    [Theory]
+    [InlineData(true, 0, false, 0f)]
+    [InlineData(true, 7, false, 7f)]
+    [InlineData(false, 10000, false, 10000f)]
+    [InlineData(true, 7, true, -7f)]
+    public void CoordMpIntegral_KnownValues(bool inBounds, int intPart, bool negative, float expected)
+    {
+        // Integral coords have no fraction bits at all, and read the sign only when an
+        // integer is present - a different shape from the non-integral variant, not a subset.
+        BitWriter writer = new();
+        WriteCoordMp(writer, inBounds, intPart, 0, negative, integral: true);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMpIntegral))
+            .ShouldBe(expected, 0.0001f);
+    }
+
+    [Fact]
+    public void CoordMpIntegral_Zero_ConsumesExactlyTwoBits()
+    {
+        BitWriter writer = new();
+        WriteCoordMp(writer, inBounds: true, 0, 0, negative: false, integral: true)
+            .Write(0x7F, 7);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMpIntegral)).ShouldBe(0f);
+        reader.BitsRead.ShouldBe(2);
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
+    [Theory]
+    [InlineData(0, 4, 0.5f)]
+    [InlineData(3, 2, 3.25f)]
+    public void CoordMpLowPrecision_UsesThreeFractionBitsAtOneEighthResolution(
+        int intPart, int frac, float expected)
+    {
+        BitWriter writer = new();
+        WriteCoordMp(writer, inBounds: true, intPart, frac, negative: false, lowPrecision: true);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMpLowPrecision))
+            .ShouldBe(expected, 0.0001f);
+    }
+
+    [Fact]
+    public void CoordVector_ReadsThreeCoordComponents()
+    {
+        // m_vecOrigin is exactly this: a vector whose components are coordinate-encoded.
+        // The wrong failure mode here is desynchronisation, so a sentinel follows the vector.
+        BitWriter writer = new();
+        WriteCoordMp(writer, inBounds: true, 100, 8, negative: false);
+        WriteCoordMp(writer, inBounds: true, 200, 16, negative: true);
+        WriteCoordMp(writer, inBounds: true, 0, 0, negative: false);
+        writer.Write(0x7F, 7);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadVector(ref reader, Property(SendPropType.Vector, CoordMp))
+            .ShouldBe((100.25f, -200.5f, 0f));
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
+    [Fact]
+    public void Coord_TakesPrecedenceOverNoScale_MatchingTheEngine()
+    {
+        // The engine checks coordinate flags before SPROP_NOSCALE, so a property carrying
+        // both is a coordinate. Getting precedence backwards reads 32 bits instead of 2 -
+        // provable by where the reader lands rather than by the value.
+        BitWriter writer = new();
+        WriteCoord(writer, 0, 0, negative: false).Write(0x7F, 7);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: Coord | NoScale)).ShouldBe(0f);
+        reader.BitsRead.ShouldBe(2);
     }
 }
