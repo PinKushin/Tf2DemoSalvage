@@ -91,11 +91,17 @@ plus exact bit widths (`SPROP_NUMFLAGBITS` 17, `MAX_DATATABLE_PROPS` 4096,
 uses for player positions — a decoder built from VDC alone would decode every position
 wrongly and never crash. See `SPEC.md`.
 
-## B5. No public wire spec for entity decode — **UNDOCUMENTED**
+## B5. No public wire spec for entity decode — **UNDOCUMENTED**, narrowed 2026-08-08
 
 Established during the spec consolidation: VDC describes entity networking
 conceptually but publishes no bit layout for `svc_PacketEntities`, no delta-index
 encoding, no property ordering rules. More reading will not produce one.
+
+**Narrowed:** the *schema* half is now solved. `dem_datatables` parses against all three
+demos — 517 tables, 362 classes, 5,441 properties — and the trailing class count agrees with
+`svc_ServerInfo`'s independently reported `MaxClasses`. What remains undocumented is the
+*delta encoding*: how `svc_PacketEntities` addresses entities, and how a flattened property
+list is ordered.
 
 **Mitigation:** prior art plus byte-level experiment. Licence checked 2026-08-07 —
 `tf-demo-parser` is **MIT OR Apache-2.0**, so reading *and* porting are both

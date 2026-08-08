@@ -18,7 +18,7 @@ real demos. Entity data — where player positions live — does not yet.
 | Command stream | Done. Walks all three demos; counts match their headers exactly. |
 | Text dump + CLI | Done. `tf2demosalvage <demo.dem>` prints a readable dump. |
 | **Net messages (layer 2)** | **Partial.** See the table below. |
-| **Entity/SendTable decode (layer 3)** | **Not started.** `dem_datatables` is unparsed. |
+| **Entity schema (layer 3)** | **Partial.** `dem_datatables` parses — 517 tables, 362 classes, 5,441 properties. Flattening and `svc_PacketEntities` are not started. |
 | 2D viewer (Phase 2), 3D viewer (Phase 3) | Not started. |
 
 Network messages decoded so far:
@@ -33,9 +33,15 @@ Network messages decoded so far:
 | `svc_GameEventList`, `svc_GameEvent` | Implemented; not yet reached in the corpus. |
 
 Where decoding currently stops: **`svc_SignonState`** in the signon stream (trivial, not yet
-done), and **`svc_PacketEntities`** in roughly 90% of gameplay packets — that one is layer 3.
+done), and **`svc_PacketEntities`** in roughly 90% of gameplay packets.
 
-246 tests, zero build warnings, zero surviving mutants.
+`svc_PacketEntities` needs two things that do not exist yet. The schema it decodes against is
+now parsed, but not *flattened* — entity deltas index into a property list built by merging
+nested tables, applying exclusions, then sorting `SPROP_CHANGES_OFTEN` properties forward. Get
+that order wrong and the decoder reads real values into the wrong fields without failing, which
+is why `docs/RISKS.md` B4 calls it the place silent wrongness lives.
+
+268 tests, zero build warnings, zero surviving mutants.
 
 ```
 tf2demosalvage <demo.dem>            # readable dump to stdout
