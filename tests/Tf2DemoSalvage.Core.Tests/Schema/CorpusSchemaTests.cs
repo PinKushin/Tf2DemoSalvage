@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
@@ -108,6 +109,83 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
             int changesOften = schema.Tables.SelectMany(t => t.Properties).Count(p => p.ChangesOften);
             int excluded = schema.Tables.SelectMany(t => t.Properties).Count(p => p.IsExcluded);
             output.WriteLine($"  {changesOften} changes-often, {excluded} exclusions");
+            output.WriteLine(string.Empty);
+        }
+
+        Corpus.Files().ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void Flatten_ProducesPlausibleListsForEveryClass()
+    {
+        foreach (string path in Corpus.Files())
+        {
+            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
+
+            foreach (ServerClass serverClass in schema.ServerClasses)
+            {
+                IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, serverClass);
+
+                // MAX_DATATABLE_PROPS from the SDK. Exceeding it would mean the flattener is
+                // duplicating properties, most likely by following a cycle.
+                flat.Count.ShouldBeLessThanOrEqualTo(4096, serverClass.ClassName);
+
+                // Changes-often properties must form an unbroken prefix. This is the ordering
+                // rule entity deltas depend on, checked on real data rather than fixtures.
+                int firstSlow = -1;
+                for (int i = 0; i < flat.Count; i++)
+                {
+                    if (!flat[i].Property.ChangesOften)
+                    {
+                        firstSlow = i;
+                    }
+                    else if (firstSlow >= 0)
+                    {
+                        Assert.Fail(
+                            $"{Path.GetFileName(path)} {serverClass.ClassName}: changes-often " +
+                            $"property at {i} follows a normal one at {firstSlow}");
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Flatten_PlayerClassContainsTheFieldsAViewerNeeds()
+    {
+        // The properties Phase 2 and 3 exist to draw. If flattening dropped a table or applied
+        // an exclusion too broadly, these would quietly go missing.
+        foreach (string path in Corpus.Files())
+        {
+            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
+            ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
+
+            string[] names = [.. SchemaFlattener.Flatten(schema, player)
+                .Select(f => f.Property.Name)];
+
+            names.ShouldContain("m_vecOrigin", Path.GetFileName(path));
+            names.ShouldContain("m_iHealth", Path.GetFileName(path));
+            names.ShouldContain("m_iTeamNum", Path.GetFileName(path));
+        }
+    }
+
+    [Fact]
+    public void ReportFlattenedShape()
+    {
+        foreach (string path in Corpus.Files())
+        {
+            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
+            ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
+            IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, player);
+
+            output.WriteLine($"{Path.GetFileName(path)}: CTFPlayer flattens to {flat.Count} props, " +
+                             $"{flat.Count(f => f.Property.ChangesOften)} changes-often, " +
+                             $"from {flat.Select(f => f.OwnerTable).Distinct().Count()} tables");
+            output.WriteLine("  first 6: " + string.Join(", ", flat.Take(6)
+                .Select(f => $"{f.OwnerTable}.{f.Property.Name}")));
+
+            int biggest = schema.ServerClasses.Max(c => SchemaFlattener.Flatten(schema, c).Count);
+            output.WriteLine($"  largest class flattens to {biggest} props");
             output.WriteLine(string.Empty);
         }
 

@@ -479,10 +479,39 @@ that `svc_ServerInfo` reports** through a completely different path in the signo
 named directly after the property. Seeing `_LPT_m_AnimOverlay_15` come out is itself evidence
 of a correctly aligned read.
 
-**Still not flattened.** Entity deltas index into a flattened property list — nested tables
-merged, exclusions applied, `SPROP_CHANGES_OFTEN` properties sorted forward. That is the next
-step and the one where a mistake produces plausible numbers rather than an error (`RISKS.md`
-B4).
+### Flattening — **CONFIRMED**
+
+Entity deltas address properties by *position* in a flattened list, so this ordering is the
+contract. Three rules produce it, each easy to get backwards:
+
+1. **Exclusions are gathered first**, over the whole reachable hierarchy, before any property
+   is emitted. A table can exclude a property from a table it has not referenced yet, so
+   resolving them lazily applies some too late.
+2. **`SPROP_COLLAPSIBLE` children inline at the point of reference. Non-collapsible children
+   do not** — their whole list is appended *before* the referencing table's own properties.
+3. **`SPROP_CHANGES_OFTEN` properties move to the front by a stable partition**, not a sort.
+   Relative order within each group is part of the contract; an unstable sort satisfies
+   "changes-often first" while corrupting the addressing.
+
+Properties carrying `SPROP_INSIDEARRAY` are array element templates. They are attached to the
+array that follows them, never emitted in their own right.
+
+Measured on the corpus:
+
+| Demo | `CTFPlayer` flattens to | changes-often | contributing tables | largest class |
+|---|---|---|---|---|
+| `etf2l-12025-pov` | 740 | 20 | 36 | 1,227 |
+| `etf2l-12030-stv` | 740 | 20 | 36 | 1,227 |
+| `z1800` | **741** | 20 | 36 | 1,227 |
+
+Three checks, all on real data rather than fixtures: the changes-often properties form an
+unbroken prefix for every one of the 362 classes in every demo; no class exceeds the SDK's
+`MAX_DATATABLE_PROPS` of 4,096; and `z1800` flattening to one property more is the same
+single-property build difference seen in the raw table counts, carried through consistently.
+
+The first flattened properties of `CTFPlayer` are `DT_Local.m_flDucktime`,
+`DT_Local.m_flFallVelocity`, `DT_Local.m_vecPunchAngle` — plausibly the things that change
+most often for a moving player, which is what the flag is for.
 
 ### What the public sources actually give us
 

@@ -72,7 +72,7 @@ undecodable message blocks everything after it in that packet. Support is strict
 incremental. Game events and string tables are the exceptions — both carry an explicit bit
 length and can be stepped over.
 
-## B4. SendTable flattening is where silent wrongness lives — **CONCEPTUAL**
+## B4. SendTable flattening — **IMPLEMENTED 2026-08-08**, still the highest-risk code
 
 VDC documents `SPROP_CHANGES_OFTEN` as reordering the property list and
 `SPROP_EXCLUDE` as removing inherited properties. Neither is cosmetic: the
@@ -80,8 +80,18 @@ flattened, sorted property list is what entity deltas index into. Get the orderi
 wrong and the decoder reads real values into the wrong fields — it will not crash,
 it will just be wrong.
 
-**Mitigation:** this is precisely what the cross-parser differential test exists
-for. Build it before entity decode, not after.
+**Implemented**, with each ordering rule given its own test rather than one end-to-end check,
+and verified on the corpus: changes-often properties form an unbroken prefix across all 362
+classes in all three demos, and no class exceeds `MAX_DATATABLE_PROPS`. See `SPEC.md`.
+
+**The risk is reduced, not eliminated.** Those checks confirm the ordering is *self-consistent*
+and matches the documented rules. They cannot confirm it matches what TF2 actually did, because
+nothing here decodes an entity yet — the first real test is whether `svc_PacketEntities`
+consumes exactly the right number of bits. If flattening is subtly wrong, that is where it
+surfaces, and it will surface as plausible values rather than an error.
+
+**So the cross-parser differential test still matters, and should land with entity decode
+rather than after it.**
 
 Substantially de-risked 2026-08-07 by reading `dt_common.h` from the SDK, which is
 authoritative where VDC is prose: 17 `SPROP_` flags rather than the 8 VDC documents,
