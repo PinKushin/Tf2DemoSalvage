@@ -274,17 +274,136 @@ public sealed class StringTableCodecTests
     }
 
     [Fact]
-    public void Create_CompressedPayload_IsReportedNotDecoded()
+    public void Create_CompressedPayload_IsDecompressedAndDecoded()
     {
-        TableBuilder table = new TableBuilder(64).Next("whatever");
+        // Five of the twenty tables arrive compressed, instancebaseline among them, so this is
+        // the path that decides whether entity baselines are reachable at all. The entries are
+        // asserted by name: decompressing to the wrong bytes still yields *some* entries.
+        TableBuilder table = new TableBuilder(64).Next("alpha").Next("beta");
 
-        CreateStringTableMessage message = ReadWithProtocol(Create(table, compressed: true))
+        CreateStringTableMessage message = ReadWithProtocol(CreateCompressed(table))
             .Messages[0].ShouldBeOfType<CreateStringTableMessage>();
 
         message.IsCompressed.ShouldBeTrue();
+        message.IsDecoded.ShouldBeTrue();
+        message.Entries.Select(e => e.Text).ShouldBe(["alpha", "beta"]);
+    }
+
+    [Fact]
+    public void Create_SnappyCompression_IsNamedRatherThanGuessedAt()
+    {
+        // Decompressing with the wrong scheme still produces bytes, and those bytes still
+        // parse as entries - so an unimplemented scheme has to be named, not attempted.
+        TableBuilder table = new TableBuilder(64).Next("alpha");
+
+        CreateStringTableMessage message =
+            ReadWithProtocol(CreateCompressed(table, magic: "SNAP"u8.ToArray()))
+                .Messages[0].ShouldBeOfType<CreateStringTableMessage>();
+
         message.IsDecoded.ShouldBeFalse();
-        message.Entries.ShouldBeEmpty();
-        message.UndecodedReason.ShouldNotBeNull().ShouldContain("compressed");
+        message.UndecodedReason.ShouldNotBeNull().ShouldContain("Snappy");
+    }
+
+    [Fact]
+    public void Create_UnknownCompressionMagic_IsReportedWithItsBytes()
+    {
+        TableBuilder table = new TableBuilder(64).Next("alpha");
+
+        CreateStringTableMessage message =
+            ReadWithProtocol(CreateCompressed(table, magic: [0xDE, 0xAD, 0xBE, 0xEF]))
+                .Messages[0].ShouldBeOfType<CreateStringTableMessage>();
+
+        message.IsDecoded.ShouldBeFalse();
+        message.UndecodedReason.ShouldNotBeNull().ShouldContain("DEADBEEF");
+    }
+
+    [Fact]
+    public void Create_CorruptCompressedPayload_CostsOnlyItsOwnTable()
+    {
+        // The length prefix is what makes this survivable: the outer reader has already moved
+        // past the table, so a broken payload must not take the rest of the stream with it.
+        TableBuilder table = new TableBuilder(64).Next("alpha");
+        byte[] payload = [.. BitConverter.GetBytes(999), 0x00, 0x41];   // truncated
+        BitWriter writer = new();
+        CompressedInto(writer, table, "userinfo", "LZSS"u8.ToArray(), payload);
+        writer.NetTick(4321, 0, 0);
+
+        NetMessageReadResult result = ReadWithProtocol(writer.Build());
+
+        result.Messages[0].ShouldBeOfType<CreateStringTableMessage>()
+            .UndecodedReason.ShouldNotBeNull().ShouldContain("decompression failed");
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4321);
+    }
+
+    /// <summary>Builds a create message whose payload is LZSS-wrapped.</summary>
+    private static byte[] CreateCompressed(
+        TableBuilder table, string name = "userinfo", byte[]? magic = null)
+    {
+        BitWriter writer = new();
+        CompressedInto(writer, table, name, magic ?? "LZSS"u8.ToArray(),
+            EncodeLiterals(table.Bits().AsSpan(0, (table.BitCount + 7) / 8)));
+        return writer.Build();
+    }
+
+    private static void CompressedInto(
+        BitWriter writer, TableBuilder table, string name, byte[] magic, byte[] payload)
+    {
+        int decompressedSize = (table.BitCount + 7) / 8;
+        byte[] body =
+        [
+            .. BitConverter.GetBytes(decompressedSize),
+            .. BitConverter.GetBytes(payload.Length + magic.Length),
+            .. magic,
+            .. payload,
+        ];
+
+        writer.Message(NetMessageType.CreateStringTable);
+        writer.String(name).Write((uint)table.MaxEntries, 16);
+        writer.Write((uint)table.Count, TableBuilder.BitsFor(table.MaxEntries) + 1);
+        WriteVarInt(writer, (uint)(body.Length * 8));
+        writer.Write(0, 1);                        // not fixed user data size
+        writer.Write(1, 1);                        // compressed
+        AppendBits(writer, body, body.Length * 8);
+    }
+
+    /// <summary>
+    /// LZSS with every item a literal — legal output, and trivially correct by inspection.
+    /// </summary>
+    /// <remarks>
+    /// A compressor that chose back-references the way the decoder reads them could agree with
+    /// a wrong decoder. Emitting only literals removes that risk: the bytes are visible in the
+    /// fixture. <see cref="Primitives.LzssTests"/> covers back-references directly.
+    /// </remarks>
+    private static byte[] EncodeLiterals(ReadOnlySpan<byte> data)
+    {
+        List<byte> output = [.. BitConverter.GetBytes(data.Length)];
+        int control = -1;
+        int item = 0;
+
+        for (int i = 0; i < data.Length; i++)
+        {
+            if (item == 0)
+            {
+                control = output.Count;
+                output.Add(0);
+            }
+
+            output.Add(data[i]);
+            item = (item + 1) % 8;
+        }
+
+        if (item == 0)
+        {
+            control = output.Count;
+            output.Add(0);
+        }
+
+        // The terminator is an item too, so its control bit has to be set.
+        output[control] |= (byte)(1 << item);
+        output.Add(0x00);
+        output.Add(0x00);
+
+        return [.. output];
     }
 
     [Fact]

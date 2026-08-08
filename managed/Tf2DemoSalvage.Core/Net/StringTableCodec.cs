@@ -18,6 +18,9 @@ namespace Tf2DemoSalvage.Core.Net;
 internal static class StringTableCodec
 {
     /// <summary>Strings remembered for back-references. Source keeps the last 32.</summary>
+    /// <summary>Width of the four-byte magic naming a payload compression scheme.</summary>
+    private const int MagicBytes = 4;
+
     private const int HistorySize = 32;
 
     private const int HistoryIndexBits = 5;
@@ -58,10 +61,17 @@ internal static class StringTableCodec
 
         if (compressed)
         {
-            // The payload is LZSS-compressed. The length prefix has already advanced the outer
-            // reader, so this costs one table rather than the rest of the stream.
-            return new CreateStringTableMessage(
-                name, maxEntries, [], true, "table payload is compressed");
+            try
+            {
+                body = Decompress(body);
+            }
+            catch (InvalidDataException exception)
+            {
+                // Reported rather than thrown: the outer reader has already stepped past this
+                // table's bits, so one unreadable table does not cost the rest of the stream.
+                return new CreateStringTableMessage(
+                    name, maxEntries, [], true, $"decompression failed: {exception.Message}");
+            }
         }
 
         try
@@ -70,7 +80,7 @@ internal static class StringTableCodec
             IReadOnlyList<StringTableEntry> entries = ReadEntries(
                 ref bodyReader, entryCount, maxEntries, fixedUserData, userDataSizeBits);
 
-            return new CreateStringTableMessage(name, maxEntries, entries, false, null);
+            return new CreateStringTableMessage(name, maxEntries, entries, compressed, null);
         }
         catch (Exception exception) when (exception is EndOfStreamException or InvalidDataException)
         {
@@ -114,6 +124,53 @@ internal static class StringTableCodec
     /// <summary>
     /// Reads table entries, resolving back-references against a rolling 32-string history.
     /// </summary>
+    /// <summary>
+    /// Unwraps a compressed table payload: two sizes, a four-byte magic, then the payload.
+    /// </summary>
+    /// <remarks>
+    /// Two schemes appear in the wild. <c>LZSS</c> is Valve's own and is implemented;
+    /// <c>SNAP</c> is Snappy and is not. An unknown magic is reported by name rather than
+    /// guessed at, because decompressing with the wrong scheme still yields bytes, and those
+    /// bytes still parse as entries.
+    /// </remarks>
+    private static byte[] Decompress(ReadOnlySpan<byte> body)
+    {
+        BitReader reader = new(body);
+        int decompressedSize = (int)reader.ReadUInt32(32);
+        int compressedSize = (int)reader.ReadUInt32(32);
+
+        Span<byte> magic = stackalloc byte[MagicBytes];
+        for (int i = 0; i < MagicBytes; i++)
+        {
+            magic[i] = reader.ReadByte();
+        }
+
+        if (!magic.SequenceEqual(Lzss.Magic))
+        {
+            throw new InvalidDataException(magic.SequenceEqual(Lzss.SnappyMagic)
+                ? "table uses Snappy compression, which is not implemented"
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"unknown compression magic 0x{Convert.ToHexString(magic)}"));
+        }
+
+        if (compressedSize < MagicBytes || compressedSize - MagicBytes > body.Length)
+        {
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"compressed size {compressedSize} does not fit in {body.Length} bytes"));
+        }
+
+        // The magic counts toward the compressed size, so the payload is what remains after it.
+        byte[] payload = new byte[compressedSize - MagicBytes];
+        for (int i = 0; i < payload.Length; i++)
+        {
+            payload[i] = reader.ReadByte();
+        }
+
+        return Lzss.Decompress(payload, decompressedSize);
+    }
+
     private static List<StringTableEntry> ReadEntries(
         ref BitReader reader,
         int entryCount,
