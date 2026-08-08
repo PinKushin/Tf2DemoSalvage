@@ -109,5 +109,6 @@ static string Show(PropertyValue value) => value.Kind switch
         $"({value.AsVector.X:R}, {value.AsVector.Y:R}, {value.AsVector.Z:R})"),
     PropertyValueKind.VectorXY => FormattableString.Invariant(
         $"({value.AsVectorXY.X:R}, {value.AsVectorXY.Y:R})"),
+    PropertyValueKind.Array => "[" + string.Concat(value.AsArray.Select(Show)) + "]",
     _ => value.ToString(),
 };

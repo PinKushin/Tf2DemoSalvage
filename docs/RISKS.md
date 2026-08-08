@@ -535,3 +535,48 @@ drawing anything from that number.
 the same diff, and read index 701 on snapshot 0 entity 2. That single line decides between the
 two possibilities above, and it is the last unknown standing between here and continuous
 decoding.
+
+
+#### B13 — correction: `m_hViewModel` was a rendering artefact, not a difference
+
+The previous section was wrong, and the way it was wrong is worth keeping.
+
+`m_hViewModel` appeared to differ — oracle `[9548541464807]`, ours `[2]` — and that was read as
+a possible count mismatch. Reading the oracle's `Display` impl for `SendPropValue::Array` before
+acting on it shows the two renderings were never comparable:
+
+```rust
+write!(f, "[")?;
+for child in array { write!(f, "{child}")?; }   // no separator
+```
+
+The oracle **concatenates elements with no separator**, so `[9548541464807]` is several elements
+run together, not one 43-bit value. Ours printed `[2]`, an element *count*, from
+`PropertyValue.ToString`. Neither side was showing element values. With both dumpers emitting
+the same concatenated form, **index 701 matches** and entity 2 is clean.
+
+That is the research-before-code rule doing its job at the smallest scale: a number that looked
+like evidence was an artefact of two different `ToString` implementations, and the check cost one
+grep.
+
+#### B13 — a real bug, but not this one: unsigned 32-bit values wrap negative
+
+With arrays rendered comparably, the first genuine value difference is snapshot 0, entity 3 —
+75 properties each side, two differing:
+
+| Index | Oracle | Ours |
+|---|---|---|
+| 618 | `4294967295` | `-1` |
+| 619 | `4294967295` | `-1` |
+
+Both are `0xFFFFFFFF`. The bits consumed are identical, so **this is not the desync** — but it is
+a real defect: `PropertyValue` stores integers as `int`, and a 32-bit *unsigned* property cannot
+be represented, so it wraps to `-1`. The oracle stores `i64` and reports the true value.
+
+Filed here rather than fixed in passing, because changing `PropertyValue`'s integer width touches
+every decoder path and deserves its own change with its own tests.
+
+**The desync is still unlocated.** Every difference found so far consumes the same bits. The
+search continues from the first entity whose *bit consumption* diverges, which none of the
+value comparisons has yet exposed — the next measurement should be the reader's bit offset after
+each entity, compared against the oracle's, rather than the values themselves.
