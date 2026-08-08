@@ -46,8 +46,10 @@ is why `docs/RISKS.md` B4 calls it the place silent wrongness lives.
 Testing is deliberately layered, because each layer answers a different question: unit tests
 (right answer on input we thought of), CsCheck properties (right across the whole input
 space), Stryker mutation testing (would the tests notice if the code were wrong), SharpFuzz
-(does it survive input nobody would write), and corpus tests (does it work on bytes TF2
-actually produced). See `docs/DECISIONS.md` D6, D8 and D12.
+(does it survive input nobody would write), corpus tests (does it work on bytes TF2 actually
+produced), and cross-parser differential tests (does an independent implementation agree —
+the only check that can catch a self-consistent misunderstanding). See `docs/DECISIONS.md`
+D6, D8 and D12, and `docs/DIFFERENTIAL.md`.
 
 ```
 tf2demosalvage <demo.dem>            # readable dump to stdout
@@ -68,6 +70,8 @@ aspiration, not capability.
 - `docs/RISKS.md` — anticipated blockers, ordered by when they bite.
 - `docs/FORMAT_NOTES.md` — findings per corpus demo, including corrections to earlier claims.
 - `docs/FUZZING.md`, `docs/RENDERING_NOTES.md` — D8 and Phase 2/3 groundwork.
+- `docs/DIFFERENTIAL.md` — comparing output against an independent parser, and how to set the
+  optional oracle up.
 - `docs/memory/` — the AI assistant's working memory, committed so it survives a machine
   wipe. Includes the findings that cost the most to establish, and the corrections to
   earlier wrong ones.
