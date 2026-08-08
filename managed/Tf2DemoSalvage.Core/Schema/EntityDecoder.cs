@@ -81,6 +81,7 @@ public sealed class EntityDecoder
     private readonly int _classBits;
     private readonly Dictionary<int, int> _entityClasses = [];
     private readonly Dictionary<int, IReadOnlyList<FlatProperty>> _flattened = [];
+    private readonly Dictionary<int, ServerClass> _classesById = [];
     private readonly List<int> _removed = [];
 
     /// <summary>Creates a decoder bound to one demo's schema.</summary>
@@ -94,6 +95,11 @@ public sealed class EntityDecoder
 
         _schema = schema;
         _classBits = classBits;
+
+        foreach (ServerClass serverClass in schema.ServerClasses)
+        {
+            _classesById[serverClass.Id] = serverClass;
+        }
     }
 
     /// <summary>
@@ -118,9 +124,8 @@ public sealed class EntityDecoder
         int bits = 0;
         while (classCount > 1)
         {
-            // Stryker disable once RightShiftAssignmentExpression: >>> differs from >> only for
-            // a negative value, and the loop condition means a negative never gets here.
-            // Equivalent mutant.
+            // Stryker disable once Assignment: >>> differs from >> only for a negative value,
+            // and the loop condition means a negative never reaches here. Equivalent mutant.
             classCount >>= 1;
             bits++;
         }
@@ -325,16 +330,9 @@ public sealed class EntityDecoder
             return cached;
         }
 
-        IReadOnlyList<FlatProperty> flat = [];
-
-        foreach (ServerClass serverClass in _schema.ServerClasses)
-        {
-            if (serverClass.Id == classId)
-            {
-                flat = SchemaFlattener.Flatten(_schema, serverClass);
-                break;
-            }
-        }
+        IReadOnlyList<FlatProperty> flat = _classesById.TryGetValue(classId, out ServerClass found)
+            ? SchemaFlattener.Flatten(_schema, found)
+            : [];
 
         _flattened[classId] = flat;
         return flat;

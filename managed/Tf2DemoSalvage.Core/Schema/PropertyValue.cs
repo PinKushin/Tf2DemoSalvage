@@ -51,8 +51,8 @@ public readonly record struct PropertyValue
     private readonly float _x;
     private readonly float _y;
     private readonly float _z;
-    private readonly string? _string;
-    private readonly IReadOnlyList<PropertyValue>? _array;
+    private readonly string _string;
+    private readonly IReadOnlyList<PropertyValue> _array;
 
     private PropertyValue(
         PropertyValueKind kind,
@@ -68,8 +68,12 @@ public readonly record struct PropertyValue
         _x = x;
         _y = y;
         _z = z;
-        _string = stringValue;
-        _array = array;
+
+        // Normalised here so neither field is ever null, whatever the kind. The accessors then
+        // need only check the tag: a "kind matches but payload is null" branch would be
+        // unreachable, and unreachable branches cannot be tested, only asserted about.
+        _string = stringValue ?? string.Empty;
+        _array = array ?? [];
     }
 
     /// <summary>Which payload this value carries.</summary>
@@ -140,13 +144,13 @@ public readonly record struct PropertyValue
 
     /// <summary>The string payload.</summary>
     /// <exception cref="InvalidOperationException">This value is not a string.</exception>
-    public string AsString => Kind == PropertyValueKind.String && _string is not null
+    public string AsString => Kind == PropertyValueKind.String
         ? _string
         : throw Mismatch(PropertyValueKind.String);
 
     /// <summary>The array payload.</summary>
     /// <exception cref="InvalidOperationException">This value is not an array.</exception>
-    public IReadOnlyList<PropertyValue> AsArray => Kind == PropertyValueKind.Array && _array is not null
+    public IReadOnlyList<PropertyValue> AsArray => Kind == PropertyValueKind.Array
         ? _array
         : throw Mismatch(PropertyValueKind.Array);
 
@@ -159,8 +163,8 @@ public readonly record struct PropertyValue
             CultureInfo.InvariantCulture, $"({_x:0.###}, {_y:0.###}, {_z:0.###})"),
         PropertyValueKind.VectorXY => string.Create(
             CultureInfo.InvariantCulture, $"({_x:0.###}, {_y:0.###})"),
-        PropertyValueKind.String => _string ?? string.Empty,
-        _ => $"[{_array?.Count ?? 0}]",
+        PropertyValueKind.String => _string,
+        _ => $"[{_array.Count}]",
     };
 
     private InvalidOperationException Mismatch(PropertyValueKind wanted) =>
