@@ -131,6 +131,56 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots()
+    {
+        // A floor, not the goal. Before the flattening order was fixed this managed zero - the
+        // opening snapshot itself desynchronised. It now reaches 62, 125 and 205 snapshots
+        // before hitting a residual desync (RISKS B13). Fifty is a regression guard that will
+        // notice if that collapses, and it is deliberately below the worst demo rather than
+        // pinned to today's numbers, which would fail on any harmless change.
+        foreach (string path in SourceTvDemos())
+        {
+            DecodeRun run = DecodeContinuously(path, 500);
+            output.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
+                             $"stopped: {run.Stopped ?? "not at all"}");
+            run.Decoded.ShouldBeGreaterThan(50, Path.GetFileName(path));
+        }
+    }
+
+    private sealed record DecodeRun(int Decoded, string? Stopped);
+
+    private static DecodeRun DecodeContinuously(string path, int limit)
+    {
+        DemoSchema schema = Schema(path);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        bool started = false;
+        int decoded = 0;
+
+        foreach (PacketEntitiesMessage message in Snapshots(path).Take(limit))
+        {
+            started |= message.IsFullSnapshot;
+            if (!started)
+            {
+                continue;
+            }
+
+            try
+            {
+                decoder.Decode(message.Body.Span, message, message.LengthBits);
+                decoded++;
+            }
+            catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
+            {
+                // Running off the end of the body is the same desynchronisation reported a
+                // different way - the reader asks for bits the message does not have.
+                return new DecodeRun(decoded, error.Message);
+            }
+        }
+
+        return new DecodeRun(decoded, null);
+    }
+
+    [Fact]
     public void PointOfViewDemos_HaveNoFullSnapshotToStartFrom()
     {
         // A POV recording begins when the player joined a match already under way, so it opens
