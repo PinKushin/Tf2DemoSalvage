@@ -431,6 +431,59 @@ assumes varints.
 
 ## Layer 3 — Entity schema and delta encoding
 
+### `dem_datatables` — **CONFIRMED**
+
+A demo *command*, not a network message, and the payload the whole project rests on. One
+continuous bit stream with no per-table length, so a single wrong field width turns every
+later table into noise.
+
+```
+repeat while a 1 bit is read:
+    needs_decoder   1 bit
+    name            NUL-terminated string
+    prop_count      10 bits
+    per property:
+        type        5 bits      (SendPropType)
+        name        NUL-terminated string
+        flags       16 bits     <- SPROP_NUMFLAGBITS_NETWORKED, not 17
+        then exactly one of:
+            DataTable, or the exclude flag set -> referenced table name (string)
+            Array                              -> element count (10 bits)
+            anything else                      -> low (f32), high (f32), bits (7)
+then:
+    class_count     16 bits
+    per class:      id (16 bits), class name (string), table name (string)
+```
+
+**The flags width is the trap**, and the SDK names it misleadingly:
+`SPROP_NUMFLAGBITS_NETWORKED` is 16 and is what goes on the wire;
+`SPROP_NUMFLAGBITS` is 17 and counts a flag the SDK marks server-side only. The 17-bit
+constant has the more prominent name.
+
+Measured across the corpus:
+
+| Demo | Tables | Classes | Properties | changes-often | exclusions |
+|---|---|---|---|---|---|
+| `etf2l-12025-pov` | 517 | 362 | 5,441 | 55 | 25 |
+| `etf2l-12030-stv` | 517 | 362 | 5,441 | 55 | 25 |
+| `z1800` | 517 | 362 | **5,442** | 55 | 25 |
+
+`z1800` having one property more is expected — it is a different TF2 build, and it is exactly
+the per-version variation the schema-driven design exists to absorb.
+
+Cross-check: the trailing class count is **362 in all three demos, matching the `MaxClasses`
+that `svc_ServerInfo` reports** through a completely different path in the signon stream.
+
+**Not every table is `DT_`-prefixed.** Source auto-generates a table per array property:
+`_ST_<prop>` for the element send table and `_LPT_<prop>` for its length proxy, plus tables
+named directly after the property. Seeing `_LPT_m_AnimOverlay_15` come out is itself evidence
+of a correctly aligned read.
+
+**Still not flattened.** Entity deltas index into a flattened property list — nested tables
+merged, exclusions applied, `SPROP_CHANGES_OFTEN` properties sorted forward. That is the next
+step and the one where a mistake produces plausible numbers rather than an error (`RISKS.md`
+B4).
+
 ### What the public sources actually give us
 
 **CONCEPTUAL.** This is the important result of the consolidation pass, and it
@@ -463,10 +516,17 @@ values, not community reconstruction, and they settle several bit widths outrigh
 
 | Constant | Value | Why it matters |
 |---|---|---|
-| `SPROP_NUMFLAGBITS` | 17 | Width of the flags field when a SendProp is transmitted. |
+| `SPROP_NUMFLAGBITS_NETWORKED` | 16 | **Width of the flags field on the wire.** |
+| `SPROP_NUMFLAGBITS` | 17 | All flags including the one that is *not* networked. Not a wire width. |
 | `MAX_DATATABLE_PROPS` | 4096 | Bounds the property index — 12 bits. |
 | `DT_MAX_STRING_BITS` | 9 | String length field width; buffer is 512. |
 | `MAX_ARRAY_ELEMENTS` | 2048 | Bounds array length — 11 bits. |
+
+**Corrected 2026-08-08.** An earlier version of this table gave `SPROP_NUMFLAGBITS` (17) as the
+wire width for the flags field. That is wrong, and it would have desynchronised every SendTable:
+the SDK defines `SPROP_NUMFLAGBITS_NETWORKED` (16) as "the ones which are networked", with the
+17th bit — `SPROP_ENCODED_AGAINST_TICKCOUNT` — marked server-side only. 17 is the more
+prominently named constant, which is the trap.
 
 `SendPropType` enum order gives the on-wire type ids: `DPT_Int` 0, `DPT_Float` 1,
 `DPT_Vector` 2, `DPT_VectorXY` 3, `DPT_String` 4, `DPT_Array` 5, `DPT_DataTable` 6.
@@ -499,7 +559,7 @@ decoder that works and one that silently produces wrong numbers.
 | `SPROP_COORD_MP` | 1<<13 | **Not in VDC.** Multiplayer coord encoding. |
 | `SPROP_COORD_MP_LOWPRECISION` | 1<<14 | **Not in VDC.** |
 | `SPROP_COORD_MP_INTEGRAL` | 1<<15 | **Not in VDC.** |
-| `SPROP_ENCODED_AGAINST_TICKCOUNT` | 1<<16 | **Not in VDC.** |
+| `SPROP_ENCODED_AGAINST_TICKCOUNT` | 1<<16 | **Not in VDC, and never transmitted** — "server side only" per the SDK. It is the 17th flag, which is exactly why the networked width is 16. |
 
 The three `COORD_MP` variants are the sharp ones: TF2 is a multiplayer game, so player
 positions almost certainly use them rather than plain `SPROP_COORD`. A decoder built from

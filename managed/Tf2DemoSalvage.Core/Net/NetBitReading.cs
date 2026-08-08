@@ -7,7 +7,7 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <summary>
 /// Reading conventions shared by every network message.
 /// </summary>
-internal static class NetBitReading
+public static class NetBitReading
 {
     /// <summary>
     /// Reads a NUL-terminated string, the encoding Source uses throughout its bit streams.
@@ -18,7 +18,7 @@ internal static class NetBitReading
     /// why garbage strings are the first visible symptom of a desynchronised stream rather
     /// than an exception.
     /// </remarks>
-    internal static string ReadString(ref BitReader reader)
+    public static string ReadString(ref BitReader reader)
     {
         List<byte> bytes = new();
 
@@ -45,7 +45,7 @@ internal static class NetBitReading
     /// contains the damage: a malformed body cannot run past its declared length and corrupt
     /// whatever follows, because the outer reader has already moved on.
     /// </remarks>
-    internal static byte[] CopyBits(ref BitReader reader, int bitCount)
+    public static byte[] CopyBits(ref BitReader reader, int bitCount)
     {
         // Stryker disable once Arithmetic: mutating the rounding only over-allocates. The
         // extra bytes are never written or read, so decoding stays correct.
