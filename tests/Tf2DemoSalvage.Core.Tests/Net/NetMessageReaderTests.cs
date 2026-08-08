@@ -77,15 +77,18 @@ public sealed class NetMessageReaderTests
     [Fact]
     public void Read_UnsupportedMessage_StopsAndReportsWhereAndWhy()
     {
+        // Uses whichever message is still undecoded. This test had to be updated when
+        // svc_PacketEntities gained support, which is the suite noticing a real change rather
+        // than a maintenance annoyance.
         byte[] packet = new BitWriter()
             .NetTick(1, 0, 0)
-            .Message(NetMessageType.PacketEntities)
+            .Message(NetMessageType.TempEntities)
             .Build();
 
         NetMessageReadResult result = NetMessageReader.Read(packet);
 
         result.Messages.Count.ShouldBe(1);
-        result.StoppedAt.ShouldBe(NetMessageType.PacketEntities);
+        result.StoppedAt.ShouldBe(NetMessageType.TempEntities);
         // Stopping position matters: it is the only way to tell how far into a packet we get.
         result.BitsConsumed.ShouldBe(NetMessage.TypeBits + 64);
         result.StopReason.ShouldNotBeNullOrEmpty();
@@ -143,7 +146,7 @@ public sealed class NetMessageReaderTests
         byte[] whole = new BitWriter().NetTick(1, 0, 0).Build();
         byte[] blocked = new BitWriter()
             .NetTick(1, 0, 0)
-            .Message(NetMessageType.PacketEntities)
+            .Message(NetMessageType.TempEntities)
             .Build();
 
         NetMessageReader.Read(whole).IsComplete.ShouldBeTrue();
