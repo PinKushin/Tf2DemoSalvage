@@ -37,3 +37,22 @@ project-wide.
 
 See [[tests-before-codecs]] — the other half of the same lesson, about ordering rather than
 technique.
+
+## Derived widths: `floor(log2(n)) + 1`, and why every fixture agreed with `ceil`
+
+Class ids and array counts are sized from a count rather than transmitted. The width is
+`floor(log2(count)) + 1`. A `ceil`-based implementation shipped and passed **every** test in
+the file, because the fixtures used two classes — and at 2, and at every exact power of two,
+the two formulas give the same answer. The first evidence came from a real demo: 362 classes
+must be 9 bits, and `ceil` said 10.
+
+This is the *wrong condition* failure from the testing doctrine, not a weak assertion. The
+assertions were fine. The inputs were ones where correct and broken predict the same
+observation. The fix was to add rows — 3, 362, 363 — that actually separate them, not to
+assert harder about 2.
+
+**Fixtures and the corpus measure different things, and one cannot substitute for the other.**
+A fixture built from the SDK's write path proves the decoder matches *that reading of the
+spec*. It cannot prove the reading is right, because both sides came from the same head. Only
+a real demo tests that, and when the two disagree the demo wins. Entity decoding currently
+passes every fixture and desynchronises inside `CTFPlayer` on real files — see RISKS B12.
