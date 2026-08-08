@@ -294,6 +294,48 @@ the demo was recorded on. Same name, different version is the main hazard there.
 point-of-view demo's signon — its stream opens with `svc_Print`, not `svc_ServerInfo` — so
 implementing them is what makes ServerInfo reachable in POV demos at all.
 
+### `svc_PacketEntities` (id 26) — header **CONFIRMED**, values not decoded
+
+| Field | Bits |
+|---|---|
+| max entries | 11 |
+| is delta | 1 |
+| delta-from tick | 32, only when delta |
+| baseline index | 1 |
+| updated entries | 11 |
+| body length | 20 |
+| update baseline | 1 |
+| body | *length* bits |
+
+The body carries entity index deltas, update types and property values. **It is not decoded
+yet** — the length prefix lets it be stepped over, which is what unblocked most gameplay
+packets, and property decoding is deliberately left for a pass that includes the cross-parser
+differential harness (`RISKS.md` B4).
+
+Entity indices use **UBitVar**: a 2-bit selector choosing a 4, 8, 12 or 32-bit payload. A
+different trade from a varint — bit-granular with four fixed widths rather than byte-granular
+and unbounded — so an index delta of 3 costs six bits against a varint's eight. Update types
+are a 2-bit discriminant: delta 0, leave 1, enter 2, delete 3.
+
+Measured across the corpus:
+
+| Demo | First reachable snapshot | Later snapshots |
+|---|---|---|
+| `etf2l-12030-stv` | 824 of 1,241 entities, 312,036 bits | ~17 entities, ~3,300 bits |
+| `z1800` | 545 of 799 entities, 258,542 bits | ~38 entities, ~3,000 bits |
+
+**z1800's first snapshot is 258,542 bits = 32,318 bytes**, against a first `dem_packet` payload
+of 32,435 bytes seen in the text dump — the difference being `net_Tick` and the other messages
+sharing that packet. Two unrelated measurements agreeing.
+
+Coverage of gameplay packets jumped from roughly 2% of payload bits to **54.8%** (POV) and
+**94.0%** (SourceTV) purely from no longer stopping here.
+
+One correction worth recording: an early version of the corpus test compared `delta from` to
+the *container's* tick and failed. Those are different clocks — `delta from` is on the server's
+clock, like `net_Tick`, and the two differ by a constant offset. The test was wrong, not the
+parser.
+
 Still **OPEN**:
 
 - Which messages carry the data Phase 1 needs (`svc_PacketEntities`,
