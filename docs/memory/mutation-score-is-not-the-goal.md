@@ -1,17 +1,18 @@
 ---
 name: mutation-score-is-not-the-goal
-description: The mutation threshold is not fixed — know when to lower it, don't trace dead ends, and don't write tests that exist only to kill mutants
+description: 80 is a floor, not a target to beat — don't chase a higher score, don't trace dead ends, and don't write tests that exist only to kill mutants
 metadata:
   type: feedback
 ---
 
 The owner's position, given 2026-08-08 while I was closing survivors one at a time toward a
-clean sweep. I first wrote this down as "keep break at 80", which was me turning the point into
-a fixed rule — the opposite of what was said.
+clean sweep, and refined immediately after when I over-swung the other way and wrote it up as
+"know when to lower it" with no floor.
 
-**The actual point:** the threshold is not sacred. `break` is 80 today, and the skill is
-recognising when it needs to come **down**. Once the remaining survivors are ones not worth
-killing, holding the number where it is only buys busywork. Lower it and say why.
+**The actual point:** the score is not a target to chase upward, and **80 is a floor**. `break`
+stays at 80. There is nothing to gain from driving it higher — that is where the busywork lives
+— but falling below 80 is a smell worth investigating rather than a setting to relax. The
+threshold works in both directions.
 
 **Why:** a small codebase reaches zero survivors because most of them are equivalent mutants
 that can be deleted or suppressed. That stops being true as code grows.

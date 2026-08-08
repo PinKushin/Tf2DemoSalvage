@@ -219,9 +219,11 @@ Two things that cost time before they were understood:
   them triggered a full pass of unnecessary work. The undisturbed runs that day were 98.12% and
   99.57%.
 
-**The score is not the target, and the threshold is not fixed.** `break` is 80 today. The skill
-is recognising when it needs to come *down* — when the survivors that remain are ones not worth
-killing, holding the number where it is only buys busywork. Lower it and say why.
+**The score is not a target to chase, and 80 is a floor.** `break` stays at 80. Not because the
+number is sacred, but because it works in both directions: there is nothing to gain from
+driving it higher, and a suite that cannot hold 80 is saying something real about the code
+rather than about the threshold. Dropping below it is a smell to investigate, not a setting to
+adjust.
 
 Two things not to do, which matter more than the number:
 
