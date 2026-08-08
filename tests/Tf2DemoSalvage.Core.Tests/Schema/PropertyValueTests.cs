@@ -78,6 +78,17 @@ public sealed class PropertyValueTests
         Should.Throw<InvalidOperationException>(() => uninitialised.AsArray);
     }
 
+    [Fact]
+    public void NullPayloads_AreNormalisedToEmptyRatherThanStored()
+    {
+        // The constructor coerces null to empty so the fields are never null whatever the
+        // kind, which is what lets the accessors check only the tag. For every other kind that
+        // coercion is unobservable - the accessor throws before reading the field - so these
+        // two calls are the only way to see it happen at all.
+        PropertyValue.FromString(null!).AsString.ShouldBeEmpty();
+        PropertyValue.FromArray(null!).AsArray.ShouldBeEmpty();
+    }
+
     [Theory]
     [InlineData(PropertyValueKind.Int, "-42")]
     [InlineData(PropertyValueKind.Float, "1.5")]
