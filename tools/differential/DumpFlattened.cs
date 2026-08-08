@@ -25,6 +25,30 @@ foreach (DemoCommand c in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeB
     }
 }
 
+if (mode == "stops")
+{
+    NetDecodeState st = new();
+    Dictionary<string,int> stops = new();
+    int packets = 0, lostAfter = 0;
+    foreach (DemoCommand cmd in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
+    {
+        if (cmd.Type is not (DemoCommandType.Signon or DemoCommandType.Packet)) { continue; }
+        packets++;
+        NetMessageReadResult r = NetMessageReader.Read(cmd.Payload.Span, st);
+        if (r.StoppedAt is NetMessageType t)
+        {
+            string k = t.ToString();
+            stops[k] = stops.TryGetValue(k, out int v) ? v + 1 : 1;
+            lostAfter++;
+        }
+        if (packets >= int.Parse(arg)) { break; }
+    }
+
+    Console.WriteLine($"packets={packets} stopped={lostAfter}");
+    foreach (var kv in stops.OrderByDescending(k => k.Value)) { Console.WriteLine($"  {kv.Key}	{kv.Value}"); }
+    return;
+}
+
 if (mode == "props")
 {
     ServerClass target = schema!.ServerClasses.First(c => c.ClassName == "CTFPlayer");
@@ -72,8 +96,15 @@ foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader
     foreach (PacketEntitiesMessage message in NetMessageReader.Read(command.Payload.Span, state)
         .Messages.OfType<PacketEntitiesMessage>())
     {
-        if (message.Body.IsEmpty || snapshot >= limit)
+        if (snapshot >= limit)
         {
+            continue;
+        }
+
+        if (message.Body.IsEmpty)
+        {
+            Console.WriteLine($"{snapshot}	EMPTYBODY	delta={message.IsDelta}	updated={message.UpdatedEntries}	lenBits={message.LengthBits}");
+            snapshot++;
             continue;
         }
 

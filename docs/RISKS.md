@@ -616,3 +616,36 @@ from everything B12 and B13 have touched so far.
 **Next step:** count `svc_PacketEntities` messages produced per `dem_packet` against the oracle,
 including the ones currently skipped for an empty body, and find the first packet where the
 counts differ. Then read that packet's header fields rather than its entity body.
+
+
+### B13 root cause — unimplemented messages truncate their whole packet
+
+Found. Network messages carry **no length prefix**, so an unimplemented type cannot be stepped
+over — `NetMessageReader` stops at the first one and abandons the rest of that packet. Every
+`svc_PacketEntities` sitting after it is lost, which is exactly the dropped snapshot.
+
+Measured over the first 200 packets of `z1800.dem`: **131 stop early.**
+
+| Message | Packets stopped |
+|---|---|
+| `svc_TempEntities` | 57 |
+| `svc_Sounds` | 37 |
+| `svc_Prefetch` | 34 |
+| `svc_SignOnState` | 1 |
+| `svc_VoiceInit` | 1 |
+| `svc_SetView` | 1 |
+
+This was always visible in the reader's own diagnostics — `NetMessageReadResult.StoppedAt`
+records it, and the `default` case says so in as many words. Nothing was hidden; the entity
+investigation simply never asked the message layer whether it had delivered everything.
+
+**That is the lesson worth keeping from B12 and B13 together.** B12 was a real decoder bug found
+by differential. B13 looked identical from the outside — same symptom, same tooling, same
+narrowing — and was a missing feature one subsystem upstream. Three rounds of bit-level analysis
+went into a decoder that was already correct, because the first question asked was "which bit is
+wrong" rather than "did every message arrive".
+
+**The fix is ordinary implementation work, not reverse engineering.** These six messages need
+decoding, or at minimum exact-width skipping so the reader can continue past them.
+`svc_TempEntities`, `svc_Sounds` and `svc_Prefetch` account for 128 of the 131 stops and are
+where to start. `demostf/parser` implements all of them.
