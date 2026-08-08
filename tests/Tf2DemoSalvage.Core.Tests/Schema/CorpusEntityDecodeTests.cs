@@ -133,17 +133,17 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     [Fact]
     public void ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots()
     {
-        // A floor, not the goal. Before the flattening order was fixed this managed zero - the
-        // opening snapshot itself desynchronised. It now reaches 62, 125 and 205 snapshots
-        // before hitting a residual desync (RISKS B13). Fifty is a regression guard that will
-        // notice if that collapses, and it is deliberately below the worst demo rather than
-        // pinned to today's numbers, which would fail on any harmless change.
+        // A floor, not the goal. This managed zero before the flattening order was fixed, then
+        // 62 to 205 snapshots, and now 332 to 500 - the jump came from implementing the three
+        // messages that were truncating their packets (RISKS B13). z1800 reaches the 500-snapshot
+        // cap without stopping at all. The floor is deliberately well below the worst demo, so
+        // it guards against collapse rather than failing on any harmless change.
         foreach (string path in SourceTvDemos())
         {
             DecodeRun run = DecodeContinuously(path, 500);
             output.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
                              $"stopped: {run.Stopped ?? "not at all"}");
-            run.Decoded.ShouldBeGreaterThan(50, Path.GetFileName(path));
+            run.Decoded.ShouldBeGreaterThan(250, Path.GetFileName(path));
         }
     }
 

@@ -395,3 +395,257 @@ old code was wrong against the SDK.
 **Then build the per-snapshot differential**, as in B12: compare entity ids and property indices
 snapshot by snapshot against `parse_demo` and let the first divergence name itself. That is what
 settled the flattening order in one diff after days of guessing.
+
+
+### B13 — the differential localises it to one property read
+
+`tools/differential/snapshots.rs` dumps every entity update snapshot by snapshot from the
+oracle; `DumpFlattened.cs snapshots` does the same here. Diffing them on `z1800.dem` names the
+first divergence exactly.
+
+**Snapshots 0 through 18 match line for line — 1,133 entity updates, every entity index, update
+type, class id and property index identical.** The first difference is snapshot 19:
+
+| Snapshot | Entity | Oracle | Ours |
+|---|---|---|---|
+| 19 | 1 | `4,17` | `4,17` — matches |
+| 19 | 2 | `16,17` | `17` |
+| 19 | 6 | `14,15,16,17,703` | `14,15,16,17` |
+
+The properties involved:
+
+| Index | Property |
+|---|---|
+| 16 | `DT_TFNonLocalPlayerExclusive.m_angEyeAngles[1]` |
+| 17 | `DT_BaseEntity.m_flSimulationTime` |
+| 703 | `DT_TFPlayer.m_bSaveMeParity` |
+
+**What this rules in.** Entity 1 of snapshot 19 matches, so the reader is correctly aligned
+*entering* entity 2 — and then reads a first property index of 17 where the oracle reads 16.
+Identical bits cannot decode to different values through identical `UBitVar` code, so alignment
+must already differ by the time that field is read. The only thing between them is the tail of
+entity 1: its last property value, `m_flSimulationTime` at index 17.
+
+So the fault is a **value width**, not an index encoding. Some property's value is read at the
+wrong number of bits, the indices continue to look plausible for a while, and the error
+accumulates until it becomes fatal at snapshot 62.
+
+This also explains why snapshots 0-18 are clean: whatever encoding is misread does not appear,
+or appears with a width that happens to agree, until then.
+
+**Next step is narrow now.** Instrument the decoder to print the bit offset after each property
+value in snapshot 19, entity 1, and compare against what the layout implies. `m_flSimulationTime`
+and `m_angEyeAngles[1]` are the two definitions to check against the SDK first — read their
+flags and bit counts out of the schema and confirm which encoding branch they take.
+
+
+#### B13 — property definitions checked, and what they eliminate
+
+Every property appearing in snapshot 19's diverging entities, read out of the schema and
+checked against the oracle's own `FloatDefinition::new` precedence:
+
+| Index | Property | Type | Flags | Encoding it selects |
+|---|---|---|---|---|
+| 4 | `m_nTickBase` | Int | `0x0400` | signed, 32 bits |
+| 9 | `m_vecOrigin` | VectorXY | `0x0404` | `SPROP_NOSCALE`, two 32-bit floats |
+| 10 | `m_vecOrigin[2]` | Float | `0x0C04` | `SPROP_NOSCALE`, 32 bits |
+| 13 | `m_vecOrigin` | VectorXY | `0x4400` | `COORD_MP_LOWPRECISION` |
+| 14 | `m_vecOrigin[2]` | Float | `0x4C04` | `COORD_MP_LOWPRECISION` — beats the `NOSCALE` bit also set |
+| 15 | `m_angEyeAngles[0]` | Float | `0x0C00` | range, 8 bits, −90…90 |
+| 16 | `m_angEyeAngles[1]` | Float | `0x0C00` | range, 10 bits, 0…360 |
+| 17 | `m_flSimulationTime` | Int | `0x0401` | unsigned, 8 bits |
+| 703 | `m_bSaveMeParity` | Int | `0x0001` | unsigned, 1 bit |
+
+Index 14 is worth noting: it carries both `COORD_MP_LOWPRECISION` and `SPROP_NOSCALE`, and the
+first-match rule means the coordinate encoding wins. This parser now agrees, but only because
+that precedence was fixed while investigating — it is exactly the shape of bug being hunted, and
+it is real in this corpus even though it was not the cause here.
+
+**Every one of these selects the same branch in both parsers**, so the fault is not in the
+definitions of the properties that appear in the diverging entities. That leaves two
+possibilities:
+
+1. A property earlier in the same snapshot, in an entity that *matched*, whose value width is
+   wrong in a way that does not disturb its own indices. Entity 1 of snapshot 19 reports
+   `4,17` in both parsers, so its indices are right — but its property *values* have never been
+   compared, only its indices.
+2. The snapshot's trailing structure — the removal list, or the update-baseline flag — consuming
+   a different number of bits.
+
+**The next measurement is values, not indices.** `snapshots.rs` and `DumpFlattened.cs snapshots`
+both print property indices only, which is what made snapshots 0-18 look identical. Extending
+both to print decoded values would show whether entity 1's `m_flSimulationTime` actually agrees
+or merely lands at the right index.
+
+
+#### B13 — value comparison is wired up, and blocked on float formatting
+
+Both dumpers now print decoded values (`index=value`) rather than bare indices, which is the
+measurement the previous section called for. Spot-checking snapshot 0, entity 1:
+
+```
+oracle: 4=12735,9=(288, 2312),10=69.03125,11=0.35294342,12=269.91202,...
+ours:   4=12735,9=(288, 2312),10=69.031,  11=0.353,     12=269.912,...
+```
+
+**The values agree.** Integers, vectors and floats all match — this parser simply prints fewer
+digits, because `PropertyValue.ToString` formats floats as `0.###` for readability in text
+dumps. That is right for a dump and wrong for a differential.
+
+So the comparison is one change away from being usable: the dumper must print floats
+round-trippably (`"R"` or `G9`) rather than going through `ToString`. Until then a textual diff
+reports every float as a difference and drowns the real one.
+
+**State of the hunt.** Indices match for 1,133 consecutive entity updates and then drift at
+snapshot 19; values match wherever they have been compared so far, which is only snapshot 0.
+The next run should diff values across snapshots 0-19 with float formatting normalised, and
+read the *first* line where a value differs — that names the property whose width is wrong,
+which is what the index-level diff cannot do.
+
+
+#### B13 — narrowed to one array property, `m_hViewModel`
+
+With float formatting normalised, the value differential runs clean and names a single property.
+Snapshot 0, entity 2: **81 properties on each side, 80 of them identical**, and one differs.
+
+| Index | Property | Oracle | Ours |
+|---|---|---|---|
+| 701 | `DT_BasePlayer.m_hViewModel` | `[9548541464807]` | `[2]` |
+
+`m_hViewModel` is an `Array` with `ElementCount = 2`, so its count field is
+`floor(log2(2)) + 1 = 2` bits — which is what this parser uses. **The width formula is not the
+bug.** Every property before index 701 in the same entity matches, so alignment entering the
+array is correct.
+
+The two renderings are not directly comparable yet, and that is the immediate obstacle: this
+parser's `PropertyValue.ToString` prints an array as `[count]`, so `[2]` means "two elements"
+and says nothing about their values, while the oracle prints element contents. One of two things
+is true and the dump cannot currently distinguish them:
+
+1. The count is read correctly as 2 and the *elements* are decoded at the wrong width.
+2. The count is misread, and the oracle's single large value is one element where this parser
+   found two.
+
+The oracle's value is suggestive: 9,548,541,464,807 is about 2^43, far wider than an entity
+handle, which hints its own rendering is a concatenation or an `i64` and not a plain element.
+**Do not conclude from it** — read `SendPropValue`'s `Display` impl for the array case before
+drawing anything from that number.
+
+**Next step, concretely:** make the C# dumper print array elements rather than a count, re-run
+the same diff, and read index 701 on snapshot 0 entity 2. That single line decides between the
+two possibilities above, and it is the last unknown standing between here and continuous
+decoding.
+
+
+#### B13 — correction: `m_hViewModel` was a rendering artefact, not a difference
+
+The previous section was wrong, and the way it was wrong is worth keeping.
+
+`m_hViewModel` appeared to differ — oracle `[9548541464807]`, ours `[2]` — and that was read as
+a possible count mismatch. Reading the oracle's `Display` impl for `SendPropValue::Array` before
+acting on it shows the two renderings were never comparable:
+
+```rust
+write!(f, "[")?;
+for child in array { write!(f, "{child}")?; }   // no separator
+```
+
+The oracle **concatenates elements with no separator**, so `[9548541464807]` is several elements
+run together, not one 43-bit value. Ours printed `[2]`, an element *count*, from
+`PropertyValue.ToString`. Neither side was showing element values. With both dumpers emitting
+the same concatenated form, **index 701 matches** and entity 2 is clean.
+
+That is the research-before-code rule doing its job at the smallest scale: a number that looked
+like evidence was an artefact of two different `ToString` implementations, and the check cost one
+grep.
+
+#### B13 — a real bug, but not this one: unsigned 32-bit values wrap negative
+
+With arrays rendered comparably, the first genuine value difference is snapshot 0, entity 3 —
+75 properties each side, two differing:
+
+| Index | Oracle | Ours |
+|---|---|---|
+| 618 | `4294967295` | `-1` |
+| 619 | `4294967295` | `-1` |
+
+Both are `0xFFFFFFFF`. The bits consumed are identical, so **this is not the desync** — but it is
+a real defect: `PropertyValue` stores integers as `int`, and a 32-bit *unsigned* property cannot
+be represented, so it wraps to `-1`. The oracle stores `i64` and reports the true value.
+
+Filed here rather than fixed in passing, because changing `PropertyValue`'s integer width touches
+every decoder path and deserves its own change with its own tests.
+
+**The desync is still unlocated.** Every difference found so far consumes the same bits. The
+search continues from the first entity whose *bit consumption* diverges, which none of the
+value comparisons has yet exposed — the next measurement should be the reader's bit offset after
+each entity, compared against the oracle's, rather than the values themselves.
+
+
+### B13 resolved as misdiagnosed — a dropped message, not a desync
+
+**My snapshot 19 is identical to the oracle's snapshot 20**, all fifty entities, every index and
+every value. Searching the oracle's snapshots 19 through 25 for our snapshot 19 finds exactly
+one match, and it is off by one.
+
+| Oracle snapshot | Entities | Matches our #19? |
+|---|---|---|
+| 19 | 51 | no |
+| **20** | **50** | **identical** |
+| 21 | 53 | no |
+
+So there is no desynchronisation in the entity decoder. **One entire `svc_PacketEntities`
+message is being dropped**, and everything downstream was misnumbered from that point — which is
+why "entity 1 of snapshot 19" showed indices that matched but values four ticks later. It was a
+different snapshot.
+
+That retracts most of the B13 analysis above. The property definitions, the array count widths,
+the coordinate flag precedence, the value comparisons — all were investigating a decoder that was
+reading correctly the whole time. Worth leaving in place rather than deleting, because the trail
+shows how a numbering error masquerades as a bit-level fault for three rounds of investigation.
+
+**Where it actually lives.** The corpus walker skips any message whose `Body.IsEmpty`, so a
+message whose `LengthBits` decoded as zero disappears silently. The oracle's snapshot 19 carries
+51 entities, so that message is real and its body is not empty — meaning either its header was
+misread, or the message never reached the decoder because `NetMessageReader` mis-parsed the
+packet containing it.
+
+**This is a message-layer defect, not a schema or entity one**, which is a different subsystem
+from everything B12 and B13 have touched so far.
+
+**Next step:** count `svc_PacketEntities` messages produced per `dem_packet` against the oracle,
+including the ones currently skipped for an empty body, and find the first packet where the
+counts differ. Then read that packet's header fields rather than its entity body.
+
+
+### B13 root cause — unimplemented messages truncate their whole packet
+
+Found. Network messages carry **no length prefix**, so an unimplemented type cannot be stepped
+over — `NetMessageReader` stops at the first one and abandons the rest of that packet. Every
+`svc_PacketEntities` sitting after it is lost, which is exactly the dropped snapshot.
+
+Measured over the first 200 packets of `z1800.dem`: **131 stop early.**
+
+| Message | Packets stopped |
+|---|---|
+| `svc_TempEntities` | 57 |
+| `svc_Sounds` | 37 |
+| `svc_Prefetch` | 34 |
+| `svc_SignOnState` | 1 |
+| `svc_VoiceInit` | 1 |
+| `svc_SetView` | 1 |
+
+This was always visible in the reader's own diagnostics — `NetMessageReadResult.StoppedAt`
+records it, and the `default` case says so in as many words. Nothing was hidden; the entity
+investigation simply never asked the message layer whether it had delivered everything.
+
+**That is the lesson worth keeping from B12 and B13 together.** B12 was a real decoder bug found
+by differential. B13 looked identical from the outside — same symptom, same tooling, same
+narrowing — and was a missing feature one subsystem upstream. Three rounds of bit-level analysis
+went into a decoder that was already correct, because the first question asked was "which bit is
+wrong" rather than "did every message arrive".
+
+**The fix is ordinary implementation work, not reverse engineering.** These six messages need
+decoding, or at minimum exact-width skipping so the reader can continue past them.
+`svc_TempEntities`, `svc_Sounds` and `svc_Prefetch` account for 128 of the 131 stops and are
+where to start. `demostf/parser` implements all of them.
