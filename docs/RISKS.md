@@ -649,3 +649,35 @@ wrong" rather than "did every message arrive".
 decoding, or at minimum exact-width skipping so the reader can continue past them.
 `svc_TempEntities`, `svc_Sounds` and `svc_Prefetch` account for 128 of the 131 stops and are
 where to start. `demostf/parser` implements all of them.
+
+
+### B13 closed — every corpus demo decodes end to end
+
+Eleven message types later, the entity stream runs to completion on all four demos.
+
+| Demo | Snapshots decoded | Frames | Stops |
+|---|---|---|---|
+| `z1800` | 14,385 | 14,386 | none |
+| `etf2l-12025-pov` | 118,280 | 118,282 | none |
+| `etf2l-12030-stv` | 99,999+ (probe cap) | 120,913 | none |
+| `serveme-627619` | 73,182 | 73,183 | none |
+
+Implemented, each unblocking the next: `svc_TempEntities`, `svc_Sounds`, `svc_Prefetch`,
+`svc_SetView`, `svc_SignOnState`, `svc_VoiceInit`, `svc_UserMessage`, `svc_EntityMessage`,
+`svc_VoiceData`, `svc_SetPause`. Every one is length-prefixed or fixed-width — none required
+reverse engineering, and none was a decoder fix.
+
+**Two false conclusions this closed.**
+
+The 332-snapshot wall that stopped two unrelated demos at the identical number looked
+structural, and was: both hit `svc_UserMessage` at packet 336, and losing that packet's
+snapshot broke the delta that followed. One measurement found it — printing the packet index of
+each remaining stop — after three rounds of bit-level analysis found nothing.
+
+And a test asserting that POV recordings carry no full snapshot at all, justified by scanning
+2,000 consecutive deltas without finding one. Never true. The full snapshot was there, behind an
+unimplemented message. **That scan was evidence about the reader and was read as evidence about
+the format** — B13's own mistake, committed inside a test.
+
+**Still unimplemented, none present in this corpus:** `svc_BspDecal`, `svc_CmdKeyValues`,
+`svc_File`, `svc_FixAngle`, `svc_GetCvarValue`, `svc_Menu`.

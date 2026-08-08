@@ -11,3 +11,4 @@
 - [Differential beats fixtures](differential-beats-fixtures.md) — fixtures cannot falsify your own reading of a spec; the flattening order died in one diff against another parser.
 - [Mutation score is not the goal](mutation-score-is-not-the-goal.md) — 80 is a floor not a target; skip dead ends, no tests for tests' sake.
 - [Research before code](research-before-code.md) — guess, verify against a source, then code; the hypothesis is required, skipping the verify step is what costs.
+- [Ask whether the data arrived](ask-whether-the-data-arrived.md) - check every message reached the decoder before analysing bits; a dropped message imitates a desync perfectly.

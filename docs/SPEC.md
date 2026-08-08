@@ -395,6 +395,35 @@ Still **OPEN**:
   `svc_UpdateStringTable`, `svc_UserMessage`, `net_Tick`).
 - Whether protocol 24 uses varints anywhere on these paths — see below.
 
+### Messages that only need stepping over — **CONFIRMED**
+
+Ten types are decoded far enough to consume their exact width, which is all the reader needs to
+continue. Each is length-prefixed or fixed-width, and every layout came from the reference
+implementation rather than from experiment.
+
+| Message | Layout |
+|---|---|
+| `svc_Prefetch` | index, 14 bits (13 below protocol 23) |
+| `svc_SetView` | entity index, 11 bits |
+| `svc_SetPause` | 1 bit |
+| `svc_SignOnState` | state (8), spawn count (32) |
+| `svc_VoiceInit` | codec string, quality (8), sample rate (16) **only when quality is 255** |
+| `svc_VoiceData` | client (8), proximity (8), length (16), payload |
+| `svc_Sounds` | reliable (1); if reliable, length (8); else count (8) then length (16); payload |
+| `svc_TempEntities` | count (8), length (varint above protocol 23, else 17), payload |
+| `svc_UserMessage` | type (8), length (11), payload |
+| `svc_EntityMessage` | entity index (11), class id (9), length (11), payload |
+
+Two conditional shapes are worth restating, because reading the wrong one consumes the wrong
+number of bits and loses everything behind it. `svc_Sounds`'s reliable flag changes **two**
+fields at once: a reliable message implies a single sound and shrinks its length field from 16
+bits to 8. `svc_VoiceInit` transmits a sample rate only at quality 255; otherwise it is implied
+by the codec name, 22050 for celt and 11025 for anything else.
+
+**Implementing these is what made the entity stream decodable end to end.** Messages have no
+length prefix, so each unimplemented type discarded the remainder of its packet — including any
+`svc_PacketEntities` behind it. See `RISKS.md` B13.
+
 ### `svc_ClassInfo` (id 10) — **CONFIRMED**
 
 `count` (16), a `create on client` flag (1), then — only when that flag is clear — `count`

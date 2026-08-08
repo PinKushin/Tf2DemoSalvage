@@ -138,6 +138,63 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(444);
     }
 
+    [Fact]
+    public void UserMessage_IsTypeThenAnElevenBitLength()
+    {
+        // The message that was costing both SourceTV demos their run: it appears at packet 336
+        // in each, and losing that packet's snapshot broke every delta after it.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.UserMessage)
+            .Write(4, 8)            // user message type
+            .Write(24, 11);         // twenty-four bits of payload
+        writer.Write(0xABCDEF, 24);
+        writer.NetTick(1212, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1212);
+    }
+
+    [Fact]
+    public void EntityMessage_CarriesAnIndexAndClassBeforeItsLength()
+    {
+        // Index and class id come first, so a reader that went straight for the length would
+        // take twenty of their bits as the length and run off the end.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.EntityMessage)
+            .Write(1500, 11)        // entity index
+            .Write(246, 9)          // class id
+            .Write(16, 11);         // sixteen bits of payload
+        writer.Write(0xBEEF, 16);
+        writer.NetTick(1313, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1313);
+    }
+
+    [Fact]
+    public void VoiceData_IsTwoBytesThenASixteenBitLength()
+    {
+        // 420 of these appear in z1800, which is a Mumble-era demo carrying voice comms. Each
+        // one stopped its packet and cost the snapshot behind it.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.VoiceData)
+            .Write(3, 8)            // client
+            .Write(1, 8)            // proximity
+            .Write(32, 16);         // thirty-two bits of voice payload
+        writer.Write(0xDEADBEEF, 32);
+        writer.NetTick(1414, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1414);
+    }
+
+    [Fact]
+    public void SetPause_IsASingleBit()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.SetPause).Write(1, 1);
+        writer.NetTick(1515, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1515);
+    }
+
     private static System.Collections.Generic.IReadOnlyList<INetMessage> Read(BitWriter writer) =>
         ReadResult(writer).Messages;
 
