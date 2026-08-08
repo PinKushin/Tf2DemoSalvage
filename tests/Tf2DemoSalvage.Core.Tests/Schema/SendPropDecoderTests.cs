@@ -251,6 +251,27 @@ public sealed class SendPropDecoderTests
         (dz < 0).ShouldBe(negative && MathF.Abs(dz) > 0.0001f);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NormalVector_WithASlackComponentSum_HasANonZeroZ(bool negative)
+    {
+        // Every other normal-vector test here happens to produce z = 0, which makes the sign
+        // bit and the square root untestable - mutation testing caught exactly that. Half
+        // magnitudes leave real slack: 0.5^2 + 0.5^2 = 0.5, so z is about 0.707.
+        BitWriter writer = new();
+        writer.Write(0, 1).Write(1024, 11);
+        writer.Write(0, 1).Write(1024, 11);
+        writer.Write(negative ? 1u : 0u, 1);
+        BitReader reader = new(writer.Build());
+
+        (_, _, float z) =
+            SendPropDecoder.ReadVector(ref reader, Property(SendPropType.Vector, Normal));
+
+        MathF.Abs(z).ShouldBe(0.707f, 0.01f);
+        (z < 0).ShouldBe(negative);
+    }
+
     [Fact]
     public void NormalVector_ComponentsBeyondUnitLength_ClampZToZeroRatherThanNaN()
     {
@@ -281,17 +302,21 @@ public sealed class SendPropDecoderTests
         SendPropDecoder.ReadFloat(ref reader, Property(flags: Normal)).ShouldBe(1f, 0.0001f);
     }
 
-    [Fact]
-    public void RangeEncodedFloat_RespectsANonZeroLowValue()
+    [Theory]
+    [InlineData(0u, -50f)]
+    [InlineData(255u, 50f)]
+    [InlineData(128u, 0.2f)]
+    public void RangeEncodedFloat_SpansANegativeToPositiveRange(uint raw, float expected)
     {
-        // Guards the interpolation: a decoder that ignored LowValue would still pass tests
-        // whose range starts at zero.
+        // Both endpoints and the middle. The lower endpoint alone is not enough: at raw 0 the
+        // span is multiplied by zero, so a decoder that added the bounds instead of
+        // subtracting them would still return the right answer there.
         BitWriter writer = new();
-        writer.Write(0, 8);
+        writer.Write(raw, 8);
         BitReader reader = new(writer.Build());
 
         SendPropDecoder.ReadFloat(ref reader, Property(bits: 8, low: -50f, high: 50f))
-            .ShouldBe(-50f, 0.001f);
+            .ShouldBe(expected, 0.5f);
     }
 
     [Theory]

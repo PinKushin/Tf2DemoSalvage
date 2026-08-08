@@ -96,6 +96,9 @@ public static class SendPropDecoder
     /// <exception cref="NotSupportedException">The property uses a coordinate encoding.</exception>
     public static (float X, float Y, float Z) ReadVector(ref BitReader reader, SendProperty property)
     {
+        // Stryker disable once Statement: removing this changes nothing observable - the
+        // per-component ReadFloat below guards the same property and throws the same
+        // exception. Kept so the failure names the vector rather than a component.
         ThrowIfUnsupported(property);
 
         float x = ReadFloat(ref reader, property);
@@ -123,6 +126,7 @@ public static class SendPropDecoder
     /// <exception cref="NotSupportedException">The property uses a coordinate encoding.</exception>
     public static (float X, float Y) ReadVectorXY(ref BitReader reader, SendProperty property)
     {
+        // Stryker disable once Statement: as above, ReadFloat guards the same property.
         ThrowIfUnsupported(property);
 
         return (ReadFloat(ref reader, property), ReadFloat(ref reader, property));
