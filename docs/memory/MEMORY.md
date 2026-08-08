@@ -8,3 +8,4 @@
 - [Fixtures are the weak point](fixtures-are-the-weak-point.md) — hand-written fixtures caused more bugs than the decoders; prefer round-trip properties where an encoder exists.
 - [Numeric decoding traps](numeric-decoding-traps.md) — NaN from derived square roots, sign extension, and range-encoded floats; all fail as plausible numbers, never as errors.
 - [Span guards testable without allocation](span-guards-testable-without-allocation.md) — MemoryMarshal fabricates the Length, so "too big to construct" is rarely a valid Stryker disable.
+- [Differential beats fixtures](differential-beats-fixtures.md) — fixtures cannot falsify your own reading of a spec; the flattening order died in one diff against another parser.

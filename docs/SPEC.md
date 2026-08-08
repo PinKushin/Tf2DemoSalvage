@@ -294,7 +294,7 @@ the demo was recorded on. Same name, different version is the main hazard there.
 point-of-view demo's signon — its stream opens with `svc_Print`, not `svc_ServerInfo` — so
 implementing them is what makes ServerInfo reachable in POV demos at all.
 
-### `svc_PacketEntities` (id 26) — header **CONFIRMED**, values not decoded
+### `svc_PacketEntities` (id 26) — **CONFIRMED**, header and body
 
 | Field | Bits |
 |---|---|
@@ -307,10 +307,23 @@ implementing them is what makes ServerInfo reachable in POV demos at all.
 | update baseline | 1 |
 | body | *length* bits |
 
-The body carries entity index deltas, update types and property values. **It is not decoded
-yet** — the length prefix lets it be stepped over, which is what unblocked most gameplay
-packets, and property decoding is deliberately left for a pass that includes the cross-parser
-differential harness (`RISKS.md` B4).
+The body carries entity index deltas, update types and property values, and all three now
+decode. The message's explicit bit length still isolates the body first, which contains the
+damage: a malformed body cannot read past its declared length into whatever follows.
+
+**Both index encodings are `previous + delta + 1`** — entity indices and property indices
+alike. Dropping the `+ 1` still yields monotonic indices that still address real properties, so
+a demo decodes into a coherent-looking match that is quietly wrong. Any fixture for this needs
+at least two consecutive items; with one, correct and broken predict the same observation.
+
+An entering entity carries a class id at `floor(log2(classCount)) + 1` bits followed by a
+10-bit serial number. Note **floor, not ceil** — the two agree on exact powers of two and on
+small counts, so a fixture with a handful of classes cannot tell them apart. A real demo's 362
+classes needs 9 bits, and the ceiling form says 10.
+
+A delta carries no class id, so the class must be remembered from whichever snapshot the entity
+entered on. Removals are listed after the updates, and **only on a delta** — reading that list
+unconditionally consumes bits belonging to whatever follows a full snapshot.
 
 Entity indices use **UBitVar**: a 2-bit selector choosing a 4, 8, 12 or 32-bit payload. A
 different trade from a varint — bit-granular with four fixed widths rather than byte-granular
@@ -336,7 +349,7 @@ the *container's* tick and failed. Those are different clocks — `delta from` i
 clock, like `net_Tick`, and the two differ by a constant offset. The test was wrong, not the
 parser.
 
-### Property value encodings — **PARTIAL**
+### Property value encodings — **CONFIRMED**
 
 Implemented and round-trip tested: signed and unsigned integers (sign-extended from the
 property's own width), `SPROP_NOSCALE` floats (bit-exact by design), range-encoded floats,
@@ -346,22 +359,34 @@ Note the string convention differs from the message layer: entity strings carry 
 length prefix**, while network messages use NUL termination. Confusing them desynchronises the
 entity rather than failing.
 
-**The coordinate encodings are not implemented, and throw rather than approximate.** Measured
-against the corpus:
+**The coordinate encodings are implemented.** They were the last to land and threw rather than
+guessed until then, because `m_vecOrigin` and `m_vecPunchAngle` use `SPROP_COORD_MP` — a flag
+the SDK documents and VDC does not mention at all — and a wrong coordinate is a plausible
+position in the one field a viewer exists to draw.
 
-| Scope | Decodable |
+| Field | Bits |
 |---|---|
-| `CTFPlayer` | 725 of 740 (98.0%) |
-| All 362 classes | 49,218 of 49,944 (98.5%) |
+| in bounds (not on `SPROP_COORD`) | 1 |
+| integer present | 1 |
+| fraction present (`SPROP_COORD` only) | 1 |
+| sign | 1 |
+| integer, minus one | 11 in bounds, else 14 |
+| fraction | 5, or 3 at low precision |
 
-**The blocked 2% is the part that matters**: `m_vecOrigin`, `m_vecOrigin[2]`,
-`m_vecPunchAngle`, `m_vecPunchAngleVel`. Player position is exactly what a viewer exists to
-draw, and it uses `SPROP_COORD_MP` — the flag the SDK documents and VDC does not mention at
-all. This confirms empirically what reading `dt_common.h` predicted.
+Two details carry the risk. **The integer is stored minus one**, because a present integer is
+never zero — that case is carried by the presence bit. **The in-bounds bit selects the integer
+width.** Both decode to a plausible position when wrong.
 
-They throw deliberately. A wrong coordinate is a plausible position, and a viewer drawing
-plausible-but-wrong positions is worse than one that refuses. These get implemented against
-the `gamestate` binary from the reference parser (`docs/DIFFERENTIAL.md`), not from a guess.
+The integral variant is not a subset of the others: it has no fraction bits, and reads the sign
+only when an integer is present, where the non-integral variants always read it.
+
+**Flag 32 is overloaded.** It is `SPROP_NORMAL` on a float and `SPROP_VARINT` on an integer.
+Nothing in the schema disambiguates it but the property's own type, and reading a varint as a
+fixed-width field consumes the wrong number of bits.
+
+Verified against real demos rather than fixtures alone: `z1800`'s opening snapshot yields 545
+entities and 7,442 property values, with 278 player origins spanning x −1480..8864 and
+z −1..952 — a plausible extent for `koth_harvest_final`.
 
 Still **OPEN**:
 
