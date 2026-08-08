@@ -138,14 +138,19 @@ sizzlingstats is gone, and the owner's own drives have been reformatted since.
 construction because it cannot be verified. Stated here so nobody mistakes a green
 suite for era coverage.
 
-## B8. Cross-parser oracle needs a Rust toolchain — **decision pending**
+## B8. Cross-parser oracle — **toolchain installed 2026-08-08**
 
 `parse_demo` outputs a JSON *summary* (header, players, scoreboard), not per-tick
 data. Useful as a first oracle; insufficient for entity-level diffing, which would
 need a small harness over their `DemoTicker` API.
 
-D2 bans Rust *from this codebase*. A test-only oracle is arguably outside that, but
-it is the owner's call. Not needed until there is output worth diffing.
+D2 bans Rust *from this codebase*. A test-only oracle is outside that, and the owner decided
+to proceed: **rustup 1.29.0 is installed natively on Windows** (not WSL, per their stated
+preference), giving rustc/cargo 1.97.1 on the `x86_64-pc-windows-msvc` host. MSVC BuildTools
+2022 was already present, so the default toolchain links without extra setup.
+
+`tf-demo-parser` remains the oracle of choice over `UntitledParser`: the latter is C# and
+needs no toolchain, but targets HL2 and Portal rather than TF2.
 
 **Largely resolved 2026-08-07.** [UntitledParser](https://github.com/UncraftedName/UntitledParser)
 is a Source demo parser written in **C#** and licensed **MIT** (GitHub reports NOASSERTION
