@@ -63,6 +63,8 @@ ID→type mapping. Everything above depends on it. No public authoritative sourc
 found; `tf-demo-parser` is the reference.
 
 **Mitigation:** this is the next research task, and it is bounded — one table.
+Narrowed 2026-08-07: `protocol.h` and `netmessages.h` are **not** in source-sdk-2013, so
+the SDK cannot help here. Prior art is the only route.
 
 ## B4. SendTable flattening is where silent wrongness lives — **CONCEPTUAL**
 
@@ -74,6 +76,14 @@ it will just be wrong.
 
 **Mitigation:** this is precisely what the cross-parser differential test exists
 for. Build it before entity decode, not after.
+
+Substantially de-risked 2026-08-07 by reading `dt_common.h` from the SDK, which is
+authoritative where VDC is prose: 17 `SPROP_` flags rather than the 8 VDC documents,
+plus exact bit widths (`SPROP_NUMFLAGBITS` 17, `MAX_DATATABLE_PROPS` 4096,
+`DT_MAX_STRING_BITS` 9, `MAX_ARRAY_ELEMENTS` 2048) and the `DPT_` type ids. The three
+`SPROP_COORD_MP*` variants are absent from VDC entirely and are almost certainly what TF2
+uses for player positions — a decoder built from VDC alone would decode every position
+wrongly and never crash. See `SPEC.md`.
 
 ## B5. No public wire spec for entity decode — **UNDOCUMENTED**
 
