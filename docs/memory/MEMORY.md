@@ -9,3 +9,4 @@
 - [Numeric decoding traps](numeric-decoding-traps.md) — NaN from derived square roots, sign extension, and range-encoded floats; all fail as plausible numbers, never as errors.
 - [Span guards testable without allocation](span-guards-testable-without-allocation.md) — MemoryMarshal fabricates the Length, so "too big to construct" is rarely a valid Stryker disable.
 - [Differential beats fixtures](differential-beats-fixtures.md) — fixtures cannot falsify your own reading of a spec; the flattening order died in one diff against another parser.
+- [Mutation score is not the goal](mutation-score-is-not-the-goal.md) — zero survivors will not scale; read survivors, keep break at 80, never gate a tree you are editing.

@@ -186,3 +186,41 @@ CsCheck largely supersedes D8's *deterministic* layer, which is a hand-rolled an
 **Scope for now:** `BitReader` and `VarInt` only, as a proof. Extending it to the codecs is worth doing — a generated-schema round trip would have caught the 16-versus-17-bit flags error immediately — but each codec needs an encoder written from the format description, which is real test-only code to maintain. Decide per codec rather than as a sweep.
 
 **One integration note:** SonarAnalyzer does not recognise `Gen.Sample(...)` as an assertion and raises S2699. Suppressed at class scope on property-test classes, with the reason inline, rather than project-wide — S2699 is worth keeping for ordinary tests.
+
+## D13 — the mutation gate runs incrementally during work, fully before a merge
+
+`dotnet stryker` with no arguments mutates everything: roughly 865 mutants, **26 minutes**. That
+is the wrong cadence for iterating, and running it repeatedly is how a session ends up with
+three contradictory scores in one afternoon.
+
+**During work:**
+
+```bash
+dotnet stryker --since:main
+```
+
+Only mutates files that differ from `main`, including uncommitted changes. On a clean tree it
+tests nothing and reports "unable to calculate a mutation score", which is the correct answer
+rather than a failure. The floor is about **7 minutes** — Stryker always builds and runs the
+full suite once before it can diff, so this never becomes instant.
+
+**Before a merge:** the full run, once, with nothing else touching the repository.
+
+Two things that cost time before they were understood:
+
+- **The target must be a branch name or a full SHA.** `--since:HEAD~3` fails, and it fails
+  *after* doing all the work — fifteen minutes in, at report generation. `stryker-config.json`
+  sets `since.target` to `main` so the bare `--since` flag works; Stryker's default target is
+  `master`, which does not exist in this repository.
+- **Never run the gate against a tree that is still being edited.** Stryker builds and re-runs
+  against the working tree, so concurrent edits corrupt coverage collection. Two runs on
+  2026-08-08 reported 92.93% and 82.56% for this reason; the second claimed entire files were
+  uncovered and finished in eight minutes instead of twenty-six. Both were noise, and one of
+  them triggered a full pass of unnecessary work. The undisturbed runs that day were 98.12% and
+  99.57%.
+
+**The score is not the target.** `break` stays at 80. As the codebase grows, a clean sweep stops
+being achievable — the survivors that remain are the ones that are neither worth killing nor
+cleanly equivalent, and rewriting code so a mutant dies is a change-detector test in disguise.
+Report which mutants survived and why they are acceptable. This is D6's "read the survivors, not
+the score", and it is meant literally.

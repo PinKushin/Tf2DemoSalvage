@@ -14,6 +14,15 @@
       "high": 90,
       "low": 80,
       "break": 80
+    },
+    "since": {
+      "enabled": false,
+      "target": "main",
+      "ignore-changes-in": [
+        "**/*.md",
+        "**/docs/**",
+        "**/tools/**"
+      ]
     }
   }
 }
