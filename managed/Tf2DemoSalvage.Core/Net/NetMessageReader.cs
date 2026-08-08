@@ -20,6 +20,25 @@ namespace Tf2DemoSalvage.Core.Net;
 /// </remarks>
 public static class NetMessageReader
 {
+    /// <summary>Protocol above which <c>svc_Prefetch</c> carries a 14-bit index.</summary>
+    private const int PrefetchWidthProtocol = 22;
+
+    /// <summary>Width of that index, before and after.</summary>
+    private const int PrefetchBitsModern = 14;
+    private const int PrefetchBitsLegacy = 13;
+
+    /// <summary>Width of an unreliable <c>svc_Sounds</c> payload length.</summary>
+    private const int SoundsLengthBits = 16;
+
+    /// <summary>Width of a reliable one, which also omits the count byte entirely.</summary>
+    private const int SoundsReliableLengthBits = 8;
+
+    /// <summary>Protocol above which <c>svc_TempEntities</c> uses a varint length.</summary>
+    private const int TempEntitiesVarIntProtocol = 23;
+
+    /// <summary>Its fixed length width before that.</summary>
+    private const int TempEntitiesLegacyLengthBits = 17;
+
     /// <summary>Width of <c>net_Tick</c>'s body: a 32-bit tick and two 16-bit values.</summary>
     private const int NetTickBodyBits = 64;
 
@@ -170,6 +189,48 @@ public static class NetMessageReader
                 case NetMessageType.GameEvent:
                     messages.Add(GameEventCodec.ReadEvent(ref reader, state));
                     break;
+
+                case NetMessageType.Prefetch:
+                {
+                    // A single index, one bit wider from protocol 23 onward. Nothing else.
+                    int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
+                    _ = reader.ReadUInt32(protocol > PrefetchWidthProtocol
+                        ? PrefetchBitsModern
+                        : PrefetchBitsLegacy);
+                    break;
+                }
+
+                case NetMessageType.Sounds:
+                {
+                    // The reliable flag changes two fields at once: a reliable message implies a
+                    // single sound and shrinks its length field to eight bits, while an
+                    // unreliable one sends a count byte and a sixteen-bit length. Reading one
+                    // shape for the other consumes the wrong number of bits.
+                    bool reliable = reader.ReadBit();
+                    if (!reliable)
+                    {
+                        _ = reader.ReadUInt32(8);
+                    }
+
+                    int soundBits = (int)reader.ReadUInt32(reliable
+                        ? SoundsReliableLengthBits
+                        : SoundsLengthBits);
+                    _ = NetBitReading.CopyBits(ref reader, soundBits);
+                    break;
+                }
+
+                case NetMessageType.TempEntities:
+                {
+                    // Length-prefixed like svc_PacketEntities, so the payload can be stepped
+                    // over exactly without understanding the events inside it.
+                    _ = reader.ReadUInt32(8);
+                    int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
+                    int eventBits = protocol > TempEntitiesVarIntProtocol
+                        ? (int)VarInt.ReadUInt32(ref reader)
+                        : (int)reader.ReadUInt32(TempEntitiesLegacyLengthBits);
+                    _ = NetBitReading.CopyBits(ref reader, eventBits);
+                    break;
+                }
 
                 default:
                     return Stopped(messages, lastGoodBit, type, string.Create(
