@@ -158,3 +158,31 @@ The arguments that actually hold:
 **The tradeoff pointing the other way, stated because it may reverse this decision later:** on a *public* repository, LFS bandwidth is billed to the repository owner — 1 GB/month on the free tier, paid beyond. Ordinary git clones cost the owner nothing. If this repository ever attracts real traffic, LFS becomes the more expensive option, and the demos should move to release assets or a fetch-on-demand model with checksums in `manifest.json`. That is a volume problem, not a correctness one, and can be decided when it happens.
 
 **Practical consequence:** anyone cloning needs `git lfs install` first, or the `.dem` files arrive as pointer stubs. `git lfs checkout` restores them if that happens — as it did during this migration.
+
+## D12. Property-based testing with CsCheck, alongside the existing gates
+
+Adopted 2026-08-08. CsCheck 4.8.0, Apache-2.0, actively maintained (the NuGet registration index confusingly reports a `3.0.0-rc4` prerelease line as "latest" — 4.8.0 is the current stable).
+
+**The gap it fills is not decoder bugs. It is fixture bugs.** By this point in the project the least reliable part of the test suite was the hand-written fixtures, not the code they tested. Real examples, all found the hard way: a byte-aligned message appended to another so the reader consumed a type field spanning the padding; forgetting that trailing zero padding decodes as `net_NOP`; an expected value computed wrongly by hand; and an assertion (`ShouldNotContain("#     1")`) that could never match anything and so passed regardless.
+
+A round-trip property has no hand-computed expectation to get wrong: encode an arbitrary value, decode it, require what came out to equal what went in.
+
+**Honest limits, measured rather than assumed.** A fault was injected into `VarInt` (6-bit groups instead of 7) to check the properties actually detect faults. They did, shrinking to a minimal case and printing a reproducible seed. But **the existing hand-written tests caught it too**, with 14 failures. For a fault that breaks every value, both approaches work.
+
+The advantage is narrower than the sales pitch: faults that break only *some* values. Hand-written tests check chosen points — 0, 1, 127, 128, 300, `uint.MaxValue`. A bug at exactly 2^28, or in 64-bit values with bits set in both halves, sits between those points and is found by a generator rather than by taste. Shrinking and seed reproduction are real conveniences on top, not the reason.
+
+**How it relates to what already exists**, since four testing mechanisms now sound redundant and are not:
+
+| Mechanism | Question it answers |
+|---|---|
+| Unit tests | Right answer on input we thought of? |
+| **CsCheck properties** | **Right answer across the whole input space?** |
+| Stryker (D6) | Would the tests notice if the code were wrong? |
+| SharpFuzz (D8) | Does it survive input nobody would write? |
+| Corpus tests (D5) | Does it work on bytes TF2 actually produced? |
+
+CsCheck largely supersedes D8's *deterministic* layer, which is a hand-rolled and worse version of the same idea — seeded random buffers with no shrinking, reporting only that one of two thousand cases failed. The coverage-guided layer is unaffected: libFuzzer explores toward new code paths, which property generators do not.
+
+**Scope for now:** `BitReader` and `VarInt` only, as a proof. Extending it to the codecs is worth doing — a generated-schema round trip would have caught the 16-versus-17-bit flags error immediately — but each codec needs an encoder written from the format description, which is real test-only code to maintain. Decide per codec rather than as a sweep.
+
+**One integration note:** SonarAnalyzer does not recognise `Gen.Sample(...)` as an assertion and raises S2699. Suppressed at class scope on property-test classes, with the reason inline, rather than project-wide — S2699 is worth keeping for ordinary tests.

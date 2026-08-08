@@ -41,7 +41,13 @@ nested tables, applying exclusions, then sorting `SPROP_CHANGES_OFTEN` propertie
 that order wrong and the decoder reads real values into the wrong fields without failing, which
 is why `docs/RISKS.md` B4 calls it the place silent wrongness lives.
 
-268 tests, zero build warnings, zero surviving mutants.
+280 tests, zero build warnings, zero surviving mutants.
+
+Testing is deliberately layered, because each layer answers a different question: unit tests
+(right answer on input we thought of), CsCheck properties (right across the whole input
+space), Stryker mutation testing (would the tests notice if the code were wrong), SharpFuzz
+(does it survive input nobody would write), and corpus tests (does it work on bytes TF2
+actually produced). See `docs/DECISIONS.md` D6, D8 and D12.
 
 ```
 tf2demosalvage <demo.dem>            # readable dump to stdout
