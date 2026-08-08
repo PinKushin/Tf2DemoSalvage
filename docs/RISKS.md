@@ -245,3 +245,33 @@ that can, and it currently says no.
 `z1800.dem` successfully, so a correct answer exists to compare against — see
 `docs/DIFFERENTIAL.md`. Comparing `CTFPlayer`'s flattened property list against the oracle's,
 name by name, will settle candidate 1 immediately.
+
+### B12 update — the differential settles it: right set, wrong order
+
+The harness in `tools/differential/` compared `CTFPlayer`'s flattened list against
+`demostf/parser`. The result is narrow and useful:
+
+- Both lists hold **741 properties**, of which **235 are array elements**.
+- The **sets of names are identical** — nothing is unique to either side.
+- The **order** differs, first at **index 20**.
+
+| Index | Oracle | Ours |
+|---|---|---|
+| 20 | `m_flEncodedController.001` | `DT_CollisionProperty.m_vecMinsPreScaled` |
+| 23 | `DT_BCCLocalPlayerExclusive.m_flNextAttack` | `DT_CollisionProperty.m_vecMaxs` |
+| 24 | `m_hMyWeapons.000` | `DT_CollisionProperty.m_nSolidType` |
+
+That is B4's predicted failure exactly, and it clears several suspects at once. The schema
+parser reads the tables correctly, exclusions are applied correctly, and array elements are
+expanded correctly — all three would change the *set*, and the set matches. The fault is
+confined to the sequencing rules in `SchemaFlattener`.
+
+The specific suspect is rule 2: **where a non-collapsible child's group lands**. This parser
+hoists such a group ahead of the referencing table's own properties. The oracle emits
+`m_flEncodedController`'s elements at index 20, immediately after `DT_BasePlayer.m_fFlags`,
+and defers `DT_CollisionProperty` — the opposite placement. Note also that
+`m_flEncodedController.000` is absent from both lists, so whatever rule drops it is already
+agreed on.
+
+Fixing this needs no new fixtures. `tools/differential/` regenerates both lists, and the fix is
+right when the diff is empty for every class, not just `CTFPlayer`.
