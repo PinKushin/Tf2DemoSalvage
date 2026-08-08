@@ -104,6 +104,27 @@ plus six `Vector`s (view origin, view angles, local view angles — each duplica
 for a second POV slot), 3×`float32` each. Confirmed by walking: any other size
 desynchronises the stream within a few commands.
 
+### Command ticks are not a single timeline — **CONFIRMED**
+
+Found 2026-08-07 by reading the first text dump of `z1800.dem`, which is exactly what a
+readable dump is for.
+
+| Command | Tick |
+|---|---|
+| `dem_signon` (all three) | 70718 |
+| `dem_synctick` | 0 |
+| `dem_packet` (first → last) | 6 → 57,549, monotonic |
+| `dem_stop` | 57,551 (= header `playback_ticks`) |
+
+**A signon command's tick is not on the demo's timeline.** All three carry an identical
+70,718 — larger than the demo's entire declared length — which is the server's own tick
+counter at the moment the signon data was written, not a position within the recording.
+`dem_synctick` is what establishes the timeline at 0, which is precisely its documented job.
+
+So: do not assume ticks increase monotonically across the whole command stream, and do not
+derive playback position from a signon command. Packet ticks alone are monotonic, and they
+start at a small non-zero value (6 here) rather than 0.
+
 ### Two findings from the walk
 
 **1. `dem_packet` count matches the header exactly.** 14,386 commands against a
