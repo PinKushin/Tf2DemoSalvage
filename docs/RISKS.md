@@ -139,6 +139,14 @@ Licences of both references, for the record:
 | `tf-demo-parser` | Rust | MIT OR Apache-2.0 (per crates.io metadata) |
 | `UntitledParser` | C# | MIT |
 
+**If Rust is ever actually needed, install rustup natively on Windows — not in WSL.**
+Owner's call, 2026-08-07. WSL adds a filesystem translation penalty on `/mnt/c` that makes
+builds against this repo noticeably slower, and there is no reason to pay it: rustup runs
+natively on Windows and `cargo build` produces the same binary. The one thing that genuinely
+does need WSL is libFuzzer for D8's coverage-guided runs, because the toolchain there is
+Linux-only — that is a separate concern from a Rust build and should not drag Rust into WSL
+with it.
+
 Both permit reference *and* copying with attribution. Also worth noting as evidence rather
 than reassurance: UntitledParser supports many Source engine versions, which is direct proof
 that D1's "small table of quirks per version" is a workable pattern and not an optimistic
