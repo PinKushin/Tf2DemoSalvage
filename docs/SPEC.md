@@ -173,9 +173,78 @@ layouts are what change between TF2 versions — this is layer 2 in `ROADMAP.md`
 and the reason the project needs a per-version quirk table rather than one fixed
 decoder.
 
-Not yet mined from the sources. **OPEN** for now:
+### Message ids — **DOCUMENTED** (from prior art, 2026-08-07)
 
-- The message ID width at protocol 24, and the full ID → type mapping.
+Taken from `tf-demo-parser`'s `MessageType` enum. Not available from Valve: `protocol.h` and
+`netmessages.h` are absent from source-sdk-2013, so prior art is the only route (RISKS B3).
+
+**The type field is 6 bits**, matching Source's `NETMSG_TYPE_BITS`. Each `dem_packet` payload
+is a bit stream of `[6-bit type][message body]` repeated.
+
+| Id | Message | Id | Message |
+|---|---|---|---|
+| 0 | `net_NOP` (Empty) | 18 | `svc_SetView` |
+| 2 | `svc_File` | 19 | `svc_FixAngle` |
+| 3 | `net_Tick` | 21 | `svc_BSPDecal` |
+| 4 | `net_StringCmd` | 23 | `svc_UserMessage` |
+| 5 | `net_SetConVar` | 24 | `svc_EntityMessage` |
+| 6 | `net_SignonState` | 25 | `svc_GameEvent` |
+| 7 | `svc_Print` | 26 | `svc_PacketEntities` |
+| 8 | `svc_ServerInfo` | 27 | `svc_TempEntities` |
+| 10 | `svc_ClassInfo` | 28 | `svc_Prefetch` |
+| 11 | `svc_SetPause` | 29 | `svc_Menu` |
+| 12 | `svc_CreateStringTable` | 30 | `svc_GameEventList` |
+| 13 | `svc_UpdateStringTable` | 31 | `svc_GetCvarValue` |
+| 14 | `svc_VoiceInit` | 32 | `svc_CmdKeyValues` |
+| 15 | `svc_VoiceData` | | |
+| 17 | `svc_Sounds` | | |
+
+Ids 1, 9, 16, 20 and 22 are unused at this protocol. A parser should reject them rather than
+guess.
+
+**The structural consequence, and it shapes the whole implementation:** messages are *not*
+length-prefixed. There is no way to skip one you cannot parse — the next message begins
+wherever the previous one's body ended, so the stream can only be walked by decoding every
+message well enough to know its width. Adding message support is therefore strictly
+incremental: until a type is implemented, everything after its first occurrence in a packet
+is unreachable.
+
+### `net_Tick` (id 3) — **CONFIRMED**
+
+64-bit body: a 32-bit tick, then two 16-bit values (frame time and its standard deviation).
+Layout from `tf-demo-parser`, verified against all three corpus demos.
+
+Source scales the frame-time fields by 100,000. `tf-demo-parser` keeps them raw and applies no
+scale, so that constant is engine convention rather than something verified here — our decoder
+exposes both the raw values and the converted seconds so a caller need not accept it.
+
+### The container clock and the server clock are different — **CONFIRMED**
+
+`net_Tick`'s tick does **not** equal the tick in the enclosing `dem_packet` command header.
+Measured over the first 200 packets of each corpus demo:
+
+| Demo | Recorded | Offset (server − demo) | Spread |
+|---|---|---|---|
+| `etf2l-12025-pov` | client-side | 12,636 – 12,640 | **4** |
+| `etf2l-12030-stv` | server-side | 25,662 | **0** |
+| `z1800` | server-side | 12,728 | **0** |
+
+The container's tick counts from the start of the recording; `net_Tick` carries the server's
+own absolute tick. Same reason `dem_signon` commands sit at implausible ticks (`z1800`'s are
+70,718 against a 57,551-tick demo).
+
+**The spread is the interesting part.** SourceTV demos are recorded server-side, so the offset
+is *exactly* constant across hundreds of packets. The point-of-view demo is recorded
+client-side, so its offset jitters by a few ticks as the client's clock drifts against the
+server's with latency. Expect a constant offset from STV and a small varying one from POV; a
+large or growing spread means the decoder has lost the stream, not that the clocks disagree.
+
+That constancy is also the strongest cross-check available at this layer: two tick fields
+encoded completely differently — a little-endian int32 in the container versus 32 bits read
+from a bit stream at an arbitrary offset — agreeing to the tick, every packet.
+
+Still **OPEN**:
+
 - Which messages carry the data Phase 1 needs (`svc_PacketEntities`,
   `svc_GameEvent`, `svc_GameEventList`, `svc_CreateStringTable`,
   `svc_UpdateStringTable`, `svc_UserMessage`, `net_Tick`).
