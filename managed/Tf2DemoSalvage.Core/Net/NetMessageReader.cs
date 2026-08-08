@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
@@ -68,179 +69,194 @@ public static class NetMessageReader
 
         // Fewer bits left than a type field means trailing padding: packets are padded to a
         // byte boundary, so this is the normal way a healthy packet ends.
-        while (reader.BitsRemaining >= NetMessage.TypeBits)
+        //
+        // The walk is wrapped because a packet can end part-way through a message body. That is
+        // reported rather than thrown: the messages already read are good, and the caller
+        // decides whether a partial packet is usable. It could not happen until
+        // svc_TempEntities, svc_Sounds and svc_Prefetch were implemented — before that an
+        // unimplemented type stopped the walk before any real body could run off the end.
+        try
         {
-            int typeStartBit = reader.BitsRead;
-            uint rawType = reader.ReadUInt32(NetMessage.TypeBits);
-
-            if (!Enum.IsDefined((NetMessageType)rawType))
+            while (reader.BitsRemaining >= NetMessage.TypeBits)
             {
-                return Stopped(messages, lastGoodBit, null, string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, 16, " +
-                    $"20 and 22 are unused at network protocol 24."));
-            }
+                int typeStartBit = reader.BitsRead;
+                uint rawType = reader.ReadUInt32(NetMessage.TypeBits);
 
-            NetMessageType type = (NetMessageType)rawType;
-
-            switch (type)
-            {
-                case NetMessageType.Empty:
-                    // net_NOP is padding: the type field and nothing else. Still reported,
-                    // so the message count reflects what the stream actually holds.
-                    messages.Add(NetEmptyMessage.Instance);
-                    break;
-
-                case NetMessageType.NetTick:
-                    if (reader.BitsRemaining < NetTickBodyBits)
-                    {
-                        return Stopped(messages, lastGoodBit, null, string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"Packet is truncated: {type} at bit {typeStartBit} needs " +
-                            $"{NetTickBodyBits} body bits but only {reader.BitsRemaining} remain."));
-                    }
-
-                    messages.Add(new NetTickMessage(
-                        (int)reader.ReadUInt32(32),
-                        (ushort)reader.ReadUInt32(16),
-                        (ushort)reader.ReadUInt32(16)));
-                    break;
-
-                case NetMessageType.Print:
-                    messages.Add(new PrintMessage(NetBitReading.ReadString(ref reader)));
-                    break;
-
-                case NetMessageType.StringCmd:
-                    messages.Add(new StringCmdMessage(NetBitReading.ReadString(ref reader)));
-                    break;
-
-                case NetMessageType.SetConVar:
+                if (!Enum.IsDefined((NetMessageType)rawType))
                 {
-                    int count = (int)reader.ReadUInt32(8);
-                    List<KeyValuePair<string, string>> variables = new(count);
-                    for (int i = 0; i < count; i++)
-                    {
-                        string key = NetBitReading.ReadString(ref reader);
-                        variables.Add(new KeyValuePair<string, string>(
-                            key, NetBitReading.ReadString(ref reader)));
-                    }
-
-                    messages.Add(new SetConVarMessage(variables));
-                    break;
-                }
-
-                case NetMessageType.ServerInfo:
-                {
-                    ServerInfoMessage info = ReadServerInfo(ref reader);
-                    state.ServerInfo = info;
-                    messages.Add(info);
-                    break;
-                }
-
-                case NetMessageType.PacketEntities:
-                {
-                    int maxEntries = (int)reader.ReadUInt32(11);
-                    bool isDelta = reader.ReadBit();
-                    int? deltaFrom = isDelta ? (int)reader.ReadUInt32(32) : null;
-                    bool baseline = reader.ReadBit();
-                    int updatedEntries = (int)reader.ReadUInt32(11);
-                    int entityBits = (int)reader.ReadUInt32(20);
-                    bool updateBaseline = reader.ReadBit();
-
-                    // Copied out rather than decoded in place. EntityDecoder needs the schema,
-                    // which arrives in dem_datatables - a different demo command - so the body
-                    // is carried until a caller has both.
-                    byte[] body = NetBitReading.CopyBits(ref reader, entityBits);
-
-                    messages.Add(new PacketEntitiesMessage(
-                        maxEntries, isDelta, deltaFrom, baseline, updatedEntries, entityBits,
-                        updateBaseline, body));
-                    break;
-                }
-
-                case NetMessageType.ClassInfo:
-                {
-                    ClassInfoMessage info = ReadClassInfo(ref reader);
-                    state.ClassInfo = info;
-                    messages.Add(info);
-                    break;
-                }
-
-                case NetMessageType.CreateStringTable:
-                {
-                    CreateStringTableMessage table = StringTableCodec.ReadCreate(ref reader, state);
-                    state.AddStringTable(table.MaxEntries);
-                    messages.Add(table);
-                    break;
-                }
-
-                case NetMessageType.UpdateStringTable:
-                    messages.Add(StringTableCodec.ReadUpdate(ref reader, state));
-                    break;
-
-                case NetMessageType.GameEventList:
-                {
-                    GameEventListMessage list = GameEventCodec.ReadList(ref reader);
-                    state.AddEventDefinitions(list.Definitions);
-                    messages.Add(list);
-                    break;
-                }
-
-                case NetMessageType.GameEvent:
-                    messages.Add(GameEventCodec.ReadEvent(ref reader, state));
-                    break;
-
-                case NetMessageType.Prefetch:
-                {
-                    // A single index, one bit wider from protocol 23 onward. Nothing else.
-                    int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
-                    _ = reader.ReadUInt32(protocol > PrefetchWidthProtocol
-                        ? PrefetchBitsModern
-                        : PrefetchBitsLegacy);
-                    break;
-                }
-
-                case NetMessageType.Sounds:
-                {
-                    // The reliable flag changes two fields at once: a reliable message implies a
-                    // single sound and shrinks its length field to eight bits, while an
-                    // unreliable one sends a count byte and a sixteen-bit length. Reading one
-                    // shape for the other consumes the wrong number of bits.
-                    bool reliable = reader.ReadBit();
-                    if (!reliable)
-                    {
-                        _ = reader.ReadUInt32(8);
-                    }
-
-                    int soundBits = (int)reader.ReadUInt32(reliable
-                        ? SoundsReliableLengthBits
-                        : SoundsLengthBits);
-                    _ = NetBitReading.CopyBits(ref reader, soundBits);
-                    break;
-                }
-
-                case NetMessageType.TempEntities:
-                {
-                    // Length-prefixed like svc_PacketEntities, so the payload can be stepped
-                    // over exactly without understanding the events inside it.
-                    _ = reader.ReadUInt32(8);
-                    int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
-                    int eventBits = protocol > TempEntitiesVarIntProtocol
-                        ? (int)VarInt.ReadUInt32(ref reader)
-                        : (int)reader.ReadUInt32(TempEntitiesLegacyLengthBits);
-                    _ = NetBitReading.CopyBits(ref reader, eventBits);
-                    break;
-                }
-
-                default:
-                    return Stopped(messages, lastGoodBit, type, string.Create(
+                    return Stopped(messages, lastGoodBit, null, string.Create(
                         CultureInfo.InvariantCulture,
-                        $"{type} at bit {typeStartBit} is not decoded yet. Messages carry no " +
-                        $"length prefix, so the rest of this packet cannot be reached until " +
-                        $"it is implemented."));
-            }
+                        $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, 16, " +
+                        $"20 and 22 are unused at network protocol 24."));
+                }
 
-            lastGoodBit = reader.BitsRead;
+                NetMessageType type = (NetMessageType)rawType;
+
+                switch (type)
+                {
+                    case NetMessageType.Empty:
+                        // net_NOP is padding: the type field and nothing else. Still reported,
+                        // so the message count reflects what the stream actually holds.
+                        messages.Add(NetEmptyMessage.Instance);
+                        break;
+
+                    case NetMessageType.NetTick:
+                        if (reader.BitsRemaining < NetTickBodyBits)
+                        {
+                            return Stopped(messages, lastGoodBit, null, string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"Packet is truncated: {type} at bit {typeStartBit} needs " +
+                                $"{NetTickBodyBits} body bits but only {reader.BitsRemaining} remain."));
+                        }
+
+                        messages.Add(new NetTickMessage(
+                            (int)reader.ReadUInt32(32),
+                            (ushort)reader.ReadUInt32(16),
+                            (ushort)reader.ReadUInt32(16)));
+                        break;
+
+                    case NetMessageType.Print:
+                        messages.Add(new PrintMessage(NetBitReading.ReadString(ref reader)));
+                        break;
+
+                    case NetMessageType.StringCmd:
+                        messages.Add(new StringCmdMessage(NetBitReading.ReadString(ref reader)));
+                        break;
+
+                    case NetMessageType.SetConVar:
+                        {
+                            int count = (int)reader.ReadUInt32(8);
+                            List<KeyValuePair<string, string>> variables = new(count);
+                            for (int i = 0; i < count; i++)
+                            {
+                                string key = NetBitReading.ReadString(ref reader);
+                                variables.Add(new KeyValuePair<string, string>(
+                                    key, NetBitReading.ReadString(ref reader)));
+                            }
+
+                            messages.Add(new SetConVarMessage(variables));
+                            break;
+                        }
+
+                    case NetMessageType.ServerInfo:
+                        {
+                            ServerInfoMessage info = ReadServerInfo(ref reader);
+                            state.ServerInfo = info;
+                            messages.Add(info);
+                            break;
+                        }
+
+                    case NetMessageType.PacketEntities:
+                        {
+                            int maxEntries = (int)reader.ReadUInt32(11);
+                            bool isDelta = reader.ReadBit();
+                            int? deltaFrom = isDelta ? (int)reader.ReadUInt32(32) : null;
+                            bool baseline = reader.ReadBit();
+                            int updatedEntries = (int)reader.ReadUInt32(11);
+                            int entityBits = (int)reader.ReadUInt32(20);
+                            bool updateBaseline = reader.ReadBit();
+
+                            // Copied out rather than decoded in place. EntityDecoder needs the schema,
+                            // which arrives in dem_datatables - a different demo command - so the body
+                            // is carried until a caller has both.
+                            byte[] body = NetBitReading.CopyBits(ref reader, entityBits);
+
+                            messages.Add(new PacketEntitiesMessage(
+                                maxEntries, isDelta, deltaFrom, baseline, updatedEntries, entityBits,
+                                updateBaseline, body));
+                            break;
+                        }
+
+                    case NetMessageType.ClassInfo:
+                        {
+                            ClassInfoMessage info = ReadClassInfo(ref reader);
+                            state.ClassInfo = info;
+                            messages.Add(info);
+                            break;
+                        }
+
+                    case NetMessageType.CreateStringTable:
+                        {
+                            CreateStringTableMessage table = StringTableCodec.ReadCreate(ref reader, state);
+                            state.AddStringTable(table.MaxEntries);
+                            messages.Add(table);
+                            break;
+                        }
+
+                    case NetMessageType.UpdateStringTable:
+                        messages.Add(StringTableCodec.ReadUpdate(ref reader, state));
+                        break;
+
+                    case NetMessageType.GameEventList:
+                        {
+                            GameEventListMessage list = GameEventCodec.ReadList(ref reader);
+                            state.AddEventDefinitions(list.Definitions);
+                            messages.Add(list);
+                            break;
+                        }
+
+                    case NetMessageType.GameEvent:
+                        messages.Add(GameEventCodec.ReadEvent(ref reader, state));
+                        break;
+
+                    case NetMessageType.Prefetch:
+                        {
+                            // A single index, one bit wider from protocol 23 onward. Nothing else.
+                            int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
+                            _ = reader.ReadUInt32(protocol > PrefetchWidthProtocol
+                                ? PrefetchBitsModern
+                                : PrefetchBitsLegacy);
+                            break;
+                        }
+
+                    case NetMessageType.Sounds:
+                        {
+                            // The reliable flag changes two fields at once: a reliable message implies a
+                            // single sound and shrinks its length field to eight bits, while an
+                            // unreliable one sends a count byte and a sixteen-bit length. Reading one
+                            // shape for the other consumes the wrong number of bits.
+                            bool reliable = reader.ReadBit();
+                            if (!reliable)
+                            {
+                                _ = reader.ReadUInt32(8);
+                            }
+
+                            int soundBits = (int)reader.ReadUInt32(reliable
+                                ? SoundsReliableLengthBits
+                                : SoundsLengthBits);
+                            _ = NetBitReading.CopyBits(ref reader, soundBits);
+                            break;
+                        }
+
+                    case NetMessageType.TempEntities:
+                        {
+                            // Length-prefixed like svc_PacketEntities, so the payload can be stepped
+                            // over exactly without understanding the events inside it.
+                            _ = reader.ReadUInt32(8);
+                            int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
+                            int eventBits = protocol > TempEntitiesVarIntProtocol
+                                ? (int)VarInt.ReadUInt32(ref reader)
+                                : (int)reader.ReadUInt32(TempEntitiesLegacyLengthBits);
+                            _ = NetBitReading.CopyBits(ref reader, eventBits);
+                            break;
+                        }
+
+                    default:
+                        return Stopped(messages, lastGoodBit, type, string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{type} at bit {typeStartBit} is not decoded yet. Messages carry no " +
+                            $"length prefix, so the rest of this packet cannot be reached until " +
+                            $"it is implemented."));
+                }
+
+                lastGoodBit = reader.BitsRead;
+            }
+        }
+        catch (EndOfStreamException exception)
+        {
+            return Stopped(messages, lastGoodBit, null, string.Create(
+                CultureInfo.InvariantCulture,
+                $"A message body ran past the end of the packet: {exception.Message}"));
         }
 
         return new NetMessageReadResult { Messages = messages, BitsConsumed = lastGoodBit };
