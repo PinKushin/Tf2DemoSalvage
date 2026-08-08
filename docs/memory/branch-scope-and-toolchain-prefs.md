@@ -41,7 +41,12 @@ The exception, and it is the only one: **libFuzzer for D8's coverage-guided fuzz
 Linux-only**, so that genuinely needs WSL. Owner has a working WSL setup for it — see
 [[fuzzing-belongs-here]]. Do not let that drag a Rust build into WSL alongside it.
 
-Currently moot: the cross-parser oracle will probably be
+**Done 2026-08-08.** rustup 1.29.0 installed via winget, giving rustc/cargo 1.97.1 on
+`x86_64-pc-windows-msvc`. Native Windows, not WSL. MSVC BuildTools 2022 was already present so
+the default toolchain links without extra setup. Cargo lives at `%USERPROFILE%\.cargoin`,
+which is **not on PATH in a fresh non-login shell** — prepend it explicitly.
+
+Superseded, kept for the reasoning: the cross-parser oracle might have been
 [UntitledParser](https://github.com/UncraftedName/UntitledParser), which is C# and MIT, so
 no Rust is needed at all. Recorded so the question is not re-litigated if `tf-demo-parser`
 turns out to be the better oracle for TF2 specifically.
