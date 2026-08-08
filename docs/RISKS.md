@@ -56,15 +56,21 @@ Event names are at most 32 characters. So kills, captures, round outcomes — th
 things that make a readable dump interesting — are decodable generically. Do these
 before touching user messages.
 
-## B3. Layer 2 message IDs are unmined — **OPEN**
+## B3. Layer 2 message IDs — **RESOLVED 2026-08-07**
 
 We do not yet know the message-ID bit width at network protocol 24, nor the full
 ID→type mapping. Everything above depends on it. No public authoritative source
 found; `tf-demo-parser` is the reference.
 
-**Mitigation:** this is the next research task, and it is bounded — one table.
-Narrowed 2026-08-07: `protocol.h` and `netmessages.h` are **not** in source-sdk-2013, so
-the SDK cannot help here. Prior art is the only route.
+Resolved from `tf-demo-parser`'s `MessageType` enum: the type field is **6 bits**, matching
+Source's `NETMSG_TYPE_BITS`, and the full id→type table is recorded in `SPEC.md`. The SDK
+could not help — `protocol.h` and `netmessages.h` are not in source-sdk-2013 — so prior art
+was the only route, and every value is pinned by an explicit test because of that.
+
+What replaced it as the structural constraint: **messages carry no length prefix**, so an
+undecodable message blocks everything after it in that packet. Support is strictly
+incremental. Game events and string tables are the exceptions — both carry an explicit bit
+length and can be stepped over.
 
 ## B4. SendTable flattening is where silent wrongness lives — **CONCEPTUAL**
 
@@ -151,6 +157,20 @@ Both permit reference *and* copying with attribution. Also worth noting as evide
 than reassurance: UntitledParser supports many Source engine versions, which is direct proof
 that D1's "small table of quirks per version" is a workable pattern and not an optimistic
 assumption.
+
+## B11. Five string tables per demo are LZSS-compressed — **CONFIRMED**
+
+`modelprecache`, `soundprecache`, `instancebaseline`, `ParticleEffectNames` and `Scenes` all
+arrive compressed in every corpus demo. They are skipped cleanly via their length prefix, so
+the cost is those tables rather than the stream.
+
+Two of them matter later. `instancebaseline` holds the default property values entities are
+deltaed against, which entity decoding will need. `modelprecache` maps model indices to
+paths, which the viewers will want.
+
+**Mitigation:** implement LZSS decompression when entity decode needs the baselines. Source's
+variant is documented in community sources and is small — a 4-byte `LZSS` magic, a size
+header, then flag-byte-driven literal/reference pairs. Not urgent until then.
 
 ## B9. Memory pressure at corpus scale — **anticipated, not yet measured**
 

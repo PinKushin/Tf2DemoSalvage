@@ -301,6 +301,79 @@ Still **OPEN**:
   `svc_UpdateStringTable`, `svc_UserMessage`, `net_Tick`).
 - Whether protocol 24 uses varints anywhere on these paths — see below.
 
+### `svc_ClassInfo` (id 10) — **CONFIRMED**
+
+`count` (16), a `create on client` flag (1), then — only when that flag is clear — `count`
+entries of `class id` (log2(count)+1 bits), class name, table name.
+
+Small message, outsized importance: **an entity's class id is read at a width derived from
+`count`, not transmitted.** A wrong count would not fail here; it would misread every entity in
+the demo.
+
+The `create on client` flag asks the client to build the list from its own compiled-in classes.
+A standalone parser cannot honour that — it is exactly the coupling this project exists to
+avoid — so if a demo ever sets it, the class list must come from `dem_datatables` instead. None
+of the corpus does.
+
+### String tables — **CONFIRMED**
+
+`svc_CreateStringTable` (12): name, `max entries` (16), `entry count` (log2(maxEntries)+1),
+then a body length, a fixed-user-data flag, a compressed flag, and the body.
+
+**The length is a varint at protocol > 23**, a fixed 20-bit field below it. This is the first
+confirmed use of varint encoding in TF2 demos, settling a question left open since that
+primitive was written.
+
+Entries are encoded against a **rolling history of the last 32 strings**: an entry may copy the
+first *n* bytes of a recent string and transmit only its differing tail. That makes the decoder
+stateful within a table — one wrong entry corrupts every later entry that back-references it,
+rather than failing where the mistake was.
+
+Per entry: an `index follows` bit (else an explicit index), a `has text` bit, and a `has user
+data` bit. Fixed-size tables state their payload width in **bits**; variable-size ones state a
+**byte** count. Reading the wrong unit desynchronises the table rather than throwing.
+
+`svc_UpdateStringTable` (13): table id (5), a changed-count flag (1, else a 16-bit count), a
+20-bit length, then entries in the same encoding.
+
+What the corpus contains — 20 tables per demo, 15 of which decode:
+
+| Table | Contents |
+|---|---|
+| `downloadables` | **`maps\cp_process_final.bsp`** — the map file the demo needs. |
+| `decalprecache` | 133 entries, `decals/concrete/shot1_subrect` and similar. |
+| `userinfo` | 33 entries; player identity lives in the per-entry user data. |
+| `Materials`, `lightstyles`, `VguiScreen`, … | Precache data. |
+
+The five that do not decode — `modelprecache`, `soundprecache`, `instancebaseline`,
+`ParticleEffectNames`, `Scenes` — are **LZSS-compressed**. They are skipped cleanly via the
+length prefix, so they cost those tables and nothing else. Decompression is not implemented.
+
+**Directly relevant to D9's map resolver:** `downloadables` names the map file explicitly, and
+`svc_ServerInfo` carries a 16-byte hash to confirm the version. A resolver need not infer
+anything from the map name.
+
+### The signon stream is a dependency chain — **CONFIRMED**
+
+Nothing in layer 2 is length-prefixed except game events and string tables, so signon must be
+decoded strictly in order. Each message implemented unlocks the next, and the ordering is not
+the same in every demo:
+
+| Demo kind | Signon opens with |
+|---|---|
+| SourceTV | `svc_ServerInfo` |
+| Point of view | `svc_Print` |
+
+That single difference meant ServerInfo was unreachable in the POV demo until `svc_Print`
+existed. Measured progress on the first signon command, which is ~110–130 KB in every demo:
+
+| After implementing | Messages read | Stops at |
+|---|---|---|
+| net_Tick only | 0 | `ServerInfo` |
+| ServerInfo, Print, StringCmd, SetConVar | 2 | `CreateStringTable` |
+| string tables | ~20 | `ClassInfo` |
+| ClassInfo | **23–24** | `SignonState` |
+
 ### Game events — **DOCUMENTED**, and decodable generically
 
 Game events are defined in resource files and their descriptor list is transmitted

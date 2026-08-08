@@ -36,6 +36,21 @@ The test to apply: *would this still be useful to a future assistant working on 
 project?* If yes, it is probably a personal or cross-project preference and belongs globally.
 If it is only meaningful next to this codebase, it belongs here.
 
+## Checking the two copies agree
+
+Compare with **line endings normalised**, not byte for byte:
+
+```bash
+tr -d '' < docs/memory/FILE.md | sha256sum
+```
+
+A plain `diff` reports every shared file as different, because `.gitattributes` normalises
+this copy to LF while the assistant's local copy keeps Windows CRLF. That is expected and is
+not drift — chasing it wastes a cycle.
+
+`README.md` exists only here, by design: it explains the folder to someone reading the
+repository, which is not something the assistant's own memory directory needs.
+
 ## What is here
 
 `MEMORY.md` is the index: one line per entry. Each other file holds a single fact, with
