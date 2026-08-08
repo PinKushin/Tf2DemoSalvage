@@ -395,3 +395,45 @@ old code was wrong against the SDK.
 **Then build the per-snapshot differential**, as in B12: compare entity ids and property indices
 snapshot by snapshot against `parse_demo` and let the first divergence name itself. That is what
 settled the flattening order in one diff after days of guessing.
+
+
+### B13 — the differential localises it to one property read
+
+`tools/differential/snapshots.rs` dumps every entity update snapshot by snapshot from the
+oracle; `DumpFlattened.cs snapshots` does the same here. Diffing them on `z1800.dem` names the
+first divergence exactly.
+
+**Snapshots 0 through 18 match line for line — 1,133 entity updates, every entity index, update
+type, class id and property index identical.** The first difference is snapshot 19:
+
+| Snapshot | Entity | Oracle | Ours |
+|---|---|---|---|
+| 19 | 1 | `4,17` | `4,17` — matches |
+| 19 | 2 | `16,17` | `17` |
+| 19 | 6 | `14,15,16,17,703` | `14,15,16,17` |
+
+The properties involved:
+
+| Index | Property |
+|---|---|
+| 16 | `DT_TFNonLocalPlayerExclusive.m_angEyeAngles[1]` |
+| 17 | `DT_BaseEntity.m_flSimulationTime` |
+| 703 | `DT_TFPlayer.m_bSaveMeParity` |
+
+**What this rules in.** Entity 1 of snapshot 19 matches, so the reader is correctly aligned
+*entering* entity 2 — and then reads a first property index of 17 where the oracle reads 16.
+Identical bits cannot decode to different values through identical `UBitVar` code, so alignment
+must already differ by the time that field is read. The only thing between them is the tail of
+entity 1: its last property value, `m_flSimulationTime` at index 17.
+
+So the fault is a **value width**, not an index encoding. Some property's value is read at the
+wrong number of bits, the indices continue to look plausible for a while, and the error
+accumulates until it becomes fatal at snapshot 62.
+
+This also explains why snapshots 0-18 are clean: whatever encoding is misread does not appear,
+or appears with a width that happens to agree, until then.
+
+**Next step is narrow now.** Instrument the decoder to print the bit offset after each property
+value in snapshot 19, entity 1, and compare against what the layout implies. `m_flSimulationTime`
+and `m_angEyeAngles[1]` are the two definitions to check against the SDK first — read their
+flags and bit counts out of the schema and confirm which encoding branch they take.

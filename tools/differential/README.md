@@ -35,3 +35,20 @@ array expansion in one step, since each would have changed the set, and pinned t
 **Current state: zero differences**, on every class of all four corpus demos — roughly 204,000
 properties. Re-run after any change to flattening; an empty diff for one class is not enough,
 because the ordering rules only diverge on particular shapes.
+
+
+## Per-snapshot entity differential (B13)
+
+`snapshots.rs` is a second oracle example — same install as `flatprops.rs` — printing one line
+per entity update:
+
+```
+<snapshot>	<entity>	<update-type>	<class>	<prop-index>,<prop-index>,...
+```
+
+`DumpFlattened.cs` produces the same shape with `<demo> snapshots <limit>`. Diff them and read
+the *first* difference only; a misaligned bit reader reports impossible values long after it
+went wrong, so every later line is noise.
+
+`z1800-snapshots-oracle-head.tsv` is the first 60 lines of the oracle's output, kept so the
+comparison can be sanity-checked without rebuilding Rust.
