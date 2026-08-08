@@ -580,3 +580,39 @@ every decoder path and deserves its own change with its own tests.
 search continues from the first entity whose *bit consumption* diverges, which none of the
 value comparisons has yet exposed — the next measurement should be the reader's bit offset after
 each entity, compared against the oracle's, rather than the values themselves.
+
+
+### B13 resolved as misdiagnosed — a dropped message, not a desync
+
+**My snapshot 19 is identical to the oracle's snapshot 20**, all fifty entities, every index and
+every value. Searching the oracle's snapshots 19 through 25 for our snapshot 19 finds exactly
+one match, and it is off by one.
+
+| Oracle snapshot | Entities | Matches our #19? |
+|---|---|---|
+| 19 | 51 | no |
+| **20** | **50** | **identical** |
+| 21 | 53 | no |
+
+So there is no desynchronisation in the entity decoder. **One entire `svc_PacketEntities`
+message is being dropped**, and everything downstream was misnumbered from that point — which is
+why "entity 1 of snapshot 19" showed indices that matched but values four ticks later. It was a
+different snapshot.
+
+That retracts most of the B13 analysis above. The property definitions, the array count widths,
+the coordinate flag precedence, the value comparisons — all were investigating a decoder that was
+reading correctly the whole time. Worth leaving in place rather than deleting, because the trail
+shows how a numbering error masquerades as a bit-level fault for three rounds of investigation.
+
+**Where it actually lives.** The corpus walker skips any message whose `Body.IsEmpty`, so a
+message whose `LengthBits` decoded as zero disappears silently. The oracle's snapshot 19 carries
+51 entities, so that message is real and its body is not empty — meaning either its header was
+misread, or the message never reached the decoder because `NetMessageReader` mis-parsed the
+packet containing it.
+
+**This is a message-layer defect, not a schema or entity one**, which is a different subsystem
+from everything B12 and B13 have touched so far.
+
+**Next step:** count `svc_PacketEntities` messages produced per `dem_packet` against the oracle,
+including the ones currently skipped for an empty body, and find the first packet where the
+counts differ. Then read that packet's header fields rather than its entity body.
