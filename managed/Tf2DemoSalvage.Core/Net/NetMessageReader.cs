@@ -118,6 +118,14 @@ public static class NetMessageReader
                     break;
                 }
 
+                case NetMessageType.ClassInfo:
+                {
+                    ClassInfoMessage info = ReadClassInfo(ref reader);
+                    state.ClassInfo = info;
+                    messages.Add(info);
+                    break;
+                }
+
                 case NetMessageType.CreateStringTable:
                 {
                     CreateStringTableMessage table = StringTableCodec.ReadCreate(ref reader, state);
@@ -207,6 +215,40 @@ public static class NetMessageReader
             skybox,
             serverName,
             replay);
+    }
+
+    /// <summary>
+    /// Reads <c>svc_ClassInfo</c>. Class ids are written at a width derived from the count,
+    /// so the count has to be read before the entries can be.
+    /// </summary>
+    private static ClassInfoMessage ReadClassInfo(ref BitReader reader)
+    {
+        int count = (int)reader.ReadUInt32(16);
+        bool createOnClient = reader.ReadBit();
+
+        if (createOnClient)
+        {
+            // Nothing follows. Reading entries anyway would consume bits belonging to the
+            // next message.
+            return new ClassInfoMessage(count, true, []);
+        }
+
+        int idBits = 0;
+        while (1 << idBits < count)
+        {
+            idBits++;
+        }
+
+        List<ServerClass> classes = new(count);
+        for (int i = 0; i < count; i++)
+        {
+            classes.Add(new ServerClass(
+                (int)reader.ReadUInt32(idBits + 1),
+                NetBitReading.ReadString(ref reader),
+                NetBitReading.ReadString(ref reader)));
+        }
+
+        return new ClassInfoMessage(count, false, classes);
     }
 
     private static NetMessageReadResult Stopped(

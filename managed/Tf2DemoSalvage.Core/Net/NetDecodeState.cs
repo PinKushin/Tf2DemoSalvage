@@ -26,6 +26,12 @@ public sealed class NetDecodeState
     public IReadOnlyDictionary<int, GameEventDefinition> EventDefinitions => _eventDefinitions;
 
     /// <summary>
+    /// The networked class list, once seen. Entity updates carry a class id sized from it, so
+    /// entity decoding cannot start without it.
+    /// </summary>
+    public ClassInfoMessage? ClassInfo { get; set; }
+
+    /// <summary>
     /// Capacities of the string tables declared so far, in creation order. An update names its
     /// table by that order, and needs the capacity to size its entry indices.
     /// </summary>
