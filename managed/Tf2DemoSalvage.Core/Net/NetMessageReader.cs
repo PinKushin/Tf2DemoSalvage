@@ -26,8 +26,23 @@ public static class NetMessageReader
     /// <summary>Reads as much of <paramref name="payload"/> as is currently supported.</summary>
     /// <param name="payload">One <c>dem_packet</c> payload.</param>
     /// <returns>The messages decoded and where the walk ended.</returns>
-    public static NetMessageReadResult Read(ReadOnlySpan<byte> payload)
+    public static NetMessageReadResult Read(ReadOnlySpan<byte> payload) =>
+        Read(payload, new NetDecodeState());
+
+    /// <summary>
+    /// Reads a packet, carrying decode state forward from earlier packets.
+    /// </summary>
+    /// <param name="payload">One <c>dem_packet</c> payload.</param>
+    /// <param name="state">
+    /// State accumulated from earlier packets. Game events cannot be decoded without the
+    /// definitions from a prior <c>svc_GameEventList</c>, so a packet read in isolation will
+    /// report its events as undecoded.
+    /// </param>
+    /// <returns>The messages decoded and where the walk ended.</returns>
+    public static NetMessageReadResult Read(ReadOnlySpan<byte> payload, NetDecodeState state)
     {
+        ArgumentNullException.ThrowIfNull(state);
+
         var reader = new BitReader(payload);
         var messages = new List<INetMessage>();
         int lastGoodBit = 0;
@@ -70,6 +85,18 @@ public static class NetMessageReader
                         (int)reader.ReadUInt32(32),
                         (ushort)reader.ReadUInt32(16),
                         (ushort)reader.ReadUInt32(16)));
+                    break;
+
+                case NetMessageType.GameEventList:
+                {
+                    GameEventListMessage list = GameEventCodec.ReadList(ref reader);
+                    state.AddEventDefinitions(list.Definitions);
+                    messages.Add(list);
+                    break;
+                }
+
+                case NetMessageType.GameEvent:
+                    messages.Add(GameEventCodec.ReadEvent(ref reader, state));
                     break;
 
                 default:

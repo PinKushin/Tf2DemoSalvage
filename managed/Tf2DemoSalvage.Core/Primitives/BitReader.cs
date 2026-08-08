@@ -38,6 +38,10 @@ public ref struct BitReader
     {
         if (ExceedsAddressableLength(data.Length))
         {
+            // Stryker disable next-line Statement,String: reaching this throw needs a span of
+            // over 256 MB. The rule it enforces is tested directly through
+            // ExceedsAddressableLength; allocating a quarter of a gigabyte per test run to
+            // also exercise the throw itself is not a trade worth making.
             throw new ArgumentException(
                 $"Buffer of {data.Length} bytes exceeds the bit-addressable limit of " +
                 $"{MaxByteLength} bytes.",

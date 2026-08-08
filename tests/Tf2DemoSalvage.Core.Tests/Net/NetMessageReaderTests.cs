@@ -16,43 +16,6 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class NetMessageReaderTests
 {
-    /// <summary>
-    /// Packs values least-significant-bit first, matching Source's bit order — the same
-    /// convention <see cref="Core.Primitives.BitReader"/> reads.
-    /// </summary>
-    private sealed class BitWriter
-    {
-        private readonly List<byte> _bytes = [];
-        private int _bitCount;
-
-        public BitWriter Write(uint value, int bits)
-        {
-            for (int i = 0; i < bits; i++)
-            {
-                if (_bitCount % 8 == 0)
-                {
-                    _bytes.Add(0);
-                }
-
-                if (((value >> i) & 1) != 0)
-                {
-                    _bytes[^1] |= (byte)(1 << (_bitCount % 8));
-                }
-
-                _bitCount++;
-            }
-
-            return this;
-        }
-
-        public BitWriter Message(NetMessageType type) => Write((uint)type, NetMessage.TypeBits);
-
-        public BitWriter NetTick(uint tick, ushort frameTime, ushort stdDev) =>
-            Message(NetMessageType.NetTick).Write(tick, 32).Write(frameTime, 16).Write(stdDev, 16);
-
-        public byte[] Build() => [.. _bytes];
-    }
-
     [Fact]
     public void Read_SingleNetTick_DecodesEveryField()
     {
@@ -70,10 +33,12 @@ public sealed class NetMessageReaderTests
     [Fact]
     public void Read_NetTick_ConvertsFrameTimeUsingTheSourceScale()
     {
-        byte[] packet = new BitWriter().NetTick(1, 1500, 0).Build();
+        byte[] packet = new BitWriter().NetTick(1, 1500, 250).Build();
 
         NetTickMessage tick =
             NetMessageReader.Read(packet).Messages[0].ShouldBeOfType<NetTickMessage>();
+
+        tick.HostFrameTimeStdDevSeconds.ShouldBe(0.0025f, 0.0000001f);
 
         // Source scales host frame time by 100,000 on the wire.
         tick.HostFrameTimeSeconds.ShouldBe(0.015f, 0.0000001f);

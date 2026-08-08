@@ -21,28 +21,10 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
 {
     private const int PacketsToSample = 200;
 
-    [Fact]
-    public void WhenAPacketYieldsMessages_TheFirstIsNetTick()
-    {
-        // Originally asserted that *every* packet begins with net_Tick. Real demos disagree:
-        // some packets open with a message we cannot decode yet, so they yield nothing at
-        // all. The claim that survives contact with the corpus is the weaker one - net_Tick
-        // leads whenever anything is readable.
-        foreach (string path in Corpus.Files())
-        {
-            foreach (DemoCommand packet in ReadPackets(path).Take(PacketsToSample))
-            {
-                NetMessageReadResult result = NetMessageReader.Read(packet.Payload.Span);
-
-                if (result.Messages.Count > 0)
-                {
-                    result.Messages[0].Type.ShouldBe(
-                        NetMessageType.NetTick,
-                        $"{Path.GetFileName(path)} at tick {packet.Tick}");
-                }
-            }
-        }
-    }
+    // Removed: an assertion that the first decodable message is always net_Tick. It held
+    // only because packets opening with svc_GameEvent used to yield nothing at all; once
+    // GameEvent was implemented they decoded, and some packets genuinely do lead with an
+    // event rather than a tick. MostPacketsBeginWithNetTick below carries the real claim.
 
     [Fact]
     public void MostPacketsBeginWithNetTick()
