@@ -29,7 +29,7 @@ public sealed class BitReaderFuzzPropertyTests
     [Fact]
     public void Consume_SeededRandomBuffers_NeverViolatesTheProperty()
     {
-        var random = new Random(Seed);
+        Random random = new(Seed);
 
         for (int i = 0; i < RandomCaseCount; i++)
         {
@@ -91,7 +91,7 @@ public sealed class BitReaderFuzzPropertyTests
 
     public static TheoryData<byte[]> StructuredBuffers()
     {
-        var data = new TheoryData<byte[]>();
+        TheoryData<byte[]> data = new();
 
         foreach (byte[] buffer in StructuredCases)
         {
@@ -103,7 +103,7 @@ public sealed class BitReaderFuzzPropertyTests
 
     private static List<byte[]> BuildStructuredCases()
     {
-        var cases = new List<byte[]>
+        List<byte[]> cases = new()
         {
             Array.Empty<byte>(),
             new byte[] { 0x00 },
@@ -166,8 +166,8 @@ public sealed class BitReaderFuzzPropertyTests
     [Fact]
     public void SeededCorpus_ReachesEveryFieldWidth()
     {
-        var widths = new HashSet<int>();
-        var random = new Random(Seed);
+        HashSet<int> widths = new();
+        Random random = new(Seed);
 
         for (int i = 0; i < RandomCaseCount; i++)
         {
@@ -192,7 +192,7 @@ public sealed class BitReaderFuzzPropertyTests
     [Fact]
     public void WidthRecording_ClusteredCorpus_ReportsOnlyTheWidthsItReaches()
     {
-        var widths = new HashSet<int>();
+        HashSet<int> widths = new();
 
         // Every byte 0x00 selects width 1, and nothing else, however much of it there is.
         for (int i = 0; i < 50; i++)

@@ -21,7 +21,7 @@ public sealed class GameEventCodecTests
     /// </summary>
     private static byte[] EventList(params (int Id, string Name, (GameEventValueType Type, string Name)[] Fields)[] events)
     {
-        var body = new BitWriter();
+        BitWriter body = new();
         foreach ((int id, string name, (GameEventValueType Type, string Name)[] fields) in events)
         {
             body.Write((uint)id, 9).String(name);
@@ -35,7 +35,7 @@ public sealed class GameEventCodecTests
 
         byte[] bodyBytes = body.Build();
 
-        var writer = new BitWriter();
+        BitWriter writer = new();
         writer.Message(NetMessageType.GameEventList)
             .Write((uint)events.Length, 9)
             .Write((uint)body.BitCount, 20);
@@ -63,7 +63,7 @@ public sealed class GameEventCodecTests
 
         NetMessageReadResult result = NetMessageReader.Read(packet);
 
-        var list = result.Messages[0].ShouldBeOfType<GameEventListMessage>();
+        GameEventListMessage list = result.Messages[0].ShouldBeOfType<GameEventListMessage>();
         list.Definitions.Count.ShouldBe(2);
 
         GameEventDefinition death = list.Definitions[0];
@@ -82,7 +82,7 @@ public sealed class GameEventCodecTests
     {
         // The whole point of the length prefix: whatever follows must still decode. If the
         // body were consumed by even one bit too few or too many, this net_Tick becomes noise.
-        var writer = new BitWriter();
+        BitWriter writer = new();
         byte[] listBytes = EventList((1, "e", [(GameEventValueType.Byte, "f")]));
         foreach (byte b in listBytes)
         {
@@ -100,7 +100,7 @@ public sealed class GameEventCodecTests
     [Fact]
     public void GameEvent_DecodesAgainstADefinitionSeenEarlier()
     {
-        var state = new NetDecodeState();
+        NetDecodeState state = new();
 
         NetMessageReader.Read(
             EventList((7, "player_hurt",
@@ -111,8 +111,8 @@ public sealed class GameEventCodecTests
             ])),
             state);
 
-        var writer = new BitWriter();
-        var body = new BitWriter()
+        BitWriter writer = new();
+        BitWriter body = new BitWriter()
             .Write(7, 9)
             .Write(unchecked((uint)(short)91), 16)
             .Write(63, 8)
@@ -127,7 +127,7 @@ public sealed class GameEventCodecTests
 
         NetMessageReadResult result = NetMessageReader.Read(writer.Build(), state);
 
-        var fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
+        GameEventMessage fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
         fired.Name.ShouldBe("player_hurt");
         fired.IsDecoded.ShouldBeTrue();
         fired.Values["userid"].ShouldBe((short)91);
@@ -139,10 +139,10 @@ public sealed class GameEventCodecTests
     public void GameEvent_WithoutItsDefinition_IsReportedUndecodedButDoesNotStopTheWalk()
     {
         // The length prefix means one unknown event costs that event, not the packet.
-        var body = new BitWriter().Write(99, 9);
+        BitWriter body = new BitWriter().Write(99, 9);
         byte[] bodyBytes = body.Build();
 
-        var writer = new BitWriter();
+        BitWriter writer = new();
         writer.Message(NetMessageType.GameEvent).Write((uint)body.BitCount, 11);
         for (int bit = 0; bit < body.BitCount; bit++)
         {
@@ -153,7 +153,7 @@ public sealed class GameEventCodecTests
 
         NetMessageReadResult result = NetMessageReader.Read(writer.Build());
 
-        var fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
+        GameEventMessage fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
         fired.EventId.ShouldBe(99);
         fired.IsDecoded.ShouldBeFalse();
         fired.Values.ShouldBeEmpty();
@@ -163,7 +163,7 @@ public sealed class GameEventCodecTests
     [Fact]
     public void GameEvent_DecodesEveryValueType()
     {
-        var state = new NetDecodeState();
+        NetDecodeState state = new();
         NetMessageReader.Read(
             EventList((3, "everything",
             [
@@ -178,7 +178,7 @@ public sealed class GameEventCodecTests
             state);
 
         const ulong big = 0xDEADBEEF_12345678UL;
-        var body = new BitWriter()
+        BitWriter body = new BitWriter()
             .Write(3, 9)
             .String("hi")
             .Write((uint)System.BitConverter.SingleToInt32Bits(1.5f), 32)
@@ -190,7 +190,7 @@ public sealed class GameEventCodecTests
             .Write((uint)(big >> 32), 32);
 
         NetMessageReadResult result = NetMessageReader.Read(WrapEvent(body), state);
-        var fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
+        GameEventMessage fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
 
         fired.Values["s"].ShouldBe("hi");
         fired.Values["f"].ShouldBe(1.5f);
@@ -229,14 +229,14 @@ public sealed class GameEventCodecTests
     {
         // CopyBits handles the partial trailing byte, and every survivor from the first
         // mutation run lived in exactly that arithmetic.
-        var body = new BitWriter().Write(1, 9);
+        BitWriter body = new BitWriter().Write(1, 9);
         for (int i = 0; i < extraBits; i++)
         {
             body.Write(1, 1);
         }
 
         byte[] bodyBytes = body.Build();
-        var writer = new BitWriter();
+        BitWriter writer = new();
         writer.Message(NetMessageType.GameEvent).Write((uint)body.BitCount, 11);
         for (int bit = 0; bit < body.BitCount; bit++)
         {
@@ -263,7 +263,7 @@ public sealed class GameEventCodecTests
     private static byte[] WrapEvent(BitWriter body)
     {
         byte[] bodyBytes = body.Build();
-        var writer = new BitWriter();
+        BitWriter writer = new();
         writer.Message(NetMessageType.GameEvent).Write((uint)body.BitCount, 11);
 
         for (int bit = 0; bit < body.BitCount; bit++)
@@ -276,7 +276,7 @@ public sealed class GameEventCodecTests
 
     private static byte[] AppendNetTick(byte[] prefix, uint tick)
     {
-        var writer = new BitWriter();
+        BitWriter writer = new();
         foreach (byte b in prefix)
         {
             writer.Write(b, 8);

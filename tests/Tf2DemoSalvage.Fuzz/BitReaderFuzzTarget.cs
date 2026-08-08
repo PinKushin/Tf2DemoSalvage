@@ -76,7 +76,7 @@ public static class BitReaderFuzzTarget
         int reads = 0;
 
         long totalBits = (long)data.Length * BitsPerByte;
-        var reader = new BitReader(data);
+        BitReader reader = new(data);
         int cursor = 0;
 
         while (reader.BitsRemaining > 0)

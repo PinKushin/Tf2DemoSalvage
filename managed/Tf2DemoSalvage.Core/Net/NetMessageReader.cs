@@ -43,8 +43,8 @@ public static class NetMessageReader
     {
         ArgumentNullException.ThrowIfNull(state);
 
-        var reader = new BitReader(payload);
-        var messages = new List<INetMessage>();
+        BitReader reader = new(payload);
+        List<INetMessage> messages = new();
         int lastGoodBit = 0;
 
         // Fewer bits left than a type field means trailing padding: packets are padded to a
@@ -62,7 +62,7 @@ public static class NetMessageReader
                     $"20 and 22 are unused at network protocol 24."));
             }
 
-            var type = (NetMessageType)rawType;
+            NetMessageType type = (NetMessageType)rawType;
 
             switch (type)
             {

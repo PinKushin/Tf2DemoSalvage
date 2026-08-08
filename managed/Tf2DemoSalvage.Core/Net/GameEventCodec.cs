@@ -31,18 +31,18 @@ internal static class GameEventCodec
         // malformed definition cannot run past the list and corrupt the rest of the packet -
         // the outer reader has already been advanced by exactly the declared length.
         byte[] body = CopyBits(ref reader, lengthBits);
-        var bodyReader = new BitReader(body);
+        BitReader bodyReader = new(body);
 
-        var definitions = new List<GameEventDefinition>(count);
+        List<GameEventDefinition> definitions = new(count);
         for (int i = 0; i < count; i++)
         {
             int id = (int)bodyReader.ReadUInt32(EventIdBits);
             string name = ReadString(ref bodyReader);
 
-            var fields = new List<GameEventField>();
+            List<GameEventField> fields = new();
             while (true)
             {
-                var type = (GameEventValueType)bodyReader.ReadUInt32(ValueTypeBits);
+                GameEventValueType type = (GameEventValueType)bodyReader.ReadUInt32(ValueTypeBits);
                 if (type == GameEventValueType.None)
                 {
                     break;
@@ -62,7 +62,7 @@ internal static class GameEventCodec
     {
         int lengthBits = (int)reader.ReadUInt32(EventLengthBits);
         byte[] body = CopyBits(ref reader, lengthBits);
-        var bodyReader = new BitReader(body);
+        BitReader bodyReader = new(body);
 
         int eventId = (int)bodyReader.ReadUInt32(EventIdBits);
 
@@ -73,7 +73,7 @@ internal static class GameEventCodec
             return new GameEventMessage(eventId, null, new Dictionary<string, object>());
         }
 
-        var values = new Dictionary<string, object>(definition.Fields.Count, StringComparer.Ordinal);
+        Dictionary<string, object> values = new(definition.Fields.Count, StringComparer.Ordinal);
         foreach (GameEventField field in definition.Fields)
         {
             values[field.Name] = ReadValue(ref bodyReader, field.Type);
@@ -97,7 +97,7 @@ internal static class GameEventCodec
     /// <summary>Reads a NUL-terminated string, the encoding Source uses in bit streams.</summary>
     private static string ReadString(ref BitReader reader)
     {
-        var bytes = new List<byte>();
+        List<byte> bytes = new();
 
         while (true)
         {

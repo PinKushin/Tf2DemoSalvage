@@ -48,7 +48,7 @@ public static class VarIntFuzzTarget
         }
 
         int decoded = 0;
-        var reader = new BitReader(data);
+        BitReader reader = new(data);
         int cursor = 0;
 
         while (reader.BitsRemaining > 0)

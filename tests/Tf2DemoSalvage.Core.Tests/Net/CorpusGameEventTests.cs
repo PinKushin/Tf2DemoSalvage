@@ -115,8 +115,8 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
     {
         foreach (string path in Corpus.Files())
         {
-            var state = new NetDecodeState();
-            var fired = new Dictionary<string, int>(StringComparer.Ordinal);
+            NetDecodeState state = new();
+            Dictionary<string, int> fired = new(StringComparer.Ordinal);
             int definitions = 0;
             int undecoded = 0;
 
@@ -168,7 +168,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
         // svc_ServerInfo first, because nothing here is length-prefixed.
         foreach (string path in Corpus.Files())
         {
-            var state = new NetDecodeState();
+            NetDecodeState state = new();
 
             foreach (DemoCommand signon in SignonAndPackets(path)
                 .Where(c => c.Type == DemoCommandType.Signon))
@@ -186,7 +186,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
 
     private static (GameEventListMessage? List, NetDecodeState State) ReadUntilEventList(string path)
     {
-        var state = new NetDecodeState();
+        NetDecodeState state = new();
 
         // svc_GameEventList arrives during signon, not during play - it is part of the state
         // the server hands a joining client, alongside the entity schema. So signon commands

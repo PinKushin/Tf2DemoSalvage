@@ -48,7 +48,7 @@ public static class DemoCommandReader
 
         while (position < data.Length)
         {
-            var type = (DemoCommandType)data.Span[position];
+            DemoCommandType type = (DemoCommandType)data.Span[position];
             if (!Enum.IsDefined(type))
             {
                 throw new InvalidDataException(string.Create(
