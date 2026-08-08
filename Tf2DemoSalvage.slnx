@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/managed/">
+    <Project Path="managed/Tf2DemoSalvage.Cli/Tf2DemoSalvage.Cli.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
