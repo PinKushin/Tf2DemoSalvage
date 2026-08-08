@@ -160,6 +160,40 @@ Not yet mined from the sources. **OPEN** for now:
   `svc_UpdateStringTable`, `svc_UserMessage`, `net_Tick`).
 - Whether protocol 24 uses varints anywhere on these paths — see below.
 
+### Game events — **DOCUMENTED**, and decodable generically
+
+Game events are defined in resource files and their descriptor list is transmitted
+(`svc_GameEventList`), so a demo carries the schema for its own events — the same
+self-describing property that makes entity decode possible. Field types are small
+and fixed:
+
+| Type | Wire encoding |
+|---|---|
+| `string` | zero-terminated |
+| `bool` | 1 bit |
+| `byte` | 8-bit unsigned |
+| `short` | 16-bit signed |
+| `long` | 32-bit signed |
+| `float` | 32-bit |
+
+Event names are at most 32 characters. Kills, captures and round outcomes all arrive
+this way, so the readable-dump goal is reachable without reverse-engineering anything.
+
+### User messages — **CONFIRMED not self-describing.** See `RISKS.md` B1
+
+The exception to the project's central premise. VDC is explicit that user messages
+"aren't automatically serialized or unserialized" and that client and server code must
+both change when one changes. A user message is a name, a size registered in code, and
+opaque bytes — the demo does not describe its layout.
+
+This matters because **chat is a user message** (`SayText2`), and chat extraction is a
+stated Phase 1 output. Recovering *which* message fired and its raw bytes is always
+possible; interpreting the bytes needs a per-version table. Payloads are capped at 255
+bytes, which bounds the problem.
+
+Decode game events first. Treat user messages as opaque except the specific few that
+matter.
+
 ### The varint question — **OPEN, and it has already cost us**
 
 `Tf2DemoSalvage.Core.Primitives.VarInt` exists, is tested, and is
@@ -207,6 +241,55 @@ art (`demostf/parser`) cross-checked against our own bytes. **UNDOCUMENTED.**
 | Max networked members per entity | 1024 (array elements count individually) |
 | Max serialised data per entity per update | 2 KB |
 | Typical snapshot rate | ~20/sec |
+
+### Hard constants from the SDK — **DOCUMENTED (authoritative)**
+
+Read from `source-sdk-2013/src/public/dt_common.h` on 2026-08-07. These are Valve's own
+values, not community reconstruction, and they settle several bit widths outright:
+
+| Constant | Value | Why it matters |
+|---|---|---|
+| `SPROP_NUMFLAGBITS` | 17 | Width of the flags field when a SendProp is transmitted. |
+| `MAX_DATATABLE_PROPS` | 4096 | Bounds the property index — 12 bits. |
+| `DT_MAX_STRING_BITS` | 9 | String length field width; buffer is 512. |
+| `MAX_ARRAY_ELEMENTS` | 2048 | Bounds array length — 11 bits. |
+
+`SendPropType` enum order gives the on-wire type ids: `DPT_Int` 0, `DPT_Float` 1,
+`DPT_Vector` 2, `DPT_VectorXY` 3, `DPT_String` 4, `DPT_Array` 5, `DPT_DataTable` 6.
+
+Note a discrepancy worth not papering over: VDC says 1024 networked members per entity,
+the SDK says `MAX_DATATABLE_PROPS` 4096. These are probably different limits (per entity
+versus per table). Trust the SDK constant for bit widths; treat VDC's figure as prose.
+
+### The full flag set — **DOCUMENTED (authoritative)**
+
+**VDC documents eight of these. There are seventeen**, and the ones VDC omits are
+precisely the ones that change how a value is encoded — which is the difference between a
+decoder that works and one that silently produces wrong numbers.
+
+| Flag | Bit | Notes |
+|---|---|---|
+| `SPROP_UNSIGNED` | 1<<0 | |
+| `SPROP_COORD` | 1<<1 | |
+| `SPROP_NOSCALE` | 1<<2 | |
+| `SPROP_ROUNDDOWN` | 1<<3 | |
+| `SPROP_ROUNDUP` | 1<<4 | |
+| `SPROP_NORMAL` | 1<<5 | |
+| `SPROP_EXCLUDE` | 1<<6 | |
+| `SPROP_XYZE` | 1<<7 | **Not in VDC.** |
+| `SPROP_INSIDEARRAY` | 1<<8 | **Not in VDC.** |
+| `SPROP_PROXY_ALWAYS_YES` | 1<<9 | **Not in VDC.** |
+| `SPROP_CHANGES_OFTEN` | 1<<10 | Reorders the flattened list. |
+| `SPROP_IS_A_VECTOR_ELEM` | 1<<11 | **Not in VDC.** |
+| `SPROP_COLLAPSIBLE` | 1<<12 | **Not in VDC.** |
+| `SPROP_COORD_MP` | 1<<13 | **Not in VDC.** Multiplayer coord encoding. |
+| `SPROP_COORD_MP_LOWPRECISION` | 1<<14 | **Not in VDC.** |
+| `SPROP_COORD_MP_INTEGRAL` | 1<<15 | **Not in VDC.** |
+| `SPROP_ENCODED_AGAINST_TICKCOUNT` | 1<<16 | **Not in VDC.** |
+
+The three `COORD_MP` variants are the sharp ones: TF2 is a multiplayer game, so player
+positions almost certainly use them rather than plain `SPROP_COORD`. A decoder built from
+VDC alone would not know they exist and would decode every position wrongly.
 
 `SPROP_` flags affecting decode:
 
@@ -262,6 +345,18 @@ disagree with.
 
 - demboyz `DemFormat.md`: the `dem_usercmd`, `dem_datatables`, and
   `dem_stringtables` payload structures were not detailed in the section fetched.
+- `source-sdk-2013/src/public/dt_send.h` and `src/public/tier1/bitbuf.h` — the latter
+  should settle the coordinate and normal encodings exactly, including the `COORD_MP`
+  variants above.
+- **TF2 patch notes are public back to 2007** (Team Fortress Wiki update history). Useful
+  for correlating protocol or schema changes to dates once we know which builds matter —
+  the reverse of the mistake made earlier, where a date was inferred from a protocol
+  number.
+- **What the SDK does *not* contain:** `protocol.h` and `netmessages.h` are absent from
+  source-sdk-2013 (confirmed against its file tree, 2026-08-07). Only `dt_common.h`,
+  `dt_send.h` and `tier1/bitbuf.h` are shipped. So the SDK settles the entity-schema
+  layer and contributes nothing to layer 2's message ids — those still need prior art.
+  This bounds the SDK's usefulness precisely rather than leaving it hopeful.
 - VDC *Networking Events & Messages* — game events and user messages.
 - VDC *Networking Entities* §"Mismatched Class Tables" — directly relevant to the
   client-rejection story.
