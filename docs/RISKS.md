@@ -437,3 +437,42 @@ or appears with a width that happens to agree, until then.
 value in snapshot 19, entity 1, and compare against what the layout implies. `m_flSimulationTime`
 and `m_angEyeAngles[1]` are the two definitions to check against the SDK first — read their
 flags and bit counts out of the schema and confirm which encoding branch they take.
+
+
+#### B13 — property definitions checked, and what they eliminate
+
+Every property appearing in snapshot 19's diverging entities, read out of the schema and
+checked against the oracle's own `FloatDefinition::new` precedence:
+
+| Index | Property | Type | Flags | Encoding it selects |
+|---|---|---|---|---|
+| 4 | `m_nTickBase` | Int | `0x0400` | signed, 32 bits |
+| 9 | `m_vecOrigin` | VectorXY | `0x0404` | `SPROP_NOSCALE`, two 32-bit floats |
+| 10 | `m_vecOrigin[2]` | Float | `0x0C04` | `SPROP_NOSCALE`, 32 bits |
+| 13 | `m_vecOrigin` | VectorXY | `0x4400` | `COORD_MP_LOWPRECISION` |
+| 14 | `m_vecOrigin[2]` | Float | `0x4C04` | `COORD_MP_LOWPRECISION` — beats the `NOSCALE` bit also set |
+| 15 | `m_angEyeAngles[0]` | Float | `0x0C00` | range, 8 bits, −90…90 |
+| 16 | `m_angEyeAngles[1]` | Float | `0x0C00` | range, 10 bits, 0…360 |
+| 17 | `m_flSimulationTime` | Int | `0x0401` | unsigned, 8 bits |
+| 703 | `m_bSaveMeParity` | Int | `0x0001` | unsigned, 1 bit |
+
+Index 14 is worth noting: it carries both `COORD_MP_LOWPRECISION` and `SPROP_NOSCALE`, and the
+first-match rule means the coordinate encoding wins. This parser now agrees, but only because
+that precedence was fixed while investigating — it is exactly the shape of bug being hunted, and
+it is real in this corpus even though it was not the cause here.
+
+**Every one of these selects the same branch in both parsers**, so the fault is not in the
+definitions of the properties that appear in the diverging entities. That leaves two
+possibilities:
+
+1. A property earlier in the same snapshot, in an entity that *matched*, whose value width is
+   wrong in a way that does not disturb its own indices. Entity 1 of snapshot 19 reports
+   `4,17` in both parsers, so its indices are right — but its property *values* have never been
+   compared, only its indices.
+2. The snapshot's trailing structure — the removal list, or the update-baseline flag — consuming
+   a different number of bits.
+
+**The next measurement is values, not indices.** `snapshots.rs` and `DumpFlattened.cs snapshots`
+both print property indices only, which is what made snapshots 0-18 look identical. Extending
+both to print decoded values would show whether entity 1's `m_flSimulationTime` actually agrees
+or merely lands at the right index.
