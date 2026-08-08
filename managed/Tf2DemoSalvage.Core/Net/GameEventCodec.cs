@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
@@ -37,7 +36,7 @@ internal static class GameEventCodec
         for (int i = 0; i < count; i++)
         {
             int id = (int)bodyReader.ReadUInt32(EventIdBits);
-            string name = ReadString(ref bodyReader);
+            string name = NetBitReading.ReadString(ref bodyReader);
 
             List<GameEventField> fields = new();
             while (true)
@@ -48,7 +47,7 @@ internal static class GameEventCodec
                     break;
                 }
 
-                fields.Add(new GameEventField(ReadString(ref bodyReader), type));
+                fields.Add(new GameEventField(NetBitReading.ReadString(ref bodyReader), type));
             }
 
             definitions.Add(new GameEventDefinition(id, name, fields));
@@ -84,7 +83,7 @@ internal static class GameEventCodec
 
     private static object ReadValue(ref BitReader reader, GameEventValueType type) => type switch
     {
-        GameEventValueType.String => ReadString(ref reader),
+        GameEventValueType.String => NetBitReading.ReadString(ref reader),
         GameEventValueType.Float => BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32)),
         GameEventValueType.Long => (int)reader.ReadUInt32(32),
         GameEventValueType.Short => (short)reader.ReadUInt32(16),
@@ -93,25 +92,6 @@ internal static class GameEventCodec
         GameEventValueType.UInt64 => reader.ReadUInt32(32) | ((ulong)reader.ReadUInt32(32) << 32),
         _ => throw new InvalidOperationException($"Unhandled game event value type {type}."),
     };
-
-    /// <summary>Reads a NUL-terminated string, the encoding Source uses in bit streams.</summary>
-    private static string ReadString(ref BitReader reader)
-    {
-        List<byte> bytes = new();
-
-        while (true)
-        {
-            byte value = reader.ReadByte();
-            if (value == 0)
-            {
-                break;
-            }
-
-            bytes.Add(value);
-        }
-
-        return Encoding.UTF8.GetString([.. bytes]);
-    }
 
     /// <summary>
     /// Copies <paramref name="bitCount"/> bits out of the reader into their own buffer.

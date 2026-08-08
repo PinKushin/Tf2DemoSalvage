@@ -16,6 +16,12 @@ public sealed class NetDecodeState
 {
     private readonly Dictionary<int, GameEventDefinition> _eventDefinitions = [];
 
+    /// <summary>
+    /// The server's own description of itself, once seen. Its <c>MaxClasses</c> determines the
+    /// bit width of entity class ids, so entity decoding cannot begin without it.
+    /// </summary>
+    public ServerInfoMessage? ServerInfo { get; set; }
+
     /// <summary>Game event definitions seen so far, keyed by event id.</summary>
     public IReadOnlyDictionary<int, GameEventDefinition> EventDefinitions => _eventDefinitions;
 
