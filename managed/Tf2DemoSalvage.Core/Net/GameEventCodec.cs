@@ -29,7 +29,7 @@ internal static class GameEventCodec
         // The body is copied out so it can be read as its own stream. That also means a
         // malformed definition cannot run past the list and corrupt the rest of the packet -
         // the outer reader has already been advanced by exactly the declared length.
-        byte[] body = CopyBits(ref reader, lengthBits);
+        byte[] body = NetBitReading.CopyBits(ref reader, lengthBits);
         BitReader bodyReader = new(body);
 
         List<GameEventDefinition> definitions = new(count);
@@ -60,7 +60,7 @@ internal static class GameEventCodec
     internal static GameEventMessage ReadEvent(ref BitReader reader, NetDecodeState state)
     {
         int lengthBits = (int)reader.ReadUInt32(EventLengthBits);
-        byte[] body = CopyBits(ref reader, lengthBits);
+        byte[] body = NetBitReading.CopyBits(ref reader, lengthBits);
         BitReader bodyReader = new(body);
 
         int eventId = (int)bodyReader.ReadUInt32(EventIdBits);
@@ -93,33 +93,4 @@ internal static class GameEventCodec
         _ => throw new InvalidOperationException($"Unhandled game event value type {type}."),
     };
 
-    /// <summary>
-    /// Copies <paramref name="bitCount"/> bits out of the reader into their own buffer.
-    /// </summary>
-    /// <remarks>
-    /// Needed because a length-prefixed body has to be read as an independent stream, and
-    /// <see cref="BitReader"/> cannot be positioned at an arbitrary bit offset. The buffers are
-    /// small - a game event body is at most 2047 bits - so this is not on a hot path.
-    /// </remarks>
-    private static byte[] CopyBits(ref BitReader reader, int bitCount)
-    {
-        // Stryker disable once Arithmetic: mutating the rounding only over-allocates. The
-        // extra bytes are never written or read, so decoding stays correct and no assertion
-        // can distinguish it. Wasteful, not wrong - an equivalent mutant.
-        byte[] buffer = new byte[(bitCount + 7) / 8];
-        int whole = bitCount / 8;
-
-        for (int i = 0; i < whole; i++)
-        {
-            buffer[i] = reader.ReadByte();
-        }
-
-        int remainder = bitCount % 8;
-        if (remainder > 0)
-        {
-            buffer[whole] = (byte)reader.ReadUInt32(remainder);
-        }
-
-        return buffer;
-    }
 }

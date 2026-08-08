@@ -35,4 +35,34 @@ internal static class NetBitReading
 
         return Encoding.UTF8.GetString([.. bytes]);
     }
+
+    /// <summary>
+    /// Copies <paramref name="bitCount"/> bits out of the reader into their own buffer.
+    /// </summary>
+    /// <remarks>
+    /// A length-prefixed body has to be read as an independent stream, and
+    /// <see cref="BitReader"/> cannot be positioned at an arbitrary bit offset. Copying also
+    /// contains the damage: a malformed body cannot run past its declared length and corrupt
+    /// whatever follows, because the outer reader has already moved on.
+    /// </remarks>
+    internal static byte[] CopyBits(ref BitReader reader, int bitCount)
+    {
+        // Stryker disable once Arithmetic: mutating the rounding only over-allocates. The
+        // extra bytes are never written or read, so decoding stays correct.
+        byte[] buffer = new byte[(bitCount + 7) / 8];
+        int whole = bitCount / 8;
+
+        for (int i = 0; i < whole; i++)
+        {
+            buffer[i] = reader.ReadByte();
+        }
+
+        int remainder = bitCount % 8;
+        if (remainder > 0)
+        {
+            buffer[whole] = (byte)reader.ReadUInt32(remainder);
+        }
+
+        return buffer;
+    }
 }

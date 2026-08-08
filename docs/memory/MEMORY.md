@@ -3,3 +3,4 @@
 - [Fuzzing belongs here](fuzzing-belongs-here.md) — the bit-level parser plus D5's one-demo corpus make this a strong candidate; proposed, not implemented, and `docs/FUZZING.md` has the detail.
 - [z1800.dem is modern, not 2015](z1800-is-modern-not-2015.md) — date demos by seasonal assets, never protocol numbers; file is truncated one byte.
 - [Split branches, keep Rust off WSL](branch-scope-and-toolchain-prefs.md) — branch names must stay accurate; rustup native on Windows, WSL only for libFuzzer.
+- [Write tests before codecs](tests-before-codecs.md) — mutation testing caught the same after-the-fact lapse twice (5 then 53 survivors); corpus tests cannot cover branches the demos never take.

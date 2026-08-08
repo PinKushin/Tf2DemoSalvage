@@ -25,6 +25,24 @@ public sealed class NetDecodeState
     /// <summary>Game event definitions seen so far, keyed by event id.</summary>
     public IReadOnlyDictionary<int, GameEventDefinition> EventDefinitions => _eventDefinitions;
 
+    /// <summary>
+    /// Capacities of the string tables declared so far, in creation order. An update names its
+    /// table by that order, and needs the capacity to size its entry indices.
+    /// </summary>
+    private readonly List<int> _stringTableCapacities = [];
+
+    /// <summary>Records a table's capacity as it is created.</summary>
+    /// <param name="maxEntries">The table's capacity.</param>
+    public void AddStringTable(int maxEntries) => _stringTableCapacities.Add(maxEntries);
+
+    /// <summary>Capacity of the table with the given id, or 0 if it has not been seen.</summary>
+    /// <param name="tableId">Table id, by creation order.</param>
+    /// <returns>The capacity, or 0.</returns>
+    public int StringTableCapacity(int tableId) =>
+        tableId >= 0 && tableId < _stringTableCapacities.Count
+            ? _stringTableCapacities[tableId]
+            : 0;
+
     /// <summary>Records the definitions from a <c>svc_GameEventList</c>.</summary>
     /// <param name="definitions">Definitions to remember.</param>
     public void AddEventDefinitions(IEnumerable<GameEventDefinition> definitions)

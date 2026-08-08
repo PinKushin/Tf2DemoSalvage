@@ -118,6 +118,18 @@ public static class NetMessageReader
                     break;
                 }
 
+                case NetMessageType.CreateStringTable:
+                {
+                    CreateStringTableMessage table = StringTableCodec.ReadCreate(ref reader, state);
+                    state.AddStringTable(table.MaxEntries);
+                    messages.Add(table);
+                    break;
+                }
+
+                case NetMessageType.UpdateStringTable:
+                    messages.Add(StringTableCodec.ReadUpdate(ref reader, state));
+                    break;
+
                 case NetMessageType.GameEventList:
                 {
                     GameEventListMessage list = GameEventCodec.ReadList(ref reader);
