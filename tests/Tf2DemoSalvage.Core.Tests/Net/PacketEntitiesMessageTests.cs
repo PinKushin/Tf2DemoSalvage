@@ -1,3 +1,4 @@
+using System;
 using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
@@ -16,7 +17,8 @@ public sealed class PacketEntitiesMessageTests
         BaselineIndex: false,
         UpdatedEntries: 12,
         LengthBits: 96,
-        UpdateBaseline: false);
+        UpdateBaseline: false,
+        Body: ReadOnlyMemory<byte>.Empty);
 
     [Fact]
     public void IsFullSnapshot_IsTheInverseOfIsDelta()

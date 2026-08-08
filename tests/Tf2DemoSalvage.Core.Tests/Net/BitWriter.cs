@@ -42,6 +42,27 @@ internal sealed class BitWriter
 
     public BitWriter Message(NetMessageType type) => Write((uint)type, NetMessage.TypeBits);
 
+    /// <summary>
+    /// Writes a value in Source's variable-width form: a two-bit selector, then the narrowest
+    /// of 4, 8, 12 or 32 bits that holds it.
+    /// </summary>
+    /// <remarks>
+    /// Written from the encoder's side rather than by inverting the reader, so a fixture and a
+    /// misread selector cannot agree with each other.
+    /// </remarks>
+    public BitWriter UBitVar(uint value)
+    {
+        (uint selector, int bits) = value switch
+        {
+            < 1u << 4 => (0u, 4),
+            < 1u << 8 => (1u, 8),
+            < 1u << 12 => (2u, 12),
+            _ => (3u, 32),
+        };
+
+        return Write(selector, 2).Write(value, bits);
+    }
+
     public BitWriter NetTick(uint tick, ushort frameTime, ushort stdDev) =>
         Message(NetMessageType.NetTick).Write(tick, 32).Write(frameTime, 16).Write(stdDev, 16);
 

@@ -1,3 +1,5 @@
+using System;
+
 namespace Tf2DemoSalvage.Core.Net;
 
 /// <summary>
@@ -12,15 +14,19 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <param name="UpdatedEntries">How many entities this message updates.</param>
 /// <param name="LengthBits">Size of the entity data that follows.</param>
 /// <param name="UpdateBaseline">Whether the server wants the client's baseline refreshed.</param>
+/// <param name="Body">
+/// The undecoded entity data, exactly <paramref name="LengthBits"/> bits long. Carried rather
+/// than decoded here because decoding it needs the schema, which arrives in a different demo
+/// command entirely.
+/// </param>
 /// <remarks>
-/// **The values are not decoded yet.** The message carries an explicit bit length, so the
-/// header can be read and the body stepped over — which is what unblocks the roughly 90% of
-/// gameplay packets that previously stopped here. What the body contains is entity index
-/// deltas, update types, and property values indexed into the flattened schema.
+/// The message carries an explicit bit length, so the header can be read and the body isolated
+/// without understanding it. <see cref="Tf2DemoSalvage.Core.Schema.EntityDecoder"/> turns that
+/// body into entities and properties, but only with the schema in hand — which is why the two
+/// are separate types rather than one decoder.
 ///
-/// That last part is deliberately not attempted in the same step. A property decoder that is
-/// subtly wrong produces plausible positions rather than an error, so it wants the
-/// cross-parser differential harness alongside it rather than after (<c>RISKS.md</c> B4).
+/// Isolating the body first also contains the damage. A malformed body cannot read past its
+/// declared length into whatever follows, because the outer reader has already moved on.
 /// </remarks>
 public sealed record PacketEntitiesMessage(
     int MaxEntries,
@@ -29,7 +35,8 @@ public sealed record PacketEntitiesMessage(
     bool BaselineIndex,
     int UpdatedEntries,
     int LengthBits,
-    bool UpdateBaseline) : INetMessage
+    bool UpdateBaseline,
+    ReadOnlyMemory<byte> Body) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.PacketEntities;

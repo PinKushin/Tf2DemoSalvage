@@ -128,14 +128,14 @@ public static class NetMessageReader
                     int entityBits = (int)reader.ReadUInt32(20);
                     bool updateBaseline = reader.ReadBit();
 
-                    // The body is stepped over rather than decoded. Property values are the
-                    // next piece of work, and they need the differential harness alongside
-                    // them - a subtly wrong decoder yields plausible positions, not an error.
-                    _ = NetBitReading.CopyBits(ref reader, entityBits);
+                    // Copied out rather than decoded in place. EntityDecoder needs the schema,
+                    // which arrives in dem_datatables - a different demo command - so the body
+                    // is carried until a caller has both.
+                    byte[] body = NetBitReading.CopyBits(ref reader, entityBits);
 
                     messages.Add(new PacketEntitiesMessage(
                         maxEntries, isDelta, deltaFrom, baseline, updatedEntries, entityBits,
-                        updateBaseline));
+                        updateBaseline, body));
                     break;
                 }
 

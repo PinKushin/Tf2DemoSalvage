@@ -127,20 +127,38 @@ public sealed class SchemaFlattenerTests
             Prop("slow2"),
             Prop("fast2", flags: ChangesOften)));
 
-        Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["fast1", "fast2", "slow1", "slow2"]);
+        // Hand-run the engine's swap: boundary starts at 0. fast1 at index 1 swaps with
+        // index 0, giving [fast1, slow1, slow2, fast2]. fast2 at index 3 swaps with index 1,
+        // giving [fast1, fast2, slow2, slow1]. The changes-often pair keeps its order; the
+        // slow pair comes out reversed, because slow1 was displaced to the end.
+        Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["fast1", "fast2", "slow2", "slow1"]);
     }
 
     [Fact]
-    public void Flatten_ReorderingIsStable_WithinEachGroup()
+    public void Flatten_ChangesOftenPartition_ScramblesTheTailExactlyAsTheEngineDoes()
     {
-        // A stable partition, not a sort. Relative order inside each group is part of the
-        // contract, and an unstable sort would pass the previous test while corrupting this one.
+        // This test asserted a stable partition until the differential harness disproved it.
+        // Stable is the intuitive choice and it is wrong: the engine swaps each changes-often
+        // property with whatever occupies the boundary, which displaces the swapped-out
+        // property to the far end rather than shifting the block along.
+        //
+        // Changes-often properties keep their relative order either way, so the previous test
+        // could not tell the two apart. Only the tail distinguishes them, and getting it wrong
+        // produces a list with the right properties at the wrong indices - which reads real
+        // values into the wrong fields instead of failing (RISKS B4, B12).
+        //
+        // Traced: [s1 f1 s2 f2 s3 f3] -> swap(1,0) -> [f1 s1 s2 f2 s3 f3]
+        //                             -> swap(3,1) -> [f1 f2 s2 s1 s3 f3]
+        //                             -> swap(5,2) -> [f1 f2 f3 s1 s3 s2]
+        //
+        // Confirmed against demostf/parser across every class of all four corpus demos -
+        // roughly 204,000 properties, zero differences. See tools/differential/.
         DemoSchema schema = Schema(Table("DT_A",
             Prop("s1"), Prop("f1", flags: ChangesOften), Prop("s2"),
             Prop("f2", flags: ChangesOften), Prop("s3"), Prop("f3", flags: ChangesOften)));
 
         Names(SchemaFlattener.Flatten(schema, "DT_A"))
-            .ShouldBe(["f1", "f2", "f3", "s1", "s2", "s3"]);
+            .ShouldBe(["f1", "f2", "f3", "s1", "s3", "s2"]);
     }
 
     [Fact]

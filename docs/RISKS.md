@@ -205,3 +205,119 @@ show up. D2's rule applies: profile before reaching for anything exotic.
 Per D11: LFS bandwidth is billed to the repository owner beyond 1 GB/month, while
 ordinary clones are free. A popular public repo would want demos in release assets
 instead. Volume problem, not a correctness one.
+
+## B12 — entity decoding desynchronises inside `CTFPlayer`, corpus-confirmed
+
+**Status: open, precisely located, not yet diagnosed.** The entity decoder passes every
+hand-built fixture and fails on real demos, which is exactly the split those fixtures cannot
+resolve on their own.
+
+Probing `z1800.dem`'s opening full snapshot, entity by entity:
+
+| Entity | Update type | Class | Flattened props | Props read | Bit position |
+|---|---|---|---|---|---|
+| 0 | Enter | `CWorld` | 53 | 0 | 28 |
+| 1 | Enter | `CTFPlayer` | 740 | 11 | 376 |
+| 17 | **Leave** | `CBaseCombatCharacter` | 315 | 0 | 404 |
+
+Entities 0 and 1 are right: the class ids resolve to sensible names, and a player carrying 11
+changed properties in an opening snapshot is plausible. Entity 17 is not — a *full* snapshot
+contains only enters, so a `Leave` there means the reader was already misaligned. The
+divergence is therefore **inside `CTFPlayer`'s 11 properties, between bit 28 and bit 376**.
+
+Two candidates, in order of suspicion:
+
+1. **Flattened property order** (see B4). A wrong order selects a property of the wrong width,
+   which desynchronises rather than returning a wrong value. `CTFPlayer` flattens to 740
+   properties here; that number has never been checked against an independent implementation.
+2. **A value encoding whose width is wrong for one specific property.** `SPROP_VARINT` was one
+   such case and is now handled — flag 32 means `SPROP_NORMAL` on a float but a varint-encoded
+   integer on an int, and reading a varint as a fixed-width field consumes the wrong number of
+   bits. Fixing it did not move the failure point, so at least one more remains.
+
+**What is verified and what is not.** The coordinate encodings, the value decoders, entity
+index deltas, property index deltas, update types and the removal list all pass fixtures built
+from the SDK's write path, and each has been confirmed to fail when deliberately broken. None
+of that establishes agreement with what TF2 actually emits. The corpus is the only instrument
+that can, and it currently says no.
+
+**Next step is the differential harness, not more fixtures.** `parse_demo.exe` decodes
+`z1800.dem` successfully, so a correct answer exists to compare against — see
+`docs/DIFFERENTIAL.md`. Comparing `CTFPlayer`'s flattened property list against the oracle's,
+name by name, will settle candidate 1 immediately.
+
+### B12 update — the differential settles it: right set, wrong order
+
+The harness in `tools/differential/` compared `CTFPlayer`'s flattened list against
+`demostf/parser`. The result is narrow and useful:
+
+- Both lists hold **741 properties**, of which **235 are array elements**.
+- The **sets of names are identical** — nothing is unique to either side.
+- The **order** differs, first at **index 20**.
+
+| Index | Oracle | Ours |
+|---|---|---|
+| 20 | `m_flEncodedController.001` | `DT_CollisionProperty.m_vecMinsPreScaled` |
+| 23 | `DT_BCCLocalPlayerExclusive.m_flNextAttack` | `DT_CollisionProperty.m_vecMaxs` |
+| 24 | `m_hMyWeapons.000` | `DT_CollisionProperty.m_nSolidType` |
+
+That is B4's predicted failure exactly, and it clears several suspects at once. The schema
+parser reads the tables correctly, exclusions are applied correctly, and array elements are
+expanded correctly — all three would change the *set*, and the set matches. The fault is
+confined to the sequencing rules in `SchemaFlattener`.
+
+The specific suspect is rule 2: **where a non-collapsible child's group lands**. This parser
+hoists such a group ahead of the referencing table's own properties. The oracle emits
+`m_flEncodedController`'s elements at index 20, immediately after `DT_BasePlayer.m_fFlags`,
+and defers `DT_CollisionProperty` — the opposite placement. Note also that
+`m_flEncodedController.000` is absent from both lists, so whatever rule drops it is already
+agreed on.
+
+Fixing this needs no new fixtures. `tools/differential/` regenerates both lists, and the fix is
+right when the diff is empty for every class, not just `CTFPlayer`.
+
+
+### B12 closed — the changes-often partition is a swap, not a stable partition
+
+Fixed. The flattener's final step moves `SPROP_CHANGES_OFTEN` properties to the front, and it
+does so by **swapping** each one with whatever occupies the boundary:
+
+```
+boundary = 0
+for i in 0..n:  if flat[i].changes_often:  swap(i, boundary); boundary += 1
+```
+
+This parser used a stable partition instead. That is the intuitive choice and it is wrong: a
+swap displaces the boundary element to position `i` rather than shifting the block along, so
+**the tail comes out deliberately scrambled**. Traced on six properties:
+
+```
+[s1 f1 s2 f2 s3 f3] -> swap(1,0) -> [f1 s1 s2 f2 s3 f3]
+                    -> swap(3,1) -> [f1 f2 s2 s1 s3 f3]
+                    -> swap(5,2) -> [f1 f2 f3 s1 s3 s2]
+```
+
+Both forms put changes-often properties first, in the same order, which is why the existing
+tests passed a wrong implementation for as long as they did — they only ever asserted the head.
+Only the tail separates them.
+
+**Verification.** `tools/differential/` now reports **zero differences on every class of all
+four corpus demos** — 49,945 properties for `z1800`, 49,944 for each ETF2L demo, 53,977 for the
+2026 serveme demo, roughly 204,000 in total, every one at the same index as the oracle.
+
+With that fixed, real demos decode. Opening full snapshots:
+
+| Demo | Entities | Property values | Bits |
+|---|---|---|---|
+| `etf2l-12030-stv` | 824 | 7,515 | 312,036 |
+| `serveme-627619` | 598 | 6,652 | 280,046 |
+| `z1800` | 545 | 7,442 | 258,542 |
+
+`z1800`'s 278 player origins span x −1480..8864 and z −1..952, which is a plausible extent for
+`koth_harvest_final` and the first confirmation that `SPROP_COORD_MP` decodes correctly against
+real data rather than against a fixture.
+
+**Still open, and unrelated:** delta snapshots reference entities established through the
+`instancebaseline` string table, which is LZSS-compressed and not yet decompressed. That blocks
+continuous decoding past the opening snapshot, and blocks POV demos entirely — they carry no
+full snapshot at all, since the recording begins mid-match.

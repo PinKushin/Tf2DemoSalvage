@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Text;
 using Tf2DemoSalvage.Core.Primitives;
 
@@ -26,13 +25,31 @@ public static class SendPropDecoder
     private const int CoordFlag = 1 << 1;
     private const int NoScaleFlag = 1 << 2;
     private const int NormalFlag = 1 << 5;
+
+    /// <summary>
+    /// The same bit as <see cref="NormalFlag"/>, which on an integer property means the value
+    /// is varint-encoded rather than fixed width.
+    /// </summary>
+    private const int VarIntFlag = 1 << 5;
     private const int CoordMpFlag = 1 << 13;
     private const int CoordMpLowPrecisionFlag = 1 << 14;
     private const int CoordMpIntegralFlag = 1 << 15;
 
-    /// <summary>Flags whose encodings are not implemented yet.</summary>
-    private const int UnsupportedFlags =
+    /// <summary>Every coordinate encoding, in the order the engine tests them.</summary>
+    private const int CoordFlags =
         CoordFlag | CoordMpFlag | CoordMpLowPrecisionFlag | CoordMpIntegralFlag;
+
+    /// <summary>Integer bits when the value is inside the world bounds: <c>COORD_INTEGER_BITS_MP</c>.</summary>
+    private const int CoordIntegerBitsInBounds = 11;
+
+    /// <summary>Integer bits otherwise: <c>COORD_INTEGER_BITS</c>.</summary>
+    private const int CoordIntegerBits = 14;
+
+    /// <summary>Fraction bits at normal precision: <c>COORD_FRACTIONAL_BITS</c>.</summary>
+    private const int CoordFractionBits = 5;
+
+    /// <summary>Fraction bits at low precision: <c>COORD_FRACTIONAL_BITS_MP_LOWPRECISION</c>.</summary>
+    private const int CoordFractionBitsLowPrecision = 3;
 
     /// <summary>Bits a normal uses for magnitude, plus one for sign.</summary>
     private const int NormalFractionBits = 11;
@@ -46,6 +63,17 @@ public static class SendPropDecoder
     /// <returns>The decoded value.</returns>
     public static int ReadInt(ref BitReader reader, SendProperty property)
     {
+        // Flag 32 is overloaded: SPROP_NORMAL on a float, SPROP_VARINT on an integer. Same bit,
+        // entirely different encoding, and nothing in the schema disambiguates it but the
+        // property's own type. Reading a varint as a fixed-width field consumes the wrong
+        // number of bits and desynchronises every property after it in the entity.
+        if ((property.Flags & VarIntFlag) != 0)
+        {
+            return (property.Flags & UnsignedFlag) != 0
+                ? (int)VarInt.ReadUInt32(ref reader)
+                : VarInt.ReadInt32(ref reader);
+        }
+
         uint raw = reader.ReadUInt32(property.BitCount);
 
         if ((property.Flags & UnsignedFlag) != 0)
@@ -69,12 +97,15 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing how the value is encoded.</param>
     /// <returns>The decoded value.</returns>
-    /// <exception cref="NotSupportedException">
-    /// The property uses a coordinate encoding, which is not implemented.
-    /// </exception>
     public static float ReadFloat(ref BitReader reader, SendProperty property)
     {
-        ThrowIfUnsupported(property);
+        // Coordinate flags are tested before SPROP_NOSCALE because the engine tests them in
+        // that order. Reversing it is not a wrong value but a desynchronisation: a coordinate
+        // is 2 to 20 bits, a noscale float is always 32.
+        if ((property.Flags & CoordFlags) != 0)
+        {
+            return ReadCoord(ref reader, property.Flags);
+        }
 
         if ((property.Flags & NoScaleFlag) != 0)
         {
@@ -99,14 +130,8 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing each component.</param>
     /// <returns>The decoded components.</returns>
-    /// <exception cref="NotSupportedException">The property uses a coordinate encoding.</exception>
     public static (float X, float Y, float Z) ReadVector(ref BitReader reader, SendProperty property)
     {
-        // Stryker disable once Statement: removing this changes nothing observable - the
-        // per-component ReadFloat below guards the same property and throws the same
-        // exception. Kept so the failure names the vector rather than a component.
-        ThrowIfUnsupported(property);
-
         float x = ReadFloat(ref reader, property);
         float y = ReadFloat(ref reader, property);
 
@@ -137,12 +162,8 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing each component.</param>
     /// <returns>The decoded components.</returns>
-    /// <exception cref="NotSupportedException">The property uses a coordinate encoding.</exception>
     public static (float X, float Y) ReadVectorXY(ref BitReader reader, SendProperty property)
     {
-        // Stryker disable once Statement: as above, ReadFloat guards the same property.
-        ThrowIfUnsupported(property);
-
         return (ReadFloat(ref reader, property), ReadFloat(ref reader, property));
     }
 
@@ -169,22 +190,75 @@ public static class SendPropDecoder
     /// <summary>Whether this property's encoding is implemented.</summary>
     /// <param name="property">The definition to check.</param>
     /// <returns><c>true</c> when it can be decoded.</returns>
+    /// <remarks>
+    /// Every value encoding is implemented now, so the only unsupported type is
+    /// <see cref="SendPropType.DataTable"/> — and that one is structure rather than a value,
+    /// so it never reaches a flattened list at all. Kept because callers report schema
+    /// coverage with it, and because a new encoding would reintroduce a false case here rather
+    /// than at every call site.
+    /// </remarks>
     public static bool IsSupported(SendProperty property) =>
-        (property.Flags & UnsupportedFlags) == 0;
+        property.Type != SendPropType.DataTable;
 
-    private static void ThrowIfUnsupported(SendProperty property)
+    /// <summary>
+    /// Reads a coordinate: presence flags, then an integer part, then a fraction.
+    /// </summary>
+    /// <remarks>
+    /// The layout is the one thing here that VDC does not document — <c>SPROP_COORD_MP</c> and
+    /// its variants appear only in the SDK's <c>dt_common.h</c> and <c>bf_read</c>.
+    ///
+    /// Two details are the whole risk, and both decode to a plausible position rather than an
+    /// error when wrong:
+    ///
+    /// - **The integer part is stored minus one.** A present integer is never zero — that case
+    ///   is carried by the presence bit — so the encoder subtracts one to buy back a value.
+    ///   Forgetting to add it back shifts every coordinate by one unit.
+    /// - **The in-bounds bit selects the integer width**, 11 bits inside the world bounds and
+    ///   14 outside. Inverting it misreads the integer *and* every bit that follows.
+    ///
+    /// The integral variant is not a subset of the others: it has no fraction at all, and it
+    /// reads the sign bit only when an integer is present, where the non-integral variants
+    /// always read it.
+    /// </remarks>
+    private static float ReadCoord(ref BitReader reader, int flags)
     {
-        if (IsSupported(property))
+        bool plainCoord = (flags & CoordFlag) != 0;
+        bool integral = !plainCoord && (flags & CoordMpIntegralFlag) != 0;
+        bool lowPrecision = !plainCoord && (flags & CoordMpLowPrecisionFlag) != 0;
+
+        // SPROP_COORD has no in-bounds bit; its first two bits say which parts are present.
+        bool inBounds = !plainCoord && reader.ReadBit();
+        bool hasInteger = reader.ReadBit();
+        bool hasFraction = plainCoord ? reader.ReadBit() : !integral;
+
+        if (plainCoord && !hasInteger && !hasFraction)
         {
-            return;
+            return 0f;
         }
 
-        // Thrown rather than approximated. A wrong coordinate is a plausible position, and a
-        // viewer drawing plausible-but-wrong positions is worse than one that refuses to draw.
-        throw new NotSupportedException(string.Create(
-            CultureInfo.InvariantCulture,
-            $"Property '{property.Name}' uses a coordinate encoding (flags 0x{property.Flags:X}) " +
-            $"that is not implemented. SPROP_COORD_MP and its variants are undocumented in the " +
-            $"Valve Developer Community wiki and were found only in the SDK headers."));
+        if (integral && !hasInteger)
+        {
+            return 0f;
+        }
+
+        bool negative = reader.ReadBit();
+        float value = 0f;
+
+        if (hasInteger)
+        {
+            int width = plainCoord || !inBounds ? CoordIntegerBits : CoordIntegerBitsInBounds;
+
+            // Plus one: the encoder stored it minus one, because a present integer is never
+            // zero. Dropping this is a one-unit shift on every coordinate in the demo.
+            value = reader.ReadUInt32(width) + 1;
+        }
+
+        if (hasFraction)
+        {
+            int width = lowPrecision ? CoordFractionBitsLowPrecision : CoordFractionBits;
+            value += reader.ReadUInt32(width) / (float)(1 << width);
+        }
+
+        return negative ? -value : value;
     }
 }
