@@ -133,17 +133,19 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     [Fact]
     public void ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots()
     {
-        // A floor, not the goal. This managed zero before the flattening order was fixed, then
-        // 62 to 205 snapshots, and now 332 to 500 - the jump came from implementing the three
-        // messages that were truncating their packets (RISKS B13). z1800 reaches the 500-snapshot
-        // cap without stopping at all. The floor is deliberately well below the worst demo, so
-        // it guards against collapse rather than failing on any harmless change.
+        // Every corpus demo now decodes end to end - 14,385 snapshots for z1800, 73,182 for
+        // serveme, 118,280 for the POV demo - so this cap is arbitrary rather than a limit.
+        //
+        // The history is worth the comment. Zero before the flattening order was fixed, then
+        // 62-205, then 332, then complete, and every jump came from implementing another
+        // message type that had been truncating its packet rather than from any decoder fix.
         foreach (string path in SourceTvDemos())
         {
             DecodeRun run = DecodeContinuously(path, 500);
             output.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
                              $"stopped: {run.Stopped ?? "not at all"}");
-            run.Decoded.ShouldBeGreaterThan(250, Path.GetFileName(path));
+            run.Stopped.ShouldBeNull(Path.GetFileName(path));
+            run.Decoded.ShouldBe(500);
         }
     }
 
@@ -181,15 +183,22 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void PointOfViewDemos_HaveNoFullSnapshotToStartFrom()
+    public void PointOfViewDemos_DecodeToo()
     {
-        // A POV recording begins when the player joined a match already under way, so it opens
-        // on a delta and carries no full snapshot to bootstrap from. Decoding those needs the
-        // instancebaseline string table, which is LZSS-compressed and not yet decompressed.
+        // This test used to assert the opposite - that a POV demo carries no full snapshot at
+        // all, having scanned two thousand consecutive deltas without finding one. That was
+        // never a property of POV recordings. The full snapshot was there and sat behind an
+        // unimplemented message, so the walk never reached it.
+        //
+        // Worth keeping as a caution: "I scanned 2,000 and found none" was evidence about the
+        // reader, and it read as evidence about the format.
         string pov = Corpus.Files()
             .First(f => Path.GetFileName(f).Contains("pov", StringComparison.Ordinal));
 
-        Snapshots(pov).Take(2000).ShouldAllBe(m => m.IsDelta, Path.GetFileName(pov));
+        DecodeRun run = DecodeContinuously(pov, 5000);
+
+        run.Stopped.ShouldBeNull(Path.GetFileName(pov));
+        run.Decoded.ShouldBe(5000);
     }
 
     [Fact]

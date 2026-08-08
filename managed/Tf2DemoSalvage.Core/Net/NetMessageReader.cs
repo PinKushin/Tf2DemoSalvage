@@ -40,6 +40,20 @@ public static class NetMessageReader
     /// <summary>Its fixed length width before that.</summary>
     private const int TempEntitiesLegacyLengthBits = 17;
 
+    /// <summary>
+    /// Width of the length field on <c>svc_UserMessage</c> and <c>svc_EntityMessage</c>.
+    /// </summary>
+    private const int UserMessageLengthBits = 11;
+
+    /// <summary>Width of <c>svc_EntityMessage</c>'s entity index.</summary>
+    private const int EntityMessageIndexBits = 11;
+
+    /// <summary>Width of its class id, which is fixed rather than derived from the class count.</summary>
+    private const int EntityMessageClassBits = 9;
+
+    /// <summary>Width of <c>svc_VoiceData</c>'s payload length.</summary>
+    private const int VoiceDataLengthBits = 16;
+
     /// <summary>Width of <c>svc_SetView</c>'s entity index.</summary>
     private const int SetViewBits = 11;
 
@@ -246,6 +260,42 @@ public static class NetMessageReader
                             _ = NetBitReading.CopyBits(ref reader, eventBits);
                             break;
                         }
+
+                    case NetMessageType.VoiceData:
+                    {
+                        // Client and proximity bytes, then a 16-bit length. The codec payload
+                        // is opaque here and only needs stepping over.
+                        _ = reader.ReadUInt32(8);
+                        _ = reader.ReadUInt32(8);
+                        int voiceBits = (int)reader.ReadUInt32(VoiceDataLengthBits);
+                        _ = NetBitReading.CopyBits(ref reader, voiceBits);
+                        break;
+                    }
+
+                    case NetMessageType.SetPause:
+                        _ = reader.ReadBit();
+                        break;
+
+                    case NetMessageType.UserMessage:
+                    {
+                        // A type byte, then an 11-bit length. The payload's meaning depends on
+                        // the type and is not needed to step over it.
+                        _ = reader.ReadUInt32(8);
+                        int userBits = (int)reader.ReadUInt32(UserMessageLengthBits);
+                        _ = NetBitReading.CopyBits(ref reader, userBits);
+                        break;
+                    }
+
+                    case NetMessageType.EntityMessage:
+                    {
+                        // Index and class come before the length, so a reader that went
+                        // straight for the length would take twenty of their bits instead.
+                        _ = reader.ReadUInt32(EntityMessageIndexBits);
+                        _ = reader.ReadUInt32(EntityMessageClassBits);
+                        int entityMessageBits = (int)reader.ReadUInt32(UserMessageLengthBits);
+                        _ = NetBitReading.CopyBits(ref reader, entityMessageBits);
+                        break;
+                    }
 
                     case NetMessageType.SetView:
                         // Which entity the client's view follows. One index, nothing else.
