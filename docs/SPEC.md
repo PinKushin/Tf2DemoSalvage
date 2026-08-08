@@ -209,6 +209,40 @@ message well enough to know its width. Adding message support is therefore stric
 incremental: until a type is implemented, everything after its first occurrence in a packet
 is unreachable.
 
+### `net_Tick` (id 3) — **CONFIRMED**
+
+64-bit body: a 32-bit tick, then two 16-bit values (frame time and its standard deviation).
+Layout from `tf-demo-parser`, verified against all three corpus demos.
+
+Source scales the frame-time fields by 100,000. `tf-demo-parser` keeps them raw and applies no
+scale, so that constant is engine convention rather than something verified here — our decoder
+exposes both the raw values and the converted seconds so a caller need not accept it.
+
+### The container clock and the server clock are different — **CONFIRMED**
+
+`net_Tick`'s tick does **not** equal the tick in the enclosing `dem_packet` command header.
+Measured over the first 200 packets of each corpus demo:
+
+| Demo | Recorded | Offset (server − demo) | Spread |
+|---|---|---|---|
+| `etf2l-12025-pov` | client-side | 12,636 – 12,640 | **4** |
+| `etf2l-12030-stv` | server-side | 25,662 | **0** |
+| `z1800` | server-side | 12,728 | **0** |
+
+The container's tick counts from the start of the recording; `net_Tick` carries the server's
+own absolute tick. Same reason `dem_signon` commands sit at implausible ticks (`z1800`'s are
+70,718 against a 57,551-tick demo).
+
+**The spread is the interesting part.** SourceTV demos are recorded server-side, so the offset
+is *exactly* constant across hundreds of packets. The point-of-view demo is recorded
+client-side, so its offset jitters by a few ticks as the client's clock drifts against the
+server's with latency. Expect a constant offset from STV and a small varying one from POV; a
+large or growing spread means the decoder has lost the stream, not that the clocks disagree.
+
+That constancy is also the strongest cross-check available at this layer: two tick fields
+encoded completely differently — a little-endian int32 in the container versus 32 bits read
+from a bit stream at an arbitrary offset — agreeing to the tick, every packet.
+
 Still **OPEN**:
 
 - Which messages carry the data Phase 1 needs (`svc_PacketEntities`,
