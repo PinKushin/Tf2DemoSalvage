@@ -83,8 +83,8 @@ public static class DemoTextDumper
         DemoHeader header,
         IReadOnlyList<DemoCommand> commands)
     {
-        var counts = new SortedDictionary<DemoCommandType, int>();
-        var payloadBytes = new SortedDictionary<DemoCommandType, long>();
+        SortedDictionary<DemoCommandType, int> counts = new();
+        SortedDictionary<DemoCommandType, long> payloadBytes = new();
         int packets = 0;
 
         foreach (DemoCommand command in commands)

@@ -96,7 +96,7 @@ public static class Program
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
 
-        var options = new DemoDumpOptions { IncludeCommandListing = !summaryOnly };
+        DemoDumpOptions options = new() { IncludeCommandListing = !summaryOnly };
 
         if (outputPath is null)
         {
@@ -105,7 +105,7 @@ public static class Program
         }
         else
         {
-            using var writer = new StreamWriter(outputPath);
+            using StreamWriter writer = new(outputPath);
             DemoTextDumper.Write(
                 writer, Path.GetFileName(demoPath), header, commands, options);
             Console.Error.WriteLine(string.Create(

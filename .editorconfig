@@ -20,8 +20,14 @@ indent_size = 2
 [*.cs]
 # --- Style: file-scoped namespaces, var only when the type is apparent ---
 csharp_style_namespace_declarations = file_scoped:error
-csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_elsewhere = false:suggestion
+# No var, anywhere. The owner's preference, and enforced rather than suggested: the type
+# belongs at the start of the line where the eye lands, not inferred from the right-hand
+# side. Where that would name the type twice, target-typed `new()` drops the repetition -
+# `List<byte> bytes = new();` rather than `var bytes = new List<byte>();`.
+csharp_style_var_for_built_in_types = false:error
+csharp_style_var_when_type_is_apparent = false:error
+csharp_style_var_elsewhere = false:error
+csharp_style_implicit_object_creation_when_type_is_apparent = true:suggestion
 dotnet_style_require_accessibility_modifiers = always:error
 csharp_prefer_braces = true:error
 csharp_using_directive_placement = outside_namespace:error

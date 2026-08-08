@@ -29,7 +29,7 @@ public sealed class VarIntTests
     [InlineData(uint.MaxValue, new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x0F })]
     public void ReadUInt32_CanonicalEncodings_DecodeToTheirValue(uint expected, byte[] encoded)
     {
-        var reader = new BitReader(encoded);
+        BitReader reader = new(encoded);
 
         VarInt.ReadUInt32(ref reader).ShouldBe(expected);
     }
@@ -38,7 +38,7 @@ public sealed class VarIntTests
     public void ReadUInt32_ConsumesOnlyTheBytesTheEncodingNeeds()
     {
         // 0x01 terminates immediately; the 0xFF after it must be left for the next reader.
-        var reader = new BitReader([0x01, 0xFF]);
+        BitReader reader = new([0x01, 0xFF]);
 
         VarInt.ReadUInt32(ref reader).ShouldBe(1u);
         reader.BitsRead.ShouldBe(8);
@@ -48,7 +48,7 @@ public sealed class VarIntTests
     [Fact]
     public void ReadUInt32_TwoInSequence_DecodeIndependently()
     {
-        var reader = new BitReader([0xAC, 0x02, 0x7F]);
+        BitReader reader = new([0xAC, 0x02, 0x7F]);
 
         VarInt.ReadUInt32(ref reader).ShouldBe(300u);
         VarInt.ReadUInt32(ref reader).ShouldBe(127u);
@@ -60,7 +60,7 @@ public sealed class VarIntTests
     {
         // Shift the encoding of 300 (0xAC 0x02) left by four bits, so it starts on a nibble
         // boundary: the stream becomes 0x_C? 0x2A 0x00 with the low nibble of byte 0 unused.
-        var reader = new BitReader([0xC0, 0x2A, 0x00]);
+        BitReader reader = new([0xC0, 0x2A, 0x00]);
         reader.ReadUInt32(4).ShouldBe(0x0u);
 
         VarInt.ReadUInt32(ref reader).ShouldBe(300u);
@@ -72,7 +72,7 @@ public sealed class VarIntTests
         // Continuation bit set on the final available byte: the value is incomplete.
         Should.Throw<EndOfStreamException>(() =>
         {
-            var reader = new BitReader([0x80]);
+            BitReader reader = new([0x80]);
             VarInt.ReadUInt32(ref reader);
         });
     }
@@ -84,7 +84,7 @@ public sealed class VarIntTests
         // malformed, and must be rejected rather than read on forever.
         InvalidDataException exception = Should.Throw<InvalidDataException>(() =>
         {
-            var reader = new BitReader([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01]);
+            BitReader reader = new([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01]);
             VarInt.ReadUInt32(ref reader);
         });
 
@@ -101,7 +101,7 @@ public sealed class VarIntTests
     [InlineData(int.MinValue, new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x0F })]
     public void ReadInt32_ZigZagEncodings_DecodeToTheirValue(int expected, byte[] encoded)
     {
-        var reader = new BitReader(encoded);
+        BitReader reader = new(encoded);
 
         VarInt.ReadInt32(ref reader).ShouldBe(expected);
     }
@@ -115,7 +115,7 @@ public sealed class VarIntTests
         new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01 })]
     public void ReadUInt64_CanonicalEncodings_DecodeToTheirValue(ulong expected, byte[] encoded)
     {
-        var reader = new BitReader(encoded);
+        BitReader reader = new(encoded);
 
         VarInt.ReadUInt64(ref reader).ShouldBe(expected);
     }
@@ -125,7 +125,7 @@ public sealed class VarIntTests
     {
         Should.Throw<InvalidDataException>(() =>
         {
-            var reader = new BitReader(
+            BitReader reader = new(
                 [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01]);
             VarInt.ReadUInt64(ref reader);
         });
@@ -140,7 +140,7 @@ public sealed class VarIntTests
         new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01 })]
     public void ReadInt64_ZigZagEncodings_DecodeToTheirValue(long expected, byte[] encoded)
     {
-        var reader = new BitReader(encoded);
+        BitReader reader = new(encoded);
 
         VarInt.ReadInt64(ref reader).ShouldBe(expected);
     }
@@ -152,7 +152,7 @@ public sealed class VarIntTests
         // excess fall off the top rather than rejecting the input, and a demo produced by its
         // writer never contains such an encoding anyway - so this documents the behaviour
         // rather than endorsing the encoding.
-        var reader = new BitReader([0xFF, 0xFF, 0xFF, 0xFF, 0x7F]);
+        BitReader reader = new([0xFF, 0xFF, 0xFF, 0xFF, 0x7F]);
 
         VarInt.ReadUInt32(ref reader).ShouldBe(uint.MaxValue);
     }

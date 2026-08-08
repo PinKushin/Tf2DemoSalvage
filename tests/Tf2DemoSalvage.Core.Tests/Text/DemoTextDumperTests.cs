@@ -49,7 +49,7 @@ public sealed class DemoTextDumperTests
         string fileName = "sample.dem",
         DemoDumpOptions? options = null)
     {
-        var writer = new StringWriter { NewLine = "\n" };
+        StringWriter writer = new() { NewLine = "\n" };
         DemoTextDumper.Write(
             writer, fileName, header ?? SampleHeader(), commands ?? SampleCommands(), options);
         return writer.ToString();
@@ -245,7 +245,7 @@ public sealed class DemoTextDumperTests
     [Fact]
     public void Write_NullHeader_Throws()
     {
-        var writer = new StringWriter();
+        StringWriter writer = new();
 
         Should.Throw<ArgumentNullException>(
             () => DemoTextDumper.Write(writer, "x.dem", null!, SampleCommands(), null));
@@ -254,7 +254,7 @@ public sealed class DemoTextDumperTests
     [Fact]
     public void Write_NullCommands_Throws()
     {
-        var writer = new StringWriter();
+        StringWriter writer = new();
 
         Should.Throw<ArgumentNullException>(
             () => DemoTextDumper.Write(writer, "x.dem", SampleHeader(), null!, null));

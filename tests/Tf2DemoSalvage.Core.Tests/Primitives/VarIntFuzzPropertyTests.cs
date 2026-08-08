@@ -18,7 +18,7 @@ public sealed class VarIntFuzzPropertyTests
     [Fact]
     public void Consume_SeededRandomBuffers_NeverViolatesTheProperty()
     {
-        var random = new Random(Seed);
+        Random random = new(Seed);
 
         for (int i = 0; i < RandomCaseCount; i++)
         {
@@ -82,8 +82,8 @@ public sealed class VarIntFuzzPropertyTests
     [Fact]
     public void SeededCorpus_ReachesEveryDecoder()
     {
-        var modes = new HashSet<int>();
-        var random = new Random(Seed);
+        HashSet<int> modes = new();
+        Random random = new(Seed);
 
         for (int i = 0; i < RandomCaseCount; i++)
         {
@@ -105,7 +105,7 @@ public sealed class VarIntFuzzPropertyTests
     [Fact]
     public void ModeRecording_ClusteredCorpus_ReportsOnlyTheDecodersItReaches()
     {
-        var modes = new HashSet<int>();
+        HashSet<int> modes = new();
 
         // Every byte 0x00 selects mode 0 and decodes as a single-byte varint, forever.
         for (int i = 0; i < 50; i++)

@@ -103,7 +103,7 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
                 continue;
             }
 
-            var stoppedAt = new Dictionary<string, int>(StringComparer.Ordinal);
+            Dictionary<string, int> stoppedAt = new(StringComparer.Ordinal);
             int complete = 0;
             long bitsRead = 0;
             long bitsTotal = 0;

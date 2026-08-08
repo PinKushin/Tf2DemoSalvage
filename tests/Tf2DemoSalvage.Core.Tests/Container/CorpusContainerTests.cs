@@ -26,7 +26,7 @@ public sealed class CorpusContainerTests
 
     public static TheoryData<string> CorpusFiles()
     {
-        var data = new TheoryData<string>();
+        TheoryData<string> data = new();
         foreach (string path in EnumerateCorpus())
         {
             data.Add(Path.GetFileName(path));
