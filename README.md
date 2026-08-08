@@ -16,12 +16,18 @@ What works is the bottom of the stack, tested hard.
 | Bit reader, varint decoding | Done. Unit tested, mutation tested, fuzzed. |
 | Demo header | Done. Parses all three corpus demos. |
 | Command stream | Done. Walks all three demos; counts match their headers exactly. |
-| Net messages inside packets (layer 2) | **Not started.** Message ids unmined. |
+| Net messages inside packets (layer 2) | **Not started.** Message ids unmined — next. |
 | Entity/SendTable decode (layer 3) | **Not started.** No public wire spec exists. |
-| Text dump — the first actual deliverable | **Not started.** Next up. |
+| Text dump + CLI | Done. `tf2demosalvage <demo.dem>` prints a readable dump. |
 | 2D viewer (Phase 2), 3D viewer (Phase 3) | Not started. |
 
-102 tests, zero build warnings, zero surviving mutants.
+137 tests, zero build warnings, zero surviving mutants.
+
+```
+tf2demosalvage <demo.dem>            # readable dump to stdout
+tf2demosalvage <demo.dem> -s         # header and command counts only
+tf2demosalvage <demo.dem> -o out.txt # write to a file
+```
 
 So: the container is solved and verified against real files, and the interesting half — what is
 *inside* the packets — has not been attempted. Treat any claim beyond the table above as
