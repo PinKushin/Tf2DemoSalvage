@@ -50,7 +50,23 @@ public sealed class EntityDecoderTests
     private static EntityDecoder Decoder() => new(Schema(), ClassBits);
 
     private static PacketEntitiesMessage Header(int updated, bool delta = false) =>
-        new(2048, delta, delta ? 100 : null, false, updated, 0, false);
+        new(2048, delta, delta ? 100 : null, false, updated, 0, false, System.ReadOnlyMemory<byte>.Empty);
+
+    [Theory]
+    [InlineData(2, 2)]
+    [InlineData(3, 2)]
+    [InlineData(4, 3)]
+    [InlineData(362, 9)]
+    [InlineData(363, 9)]
+    [InlineData(512, 10)]
+    public void ClassIdWidth_IsFloorLogTwoPlusOne(int classCount, int expected)
+    {
+        // floor, not ceil. The two agree on exact powers of two and on two classes, which is
+        // why every fixture in this file agreed with a ceiling implementation - the bug only
+        // surfaced against a real demo's 362 classes, where ceil gives 10 and the wire uses 9.
+        // 3 and 363 are the rows that separate them.
+        EntityDecoder.ClassIdBits(classCount).ShouldBe(expected);
+    }
 
     [Fact]
     public void EnteringEntity_CarriesItsClassAndSerialNumber()

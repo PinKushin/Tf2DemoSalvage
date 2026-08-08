@@ -205,3 +205,43 @@ show up. D2's rule applies: profile before reaching for anything exotic.
 Per D11: LFS bandwidth is billed to the repository owner beyond 1 GB/month, while
 ordinary clones are free. A popular public repo would want demos in release assets
 instead. Volume problem, not a correctness one.
+
+## B12 — entity decoding desynchronises inside `CTFPlayer`, corpus-confirmed
+
+**Status: open, precisely located, not yet diagnosed.** The entity decoder passes every
+hand-built fixture and fails on real demos, which is exactly the split those fixtures cannot
+resolve on their own.
+
+Probing `z1800.dem`'s opening full snapshot, entity by entity:
+
+| Entity | Update type | Class | Flattened props | Props read | Bit position |
+|---|---|---|---|---|---|
+| 0 | Enter | `CWorld` | 53 | 0 | 28 |
+| 1 | Enter | `CTFPlayer` | 740 | 11 | 376 |
+| 17 | **Leave** | `CBaseCombatCharacter` | 315 | 0 | 404 |
+
+Entities 0 and 1 are right: the class ids resolve to sensible names, and a player carrying 11
+changed properties in an opening snapshot is plausible. Entity 17 is not — a *full* snapshot
+contains only enters, so a `Leave` there means the reader was already misaligned. The
+divergence is therefore **inside `CTFPlayer`'s 11 properties, between bit 28 and bit 376**.
+
+Two candidates, in order of suspicion:
+
+1. **Flattened property order** (see B4). A wrong order selects a property of the wrong width,
+   which desynchronises rather than returning a wrong value. `CTFPlayer` flattens to 740
+   properties here; that number has never been checked against an independent implementation.
+2. **A value encoding whose width is wrong for one specific property.** `SPROP_VARINT` was one
+   such case and is now handled — flag 32 means `SPROP_NORMAL` on a float but a varint-encoded
+   integer on an int, and reading a varint as a fixed-width field consumes the wrong number of
+   bits. Fixing it did not move the failure point, so at least one more remains.
+
+**What is verified and what is not.** The coordinate encodings, the value decoders, entity
+index deltas, property index deltas, update types and the removal list all pass fixtures built
+from the SDK's write path, and each has been confirmed to fail when deliberately broken. None
+of that establishes agreement with what TF2 actually emits. The corpus is the only instrument
+that can, and it currently says no.
+
+**Next step is the differential harness, not more fixtures.** `parse_demo.exe` decodes
+`z1800.dem` successfully, so a correct answer exists to compare against — see
+`docs/DIFFERENTIAL.md`. Comparing `CTFPlayer`'s flattened property list against the oracle's,
+name by name, will settle candidate 1 immediately.

@@ -25,6 +25,12 @@ public static class SendPropDecoder
     private const int CoordFlag = 1 << 1;
     private const int NoScaleFlag = 1 << 2;
     private const int NormalFlag = 1 << 5;
+
+    /// <summary>
+    /// The same bit as <see cref="NormalFlag"/>, which on an integer property means the value
+    /// is varint-encoded rather than fixed width.
+    /// </summary>
+    private const int VarIntFlag = 1 << 5;
     private const int CoordMpFlag = 1 << 13;
     private const int CoordMpLowPrecisionFlag = 1 << 14;
     private const int CoordMpIntegralFlag = 1 << 15;
@@ -57,6 +63,17 @@ public static class SendPropDecoder
     /// <returns>The decoded value.</returns>
     public static int ReadInt(ref BitReader reader, SendProperty property)
     {
+        // Flag 32 is overloaded: SPROP_NORMAL on a float, SPROP_VARINT on an integer. Same bit,
+        // entirely different encoding, and nothing in the schema disambiguates it but the
+        // property's own type. Reading a varint as a fixed-width field consumes the wrong
+        // number of bits and desynchronises every property after it in the entity.
+        if ((property.Flags & VarIntFlag) != 0)
+        {
+            return (property.Flags & UnsignedFlag) != 0
+                ? (int)VarInt.ReadUInt32(ref reader)
+                : VarInt.ReadInt32(ref reader);
+        }
+
         uint raw = reader.ReadUInt32(property.BitCount);
 
         if ((property.Flags & UnsignedFlag) != 0)

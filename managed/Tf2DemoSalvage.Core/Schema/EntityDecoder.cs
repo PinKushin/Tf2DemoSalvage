@@ -105,14 +105,20 @@ public sealed class EntityDecoder
     /// <param name="classCount">Number of networked classes.</param>
     /// <returns>The width used for class ids on the wire.</returns>
     /// <remarks>
-    /// Derived, never transmitted. A wrong count here does not fail — it misreads the class of
+    /// Derived, never transmitted. A wrong width here does not fail — it misreads the class of
     /// every entering entity, and therefore every property they carry.
+    ///
+    /// It is <c>floor(log2(count)) + 1</c>, not <c>ceil</c>. The two agree on exact powers of
+    /// two and on small counts, which is why fixtures with a handful of classes cannot tell
+    /// them apart — the first evidence came from a real demo, where 362 classes must be 9 bits
+    /// and the ceiling form said 10.
     /// </remarks>
     public static int ClassIdBits(int classCount)
     {
         int bits = 0;
-        while ((1 << bits) < classCount)
+        while (classCount > 1)
         {
+            classCount >>= 1;
             bits++;
         }
 
