@@ -64,14 +64,33 @@ public static class SchemaFlattener
         List<FlatProperty> flat = [];
         Collect(schema, table, excludes, flat, []);
 
-        // A stable partition, not a sort: properties that change often move to the front while
-        // relative order inside each group is preserved. An unstable sort would satisfy
-        // "changes-often first" and still corrupt the addressing.
-        return
-        [
-            .. flat.Where(f => f.Property.ChangesOften),
-            .. flat.Where(f => !f.Property.ChangesOften),
-        ];
+        // Not a stable partition. An earlier version of this used one, on the reasoning that
+        // preserving relative order within each group must be safer - and it produced the right
+        // 741 properties for CTFPlayer in the wrong order, which is the one failure mode that
+        // does not announce itself (RISKS B4, B12).
+        //
+        // The engine walks the list swapping each changes-often property with whatever sits at
+        // the boundary. Changes-often properties therefore keep their relative order, but the
+        // displaced ones land wherever the swap threw them - the tail is deliberately scrambled,
+        // and reproducing that scramble exactly is the contract.
+        int boundary = 0;
+
+        for (int i = 0; i < flat.Count; i++)
+        {
+            if (!flat[i].Property.ChangesOften)
+            {
+                continue;
+            }
+
+            if (i != boundary)
+            {
+                (flat[i], flat[boundary]) = (flat[boundary], flat[i]);
+            }
+
+            boundary++;
+        }
+
+        return flat;
     }
 
     /// <summary>Flattens the property list for a server class.</summary>

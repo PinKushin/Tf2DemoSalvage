@@ -22,7 +22,16 @@ this parser. Compare with:
 diff ctfplayer-flattened-oracle.tsv ctfplayer-flattened-ours.tsv
 ```
 
-**What they establish.** Both lists hold exactly 741 properties, exactly 235 of them array
-elements, and the sets of names are identical — `comm` reports nothing unique to either side.
-Only the order differs, first at index 20. So the schema parser and the exclusion rules are
-right, and the fault is confined to the sequencing rules in `SchemaFlattener`.
+`DumpFlattened.cs` is the same dump from this parser's side. Point a throwaway console project
+at `Tf2DemoSalvage.Core` and run it as `<demo> ALL` for every class, or `<demo> CTFPlayer` for
+one.
+
+**What they established.** The first run showed both lists holding exactly 741 properties, 235
+of them array elements, with identical sets of names — nothing unique to either side. Only the
+order differed, first at index 20. That cleared the schema parser, the exclusion rules and
+array expansion in one step, since each would have changed the set, and pinned the fault to
+`SchemaFlattener`'s final partition. See `RISKS.md` B12.
+
+**Current state: zero differences**, on every class of all four corpus demos — roughly 204,000
+properties. Re-run after any change to flattening; an empty diff for one class is not enough,
+because the ordering rules only diverge on particular shapes.

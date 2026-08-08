@@ -275,3 +275,49 @@ agreed on.
 
 Fixing this needs no new fixtures. `tools/differential/` regenerates both lists, and the fix is
 right when the diff is empty for every class, not just `CTFPlayer`.
+
+
+### B12 closed — the changes-often partition is a swap, not a stable partition
+
+Fixed. The flattener's final step moves `SPROP_CHANGES_OFTEN` properties to the front, and it
+does so by **swapping** each one with whatever occupies the boundary:
+
+```
+boundary = 0
+for i in 0..n:  if flat[i].changes_often:  swap(i, boundary); boundary += 1
+```
+
+This parser used a stable partition instead. That is the intuitive choice and it is wrong: a
+swap displaces the boundary element to position `i` rather than shifting the block along, so
+**the tail comes out deliberately scrambled**. Traced on six properties:
+
+```
+[s1 f1 s2 f2 s3 f3] -> swap(1,0) -> [f1 s1 s2 f2 s3 f3]
+                    -> swap(3,1) -> [f1 f2 s2 s1 s3 f3]
+                    -> swap(5,2) -> [f1 f2 f3 s1 s3 s2]
+```
+
+Both forms put changes-often properties first, in the same order, which is why the existing
+tests passed a wrong implementation for as long as they did — they only ever asserted the head.
+Only the tail separates them.
+
+**Verification.** `tools/differential/` now reports **zero differences on every class of all
+four corpus demos** — 49,945 properties for `z1800`, 49,944 for each ETF2L demo, 53,977 for the
+2026 serveme demo, roughly 204,000 in total, every one at the same index as the oracle.
+
+With that fixed, real demos decode. Opening full snapshots:
+
+| Demo | Entities | Property values | Bits |
+|---|---|---|---|
+| `etf2l-12030-stv` | 824 | 7,515 | 312,036 |
+| `serveme-627619` | 598 | 6,652 | 280,046 |
+| `z1800` | 545 | 7,442 | 258,542 |
+
+`z1800`'s 278 player origins span x −1480..8864 and z −1..952, which is a plausible extent for
+`koth_harvest_final` and the first confirmation that `SPROP_COORD_MP` decodes correctly against
+real data rather than against a fixture.
+
+**Still open, and unrelated:** delta snapshots reference entities established through the
+`instancebaseline` string table, which is LZSS-compressed and not yet decompressed. That blocks
+continuous decoding past the opening snapshot, and blocks POV demos entirely — they carry no
+full snapshot at all, since the recording begins mid-match.
