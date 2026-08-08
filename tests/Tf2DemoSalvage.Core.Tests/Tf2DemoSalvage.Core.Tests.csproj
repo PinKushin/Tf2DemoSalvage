@@ -18,6 +18,10 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Shouldly" Version="4.3.0" />
+    <!-- Property-based testing (D12). Apache-2.0. Generates inputs and shrinks failures to a
+         minimal reproducing case, which removes hand-computed expected values - the source of
+         most fixture bugs in this project so far. -->
+    <PackageReference Include="CsCheck" Version="4.8.0" />
   </ItemGroup>
 
   <ItemGroup>

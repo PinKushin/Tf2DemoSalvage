@@ -1,6 +1,12 @@
 # TF2 Demo Parser — Architecture & Roadmap
 
-Status: locked for initial implementation (2026-08-07). See `docs/DECISIONS.md` in the repo for the ADR-style record of every choice below.
+Status: implementation under way (updated 2026-08-08). **Phase 1 is partially built** — the
+container, the text dump and CLI, most of the network message layer, and the embedded entity
+schema all decode against real demos. What remains for Phase 1 is entity decoding itself:
+flattening the schema's property lists, then `svc_PacketEntities`. `README.md` has the
+per-layer status and is kept current; this file remains the plan rather than the report.
+
+Originally locked for initial implementation (2026-08-07). See `docs/DECISIONS.md` in the repo for the ADR-style record of every choice below.
 
 Goal: recover data from TF2 `.dem` files of any age — including demos Valve's own updates have broken — and eventually view them, in the spirit of the Quake community's demo tools (parse → readable text/data → 2D playback → full 3D playback), without depending on Valve's live client.
 
@@ -32,7 +38,11 @@ Per your call: no Rust, no C++, no Python — and per further discussion, **no n
 
 **Phase 0 — Corpus & spec-mining.** Collect reference demos spanning eras: pre-2013 (pre-SteamPipe), 2013–2015, ~2018 (64-bit update), 2020–2022, immediately before/after the July 2023 break, and current. This corpus is both ground truth and the regression suite. **This is the one input only you can supply** — do you have a personal stash of old demos, and/or should we plan to pull from community archives (comp league demo archives like RGL/ETF2L/ozfortress, teamfortress.tv, demos.tf's own public archive)?
 
-**Phase 1 — Core parser (C#, `Tf2DemoSalvage.Core`), text/structured output.** Envelope + `dem_datatables`/`dem_stringtables` parsing, generic SendTable-driven entity decode, normalized event stream (entity spawn/update/delete, game events, chat, user messages, tick timing). Output: a Quake-style readable text dump, plus JSON Lines and/or a per-demo SQLite file (self-contained, queryable with plain SQL, pairs naturally with a C core). **This alone delivers the core "recover lost demos" goal**, independent of any viewer.
+**Phase 1 — Core parser (C#, `Tf2DemoSalvage.Core`), text/structured output.** *In progress.
+Container, text dump, CLI, most net messages and `dem_datatables` are done; entity decode is
+not. Ordering note learned in practice: layer 2 messages carry no length prefix, so they must
+be implemented in the order the stream blocks on, not in order of apparent usefulness —
+`svc_ServerInfo` appears once per demo and gated the entire signon stream.* Envelope + `dem_datatables`/`dem_stringtables` parsing, generic SendTable-driven entity decode, normalized event stream (entity spawn/update/delete, game events, chat, user messages, tick timing). Output: a Quake-style readable text dump, plus JSON Lines and/or a per-demo SQLite file (self-contained, queryable with plain SQL, pairs naturally with a C core). **This alone delivers the core "recover lost demos" goal**, independent of any viewer.
 
 **Phase 2 — 2D top-down viewer (C#).** Player positions/orientation/deaths/objective state scrubbed over time on a top-down map projection. Use TF2's shipped overview/radar images where they exist, fall back to a wireframe top-down projected from BSP world geometry where they don't. **Correction (2026-08-07): that geometry is the FACES lump, not brushes** — brushes are collision volumes. See `docs/RENDERING_NOTES.md` §2.
 
