@@ -321,3 +321,39 @@ real data rather than against a fixture.
 `instancebaseline` string table, which is LZSS-compressed and not yet decompressed. That blocks
 continuous decoding past the opening snapshot, and blocks POV demos entirely — they carry no
 full snapshot at all, since the recording begins mid-match.
+
+
+## B13 — continuous decoding stops after 62 to 205 snapshots
+
+**Open.** With the flattening order fixed (B12) and Snappy landed, decoding now runs from the
+opening full snapshot through many consecutive deltas — where it previously managed none — then
+desynchronises. Measured across the corpus, decoding 500 snapshots from the first full one:
+
+| Demo | Snapshots decoded | Stops with |
+|---|---|---|
+| `z1800` | 62 | reader asked for 32 bits with 19 remaining |
+| `etf2l-12030-stv` | 125 | property index −935,059,892 in class 443 |
+| `serveme-627619` | 205 | entity 1511 updated without ever entering |
+
+**The three failures are one cause, seen at three depths.** A class id of 443 is impossible —
+the schema declares 362 — and a negative property index is a UBitVar read from misaligned bits.
+Both mean the reader was already lost when it produced them. "Updated without entering" is the
+same thing surfacing earlier, since a desynchronised entity index names a slot nothing entered.
+
+So this is **not** the entity-baseline gap it resembles. `instancebaseline` decodes now, and it
+supplies default *property values* per class — it never carried the entity-to-class mapping,
+which only an Enter provides. A baseline would not fix a misread bit offset.
+
+**What that leaves.** Some encoding consumed in a delta is still read at the wrong width. The
+opening snapshot decodes perfectly on all four demos, so the encodings it exercises are right;
+the fault is in something deltas reach that a full snapshot does not. Candidates, untested:
+
+- Array properties. `ReadArray` sizes its count with `ClassIdBits(ElementCount)`, which is the
+  same `floor(log2)+1` the class id uses, and that has never been checked against the oracle.
+- `SPROP_VARINT` on a property whose value crosses a varint byte boundary — the fixtures only
+  cover small values and one large one.
+- The delete/leave paths removing entities the decoder should forget.
+
+**The differential is the instrument again**, exactly as in B12. `parse_demo` decodes these
+files completely, so a per-snapshot comparison of entity ids and property indices will localise
+the first divergence rather than leaving it to be guessed at.
