@@ -118,6 +118,9 @@ public sealed class EntityDecoder
         int bits = 0;
         while (classCount > 1)
         {
+            // Stryker disable once RightShiftAssignmentExpression: >>> differs from >> only for
+            // a negative value, and the loop condition means a negative never gets here.
+            // Equivalent mutant.
             classCount >>= 1;
             bits++;
         }
@@ -315,6 +318,8 @@ public sealed class EntityDecoder
 
     private IReadOnlyList<FlatProperty> FlattenedFor(int classId)
     {
+        // Stryker disable once Block: this is a cache. Removing it recomputes the same list
+        // and returns the same answer, only slower - nothing observable changes.
         if (_flattened.TryGetValue(classId, out IReadOnlyList<FlatProperty>? cached))
         {
             return cached;

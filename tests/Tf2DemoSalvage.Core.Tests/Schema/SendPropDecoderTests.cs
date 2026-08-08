@@ -27,6 +27,9 @@ public sealed class SendPropDecoderTests
     private const int CoordMpLowPrecision = 1 << 14;
     private const int CoordMpIntegral = 1 << 15;
 
+    /// <summary>The same bit as <c>Normal</c>, meaning varint when the property is an integer.</summary>
+    private const int VarInt = 1 << 5;
+
     private static SendProperty Property(
         SendPropType type = SendPropType.Int,
         int flags = 0,
@@ -319,6 +322,87 @@ public sealed class SendPropDecoderTests
 
         SendPropDecoder.ReadFloat(ref reader, Property(bits: 8, low: -50f, high: 50f))
             .ShouldBe(expected, 0.5f);
+    }
+
+    [Theory]
+    [InlineData(0u, 0)]
+    [InlineData(1u, 1)]
+    [InlineData(300u, 300)]
+    [InlineData(70000u, 70000)]
+    public void UnsignedVarIntInteger_IsReadAsAVarIntNotAFixedWidthField(uint value, int expected)
+    {
+        // Flag 32 is SPROP_NORMAL on a float and SPROP_VARINT on an integer. Reading a varint
+        // as BitCount bits consumes the wrong number of bits and desynchronises everything
+        // after it, so the sentinel matters as much as the value.
+        BitWriter writer = new();
+        WriteVarInt(writer, value);
+        writer.Write(0x7F, 7);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadInt(ref reader, Property(flags: Unsigned | VarInt, bits: 8))
+            .ShouldBe(expected);
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(1)]
+    [InlineData(-300)]
+    [InlineData(300)]
+    public void SignedVarIntInteger_IsZigZagDecoded(int value)
+    {
+        // Signed varints are zig-zag encoded, so -1 is one byte rather than five. Decoding a
+        // signed varint as unsigned turns -1 into 1 - a plausible number, not an error, which
+        // is why both polarities and both magnitudes are here.
+        BitWriter writer = new();
+        WriteVarInt(writer, (uint)((value << 1) ^ (value >> 31)));
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadInt(ref reader, Property(flags: VarInt, bits: 8)).ShouldBe(value);
+    }
+
+    [Fact]
+    public void VarIntFlagOnAFloat_StillMeansNormalNotVarInt()
+    {
+        // The same bit, the other meaning. If ReadFloat took the varint path the sentinel
+        // below would not line up - which is what makes this a test of the overload rather
+        // than of the value.
+        BitWriter writer = new();
+        writer.Write(0, 1).Write(2047, 11).Write(0x7F, 7);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadFloat(ref reader, Property(flags: VarInt)).ShouldBe(1f, 0.0001f);
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
+    [Fact]
+    public void DataTableProperties_AreTheOnlyUnsupportedKind()
+    {
+        // DataTable is structure rather than a value and never reaches a flattened list.
+        // Everything else decodes now, coordinates included.
+        SendPropDecoder.IsSupported(Property(SendPropType.DataTable)).ShouldBeFalse();
+
+        foreach (SendPropType type in new[]
+        {
+            SendPropType.Int, SendPropType.Float, SendPropType.Vector,
+            SendPropType.VectorXY, SendPropType.String, SendPropType.Array,
+        })
+        {
+            SendPropDecoder.IsSupported(Property(type)).ShouldBeTrue(type.ToString());
+        }
+    }
+
+    /// <summary>Writes a base-128 varint, seven bits per byte, low group first.</summary>
+    private static void WriteVarInt(BitWriter writer, uint value)
+    {
+        while (value >= 0x80)
+        {
+            writer.Write((value & 0x7F) | 0x80, 8);
+            value >>= 7;
+        }
+
+        writer.Write(value, 8);
     }
 
     // --- Coordinate encodings ---

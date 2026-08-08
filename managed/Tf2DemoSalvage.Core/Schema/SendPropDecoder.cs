@@ -191,14 +191,14 @@ public static class SendPropDecoder
     /// <param name="property">The definition to check.</param>
     /// <returns><c>true</c> when it can be decoded.</returns>
     /// <remarks>
-    /// Every float encoding is now implemented, so this is constantly <c>true</c> for the
-    /// types this class handles. Kept because callers use it to report schema coverage, and
-    /// because a future encoding would reintroduce a false case here rather than at every
-    /// call site.
+    /// Every value encoding is implemented now, so the only unsupported type is
+    /// <see cref="SendPropType.DataTable"/> — and that one is structure rather than a value,
+    /// so it never reaches a flattened list at all. Kept because callers report schema
+    /// coverage with it, and because a new encoding would reintroduce a false case here rather
+    /// than at every call site.
     /// </remarks>
-    public static bool IsSupported(SendProperty property) => property.Type is
-        SendPropType.Int or SendPropType.Float or SendPropType.String or
-        SendPropType.Vector or SendPropType.VectorXY or SendPropType.Array;
+    public static bool IsSupported(SendProperty property) =>
+        property.Type != SendPropType.DataTable;
 
     /// <summary>
     /// Reads a coordinate: presence flags, then an integer part, then a fraction.

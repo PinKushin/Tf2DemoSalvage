@@ -340,6 +340,67 @@ public sealed class EntityDecoderTests
     }
 
     [Fact]
+    public void NullSchema_IsRejectedAtConstruction()
+    {
+        // The decoder holds the schema for its whole life, so a null one would surface much
+        // later as a null reference inside a decode rather than at the mistake.
+        Should.Throw<System.ArgumentNullException>(() => new EntityDecoder(null!, ClassBits))
+            .ParamName.ShouldBe("schema");
+    }
+
+    [Fact]
+    public void NullHeader_IsRejected()
+    {
+        Should.Throw<System.ArgumentNullException>(() =>
+                Decoder().Decode(new byte[4], null!, 32))
+            .ParamName.ShouldBe("header");
+    }
+
+    [Fact]
+    public void RemovalList_StopsAtTheDeclaredBodyLengthEvenWithoutATerminator()
+    {
+        // The loop is bounded by the body length as well as by the terminator flag. Here the
+        // body ends exactly after one removal, with no terminator and a byte of unrelated data
+        // beyond it - a decoder bounded only by the flag would read that byte as a second
+        // removal. Fixing the bound to <= would do the same.
+        BitWriter writer = new();
+        writer.UBitVar(0);
+        writer.Write((uint)EntityUpdateType.Leave, 2);
+        writer.Write(1, 1).Write(11, 11);
+        int bodyBits = writer.BitCount;
+        writer.Write(0xFF, 8);                // beyond the body; must not be read
+
+        EntityDecoder decoder = Decoder();
+        decoder.Decode(writer.Build(), Header(1, delta: true), bodyBits);
+
+        decoder.RemovedEntities.ShouldBe([11]);
+    }
+
+    [Fact]
+    public void RemovedEntities_AreClearedBetweenSnapshots()
+    {
+        // The list is reused across calls, so a stale entry would be reported as a removal in
+        // a snapshot that never mentioned it.
+        EntityDecoder decoder = Decoder();
+
+        BitWriter first = new();
+        first.UBitVar(0);
+        first.Write((uint)EntityUpdateType.Leave, 2);
+        first.Write(1, 1).Write(11, 11);
+        first.Write(0, 1);
+        decoder.Decode(first.Build(), Header(1, delta: true), first.BitCount);
+        decoder.RemovedEntities.ShouldBe([11]);
+
+        BitWriter second = new();
+        second.UBitVar(0);
+        second.Write((uint)EntityUpdateType.Leave, 2);
+        second.Write(0, 1);
+        decoder.Decode(second.Build(), Header(1, delta: true), second.BitCount);
+
+        decoder.RemovedEntities.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void StringProperty_ReadsThroughTheSameFlattenedList()
     {
         BitWriter writer = new();
