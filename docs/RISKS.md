@@ -476,3 +476,28 @@ possibilities:
 both print property indices only, which is what made snapshots 0-18 look identical. Extending
 both to print decoded values would show whether entity 1's `m_flSimulationTime` actually agrees
 or merely lands at the right index.
+
+
+#### B13 — value comparison is wired up, and blocked on float formatting
+
+Both dumpers now print decoded values (`index=value`) rather than bare indices, which is the
+measurement the previous section called for. Spot-checking snapshot 0, entity 1:
+
+```
+oracle: 4=12735,9=(288, 2312),10=69.03125,11=0.35294342,12=269.91202,...
+ours:   4=12735,9=(288, 2312),10=69.031,  11=0.353,     12=269.912,...
+```
+
+**The values agree.** Integers, vectors and floats all match — this parser simply prints fewer
+digits, because `PropertyValue.ToString` formats floats as `0.###` for readability in text
+dumps. That is right for a dump and wrong for a differential.
+
+So the comparison is one change away from being usable: the dumper must print floats
+round-trippably (`"R"` or `G9`) rather than going through `ToString`. Until then a textual diff
+reports every float as a difference and drowns the real one.
+
+**State of the hunt.** Indices match for 1,133 consecutive entity updates and then drift at
+snapshot 19; values match wherever they have been compared so far, which is only snapshot 0.
+The next run should diff values across snapshots 0-19 with float formatting normalised, and
+read the *first* line where a value differs — that names the property whose width is wrong,
+which is what the index-level diff cannot do.

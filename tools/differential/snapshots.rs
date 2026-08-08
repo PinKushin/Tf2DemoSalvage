@@ -70,8 +70,11 @@ impl MessageHandler for SnapshotDumper {
             }
 
             for entity in &message.entities {
-                let props: Vec<String> =
-                    entity.props.iter().map(|p| p.index.to_string()).collect();
+                let props: Vec<String> = entity
+                    .props
+                    .iter()
+                    .map(|p| format!("{}={}", p.index, p.value))
+                    .collect();
 
                 self.lines.push(format!(
                     "{}\t{}\t{:?}\t{}\t{}",

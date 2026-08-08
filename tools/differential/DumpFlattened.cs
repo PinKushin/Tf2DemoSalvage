@@ -24,6 +24,19 @@ foreach (DemoCommand c in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeB
     }
 }
 
+if (mode == "props")
+{
+    ServerClass target = schema!.ServerClasses.First(c => c.ClassName == "CTFPlayer");
+    IReadOnlyList<FlatProperty> flat2 = SchemaFlattener.Flatten(schema, target);
+    foreach (int i in arg.Split(',').Select(int.Parse))
+    {
+        SendProperty pr = flat2[i].Property;
+        Console.WriteLine($"{i}	{flat2[i].OwnerTable}.{pr.Name}	type={pr.Type}	flags=0x{pr.Flags:X4}	bits={pr.BitCount}	low={pr.LowValue}	high={pr.HighValue}	elems={pr.ElementCount}");
+    }
+
+    return;
+}
+
 if (mode == "flat")
 {
     foreach (ServerClass sc in schema!.ServerClasses)
@@ -78,7 +91,7 @@ foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader
         {
             Console.WriteLine(
                 $"{snapshot}\t{entity.EntityIndex}\t{entity.UpdateType}\t{entity.ClassId}\t" +
-                string.Join(",", entity.Properties.Select(p => p.Index)));
+                string.Join(",", entity.Properties.Select(p => $"{p.Index}={p.Value}")));
         }
 
         snapshot++;
