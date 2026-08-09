@@ -25,6 +25,15 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 public static class DemoTextDumper
 {
+    /// <summary>Label reported alongside scan progress.</summary>
+    private const string ScanStage = "Scanning packets";
+
+    /// <summary>
+    /// Commands between progress reports. Reporting every command would cost more in callbacks
+    /// than the scan itself on a 120,000-frame demo.
+    /// </summary>
+    private const int ProgressInterval = 512;
+
     private const string Separator
         = "--------------------------------------------------------------------";
 
@@ -34,6 +43,11 @@ public static class DemoTextDumper
     /// <param name="header">The demo's parsed header.</param>
     /// <param name="commands">The demo's commands, in stream order.</param>
     /// <param name="options">Reporting options, or <c>null</c> for the defaults.</param>
+    /// <param name="progress">
+    /// Optional listener for scan progress. The event scan walks every packet in the demo —
+    /// tens of thousands on a full match — and silence for that long is indistinguishable from
+    /// a hang.
+    /// </param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="writer"/>, <paramref name="header"/>, or <paramref name="commands"/> is
     /// <c>null</c>.
@@ -43,7 +57,8 @@ public static class DemoTextDumper
         string fileName,
         DemoHeader header,
         IReadOnlyList<DemoCommand> commands,
-        DemoDumpOptions? options)
+        DemoDumpOptions? options,
+        IProgress<DumpProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(header);
@@ -57,7 +72,7 @@ public static class DemoTextDumper
 
         if (options.IncludeGameEvents)
         {
-            WriteGameEventSection(writer, commands, options.GameEventSampleSize);
+            WriteGameEventSection(writer, commands, options.GameEventSampleSize, progress);
         }
 
         if (options.IncludeCommandListing)
@@ -142,15 +157,28 @@ public static class DemoTextDumper
     /// them identically hides a parser failure behind a plausible-looking report.
     /// </remarks>
     private static void WriteGameEventSection(
-        TextWriter writer, IReadOnlyList<DemoCommand> commands, int sampleSize)
+        TextWriter writer,
+        IReadOnlyList<DemoCommand> commands,
+        int sampleSize,
+        IProgress<DumpProgress>? progress)
     {
         NetDecodeState state = new();
         Dictionary<string, int> counts = [];
         List<(int Tick, string Name, string Detail)> sample = [];
         int total = 0;
+        int scanned = 0;
 
         foreach (DemoCommand command in commands)
         {
+            // Reported per command rather than per packet, so the fraction reaches 1 even on a
+            // demo that is mostly console commands. Every iteration counts, including skipped
+            // ones, or the bar would stall on a stretch this scan ignores.
+            scanned++;
+            if (progress is not null && (scanned % ProgressInterval == 0 || scanned == commands.Count))
+            {
+                progress.Report(new DumpProgress(ScanStage, scanned, commands.Count));
+            }
+
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;

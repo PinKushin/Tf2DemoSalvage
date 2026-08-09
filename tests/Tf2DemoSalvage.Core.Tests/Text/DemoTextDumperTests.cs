@@ -47,11 +47,13 @@ public sealed class DemoTextDumperTests
         DemoHeader? header = null,
         IReadOnlyList<DemoCommand>? commands = null,
         string fileName = "sample.dem",
-        DemoDumpOptions? options = null)
+        DemoDumpOptions? options = null,
+        IProgress<DumpProgress>? progress = null)
     {
         StringWriter writer = new() { NewLine = "\n" };
         DemoTextDumper.Write(
-            writer, fileName, header ?? SampleHeader(), commands ?? SampleCommands(), options);
+            writer, fileName, header ?? SampleHeader(), commands ?? SampleCommands(), options,
+            progress);
         return writer.ToString();
     }
 
@@ -71,6 +73,56 @@ public sealed class DemoTextDumperTests
         Dump(options: new DemoDumpOptions { IncludeGameEvents = false })
             .ShouldNotContain("Game events");
     }
+
+    [Fact]
+    public void Write_ReportsProgressThroughTheEventScan()
+    {
+        // The event scan walks every packet, which on a full match is tens of thousands of
+        // them and takes long enough that silence looks like a hang.
+        List<DumpProgress> reports = [];
+
+        Dump(commands: ManyPackets(500), progress: new SyncProgress(reports.Add));
+
+        reports.ShouldNotBeEmpty();
+        reports[^1].Completed.ShouldBe(reports[^1].Total);
+        reports.ShouldAllBe(r => r.Completed <= r.Total);
+    }
+
+    [Fact]
+    public void Write_ProgressRises_AndEndsAtTheTotal()
+    {
+        // Monotonic and finishing at 100% are the two properties a caller draws a bar from.
+        // A report that jumped backwards or stopped at 97% would render as a stuck bar.
+        List<DumpProgress> reports = [];
+
+        Dump(commands: ManyPackets(500), progress: new SyncProgress(reports.Add));
+
+        for (int i = 1; i < reports.Count; i++)
+        {
+            reports[i].Completed.ShouldBeGreaterThanOrEqualTo(reports[i - 1].Completed);
+        }
+
+        reports[^1].Fraction.ShouldBe(1d);
+    }
+
+    [Fact]
+    public void Write_NoProgressListener_StillWorks()
+    {
+        // Progress is optional; every existing caller passes nothing.
+        Dump(progress: null).ShouldContain("Demo dump:");
+    }
+
+    /// <summary>Reports synchronously, so a test can assert without waiting.</summary>
+    private sealed class SyncProgress(Action<DumpProgress> onReport) : IProgress<DumpProgress>
+    {
+        public void Report(DumpProgress value) => onReport(value);
+    }
+
+    private static IReadOnlyList<DemoCommand> ManyPackets(int count) =>
+    [
+        .. Enumerable.Range(0, count)
+            .Select(i => new DemoCommand(DemoCommandType.Packet, i, new byte[8])),
+    ];
 
     [Fact]
     public void Write_IncludesEveryHeaderField()
