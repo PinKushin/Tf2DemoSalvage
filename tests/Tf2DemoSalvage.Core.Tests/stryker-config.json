@@ -15,6 +15,17 @@
       "low": 80,
       "break": 80
     },
+    "_comment_globs": [
+      "Every path glob here resolves against the mutated project's own directory",
+      "(managed/Tf2DemoSalvage.Core), not the solution root and not the invocation",
+      "directory. A glob written from the repo root matches nothing, and Stryker does",
+      "not warn - it runs and reports a score for whatever it did find. If a 'mutate'",
+      "key is ever added, write it as 'Schema/**/*.cs', never as",
+      "'managed/Tf2DemoSalvage.Core/Schema/**/*.cs'.",
+      "The ignore-changes-in entries below are unverified for the same reason: docs/",
+      "and tools/ sit outside the project directory, so they may never match. See",
+      "docs/memory/stryker-globs-are-project-relative.md."
+    ],
     "since": {
       "enabled": false,
       "target": "main",
