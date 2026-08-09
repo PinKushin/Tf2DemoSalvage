@@ -335,3 +335,27 @@ part of reading a demo, and the writers want different slices of the same messag
 per writer would make cost scale with the number of output formats, which is the wrong thing to
 scale with. It was already wrong once inside the text dump, when the player section added a
 second pass.
+
+
+## D17 — SQLite export is deferred until something needs random access by tick
+
+`ROADMAP.md` §3 lists "JSON Lines **and/or** a per-demo SQLite file". The and/or was always
+there; this records the choice.
+
+**Not building it now, because it would buy nothing.** A full demo's JSON Lines output is about
+10,000 lines — header, players, chat, events. That is small enough to `grep`, load whole, or
+pipe to `jq`. SQLite would hold the same data in a heavier container, and add a dependency and a
+schema to keep in step with the decoders for no capability gained.
+
+**The trigger is entity state, not a checklist.** Entity positions per tick are roughly 14.8
+million entity updates and 94 million property values per demo. As JSON Lines that is gigabytes,
+and answering "where was this player at tick 40,000" means scanning all of it. With an index on
+`(tick, entity)` it is immediate — which is precisely what the Phase 2 viewer needs to scrub a
+timeline, and the first thing that genuinely cannot be served by a streamed text format.
+
+So the condition is **"something needs random access by tick"**, and the natural moment is when
+entity snapshots start being exported at all. Building it before then means maintaining a schema
+for data nobody queries.
+
+Worth stating plainly because the pull was real: the roadmap named SQLite, Phase 1 felt
+incomplete without it, and "the doc says so" is not a reason to build something.
