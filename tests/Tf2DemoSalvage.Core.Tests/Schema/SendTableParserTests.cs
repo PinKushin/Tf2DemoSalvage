@@ -34,21 +34,28 @@ public sealed class SendTableParserTests
         writer.String(name);
         writer.Write((uint)props.Length, 10);
 
-        foreach ((SendPropType type, string propName, int flags, object? extra) in props)
+        foreach ((SendPropType type, string propName, int flags, object? maybeExtra) in props)
         {
             writer.Write((uint)type, 5).String(propName).Write((uint)flags, 16);
 
+            // Every shape below needs the extra payload, so a null one is a broken fixture
+            // rather than a case to handle. Saying that once, here, is what lets the three
+            // branches drop their null-forgiving operators: `!` asserts the compiler is wrong
+            // without showing why, and Sonar's S8969 correctly objects to at least one of them.
+            object extra = maybeExtra
+                ?? throw new System.ArgumentException($"'{propName}' needs an Extra value.", nameof(props));
+
             if (type == SendPropType.DataTable || (flags & ExcludeFlag) != 0)
             {
-                writer.String((string)extra!);
+                writer.String((string)extra);
             }
             else if (type == SendPropType.Array)
             {
-                writer.Write((uint)(int)extra!, 10);
+                writer.Write((uint)(int)extra, 10);
             }
             else
             {
-                (float low, float high, int bits) = ((float, float, int))extra!;
+                (float low, float high, int bits) = ((float, float, int))extra;
                 writer.Write((uint)System.BitConverter.SingleToInt32Bits(low), 32);
                 writer.Write((uint)System.BitConverter.SingleToInt32Bits(high), 32);
                 writer.Write((uint)bits, 7);

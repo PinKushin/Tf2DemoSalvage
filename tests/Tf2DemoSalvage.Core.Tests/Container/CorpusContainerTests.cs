@@ -74,7 +74,7 @@ public sealed class CorpusContainerTests
             return;
         }
 
-        byte[] bytes = File.ReadAllBytes(path!);
+        byte[] bytes = File.ReadAllBytes(path);
         DemoHeader header = DemoHeader.Parse(bytes);
 
         header.DemoProtocol.ShouldBe(3);
@@ -114,7 +114,7 @@ public sealed class CorpusContainerTests
             return;
         }
 
-        byte[] bytes = File.ReadAllBytes(path!);
+        byte[] bytes = File.ReadAllBytes(path);
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
 
@@ -134,7 +134,7 @@ public sealed class CorpusContainerTests
             return;
         }
 
-        byte[] bytes = File.ReadAllBytes(path!);
+        byte[] bytes = File.ReadAllBytes(path);
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
 
