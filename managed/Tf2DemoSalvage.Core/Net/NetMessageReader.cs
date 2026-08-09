@@ -116,8 +116,9 @@ public static class NetMessageReader
                 {
                     return Stopped(messages, lastGoodBit, null, string.Create(
                         CultureInfo.InvariantCulture,
-                        $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, 16, " +
-                        $"20 and 22 are unused at network protocol 24."));
+                        $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, " +
+                        $"16, 20 and 22 have no known layout here - see RISKS.md B16 for id 1, " +
+                        $"which does occur in the corpus."));
                 }
 
                 NetMessageType type = (NetMessageType)rawType;
