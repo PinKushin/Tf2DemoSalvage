@@ -826,3 +826,37 @@ also works, but cannot say which of six globs was wrong.
 Failure modes are asymmetric, which is why a guard is needed: every glob wrong yields zero
 mutants and a loud error; *one* glob wrong yields a real run and a plausible percentage covering
 five-sixths of the intended set.
+
+#### D24 correction — a module initializer is not a valid warmup hook
+
+Rule 4 above suggested warming the corpus cache in "a module initializer or assembly fixture".
+The module initializer half was tried on 2026-08-09 and **is wrong**:
+
+```
+[xUnit.net 00:01:15] Catastrophic failure:
+System.InvalidOperationException: Test process did not respond within 60 seconds
+```
+
+A module initializer runs at **assembly load**, which is before the test host completes its
+startup handshake with the runner. That handshake has a hard 60-second limit. Expensive work
+there kills the host before a single test runs — and it runs again on every load, including
+discovery.
+
+A second thing the attempt measured, which is more useful than the failure: **eagerly warming
+everything took over 60 seconds, against a 13-second suite.** Warming all four caches for all
+eight demos does far more work than the tests ever ask for, because the lazy caches only compute
+what something actually requests. That is evidence for attacking the walk's cost rather than its
+placement.
+
+Remaining options, in preference order:
+
+1. **Make the walk cheaper.** `NetMessageReader` fully decodes every string table it passes,
+   including `modelprecache` and `soundprecache` with thousands of entries, when a roster walk
+   needs only `userinfo`. Each table carries a length prefix, so its body can be stepped over
+   without being decoded. This must be **opt-in per caller** — a default that narrows what a walk
+   sees is how B20, B21 and B22 all happened, and B22 shows `instancebaseline` is needed too.
+2. **An xunit assembly fixture**, which at least runs after the handshake. Its cost is likely
+   attributed to the first test, so it may not solve the per-test baseline problem at all —
+   measure before adopting.
+3. **Accept it and keep `additional-timeout` raised**, paying roughly 25 seconds per hanging
+   mutant, and always reading the floor alongside the headline.
