@@ -307,3 +307,31 @@ So the headline score covers **less of the parser than it appears to**. The numb
 about what it measured and silent about what it could not reach. Treat a high score as evidence
 about the tested subset, not about the decoder as a whole — the corpus differential in
 `tools/differential/` is what actually covers the decode paths, and it runs in seconds.
+
+
+## D16 — JSON Lines is the machine-readable output, and the scan is shared
+
+Phase 1 names two outputs: a readable text dump and JSON Lines. Both exist now, and the pairing
+is deliberate — the text dump is for a person deciding whether a demo is intact, the JSON Lines
+file is for anything that wants to compute over it.
+
+**One object per line, never pretty-printed.** That single rule is the reason to choose the
+format: a consumer can `grep` for a player, pipe to `jq`, or stream a 120,000-event demo without
+holding any of it in memory. A record split across lines breaks all three at once, so the writer
+is configured so it cannot happen rather than merely avoiding it.
+
+**Fields keep their types.** A boolean is `true`, not `"False"` — the latter is a trap in every
+language whose truthiness rules differ from C#'s. Numbers are numbers, so a consumer comparing
+`damageamount` against a threshold does not parse a string first.
+
+**Event fields keep raw ids rather than resolved names.** The text dump resolves them because a
+human reads it; this format is joined against the `player` records instead, which is what a
+consumer would want anyway and avoids baking one interpretation into the data.
+
+### The scan is shared, not duplicated
+
+Both writers now use `DemoScan`, which walks the packet stream once. Decoding is the expensive
+part of reading a demo, and the writers want different slices of the same messages — scanning
+per writer would make cost scale with the number of output formats, which is the wrong thing to
+scale with. It was already wrong once inside the text dump, when the player section added a
+second pass.
