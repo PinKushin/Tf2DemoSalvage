@@ -5,6 +5,7 @@
     "test-projects": [
       "Tf2DemoSalvage.Cli.Tests.csproj"
     ],
+    "test-runner": "mtp",
     "reporters": [
       "progress",
       "html",

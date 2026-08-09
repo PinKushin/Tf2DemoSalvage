@@ -64,3 +64,27 @@ distinguish the two. Equivalent by construction — do not write a test for it.
 An earlier survivor, `bar.Finish()` in `Program.Run`, was removed rather than tested: the bar is
 now scoped in a `using` so disposal provides the same ordering, and the unobservable statement is
 gone.
+
+
+## `test-runner` must be `mtp`, and getting it wrong looks like bad tests
+
+xUnit v3 test projects are self-executing and run on Microsoft.Testing.Platform. Stryker's
+default runner is VsTest, and against a v3 project it **runs to completion, reports
+`Errors: 0`, and scores almost everything as survived**:
+
+```
+VsTest (default)   Killed: 1    Survived: 78   score  1.27 %
+mtp                Killed: 76   Survived:  1   score 98.73 %
+```
+
+Same code, same tests, same Stryker 4.16.0. The 1.27% is not a measurement — the tests never ran
+against the mutants, so every one of them "survived" by default.
+
+**The reason this is worth a section rather than a config line:** the failure presents as a
+quality problem, not a tooling problem. A 1.27% score with zero errors reads as "the test suite
+is worthless" and invites someone to go write assertions that already exist. Nothing in the
+output says the runner failed to invoke anything.
+
+The same shape as the other two traps recorded here — a non-matching `mutate` glob, and a
+comment key that aborts the run. Stryker fails quietly in more than one way, so **treat any
+sudden score collapse as a tooling question before a test-quality one.**

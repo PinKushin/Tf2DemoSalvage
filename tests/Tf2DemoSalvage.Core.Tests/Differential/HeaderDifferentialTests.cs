@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Text.Json;
 using Tf2DemoSalvage.Core.Container;
-using Xunit.Abstractions;
 
 namespace Tf2DemoSalvage.Core.Tests.Differential;
 

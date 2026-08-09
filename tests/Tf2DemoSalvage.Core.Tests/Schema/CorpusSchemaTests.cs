@@ -5,7 +5,6 @@ using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
-using Xunit.Abstractions;
 
 namespace Tf2DemoSalvage.Core.Tests.Schema;
 

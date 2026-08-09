@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
-using Xunit.Abstractions;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
