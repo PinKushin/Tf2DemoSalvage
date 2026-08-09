@@ -121,10 +121,129 @@
       "era": "2026-08-07",
       "eraEvidence": "Filename timestamp and the serveme.tf reservation id. Asset dating gives only '  2019 or later' for this file - a competitive server carries few seasonal cosmetics, so the technique that dated z1800 precisely gives a weak lower bound here. Worth knowing as a limitation of that method rather than a problem with this demo.",
       "whyItMatters": "Six years newer than the rest of the corpus and still demo protocol 3 / network protocol 24, which is the strongest evidence yet that protocol numbers do not date a demo - the pair now spans 2015 documentation through 2020 and 2026 files. Also a fourth independent confirmation that every TF2 demo ends with a dem_stop header one byte short."
+    },
+    {
+      "file": "demos/demostf-cp_process_f12-2026-08-07.dem",
+      "sha256": "ef36e30eedfa7411b3a37ac16b8954cd315400a10d661b288f2118deadf3d89b",
+      "sizeBytes": 34560994,
+      "source": "demos.tf, retrieved 2026-08-08",
+      "pointOfView": "SourceTV",
+      "demoProtocol": 3,
+      "networkProtocol": 24,
+      "serverName": "br.tf2pickup.org",
+      "clientName": "SourceTV Demo",
+      "map": "cp_process_f12",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 1594.6949462890625,
+      "playbackTicks": 106313,
+      "playbackFrames": 106219,
+      "signonLengthBytes": 1050610,
+      "commandCounts": {
+        "dem_signon": 3,
+        "dem_packet": 106219,
+        "dem_synctick": 1,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "2026-08-07",
+      "eraEvidence": "Filename timestamp from demos.tf plus the server reservation id. Modern, so asset dating gives only a weak lower bound - see the note on serveme-627619.",
+      "whyItMatters": "First tf2pickup.org demo in the corpus, and the first from a non-serveme, non-ETF2L platform - useful because provenance is the one axis where every earlier entry clustered.",
+      "decodeStatus": "Decodes end to end: every dem_packet yields a snapshot, zero packet stops, zero errors."
+    },
+    {
+      "file": "demos/demostf-cp_snakewater_final1-2026-08-07.dem",
+      "sha256": "728db87f435d11690fca4b0a29b4581feafab448db194933d4827e91e6cace70",
+      "sizeBytes": 39385013,
+      "source": "demos.tf, retrieved 2026-08-08",
+      "pointOfView": "SourceTV",
+      "demoProtocol": 3,
+      "networkProtocol": 24,
+      "serverName": "serveme.tf #1557311",
+      "clientName": "SourceTV Demo",
+      "map": "cp_snakewater_final1",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 973.1849975585938,
+      "playbackTicks": 64879,
+      "playbackFrames": 64872,
+      "signonLengthBytes": 1031815,
+      "commandCounts": {
+        "dem_signon": 3,
+        "dem_packet": 64872,
+        "dem_synctick": 1,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "2026-08-07",
+      "eraEvidence": "Filename timestamp from demos.tf plus the server reservation id. Modern, so asset dating gives only a weak lower bound - see the note on serveme-627619.",
+      "whyItMatters": "First snakewater in the corpus. Map variety matters because the entity mix differs per map - a control-point map spawns different classes than a king-of-the-hill one.",
+      "decodeStatus": "Decodes end to end: every dem_packet yields a snapshot, zero packet stops, zero errors."
+    },
+    {
+      "file": "demos/demostf-koth_product_final-2026-08-07.dem",
+      "sha256": "2563c16744e6a166923aa8eccd9c8e87f57ff2498f5dd459603bcd25b3f97b5b",
+      "sizeBytes": 64858979,
+      "source": "demos.tf, retrieved 2026-08-08",
+      "pointOfView": "SourceTV",
+      "demoProtocol": 3,
+      "networkProtocol": 24,
+      "serverName": "serveme.tf #1557303",
+      "clientName": "SourceTV Demo",
+      "map": "koth_product_final",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 1097.655029296875,
+      "playbackTicks": 73177,
+      "playbackFrames": 73176,
+      "signonLengthBytes": 1079325,
+      "commandCounts": {
+        "dem_signon": 3,
+        "dem_packet": 73176,
+        "dem_synctick": 1,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "2026-08-07",
+      "eraEvidence": "Filename timestamp from demos.tf plus the server reservation id. Modern, so asset dating gives only a weak lower bound - see the note on serveme-627619.",
+      "whyItMatters": "First king-of-the-hill map since z1800, and the densest entity stream measured so far - 1.84M entity updates across 11.9M property values.",
+      "decodeStatus": "Decodes end to end: every dem_packet yields a snapshot, zero packet stops, zero errors."
     }
   ],
   "corpusGaps": {
     "preTwentyTwenty": "EMPTY, and not for lack of trying. Checked 2026-08-07: RGL launched 2019 so its oldest demos are the same era as these. ETF2L's listing goes back to Sept 2014 but the files have rotted - every demo id below ~12010 returns HTTP 404, and the live floor is id 12025, dated 2020-07-23. ESEA's SourceTV demos shipped with expiry dates and were never permanently downloadable, so there is nothing to recover; community Mega collections catalogued on teamfortress.tv in 2013 are long dead. sizzlingstats, which did keep demos, is gone.",
     "consequence": "The parser has no historical coverage and no test that would reveal its absence. See D5 - the schema-driven design has to be right by construction, because it cannot be verified."
+  },
+  "verifiedButNotStored": {
+    "why": "These parse end to end and are recorded for auditability, but are not committed. Git LFS on the free tier allows 1 GB of storage and 1 GB of bandwidth per month; the stored corpus is already ~316 MB and every fresh clone spends that against the bandwidth allowance. Test value is per-map and per-quirk rather than per-file, and these five duplicate maps already covered.",
+    "source": "demos.tf, retrieved 2026-08-08, held locally by the owner",
+    "result": "All five decode end to end with zero packet stops.",
+    "demos": [
+      {
+        "file": "match-20260808-2256-koth_product_final.dem",
+        "sha256": "6193aabf09ebbd3428a1956c461cc8dd2a01b28f1cb26650bbb3f2ff47899872",
+        "sizeBytes": 86884892
+      },
+      {
+        "file": "match-20260808-2233-cp_sunshine.dem",
+        "sha256": "5c552d37b5c587d0442b3dc0cc372b0d908e3395e9a5ab656aafcd915d4791af",
+        "sizeBytes": 68421442
+      },
+      {
+        "file": "match-20260807-2001-cp_sunshine.dem",
+        "sha256": "fb2087bd0e7df669fcf7a191c13570777385ef68b4e87106afb67ddfdc6afd13",
+        "sizeBytes": 68746529
+      },
+      {
+        "file": "match-20260808-2207-cp_process_f12.dem",
+        "sha256": "77e7029ee5a5da0796faf2187012a92f0eb54c94250573786cdde29be8ff0778",
+        "sizeBytes": 61022410
+      },
+      {
+        "file": "match-20260808-2238-cp_sunshine.dem",
+        "sha256": "cce13307fb3ec19e93a6155179596c47d8485c9c2e5d26ec561275340d0c78e0",
+        "sizeBytes": 59702907
+      }
+    ]
   }
 }

@@ -236,3 +236,26 @@ Two things not to do, which matter more than the number:
   disguise; `IsSupported` was rewritten today and was borderline.
 
 This is D6's "read the survivors, not the score", meant literally.
+
+
+## D14 — the corpus stores one demo per map, not every demo
+
+Nine modern demos.tf files arrived on 2026-08-08 and all parsed end to end. Three were kept and
+five were recorded by hash only, in `manifest.json` under `verifiedButNotStored`.
+
+**Why not all of them.** Git LFS on the free tier allows 1 GB of storage and 1 GB of bandwidth
+per month. The stored corpus is now ~316 MB; keeping all eight would have reached ~660 MB, and
+every fresh clone spends that against the same monthly allowance. Two clones would exceed it.
+
+**Why that costs little.** Test value here is per-map and per-quirk, not per-file. A second
+`cp_sunshine` demo from the same platform in the same week exercises the same entity mix, the
+same message types and the same schema shape as the first. What earns storage is a new map, a
+new era, a new point of view, or a new platform.
+
+**What the recording preserves.** Hash, size and the decode result for each unstored file, so
+the claim "these parse" stays auditable and any of them can be re-identified if it surfaces
+again. The owner holds the files locally.
+
+This does not relax D5. That gap is **pre-2020 demos**, and none of these are — they are all
+modern. Nine modern files decoding proves generality across maps and platforms, and says
+nothing about whether the parser handles a 2013 build, because no such file has ever been seen.
