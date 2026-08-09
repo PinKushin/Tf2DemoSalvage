@@ -243,6 +243,16 @@
         "file": "match-20260808-2238-cp_sunshine.dem",
         "sha256": "cce13307fb3ec19e93a6155179596c47d8485c9c2e5d26ec561275340d0c78e0",
         "sizeBytes": 59702907
+      },
+      {
+        "file": "testpovdemo1.dem",
+        "sha256": "41b52d8f492f44e072bf5a579f2153dec46a36926a91ffdb64d86e39c580f011",
+        "sizeBytes": 3048689,
+        "why": "Recorded by the owner on 2026-08-09 with TF2's built-in `record`, no P-REC, on a local server - the only demo with fully known provenance. Held locally rather than committed because its userinfo table carries the owner's Steam ID and this repo is public.",
+        "map": "koth_badlands",
+        "pointOfView": "First Person",
+        "result": "Decodes end to end: 10,640 of 10,640 dem_packet commands yield a snapshot, zero packet stops, zero unrecognised messages.",
+        "whatItSettled": "Network message id 1 does NOT appear in a stock POV demo. It is therefore not POV-inherent - see RISKS B16."
       }
     ]
   }

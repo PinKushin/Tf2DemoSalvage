@@ -275,6 +275,9 @@ public static class DemoTraceWriter
         ClassInfoMessage classes => string.Create(
             CultureInfo.InvariantCulture, $"svc_classinfo count {classes.Classes.Count}"),
 
+        SkippedMessage skipped => string.Create(
+            CultureInfo.InvariantCulture, $"{WireName(skipped.Type)} bits {skipped.BodyBits}"),
+
         _ => WireName(message.Type),
     };
 

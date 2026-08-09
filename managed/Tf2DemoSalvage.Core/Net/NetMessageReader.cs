@@ -54,6 +54,15 @@ public static class NetMessageReader
     /// <summary>Width of <c>svc_VoiceData</c>'s payload length.</summary>
     private const int VoiceDataLengthBits = 16;
 
+    /// <summary>Width of a decal's texture index: the SDK's MAX_DECAL_INDEX_BITS.</summary>
+    private const int DecalTextureBits = 9;
+
+    /// <summary>Width of an entity index in svc_BspDecal: MAX_EDICT_BITS.</summary>
+    private const int EntityIndexBits = 11;
+
+    /// <summary>Width of a model index in svc_BspDecal: SP_MODEL_INDEX_BITS.</summary>
+    private const int ModelIndexBits = 13;
+
     /// <summary>Width of <c>svc_SetView</c>'s entity index.</summary>
     private const int SetViewBits = 11;
 
@@ -117,11 +126,13 @@ public static class NetMessageReader
                     return Stopped(messages, lastGoodBit, null, string.Create(
                         CultureInfo.InvariantCulture,
                         $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, " +
-                        $"16, 20 and 22 have no known layout here - see RISKS.md B16 for id 1, " +
-                        $"which does occur in the corpus."));
+                        $"16, 20 and 22 are unused at network protocol 24 - an id in that set " +
+                        $"usually means an earlier message overread, not a new message type."));
                 }
 
                 NetMessageType type = (NetMessageType)rawType;
+                int bodyStartBit = reader.BitsRead;
+                int messageCountBefore = messages.Count;
 
                 switch (type)
                 {
@@ -347,9 +358,21 @@ public static class NetMessageReader
                             _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
                         }
 
-                        _ = reader.ReadUInt32(16);      // texture index
-                        _ = reader.ReadUInt32(16);      // entity index
-                        _ = reader.ReadUInt32(16);      // model index
+                        // Nine bits, not sixteen. An earlier version of this read three 16-bit
+                        // fields here because the reference parser's *struct* declares them as
+                        // u16 - but the struct is its in-memory shape, and its reader uses
+                        // explicit widths that are nothing like it. Reading the struct instead
+                        // of the reader cost a 14-to-38-bit overread (RISKS B16).
+                        _ = reader.ReadUInt32(DecalTextureBits);
+
+                        // The entity and model indices are present only when this flag is set,
+                        // which is most of the difference: a world decal carries neither.
+                        if (reader.ReadBit())
+                        {
+                            _ = reader.ReadUInt32(EntityIndexBits);
+                            _ = reader.ReadUInt32(ModelIndexBits);
+                        }
+
                         _ = reader.ReadBit();           // low priority
                         break;
                     }
@@ -427,6 +450,14 @@ public static class NetMessageReader
                             $"{type} at bit {typeStartBit} is not decoded yet. Messages carry no " +
                             $"length prefix, so the rest of this packet cannot be reached until " +
                             $"it is implemented."));
+                }
+
+                // Every message accounts for itself, including the ones read purely for
+                // alignment. A trace that omitted them would show consumed bits with nothing to
+                // attribute them to - see SkippedMessage.
+                if (messages.Count == messageCountBefore)
+                {
+                    messages.Add(new SkippedMessage(type, reader.BitsRead - bodyStartBit));
                 }
 
                 lastGoodBit = reader.BitsRead;

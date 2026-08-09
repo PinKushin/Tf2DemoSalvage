@@ -36,41 +36,22 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void EveryDemoExceptTheKnownOne_TracesWithoutAnUnreadableBlock()
+    public void EveryDemo_TracesWithoutAnUnreadableBlock()
     {
         // The trace reports what it cannot read rather than throwing, so a failure shows up
         // here as text rather than as an exception. That is the point of the format.
         //
-        // One demo genuinely does contain an unreadable packet: the ETF2L POV file carries
-        // network message id 1, whose layout is unknown - RISKS B16. Asserting cleanliness
-        // across the whole corpus would mean either deleting that demo or pretending, so the
-        // known case is named instead and everything else must stay clean.
+        // This briefly carried an exemption for the POV demo, which appeared to contain an
+        // unknown message id 1. It did not - svc_BspDecal was overreading by up to 38 bits and
+        // the id was garbage produced downstream of that (RISKS B16). The exemption is gone
+        // because the reason for it was never real.
         foreach (string path in Corpus.Files())
         {
             string trace = Trace(path);
+
             trace.ShouldContain("block dem_packet");
-
-            if (Path.GetFileName(path).Contains("pov", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
             trace.ShouldNotContain("stopped after", Case.Sensitive, Path.GetFileName(path));
         }
-    }
-
-    [Fact]
-    public void ThePovDemo_HasExactlyOneUnreadablePacket()
-    {
-        // Pinned rather than tolerated. If id 1 is ever implemented this fails, which is the
-        // reminder to delete it; if something else breaks, the count rises and this catches it.
-        string pov = Corpus.Files()
-            .First(f => Path.GetFileName(f).Contains("pov", StringComparison.Ordinal));
-
-        string trace = Trace(pov);
-
-        trace.Split("stopped after", StringSplitOptions.None).Length.ShouldBe(2);
-        trace.ShouldContain("Unrecognised message id 1");
     }
 
     [Fact]
