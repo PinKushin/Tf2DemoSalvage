@@ -486,3 +486,42 @@ that launches offline.
 protocols 15–23. That is still true of *source*, but a path to a period-correct *binary* now has
 a name and a location. If closing the era axis ever becomes the priority, this is where to start
 rather than from nothing.
+
+
+### D19 second addendum — a prebuilt 2009 client exists, and closing the era axis is the priority
+
+**Priority correction, owner-stated 2026-08-09:** closing the era axis *is* the point of the
+project. Earlier notes here treated it as a background concern to be picked up if convenient,
+and ranked parser work above it. That was wrong and is corrected: work that gets a
+pre-2013 demo into the corpus outranks feature work on the parser.
+
+**And it turns out to be cheap.** `archive.org/details/team-fortress-2-3862` is Team Fortress 2
+build **3862, dated 4 June 2009** — "fully functional, uses the original .GCF contents" — as a
+single 3.9 GB zip. Its directory was verified before downloading, by range-requesting the zip's
+central directory and reading the file list:
+
+```
+team fortress 2/hl2.exe              launcher
+team fortress 2/bin/engine.dll       the 2009 engine
+team fortress 2/tf/bin/client.dll    game DLL, and therefore the 2009 SendTables
+team fortress 2/tf/maps/             500 entries
+```
+
+A complete extracted install. **No depot extraction, no Steam 2 blobs, no retail decryption** —
+the route recorded in the first addendum is superseded and should not be attempted.
+
+**Why the game DLL is the part that matters.** `client.dll` and `server.dll` define the `DT_`
+send tables, so they determine the entity schema and the protocol a recording announces. Old
+binaries with modern content would still record an old-protocol demo; old binaries are the whole
+requirement.
+
+**Recording it:** launch `hl2.exe -game tf -insecure -novid -console`, then `map cp_dustbowl`
+and `record`. Two likely obstacles, both ordinary: the archive carries no `steam_appid.txt`, so
+one containing `440` may be needed beside `hl2.exe`; and a 2009 engine expects 2009 Steam API
+interfaces, for which Steam in offline mode is the usual answer. Extract outside the Steam
+library so nothing tries to update it.
+
+**What it would settle.** A protocol 15 demo exercises all four protocol-conditional rules on
+their old side simultaneously — every one currently implemented from reading the reference
+parser and never executed against real data. See `SPEC.md` and the alignment tests in
+`OldProtocolTests`, which prove internal consistency and nothing more.
