@@ -22,4 +22,7 @@ public sealed record DemoDumpOptions
 
     /// <summary>How many individual events to list before summarising the rest.</summary>
     public int GameEventSampleSize { get; init; } = 40;
+
+    /// <summary>Whether to list the players named by the <c>userinfo</c> string table.</summary>
+    public bool IncludePlayers { get; init; } = true;
 }

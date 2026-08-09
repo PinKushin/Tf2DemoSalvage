@@ -25,6 +25,9 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 public static class DemoTextDumper
 {
+    /// <summary>The string table naming connected players.</summary>
+    private const string UserInfoTable = "userinfo";
+
     /// <summary>Label reported alongside scan progress.</summary>
     private const string ScanStage = "Scanning packets";
 
@@ -70,9 +73,22 @@ public static class DemoTextDumper
         WriteHeaderSection(writer, fileName, header);
         WriteSummarySection(writer, header, commands);
 
-        if (options.IncludeGameEvents)
+        // One pass, two sections. Both need the decoded message stream, and scanning twice
+        // doubles the cost on a demo with a hundred thousand packets - which is what this did
+        // when the player section was first added.
+        if (options.IncludePlayers || options.IncludeGameEvents)
         {
-            WriteGameEventSection(writer, commands, options.GameEventSampleSize, progress);
+            ScanResult scan = Scan(commands, options.GameEventSampleSize, progress);
+
+            if (options.IncludePlayers)
+            {
+                WritePlayerSection(writer, scan.Players);
+            }
+
+            if (options.IncludeGameEvents)
+            {
+                WriteGameEventSection(writer, scan);
+            }
         }
 
         if (options.IncludeCommandListing)
@@ -146,6 +162,53 @@ public static class DemoTextDumper
     }
 
     /// <summary>
+    /// Lists the players the <c>userinfo</c> string table names.
+    /// </summary>
+    /// <remarks>
+    /// Two identifiers appear here because two exist. Game events carry <c>user_id</c> and
+    /// entities are addressed by index; this table is where they meet. Printing both is what
+    /// lets a reader follow a kill from the event log to the entity that moved.
+    /// </remarks>
+    private static void WritePlayerSection(
+        TextWriter writer, IReadOnlyDictionary<int, PlayerInfo> players)
+    {
+        writer.WriteLine(Separator);
+        writer.WriteLine("Players");
+        writer.WriteLine(Separator);
+
+        if (players.Count == 0)
+        {
+            writer.WriteLine("  none found");
+            writer.WriteLine();
+            return;
+        }
+
+        writer.WriteLine("  entity  userid  name                             steam id");
+
+        foreach (PlayerInfo player in players.Values)
+        {
+            // A SourceTV slot is not a player and a bot is not a person; both are marked so a
+            // reader counting a roster does not include them.
+            string note = string.Empty;
+            if (player.IsSourceTv)
+            {
+                note = " (SourceTV)";
+            }
+            else if (player.IsBot)
+            {
+                note = " (bot)";
+            }
+
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {player.EntityIndex,6}  {player.UserId,6}  {player.Name,-32} " +
+                $"{player.SteamId}{note}"));
+        }
+
+        writer.WriteLine();
+    }
+
+    /// <summary>
     /// Decodes the packet stream and reports what happened in the match.
     /// </summary>
     /// <remarks>
@@ -156,47 +219,11 @@ public static class DemoTextDumper
     /// absent section and a match with no events are different facts, and a dump that renders
     /// them identically hides a parser failure behind a plausible-looking report.
     /// </remarks>
-    private static void WriteGameEventSection(
-        TextWriter writer,
-        IReadOnlyList<DemoCommand> commands,
-        int sampleSize,
-        IProgress<DumpProgress>? progress)
+    private static void WriteGameEventSection(TextWriter writer, ScanResult scan)
     {
-        NetDecodeState state = new();
-        Dictionary<string, int> counts = [];
-        List<(int Tick, string Name, string Detail)> sample = [];
-        int total = 0;
-        int scanned = 0;
-
-        foreach (DemoCommand command in commands)
-        {
-            // Reported per command rather than per packet, so the fraction reaches 1 even on a
-            // demo that is mostly console commands. Every iteration counts, including skipped
-            // ones, or the bar would stall on a stretch this scan ignores.
-            scanned++;
-            if (progress is not null && (scanned % ProgressInterval == 0 || scanned == commands.Count))
-            {
-                progress.Report(new DumpProgress(ScanStage, scanned, commands.Count));
-            }
-
-            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-            {
-                continue;
-            }
-
-            foreach (GameEventMessage gameEvent in NetMessageReader
-                .Read(command.Payload.Span, state).Messages.OfType<GameEventMessage>())
-            {
-                string name = gameEvent.Name ?? string.Create(CultureInfo.InvariantCulture, $"#{gameEvent.EventId}");
-                counts[name] = counts.TryGetValue(name, out int seen) ? seen + 1 : 1;
-                total++;
-
-                if (sample.Count < sampleSize)
-                {
-                    sample.Add((command.Tick, name, Describe(gameEvent)));
-                }
-            }
-        }
+        Dictionary<string, int> counts = scan.EventCounts;
+        List<(int Tick, string Name, string Detail)> sample = scan.EventSample;
+        int total = scan.EventTotal;
 
         writer.WriteLine(Separator);
         writer.WriteLine("Game events");
@@ -230,6 +257,106 @@ public static class DemoTextDumper
         }
 
         writer.WriteLine();
+    }
+
+    /// <summary>What one walk of the packet stream produced.</summary>
+    /// <param name="Players">Players named by the <c>userinfo</c> table, keyed by entity index.</param>
+    /// <param name="EventCounts">How many of each game event fired.</param>
+    /// <param name="EventSample">The first events in order, capped by the caller.</param>
+    /// <param name="EventTotal">Total events decoded, including those past the sample cap.</param>
+    private sealed record ScanResult(
+        SortedDictionary<int, PlayerInfo> Players,
+        Dictionary<string, int> EventCounts,
+        List<(int Tick, string Name, string Detail)> EventSample,
+        int EventTotal);
+
+    /// <summary>
+    /// Walks the packet stream once, collecting everything the report sections need.
+    /// </summary>
+    /// <remarks>
+    /// One pass rather than one per section. Decoding is the expensive part of a dump — a
+    /// hundred thousand packets, each a bit-level walk — and the sections all want different
+    /// slices of the same messages. Scanning per section doubled the cost the moment a second
+    /// section existed.
+    /// </remarks>
+    private static ScanResult Scan(
+        IReadOnlyList<DemoCommand> commands,
+        int sampleSize,
+        IProgress<DumpProgress>? progress)
+    {
+        NetDecodeState state = new();
+        SortedDictionary<int, PlayerInfo> players = [];
+        Dictionary<string, int> counts = [];
+        List<(int Tick, string Name, string Detail)> sample = [];
+        int total = 0;
+        int scanned = 0;
+
+        foreach (DemoCommand command in commands)
+        {
+            // Reported per command rather than per packet, so the fraction reaches 1 even on a
+            // demo that is mostly console commands. Every iteration counts, including skipped
+            // ones, or the bar would stall on a stretch this scan ignores.
+            scanned++;
+            if (progress is not null &&
+                (scanned % ProgressInterval == 0 || scanned == commands.Count))
+            {
+                progress.Report(new DumpProgress(ScanStage, scanned, commands.Count));
+            }
+
+            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+            {
+                continue;
+            }
+
+            foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state).Messages)
+            {
+                switch (message)
+                {
+                    case GameEventMessage gameEvent:
+                    {
+                        string name = gameEvent.Name ?? string.Create(
+                            CultureInfo.InvariantCulture, $"#{gameEvent.EventId}");
+                        counts[name] = counts.TryGetValue(name, out int seen) ? seen + 1 : 1;
+                        total++;
+
+                        if (sample.Count < sampleSize)
+                        {
+                            sample.Add((command.Tick, name, Describe(gameEvent)));
+                        }
+
+                        break;
+                    }
+
+                    case CreateStringTableMessage table when table.Name == UserInfoTable:
+                        CollectPlayers(table, players);
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+
+        return new ScanResult(players, counts, sample, total);
+    }
+
+    /// <summary>Reads player records out of a <c>userinfo</c> table.</summary>
+    /// <remarks>
+    /// The entity index is the entry's <em>name</em>, not a field in the record — that is the
+    /// join between game events, which speak user ids, and entities, which do not.
+    /// </remarks>
+    private static void CollectPlayers(
+        CreateStringTableMessage table, SortedDictionary<int, PlayerInfo> players)
+    {
+        foreach (StringTableEntry entry in table.Entries)
+        {
+            if (entry.UserData.Count >= PlayerInfo.RecordBytes &&
+                int.TryParse(entry.Text, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int entityIndex))
+            {
+                players[entityIndex] = PlayerInfo.Parse([.. entry.UserData], entityIndex);
+            }
+        }
     }
 
     /// <summary>Renders an event's fields compactly, in wire order.</summary>
