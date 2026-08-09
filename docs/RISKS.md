@@ -754,3 +754,33 @@ means either that message's layout is wrong or the reader reached it misaligned 
 `StoppedAt` where they are visible, not silently skipped.
 
 With both fixed, all four corpus demos report **zero packet stops** across their full length.
+
+
+## B16 — network message id 1 occurs in the corpus and has no known layout
+
+The ETF2L POV demo contains a packet whose first message is **id 1**, 119 bits in. Both this
+parser and `demostf/parser` omit that id from their message tables, so both treat it as
+unrecognised and abandon the rest of the packet.
+
+**Found by the trace writer**, which reports an unreadable message at the position it occurred.
+The summary dump had been reading this demo for weeks without ever surfacing it — an aggregate
+has nowhere to put "and one packet made no sense".
+
+**A guess was tried and rejected.** Source's `netmessages.h` defines `net_Disconnect = 1` with a
+reason string, so the obvious move is to read a string. Doing that moved the failure from bit
+119 to bit 357 and landed on message id 61, which is not a valid type — so the body is not a
+bare string here, or id 1 does not mean disconnect at this protocol. Reverted rather than
+shipped: a decoder that consumes the wrong number of bits produces plausible garbage, which is
+worse than an honest stop.
+
+**What is known:** one packet, in one demo, at tick 0, immediately after a run of
+`dem_consolecmd`. The packet after it decodes cleanly and carries `[P-REC] Recording...`, which
+suggests the demo was recorded by the P-REC client plugin. That is a lead — a client-side
+recorder may write something the dedicated-server message table does not describe.
+
+**To settle it:** read `netmessages.h` from a Source SDK checkout for the true id-1 body, and
+check whether P-REC injects anything of its own. Do not implement on the `net_Disconnect`
+assumption again without evidence; it has already failed once.
+
+The cost is bounded and visible: one packet of 118,282 in one of seven demos, reported in place
+rather than hidden.

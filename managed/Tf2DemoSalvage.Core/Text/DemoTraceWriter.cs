@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Text;
 
@@ -34,6 +35,7 @@ public static class DemoTraceWriter
     /// <param name="header">The demo's parsed header.</param>
     /// <param name="commands">The demo's commands, in stream order.</param>
     /// <param name="progress">Optional listener for progress.</param>
+    /// <param name="options">How much detail to write, or <c>null</c> for the defaults.</param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="writer"/>, <paramref name="header"/>, or <paramref name="commands"/> is
     /// <c>null</c>.
@@ -43,17 +45,21 @@ public static class DemoTraceWriter
         string fileName,
         DemoHeader header,
         IReadOnlyList<DemoCommand> commands,
-        IProgress<DumpProgress>? progress = null)
+        IProgress<DumpProgress>? progress = null,
+        DemoTraceOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(header);
         ArgumentNullException.ThrowIfNull(commands);
 
+        options ??= new DemoTraceOptions();
         writer.NewLine = "\n";
 
         WriteHeader(writer, fileName, header);
 
         NetDecodeState state = new();
+        EntityDecoder? entities = options.IncludeEntities ? BuildDecoder(commands) : null;
+        int snapshots = 0;
         int scanned = 0;
 
         foreach (DemoCommand command in commands)
@@ -64,7 +70,7 @@ public static class DemoTraceWriter
                 progress.Report(new DumpProgress("Tracing", scanned, commands.Count));
             }
 
-            WriteBlock(writer, command, state);
+            WriteBlock(writer, command, state, options, entities, ref snapshots);
         }
     }
 
@@ -89,7 +95,38 @@ public static class DemoTraceWriter
         writer.WriteLine();
     }
 
-    private static void WriteBlock(TextWriter writer, DemoCommand command, NetDecodeState state)
+    /// <summary>
+    /// Builds an entity decoder from the demo's own schema, if it carries one.
+    /// </summary>
+    /// <remarks>
+    /// A separate pass, because <c>dem_datatables</c> can appear after packets that reference
+    /// it, and an entity snapshot cannot be read without the schema those tables describe. This
+    /// is the project's premise in miniature: the file explains its own entity layout, so the
+    /// decoder is built from the demo rather than from a compiled-in definition.
+    /// </remarks>
+    private static EntityDecoder? BuildDecoder(IReadOnlyList<DemoCommand> commands)
+    {
+        foreach (DemoCommand command in commands)
+        {
+            if (command.Type != DemoCommandType.DataTables)
+            {
+                continue;
+            }
+
+            DemoSchema schema = SendTableParser.Parse(command.Payload.Span);
+            return new EntityDecoder(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        }
+
+        return null;
+    }
+
+    private static void WriteBlock(
+        TextWriter writer,
+        DemoCommand command,
+        NetDecodeState state,
+        DemoTraceOptions options,
+        EntityDecoder? entities,
+        ref int snapshots)
     {
         string kind = WireName(command.Type);
 
@@ -109,6 +146,14 @@ public static class DemoTraceWriter
 
         foreach (INetMessage message in result.Messages)
         {
+            if (message is PacketEntitiesMessage snapshot && entities is not null &&
+                WithinLimit(options, snapshots))
+            {
+                snapshots++;
+                WriteSnapshot(writer, snapshot, entities, options);
+                continue;
+            }
+
             writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    {Render(message)};"));
         }
 
@@ -122,6 +167,75 @@ public static class DemoTraceWriter
         }
 
         writer.WriteLine("}");
+    }
+
+    private static bool WithinLimit(DemoTraceOptions options, int snapshots) =>
+        options.EntitySnapshotLimit <= 0 || snapshots < options.EntitySnapshotLimit;
+
+    /// <summary>
+    /// Expands one entity snapshot into its entities and their changed properties.
+    /// </summary>
+    /// <remarks>
+    /// Nested inside the message rather than flattened alongside it, so the structure of the
+    /// snapshot survives into the text — which entity, which properties, in wire order.
+    ///
+    /// A snapshot that will not decode is reported in place and the block continues. Entity
+    /// decoding depends on state built up from earlier snapshots, so one failure tends to
+    /// invalidate those after it; saying where the first one was is the useful part.
+    /// </remarks>
+    private static void WriteSnapshot(
+        TextWriter writer,
+        PacketEntitiesMessage snapshot,
+        EntityDecoder entities,
+        DemoTraceOptions options)
+    {
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    svc_packetentities delta {(snapshot.IsDelta ? 1 : 0)} " +
+            $"updated {snapshot.UpdatedEntries} bits {snapshot.LengthBits} {{"));
+
+        IReadOnlyList<DecodedEntity> decoded;
+        try
+        {
+            decoded = entities.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits);
+        }
+        catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"        undecoded {Quote(failure.Message)};"));
+            writer.WriteLine("    }");
+            return;
+        }
+
+        foreach (DecodedEntity entity in decoded)
+        {
+            string kind = entity.UpdateType.ToString().ToUpperInvariant();
+
+            if (!options.IncludeEntityProperties || entity.Properties.Count == 0)
+            {
+                writer.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"        entity {entity.EntityIndex} {kind} class {entity.ClassId} " +
+                    $"props {entity.Properties.Count};"));
+                continue;
+            }
+
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"        entity {entity.EntityIndex} {kind} class {entity.ClassId} {{"));
+
+            foreach (DecodedProperty property in entity.Properties)
+            {
+                writer.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"            {property.Definition.OwnerTable}.{property.Definition.Property.Name} " +
+                    $"{property.Value};"));
+            }
+
+            writer.WriteLine("        }");
+        }
+
+        writer.WriteLine("    }");
     }
 
     /// <summary>Renders one message as a keyword and its fields.</summary>
