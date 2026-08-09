@@ -408,3 +408,49 @@ tool — not keeping.
 The summary dump and the JSON Lines writer both stay: the summary answers "is this demo intact"
 at a glance, and JSON Lines is a reasonable machine format for tools that want one. Neither is
 the primary deliverable.
+
+
+## D19 — old demos need old binaries, not old source
+
+Researched 2026-08-09, after the idea came up of building TF2 from source to record a
+period-correct demo and close D5's corpus gap.
+
+**It does not work, and the reason is worth keeping** so nobody spends a weekend on it.
+
+### The protocol history
+
+| Era | Engine branch | Network protocol |
+|---|---|---|
+| 2007–2009 | Source 2007 | pre-15 |
+| 2009–2011 | Source 2009 | 15–16 |
+| Oct 2011–2013 | Source MP | 18–23 |
+| 2013–present | Source 2013 MP, then the TF2 branch | **24** |
+
+Every demo in the corpus is protocol 24. The untested range is 15–23 and earlier.
+
+### Why source does not help
+
+Valve released TF2's client and server code officially on **18 February 2025**, explicitly so
+modders need not use leaked material. That release is **TF2-branch code** — building it produces
+a modern client, which records protocol 24 demos. The same is true of Source SDK 2013.
+
+The 2020 leak is no better: it is 2017–2018 code, also Source 2013 era, also protocol 24. So the
+leaked dump does not solve this problem either, quite apart from being material this project has
+no business sourcing.
+
+**Valve has never released engine source for the 2007, 2009 or MP branches.** There is no build
+path to those protocols, from official code or otherwise.
+
+### What would actually work
+
+An old **binary**: an archived TF2 client from the relevant era, or an old depot manifest via
+Steam's `download_depot`. Recording a demo then needs only a client that runs, not code that
+compiles.
+
+### The consolation
+
+The four protocol-conditional rules in the message layer (see `SPEC.md`) sit exactly on these
+era boundaries: the replay flag at >15, the 16-byte map hash at >17, `svc_Prefetch`'s width at
+>22, varint lengths at >23. **All four are implemented.** So the parser is built for those eras
+and merely untested against them — which is a different and much better position than being
+unprepared.
