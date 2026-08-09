@@ -195,6 +195,109 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1515);
     }
 
+    [Fact]
+    public void FixAngle_IsAFlagAndThreeSixteenBitAngles()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.FixAngle)
+            .Write(1, 1).Write(16384, 16).Write(8192, 16).Write(0, 16);
+        writer.NetTick(1616, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1616);
+    }
+
+    [Fact]
+    public void File_IsAnIdAThenNameAndAFlag()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.File).Write(7, 32).String("maps/cp_process.bsp").Write(1, 1);
+        writer.NetTick(1717, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1717);
+    }
+
+    [Fact]
+    public void GetCvarValue_IsACookieAndAName()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.GetCvarValue).Write(99, 32).String("sv_cheats");
+        writer.NetTick(1818, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1818);
+    }
+
+    [Fact]
+    public void Menu_LengthIsInBytesNotBits()
+    {
+        // The one trap in this group: Menu and CmdKeyValues state their payload length in
+        // bytes, while every other length in this format is in bits. Reading it as bits
+        // consumes an eighth of the payload and leaves the rest to be read as messages.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.Menu).Write(3, 16).Write(2, 16);
+        writer.Write(0xBEEF, 16);              // two bytes of payload
+        writer.NetTick(1919, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1919);
+    }
+
+    [Fact]
+    public void CmdKeyValues_LengthIsAlsoInBytes()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.CmdKeyValues).Write(3, 32);
+        writer.Write(0xAB, 8).Write(0xCD, 8).Write(0xEF, 8);
+        writer.NetTick(2020, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2020);
+    }
+
+    [Fact]
+    public void BspDecal_ReadsOnlyThePresentCoordinateAxes()
+    {
+        // The only variable-width message in this group. Three presence bits choose which axes
+        // follow, and each present axis is SPROP_COORD - the same encoding entity positions
+        // use. Reading three coordinates unconditionally would consume bits that are not there.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.BspDecal)
+            .Write(1, 1).Write(0, 1).Write(1, 1);   // x present, y absent, z present
+        WriteCoord(writer, 5, 16);                  // x
+        WriteCoord(writer, 3, 0);                   // z
+        writer.Write(12, 16).Write(34, 16).Write(56, 16).Write(0, 1);
+        writer.NetTick(2121, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2121);
+    }
+
+    [Fact]
+    public void BspDecal_WithNoAxesPresent_ReadsNoCoordinatesAtAll()
+    {
+        BitWriter writer = new();
+        writer.Message(NetMessageType.BspDecal).Write(0, 1).Write(0, 1).Write(0, 1);
+        writer.Write(12, 16).Write(34, 16).Write(56, 16).Write(0, 1);
+        writer.NetTick(2222, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2222);
+    }
+
+    /// <summary>Writes one SPROP_COORD value: presence bits, sign, integer minus one, fraction.</summary>
+    private static void WriteCoord(BitWriter writer, int intPart, int frac)
+    {
+        writer.Write(intPart != 0 ? 1u : 0u, 1).Write(frac != 0 ? 1u : 0u, 1);
+        if (intPart != 0 || frac != 0)
+        {
+            writer.Write(0, 1);
+            if (intPart != 0)
+            {
+                writer.Write((uint)(intPart - 1), 14);
+            }
+
+            if (frac != 0)
+            {
+                writer.Write((uint)frac, 5);
+            }
+        }
+    }
+
     private static System.Collections.Generic.IReadOnlyList<INetMessage> Read(BitWriter writer) =>
         ReadResult(writer).Messages;
 

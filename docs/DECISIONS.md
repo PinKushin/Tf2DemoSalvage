@@ -286,6 +286,17 @@ never repeatedly in one session to watch a number climb. That last one is the tr
 exists to prevent. `break` stays at 80 (D13); a full run confirming 99% is not more valuable
 than the hour it costs.
 
+### In CI it becomes a schedule, not a trigger
+
+Direction, not yet settled: when this reaches CI the full gate is a **scheduled** job like the
+fuzzer — weekly, or daily early in the morning — rather than anything attached to a push or a
+pull request. Same reasoning as above, amplified: a 45-minute job on every push is worse in CI
+than locally, because it blocks nothing useful and burns runner minutes on a number that moves
+slowly.
+
+Exact cadence to be decided when the workflow is written. What is decided is the shape:
+scheduled, off the critical path, and reported rather than gating.
+
 ### A ceiling worth knowing about
 
 **444 mutants are removed before testing** — Stryker's safe mode drops mutations it cannot

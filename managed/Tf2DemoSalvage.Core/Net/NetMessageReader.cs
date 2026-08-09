@@ -60,6 +60,16 @@ public static class NetMessageReader
     /// <summary>Quality value at which <c>svc_VoiceInit</c> also carries a sample rate.</summary>
     private const int VoiceVariableRateQuality = 255;
 
+    /// <summary>Bits per byte, for the two messages whose lengths are stated in bytes.</summary>
+    private const int BitsPerByte = 8;
+
+    /// <summary>
+    /// A stand-in property describing <c>SPROP_COORD</c>, so <c>svc_BspDecal</c>'s positions
+    /// reuse the entity coordinate decoder rather than a second copy of that bit layout.
+    /// </summary>
+    private static readonly Schema.SendProperty CoordProperty =
+        new(Schema.SendPropType.Float, "bspdecal", 1 << 1, string.Empty, 0f, 0f, 0, 0);
+
     /// <summary>Width of <c>net_Tick</c>'s body: a 32-bit tick and two 16-bit values.</summary>
     private const int NetTickBodyBits = 64;
 
@@ -261,6 +271,88 @@ public static class NetMessageReader
                             break;
                         }
 
+                    case NetMessageType.FixAngle:
+                        // A relative flag and three 16-bit angles. Read separately because the
+                        // total is 49 bits and ReadUInt32 tops out at 32.
+                        _ = reader.ReadBit();
+                        _ = reader.ReadUInt32(16);
+                        _ = reader.ReadUInt32(16);
+                        _ = reader.ReadUInt32(16);
+                        break;
+
+                    case NetMessageType.File:
+                        _ = reader.ReadUInt32(32);
+                        _ = NetBitReading.ReadString(ref reader);
+                        _ = reader.ReadBit();
+                        break;
+
+                    case NetMessageType.GetCvarValue:
+                        _ = reader.ReadUInt32(32);
+                        _ = NetBitReading.ReadString(ref reader);
+                        break;
+
+                    case NetMessageType.Menu:
+                    {
+                        // Length in BYTES, unlike every other length in this format. Reading it
+                        // as bits consumes an eighth of the payload and leaves the remainder to
+                        // be misread as messages.
+                        _ = reader.ReadUInt32(16);
+                        int menuBytes = (int)reader.ReadUInt32(16);
+                        if (!TryReadByteBody(ref reader, menuBytes, out string? menuProblem))
+                        {
+                            return Stopped(messages, lastGoodBit, type, menuProblem!);
+                        }
+
+                        break;
+                    }
+
+                    case NetMessageType.CmdKeyValues:
+                    {
+                        int keyValueBytes = (int)reader.ReadUInt32(32);
+                        if (!TryReadByteBody(ref reader, keyValueBytes, out string? keyProblem))
+                        {
+                            return Stopped(messages, lastGoodBit, type, keyProblem!);
+                        }
+
+                        break;
+                    }
+
+                    case NetMessageType.BspDecal:
+                    {
+                        // The only variable-width message here. Three presence bits choose
+                        // which axes follow, and each present axis is SPROP_COORD - the same
+                        // encoding entity origins use, so the decoder is shared rather than
+                        // reimplemented. Reading three coordinates unconditionally would
+                        // consume bits that are not on the wire.
+                        bool hasX = reader.ReadBit();
+                        bool hasY = reader.ReadBit();
+                        bool hasZ = reader.ReadBit();
+
+                        // Written out rather than looped: the reader is a ref struct and cannot
+                        // cross a lambda, and all three presence bits are read before any
+                        // coordinate is, so the order matters.
+                        if (hasX)
+                        {
+                            _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
+                        }
+
+                        if (hasY)
+                        {
+                            _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
+                        }
+
+                        if (hasZ)
+                        {
+                            _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
+                        }
+
+                        _ = reader.ReadUInt32(16);      // texture index
+                        _ = reader.ReadUInt32(16);      // entity index
+                        _ = reader.ReadUInt32(16);      // model index
+                        _ = reader.ReadBit();           // low priority
+                        break;
+                    }
+
                     case NetMessageType.VoiceData:
                     {
                         // Client and proximity bytes, then a 16-bit length. The codec payload
@@ -340,6 +432,42 @@ public static class NetMessageReader
         }
 
         return new NetMessageReadResult { Messages = messages, BitsConsumed = lastGoodBit };
+    }
+
+    /// <summary>
+    /// Consumes a body whose length is stated in bytes, rejecting a length the packet cannot
+    /// hold.
+    /// </summary>
+    /// <param name="reader">Reader positioned at the body.</param>
+    /// <param name="byteCount">Declared length, in bytes.</param>
+    /// <param name="problem">Why the length was rejected, when it was.</param>
+    /// <returns><c>false</c> when the length is impossible.</returns>
+    /// <remarks>
+    /// The check is not defensive padding. <c>svc_CmdKeyValues</c> declares a 32-bit byte
+    /// count, and multiplying an implausible one by eight overflows <see cref="int"/> before it
+    /// can be compared against anything — which is how this surfaced, as an
+    /// <see cref="OverflowException"/> escaping the reader on real demos.
+    ///
+    /// Reported rather than thrown, and reported <em>as a stop</em>, because an impossible
+    /// length means either this message's layout is wrong or the reader reached it misaligned.
+    /// Both deserve to be visible in <c>StoppedAt</c> rather than silently skipped — see
+    /// <c>RISKS.md</c> B15.
+    /// </remarks>
+    private static bool TryReadByteBody(ref BitReader reader, int byteCount, out string? problem)
+    {
+        problem = null;
+
+        if (byteCount < 0 || (long)byteCount * BitsPerByte > reader.BitsRemaining)
+        {
+            problem = string.Create(
+                CultureInfo.InvariantCulture,
+                $"declares {byteCount} bytes of body but only " +
+                $"{reader.BitsRemaining / BitsPerByte} remain in the packet.");
+            return false;
+        }
+
+        _ = NetBitReading.CopyBits(ref reader, byteCount * BitsPerByte);
+        return true;
     }
 
     /// <summary>

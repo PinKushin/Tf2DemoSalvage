@@ -424,6 +424,50 @@ by the codec name, 22050 for celt and 11025 for anything else.
 length prefix, so each unimplemented type discarded the remainder of its packet — including any
 `svc_PacketEntities` behind it. See `RISKS.md` B13.
 
+### Every message type is now decoded — **CONFIRMED**
+
+All sixteen defined types are implemented, so no message discards the remainder of its packet.
+A test walks the enum and fails if a type is ever added without a case, which is the defect
+behind `RISKS.md` B13 turned into a guard.
+
+The last six, added together:
+
+| Message | Layout |
+|---|---|
+| `svc_FixAngle` | relative flag (1), three 16-bit angles |
+| `svc_File` | transfer id (32), name, requested flag (1) |
+| `svc_GetCvarValue` | cookie (32), name |
+| `svc_Menu` | kind (16), length (16), payload **in bytes** |
+| `svc_CmdKeyValues` | length (32), payload **in bytes** |
+| `svc_BspDecal` | three presence bits, then `SPROP_COORD` per present axis, then 3×16 + 1 |
+
+Two things in that table bite. `svc_Menu` and `svc_CmdKeyValues` state their length in **bytes**
+while every other length in this format is in bits — reading one as bits consumes an eighth of
+the payload and leaves the rest to be misread as messages. And `svc_BspDecal` is the only
+variable-width message here: its coordinates use the same `SPROP_COORD` encoding entity origins
+do, so the decoder is shared rather than reimplemented.
+
+### How much varies by protocol version — **CONFIRMED**
+
+This is the project's central bet, so it is worth stating as a measurement rather than a hope.
+Reading every protocol-conditional branch in `demostf/parser` — a parser covering TF2's history
+— the **entire message layer varies in four places**:
+
+| What | Rule |
+|---|---|
+| `svc_Prefetch` index width | 14 bits above protocol 22, else 13 |
+| `svc_ServerInfo` map hash | 16 bytes above protocol 17, else a 4-byte CRC |
+| `svc_ServerInfo` replay flag | present above protocol 15 |
+| `svc_CreateStringTable` and `svc_TempEntities` length | varint above protocol 23, else fixed |
+
+**All four are implemented here.** The container layer — the demo header and command stream —
+has **zero** version conditionals in that parser at all.
+
+That is the strongest evidence so far for `ROADMAP.md` §1: the parts a parser must hardcode
+change rarely, and the part that changes constantly (the entity schema) travels inside every
+demo. It does not prove an old demo will decode — see `DECISIONS.md` D5, the corpus has no
+pre-2020 file — but it says what would have to be wrong for one to fail, and the list is short.
+
 ### `svc_ClassInfo` (id 10) — **CONFIRMED**
 
 `count` (16), a `create on client` flag (1), then — only when that flag is clear — `count`

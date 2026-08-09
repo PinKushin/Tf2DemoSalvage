@@ -75,20 +75,39 @@ public sealed class NetMessageReaderTests
     }
 
     [Fact]
-    public void Read_UnsupportedMessage_StopsAndReportsWhereAndWhy()
+    public void Read_EveryDefinedMessageType_IsImplemented()
     {
-        // Uses whichever message is still undecoded. This test has now been updated twice - for
-        // svc_PacketEntities, then svc_TempEntities, then svc_SetView - which is the suite
-        // noticing real change rather than a maintenance cost. svc_Menu is the placeholder now.
-        byte[] packet = new BitWriter()
-            .NetTick(1, 0, 0)
-            .Message(NetMessageType.Menu)
-            .Build();
+        // This test was rehomed four times - PacketEntities, TempEntities, SetView, Menu - as
+        // each gained support, and has now run out of subjects: every defined type is
+        // implemented. So it asserts the property that made it useful rather than naming a
+        // victim, and it fails the moment a type is added to the enum without a case.
+        //
+        // Bodies are garbage, so most of these stop on truncation. That is fine and not what is
+        // being checked. What must never appear is the default arm's reason, because an
+        // unimplemented type discards the rest of its packet - the defect behind RISKS B13.
+        foreach (NetMessageType type in Enum.GetValues<NetMessageType>())
+        {
+            byte[] packet = new BitWriter().Message(type).Write(0, 32).Build();
+            string? reason = NetMessageReader.Read(packet).StopReason;
+
+            if (reason is not null)
+            {
+                reason.ShouldNotContain("is not decoded yet", Case.Insensitive, type.ToString());
+            }
+        }
+    }
+
+    [Fact]
+    public void Read_StoppingReportsHowFarItGot()
+    {
+        // The behaviour the test above used to cover, kept against an undefined id since no
+        // defined type stops any more. Messages carry no length prefix, so an unknown one
+        // cannot be stepped over - the rest of the packet is unreachable, not empty.
+        byte[] packet = new BitWriter().NetTick(1, 0, 0).Write(22, NetMessage.TypeBits).Build();
 
         NetMessageReadResult result = NetMessageReader.Read(packet);
 
         result.Messages.Count.ShouldBe(1);
-        result.StoppedAt.ShouldBe(NetMessageType.Menu);
         // Stopping position matters: it is the only way to tell how far into a packet we get.
         result.BitsConsumed.ShouldBe(NetMessage.TypeBits + 64);
         result.StopReason.ShouldNotBeNullOrEmpty();

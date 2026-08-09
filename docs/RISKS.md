@@ -704,3 +704,53 @@ one demo came from `br.tf2pickup.org`, a platform not previously represented.
 generalises across maps, servers and platforms within the modern era — which was the project's
 central bet, and the first real evidence for it. It establishes nothing about older builds. Per
 D5 the corpus still has no pre-2020 specimen, so the era axis remains completely untested.
+
+
+## B14 — game event field type 7 is disputed and unexercised
+
+Two readings of the same wire value, and they disagree by 64 bits rather than by a value:
+
+| Source | Meaning of type 7 | Bits read |
+|---|---|---|
+| This parser | `UInt64` | 64 |
+| `demostf/parser` | `Local` | **0** |
+
+Only one can be right, and getting it wrong is a desynchronisation of every field after it in
+that event.
+
+**Evidence for this parser's reading:** Source's `igameevents.h` lists `TYPE_LOCAL = 0` and
+`TYPE_UINT64 = 7`, as recalled — not verified against the header. The wire format uses 0 as the
+end-of-field-list terminator, and a "local" field is by definition never networked, so 0 serving
+as both is coherent.
+
+**Evidence against:** that recollection is exactly the kind of unverified memory that produced
+three wrong conclusions in one session here. The reference parser is battle-tested on demos.tf's
+entire archive.
+
+**Neither reading is exercised.** All nine demos measured decode end to end, so type 7 never
+appears in TF2's event definitions. Whichever is wrong is latent, and would surface only on a
+demo carrying one — plausibly an older or a differently-configured one, which is precisely the
+corpus gap D5 describes.
+
+**To settle it:** read `igameevents.h` from a Source SDK checkout. Do not "fix" either parser to
+match the other on reasoning alone.
+
+
+## B15 — a byte-count length can overflow before it can be checked
+
+`svc_CmdKeyValues` declares its payload length as a 32-bit **byte** count. Multiplying an
+implausible one by eight overflows `int` before the result can be compared against anything, so
+the reader threw `OverflowException` on real demos rather than reporting a problem.
+
+Found the honest way: implementing `svc_FixAngle` with a single 49-bit read — `ReadUInt32` tops
+out at 32 — misaligned the stream, and a later message was then read as `svc_CmdKeyValues` with
+a garbage length. So the overflow was a symptom of a bug three messages away, which is the usual
+shape here.
+
+Fixed on both counts. `svc_FixAngle` reads its flag and three angles separately, and byte-count
+bodies now go through a helper that rejects a length the packet cannot hold, reporting it as a
+**stop** rather than throwing. Reported as a stop specifically because an impossible length
+means either that message's layout is wrong or the reader reached it misaligned — both belong in
+`StoppedAt` where they are visible, not silently skipped.
+
+With both fixed, all four corpus demos report **zero packet stops** across their full length.
