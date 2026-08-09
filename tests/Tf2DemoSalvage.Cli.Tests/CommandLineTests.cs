@@ -122,4 +122,75 @@ public sealed class CommandLineTests
         CommandLine.Parse(["a.dem", "-t", "-s"]).Format.ShouldBe(OutputFormat.Summary);
         CommandLine.Parse(["a.dem", "-s", "-t"]).Format.ShouldBe(OutputFormat.Trace);
     }
+
+    [Fact]
+    public void WithNoFlags_EntitiesAreOffAndUnlimited()
+    {
+        // The defaults, asserted rather than assumed. Mutation testing found this: flipping
+        // the initial value of `entities` to true survived the entire suite, because every
+        // test that cared about entities had asked for them.
+        CommandLine line = CommandLine.Parse(["a.dem"]);
+
+        line.IncludeEntities.ShouldBeFalse();
+        line.EntitySnapshotLimit.ShouldBe(0);
+        line.OutputPath.ShouldBeNull();
+        line.HelpRequested.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void EntityLimitOfZero_IsValidAndMeansAll()
+    {
+        // Zero is the documented "no limit" value, so rejecting it is a bug rather than
+        // strictness. Mutation testing found this too: changing the guard from `limit < 0` to
+        // `limit <= 0` survived, because no test had ever passed zero.
+        CommandLine line = CommandLine.Parse(["a.dem", "--entity-limit", "0"]);
+
+        line.Error.ShouldBeNull();
+        line.EntitySnapshotLimit.ShouldBe(0);
+        line.IncludeEntities.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("--output")]
+    [InlineData("-o")]
+    public void BothOutputSpellings_Work(string flag)
+    {
+        CommandLine.Parse(["a.dem", flag, "out.txt"]).OutputPath.ShouldBe("out.txt");
+    }
+
+    [Theory]
+    [InlineData("--entities")]
+    [InlineData("-e")]
+    public void BothEntitySpellings_Work(string flag)
+    {
+        CommandLine.Parse(["a.dem", flag]).IncludeEntities.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ErrorText_NamesWhatWasWrong()
+    {
+        // The messages are the only thing a user sees when a command line is rejected, so they
+        // are behaviour. Every one of these survived mutation to an empty string.
+        CommandLine.Parse([]).Error.ShouldBe("no demo given");
+        CommandLine.Parse(["a.dem", "--entity-limit", "nope"]).Error
+            .ShouldBe("--entity-limit needs a non-negative number, not 'nope'");
+    }
+
+    [Fact]
+    public void AnInvalidCommandLine_HasNoDemoPathToActOn()
+    {
+        // Error and DemoPath are checked together deliberately: a caller that tested only for
+        // a null Error would otherwise be handed a path-shaped value to open.
+        CommandLine line = CommandLine.Parse(["a.dem", "-x"]);
+
+        line.Error.ShouldNotBeNull();
+        line.DemoPath.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void HelpDoesNotCarryADemoPath()
+    {
+        CommandLine.Parse(["--help"]).DemoPath.ShouldBeEmpty();
+    }
+
 }

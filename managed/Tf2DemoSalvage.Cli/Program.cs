@@ -82,13 +82,17 @@ public static class Program
             return ExitSuccess;
         }
 
-        using ProgressBar bar = new(Console.Error);
+        // Nested so the bar is disposed *after* the writer but *before* the summary line
+        // below: its Dispose ends the progress line, and printing the summary first would
+        // append it to a line the bar had not finished. An earlier version called Finish()
+        // explicitly here, which mutation testing flagged as unkillable - scoping expresses
+        // the same ordering without a statement whose removal nothing can observe.
+        using (ProgressBar bar = new(Console.Error))
         using (StreamWriter writer = new(line.OutputPath))
         {
             Write(writer, line, name, header, commands, bar);
         }
 
-        bar.Finish();
         Console.Error.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"wrote {commands.Count} commands to {line.OutputPath}"));

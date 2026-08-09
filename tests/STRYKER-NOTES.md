@@ -35,3 +35,32 @@ The CLI's `Program.cs` is argument dispatch and file I/O. The behaviour worth pi
 deliberately extracted into `CommandLine` and `ProgressBar` so it could be tested without running
 the tool, so mutants that survive in `Program.cs` are usually mutants of the plumbing that
 remains. Read the survivors rather than the score — see `docs/DECISIONS.md` D15.
+
+## `ignore-methods` on the CLI, and why it is set that way
+
+`stryker-config.json` for the CLI sets `"ignore-methods": ["WriteUsage", "WriteLine"]`.
+
+**`WriteUsage` is there for documentation and does nothing** — `ignore-methods` matches method
+*calls*, not declarations, so naming the method whose body you want skipped has no effect. It is
+kept only so the intent is visible next to the entry that does work.
+
+**`WriteLine` is the one that works, and it is deliberately broad.** Without it, 28 of the CLI's
+mutants were help text: `writer.WriteLine("  -t, --trace  ...")` mutated to `""` or deleted.
+Killing those means asserting every line of usage prose, which is a change-detector test — it
+fails whenever the help is reworded and detects no defect. Score went 73.9% to 97.5% on that
+entry alone.
+
+The cost is honest and worth stating: it also removes real `WriteLine` mutants from the
+denominator, such as deleting the `wrote N commands` line. That one is still *asserted* by
+`ProgramTests`, it simply no longer counts. The trade is 28 worthless assertions against a
+handful of real mutants that tests already cover.
+
+## Known equivalent mutant
+
+`ProgressBar._last = string.Empty` survives mutation to any other string. The field is only ever
+compared against a rendered bar, and no rendered bar equals a Stryker sentinel, so no test can
+distinguish the two. Equivalent by construction — do not write a test for it.
+
+An earlier survivor, `bar.Finish()` in `Program.Run`, was removed rather than tested: the bar is
+now scoped in a `using` so disposal provides the same ordering, and the unobservable statement is
+gone.

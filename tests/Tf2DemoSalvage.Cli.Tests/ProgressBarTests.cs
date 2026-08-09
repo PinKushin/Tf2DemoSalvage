@@ -126,4 +126,25 @@ public sealed class ProgressBarTests
     {
         Should.Throw<ArgumentNullException>(() => new ProgressBar(null!, enabled: true));
     }
+
+    [Fact]
+    public void TheSingleArgumentConstructor_StaysSilentWhenErrorIsRedirected()
+    {
+        // The convenience constructor decides for itself from Console.IsErrorRedirected, and
+        // nothing exercised that decision - dropping the negation survived mutation testing.
+        //
+        // A test host always runs with standard error redirected, which makes this checkable
+        // without faking anything: under redirection the bar must draw nothing, because
+        // carriage returns aimed at a terminal become junk in a captured stream.
+        Console.IsErrorRedirected.ShouldBeTrue(
+            "this test relies on the runner redirecting standard error");
+
+        StringWriter output = new();
+        using ProgressBar bar = new(output);
+
+        bar.Report(At(50));
+
+        output.ToString().ShouldBeEmpty();
+    }
+
 }
