@@ -10,19 +10,6 @@
       "html",
       "cleartext"
     ],
-    "_comment_globs": [
-      "Every path glob here resolves against the mutated project's own directory",
-      "(managed/Tf2DemoSalvage.Cli), not the solution root and not the invocation",
-      "directory. A glob written from the repo root matches nothing, and Stryker does not",
-      "warn - it runs and reports a score for whatever it did find. See",
-      "docs/memory/stryker-globs-are-project-relative.md."
-    ],
-    "_comment_program": [
-      "Program.cs is deliberately not excluded, but expect survivors there that are not",
-      "worth killing: it is argument dispatch and file I/O, and the behaviour worth pinning",
-      "was extracted into CommandLine and ProgressBar precisely so it could be tested",
-      "without running the tool. Read the survivors rather than the score (D15)."
-    ],
     "thresholds": {
       "high": 90,
       "low": 80,
