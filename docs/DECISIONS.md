@@ -649,3 +649,19 @@ what makes a test unfalsifiable. Two reports that render identically are indisti
 reader, so dropping the second costs nothing and keeps the behaviour deterministic and testable.
 The bar draws only to standard error and only when it is not redirected, because standard output
 may be where the trace is going.
+
+
+### D15 addendum — the mutation run is now 1h29m, not 26 minutes
+
+D15 recorded a full run at roughly 865 mutants and **26 minutes**. Measured again on 2026-08-09:
+**1 hour 29 minutes**. The suite has grown by hundreds of tests and the corpus from three demos
+to eight, and corpus tests dominate — every mutant re-runs them.
+
+That changes the cadence advice rather than the decision. Once a day was already the rule; at
+ninety minutes it is firmly a background or overnight job, and `--since:main` during work is no
+longer a nicety. Whatever CI schedule this lands on should assume an hour and a half, not half
+an hour, and it should not gate a push.
+
+Worth noting for whoever tunes it: the cost is corpus tests, so `mutate` globs narrowed to the
+file under change would cut it sharply — but see `tests/STRYKER-NOTES.md`, those globs are
+project-relative and a wrong one reports a clean run rather than an error.

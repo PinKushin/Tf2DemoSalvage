@@ -980,3 +980,50 @@ the demo it yielded nothing for, instead of quietly agreeing.
 
 **Watch for this whenever a demo is added to the corpus.** The check is not "do the tests still
 pass" — it is "did the count of things each test examined go up".
+
+
+## B21 — the two output writers are the least-tested code in the project
+
+Core mutation run, 2026-08-09: **85.50% overall**, above the gate. The per-file breakdown is the
+finding, and the score hid it:
+
+| File | Killed | Survived | No coverage | Score |
+|---|---|---|---|---|
+| `DemoJsonLinesWriter.cs` | 16 | 19 | **47** | **19.5%** |
+| `DemoTraceWriter.cs` | 40 | 29 | 13 | **48.8%** |
+| `DemoTextDumper.cs` | 81 | 8 | 15 | 77.9% |
+| `DemoScan.cs` | 21 | 1 | 1 | 91.3% |
+| `EntityTracker.cs` | 15 | 1 | 0 | 93.8% |
+| `Snappy.cs` | 83 | 1 | 0 | 98.8% |
+
+**The trace is the primary deliverable (D18) and is the second-worst covered file in the
+repository.** Every decoder it depends on scores in the nineties. That is exactly backwards, and
+no aggregate would have shown it — 85.5% passes.
+
+**One defect shape explains almost all of it.** The writer tests assert that output is
+*trace-shaped* or *JSON-shaped* — that it contains `block dem_`, that lines start with `{` — and
+never that a given field carries the right value. So mutating field after field survives:
+
+```
+x2  WriteField(writer, "map", Quote(header.MapName));          // trace
+x2  json.WriteString("client", header.ClientName);             // json lines
+x4  json.WriteNumber("tick", tick);
+```
+
+Every one of those is a mutant that swaps or blanks a value the reader is meant to trust. A
+report that names the wrong map is worse than one that fails.
+
+**Three survivors are worth more than the rest, because they are logic rather than transcription:**
+
+- `Quote()`'s escape cases — `"`, `\`, `
+`, `` all survive being mutated away. Escaping is
+  the difference between a trace that can be read back and one that cannot, and a server name
+  with a quote in it is not hypothetical.
+- `options.EntitySnapshotLimit <= 0 || snapshots < options.EntitySnapshotLimit` — the "zero means
+  all" rule, which is the same rule that survived in the CLI until this run's sibling found it.
+- The progress throttle condition, `scanned % ProgressInterval == 0 || scanned == commands.Count`.
+
+**Do not chase the transcription mutants one by one.** The right fix is one test per writer that
+pins a whole small output against an expected string, built from a hand-made header and a couple
+of commands — a golden-output test. That kills the field mutants as a class and stays readable,
+where forty individual assertions would not.
