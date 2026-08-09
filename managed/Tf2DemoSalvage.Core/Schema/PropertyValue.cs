@@ -47,7 +47,7 @@ public enum PropertyValueKind : byte
 /// </remarks>
 public readonly record struct PropertyValue
 {
-    private readonly int _int;
+    private readonly long _int;
     private readonly float _x;
     private readonly float _y;
     private readonly float _z;
@@ -56,7 +56,7 @@ public readonly record struct PropertyValue
 
     private PropertyValue(
         PropertyValueKind kind,
-        int intValue = 0,
+        long intValue = 0,
         float x = 0f,
         float y = 0f,
         float z = 0f,
@@ -82,7 +82,11 @@ public readonly record struct PropertyValue
     /// <summary>Creates an integer value.</summary>
     /// <param name="value">The integer.</param>
     /// <returns>The wrapped value.</returns>
-    public static PropertyValue FromInt(int value) =>
+    /// <remarks>
+    /// 64-bit because a 32-bit unsigned property does not fit in an <see cref="int"/>. Narrower
+    /// storage reports 0xFFFFFFFF as -1: the right bits carried as the wrong number.
+    /// </remarks>
+    public static PropertyValue FromInt(long value) =>
         new(PropertyValueKind.Int, intValue: value);
 
     /// <summary>Creates a float value.</summary>
@@ -120,7 +124,7 @@ public readonly record struct PropertyValue
 
     /// <summary>The integer payload.</summary>
     /// <exception cref="InvalidOperationException">This value is not an integer.</exception>
-    public int AsInt => Kind == PropertyValueKind.Int
+    public long AsInt => Kind == PropertyValueKind.Int
         ? _int
         : throw Mismatch(PropertyValueKind.Int);
 
