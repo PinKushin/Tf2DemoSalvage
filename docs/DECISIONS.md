@@ -454,3 +454,35 @@ era boundaries: the replay flag at >15, the 16-byte map hash at >17, `svc_Prefet
 >22, varint lengths at >23. **All four are implemented.** So the parser is built for those eras
 and merely untested against them — which is a different and much better position than being
 unprepared.
+
+
+### D19 addendum — a concrete route to a 2009 client exists, and is parked
+
+Two archive.org leads were checked on 2026-08-09.
+
+**The retail DVD (`tf2-2009`) is the wrong shape.** It is a Russian retail disc: `Setup.exe`
+plus `.sid`/`.sim`/`.sis` Steam Installation Data. Those packages are Steam-encrypted, and the
+installer hands them to Steam as a local cache before Steam authenticates and **updates to
+current**. The disc saves a download; it does not pin a version. Running it produces modern TF2.
+
+**The Steam 2 depot archive is the right shape.** `steam2dats-part1` holds pre-SteamPipe depot
+data dated 2004–2009, including:
+
+| Depot | Contents | Size |
+|---|---|---|
+| 441 | Team Fortress 2 Content | 4.05 GB |
+| 442 | Team Fortress 2 Materials | 628 MB |
+| 443 | Team Fortress 2, further content | 197 MB |
+| 217 | Multiplayer Orange Box Binaries — the engine | — |
+
+That is a 2009 client in extractable form rather than encrypted retail packages.
+
+**Parked, on cost.** Assembling it needs the depot chunks, the ~30 GB of Steam content blobs in
+`steam2dats-meta`, and Steam 2-era extraction tooling this project has no familiarity with. It
+is a preservation exercise in its own right, measured in days, with no guarantee of a client
+that launches offline.
+
+**Recorded because the position improved.** D19 previously said no build path existed to
+protocols 15–23. That is still true of *source*, but a path to a period-correct *binary* now has
+a name and a location. If closing the era axis ever becomes the priority, this is where to start
+rather than from nothing.
