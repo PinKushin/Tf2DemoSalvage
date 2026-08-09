@@ -61,7 +61,7 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing its width and signedness.</param>
     /// <returns>The decoded value.</returns>
-    public static int ReadInt(ref BitReader reader, SendProperty property)
+    public static long ReadInt(ref BitReader reader, SendProperty property)
     {
         // Flag 32 is overloaded: SPROP_NORMAL on a float, SPROP_VARINT on an integer. Same bit,
         // entirely different encoding, and nothing in the schema disambiguates it but the
@@ -70,7 +70,7 @@ public static class SendPropDecoder
         if ((property.Flags & VarIntFlag) != 0)
         {
             return (property.Flags & UnsignedFlag) != 0
-                ? (int)VarInt.ReadUInt32(ref reader)
+                ? VarInt.ReadUInt32(ref reader)
                 : VarInt.ReadInt32(ref reader);
         }
 
@@ -78,7 +78,11 @@ public static class SendPropDecoder
 
         if ((property.Flags & UnsignedFlag) != 0)
         {
-            return (int)raw;
+            // Widened deliberately. A 32-bit unsigned property does not fit in an int, and
+            // reading one into an int reports 0xFFFFFFFF as -1 - the right bits, the wrong
+            // number, which is this format's characteristic failure. The reference parser uses
+            // a 64-bit integer for the same reason.
+            return raw;
         }
 
         // Sign-extend from the property's width. Without this a negative value read at 11 bits
@@ -90,7 +94,7 @@ public static class SendPropDecoder
         // Range loss becomes a storage cost the moment the range is needed: holding 65,535
         // signed means moving to 32 bits, because 16-bit signed stops at 32,767.
         int shift = 32 - property.BitCount;
-        return (int)raw << shift >> shift;
+        return (int)raw << shift >> shift;   // int shift keeps sign extension at the wire width
     }
 
     /// <summary>Reads a float property.</summary>

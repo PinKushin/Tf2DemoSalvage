@@ -72,6 +72,48 @@ public sealed class SendPropDecoderTests
         });
     }
 
+    [Fact]
+    public void UnsignedThirtyTwoBitInteger_DoesNotWrapNegative()
+    {
+        // The whole range of a uint cannot fit in an int, so a 32-bit unsigned property read
+        // into one comes back as -1 for 0xFFFFFFFF. Found by the per-snapshot differential:
+        // the oracle reported 4294967295 for properties 618 and 619 where this parser said -1.
+        //
+        // Same bits either way, so it never desynchronised - it just reported a wrong number,
+        // which is the failure mode this codebase keeps meeting.
+        BitWriter writer = new();
+        writer.Write(0xFFFFFFFF, 32);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadInt(ref reader, Property(flags: Unsigned, bits: 32))
+            .ShouldBe(4294967295L);
+    }
+
+    [Theory]
+    [InlineData(2147483648L)]
+    [InlineData(3000000000L)]
+    [InlineData(4294967294L)]
+    public void UnsignedValuesAboveIntMaxValue_SurviveIntact(long expected)
+    {
+        BitWriter writer = new();
+        writer.Write((uint)expected, 32);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadInt(ref reader, Property(flags: Unsigned, bits: 32))
+            .ShouldBe(expected);
+    }
+
+    [Fact]
+    public void SignedThirtyTwoBitInteger_IsStillNegativeWhereItShouldBe()
+    {
+        // The control. Widening the return type must not turn signed -1 into 4294967295.
+        BitWriter writer = new();
+        writer.Write(0xFFFFFFFF, 32);
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadInt(ref reader, Property(bits: 32)).ShouldBe(-1L);
+    }
+
     [Theory]
     [InlineData(-1, 11)]
     [InlineData(-2048, 12)]
