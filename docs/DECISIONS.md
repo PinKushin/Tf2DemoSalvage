@@ -579,3 +579,45 @@ It does not reach the 14 boundary; that one stays theoretical until a 2007–200
 **Standing consequence:** when a protocol-conditional rule is needed, check `proto_version.h`
 first. It is a short file, it is authoritative, and it enumerates the boundaries rather than
 leaving them to be discovered one desynchronisation at a time.
+
+
+### D21 — the era boundaries stay open, and a demo is cheaper than more research
+
+After B17 and B18 both landed with an unverified boundary somewhere in protocols 16–23, a pass
+was made at pinning them from changelogs, SDK branches and Valve documentation. Recording what
+it produced, because the negative result is worth as much as the positive one.
+
+**What worked: bracketing `DPT_VectorXY` across SDK branches.** `alliedmodders/hl2sdk` keeps one
+branch per game, each frozen at that game's release, so the presence of a symbol dates it:
+
+| Branch | Era | `DPT_VectorXY` |
+|---|---|---|
+| `episode1` | 2006 | no |
+| `orangebox` | 2007–2009 | **no** |
+| `l4d` | Nov 2008 | yes |
+| `l4d2`, `swarm`, `portal2`, `csgo`, `sdk2013`, `tf2` | 2009+ | yes |
+
+**This shows the change is engine-branch-driven, not TF2-version-driven.** `VectorXY` entered the
+engine line with Left 4 Dead in late 2008, yet the June 2009 TF2 demo does not have it — because
+TF2 was still on the Orange Box branch and did not inherit it until it was moved onto a newer
+one. So the TF2 protocol boundary is whenever *TF2 changed engine branch*, which is not the same
+question as when the feature was written, and is why searching for the feature's introduction
+date cannot answer it.
+
+**What did not work.** The Valve Developer Community sits behind a proof-of-work anti-bot
+challenge that plain fetching cannot read, and the pages that would carry a protocol table
+(`DEM (Source 1)`) are empty. TF2's patch notes do document protocol bumps — the 119th update
+retrospective states "Added backward compatibility code to allow demos recorded with protocol 12
+to continue to be playable under protocol version 13" — which proves the changelog route is
+viable in principle, but no note covering the 15→24 span surfaced in this pass.
+
+**Decision: leave both boundaries open and stop looking.** Justified by the failure mode rather
+than by the difficulty. A wrong boundary on either rule wrecks the decode immediately and
+visibly — 11,002 unreadable packets, a schema that dies mid-payload — so a protocol 16–23 demo
+would announce the correct answer within seconds of being added, and until one exists neither
+boundary can be wrong in a way that matters.
+
+**Consequence for corpus priority.** The most valuable acquisition is no longer "anything older"
+but specifically **one demo in protocols 16–23**, which would settle B17 and B18 together. A
+2007–2008 launch-era client (protocol 14) remains valuable for a different reason: it is the only
+thing that would exercise the string table compression rule from D20.
