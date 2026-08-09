@@ -25,4 +25,10 @@ public sealed record DemoDumpOptions
 
     /// <summary>Whether to list the players named by the <c>userinfo</c> string table.</summary>
     public bool IncludePlayers { get; init; } = true;
+
+    /// <summary>Whether to include the match's chat log.</summary>
+    public bool IncludeChat { get; init; } = true;
+
+    /// <summary>How many chat lines to print before summarising the rest.</summary>
+    public int ChatSampleSize { get; init; } = 60;
 }

@@ -101,13 +101,18 @@ public static class DemoTextDumper
         // One pass, two sections. Both need the decoded message stream, and scanning twice
         // doubles the cost on a demo with a hundred thousand packets - which is what this did
         // when the player section was first added.
-        if (options.IncludePlayers || options.IncludeGameEvents)
+        if (options.IncludePlayers || options.IncludeGameEvents || options.IncludeChat)
         {
             ScanResult scan = Scan(commands, options.GameEventSampleSize, progress);
 
             if (options.IncludePlayers)
             {
                 WritePlayerSection(writer, scan.Players);
+            }
+
+            if (options.IncludeChat)
+            {
+                WriteChatSection(writer, scan.Chat, options.ChatSampleSize);
             }
 
             if (options.IncludeGameEvents)
@@ -234,6 +239,47 @@ public static class DemoTextDumper
     }
 
     /// <summary>
+    /// Writes the match's chat log.
+    /// </summary>
+    /// <remarks>
+    /// Two shapes reach here. A player message carries a channel and a sender; a server or
+    /// plugin message carries neither and is rendered as such rather than as empty punctuation,
+    /// which is what a naive template produces.
+    /// </remarks>
+    private static void WriteChatSection(
+        TextWriter writer, List<(int Tick, ChatMessage Chat)> chat, int sampleSize)
+    {
+        writer.WriteLine(Separator);
+        writer.WriteLine("Chat");
+        writer.WriteLine(Separator);
+
+        if (chat.Count == 0)
+        {
+            writer.WriteLine("  none");
+            writer.WriteLine();
+            return;
+        }
+
+        WriteField(writer, "Lines", chat.Count.ToString(CultureInfo.InvariantCulture));
+        writer.WriteLine();
+
+        foreach ((int tick, ChatMessage line) in chat.Take(sampleSize))
+        {
+            string who = string.IsNullOrEmpty(line.From) ? "(server)" : line.From;
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  tick {tick,-8} {who}: {line.Text}"));
+        }
+
+        if (chat.Count > sampleSize)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  ... {chat.Count - sampleSize} more"));
+        }
+
+        writer.WriteLine();
+    }
+
+    /// <summary>
     /// Decodes the packet stream and reports what happened in the match.
     /// </summary>
     /// <remarks>
@@ -297,11 +343,13 @@ public static class DemoTextDumper
     /// <param name="EventCounts">How many of each game event fired.</param>
     /// <param name="EventSample">The first events in order, capped by the caller.</param>
     /// <param name="EventTotal">Total events decoded, including those past the sample cap.</param>
+    /// <param name="Chat">Chat lines, with the tick each was sent on.</param>
     private sealed record ScanResult(
         SortedDictionary<int, PlayerInfo> Players,
         Dictionary<string, int> EventCounts,
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> EventSample,
-        int EventTotal);
+        int EventTotal,
+        List<(int Tick, ChatMessage Chat)> Chat);
 
     /// <summary>
     /// Walks the packet stream once, collecting everything the report sections need.
@@ -321,6 +369,7 @@ public static class DemoTextDumper
         SortedDictionary<int, PlayerInfo> players = [];
         Dictionary<string, int> counts = [];
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> sample = [];
+        List<(int Tick, ChatMessage Chat)> chat = [];
         int total = 0;
         int scanned = 0;
 
@@ -367,13 +416,17 @@ public static class DemoTextDumper
                         CollectPlayers(table, players);
                         break;
 
+                    case ChatMessage line:
+                        chat.Add((command.Tick, line));
+                        break;
+
                     default:
                         break;
                 }
             }
         }
 
-        return new ScanResult(players, counts, sample, total);
+        return new ScanResult(players, counts, sample, total, chat);
     }
 
     /// <summary>Reads player records out of a <c>userinfo</c> table.</summary>
