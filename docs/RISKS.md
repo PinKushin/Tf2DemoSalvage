@@ -734,3 +734,23 @@ corpus gap D5 describes.
 
 **To settle it:** read `igameevents.h` from a Source SDK checkout. Do not "fix" either parser to
 match the other on reasoning alone.
+
+
+## B15 — a byte-count length can overflow before it can be checked
+
+`svc_CmdKeyValues` declares its payload length as a 32-bit **byte** count. Multiplying an
+implausible one by eight overflows `int` before the result can be compared against anything, so
+the reader threw `OverflowException` on real demos rather than reporting a problem.
+
+Found the honest way: implementing `svc_FixAngle` with a single 49-bit read — `ReadUInt32` tops
+out at 32 — misaligned the stream, and a later message was then read as `svc_CmdKeyValues` with
+a garbage length. So the overflow was a symptom of a bug three messages away, which is the usual
+shape here.
+
+Fixed on both counts. `svc_FixAngle` reads its flag and three angles separately, and byte-count
+bodies now go through a helper that rejects a length the packet cannot hold, reporting it as a
+**stop** rather than throwing. Reported as a stop specifically because an impossible length
+means either that message's layout is wrong or the reader reached it misaligned — both belong in
+`StoppedAt` where they are visible, not silently skipped.
+
+With both fixed, all four corpus demos report **zero packet stops** across their full length.

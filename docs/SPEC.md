@@ -424,6 +424,29 @@ by the codec name, 22050 for celt and 11025 for anything else.
 length prefix, so each unimplemented type discarded the remainder of its packet — including any
 `svc_PacketEntities` behind it. See `RISKS.md` B13.
 
+### Every message type is now decoded — **CONFIRMED**
+
+All sixteen defined types are implemented, so no message discards the remainder of its packet.
+A test walks the enum and fails if a type is ever added without a case, which is the defect
+behind `RISKS.md` B13 turned into a guard.
+
+The last six, added together:
+
+| Message | Layout |
+|---|---|
+| `svc_FixAngle` | relative flag (1), three 16-bit angles |
+| `svc_File` | transfer id (32), name, requested flag (1) |
+| `svc_GetCvarValue` | cookie (32), name |
+| `svc_Menu` | kind (16), length (16), payload **in bytes** |
+| `svc_CmdKeyValues` | length (32), payload **in bytes** |
+| `svc_BspDecal` | three presence bits, then `SPROP_COORD` per present axis, then 3×16 + 1 |
+
+Two things in that table bite. `svc_Menu` and `svc_CmdKeyValues` state their length in **bytes**
+while every other length in this format is in bits — reading one as bits consumes an eighth of
+the payload and leaves the rest to be misread as messages. And `svc_BspDecal` is the only
+variable-width message here: its coordinates use the same `SPROP_COORD` encoding entity origins
+do, so the decoder is shared rather than reimplemented.
+
 ### How much varies by protocol version — **CONFIRMED**
 
 This is the project's central bet, so it is worth stating as a measurement rather than a hope.
