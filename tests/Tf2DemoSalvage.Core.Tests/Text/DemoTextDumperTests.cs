@@ -524,10 +524,11 @@ public sealed class DemoTextDumperTests
     {
         string[] lines = Dump().Split('\n');
 
-        // Two rules around the title block and two around the game event section, then a blank
-        // line before each following section. Deleting any of those WriteLine calls survived
-        // mutation testing until this assertion existed.
-        lines.Count(l => l.StartsWith("------", StringComparison.Ordinal)).ShouldBe(4);
+        // Two rules around the title block, two around Players, two around Game events, then a
+        // blank line before each following section. Deleting any of those WriteLine calls
+        // survived mutation testing until this assertion existed.
+        lines.Count(l => l.StartsWith("------", StringComparison.Ordinal)).ShouldBe(6);
+        lines.ShouldContain("Players");
         lines.ShouldContain("Game events");
         lines[1].ShouldStartWith("Demo dump:");
         lines.ShouldContain("Command summary");

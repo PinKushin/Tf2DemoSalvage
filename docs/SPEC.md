@@ -424,6 +424,39 @@ by the codec name, 22050 for celt and 11025 for anything else.
 length prefix, so each unimplemented type discarded the remainder of its packet — including any
 `svc_PacketEntities` behind it. See `RISKS.md` B13.
 
+### The `userinfo` player record — **CONFIRMED**
+
+A fixed 132-byte C struct written straight to the wire, carried as the user data of each
+`userinfo` string table entry. Position matters more than content: a field read at the wrong
+offset still yields text, just the wrong text.
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 32 | name, NUL-padded |
+| 32 | 4 | `user_id`, little-endian |
+| 36 | 32 | Steam id, rendered (`[U:1:1234567]`, or `BOT`) |
+| 68 | 8 | extra, friends id |
+| 76 | 32 | friends name — zero in every demo measured |
+| 108 | 1 | is fake player |
+| 109 | 1 | is HLTV |
+| 110 | 2 | is replay, padding |
+| 112 | 20 | custom file hashes, files downloaded |
+
+**Two identifiers, and they are not the same number.** Game events carry `user_id`; entities are
+addressed by index. The entity index is the string table **entry's name**, not a field in the
+record — so this table is the join between the event log and the entity stream. Using one where
+the other belongs attributes events to the wrong player and nothing fails, because both are
+small integers and both are usually valid. Confirmed distinct on real demos: entity 3 is user 5,
+entity 7 is user 12.
+
+Two details that bite. The name field's NUL is padding rather than a terminator, so a name
+filling all 32 bytes has none at all and a reader scanning for one drops its last character. And
+`user_id` is **not** byte-swapped, unlike some Source fields — reading it big-endian turns user 1
+into 16,777,216.
+
+Verified across all seven corpus demos: 13 slots each, names and Steam ids well-formed, UTF-8
+names intact.
+
 ### Every message type is now decoded — **CONFIRMED**
 
 All sixteen defined types are implemented, so no message discards the remainder of its packet.
