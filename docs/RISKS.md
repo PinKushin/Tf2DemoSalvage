@@ -853,3 +853,45 @@ demo was fetched specifically to test the hypothesis — the owner's suggestion,
 turned one anecdote into a pattern.
 
 All seven corpus demos and both fetched POV demos now trace with zero stops.
+
+
+## B17 — the message type field is not always six bits, and nothing said so
+
+**Found and fixed 2026-08-09, on the first demo old enough to show it.**
+
+Source writes each message's type in a field sized by `2^NETMSG_TYPE_BITS > SVC_LASTMSG`. In
+2009 the highest id was `svc_GetCvarValue` at 31, so five bits sufficed. `svc_CmdKeyValues` (32)
+and `svc_PaintmapData` (33) arrived later and forced six. This parser hardcoded six.
+
+**Why it was invisible until now.** It is the one era difference that is *not* in Valve's
+`proto_version.h` (D20), so it cannot be found by reading that file. And `demostf/parser`, the
+reference implementation cross-checked against throughout this project, declares
+`#[discriminant_bits = 6]` — it hardcodes the same assumption and cannot read a protocol-15 demo
+either. Neither of the two best available sources contained the answer.
+
+**How it presented, which is worth recording because it named nothing useful.** The first stop
+was `Unrecognised message id 52 at bit 638`, inside the signon. Downstream: 11,002 unreadable
+packets out of 11,007, a decoded server protocol of **25,482** against a header saying 15, an
+empty map name, and zero game event definitions. Nothing in that pointed at a field width.
+
+The tell, in hindsight, is arithmetic — the same move that settled B14. **Five bits cannot
+produce an id above 31.** An unrecognised id of 52 is not a message this parser has not
+implemented; it is proof the reader is not aligned to the type field at all.
+
+**The fix has an ordering constraint worth stating.** The width cannot come from
+`svc_ServerInfo`, because ServerInfo is itself a message and reading it requires the width
+already. It comes from the demo header, which is the only source available before the first
+message is read. `NetDecodeState.NetworkProtocol` is seeded there and defaults to 24.
+
+**After the fix, the same demo:** zero stops, protocol 15, map `cp_badlands`, 156 event
+definitions, 10,998 entity snapshots, 70 game events across 13 types, and the recording player
+resolved by name out of the `userinfo` table.
+
+**Open: the exact boundary is unverified.** Protocol 15 is five bits and 24 is six, both
+measured. The flip is somewhere in 16–23 and the code picks 15 as the last five-bit protocol,
+because 16 is where Replay shipped and a protocol number only moves when the wire format does.
+
+Tolerable because the failure is loud rather than silent — a wrong width desynchronises the
+first message of the signon and produces the wreckage described above, never a plausible-looking
+result. Contrast B14, which was latent for the entire life of the project. A protocol 16–23 demo
+would settle it, and none exists in the corpus.

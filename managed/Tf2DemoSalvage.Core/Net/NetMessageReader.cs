@@ -116,10 +116,11 @@ public static class NetMessageReader
         // unimplemented type stopped the walk before any real body could run off the end.
         try
         {
-            while (reader.BitsRemaining >= NetMessage.TypeBits)
+            int typeBits = state.MessageTypeBits;
+            while (reader.BitsRemaining >= typeBits)
             {
                 int typeStartBit = reader.BitsRead;
-                uint rawType = reader.ReadUInt32(NetMessage.TypeBits);
+                uint rawType = reader.ReadUInt32(typeBits);
 
                 if (!Enum.IsDefined((NetMessageType)rawType))
                 {

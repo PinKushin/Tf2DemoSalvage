@@ -55,9 +55,12 @@ internal static class DemoScan
     internal static Result Run(
         IReadOnlyList<DemoCommand> commands,
         int sampleSize,
-        IProgress<DumpProgress>? progress)
+        IProgress<DumpProgress>? progress,
+        ushort networkProtocol)
     {
-        NetDecodeState state = new();
+        // From the demo header, not from svc_ServerInfo: the protocol sizes the message type
+        // field, so ServerInfo cannot be read without it. See NetDecodeState.NetworkProtocol.
+        NetDecodeState state = new() { NetworkProtocol = networkProtocol };
         SortedDictionary<int, PlayerInfo> players = [];
         Dictionary<string, int> counts = [];
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> sample = [];

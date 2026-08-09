@@ -57,7 +57,9 @@ public static class DemoTraceWriter
 
         WriteHeader(writer, fileName, header);
 
-        NetDecodeState state = new();
+        // Seeded from the header, because the protocol sizes the message type field and
+        // svc_ServerInfo cannot be read without it. See NetDecodeState.NetworkProtocol.
+        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
         EntityDecoder? entities = options.IncludeEntities ? BuildDecoder(commands) : null;
         int snapshots = 0;
         int scanned = 0;

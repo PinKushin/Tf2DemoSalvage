@@ -131,6 +131,33 @@ public sealed class OldProtocolTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(888);
     }
 
+    [Theory]
+    [InlineData(15, 5)]                            // 2009: highest id is svc_GetCvarValue at 31
+    [InlineData(24, 6)]                            // current: svc_PaintmapData at 33 needs six
+    public void MessageTypeField_UsesTheWidthItsProtocolDefines(ushort protocol, int typeBits)
+    {
+        // The single largest era difference found so far, and the one that is *not* in Valve's
+        // proto_version.h. Source sizes the field by `2^NETMSG_TYPE_BITS > SVC_LASTMSG`, so it
+        // widened when svc_CmdKeyValues (32) and svc_PaintmapData (33) were added after 2009.
+        //
+        // Reading six bits where five were written desynchronises on the very first message of
+        // the signon, which is why this presented as "unrecognised message id 52" rather than as
+        // anything resembling a width problem. Ids above 31 are the tell: five bits cannot
+        // produce them.
+        //
+        // The width has to come from the demo header, not from svc_ServerInfo, because
+        // ServerInfo is itself a message and cannot be read without already knowing it.
+        BitWriter writer = new();
+        writer.Write((uint)NetMessageType.NetTick, typeBits)
+            .Write(9001, 32).Write(0, 16).Write(0, 16);
+
+        NetMessageReadResult result = NetMessageReader.Read(
+            writer.Build(), new NetDecodeState { NetworkProtocol = protocol });
+
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(9001);
+        result.StopReason.ShouldBeNull();
+    }
+
     /// <summary>Decode state reporting a given network protocol.</summary>
     private static NetDecodeState StateAt(ushort protocol) => new()
     {

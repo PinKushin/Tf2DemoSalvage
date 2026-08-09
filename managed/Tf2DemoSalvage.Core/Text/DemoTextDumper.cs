@@ -91,7 +91,7 @@ public static class DemoTextDumper
         // when the player section was first added.
         if (options.IncludePlayers || options.IncludeGameEvents || options.IncludeChat)
         {
-            DemoScan.Result scan = DemoScan.Run(commands, options.GameEventSampleSize, progress);
+            DemoScan.Result scan = DemoScan.Run(commands, options.GameEventSampleSize, progress, (ushort)header.NetworkProtocol);
 
             if (options.IncludePlayers)
             {

@@ -71,7 +71,7 @@ public static class DemoJsonLinesWriter
             json.WriteNumber("signonLengthBytes", header.SignonLengthBytes);
         });
 
-        DemoScan.Result scan = DemoScan.Run(commands, int.MaxValue, progress);
+        DemoScan.Result scan = DemoScan.Run(commands, int.MaxValue, progress, (ushort)header.NetworkProtocol);
 
         foreach (PlayerInfo player in scan.Players.Values)
         {

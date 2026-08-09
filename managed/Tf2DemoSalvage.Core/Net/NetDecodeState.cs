@@ -17,6 +17,44 @@ public sealed class NetDecodeState
     private readonly Dictionary<int, GameEventDefinition> _eventDefinitions = [];
 
     /// <summary>
+    /// Network protocol this demo was recorded at, from its header. Defaults to the current one.
+    /// </summary>
+    /// <remarks>
+    /// **Taken from the demo header rather than from <see cref="ServerInfo"/>, and it has to
+    /// be.** It sizes the message type field, and <c>svc_ServerInfo</c> is itself a message —
+    /// reading it already requires knowing the width. The header is the only source available
+    /// before the first message is read.
+    ///
+    /// Defaulting to <see cref="CurrentProtocol"/> rather than to zero is deliberate: an
+    /// unqualified <see cref="NetDecodeState"/> should behave as a modern demo, which is what
+    /// every synthetic fixture in the tests assumes and what almost every real demo is.
+    /// </remarks>
+    public ushort NetworkProtocol { get; init; } = CurrentProtocol;
+
+    /// <summary>The protocol current builds record at.</summary>
+    private const ushort CurrentProtocol = 24;
+
+    /// <summary>Last protocol whose message type field was five bits wide.</summary>
+    /// <remarks>
+    /// **Bounded by measurement, not verified exactly.** Protocol 15 is five bits, confirmed
+    /// against a demo recorded on TF2 build 3862 (June 2009); protocol 24 is six, confirmed
+    /// across the whole corpus. The flip is somewhere in 16–23 and this picks the earliest
+    /// point consistent with both, because 16 is where Replay shipped and a protocol number
+    /// only moves when the wire format does.
+    ///
+    /// Guessing is tolerable here in a way it usually is not, because the failure mode is loud
+    /// rather than silent. A wrong width desynchronises the first message of the signon: the
+    /// 2009 demo produced 11,002 unreadable packets and a server protocol of 25,482 before this
+    /// was fixed, and zero afterwards. There is no reading of a wrong width that quietly
+    /// produces plausible output — see <c>RISKS.md</c> B17.
+    /// </remarks>
+    private const ushort FiveBitTypeProtocol = 15;
+
+    /// <summary>Width of a message's type field at this demo's protocol.</summary>
+    public int MessageTypeBits =>
+        NetworkProtocol > FiveBitTypeProtocol ? NetMessage.TypeBits : NetMessage.OldTypeBits;
+
+    /// <summary>
     /// The server's own description of itself, once seen. Its <c>MaxClasses</c> determines the
     /// bit width of entity class ids, so entity decoding cannot begin without it.
     /// </summary>
