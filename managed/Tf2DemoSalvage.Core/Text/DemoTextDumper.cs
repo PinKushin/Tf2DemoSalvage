@@ -25,6 +25,31 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 public static class DemoTextDumper
 {
+    /// <summary>
+    /// Event fields known to carry a user id, and therefore worth resolving to a name.
+    /// </summary>
+    /// <remarks>
+    /// **An allowlist, because the alternative was demonstrably wrong.** Resolving every numeric
+    /// field produced `damageamount=Ardaddy Ultrasex(14)` on a real demo — 14 damage collided
+    /// with user id 14 — and turned `inflictor_entindex` into a player when the inflictor is a
+    /// weapon entity. Falling back on unknown ids does not help there: the value was known, it
+    /// simply was not a player.
+    ///
+    /// So a field earns resolution by being named, not by being a small integer. Entity-index
+    /// fields are deliberately absent: they address entities, and most of the ones events carry
+    /// are weapons and projectiles rather than players.
+    /// </remarks>
+    private static readonly HashSet<string> PlayerIdFields = new(StringComparer.Ordinal)
+    {
+        "userid", "attacker", "assister", "patient", "healer", "player",
+    };
+
+    /// <summary>
+    /// Value at or above which a player reference means "nobody". TF2 sends this rather than a
+    /// null or a negative for an unassisted kill.
+    /// </summary>
+    private const int NoPlayerSentinel = 16384;
+
     /// <summary>The string table naming connected players.</summary>
     private const string UserInfoTable = "userinfo";
 
@@ -222,7 +247,8 @@ public static class DemoTextDumper
     private static void WriteGameEventSection(TextWriter writer, ScanResult scan)
     {
         Dictionary<string, int> counts = scan.EventCounts;
-        List<(int Tick, string Name, string Detail)> sample = scan.EventSample;
+        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> sample =
+            scan.EventSample;
         int total = scan.EventTotal;
 
         writer.WriteLine(Separator);
@@ -250,10 +276,17 @@ public static class DemoTextDumper
             CultureInfo.InvariantCulture, $"  First {sample.Count} in order:"));
         writer.WriteLine();
 
-        foreach ((int tick, string name, string detail) in sample)
+        Dictionary<int, PlayerInfo> byUserId = [];
+        foreach (PlayerInfo player in scan.Players.Values)
+        {
+            byUserId[player.UserId] = player;
+        }
+
+        foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object>> fields) in sample)
         {
             writer.WriteLine(string.Create(
-                CultureInfo.InvariantCulture, $"  tick {tick,-8} {name,-28} {detail}"));
+                CultureInfo.InvariantCulture,
+                $"  tick {tick,-8} {name,-28} {Describe(fields, byUserId)}"));
         }
 
         writer.WriteLine();
@@ -267,7 +300,7 @@ public static class DemoTextDumper
     private sealed record ScanResult(
         SortedDictionary<int, PlayerInfo> Players,
         Dictionary<string, int> EventCounts,
-        List<(int Tick, string Name, string Detail)> EventSample,
+        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> EventSample,
         int EventTotal);
 
     /// <summary>
@@ -287,7 +320,7 @@ public static class DemoTextDumper
         NetDecodeState state = new();
         SortedDictionary<int, PlayerInfo> players = [];
         Dictionary<string, int> counts = [];
-        List<(int Tick, string Name, string Detail)> sample = [];
+        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> sample = [];
         int total = 0;
         int scanned = 0;
 
@@ -321,7 +354,10 @@ public static class DemoTextDumper
 
                         if (sample.Count < sampleSize)
                         {
-                            sample.Add((command.Tick, name, Describe(gameEvent)));
+                            // Fields are kept raw and resolved when the section is written. A
+                            // player can be named by a userinfo update *after* an event
+                            // referencing them, so resolving here would miss them.
+                            sample.Add((command.Tick, name, [.. gameEvent.Values]));
                         }
 
                         break;
@@ -359,23 +395,62 @@ public static class DemoTextDumper
         }
     }
 
-    /// <summary>Renders an event's fields compactly, in wire order.</summary>
-    private static string Describe(GameEventMessage gameEvent)
+    /// <summary>
+    /// Renders an event's fields compactly, in wire order, naming players where it can.
+    /// </summary>
+    /// <remarks>
+    /// **Resolution falls back rather than guessing.** A field this parser wrongly believes
+    /// names a player, or an id belonging to someone who has since left, prints the number it
+    /// read. That is honest; inventing a name would not be, and a wrong name in a kill log is
+    /// exactly the kind of plausible-looking error this codebase keeps meeting.
+    ///
+    /// Two identifier spaces are in play and they overlap numerically, so which map to use is
+    /// decided by the field's name: anything containing <c>entindex</c> is an entity index,
+    /// everything else is a user id. Looking up an entity index in the user map would print a
+    /// real name for a player who is not involved.
+    /// </remarks>
+    private static string Describe(
+        IReadOnlyList<KeyValuePair<string, object>> fields,
+        IReadOnlyDictionary<int, PlayerInfo> byUserId)
     {
         StringBuilder detail = new();
 
-        foreach (KeyValuePair<string, object> field in gameEvent.Values)
+        foreach (KeyValuePair<string, object> field in fields)
         {
             if (detail.Length > 0)
             {
                 detail.Append(' ');
             }
 
-            detail.Append(field.Key).Append('=')
-                .Append(Convert.ToString(field.Value, CultureInfo.InvariantCulture));
+            detail.Append(field.Key).Append('=').Append(Render(field, byUserId));
         }
 
         return detail.ToString();
+    }
+
+    private static string Render(
+        KeyValuePair<string, object> field,
+        IReadOnlyDictionary<int, PlayerInfo> byUserId)
+    {
+        string raw = Convert.ToString(field.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+
+        if (!PlayerIdFields.Contains(field.Key) ||
+            !int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
+        {
+            return raw;
+        }
+
+        // An absent assister is transmitted as a large sentinel rather than a null, so a player
+        // who was never involved would otherwise be looked up and reported as absent anyway -
+        // this says so explicitly instead.
+        if (id >= NoPlayerSentinel)
+        {
+            return "none";
+        }
+
+        return byUserId.TryGetValue(id, out PlayerInfo player)
+            ? string.Create(CultureInfo.InvariantCulture, $"{player.Name}({id})")
+            : raw;
     }
 
     private static void WriteCommandListing(TextWriter writer, IReadOnlyList<DemoCommand> commands)

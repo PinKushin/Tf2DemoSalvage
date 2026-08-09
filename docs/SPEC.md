@@ -424,6 +424,32 @@ by the codec name, 22050 for celt and 11025 for anything else.
 length prefix, so each unimplemented type discarded the remainder of its packet — including any
 `svc_PacketEntities` behind it. See `RISKS.md` B13.
 
+### Which event fields name a player — **PARTIAL**
+
+Resolving a `user_id` to a name needs to know which fields hold one, and the answer is not
+"every small integer". Established by allowlist rather than by inference, because inference was
+tried and produced wrong names on real data:
+
+| Resolves to a player | Does not |
+|---|---|
+| `userid`, `attacker`, `assister`, `patient`, `healer`, `player` | everything else |
+
+Two failures drove that. `damageamount=14` rendered as a player because 14 damage collided with
+user id 14. And `inflictor_entindex` resolved to a player when an inflictor is usually a weapon
+or projectile entity. Neither was caught by a fallback for unknown ids — in both cases the value
+was perfectly valid, it simply was not a player reference.
+
+**Entity-index fields are deliberately left raw.** They do address entities, but most entities
+an event names are not players, and resolving them selectively would need an entity-to-class map
+this section does not have.
+
+**An absent player is a large sentinel**, not a null or a negative: an unassisted kill sends an
+`assister` at or above 16384. Printed as `none`.
+
+Marked PARTIAL because the list is drawn from the events these seven demos fire. A field naming
+a player in an event none of them contains is not in it yet, and the failure mode is mild — an
+unresolved number rather than a wrong name.
+
 ### The `userinfo` player record — **CONFIRMED**
 
 A fixed 132-byte C struct written straight to the wire, carried as the user data of each
