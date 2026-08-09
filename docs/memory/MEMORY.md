@@ -12,3 +12,4 @@
 - [Mutation score is not the goal](mutation-score-is-not-the-goal.md) — 80 is a floor not a target; skip dead ends, no tests for tests' sake.
 - [Research before code](research-before-code.md) — guess, verify against a source, then code; the hypothesis is required, skipping the verify step is what costs.
 - [Ask whether the data arrived](ask-whether-the-data-arrived.md) - check every message reached the decoder before analysing bits; a dropped message imitates a desync perfectly.
+- [Fallbacks do not make guesses safe](fallbacks-do-not-make-guesses-safe.md) - handling unknown values cannot catch a wrong premise about what a field means; enumerate instead.

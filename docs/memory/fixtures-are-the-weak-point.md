@@ -56,3 +56,39 @@ A fixture built from the SDK's write path proves the decoder matches *that readi
 spec*. It cannot prove the reading is right, because both sides came from the same head. Only
 a real demo tests that, and when the two disagree the demo wins. Entity decoding currently
 passes every fixture and desynchronises inside `CTFPlayer` on real files — see RISKS B12.
+
+## A fixture that parses to *nothing* is the common failure, not one that throws
+
+Three more fixture bugs on 2026-08-09, all producing a silently empty result rather than an
+error:
+
+- A `userinfo` string table entry written with an invented bit layout instead of the one
+  `StringTableCodec` reads: index bit, has-text bit, substring bit, text, user-data bit, length.
+  Parsed to zero entries.
+- The same table's length written as a varint, when the dumper's decode state has seen no
+  `svc_ServerInfo` and therefore reports protocol 0 — which takes the fixed 20-bit path. Parsed
+  to zero entries.
+- A game event fixture whose `svc_GameEventList` arrived in the same command as the events. A
+  game event carries only an id, so without a prior definition it decodes to nothing.
+
+None threw. Each produced an empty section that looked like "this demo has no players" rather
+than "this fixture is wrong", and each cost a debugging cycle that started by suspecting the
+decoder.
+
+**Write the fixture from the reader, not from memory.** Open the parsing code and mirror its
+field order. Every one of these came from writing what the format "should" be.
+
+**And assert the fixture produced something**, before asserting anything about its content. A
+test that checks `dump.ShouldContain("userid=Sassy")` fails identically whether resolution is
+broken or the table was never parsed.
+
+## Practical: the Edit tool takes literal text, Python does not
+
+Getting a string containing `
+` into a C# file through a Python heredoc took four attempts,
+twice. Each layer — shell, heredoc, Python string, C# source — treats a backslash as something
+to interpret, and the failure mode is a literal newline inside a string constant.
+
+The Edit tool passes text through unchanged. Use it for anything containing escapes, raw string
+literals, or exact expected output. Reach for Python only for mechanical whole-file
+transformations with no escaped characters in them.
