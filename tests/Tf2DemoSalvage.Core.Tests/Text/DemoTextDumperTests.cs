@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Tests.Net;
 using Tf2DemoSalvage.Core.Text;
 
 namespace Tf2DemoSalvage.Core.Tests.Text;
@@ -58,6 +60,48 @@ public sealed class DemoTextDumperTests
     }
 
     [Fact]
+    public void Write_RealGameEvents_AreCountedAndListed()
+    {
+        // Every earlier test here passed commands with zeroed payloads, so nothing decoded and
+        // the whole rendering path went untested - the mutation gate reported the entire
+        // section as uncovered. Asserting "none decoded" tests the empty case only.
+        string dump = Dump(commands: EventPackets());
+
+        dump.ShouldContain("Events");
+        dump.ShouldContain("player_hurt");
+        dump.ShouldContain("2");                       // the count column
+        dump.ShouldContain("userid=7");                // a field from Describe
+        dump.ShouldContain("tick 99");                 // the timeline
+    }
+
+    [Fact]
+    public void Write_EventsSortedByFrequency_MostCommonFirst()
+    {
+        string dump = Dump(commands: EventPackets());
+        string[] lines = dump.Split('\n');
+
+        int hurt = Array.FindIndex(lines, l => l.Contains("player_hurt", StringComparison.Ordinal));
+        int death = Array.FindIndex(lines, l => l.Contains("player_death", StringComparison.Ordinal));
+
+        // player_hurt occurs twice, player_death once. Sorting the other way, or not at all,
+        // would put the rarer event first on this input.
+        hurt.ShouldBeGreaterThan(0);
+        hurt.ShouldBeLessThan(death);
+    }
+
+    [Fact]
+    public void Write_EventSample_IsCappedAtTheConfiguredSize()
+    {
+        string dump = Dump(
+            commands: EventPackets(),
+            options: new DemoDumpOptions { GameEventSampleSize = 1 });
+
+        // Three events, one sampled. The count summary still reports all three.
+        dump.ShouldContain("First 1 in order");
+        dump.ShouldContain("3 across 2 types");
+    }
+
+    [Fact]
     public void Write_NoDecodableMessages_SaysSoRatherThanOmittingTheSection()
     {
         // The sample commands carry zeroed payloads, so nothing decodes. A section that simply
@@ -105,6 +149,40 @@ public sealed class DemoTextDumperTests
         reports[^1].Fraction.ShouldBe(1d);
     }
 
+    [Theory]
+    [InlineData(0, 10, 0d)]
+    [InlineData(5, 10, 0.5d)]
+    [InlineData(10, 10, 1d)]
+    public void Fraction_HandlesItsRange(int completed, int total, double expected)
+    {
+        new DumpProgress("s", completed, total).Fraction.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Fraction_WithNothingToDo_IsOneRatherThanDividingByZero()
+    {
+        // A stage with no work is finished, not undefined. Reporting 0 would render as a bar
+        // stuck at empty for a demo with no commands.
+        new DumpProgress("s", 0, 0).Fraction.ShouldBe(1d);
+        new DumpProgress("s", 0, -1).Fraction.ShouldBe(1d);
+    }
+
+    [Theory]
+    [InlineData(0, 4, "Scan [----]   0%")]
+    [InlineData(2, 4, "Scan [##--]  50%")]
+    [InlineData(4, 4, "Scan [####] 100%")]
+    public void ToBar_DrawsProportionally(int completed, int width, string expected)
+    {
+        new DumpProgress("Scan", completed, 4).ToBar(width).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void ToBar_NonPositiveWidth_IsRejected()
+    {
+        Should.Throw<ArgumentOutOfRangeException>(() => new DumpProgress("s", 1, 2).ToBar(0));
+        Should.Throw<ArgumentOutOfRangeException>(() => new DumpProgress("s", 1, 2).ToBar(-1));
+    }
+
     [Fact]
     public void Write_NoProgressListener_StillWorks()
     {
@@ -116,6 +194,66 @@ public sealed class DemoTextDumperTests
     private sealed class SyncProgress(Action<DumpProgress> onReport) : IProgress<DumpProgress>
     {
         public void Report(DumpProgress value) => onReport(value);
+    }
+
+    /// <summary>
+    /// Two packets carrying real, decodable game events: a list defining two event types, then
+    /// three events using them.
+    /// </summary>
+    private static IReadOnlyList<DemoCommand> EventPackets()
+    {
+        // Definitions first, then three events using them. The definitions must arrive in an
+        // earlier command than the events, exactly as in a real demo: a game event carries only
+        // an id, so without a prior svc_GameEventList it decodes to nothing.
+        BitWriter definitions = new();
+        WriteEventList(definitions);
+
+        BitWriter events = new();
+        WriteEvent(events, 1, 7);
+        WriteEvent(events, 1, 8);
+        WriteEvent(events, 2, 7);
+
+        return
+        [
+            new(DemoCommandType.Signon, 0, definitions.Build()),
+            new(DemoCommandType.Packet, 99, events.Build()),
+        ];
+    }
+
+    /// <summary>Writes a two-entry <c>svc_GameEventList</c>, each event holding one short.</summary>
+    private static void WriteEventList(BitWriter writer)
+    {
+        BitWriter body = new();
+        foreach ((int id, string name) in new[] { (1, "player_hurt"), (2, "player_death") })
+        {
+            body.Write((uint)id, 9).String(name);
+            body.Write((uint)GameEventValueType.Short, 3).String("userid");
+            body.Write((uint)GameEventValueType.None, 3);
+        }
+
+        writer.Message(NetMessageType.GameEventList).Write(2, 9).Write((uint)body.BitCount, 20);
+        AppendBitwise(writer, body);
+    }
+
+    private static void WriteEvent(BitWriter writer, int id, short userId)
+    {
+        BitWriter body = new();
+        body.Write((uint)id, 9).Write((ushort)userId, 16);
+
+        writer.Message(NetMessageType.GameEvent).Write((uint)body.BitCount, 11);
+        AppendBitwise(writer, body);
+    }
+
+    /// <summary>
+    /// Copies a body bit by bit, so it lands at the reader's current unaligned offset.
+    /// </summary>
+    private static void AppendBitwise(BitWriter writer, BitWriter body)
+    {
+        byte[] bytes = body.Build();
+        for (int bit = 0; bit < body.BitCount; bit++)
+        {
+            writer.Write((uint)((bytes[bit / 8] >> (bit % 8)) & 1), 1);
+        }
     }
 
     private static IReadOnlyList<DemoCommand> ManyPackets(int count) =>

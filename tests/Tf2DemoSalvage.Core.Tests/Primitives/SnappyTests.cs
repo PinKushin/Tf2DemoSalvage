@@ -148,6 +148,63 @@ public sealed class SnappyTests
     }
 
     [Fact]
+    public void CopyWithFourByteOffset_ReadsAllFourBytesLittleEndian()
+    {
+        // Tag 11. Never exercised until the mutation gate pointed at it - the earlier tests
+        // used one and two byte offsets only, so the whole four-byte branch was untested.
+        byte[] literal = new byte[300];
+        for (int i = 0; i < literal.Length; i++)
+        {
+            literal[i] = (byte)(i % 251);
+        }
+
+        List<byte> compressed = [];
+        WriteVarInt(compressed, 305);
+        compressed.Add((byte)(61 << 2));
+        compressed.Add((byte)(299 & 0xFF));
+        compressed.Add((byte)(299 >> 8));
+        compressed.AddRange(literal);
+        compressed.Add((byte)(((5 - 1) << 2) | 3));     // tag 11: copy, length 5
+        compressed.Add(0x2C);                           // offset 300 across four bytes
+        compressed.Add(0x01);
+        compressed.Add(0x00);
+        compressed.Add(0x00);
+
+        byte[] result = Snappy.Decompress([.. compressed]);
+
+        result.Length.ShouldBe(305);
+        result.AsSpan(300, 5).ToArray().ShouldBe(literal.AsSpan(0, 5).ToArray());
+    }
+
+    [Fact]
+    public void CopyRunningPastTheDeclaredLength_IsRejected()
+    {
+        // A copy, rather than a literal, overrunning the declared output. The literal path had
+        // a test for this and the copy path did not.
+        byte[] compressed = [5, 0 << 2, (byte)'a', .. Copy1(offset: 1, length: 8)];
+
+        Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
+    }
+
+    [Fact]
+    public void TruncatedFourByteOffset_IsRejected()
+    {
+        byte[] compressed = [8, 0 << 2, (byte)'a', (byte)(((5 - 1) << 2) | 3), 0x01];
+
+        Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
+    }
+
+    [Fact]
+    public void StreamEndingInsideItsLengthPreamble_SaysSo()
+    {
+        // A varint whose continuation bit promises another byte that never arrives.
+        InvalidDataException error =
+            Should.Throw<InvalidDataException>(() => Snappy.Decompress([0x80]));
+
+        error.Message.ShouldContain("preamble");
+    }
+
+    [Fact]
     public void DeclaredLength_IsTheContract()
     {
         // The varint preamble says how long the output is. A stream that produces less has
