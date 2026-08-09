@@ -424,6 +424,30 @@ by the codec name, 22050 for celt and 11025 for anything else.
 length prefix, so each unimplemented type discarded the remainder of its packet — including any
 `svc_PacketEntities` behind it. See `RISKS.md` B13.
 
+### `SayText2` chat — **CONFIRMED**
+
+Chat arrives inside `svc_UserMessage` as payload type **4**. Two shapes share the message and
+nothing flags which is present:
+
+| Shape | Body after the two header bytes |
+|---|---|
+| Player message | channel key (`TF_Chat_All`, `TF_Chat_AllDead`, …), sender, text |
+| Server or plugin | text only, starting with a colour code |
+
+**The shape is decided by looking at a byte**: a value in 1..8 there is a colour code, so the
+simplified form is present. Reading the simplified form as the full one takes the message itself
+as the channel key and loses it. Both occur in every corpus demo — server plugin lines are the
+simplified form.
+
+**Chat text carries inline colour codes** that must come out. Two kinds: control characters up
+to 8, which stand alone, and `` introducing a **six-digit hex colour**. Stripping only the
+marker leaves six stray characters mid-sentence, which reads as corruption rather than as a
+colour.
+
+The body sits behind an 11-bit length, so a chat line that fails to parse costs one line and
+cannot desynchronise the packet — this decoder returns null rather than throwing, and rather
+than emitting a blank line that would read as somebody saying nothing.
+
 ### Which event fields name a player — **PARTIAL**
 
 Resolving a `user_id` to a name needs to know which fields hold one, and the answer is not

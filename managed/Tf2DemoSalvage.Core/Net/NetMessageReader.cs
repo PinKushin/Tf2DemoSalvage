@@ -370,11 +370,18 @@ public static class NetMessageReader
 
                     case NetMessageType.UserMessage:
                     {
-                        // A type byte, then an 11-bit length. The payload's meaning depends on
-                        // the type and is not needed to step over it.
-                        _ = reader.ReadUInt32(8);
+                        // A type byte, then an 11-bit length. Only chat is decoded; the rest are
+                        // stepped over, which the length makes safe.
+                        int userType = (int)reader.ReadUInt32(8);
                         int userBits = (int)reader.ReadUInt32(UserMessageLengthBits);
-                        _ = NetBitReading.CopyBits(ref reader, userBits);
+                        byte[] userBody = NetBitReading.CopyBits(ref reader, userBits);
+
+                        if (userType == ChatMessage.SayText2Type &&
+                            ChatMessage.Parse(userBody) is ChatMessage chat)
+                        {
+                            messages.Add(chat);
+                        }
+
                         break;
                     }
 
