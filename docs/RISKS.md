@@ -784,3 +784,47 @@ assumption again without evidence; it has already failed once.
 
 The cost is bounded and visible: one packet of 118,282 in one of seven demos, reported in place
 rather than hidden.
+
+
+### B16 resolved — it was `svc_BspDecal` overreading, not an unknown message
+
+Closed, and wrongly diagnosed twice on the way.
+
+**What it actually was.** `svc_BspDecal`'s body is:
+
+| Field | Width |
+|---|---|
+| three presence bits, then `SPROP_COORD` per present axis | variable |
+| texture index | **9** |
+| entity-and-model present | **1** |
+| entity index, model index — only if that flag is set | **11**, **13** |
+| low priority | 1 |
+
+This parser read three unconditional 16-bit fields where 9 + 1 + (0 or 24) + 1 belong: an
+overread of 14 to 38 bits. Everything after it in that packet was garbage, and the garbage
+happened to decode as message id 1 in one demo and id 33 in another.
+
+**Why it took two wrong diagnoses.**
+
+The first was reading the symptom as the cause — "id 1 is a message we do not implement" — and
+then guessing at `net_Disconnect`'s body, which moved the failure rather than fixing it. That
+guess was reverted, correctly, but the framing survived and shaped the writeup.
+
+The second was subtler and is the one worth keeping: **the trace could not show the message that
+caused it.** Sixteen message types were consumed for alignment only and emitted nothing, so the
+failing block rendered as "no messages, stopped after 124 bits" — which reads as a packet corrupt
+from its first bit. Recording those as `SkippedMessage` made the answer immediate: the block
+showed `svc_bspdecal bits 118` and nothing else, and a single decal as the first message of the
+first packet is not plausible content.
+
+**The mistake underneath both.** `svc_BspDecal` was implemented from the reference parser's
+**struct**, whose fields are `u16`, rather than from its **`BitRead` impl**, which uses 9, 11 and
+13. A struct is a program's in-memory shape and says nothing about the wire. Read the reader.
+
+**What made it visible.** Two point-of-view demos failing at nearly the same offset with
+*different* ids. A genuine unknown type gives the same id every time; two different ids in the
+same structural position is misalignment. That comparison was only possible because a second POV
+demo was fetched specifically to test the hypothesis — the owner's suggestion, and the thing that
+turned one anecdote into a pattern.
+
+All seven corpus demos and both fetched POV demos now trace with zero stops.

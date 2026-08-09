@@ -262,10 +262,31 @@ public sealed class SkippableMessageTests
             .Write(1, 1).Write(0, 1).Write(1, 1);   // x present, y absent, z present
         WriteCoord(writer, 5, 16);                  // x
         WriteCoord(writer, 3, 0);                   // z
-        writer.Write(12, 16).Write(34, 16).Write(56, 16).Write(0, 1);
+        writer.Write(12, 9);                        // texture index, 9 bits
+        writer.Write(1, 1);                         // entity and model indices follow
+        writer.Write(34, 11).Write(56, 13);
+        writer.Write(0, 1);                         // low priority
         writer.NetTick(2121, 0, 0);
 
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2121);
+    }
+
+    [Fact]
+    public void BspDecal_WithoutAnEntity_OmitsBothIndices()
+    {
+        // The flag that cost a day. Entity and model indices are present only when a bit says
+        // so - a world decal carries neither - and an earlier version read three fixed 16-bit
+        // fields here because the reference parser's struct declares them as u16. The struct is
+        // its in-memory shape; its reader uses 9, 11 and 13 bits. RISKS B16.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.BspDecal).Write(1, 1).Write(0, 1).Write(0, 1);
+        WriteCoord(writer, 5, 16);
+        writer.Write(12, 9);                        // texture index
+        writer.Write(0, 1);                         // no entity, so no indices follow
+        writer.Write(0, 1);                         // low priority
+        writer.NetTick(2323, 0, 0);
+
+        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2323);
     }
 
     [Fact]
@@ -273,7 +294,7 @@ public sealed class SkippableMessageTests
     {
         BitWriter writer = new();
         writer.Message(NetMessageType.BspDecal).Write(0, 1).Write(0, 1).Write(0, 1);
-        writer.Write(12, 16).Write(34, 16).Write(56, 16).Write(0, 1);
+        writer.Write(12, 9).Write(0, 1).Write(0, 1);   // texture, no entity, low priority
         writer.NetTick(2222, 0, 0);
 
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2222);
