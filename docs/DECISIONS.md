@@ -359,3 +359,52 @@ for data nobody queries.
 
 Worth stating plainly because the pull was real: the roadmap named SQLite, Phase 1 felt
 incomplete without it, and "the doc says so" is not a reason to build something.
+
+
+## D18 — the primary output is a Quake-style trace, not a summary
+
+**Correction to D16 and to the scaffold's framing.** `ROADMAP.md` §3 said "a Quake-style
+readable text dump, plus JSON Lines and/or a per-demo SQLite file", and the JSON and SQLite half
+of that came from the pre-code planning conversation rather than from a stated need. Working
+through it as a checklist produced a summary dump and a JSON Lines writer before anyone asked
+what the output was actually for.
+
+**What was actually wanted:** the output a Quake demo parser produces, with TF2 content.
+
+### What that format is
+
+`lmpc` — the Quake tool that decompiles a `.dem` to text *and compiles it back* — writes
+block-structured source. Its decompiler emits keywords (`block`, `time`, `print`, `stufftext`,
+`setangle`, `serverinfo`, `spawnbaseline`, `temp_entity`, …) with `{`, `}` and `;` from its
+grammar. So a decompiled demo is a linear stream of blocks, each holding that frame's messages,
+each message a keyword with fields.
+
+`DemoTraceWriter` produces the same shape with Source names:
+
+```
+block dem_packet tick 14 {
+    net_tick tick 12742 frametime 0.015000;
+    svc_updatestringtable;
+    svc_packetentities delta 1 updated 27 bits 1566;
+}
+```
+
+### Why a trace beats a summary here
+
+**Aggregates hide position, and position is the whole point when a demo is damaged.** "3,412
+game events" says nothing about where a stream stopped making sense; a block ending in `stopped
+after N bits` says exactly. So anything the reader cannot finish is reported **in place** rather
+than omitted, and commands carrying no messages still get a block — a trace that skipped what it
+could not read would describe a healthier file than the one on disk.
+
+### On archiving, which is where JSON and SQLite really came from
+
+**The demo is its own best archive.** A `.dem` is bit-packed; any text or JSON expansion of the
+same content is larger, and complete entity state as JSON Lines would be gigabytes against a
+39 MB demo. Nothing here should be built on the premise that a derived format preserves a demo
+better than the demo does. What derived formats are for is *reading* — by a person, or by a
+tool — not keeping.
+
+The summary dump and the JSON Lines writer both stay: the summary answers "is this demo intact"
+at a glance, and JSON Lines is a reasonable machine format for tools that want one. Neither is
+the primary deliverable.
