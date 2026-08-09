@@ -75,6 +75,70 @@ public sealed class DemoTextDumperTests
     }
 
     [Fact]
+    public void Write_EventSection_RendersExactly()
+    {
+        // The dump exists to be diffed - against a previous run, and eventually against another
+        // parser - so its exact text is the contract, not an implementation detail. Asserting
+        // substrings leaves every blank line, column width and separator free to change
+        // silently, which is what the mutation gate found: the section was covered and almost
+        // none of its rendering was pinned.
+        // Command listing off, so the event section is the tail of the dump and can be compared
+        // whole rather than sliced at the next heading.
+        string dump = Dump(
+            commands: EventPackets(),
+            options: new DemoDumpOptions { IncludeCommandListing = false });
+        int start = dump.IndexOf("Game events", StringComparison.Ordinal);
+
+        // A raw string literal, so the expected text reads as the output it describes rather
+        // than as a run of escapes. The explicit trailing newline is the section's closing
+        // blank line: without it here, deleting that WriteLine would survive.
+        dump[start..].ShouldBe(
+            """
+            Game events
+            --------------------------------------------------------------------
+            Events             3 across 2 types
+
+              player_hurt                             2
+              player_death                            1
+
+              First 3 in order:
+
+              tick 99       player_hurt                  userid=7
+              tick 99       player_hurt                  userid=8
+              tick 99       player_death                 userid=7
+            """.ReplaceLineEndings("\n") + "\n\n");
+    }
+
+    [Fact]
+    public void Write_EventWithSeveralFields_SeparatesThemWithASingleSpace()
+    {
+        // Every other event fixture here carries one field, so the separator between fields was
+        // never exercised - deleting it survived mutation testing.
+        BitWriter definitions = new();
+        BitWriter body = new();
+        body.Write(1, 9).String("player_hurt");
+        body.Write((uint)GameEventValueType.Short, 3).String("userid");
+        body.Write((uint)GameEventValueType.Byte, 3).String("health");
+        body.Write((uint)GameEventValueType.None, 3);
+        definitions.Message(NetMessageType.GameEventList).Write(1, 9).Write((uint)body.BitCount, 20);
+        AppendBitwise(definitions, body);
+
+        BitWriter events = new();
+        BitWriter eventBody = new();
+        eventBody.Write(1, 9).Write(7, 16).Write(85, 8);
+        events.Message(NetMessageType.GameEvent).Write((uint)eventBody.BitCount, 11);
+        AppendBitwise(events, eventBody);
+
+        string dump = Dump(commands:
+        [
+            new(DemoCommandType.Signon, 0, definitions.Build()),
+            new(DemoCommandType.Packet, 42, events.Build()),
+        ]);
+
+        dump.ShouldContain("userid=7 health=85");
+    }
+
+    [Fact]
     public void Write_EventsSortedByFrequency_MostCommonFirst()
     {
         string dump = Dump(commands: EventPackets());
@@ -181,6 +245,39 @@ public sealed class DemoTextDumperTests
     {
         Should.Throw<ArgumentOutOfRangeException>(() => new DumpProgress("s", 1, 2).ToBar(0));
         Should.Throw<ArgumentOutOfRangeException>(() => new DumpProgress("s", 1, 2).ToBar(-1));
+    }
+
+    [Fact]
+    public void Write_ProgressReportsAtTheIntervalAndAtTheEnd()
+    {
+        // 512 commands per report plus a final one. With 600 commands that is exactly two:
+        // one at 512, one at 600. A wrong interval or a missing final report changes the count,
+        // and the final report is what makes a bar reach 100%.
+        List<DumpProgress> reports = [];
+
+        Dump(commands: ManyPackets(600), progress: new SyncProgress(reports.Add));
+
+        reports.Count.ShouldBe(2);
+        reports[0].Completed.ShouldBe(512);
+        reports[1].Completed.ShouldBe(600);
+    }
+
+    [Fact]
+    public void Write_SkippedCommandsStillAdvanceProgress()
+    {
+        // Console commands are not scanned for events, but they must still count - otherwise a
+        // demo with a long run of them shows a stalled bar and never reaches its total.
+        List<DumpProgress> reports = [];
+        IReadOnlyList<DemoCommand> commands =
+        [
+            .. Enumerable.Range(0, 600)
+                .Select(i => new DemoCommand(DemoCommandType.ConsoleCmd, i, new byte[4])),
+        ];
+
+        Dump(commands: commands, progress: new SyncProgress(reports.Add));
+
+        reports[^1].Completed.ShouldBe(600);
+        reports[^1].Fraction.ShouldBe(1d);
     }
 
     [Fact]

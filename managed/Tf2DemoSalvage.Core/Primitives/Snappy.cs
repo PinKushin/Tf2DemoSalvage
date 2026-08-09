@@ -79,6 +79,9 @@ public static class Snappy
                 case TagCopyTwoByteOffset:
                 {
                     Need(compressed, read, 2);
+
+                    // Stryker disable once Bitwise: tag comes from a byte, so it is never
+                    // negative and >>> is identical to >>. Equivalent mutant.
                     int length = (tag >> 2) + 1;
                     int offset = BinaryPrimitives.ReadUInt16LittleEndian(compressed[read..]);
                     read += 2;
