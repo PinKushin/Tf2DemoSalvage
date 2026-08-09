@@ -56,6 +56,23 @@ public sealed class DemoTextDumperTests
     }
 
     [Fact]
+    public void Write_NoDecodableMessages_SaysSoRatherThanOmittingTheSection()
+    {
+        // The sample commands carry zeroed payloads, so nothing decodes. A section that simply
+        // vanished would be indistinguishable from a demo with no events, which is a different
+        // thing entirely.
+        Dump().ShouldContain("Game events");
+        Dump().ShouldContain("none decoded");
+    }
+
+    [Fact]
+    public void Write_EventsOff_OmitsTheSectionEntirely()
+    {
+        Dump(options: new DemoDumpOptions { IncludeGameEvents = false })
+            .ShouldNotContain("Game events");
+    }
+
+    [Fact]
     public void Write_IncludesEveryHeaderField()
     {
         string dump = Dump();
@@ -220,10 +237,11 @@ public sealed class DemoTextDumperTests
     {
         string[] lines = Dump().Split('\n');
 
-        // Two rules separating the title block, then a blank line before the summary, then a
-        // blank line before the listing. Deleting any of those WriteLine calls survived
+        // Two rules around the title block and two around the game event section, then a blank
+        // line before each following section. Deleting any of those WriteLine calls survived
         // mutation testing until this assertion existed.
-        lines.Count(l => l.StartsWith("------", StringComparison.Ordinal)).ShouldBe(2);
+        lines.Count(l => l.StartsWith("------", StringComparison.Ordinal)).ShouldBe(4);
+        lines.ShouldContain("Game events");
         lines[1].ShouldStartWith("Demo dump:");
         lines.ShouldContain("Command summary");
         lines.ShouldContain("Commands");
