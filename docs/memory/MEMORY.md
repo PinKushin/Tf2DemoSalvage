@@ -13,3 +13,4 @@
 - [Research before code](research-before-code.md) — guess, verify against a source, then code; the hypothesis is required, skipping the verify step is what costs.
 - [Ask whether the data arrived](ask-whether-the-data-arrived.md) - check every message reached the decoder before analysing bits; a dropped message imitates a desync perfectly.
 - [Fallbacks do not make guesses safe](fallbacks-do-not-make-guesses-safe.md) - handling unknown values cannot catch a wrong premise about what a field means; enumerate instead.
+- [Arithmetic settles disputes](arithmetic-settles-disputes.md) — a field's bit width can exclude a candidate numbering outright; check that before deciding a format question needs new evidence.

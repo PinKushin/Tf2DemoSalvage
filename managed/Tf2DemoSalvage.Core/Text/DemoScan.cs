@@ -39,7 +39,7 @@ internal static class DemoScan
     internal sealed record Result(
         SortedDictionary<int, PlayerInfo> Players,
         Dictionary<string, int> EventCounts,
-        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> EventSample,
+        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> EventSample,
         int EventTotal,
         List<(int Tick, ChatMessage Chat)> Chat);
 
@@ -60,7 +60,7 @@ internal static class DemoScan
         NetDecodeState state = new();
         SortedDictionary<int, PlayerInfo> players = [];
         Dictionary<string, int> counts = [];
-        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> sample = [];
+        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> sample = [];
         List<(int Tick, ChatMessage Chat)> chat = [];
         int total = 0;
         int scanned = 0;

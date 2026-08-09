@@ -77,6 +77,9 @@ public static class DemoTraceWriter
     /// <summary>Commands between progress reports.</summary>
     private const int ProgressInterval = 512;
 
+    /// <summary>How a game event field the server withheld is rendered.</summary>
+    private const string LocalFieldValue = "local";
+
     private static void WriteHeader(TextWriter writer, string fileName, DemoHeader header)
     {
         writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"// {fileName}"));
@@ -287,12 +290,20 @@ public static class DemoTraceWriter
         line.Append("svc_gameevent ").Append(gameEvent.Name ?? string.Create(
             CultureInfo.InvariantCulture, $"#{gameEvent.EventId}"));
 
-        foreach (KeyValuePair<string, object> field in gameEvent.Values)
+        foreach (KeyValuePair<string, object?> field in gameEvent.Values)
         {
             line.Append(' ').Append(field.Key).Append(' ');
-            line.Append(field.Value is string text
-                ? Quote(text)
-                : Convert.ToString(field.Value, CultureInfo.InvariantCulture));
+            line.Append(field.Value switch
+            {
+                string text => Quote(text),
+
+                // A `local` field is declared but never transmitted, so it has no value. Saying
+                // so is the honest rendering: converting the null would print nothing at all,
+                // which reads as an empty string and leaves a trailing space on the line.
+                null => LocalFieldValue,
+
+                _ => Convert.ToString(field.Value, CultureInfo.InvariantCulture),
+            });
         }
 
         return line.ToString();

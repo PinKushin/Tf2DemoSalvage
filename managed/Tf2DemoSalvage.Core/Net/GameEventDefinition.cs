@@ -40,8 +40,22 @@ public enum GameEventValueType : byte
     /// <summary>Single bit.</summary>
     Bool = 6,
 
-    /// <summary>64-bit unsigned integer.</summary>
-    UInt64 = 7,
+    /// <summary>
+    /// A field the server declares but does not broadcast. Occupies no bits in an event body.
+    /// </summary>
+    /// <remarks>
+    /// **Not a 64-bit integer, which is what this project called it until RISKS B14 was
+    /// settled.** The mistake was assuming the wire numbering matched CS:GO's protobuf field
+    /// ordering, where <c>val_uint64</c> lands eighth. That ordering needs a type field wide
+    /// enough for <c>val_wstring</c> at nine; this one is three bits, so it stops at seven.
+    /// The arithmetic ruled out the guess, and the comment two lines above the enum had
+    /// recorded the width the whole time.
+    ///
+    /// Valve's own ordering in <c>igameevents.h</c> is the corroboration: "Valid data types are
+    /// string, float, long, short, byte &amp; bool. If a data field should not be broadcasted to
+    /// clients, use the type 'local'." That is 1 through 6, then 7.
+    /// </remarks>
+    Local = 7,
 }
 
 /// <summary>One named field of a game event.</summary>

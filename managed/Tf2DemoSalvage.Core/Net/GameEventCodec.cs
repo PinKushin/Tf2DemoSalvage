@@ -69,10 +69,10 @@ internal static class GameEventCodec
         {
             // An event before its definition. The length prefix already moved the outer
             // reader past it, so this costs one event rather than the rest of the packet.
-            return new GameEventMessage(eventId, null, new Dictionary<string, object>());
+            return new GameEventMessage(eventId, null, new Dictionary<string, object?>());
         }
 
-        Dictionary<string, object> values = new(definition.Fields.Count, StringComparer.Ordinal);
+        Dictionary<string, object?> values = new(definition.Fields.Count, StringComparer.Ordinal);
         foreach (GameEventField field in definition.Fields)
         {
             values[field.Name] = ReadValue(ref bodyReader, field.Type);
@@ -81,7 +81,7 @@ internal static class GameEventCodec
         return new GameEventMessage(eventId, definition.Name, values);
     }
 
-    private static object ReadValue(ref BitReader reader, GameEventValueType type) => type switch
+    private static object? ReadValue(ref BitReader reader, GameEventValueType type) => type switch
     {
         GameEventValueType.String => NetBitReading.ReadString(ref reader),
         GameEventValueType.Float => BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32)),
@@ -89,7 +89,11 @@ internal static class GameEventCodec
         GameEventValueType.Short => (short)reader.ReadUInt32(16),
         GameEventValueType.Byte => (byte)reader.ReadUInt32(8),
         GameEventValueType.Bool => reader.ReadBit(),
-        GameEventValueType.UInt64 => reader.ReadUInt32(32) | ((ulong)reader.ReadUInt32(32) << 32),
+        // Declared by the server, deliberately not broadcast. Reported as a field with no
+        // value rather than omitted, because the definition says it exists and a trace that
+        // silently drops it would misdescribe the event. Reads nothing - see the remarks on
+        // GameEventValueType.Local for why it is not the 64-bit integer this once assumed.
+        GameEventValueType.Local => null,
         _ => throw new InvalidOperationException($"Unhandled game event value type {type}."),
     };
 

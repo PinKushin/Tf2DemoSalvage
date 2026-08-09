@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Tf2DemoSalvage.Core.Net;
+using static Tf2DemoSalvage.Core.Tests.Net.GameEventFixtures;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -15,40 +16,6 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class GameEventCodecTests
 {
-    /// <summary>
-    /// Writes a <c>svc_GameEventList</c>: 9-bit count, 20-bit body length, then definitions of
-    /// [9-bit id][name][(3-bit type)(name)]* terminated by a zero type.
-    /// </summary>
-    private static byte[] EventList(params (int Id, string Name, (GameEventValueType Type, string Name)[] Fields)[] events)
-    {
-        BitWriter body = new();
-        foreach ((int id, string name, (GameEventValueType Type, string Name)[] fields) in events)
-        {
-            body.Write((uint)id, 9).String(name);
-            foreach ((GameEventValueType type, string fieldName) in fields)
-            {
-                body.Write((uint)type, 3).String(fieldName);
-            }
-
-            body.Write((uint)GameEventValueType.None, 3);
-        }
-
-        byte[] bodyBytes = body.Build();
-
-        BitWriter writer = new();
-        writer.Message(NetMessageType.GameEventList)
-            .Write((uint)events.Length, 9)
-            .Write((uint)body.BitCount, 20);
-
-        // Re-pack the body bit by bit so it lands at the reader's current, unaligned offset.
-        for (int bit = 0; bit < body.BitCount; bit++)
-        {
-            writer.Write((uint)((bodyBytes[bit / 8] >> (bit % 8)) & 1), 1);
-        }
-
-        return writer.Build();
-    }
-
     [Fact]
     public void GameEventList_DecodesDefinitionsFieldsAndTypes()
     {
@@ -173,11 +140,9 @@ public sealed class GameEventCodecTests
                 (GameEventValueType.Short, "sh"),
                 (GameEventValueType.Byte, "b"),
                 (GameEventValueType.Bool, "bo"),
-                (GameEventValueType.UInt64, "u"),
             ])),
             state);
 
-        const ulong big = 0xDEADBEEF_12345678UL;
         BitWriter body = new BitWriter()
             .Write(3, 9)
             .String("hi")
@@ -185,9 +150,7 @@ public sealed class GameEventCodecTests
             .Write(unchecked((uint)-7), 32)
             .Write(unchecked((uint)(short)-2), 16)
             .Write(200, 8)
-            .Write(0, 1)
-            .Write((uint)(big & 0xFFFFFFFF), 32)
-            .Write((uint)(big >> 32), 32);
+            .Write(0, 1);
 
         NetMessageReadResult result = NetMessageReader.Read(WrapEvent(body), state);
         GameEventMessage fired = result.Messages[0].ShouldBeOfType<GameEventMessage>();
@@ -198,9 +161,62 @@ public sealed class GameEventCodecTests
         fired.Values["sh"].ShouldBe((short)-2);
         fired.Values["b"].ShouldBe((byte)200);
         fired.Values["bo"].ShouldBe(false);
-        // The 64-bit case is assembled from two 32-bit reads, so a wrong shift or a wrong
-        // combining operator would only show up on a value with bits set in both halves.
-        fired.Values["u"].ShouldBe(big);
+    }
+
+    [Fact]
+    public void LocalField_OccupiesNoBits_SoTheFieldBehindItStillDecodes()
+    {
+        // RISKS B14. Type 7 was read as a 64-bit integer here, on the assumption that the wire
+        // numbering matched CS:GO's protobuf ordering. It cannot: the type field is 3 bits, and
+        // that ordering needs 8 for wstring. Type 7 is `local` - a field the server declares but
+        // deliberately does not broadcast - so it contributes zero bits to an event body.
+        //
+        // The measurement is the field *behind* it. A local field carries no value of its own,
+        // so asserting on it could not distinguish the two readings; a wrong width does not
+        // return a wrong answer, it desynchronises everything after it.
+        NetDecodeState state = new();
+        NetMessageReader.Read(
+            EventList(
+                (11, "with_local",
+                [
+                    (GameEventValueType.Short, "before"),
+                    (GameEventValueType.Local, "hidden"),
+                    (GameEventValueType.Short, "after"),
+                ]),
+
+                // Control: no local field, so it must decode identically either way. Without it,
+                // "the local field reads nothing" and "value reads are broken everywhere" would
+                // produce the same evidence.
+                (12, "no_local", [(GameEventValueType.Short, "only")])),
+            state);
+
+        // The trailing 64 bits are the point of the fixture, not padding. Without them the
+        // broken 64-bit read runs off the end of the body and the event is reported truncated -
+        // a failure, but the wrong one, and one that would still occur if the width were wrong
+        // in some other way. With them the broken read succeeds and returns a *wrong value*,
+        // so the assertion below measures alignment rather than merely detecting a crash.
+        BitWriter body = new BitWriter().Write(11, 9).Write(1234, 16).Write(4321, 16);
+        for (int i = 0; i < 64; i++)
+        {
+            body.Write(1, 1);
+        }
+
+        GameEventMessage withLocal = NetMessageReader
+            .Read(WrapEvent(body), state)
+            .Messages[0].ShouldBeOfType<GameEventMessage>();
+
+        withLocal.Values["before"].ShouldBe((short)1234);
+        withLocal.Values["after"].ShouldBe((short)4321);
+
+        // The local field is still reported, because the definition declares it. It just has
+        // no value - which is the honest thing to say about a field the server withheld.
+        withLocal.Values["hidden"].ShouldBeNull();
+
+        GameEventMessage control = NetMessageReader
+            .Read(WrapEvent(new BitWriter().Write(12, 9).Write(777, 16)), state)
+            .Messages[0].ShouldBeOfType<GameEventMessage>();
+
+        control.Values["only"].ShouldBe((short)777);
     }
 
     [Fact]
@@ -279,19 +295,6 @@ public sealed class GameEventCodecTests
         [.. result.Messages.Where(m => m.Type != NetMessageType.Empty)];
 
     /// <summary>Wraps an already-built event body in its message type and length prefix.</summary>
-    private static byte[] WrapEvent(BitWriter body)
-    {
-        byte[] bodyBytes = body.Build();
-        BitWriter writer = new();
-        writer.Message(NetMessageType.GameEvent).Write((uint)body.BitCount, 11);
-
-        for (int bit = 0; bit < body.BitCount; bit++)
-        {
-            writer.Write((uint)((bodyBytes[bit / 8] >> (bit % 8)) & 1), 1);
-        }
-
-        return writer.Build();
-    }
 
     private static byte[] AppendNetTick(byte[] prefix, uint tick)
     {

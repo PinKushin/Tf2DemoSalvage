@@ -281,7 +281,7 @@ public static class DemoTextDumper
     private static void WriteGameEventSection(TextWriter writer, DemoScan.Result scan)
     {
         Dictionary<string, int> counts = scan.EventCounts;
-        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object>> Fields)> sample =
+        List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> sample =
             scan.EventSample;
         int total = scan.EventTotal;
 
@@ -316,7 +316,7 @@ public static class DemoTextDumper
             byUserId[player.UserId] = player;
         }
 
-        foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object>> fields) in sample)
+        foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object?>> fields) in sample)
         {
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
@@ -341,12 +341,12 @@ public static class DemoTextDumper
     /// real name for a player who is not involved.
     /// </remarks>
     private static string Describe(
-        IReadOnlyList<KeyValuePair<string, object>> fields,
+        IReadOnlyList<KeyValuePair<string, object?>> fields,
         IReadOnlyDictionary<int, PlayerInfo> byUserId)
     {
         StringBuilder detail = new();
 
-        foreach (KeyValuePair<string, object> field in fields)
+        foreach (KeyValuePair<string, object?> field in fields)
         {
             if (detail.Length > 0)
             {
@@ -360,7 +360,7 @@ public static class DemoTextDumper
     }
 
     private static string Render(
-        KeyValuePair<string, object> field,
+        KeyValuePair<string, object?> field,
         IReadOnlyDictionary<int, PlayerInfo> byUserId)
     {
         string raw = Convert.ToString(field.Value, CultureInfo.InvariantCulture) ?? string.Empty;

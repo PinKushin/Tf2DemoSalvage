@@ -706,35 +706,60 @@ central bet, and the first real evidence for it. It establishes nothing about ol
 D5 the corpus still has no pre-2020 specimen, so the era axis remains completely untested.
 
 
-## B14 — game event field type 7 is disputed and unexercised
+## B14 — game event field type 7 is disputed and unexercised — CLOSED, this parser was wrong
 
-Two readings of the same wire value, and they disagree by 64 bits rather than by a value:
+Two readings of the same wire value, disagreeing by 64 bits rather than by a value:
 
 | Source | Meaning of type 7 | Bits read |
 |---|---|---|
 | This parser | `UInt64` | 64 |
 | `demostf/parser` | `Local` | **0** |
 
-Only one can be right, and getting it wrong is a desynchronisation of every field after it in
-that event.
+**The reference parser was right.** Settled 2026-08-09 by arithmetic rather than by authority,
+which is why it could be settled at all without an old demo in hand.
 
-**Evidence for this parser's reading:** Source's `igameevents.h` lists `TYPE_LOCAL = 0` and
-`TYPE_UINT64 = 7`, as recalled — not verified against the header. The wire format uses 0 as the
-end-of-field-list terminator, and a "local" field is by definition never networked, so 0 serving
-as both is coherent.
+**What decided it.** The reference implementation declares the type field
+`#[discriminant_bits = 3]`. Three bits reach 7 and stop. The reading this parser used came from
+CS:GO's protobuf field ordering — `val_string` at 2 through `val_uint64` at 8 and `val_wstring`
+at 9 — an ordering that *needs* a wider field than the wire provides. It cannot be the numbering
+in use here, and no demo was required to know that. The comment two lines above this project's
+own enum had said "Three bits on the wire" the entire time.
 
-**Evidence against:** that recollection is exactly the kind of unverified memory that produced
-three wrong conclusions in one session here. The reference parser is battle-tested on demos.tf's
-entire archive.
+Valve's own ordering corroborates it. `igameevents.h`: "Valid data types are string, float, long,
+short, byte & bool. If a data field should not be broadcasted to clients, use the type 'local'."
+That is 1 through 6, then 7. The protobuf types are a CS:GO-era addition, from after the message
+layer stopped being hand-packed bits.
 
-**Neither reading is exercised.** All nine demos measured decode end to end, so type 7 never
-appears in TF2's event definitions. Whichever is wrong is latent, and would surface only on a
-demo carrying one — plausibly an older or a differently-configured one, which is precisely the
-corpus gap D5 describes.
+**Why it never showed up.** A histogram of every field in every corpus demo's event list:
 
-**To settle it:** read `igameevents.h` from a Source SDK checkout. Do not "fix" either parser to
-match the other on reasoning alone.
+```
+demostf-cp_process_f12      t1=110 t2=41 t3=88 t4=437 t5=162 t6=46
+demostf-cp_snakewater_final1 t1=110 t2=41 t3=88 t4=437 t5=162 t6=46
+demostf-koth_product_final  t1=110 t2=41 t3=88 t4=437 t5=162 t6=46
+etf2l-12025-pov-2020-07-21  t1=109 t2=41 t3=70 t4=426 t5=162 t6=46
+etf2l-12030-stv-2020-07-23  t1=109 t2=41 t3=70 t4=426 t5=162 t6=46
+serveme-627619-stv          t1=110 t2=41 t3=88 t4=437 t5=162 t6=46
+z1800.dem                   t1=109 t2=41 t3=70 t4=426 t5=162 t6=46
+```
 
+No type 7 anywhere. TF2's shipped event definitions use no local fields, so the bug was latent in
+every demo this project can currently reach — exactly the shape D5 predicts for era-axis defects.
+
+**A side result worth keeping.** The histogram is an era fingerprint. `z1800.dem` matches the two
+2020 ETF2L demos exactly (109/41/70/426/162/46) and differs from the 2026 demos (110/…/88/437).
+That is independent corroboration of the redating recorded in `docs/memory/`, arrived at from the
+event schema rather than from map assets.
+
+**Fixed:** `GameEventValueType.UInt64` is now `Local`, reads zero bits, and produces a field with
+no value rather than a number. The trace prints it as `local`, because rendering a null as an
+empty string is indistinguishable from a field that carried an empty string.
+
+**The regression test measures the field behind it, not the field itself.** A local field has no
+value, so asserting on it cannot separate the two readings; a wrong width does not return a wrong
+answer, it desynchronises what follows. The fixture also pads the event body past the broken
+read's reach — without that padding the 64-bit read simply ran off the end and the event was
+reported truncated, which is a failure for the wrong reason and would not have caught a wrong
+width that happened to stay in bounds.
 
 ## B15 — a byte-count length can overflow before it can be checked
 

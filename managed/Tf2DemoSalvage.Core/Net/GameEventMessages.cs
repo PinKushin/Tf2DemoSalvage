@@ -36,7 +36,7 @@ public sealed record GameEventListMessage(IReadOnlyList<GameEventDefinition> Def
 public sealed record GameEventMessage(
     int EventId,
     string? Name,
-    IReadOnlyDictionary<string, object> Values) : INetMessage
+    IReadOnlyDictionary<string, object?> Values) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.GameEvent;

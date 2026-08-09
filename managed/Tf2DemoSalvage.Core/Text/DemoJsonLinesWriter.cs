@@ -100,7 +100,7 @@ public static class DemoJsonLinesWriter
             });
         }
 
-        foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object>> fields)
+        foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object?>> fields)
             in scan.EventSample)
         {
             WriteLine(writer, json =>
@@ -109,7 +109,7 @@ public static class DemoJsonLinesWriter
                 json.WriteNumber("tick", tick);
                 json.WriteString("name", name);
                 json.WriteStartObject("fields");
-                foreach (KeyValuePair<string, object> field in fields)
+                foreach (KeyValuePair<string, object?> field in fields)
                 {
                     WriteField(json, field);
                 }
@@ -127,7 +127,7 @@ public static class DemoJsonLinesWriter
     /// string first, and a boolean rendered as <c>"False"</c> is a trap in every language whose
     /// truthiness rules differ from C#'s.
     /// </remarks>
-    private static void WriteField(Utf8JsonWriter json, KeyValuePair<string, object> field)
+    private static void WriteField(Utf8JsonWriter json, KeyValuePair<string, object?> field)
     {
         switch (field.Value)
         {

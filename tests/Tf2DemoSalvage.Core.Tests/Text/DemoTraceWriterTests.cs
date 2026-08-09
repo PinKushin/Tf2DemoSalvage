@@ -128,6 +128,33 @@ public sealed class DemoTraceWriterTests
     }
 
     [Fact]
+    public void LocalField_IsNamedInTheTraceRatherThanRenderedAsNothing()
+    {
+        // A `local` field is declared by the server and deliberately not transmitted, so it has
+        // no value to print. Converting its null to a string produced an empty one, which came
+        // out as `hidden ` - indistinguishable from a field that carried an empty string, and
+        // with a trailing space that makes the line ambiguous to anything reading it back.
+        //
+        // The control is the field beside it: a real value must still print as itself, or this
+        // test would pass equally on a writer that printed `local` for everything.
+        BitWriter packet = new();
+        GameEventFixtures.AppendList(
+            packet,
+            (11, "arena_win_panel",
+            [
+                (GameEventValueType.Short, "winning_team"),
+                (GameEventValueType.Local, "player_1"),
+            ]));
+
+        GameEventFixtures.AppendEvent(
+            packet, new BitWriter().Write(11, 9).Write(3, 16));
+
+        string trace = Trace([new(DemoCommandType.Packet, 1, packet.Build())]);
+
+        trace.ShouldContain("svc_gameevent arena_win_panel winning_team 3 player_1 local");
+    }
+
+    [Fact]
     public void Output_IsDeterministicAndLineFeedOnly()
     {
         IReadOnlyList<DemoCommand> commands = [new(DemoCommandType.Packet, 1, TickPacket(7))];
