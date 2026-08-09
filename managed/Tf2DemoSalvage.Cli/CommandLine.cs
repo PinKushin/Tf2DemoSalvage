@@ -1,0 +1,151 @@
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace Tf2DemoSalvage.Cli;
+
+/// <summary>What the tool should write.</summary>
+public enum OutputFormat
+{
+    /// <summary>Header, counts, players, events, and a per-command listing.</summary>
+    Dump = 0,
+
+    /// <summary>The dump without the per-command listing.</summary>
+    Summary = 1,
+
+    /// <summary>The demo decompiled to text, message by message, in stream order.</summary>
+    Trace = 2,
+
+    /// <summary>One JSON object per line.</summary>
+    JsonLines = 3,
+}
+
+/// <summary>
+/// The command line, parsed.
+/// </summary>
+/// <remarks>
+/// Split out from <see cref="Program"/> so the argument grammar can be tested without running
+/// the tool. Parsing is where a command-line program is most likely to be quietly wrong — an
+/// option that consumes the wrong number of arguments, or a flag that silently loses to
+/// another — and none of that is reachable through a test that only checks the output of a
+/// successful run.
+/// </remarks>
+public sealed record CommandLine
+{
+    /// <summary>The demo to read.</summary>
+    public required string DemoPath { get; init; }
+
+    /// <summary>Where to write, or <c>null</c> for standard output.</summary>
+    public string? OutputPath { get; init; }
+
+    /// <summary>What to write.</summary>
+    public OutputFormat Format { get; init; }
+
+    /// <summary>Whether to expand entity snapshots. Only meaningful for a trace.</summary>
+    public bool IncludeEntities { get; init; }
+
+    /// <summary>Stop expanding snapshots after this many, or zero for all of them.</summary>
+    public int EntitySnapshotLimit { get; init; }
+
+    /// <summary>The parse failure, or <c>null</c> if the command line was valid.</summary>
+    public string? Error { get; init; }
+
+    /// <summary>Whether the user asked for help.</summary>
+    public bool HelpRequested { get; init; }
+
+    /// <summary>Parses arguments.</summary>
+    /// <param name="args">The raw arguments.</param>
+    /// <returns>The parsed command line, with <see cref="Error"/> set if it was invalid.</returns>
+    public static CommandLine Parse(IReadOnlyList<string> args)
+    {
+        if (args is null || args.Count == 0)
+        {
+            return Invalid("no demo given");
+        }
+
+        if (args[0] is "-h" or "--help" or "/?")
+        {
+            return new CommandLine { DemoPath = string.Empty, HelpRequested = true };
+        }
+
+        string demoPath = args[0];
+        string? outputPath = null;
+        OutputFormat format = OutputFormat.Dump;
+        bool entities = false;
+        int limit = 0;
+
+        // An explicit cursor rather than a for-loop: options that take a value consume two
+        // arguments, and advancing a for-loop's counter from inside its body reads badly
+        // (and trips S127).
+        int index = 1;
+        while (index < args.Count)
+        {
+            string argument = args[index];
+            index++;
+
+            switch (argument)
+            {
+                case "-o" or "--output":
+                    if (index >= args.Count)
+                    {
+                        return Invalid("-o requires a path");
+                    }
+
+                    outputPath = args[index];
+                    index++;
+                    break;
+
+                case "-s" or "--summary":
+                    format = OutputFormat.Summary;
+                    break;
+
+                case "-t" or "--trace":
+                    format = OutputFormat.Trace;
+                    break;
+
+                case "-j" or "--jsonl":
+                    format = OutputFormat.JsonLines;
+                    break;
+
+                case "-e" or "--entities":
+                    entities = true;
+                    break;
+
+                case "--entity-limit":
+                    if (index >= args.Count)
+                    {
+                        return Invalid("--entity-limit requires a count");
+                    }
+
+                    if (!int.TryParse(
+                            args[index], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out limit) || limit < 0)
+                    {
+                        return Invalid($"--entity-limit needs a non-negative number, not '{args[index]}'");
+                    }
+
+                    index++;
+
+                    // Asking for a limit without asking for entities is a command line that
+                    // would silently do nothing. Treating it as a request for both is the
+                    // reading that cannot be a mistake.
+                    entities = true;
+                    break;
+
+                default:
+                    return Invalid($"unrecognised option '{argument}'");
+            }
+        }
+
+        return new CommandLine
+        {
+            DemoPath = demoPath,
+            OutputPath = outputPath,
+            Format = format,
+            IncludeEntities = entities,
+            EntitySnapshotLimit = limit,
+        };
+    }
+
+    private static CommandLine Invalid(string error) =>
+        new() { DemoPath = string.Empty, Error = error };
+}

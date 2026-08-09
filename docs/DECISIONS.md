@@ -621,3 +621,31 @@ boundary can be wrong in a way that matters.
 but specifically **one demo in protocols 16–23**, which would settle B17 and B18 together. A
 2007–2008 launch-era client (protocol 14) remains valuable for a different reason: it is the only
 thing that would exercise the string table compression rule from D20.
+
+
+### D22 — the trace reaches the command line, and the CLI gets its own tests
+
+`DemoTraceWriter` had been the primary output since D18 and was unreachable from the tool: the
+CLI only offered the summary dump. Fixed — `-t` traces, `-j` writes JSON Lines, `-e` and
+`--entity-limit` control entity expansion.
+
+**Argument parsing moved out of `Program` into `CommandLine`, and the CLI got a test project.**
+It had none. That is the wrong surface to leave untested: parsing is where a command-line
+program is quietly wrong most easily. An option that consumes the wrong number of arguments
+shifts everything behind it, and a flag that silently loses to another produces the wrong output
+with no complaint — neither is reachable from a test that only inspects a successful run's
+output. Both are now pinned, and both were verified by sabotage rather than by having been
+written down: removing the cursor advance after `-o` fails exactly one test, and removing the
+`--entity-limit` implication fails exactly one other.
+
+**`--entity-limit` implies `-e`.** Asking for a limit without asking for entities describes a
+run that would do nothing with either, so reading it as a request for both is the interpretation
+that cannot be a mistake.
+
+**Progress redraws on change, not on a clock.** A 120,000-command demo reports progress hundreds
+of times per visible percentage point. A time-based throttle would make the output depend on
+machine speed — the same demo producing different bytes on different runs — which is precisely
+what makes a test unfalsifiable. Two reports that render identically are indistinguishable to a
+reader, so dropping the second costs nothing and keeps the behaviour deterministic and testable.
+The bar draws only to standard error and only when it is not redirected, because standard output
+may be where the trace is going.

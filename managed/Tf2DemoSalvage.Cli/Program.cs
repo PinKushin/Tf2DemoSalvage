@@ -8,12 +8,15 @@ using Tf2DemoSalvage.Core.Text;
 namespace Tf2DemoSalvage.Cli;
 
 /// <summary>
-/// Command-line entry point: reads a demo and writes a human-readable dump.
+/// Command-line entry point: reads a demo and writes it in one of several readable forms.
 /// </summary>
 /// <remarks>
 /// Output goes to standard output by default so it can be piped or redirected; <c>-o</c>
-/// writes to a file instead. Both are the same code path — <see cref="DemoTextDumper"/> takes
-/// a <see cref="TextWriter"/> and does not care which it got.
+/// writes to a file instead. Both are the same code path — every writer takes a
+/// <see cref="TextWriter"/> and does not care which it got.
+///
+/// Progress is reported to standard error, and only when writing to a file. Standard output
+/// may be the destination, and a progress bar interleaved with the trace would corrupt it.
 /// </remarks>
 public static class Program
 {
@@ -21,19 +24,31 @@ public static class Program
     private const int ExitUsage = 2;
     private const int ExitFailure = 1;
 
+    /// <summary>Entry point.</summary>
+    /// <param name="args">Command-line arguments.</param>
+    /// <returns>0 on success, 1 on failure, 2 on a usage error.</returns>
     public static int Main(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        if (args.Length == 0 || IsHelpRequest(args[0]))
+        CommandLine line = CommandLine.Parse(args);
+
+        if (line.HelpRequested)
         {
             WriteUsage(Console.Out);
-            return args.Length == 0 ? ExitUsage : ExitSuccess;
+            return ExitSuccess;
+        }
+
+        if (line.Error is not null)
+        {
+            Console.Error.WriteLine($"error: {line.Error}.");
+            WriteUsage(Console.Error);
+            return ExitUsage;
         }
 
         try
         {
-            return Run(args);
+            return Run(line);
         }
         catch (Exception exception) when (
             exception is IOException or InvalidDataException or UnauthorizedAccessException)
@@ -46,87 +61,94 @@ public static class Program
         }
     }
 
-    private static int Run(string[] args)
+    private static int Run(CommandLine line)
     {
-        string demoPath = args[0];
-        string? outputPath = null;
-        bool summaryOnly = false;
-
-        // An explicit cursor rather than a for-loop: options that take a value consume two
-        // arguments, and advancing a for-loop's counter from inside its body reads badly
-        // (and trips S127).
-        int index = 1;
-        while (index < args.Length)
+        if (!File.Exists(line.DemoPath))
         {
-            string argument = args[index];
-            index++;
-
-            switch (argument)
-            {
-                case "-o" or "--output":
-                    if (index >= args.Length)
-                    {
-                        Console.Error.WriteLine("error: -o requires a path.");
-                        return ExitUsage;
-                    }
-
-                    outputPath = args[index];
-                    index++;
-                    break;
-
-                case "-s" or "--summary":
-                    summaryOnly = true;
-                    break;
-
-                default:
-                    Console.Error.WriteLine($"error: unrecognised option '{argument}'.");
-                    WriteUsage(Console.Error);
-                    return ExitUsage;
-            }
-        }
-
-        if (!File.Exists(demoPath))
-        {
-            Console.Error.WriteLine($"error: no such file: {demoPath}");
+            Console.Error.WriteLine($"error: no such file: {line.DemoPath}");
             return ExitFailure;
         }
 
-        byte[] bytes = File.ReadAllBytes(demoPath);
+        byte[] bytes = File.ReadAllBytes(line.DemoPath);
         DemoHeader header = DemoHeader.Parse(bytes);
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
 
-        DemoDumpOptions options = new() { IncludeCommandListing = !summaryOnly };
+        string name = Path.GetFileName(line.DemoPath);
 
-        if (outputPath is null)
+        if (line.OutputPath is null)
         {
-            DemoTextDumper.Write(
-                Console.Out, Path.GetFileName(demoPath), header, commands, options);
+            Write(Console.Out, line, name, header, commands, null);
+            return ExitSuccess;
         }
-        else
+
+        using ProgressBar bar = new(Console.Error);
+        using (StreamWriter writer = new(line.OutputPath))
         {
-            using StreamWriter writer = new(outputPath);
-            DemoTextDumper.Write(
-                writer, Path.GetFileName(demoPath), header, commands, options);
-            Console.Error.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"wrote {commands.Count} commands to {outputPath}"));
+            Write(writer, line, name, header, commands, bar);
         }
+
+        bar.Finish();
+        Console.Error.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"wrote {commands.Count} commands to {line.OutputPath}"));
 
         return ExitSuccess;
     }
 
-    private static bool IsHelpRequest(string argument) =>
-        argument is "-h" or "--help" or "/?";
+    /// <summary>Writes the demo in whichever form was asked for.</summary>
+    private static void Write(
+        TextWriter writer,
+        CommandLine line,
+        string name,
+        DemoHeader header,
+        IReadOnlyList<DemoCommand> commands,
+        IProgress<DumpProgress>? progress)
+    {
+        switch (line.Format)
+        {
+            case OutputFormat.Trace:
+                DemoTraceWriter.Write(writer, name, header, commands, progress, new DemoTraceOptions
+                {
+                    IncludeEntities = line.IncludeEntities,
+                    EntitySnapshotLimit = line.EntitySnapshotLimit,
+                });
+                break;
+
+            case OutputFormat.JsonLines:
+                DemoJsonLinesWriter.Write(writer, name, header, commands, progress);
+                break;
+
+            default:
+                // Summary and Dump differ only by the command listing, so they share a branch
+                // rather than each getting an empty case that says nothing.
+                DemoTextDumper.Write(
+                    writer, name, header, commands,
+                    new DemoDumpOptions { IncludeCommandListing = line.Format != OutputFormat.Summary },
+                    progress);
+                break;
+        }
+    }
 
     private static void WriteUsage(TextWriter writer)
     {
-        writer.WriteLine("tf2demosalvage - dump a TF2 demo in readable form");
+        writer.WriteLine("tf2demosalvage - read a TF2 demo in readable form");
         writer.WriteLine();
-        writer.WriteLine("usage: tf2demosalvage <demo.dem> [-o <out.txt>] [-s]");
+        writer.WriteLine("usage: tf2demosalvage <demo.dem> [-o <out.txt>] [-s|-t|-j] [-e] [--entity-limit <n>]");
         writer.WriteLine();
-        writer.WriteLine("  -o, --output   write to a file instead of standard output");
-        writer.WriteLine("  -s, --summary  header and command counts only, no per-command rows");
-        writer.WriteLine("  -h, --help     this message");
+        writer.WriteLine("  -o, --output <path>     write to a file instead of standard output");
+        writer.WriteLine();
+        writer.WriteLine("  -s, --summary           header, counts, players and events; no command listing");
+        writer.WriteLine("  -t, --trace             decompile to text, message by message, in stream order");
+        writer.WriteLine("  -j, --jsonl             one JSON object per line");
+        writer.WriteLine("                          (default: the summary plus a per-command listing)");
+        writer.WriteLine();
+        writer.WriteLine("  -e, --entities          expand entity snapshots into properties (trace only)");
+        writer.WriteLine("      --entity-limit <n>  expand only the first n snapshots; implies -e");
+        writer.WriteLine();
+        writer.WriteLine("  -h, --help              this message");
+        writer.WriteLine();
+        writer.WriteLine("Entities are off by default because expanding them turns a 39 MB demo into");
+        writer.WriteLine("gigabytes of text. --entity-limit is the practical way to inspect them.");
     }
 }
