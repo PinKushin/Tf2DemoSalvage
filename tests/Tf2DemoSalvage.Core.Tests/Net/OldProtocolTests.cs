@@ -18,6 +18,13 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// | <c>svc_Prefetch</c> index width | &gt;22 | late Source MP |
 /// | varint rather than fixed table lengths | &gt;23 | Source 2013 |
 ///
+/// **These four are not the whole list, and were once assumed to be.** Valve's
+/// <c>proto_version.h</c> enumerates every boundary the engine still honours; see
+/// <c>DECISIONS.md</c> D20. A fifth is implemented — the <c>svc_CreateStringTable</c>
+/// compression flag at &gt;14 — and lives in <c>StringTableCodecTests</c> next to the table
+/// builder it needs. Four more, all sound-related, are unimplemented because this parser steps
+/// over the messages that carry them.
+///
 /// **What is asserted is alignment, not values.** A branch reading the wrong number of bits does
 /// not return a wrong answer, it desynchronises everything after it — so every test here puts a
 /// <c>net_Tick</c> behind the message under test and checks it still arrives. That is the same
