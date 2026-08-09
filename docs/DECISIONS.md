@@ -259,3 +259,40 @@ again. The owner holds the files locally.
 This does not relax D5. That gap is **pre-2020 demos**, and none of these are — they are all
 modern. Nine modern files decoding proves generality across maps and platforms, and says
 nothing about whether the parser handles a 2013 build, because no such file has ever been seen.
+
+
+## D15 — the mutation gate runs at most once a day, never per change
+
+Owner's call on 2026-08-08, after three consecutive full runs cost about two and a half hours
+between them: **stop mutating every time.** Once a day is the cadence. The suite is already
+large and still growing, and an hour of waiting between touching code does not work.
+
+**The arithmetic.** A full run is now **43-48 minutes** against 505 tests and ~1,300 mutants,
+up from 22 minutes earlier in the same project. It scales with tests times mutants, so every
+feature makes it worse. Three runs in one evening produced 92.79% -> 97.34% -> 99.37%, and the
+second and third told us progressively less for the same cost.
+
+**What to run instead, during work:**
+
+```bash
+dotnet stryker --since:main
+```
+
+Per D13. It mutates only what changed, and its floor is about seven minutes because Stryker
+always builds and runs the suite once before it can diff.
+
+**When the full run is worth it:** once a day, or before a milestone — not before a merge, and
+never repeatedly in one session to watch a number climb. That last one is the trap this decision
+exists to prevent. `break` stays at 80 (D13); a full run confirming 99% is not more valuable
+than the hour it costs.
+
+### A ceiling worth knowing about
+
+**444 mutants are removed before testing** — Stryker's safe mode drops mutations it cannot
+compile, and this codebase is full of `ref struct BitReader` parameters its instrumentation
+cannot wrap. That is roughly a quarter of all mutants, concentrated in the decode core.
+
+So the headline score covers **less of the parser than it appears to**. The number is honest
+about what it measured and silent about what it could not reach. Treat a high score as evidence
+about the tested subset, not about the decoder as a whole — the corpus differential in
+`tools/differential/` is what actually covers the decode paths, and it runs in seconds.
