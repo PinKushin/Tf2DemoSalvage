@@ -136,4 +136,93 @@ public sealed class DemoJsonLinesWriterTests
         lines.Count.ShouldBeGreaterThanOrEqualTo(1);
         lines[0].RootElement.GetProperty("type").GetString().ShouldBe("header");
     }
+
+    [Fact]
+    public void TheHeaderLine_MatchesItsExpectedJson()
+    {
+        // A golden line, added because mutation testing scored this file at 19.5% - the lowest
+        // in the project. The cause was a defect shape rather than a missing case: the tests
+        // asserted the output was *JSON-shaped* and that `type` said "header", and nothing
+        // asserted that any other field carried the right value. Blanking `map`, `server`,
+        // `client` or `playbackTicks` one at a time survived the whole suite.
+        //
+        // Pinning the line kills that class of mutant at once. It also pins the key names,
+        // which are this format's contract with anything downstream - renaming one silently
+        // breaks every consumer, and no other test would have noticed.
+        DemoHeader header = new()
+        {
+            DemoProtocol = 3,
+            NetworkProtocol = 24,
+            ServerName = "serveme.tf",
+            ClientName = "SourceTV Demo",
+            MapName = "cp_process_final",
+            GameDirectory = "tf",
+            PlaybackTimeSeconds = 1.5f,
+            PlaybackTicks = 100,
+            PlaybackFrames = 2,
+            SignonLengthBytes = 0,
+        };
+
+        StringWriter writer = new() { NewLine = "\n" };
+        DemoJsonLinesWriter.Write(writer, "sample.dem", header, []);
+
+        writer.ToString().Trim().ShouldBe(
+            """
+            {"type":"header","file":"sample.dem","demoProtocol":3,"networkProtocol":24,"server":"serveme.tf","client":"SourceTV Demo","map":"cp_process_final","gameDirectory":"tf","playbackTimeSeconds":1.5,"playbackTicks":100,"playbackFrames":2,"signonLengthBytes":0}
+            """);
+    }
+
+    [Fact]
+    public void EveryLineKind_IsProducedFromARealDemo()
+    {
+        // The other half of the 19.5%: 47 mutants with no coverage at all, because the player,
+        // chat and event branches never ran. A hand-built fixture carrying a userinfo table, a
+        // chat message and a game event means writing three interlocking wire formats
+        // correctly, and every attempt at that in this project has produced a fixture that
+        // parsed to nothing rather than a test that failed usefully. A real demo is cheaper and
+        // stronger evidence.
+        //
+        // Values are checked, not just line kinds. A player line naming nobody, or an event
+        // line with no name, is the failure this is for.
+        IReadOnlyList<string> corpus = Corpus.Files();
+        if (corpus.Count == 0)
+        {
+            return;                                  // corpus not checked out
+        }
+
+        // A SourceTV demo by preference: it carries a full roster, where a POV demo of a solo
+        // listen server names one player and would make "player lines exist" a weaker claim.
+        string path = corpus.FirstOrDefault(
+            p => Path.GetFileName(p).Contains("stv", StringComparison.Ordinal)) ?? corpus[0];
+
+        byte[] bytes = File.ReadAllBytes(path);
+        DemoHeader header = DemoHeader.Parse(bytes);
+        List<DemoCommand> commands =
+            [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(3000)];
+
+        StringWriter writer = new() { NewLine = "\n" };
+        DemoJsonLinesWriter.Write(writer, Path.GetFileName(path), header, commands);
+
+        List<JsonDocument> lines = Lines(writer.ToString()).ToList();
+        Dictionary<string, int> kinds = [];
+        foreach (JsonDocument line in lines)
+        {
+            string kind = line.RootElement.GetProperty("type").GetString()!;
+            kinds[kind] = kinds.GetValueOrDefault(kind) + 1;
+        }
+
+        kinds.ShouldContainKey("header");
+        kinds.ShouldContainKey("player");
+        kinds.ShouldContainKey("event");
+
+        JsonElement player = lines
+            .First(l => l.RootElement.GetProperty("type").GetString() == "player").RootElement;
+        player.GetProperty("name").GetString().ShouldNotBeNullOrWhiteSpace();
+        player.GetProperty("userId").GetInt32().ShouldBeGreaterThanOrEqualTo(0);
+
+        JsonElement fired = lines
+            .First(l => l.RootElement.GetProperty("type").GetString() == "event").RootElement;
+        fired.GetProperty("name").GetString().ShouldNotBeNullOrWhiteSpace();
+        fired.GetProperty("tick").GetInt32().ShouldBeGreaterThanOrEqualTo(0);
+    }
 }

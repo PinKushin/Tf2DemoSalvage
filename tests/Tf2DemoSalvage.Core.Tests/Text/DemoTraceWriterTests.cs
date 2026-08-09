@@ -162,4 +162,97 @@ public sealed class DemoTraceWriterTests
         Trace(commands).ShouldBe(Trace(commands));
         Trace(commands).ShouldNotContain("\r");
     }
+
+    [Fact]
+    public void AWholeSmallTrace_MatchesItsExpectedText()
+    {
+        // A golden output, added because mutation testing scored this file at 48.8% - the
+        // lowest in the project outside the JSON writer, and this is the primary deliverable
+        // (D18). The cause was a defect shape rather than a missing case: every test asserted
+        // the output was *trace-shaped* - that it contained "block dem_" - and none asserted
+        // that a field carried the right value. Blanking `map`, `server`, `client` or
+        // `playback_frames` one at a time survived the whole suite. A report that names the
+        // wrong map is worse than one that fails.
+        //
+        // Pinning the entire text kills that class of mutant at once and stays readable, where
+        // forty separate assertions would not. The fixture is deliberately tiny: a header whose
+        // server name contains quotes so escaping is exercised rather than assumed, one packet
+        // carrying two messages, and the two command kinds that render without a body.
+        DemoHeader header = new()
+        {
+            DemoProtocol = 3,
+            NetworkProtocol = 24,
+            ServerName = "a \"quoted\" server",
+            ClientName = "SourceTV Demo",
+            MapName = "cp_process_final",
+            GameDirectory = "tf",
+            PlaybackTimeSeconds = 1.5f,
+            PlaybackTicks = 100,
+            PlaybackFrames = 2,
+            SignonLengthBytes = 0,
+        };
+
+        BitWriter packet = new();
+        packet.NetTick(11, 0, 0);
+        packet.Message(NetMessageType.StringCmd).String("echo hi");
+
+        StringWriter writer = new() { NewLine = "\n" };
+        DemoTraceWriter.Write(
+            writer,
+            "sample.dem",
+            header,
+            [
+                new(DemoCommandType.Packet, 1, packet.Build()),
+                new(DemoCommandType.SyncTick, 2, default),
+                new(DemoCommandType.Stop, 3, default),
+            ],
+            null);
+
+        writer.ToString().ShouldBe(
+            """
+            // sample.dem
+            header {
+                demo_protocol 3;
+                network_protocol 24;
+                server "a \"quoted\" server";
+                client "SourceTV Demo";
+                map "cp_process_final";
+                game "tf";
+                playback_time 1.500000;
+                playback_ticks 100;
+                playback_frames 2;
+            }
+
+            block dem_packet tick 1 {
+                net_tick tick 11 frametime 0.000000;
+                svc_stufftext "echo hi";
+            }
+            block dem_synctick tick 2;
+            block dem_stop tick 3;
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    [Theory]
+    [InlineData("plain", "\"plain\"")]
+    [InlineData("say \"hi\"", "\"say \\\"hi\\\"\"")]
+    [InlineData("back\\slash", "\"back\\\\slash\"")]
+    [InlineData("two\nlines", "\"two\\nlines\"")]
+    [InlineData("carriage\rreturn", "\"carriage\\rreturn\"")]
+    public void StringsAreEscapedSoTheTraceCanBeReadBack(string raw, string expected)
+    {
+        // Each escape case survived mutation individually. They are not cosmetic: an unescaped
+        // quote or newline in a server name closes the field early and makes the rest of the
+        // line unparseable, which is the one thing a trace must never do. Server names are
+        // operator-chosen free text, so this is reachable from real data rather than theory.
+        //
+        // Driven through the header's server name rather than by calling Quote directly, so
+        // the test measures what the file actually emits.
+        DemoHeader header = Header() with { ServerName = raw };
+
+        StringWriter writer = new() { NewLine = "\n" };
+        DemoTraceWriter.Write(writer, "s.dem", header, [], null);
+
+        writer.ToString().ShouldContain($"server {expected};");
+    }
 }
