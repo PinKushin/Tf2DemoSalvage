@@ -266,21 +266,8 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         throw new InvalidDataException($"{Path.GetFileName(path)} contains no full snapshot.");
     }
 
-    private static DemoSchema Schema(string path)
-    {
-        byte[] bytes = File.ReadAllBytes(path);
-
-        foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
-        {
-            if (command.Type == DemoCommandType.DataTables)
-            {
-                return SendTableParser.Parse(
-                    command.Payload.Span, (ushort)DemoHeader.Parse(bytes).NetworkProtocol);
-            }
-        }
-
-        throw new InvalidDataException($"{Path.GetFileName(path)} has no dem_datatables command.");
-    }
+    /// <summary>The demo's schema, parsed once per process by <see cref="Corpus"/>.</summary>
+    private static DemoSchema Schema(string path) => Corpus.Schema(path);
 
     private static IEnumerable<PacketEntitiesMessage> Snapshots(string path)
     {

@@ -26,7 +26,14 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
     {
         foreach (string path in Corpus.Files())
         {
-            foreach (PacketEntitiesMessage message in Snapshots(path).Take(400))
+            IReadOnlyList<Corpus.SnapshotSummary> snapshots = Corpus.FirstSnapshots(path, 400);
+
+            // Asserted, not assumed. A loop over an empty list passes identically to one that
+            // ran and was satisfied, and RISKS B20 is exactly that mistake: a helper stopped
+            // yielding anything for one demo and every test built on it kept passing.
+            snapshots.ShouldNotBeEmpty(Path.GetFileName(path));
+
+            foreach (Corpus.SnapshotSummary message in snapshots)
             {
                 message.MaxEntries.ShouldBeInRange(1, MaxEdicts);
                 message.UpdatedEntries.ShouldBeInRange(0, message.MaxEntries);
@@ -44,14 +51,11 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
         // delta. That assertion becomes possible once signon decodes fully.
         foreach (string path in Corpus.Files())
         {
-            PacketEntitiesMessage[] snapshots = [.. Snapshots(path).Take(200)];
-            if (snapshots.Length == 0)
-            {
-                continue;
-            }
+            IReadOnlyList<Corpus.SnapshotSummary> snapshots = Corpus.FirstSnapshots(path, 200);
+            snapshots.ShouldNotBeEmpty(Path.GetFileName(path));
 
             snapshots.Count(s => s.IsDelta)
-                .ShouldBeGreaterThan(snapshots.Length / 2, Path.GetFileName(path));
+                .ShouldBeGreaterThan(snapshots.Count / 2, Path.GetFileName(path));
             snapshots.Where(s => s.IsDelta).ShouldAllBe(s => s.DeltaFromTick != null);
             snapshots.Where(s => !s.IsDelta).ShouldAllBe(s => s.DeltaFromTick == null);
         }
@@ -70,13 +74,12 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
         // rather than because anything was wrong with the parser.
         foreach (string path in Corpus.Files())
         {
-            foreach ((PacketEntitiesMessage message, int serverTick) in
-                SnapshotsWithTicks(path).Take(200))
+            foreach (Corpus.SnapshotSummary message in Corpus.FirstSnapshots(path, 200))
             {
                 if (message.DeltaFromTick is int from)
                 {
                     from.ShouldBeLessThan(
-                        serverTick, $"{Path.GetFileName(path)}: delta from a future tick");
+                        message.ServerTick, $"{Path.GetFileName(path)}: delta from a future tick");
                 }
             }
         }
@@ -87,11 +90,8 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
     {
         foreach (string path in Corpus.Files())
         {
-            PacketEntitiesMessage[] snapshots = [.. Snapshots(path).Take(200)];
-            if (snapshots.Length == 0)
-            {
-                continue;
-            }
+            IReadOnlyList<Corpus.SnapshotSummary> snapshots = Corpus.FirstSnapshots(path, 200);
+            snapshots.ShouldNotBeEmpty(Path.GetFileName(path));
 
             output.WriteLine(
                 $"{Path.GetFileName(path)}: first snapshot updates {snapshots[0].UpdatedEntries} " +
@@ -105,31 +105,4 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    private static IEnumerable<PacketEntitiesMessage> Snapshots(string path) =>
-        SnapshotsWithTicks(path).Select(pair => pair.Message);
-
-    private static List<(PacketEntitiesMessage Message, int Tick)> SnapshotsWithTicks(string path)
-    {
-        byte[] bytes = File.ReadAllBytes(path);
-        NetDecodeState state = new();
-        List<(PacketEntitiesMessage Message, int Tick)> found = [];
-
-        foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))
-            .Where(c => c.Type is DemoCommandType.Signon or DemoCommandType.Packet))
-        {
-            IReadOnlyList<INetMessage> messages =
-                NetMessageReader.Read(command.Payload.Span, state).Messages;
-
-            // The server tick this packet belongs to, which is the clock delta_from uses.
-            int serverTick = messages.OfType<NetTickMessage>().FirstOrDefault()?.Tick
-                             ?? command.Tick;
-
-            foreach (PacketEntitiesMessage message in messages.OfType<PacketEntitiesMessage>())
-            {
-                found.Add((message, serverTick));
-            }
-        }
-
-        return found;
-    }
 }

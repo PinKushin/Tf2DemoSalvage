@@ -114,44 +114,13 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    /// <summary>Collects every player named by the demo's <c>userinfo</c> table.</summary>
-    private static IReadOnlyList<PlayerInfo> Players(string path)
-    {
-        byte[] bytes = File.ReadAllBytes(path);
-        // Seeded from the header: the protocol sizes the message type field, so a
-        // protocol-15 demo yields no messages at all without it (RISKS B17).
-        NetDecodeState state = new()
-        {
-            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
-        };
-        Dictionary<int, PlayerInfo> byEntity = [];
-
-        foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
-        {
-            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-            {
-                continue;
-            }
-
-            foreach (CreateStringTableMessage table in NetMessageReader
-                .Read(command.Payload.Span, state)
-                .Messages.OfType<CreateStringTableMessage>()
-                .Where(t => t.Name == "userinfo"))
-            {
-                foreach (StringTableEntry entry in table.Entries)
-                {
-                    if (entry.UserData.Count < PlayerInfo.RecordBytes ||
-                        !int.TryParse(entry.Text, out int entityIndex))
-                    {
-                        continue;
-                    }
-
-                    byEntity[entityIndex] = PlayerInfo.Parse(
-                        [.. entry.UserData], entityIndex);
-                }
-            }
-        }
-
-        return [.. byEntity.Values.OrderBy(p => p.EntityIndex)];
-    }
+    /// <summary>Every player named by the demo's <c>userinfo</c> table, walked once.</summary>
+    /// <remarks>
+    /// Cached in <see cref="Corpus"/> rather than walked per test. Each of this class's four
+    /// tests needs the same roster, and building it means reading every packet in every demo —
+    /// measured at 6 to 12 seconds per test, which made this class the whole suite's critical
+    /// path at roughly 32 of its 34 seconds. Tests within a class run sequentially, so the four
+    /// walks did not even overlap.
+    /// </remarks>
+    private static IReadOnlyList<PlayerInfo> Players(string path) => Corpus.Players(path);
 }

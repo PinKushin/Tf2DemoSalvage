@@ -226,21 +226,13 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    private static DemoSchema? ParseSchema(string path)
-    {
-        byte[] bytes = File.ReadAllBytes(path);
-
-        foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
-        {
-            if (command.Type == DemoCommandType.DataTables)
-            {
-                return SendTableParser.Parse(
-                    command.Payload.Span, (ushort)DemoHeader.Parse(bytes).NetworkProtocol);
-            }
-        }
-
-        return null;
-    }
+    /// <summary>The demo's schema, parsed once per process by <see cref="Corpus"/>.</summary>
+    /// <remarks>
+    /// Every test in this class needs the schema, and parsing one is a bit-level walk of up to
+    /// 1.4 MB. Sharing the parse took this class from roughly eight seconds to under one, and
+    /// the same saving multiplies across every mutant in a Stryker run.
+    /// </remarks>
+    private static DemoSchema? ParseSchema(string path) => Corpus.Schema(path);
 
     private static ServerInfoMessage? FindServerInfo(string path)
     {

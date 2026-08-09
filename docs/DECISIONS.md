@@ -665,3 +665,40 @@ an hour, and it should not gate a push.
 Worth noting for whoever tunes it: the cost is corpus tests, so `mutate` globs narrowed to the
 file under change would cut it sharply — but see `tests/STRYKER-NOTES.md`, those globs are
 project-relative and a wrong one reports a clean run rather than an error.
+
+
+### D23 — corpus work is cached per process, and the measurement that found it
+
+The core suite ran in 36 seconds and a full mutation run took 1h29m. Both were dominated by the
+same thing: **tests re-deriving the same facts from the same eight demos, over and over.**
+
+Three caches now live in `Corpus`, keyed by demo path: the parsed header, the parsed schema, the
+`userinfo` roster, and the first 400 entity-snapshot headers. Suite time went **36s to 13s**, and
+the whole solution now runs in under 19 seconds.
+
+**The mutation-run saving is larger than the suite saving, and that is the actual point.** A
+static cache lives for the life of a test host, and Stryker reuses a host across many mutants —
+so the first mutant pays for the walk and the rest are free. The 36-to-13 figure understates it.
+
+**How it was found, because the first attempt was wrong and cost an hour.** Timing each test
+class separately said schema parsing dominated, so schemas were cached first — and the suite went
+from 36s to 34s. That inference was wrong twice over: each per-class run carried about two
+seconds of host startup, and xUnit runs classes in parallel, so a sum of per-class times says
+nothing about wall clock. Per-test durations from the detailed logger showed the real shape in
+one command: four tests in `CorpusPlayerTests` at 6–12 seconds each, all rebuilding the same
+roster, and tests within a class run *sequentially* so they did not even overlap.
+
+**Lesson worth keeping: measure the thing you are going to change, at the granularity you are
+going to change it.** Per-class timing was the wrong instrument for a per-test problem.
+
+**What is deliberately not cached.** Demo bytes — the corpus is 305 MB and Stryker runs several
+hosts at once, which would trade a time problem for a worse memory one. `EntityDecoder` — it is
+stateful by design, since a delta update's class comes from the snapshot the entity entered on,
+so a shared one would let one test's entities answer another's questions. And snapshot *bodies*,
+which are `ReadOnlyMemory` views over the demo bytes and would pin all 305 MB by the back door;
+only the scalar header fields are kept.
+
+**A cap with teeth.** `FirstSnapshots` holds 400 per demo and *throws* if asked for more, rather
+than quietly returning a short list. The tests that use it now assert the result is non-empty
+per demo as well — B20 was precisely a helper that silently yielded nothing while every test
+built on it kept passing, and a cache is a new place for that to happen.
