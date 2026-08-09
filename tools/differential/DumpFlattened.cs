@@ -25,6 +25,64 @@ foreach (DemoCommand c in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeB
     }
 }
 
+if (mode == "text")
+{
+    DemoHeader h = DemoHeader.Parse(bytes);
+    List<DemoCommand> cmds = [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
+    using StreamWriter sw = new(arg);
+    Tf2DemoSalvage.Core.Text.DemoTextDumper.Write(
+        sw, Path.GetFileName(demo), h, cmds,
+        new Tf2DemoSalvage.Core.Text.DemoDumpOptions { IncludeCommandListing = false },
+        new ConsoleBar());
+    Console.WriteLine();
+    return;
+}
+
+if (mode == "verify")
+{
+    DemoHeader hdr = DemoHeader.Parse(bytes);
+    NetDecodeState vs = new();
+    EntityDecoder dec = new(schema!, EntityDecoder.ClassIdBits(schema!.ServerClasses.Count));
+    int snaps = 0, ents = 0, props = 0, stops = 0;
+    bool started = false;
+    string? err = null;
+    Dictionary<string,int> stopKinds = new();
+
+    foreach (DemoCommand cmd in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
+    {
+        if (cmd.Type is not (DemoCommandType.Signon or DemoCommandType.Packet)) { continue; }
+        NetMessageReadResult r = NetMessageReader.Read(cmd.Payload.Span, vs);
+        if (r.StoppedAt is NetMessageType st)
+        {
+            stops++;
+            string k = st.ToString();
+            stopKinds[k] = stopKinds.TryGetValue(k, out int v) ? v + 1 : 1;
+        }
+
+        foreach (PacketEntitiesMessage m in r.Messages.OfType<PacketEntitiesMessage>())
+        {
+            if (m.Body.IsEmpty) { continue; }
+            started |= m.IsFullSnapshot;
+            if (!started) { continue; }
+            try
+            {
+                IReadOnlyList<DecodedEntity> es = dec.Decode(m.Body.Span, m, m.LengthBits);
+                snaps++; ents += es.Count; props += es.Sum(e => e.Properties.Count);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+            {
+                err = ex.Message; goto done;
+            }
+        }
+    }
+
+done:
+    string kinds = stopKinds.Count == 0 ? "-" : string.Join(" ", stopKinds.Select(k => k.Key + "x" + k.Value));
+    Console.WriteLine($"{hdr.MapName,-24} frames={hdr.PlaybackFrames,-7} snaps={snaps,-7} ents={ents,-9} props={props,-10} stops={stops,-4} {kinds}");
+    if (err is not null) { Console.WriteLine($"  STOPPED: {err}"); }
+    return;
+}
+
 if (mode == "stops")
 {
     NetDecodeState st = new();
@@ -40,6 +98,7 @@ if (mode == "stops")
             string k = t.ToString();
             stops[k] = stops.TryGetValue(k, out int v) ? v + 1 : 1;
             lostAfter++;
+            Console.WriteLine($"  stop at packet {packets}: {k}");
         }
         if (packets >= int.Parse(arg)) { break; }
     }
@@ -143,3 +202,14 @@ static string Show(PropertyValue value) => value.Kind switch
     PropertyValueKind.Array => "[" + string.Concat(value.AsArray.Select(Show)) + "]",
     _ => value.ToString(),
 };
+
+
+/// <summary>Draws the progress bar on one rewritten console line.</summary>
+internal sealed class ConsoleBar : IProgress<Tf2DemoSalvage.Core.Text.DumpProgress>
+{
+    public void Report(Tf2DemoSalvage.Core.Text.DumpProgress value)
+    {
+        Console.Write((char)13);
+        Console.Write(value.ToBar());
+    }
+}

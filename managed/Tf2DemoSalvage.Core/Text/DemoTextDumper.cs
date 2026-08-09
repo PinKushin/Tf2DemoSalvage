@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Text;
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Core.Text;
 
@@ -22,6 +25,15 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 public static class DemoTextDumper
 {
+    /// <summary>Label reported alongside scan progress.</summary>
+    private const string ScanStage = "Scanning packets";
+
+    /// <summary>
+    /// Commands between progress reports. Reporting every command would cost more in callbacks
+    /// than the scan itself on a 120,000-frame demo.
+    /// </summary>
+    private const int ProgressInterval = 512;
+
     private const string Separator
         = "--------------------------------------------------------------------";
 
@@ -31,6 +43,11 @@ public static class DemoTextDumper
     /// <param name="header">The demo's parsed header.</param>
     /// <param name="commands">The demo's commands, in stream order.</param>
     /// <param name="options">Reporting options, or <c>null</c> for the defaults.</param>
+    /// <param name="progress">
+    /// Optional listener for scan progress. The event scan walks every packet in the demo —
+    /// tens of thousands on a full match — and silence for that long is indistinguishable from
+    /// a hang.
+    /// </param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="writer"/>, <paramref name="header"/>, or <paramref name="commands"/> is
     /// <c>null</c>.
@@ -40,7 +57,8 @@ public static class DemoTextDumper
         string fileName,
         DemoHeader header,
         IReadOnlyList<DemoCommand> commands,
-        DemoDumpOptions? options)
+        DemoDumpOptions? options,
+        IProgress<DumpProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(header);
@@ -51,6 +69,11 @@ public static class DemoTextDumper
 
         WriteHeaderSection(writer, fileName, header);
         WriteSummarySection(writer, header, commands);
+
+        if (options.IncludeGameEvents)
+        {
+            WriteGameEventSection(writer, commands, options.GameEventSampleSize, progress);
+        }
 
         if (options.IncludeCommandListing)
         {
@@ -120,6 +143,112 @@ public static class DemoTextDumper
             $"Frame check: {packets} dem_packet vs {header.PlaybackFrames} declared -> " +
             $"{(agrees ? "ok" : "MISMATCH")}"));
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Decodes the packet stream and reports what happened in the match.
+    /// </summary>
+    /// <remarks>
+    /// Everything above this in the dump describes the file. This describes the game, which is
+    /// the point of having a parser at all.
+    ///
+    /// A demo whose events cannot be decoded says so rather than printing an empty section — an
+    /// absent section and a match with no events are different facts, and a dump that renders
+    /// them identically hides a parser failure behind a plausible-looking report.
+    /// </remarks>
+    private static void WriteGameEventSection(
+        TextWriter writer,
+        IReadOnlyList<DemoCommand> commands,
+        int sampleSize,
+        IProgress<DumpProgress>? progress)
+    {
+        NetDecodeState state = new();
+        Dictionary<string, int> counts = [];
+        List<(int Tick, string Name, string Detail)> sample = [];
+        int total = 0;
+        int scanned = 0;
+
+        foreach (DemoCommand command in commands)
+        {
+            // Reported per command rather than per packet, so the fraction reaches 1 even on a
+            // demo that is mostly console commands. Every iteration counts, including skipped
+            // ones, or the bar would stall on a stretch this scan ignores.
+            scanned++;
+            if (progress is not null && (scanned % ProgressInterval == 0 || scanned == commands.Count))
+            {
+                progress.Report(new DumpProgress(ScanStage, scanned, commands.Count));
+            }
+
+            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+            {
+                continue;
+            }
+
+            foreach (GameEventMessage gameEvent in NetMessageReader
+                .Read(command.Payload.Span, state).Messages.OfType<GameEventMessage>())
+            {
+                string name = gameEvent.Name ?? string.Create(CultureInfo.InvariantCulture, $"#{gameEvent.EventId}");
+                counts[name] = counts.TryGetValue(name, out int seen) ? seen + 1 : 1;
+                total++;
+
+                if (sample.Count < sampleSize)
+                {
+                    sample.Add((command.Tick, name, Describe(gameEvent)));
+                }
+            }
+        }
+
+        writer.WriteLine(Separator);
+        writer.WriteLine("Game events");
+        writer.WriteLine(Separator);
+
+        if (total == 0)
+        {
+            writer.WriteLine("  none decoded");
+            writer.WriteLine();
+            return;
+        }
+
+        WriteField(writer, "Events", string.Create(
+            CultureInfo.InvariantCulture, $"{total} across {counts.Count} types"));
+        writer.WriteLine();
+
+        foreach ((string name, int count) in counts.OrderByDescending(e => e.Value).ThenBy(e => e.Key, StringComparer.Ordinal))
+        {
+            writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {name,-32} {count,8}"));
+        }
+
+        writer.WriteLine();
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"  First {sample.Count} in order:"));
+        writer.WriteLine();
+
+        foreach ((int tick, string name, string detail) in sample)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  tick {tick,-8} {name,-28} {detail}"));
+        }
+
+        writer.WriteLine();
+    }
+
+    /// <summary>Renders an event's fields compactly, in wire order.</summary>
+    private static string Describe(GameEventMessage gameEvent)
+    {
+        StringBuilder detail = new();
+
+        foreach (KeyValuePair<string, object> field in gameEvent.Values)
+        {
+            if (detail.Length > 0)
+            {
+                detail.Append(' ');
+            }
+
+            detail.Append(field.Key).Append('=')
+                .Append(Convert.ToString(field.Value, CultureInfo.InvariantCulture));
+        }
+
+        return detail.ToString();
     }
 
     private static void WriteCommandListing(TextWriter writer, IReadOnlyList<DemoCommand> commands)

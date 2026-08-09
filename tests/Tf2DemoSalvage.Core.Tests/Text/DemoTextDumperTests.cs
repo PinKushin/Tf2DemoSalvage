@@ -47,13 +47,82 @@ public sealed class DemoTextDumperTests
         DemoHeader? header = null,
         IReadOnlyList<DemoCommand>? commands = null,
         string fileName = "sample.dem",
-        DemoDumpOptions? options = null)
+        DemoDumpOptions? options = null,
+        IProgress<DumpProgress>? progress = null)
     {
         StringWriter writer = new() { NewLine = "\n" };
         DemoTextDumper.Write(
-            writer, fileName, header ?? SampleHeader(), commands ?? SampleCommands(), options);
+            writer, fileName, header ?? SampleHeader(), commands ?? SampleCommands(), options,
+            progress);
         return writer.ToString();
     }
+
+    [Fact]
+    public void Write_NoDecodableMessages_SaysSoRatherThanOmittingTheSection()
+    {
+        // The sample commands carry zeroed payloads, so nothing decodes. A section that simply
+        // vanished would be indistinguishable from a demo with no events, which is a different
+        // thing entirely.
+        Dump().ShouldContain("Game events");
+        Dump().ShouldContain("none decoded");
+    }
+
+    [Fact]
+    public void Write_EventsOff_OmitsTheSectionEntirely()
+    {
+        Dump(options: new DemoDumpOptions { IncludeGameEvents = false })
+            .ShouldNotContain("Game events");
+    }
+
+    [Fact]
+    public void Write_ReportsProgressThroughTheEventScan()
+    {
+        // The event scan walks every packet, which on a full match is tens of thousands of
+        // them and takes long enough that silence looks like a hang.
+        List<DumpProgress> reports = [];
+
+        Dump(commands: ManyPackets(500), progress: new SyncProgress(reports.Add));
+
+        reports.ShouldNotBeEmpty();
+        reports[^1].Completed.ShouldBe(reports[^1].Total);
+        reports.ShouldAllBe(r => r.Completed <= r.Total);
+    }
+
+    [Fact]
+    public void Write_ProgressRises_AndEndsAtTheTotal()
+    {
+        // Monotonic and finishing at 100% are the two properties a caller draws a bar from.
+        // A report that jumped backwards or stopped at 97% would render as a stuck bar.
+        List<DumpProgress> reports = [];
+
+        Dump(commands: ManyPackets(500), progress: new SyncProgress(reports.Add));
+
+        for (int i = 1; i < reports.Count; i++)
+        {
+            reports[i].Completed.ShouldBeGreaterThanOrEqualTo(reports[i - 1].Completed);
+        }
+
+        reports[^1].Fraction.ShouldBe(1d);
+    }
+
+    [Fact]
+    public void Write_NoProgressListener_StillWorks()
+    {
+        // Progress is optional; every existing caller passes nothing.
+        Dump(progress: null).ShouldContain("Demo dump:");
+    }
+
+    /// <summary>Reports synchronously, so a test can assert without waiting.</summary>
+    private sealed class SyncProgress(Action<DumpProgress> onReport) : IProgress<DumpProgress>
+    {
+        public void Report(DumpProgress value) => onReport(value);
+    }
+
+    private static IReadOnlyList<DemoCommand> ManyPackets(int count) =>
+    [
+        .. Enumerable.Range(0, count)
+            .Select(i => new DemoCommand(DemoCommandType.Packet, i, new byte[8])),
+    ];
 
     [Fact]
     public void Write_IncludesEveryHeaderField()
@@ -220,10 +289,11 @@ public sealed class DemoTextDumperTests
     {
         string[] lines = Dump().Split('\n');
 
-        // Two rules separating the title block, then a blank line before the summary, then a
-        // blank line before the listing. Deleting any of those WriteLine calls survived
+        // Two rules around the title block and two around the game event section, then a blank
+        // line before each following section. Deleting any of those WriteLine calls survived
         // mutation testing until this assertion existed.
-        lines.Count(l => l.StartsWith("------", StringComparison.Ordinal)).ShouldBe(2);
+        lines.Count(l => l.StartsWith("------", StringComparison.Ordinal)).ShouldBe(4);
+        lines.ShouldContain("Game events");
         lines[1].ShouldStartWith("Demo dump:");
         lines.ShouldContain("Command summary");
         lines.ShouldContain("Commands");

@@ -11,4 +11,15 @@ public sealed record DemoDumpOptions
     /// and summary can turn it off.
     /// </summary>
     public bool IncludeCommandListing { get; init; } = true;
+
+    /// <summary>Whether to decode and summarise the demo's game events.</summary>
+    /// <remarks>
+    /// On by default: the events are what the demo is <em>about</em>, and everything above them
+    /// in the dump is structure. Costs a full pass over every packet, so it is switchable for
+    /// callers that only want the container view.
+    /// </remarks>
+    public bool IncludeGameEvents { get; init; } = true;
+
+    /// <summary>How many individual events to list before summarising the rest.</summary>
+    public int GameEventSampleSize { get; init; } = 40;
 }
