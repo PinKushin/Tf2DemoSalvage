@@ -330,8 +330,13 @@ public sealed class StringTableCodecTests
 
         NetMessageReadResult result = ReadWithProtocol(writer.Build());
 
-        result.Messages[0].ShouldBeOfType<CreateStringTableMessage>()
-            .UndecodedReason.ShouldNotBeNull().ShouldContain("decompression failed");
+        CreateStringTableMessage message = result.Messages[0].ShouldBeOfType<CreateStringTableMessage>();
+        message.UndecodedReason.ShouldNotBeNull().ShouldContain("decompression failed");
+
+        // Still flagged compressed. A failure that reported the table as uncompressed would
+        // read as a plain table that happened not to decode, hiding which subsystem failed.
+        message.IsCompressed.ShouldBeTrue();
+        message.IsDecoded.ShouldBeFalse();
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4321);
     }
 

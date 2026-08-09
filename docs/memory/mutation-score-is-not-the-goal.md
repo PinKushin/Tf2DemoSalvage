@@ -1,6 +1,6 @@
 ---
 name: mutation-score-is-not-the-goal
-description: 80 is a floor, not a target to beat — don't chase a higher score, don't trace dead ends, and don't write tests that exist only to kill mutants
+description: Run the full gate once a day at most, never per change — 80 is a floor not a target, and safe mode hides a quarter of the code from it
 metadata:
   type: feedback
 ---
@@ -36,6 +36,32 @@ uncovered and finished in eight minutes against the usual twenty-six.
 
 I treated the first bad number as a real regression and spent a full pass on it. Run the gate
 once, at the end of a work chunk, and touch nothing until it reports.
+
+## Cadence: once a day, never per change
+
+Owner's call, 2026-08-08, after three full runs in one evening cost about two and a half hours:
+**stop mutating every time.** A full run is now 43-48 minutes against 505 tests and grows with
+every feature, because the cost is tests times mutants.
+
+Use `dotnet stryker --since:main` during work (D13). Full runs are a daily thing, or before a
+milestone — not before every merge, and never repeatedly in one session to watch a number climb.
+That last one is exactly what happened here: 92.79% -> 97.34% -> 99.37%, each run telling less
+for the same hour.
+
+**I should have raised this rather than waiting for the owner to.** The signal was there after
+the second run: the score was already well past the threshold and the remaining findings were
+small. Noticing that a loop has stopped paying is part of running it.
+
+## The gate cannot see a quarter of the code
+
+**444 mutants are removed before testing begins** — Stryker's safe mode drops mutations it
+cannot compile, and this codebase is full of `ref struct BitReader` parameters its
+instrumentation cannot wrap. That is concentrated in the decode core, the part that matters
+most.
+
+So a high score is evidence about the tested subset and silent about the rest. What actually
+covers the decode paths is the corpus differential in `tools/differential/`, which compares
+against another parser and runs in seconds. See [[differential-beats-fixtures]].
 
 ## `--since` targets must be branch names or full SHAs
 
