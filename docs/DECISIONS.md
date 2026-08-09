@@ -525,3 +525,57 @@ library so nothing tries to update it.
 their old side simultaneously — every one currently implemented from reading the reference
 parser and never executed against real data. See `SPEC.md` and the alignment tests in
 `OldProtocolTests`, which prove internal consistency and nothing more.
+
+
+### D20 — the protocol boundary list comes from Valve, and it is longer than this parser implements
+
+Until 2026-08-09 this project treated its four protocol-conditional rules as the complete set,
+inferred from reading `demostf/parser`. They are not the complete set, and the authoritative list
+was available the whole time: **`common/proto_version.h`**, still shipped in the current TF2 SDK
+(`alliedmodders/hl2sdk`, branch `tf2`) precisely because the live engine still reads old demos.
+
+Every constant in it is a demo-backward-compatibility boundary, annotated with what changed:
+
+| Constant | Annotation | Implemented here |
+|---|---|---|
+| `PROTOCOL_VERSION 24` | current | — |
+| `PROTOCOL_VERSION_23` | `NET_MAX_PAYLOAD_BITS` went away | yes — varint table lengths |
+| `PROTOCOL_VERSION_22` | sound index bits used to = 13 | yes — `svc_Prefetch` width |
+| `PROTOCOL_VERSION_21` | before the special DSP shipped | no |
+| `PROTOCOL_VERSION_20` | old-style dynamic model loading | no |
+| `PROTOCOL_VERSION_19` | post-Halloween sound flag extra bit | no |
+| `PROTOCOL_VERSION_18` | pre-Halloween sound flag extra bit | no |
+| `PROTOCOL_VERSION_17` | MD5 in map version | yes — 16-byte hash vs 4-byte CRC |
+| `PROTOCOL_VERSION_REPLAY 16` | replay shipped to public | yes — `svc_ServerInfo` replay flag |
+| `PROTOCOL_VERSION_14` | create string tables compression flag | **yes, added on discovering this file** |
+| `PROTOCOL_VERSION_12` | (unlabelled) | no |
+
+**Read the convention before using the table.** Each constant names the last build *without* the
+change, not the build that introduced it: `PROTOCOL_VERSION_17` is "MD5 in map version" and the
+MD5 appears at 18. The four pre-existing rules independently confirm this reading, which is what
+makes the entries for 14 and 12 usable rather than ambiguous.
+
+**Why 14 was fixed immediately and the others were not.** String tables are load-bearing —
+`svc_CreateStringTable` is not skippable, and reading a flag bit that was never sent shifts every
+table and everything behind it. And it is on the era axis rather than hypothetical: **TF2 shipped
+on the Orange Box engine in October 2007, which is pre-15**, so TF2's own 2007–2008 demos have no
+flag there. The remaining unimplemented boundaries (21, 20, 19, 18) are all sound-related, in
+messages this parser steps over rather than interprets, so they cost nothing until sounds are
+decoded. 12 is unlabelled and needs its own investigation.
+
+**Confirmed against a real client the same day.** The 2009 build recorded per D19 reports:
+
+```
+Protocol version 15
+Exe version 1.0.5.9 (tf)
+Exe build: 13:52:56 Jun  4 2009 (3862) (0)
+```
+
+Protocol 15 sits above the compression-flag boundary and below the other four, so a demo from it
+exercises the replay flag, the CRC, the prefetch width and the fixed table lengths **all at once**
+— every rule this project had written from reading someone else's parser and never executed.
+It does not reach the 14 boundary; that one stays theoretical until a 2007–2008 demo turns up.
+
+**Standing consequence:** when a protocol-conditional rule is needed, check `proto_version.h`
+first. It is a short file, it is authoritative, and it enumerates the boundaries rather than
+leaving them to be discovered one desynchronisation at a time.

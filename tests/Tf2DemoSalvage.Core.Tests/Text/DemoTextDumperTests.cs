@@ -429,13 +429,19 @@ public sealed class DemoTextDumperTests
             .Write(64, 16)                                  // max entries
             .Write(1, 7);                                   // entry count, log2(64)+1 bits
 
-        // A fixed 20-bit length, not a varint. The create message picks its length encoding
-        // from the network protocol in decode state, and this fixture sends no svc_ServerInfo,
-        // so the dumper's state reports protocol 0 and takes the pre-23 path. Writing the
-        // varint here produced a table that silently parsed to nothing.
+        // This fixture sends no svc_ServerInfo, so decode state reports protocol 0 and every
+        // protocol-conditional field takes its oldest form. Two of them are here:
+        //
+        //   * the length is a fixed 20-bit field, not a varint (varint arrives at 24)
+        //   * there is no compression flag at all (it arrives at 15)
+        //
+        // Both have caught this fixture out. Writing the varint produced a table that silently
+        // parsed to nothing; writing the compression bit shifted the table by one when the
+        // pre-15 rule landed. Emulating protocol 0 means emulating *all* of it, and the list
+        // grows every time a new boundary is implemented — if this breaks again, the fix is to
+        // give the fixture a real svc_ServerInfo rather than to keep chasing the default.
         writer.Write((uint)table.BitCount, 20);
         writer.Write(0, 1);                                 // not fixed user data size
-        writer.Write(0, 1);                                 // not compressed
         AppendBitwise(writer, table);
     }
 

@@ -33,6 +33,20 @@ internal static class StringTableCodec
     /// <summary>Protocol at which the create-message length became a varint.</summary>
     private const int VarIntLengthProtocol = 23;
 
+    /// <summary>Last protocol that sent no compression flag on a create message.</summary>
+    /// <remarks>
+    /// From Valve's <c>proto_version.h</c>, still shipped in the current TF2 SDK because the
+    /// engine keeps reading old demos: <c>PROTOCOL_VERSION_14</c> is annotated "create string
+    /// tables compression flag". That file names the last build *without* each change —
+    /// <c>PROTOCOL_VERSION_17</c> is "MD5 in map version" and the MD5 appears at 18 — so the
+    /// flag arrives at 15.
+    ///
+    /// This matters on the era axis rather than in theory. TF2 shipped on the Orange Box engine
+    /// in October 2007, which is pre-15, so TF2's own 2007–2008 demos carry no flag here. Reading
+    /// the bit anyway shifts every string table by one, and string tables are load-bearing.
+    /// </remarks>
+    private const int CompressionFlagProtocol = 14;
+
     internal static CreateStringTableMessage ReadCreate(ref BitReader reader, NetDecodeState state)
     {
         string name = NetBitReading.ReadString(ref reader);
@@ -55,7 +69,7 @@ internal static class StringTableCodec
             userDataSizeBits = (int)reader.ReadUInt32(4);
         }
 
-        bool compressed = reader.ReadBit();
+        bool compressed = protocol > CompressionFlagProtocol && reader.ReadBit();
 
         byte[] body = NetBitReading.CopyBits(ref reader, lengthBits);
 

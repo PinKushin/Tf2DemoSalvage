@@ -144,7 +144,16 @@ public sealed class StringTableCodecTests
         }
 
         writer.Write(0, 1);                        // not fixed user data size
-        writer.Write(compressed ? 1u : 0u, 1);
+
+        // The compression flag arrived at protocol 15. proto_version.h names
+        // PROTOCOL_VERSION_14 "create string tables compression flag", and that file's
+        // convention is to name the last build *without* a change - PROTOCOL_VERSION_17 is
+        // "MD5 in map version" and the MD5 appears at 18. Below 15 there is no bit here at all.
+        if (protocol > 14)
+        {
+            writer.Write(compressed ? 1u : 0u, 1);
+        }
+
         AppendBits(writer, table.Bits(), table.BitCount);
     }
 
@@ -167,17 +176,50 @@ public sealed class StringTableCodecTests
         }
     }
 
-    /// <summary>Reads with a ServerInfo already in state, so the protocol branch is taken.</summary>
-    private static NetMessageReadResult ReadWithProtocol(byte[] packet, ushort protocol = 24)
+    /// <summary>Decode state reporting a given network protocol.</summary>
+    private static NetDecodeState StateWithProtocol(ushort protocol) => new()
     {
-        NetDecodeState state = new()
-        {
-            ServerInfo = new ServerInfoMessage(
-                protocol, 0, false, true, 0, 275, [], 0, 24, 0.015f, 'l',
-                "tf", "cp_process_final", "sky", "server", false),
-        };
+        ServerInfo = new ServerInfoMessage(
+            protocol, 0, false, true, 0, 275, [], 0, 24, 0.015f, 'l',
+            "tf", "cp_process_final", "sky", "server", false),
+    };
 
-        return NetMessageReader.Read(packet, state);
+    /// <summary>Reads with a ServerInfo already in state, so the protocol branch is taken.</summary>
+    private static NetMessageReadResult ReadWithProtocol(byte[] packet, ushort protocol = 24) =>
+        NetMessageReader.Read(packet, StateWithProtocol(protocol));
+
+    [Theory]
+    [InlineData(12)]
+    [InlineData(14)]                               // last build without the flag
+    [InlineData(15)]                               // flag appears
+    [InlineData(24)]
+    public void CompressionFlag_IsOnTheWireOnlyAbove14(ushort protocol)
+    {
+        // Found in Valve's own proto_version.h, which is still shipped in the current TF2 SDK
+        // because the engine keeps reading old demos: PROTOCOL_VERSION_14 is annotated "create
+        // string tables compression flag". This parser read that bit unconditionally, so every
+        // string table in a protocol-14-or-older demo desynchronised by one bit - and string
+        // tables are load-bearing, so everything after them went with it.
+        //
+        // The measurement is the net_Tick behind the table, not the table itself. A one-bit
+        // over-read does not produce a wrong table, it shifts the stream; a table that happens
+        // to survive would still leave the rest of the packet unreadable.
+        TableBuilder table = new TableBuilder(256).Next("alpha").Next("beta");
+
+        BitWriter writer = new();
+        CreateInto(writer, table, protocol: protocol);
+        writer.NetTick(4242, 0, 0);
+
+        NetMessageReadResult result = NetMessageReader.Read(
+            writer.Build(), StateWithProtocol(protocol));
+
+        // Control: the table must still decode. Without this, a reader that gave up on the
+        // table entirely but happened to land on the right bit would pass.
+        CreateStringTableMessage message =
+            result.Messages[0].ShouldBeOfType<CreateStringTableMessage>();
+        message.Entries.Select(e => e.Text).ShouldBe(["alpha", "beta"]);
+
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
     [Fact]
