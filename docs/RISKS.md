@@ -954,3 +954,29 @@ a correct 2009 read a failure.
 Both forms are now accepted, alongside `BOT`. The assertion stays narrow — reading the field at
 the wrong offset produces leftover bytes from the name or friends field, which is text but
 matches none of the three shapes.
+
+
+## B20 — a corpus helper that yielded nothing, and the tests built on it passed anyway
+
+`CorpusEntityDecodeTests.Snapshots` built its `NetDecodeState` without the demo's protocol. For
+every protocol-24 demo that is harmless. For the protocol-15 demo it meant the message reader
+found no messages at all (B17), so the helper yielded **zero** snapshots — and every test built
+on it iterated zero times and passed.
+
+**This is the failure mode that is hardest to notice, and the corpus made it likely rather than
+unlucky.** A test whose loop body never runs reports success identically to one that ran and was
+satisfied. Nothing was red, no assertion was weakened, and the entity-decode suite silently
+stopped covering the one demo it had just been extended to cover.
+
+The general shape: a shared helper that filters, and a new corpus entry the filter silently
+excludes. Adding a specimen does not extend coverage on its own — the helpers have to reach it.
+Two other helpers had the same defect and were fixed when they failed loudly
+(`CorpusPlayerTests`, `CorpusSchemaTests`); this one did not fail, which is why it was found
+later and by accident, while diagnosing something else.
+
+**Guard added rather than just the fix.** The tracker tests assert `ActiveEntities` is not empty
+and that coordinates were found, per demo and named. A helper that yields nothing now fails on
+the demo it yielded nothing for, instead of quietly agreeing.
+
+**Watch for this whenever a demo is added to the corpus.** The check is not "do the tests still
+pass" — it is "did the count of things each test examined go up".

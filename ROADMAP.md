@@ -1,9 +1,12 @@
 # TF2 Demo Parser — Architecture & Roadmap
 
-Status: implementation under way (updated 2026-08-08). **Phase 1 is partially built** — the
-container, the text dump and CLI, most of the network message layer, and the embedded entity
-schema all decode against real demos. What remains for Phase 1 is entity decoding itself:
-flattening the schema's property lists, then `svc_PacketEntities`. `README.md` has the
+Status: implementation under way (updated 2026-08-09). **Phase 1 is substantially built** — the
+container, the text dump, the Quake-style trace, JSON Lines, the CLI, the network message layer,
+the embedded entity schema, schema flattening, `svc_PacketEntities` decoding and cross-tick
+entity state all work against real demos, across two eras (network protocol 15 and 24).
+What remains for Phase 1: instance baselines (an entering entity is a delta against its class's
+baseline, so properties left at their default are absent from tracked state), and the messages
+still consumed for alignment only — `svc_Sounds`, `svc_UserMessage`, `svc_TempEntities`. `README.md` has the
 per-layer status and is kept current; this file remains the plan rather than the report.
 
 Originally locked for initial implementation (2026-08-07). See `docs/DECISIONS.md` in the repo for the ADR-style record of every choice below.

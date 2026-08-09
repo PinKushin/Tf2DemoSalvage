@@ -285,7 +285,15 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     private static IEnumerable<PacketEntitiesMessage> Snapshots(string path)
     {
         byte[] bytes = File.ReadAllBytes(path);
-        NetDecodeState state = new();
+
+        // Seeded from the header. Without it this yielded *zero* snapshots for the protocol-15
+        // demo rather than wrong ones (RISKS B17), so every corpus test built on it looped no
+        // times and passed vacuously - a test that cannot fail because its condition never
+        // occurs, which is the hardest kind to notice.
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
+        };
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
         {
@@ -303,6 +311,119 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
                     yield return message;
                 }
             }
+        }
+    }
+
+    [Fact]
+    public void Tracker_HoldsMorePropertiesThanAnySingleUpdateCarried()
+    {
+        // The claim merging makes, stated as a comparison so no threshold has to be invented:
+        // some entity must end up knowing more than the largest single update to *that entity*
+        // contained. A tracker that replaced state instead of merging would sit exactly at that
+        // maximum and never above it.
+        //
+        // The subject is chosen from the data rather than assumed. An earlier version of this
+        // test pinned entity 1, which is the recording player in a POV demo and a worldspawn-ish
+        // slot with two properties in a SourceTV one - so it measured merging in one file and
+        // nothing at all in another.
+        foreach (string path in Corpus.Files())
+        {
+            string name = Path.GetFileName(path);
+            DemoSchema schema = Schema(path);
+            EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+            EntityTracker tracker = new();
+            Dictionary<int, int> largestUpdate = [];
+            bool started = false;
+
+            foreach (PacketEntitiesMessage message in Snapshots(path).Take(400))
+            {
+                started |= message.IsFullSnapshot;
+                if (!started)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<DecodedEntity> entities =
+                    decoder.Decode(message.Body.Span, message, message.LengthBits);
+
+                foreach (DecodedEntity entity in entities)
+                {
+                    largestUpdate[entity.EntityIndex] = Math.Max(
+                        largestUpdate.GetValueOrDefault(entity.EntityIndex),
+                        entity.Properties.Count);
+                }
+
+                tracker.Apply(entities);
+            }
+
+            tracker.ActiveEntities.ShouldNotBeEmpty(name);
+
+            bool anyAccumulated = tracker.ActiveEntities.Any(index =>
+                tracker.State(index) is { } state &&
+                state.Count > largestUpdate.GetValueOrDefault(index));
+
+            anyAccumulated.ShouldBeTrue(name);
+        }
+    }
+
+    [Fact]
+    public void Tracker_HoldsPlayerPositionsInsideTheMap()
+    {
+        // Accumulated state has to be usable, not merely present - this is the query a 2D
+        // viewer makes. Source's coordinate space is bounded at +/-16384, so anything outside
+        // it is decoded garbage rather than a place someone stood.
+        //
+        // Both encodings are accepted because the era difference is real and visible in the
+        // corpus: the 2009 demo sends m_vecOrigin as a single Vector, while modern demos send
+        // it as a VectorXY plus a separate m_vecOrigin[2] float. That is DPT_VectorXY (B18)
+        // showing up in the data rather than in a header.
+        foreach (string path in Corpus.Files())
+        {
+            string name = Path.GetFileName(path);
+            DemoSchema schema = Schema(path);
+            EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+            EntityTracker tracker = new();
+            bool started = false;
+
+            foreach (PacketEntitiesMessage message in Snapshots(path).Take(400))
+            {
+                started |= message.IsFullSnapshot;
+                if (started)
+                {
+                    tracker.Apply(decoder.Decode(message.Body.Span, message, message.LengthBits));
+                }
+            }
+
+            List<float> coordinates = [];
+            foreach (int index in tracker.ActiveEntities)
+            {
+                if (tracker.State(index) is not { } state)
+                {
+                    continue;
+                }
+
+                foreach ((string key, PropertyValue value) in state)
+                {
+                    if (!key.EndsWith(".m_vecOrigin", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (value.Kind == PropertyValueKind.Vector)
+                    {
+                        (float x, float y, float z) = value.AsVector;
+                        coordinates.AddRange([x, y, z]);
+                    }
+                    else if (value.Kind == PropertyValueKind.VectorXY)
+                    {
+                        (float x, float y) = value.AsVectorXY;
+                        coordinates.AddRange([x, y]);
+                    }
+                }
+            }
+
+            coordinates.ShouldNotBeEmpty(name);
+            coordinates.ShouldAllBe(c => Math.Abs(c) < 16384f, name);
         }
     }
 }
