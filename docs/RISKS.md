@@ -1016,7 +1016,8 @@ report that names the wrong map is worse than one that fails.
 **Three survivors are worth more than the rest, because they are logic rather than transcription:**
 
 - `Quote()`'s escape cases — `"`, `\`, `
-`, `` all survive being mutated away. Escaping is
+`, `
+` all survive being mutated away. Escaping is
   the difference between a trace that can be read back and one that cannot, and a server name
   with a quote in it is not hypothetical.
 - `options.EntitySnapshotLimit <= 0 || snapshots < options.EntitySnapshotLimit` — the "zero means
@@ -1027,3 +1028,63 @@ report that names the wrong map is worse than one that fails.
 pins a whole small output against an expected string, built from a hand-made header and a couple
 of commands — a golden-output test. That kills the field mutants as a class and stays readable,
 where forty individual assertions would not.
+
+
+## B22 — mid-game joins are invisible, and one literal makes it worse than missing
+
+**Owner-reported, 2026-08-09:** players dropping and rejoining mid-match is routine in TF2 and
+always has been. This parser does not see them.
+
+Three linked defects, in the order they must be fixed.
+
+### 1. `DemoScan` reads only `CreateStringTableMessage`
+
+`userinfo` is created once, during signon. Everyone who connects later arrives as an
+`svc_UpdateStringTable`, which `DemoScan.CollectPlayers` ignores outright. So the roster in the
+text dump, the JSON Lines output and the trace is **the signon roster, not the match roster**.
+
+Invisible until now because every corpus check asks whether the roster is *plausible* — names
+non-empty, ids in range, count under 64 — and a truncated roster passes all of them. The same
+shape as B20 and B21: the assertion cannot tell a complete answer from a partial one.
+
+### 2. An update names its table by id, and nothing records names
+
+`UpdateStringTableMessage` carries `TableId` and `Entries`, no name. `NetDecodeState` records
+only capacities, by creation order. There is currently no way to ask "is this update for
+`userinfo`?"
+
+### 3. `ReadUpdate` hardcodes `fixedUserData: false`
+
+```csharp
+ReadEntries(ref bodyReader, entryCount, maxEntries, false, 0)
+```
+
+The *create* path reads that flag and its width from the wire, per table. The update path passes
+a literal. If `userinfo` sets fixed user data size, its updates decode with the wrong entry
+layout — plausible-looking garbage player records rather than an obvious failure.
+
+**Verify before fixing.** Does `userinfo` set the flag, and does any corpus demo actually carry
+`userinfo` updates? A SourceTV match demo should, given mid-game joins are routine.
+
+### It gates more than the roster
+
+Static entity baselines arrive in the **`instancebaseline`** string table and are *rewritten*
+during a match, through this same unhandled update path. So:
+
+```
+B22  ->  mid-game joins in the roster
+     ->  instancebaseline updates visible
+           ->  static baselines
+                 ->  EntityTracker's documented gap closes
+                       ->  Phase 2 viewer has real starting state
+```
+
+A remark about players rejoining turned out to gate the entity model. Nothing in the code
+connects the two.
+
+### A near miss worth recording
+
+`Corpus.Players()` walks every command of every demo, and stopping at the first `userinfo` table
+looked obviously safe — "the table is created once, everything after is waste". It is wrong for
+exactly the reason above. What caught it was asking the owner rather than reasoning about the
+code.

@@ -19,6 +19,7 @@
     "ignore-methods": [
       "WriteUsage",
       "WriteLine"
-    ]
+    ],
+    "additional-timeout": 30000
   }
 }

@@ -702,3 +702,127 @@ only the scalar header fields are kept.
 than quietly returning a short list. The tests that use it now assert the result is non-empty
 per demo as well — B20 was precisely a helper that silently yielded nothing while every test
 built on it kept passing, and a cache is a new place for that to happen.
+
+### D24 — a faster suite recalibrated the mutation tool, and timeouts score as kills
+
+Two findings from the 2026-08-09 mutation work, sharing one theme: **the number moved for a
+reason that was not quality.**
+
+#### Timeouts count toward the score
+
+Verified by arithmetic rather than assumed, against the complete run of 2026-08-09 04:54:
+
+```
+Killed 662, Timeout 134, Survived 59, NoCoverage 76   -> Stryker reported 85.50%
+(662 + 134) / (662 + 134 + 59 + 76) = 796 / 931 = 85.50%   correct
+```
+
+The formula is `(Killed + Timeout) / (Killed + Timeout + Survived + NoCoverage)`. A timeout sits
+in the numerator beside a real kill, and a timeout is **never** evidence a test detected
+anything — no assertion failed, something merely failed to finish.
+
+| | score |
+|---|---|
+| headline | **85.50%** |
+| floor, timeouts counted against | **71.11%** |
+
+Three files whose perfect score is mostly unknowns:
+
+| file | killed | timeout | headline | floor |
+|---|---|---|---|---|
+| `ChatMessage.cs` | 9 | 25 | **100.0%** | 26.5% |
+| `NetMessageReader.cs` | 10 | 20 | **100.0%** | 33.3% |
+| `StringTableCodec.cs` | 33 | 32 | **100.0%** | 50.8% |
+
+#### Those timeouts are artifacts, not hangs
+
+Classified by mutation kind. Genuine infinite loops would cluster in loop conditions; these do
+not. `ChatMessage`'s land on guard clauses and ternaries — `if (body.Length <= HeaderBytes)`,
+`if (end < 0)` — which cannot loop. Twelve of twenty-five are equality mutations on branch
+conditions.
+
+So the timeout status is **measurement noise**: each of those mutants is really a Killed or a
+Survived that went unobserved. The true score is somewhere in 71-86% and is currently unknown.
+
+#### The mechanism: our own optimisation moved a measurement
+
+Stryker records a **per-test** baseline. During the baseline run the first test pays the cold
+corpus walk and every later test is fast, so most tests carry a small recorded time. In a mutant
+host — fresh, cold cache — whichever test runs first pays that walk, and if its baseline was
+small it is recorded as a timeout.
+
+Evidence: the timeout count doubled, 63 to 128, across exactly the corpus-caching commit (D23),
+concentrated in the files corpus tests walk.
+
+**The generalisation worth keeping:** the optimisation broke nothing. It recalibrated a tool that
+derives thresholds from observed timing. Same family as the VsTest false-green recorded in
+`tests/STRYKER-NOTES.md`.
+
+#### Rules adopted
+
+1. **Report two numbers** — headline and floor. When they bracket a wide range, the true figure
+   is unknown whatever the headline says.
+2. **Never tune `additional-timeout` to move a score.** Raise it once to learn what the timeouts
+   resolve to, then lower it again. Measured cost of 5s to 30s: 25 extra seconds per hanging
+   mutant, roughly 10-15 minutes of wall clock here.
+3. **Judge a timeout change by what the timeouts became**, not by the count. A `Timeout ->
+   Survived` is a real gap the short threshold had been scoring as a kill.
+4. **Prefer fixing the cause to widening the window.** Warming the corpus cache outside any
+   test's timer — a module initializer or assembly fixture — makes the cost independent of which
+   test runs first, which is the actual defect.
+
+#### Checked and cleared
+
+Does caching blunt mutation detection, given only the first test executes a cached computation?
+No. The mutation is baked *into* the cached value, so downstream assertions still fail on wrong
+data, and `GetOrAdd` does not cache exceptions.
+
+### D15 second addendum — cadence, and why this project is the slow one
+
+Every other project the owner mutates finishes in 10-20 minutes. This one exceeds 90.
+
+**The corpus is the entire difference.** Others mutate against small synthetic fixtures; this one
+carries 305 MB of real demos, and its strongest tests are corpus tests, so every mutant touching
+decode code re-walks eight files.
+
+**A trade, not waste.** Those tests found B12, B17, B18 and B20. Removing them would match the
+other projects' runtime and stop catching the defect class this project exists for.
+
+- **During work:** `--since:main`.
+- **Full run:** weekly or pre-milestone, overnight, never gating a push.
+- **CLI project:** 52 seconds. Run freely.
+
+### D25 — the test project splits along the pure/stateful seam
+
+Owner decision, 2026-08-09. The seam already exists in the layout: eleven corpus-backed files
+(`Corpus*Tests.cs` plus `Corpus.cs`), everything else synthetic. Two stragglers mix them —
+`Differential/HeaderDifferentialTests.cs`, and the single corpus test in
+`Text/DemoJsonLinesWriterTests.cs`.
+
+| Project | Contents | Cadence |
+|---|---|---|
+| `Tf2DemoSalvage.Core.Tests` | synthetic fixtures only | daily, minutes |
+| `Tf2DemoSalvage.Corpus.Tests` | the eleven corpus-backed files | weekly, overnight |
+
+Shared helpers (`BitWriter`, `GameEventFixtures`) move to a `TestSupport` project referenced by
+both and never mutated.
+
+**The daily run must scope `mutate` to the pure files.** Otherwise every mutant reachable only
+through corpus tests reports `NoCoverage`, which counts against the score, producing a
+meaningless low number whose obvious "fix" is lowering the threshold.
+
+Candidate pure set: `Primitives/*`, `SchemaFlattener`, `SendPropDecoder`, `SendTableParser`,
+`PropertyValue`, `DemoHeader`. Stateful, therefore weekly: `NetDecodeState`, `NetMessageReader`,
+`StringTableCodec`, `EntityDecoder`, `EntityTracker`, all of `Text/`.
+
+**The guard, and the first version of it was wrong.** "Assert NoCoverage is near zero" cannot
+detect a bad glob: an unmatched file generates no mutants at all, so it never enters any status
+bucket and NoCoverage stays zero *because* the file was skipped. Caught by an outside reviewer.
+
+The working guard **asserts the set of files in the report equals the expected pure set**.
+Stryker lists only what it mutated, so a missing entry names the offending glob. A mutant count
+also works, but cannot say which of six globs was wrong.
+
+Failure modes are asymmetric, which is why a guard is needed: every glob wrong yields zero
+mutants and a loud error; *one* glob wrong yields a real run and a plausible percentage covering
+five-sixths of the intended set.

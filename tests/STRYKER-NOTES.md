@@ -88,3 +88,31 @@ output says the runner failed to invoke anything.
 The same shape as the other two traps recorded here — a non-matching `mutate` glob, and a
 comment key that aborts the run. Stryker fails quietly in more than one way, so **treat any
 sudden score collapse as a tooling question before a test-quality one.**
+
+## A glob guard that does not work, and one that does
+
+The obvious check that `mutate` globs match the intended files — *"NoCoverage should be near
+zero"* — **cannot detect a wrong glob.** A file excluded by a glob generates no mutants at all,
+so it never appears in any status bucket. NoCoverage stays zero precisely because the file was
+skipped.
+
+Use instead: **assert the set of files in the report equals the expected set.** Stryker lists
+only files it actually mutated, so a missing entry names the offending glob directly.
+
+| | symptom |
+|---|---|
+| every glob wrong | zero mutants; Stryker cannot calculate a score — loud |
+| one glob wrong | a real run, a plausible percentage, a fraction of the intended set — silent |
+
+This goes live with the D25 split, whose daily config will be this repository's first `mutate`.
+A pure/stateful split needs about six globs: six chances to write one repo-relative out of habit.
+
+## Timeouts are scored as kills
+
+`(Killed + Timeout) / (Killed + Timeout + Survived + NoCoverage)` — verified against a real
+report in `DECISIONS.md` D24. A timeout is not evidence a test caught anything, so always read
+the floor (timeouts counted against) alongside the headline. Three files in this repo have
+reported a perfect 100% while most of it was timeouts.
+
+`additional-timeout` is therefore a knob that moves the score in both directions. Raise it only
+to learn what a set of timeouts resolves to, and lower it again afterwards.

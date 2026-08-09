@@ -24,6 +24,7 @@
         "**/docs/**",
         "**/tools/**"
       ]
-    }
+    },
+    "additional-timeout": 30000
   }
 }
