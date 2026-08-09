@@ -681,3 +681,26 @@ the format** — B13's own mistake, committed inside a test.
 
 **Still unimplemented, none present in this corpus:** `svc_BspDecal`, `svc_CmdKeyValues`,
 `svc_File`, `svc_FixAngle`, `svc_GetCvarValue`, `svc_Menu`.
+
+
+### Generality evidence — nine modern demos, zero failures
+
+Measured 2026-08-08, on files the parser had never seen, immediately after B13 closed:
+
+| Metric | Total |
+|---|---|
+| Demos | 9 |
+| Snapshots decoded | ~821,000 |
+| Entity updates | ~14.8 million |
+| Property values | ~94 million |
+| Packet stops | 0 |
+| Decode errors | 0 |
+
+Snapshot count equalled `dem_packet` count exactly in every file, which is the strong form: not
+"mostly worked" but "every packet yielded its snapshot". Three maps were new to the corpus, and
+one demo came from `br.tf2pickup.org`, a platform not previously represented.
+
+**What this does and does not establish.** It establishes that the schema-driven decode
+generalises across maps, servers and platforms within the modern era — which was the project's
+central bet, and the first real evidence for it. It establishes nothing about older builds. Per
+D5 the corpus still has no pre-2020 specimen, so the era axis remains completely untested.
