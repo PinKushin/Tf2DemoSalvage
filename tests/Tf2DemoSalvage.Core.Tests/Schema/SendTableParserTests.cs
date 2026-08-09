@@ -272,4 +272,29 @@ public sealed class SendTableParserTests
         schema.Tables[1].Properties[0].Name.ShouldBe("still_here");
         schema.Tables[1].Properties[0].BitCount.ShouldBe(6);
     }
+
+    [Theory]
+    [InlineData(24, 6, SendPropType.DataTable)]    // current: VectorXY occupies 3
+    [InlineData(24, 5, SendPropType.Array)]
+    [InlineData(24, 4, SendPropType.String)]
+    [InlineData(15, 5, SendPropType.DataTable)]    // 2009: no VectorXY, everything shifts down
+    [InlineData(15, 4, SendPropType.Array)]
+    [InlineData(15, 3, SendPropType.String)]
+    public void PropertyType_IsNumberedByEra(ushort protocol, uint wireType, SendPropType expected)
+    {
+        // Valve's dt_common.h, compared between the orangebox branch (2009) and the tf2 branch:
+        //
+        //   2009     Int=0 Float=1 Vector=2 String=3 Array=4 DataTable=5
+        //   current  Int=0 Float=1 Vector=2 VectorXY=3 String=4 Array=5 DataTable=6
+        //
+        // DPT_VectorXY was inserted at 3 and pushed the three above it up by one. Like the
+        // message type width (RISKS B17) this is absent from proto_version.h, so it cannot be
+        // found by reading Valve's own list of era differences - only by decoding a demo old
+        // enough to carry it.
+        //
+        // Int, Float and Vector are deliberately not in this table: they are unmoved, so they
+        // cannot distinguish a correct mapping from an absent one.
+        SendTableParser.MapPropertyType(wireType, protocol).ShouldBe(expected);
+    }
+
 }

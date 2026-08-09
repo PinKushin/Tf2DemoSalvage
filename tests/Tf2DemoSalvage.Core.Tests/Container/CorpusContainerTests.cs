@@ -78,7 +78,12 @@ public sealed class CorpusContainerTests
         DemoHeader header = DemoHeader.Parse(bytes);
 
         header.DemoProtocol.ShouldBe(3);
-        header.NetworkProtocol.ShouldBe(24);
+
+        // Not pinned to 24. The corpus was entirely protocol 24 until a demo recorded on the
+        // June 2009 client was added, and pinning it was an assumption that every demo is
+        // modern - exactly the assumption this project exists to avoid. The real invariant is
+        // that the protocol is one this parser knows how to read.
+        header.NetworkProtocol.ShouldBeOneOf(15, 24);
         header.GameDirectory.ShouldBe("tf");
         header.MapName.ShouldNotBeNullOrWhiteSpace();
 

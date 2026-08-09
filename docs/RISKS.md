@@ -895,3 +895,62 @@ Tolerable because the failure is loud rather than silent — a wrong width desyn
 first message of the signon and produces the wreckage described above, never a plausible-looking
 result. Contrast B14, which was latent for the entire life of the project. A protocol 16–23 demo
 would settle it, and none exists in the corpus.
+
+
+## B18 — the property type enum was renumbered, and neither list mentions it
+
+**Found and fixed 2026-08-09, minutes after B17 and by the same demo.**
+
+`DPT_VectorXY` was inserted at position 3 in Valve's `SendPropType`, pushing the three types
+above it up by one. Confirmed by diffing `public/dt_common.h` between the `orangebox` and `tf2`
+branches of `alliedmodders/hl2sdk`:
+
+```
+2009     Int=0 Float=1 Vector=2            String=3 Array=4 DataTable=5
+current  Int=0 Float=1 Vector=2 VectorXY=3 String=4 Array=5 DataTable=6
+```
+
+Reading a 2009 schema with the current numbering turns every nested table into an array. The
+schema is where entity decoding begins, so the file becomes unreadable a few hundred bits in —
+`SendTableParser.Parse` died at bit 705,065 of a 705,072-bit payload, having consumed almost
+exactly everything and then read one field too many.
+
+**How it was localised, which generalises.** Not by reading — by diffing the *same table* across
+eras. `DT_AI_BaseNPC` has 12 properties in both a 2020 demo and the 2009 one, so its bit offsets
+are directly comparable:
+
+```
+z1800  [124->409] type 6 flags 0x1000 baseclass dt:DT_BaseCombatCharacter
+2009   [124-> 235] type 5 flags 0x1000 baseclass elems:68
+```
+
+Identical name, identical flags, identical start offset — and a type value one lower. That
+pinpoints the field in one line of output. A parser that only reports "failed at bit N" cannot
+do this; a differential across two specimens of the same structure can. Same technique that
+settled the flattening order (D12), applied across eras rather than across implementations.
+
+**Absent from `proto_version.h`**, like B17. Two of the four era differences found by decoding a
+real old demo are invisible in Valve's own enumeration of era differences, which sets the ceiling
+on what D20 can be trusted to cover: it lists what the *engine* branches on, not what changed.
+
+**The boundary is the same open question as B17.** Protocol 15 uses the 2009 numbering, 24 uses
+the current one, both measured; the change is somewhere in 16–23. Also loud rather than silent.
+
+
+## B19 — a fourth era difference, and this one is silent
+
+The `userinfo` string table stores a *rendered* Steam id, and the rendering changed:
+
+| Era | Format |
+|---|---|
+| 2009 | `STEAM_0:0:0` (Steam2) |
+| current | `[U:1:1234567]` (Steam3) |
+
+Cosmetic rather than structural — nothing downstream fails on it, which is precisely why it is
+worth pinning. B17 and B18 announced themselves by destroying the decode. This one would quietly
+reshape any output keyed on the id, and a test that only knew the Steam3 shape would have called
+a correct 2009 read a failure.
+
+Both forms are now accepted, alongside `BOT`. The assertion stays narrow — reading the field at
+the wrong offset produces leftover bytes from the name or friends field, which is text but
+matches none of the three shapes.

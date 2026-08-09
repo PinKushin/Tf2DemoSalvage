@@ -3,7 +3,8 @@
     "Demo files are stored in Git LFS (see .gitattributes). Clone with `git lfs install` first, or the .dem files arrive as ~130-byte pointer stubs.",
     "Per D5, every entry records how its era was established. Date demos from seasonal asset names in their string tables, never from protocol numbers - protocol 3 / network 24 spans at least 2015 through 2026 and dates nothing.",
     "Reproduce any field below with `python tools/inspect_demo.py walk|date <file>`.",
-    "Asset dating works better on older demos than newer ones, which is convenient given that older demos are the ones hardest to date otherwise. Competitive players bought heavily early in TF2's life - unusuals were everywhere until people noticed the visual noise was a competitive disadvantage with no upside - so early comp demos carry plenty of dated cosmetics. A modern comp demo like serveme-627619 carries almost none, which is why its asset dating yields only ' 2019 or later' against a true date of 2026."
+    "Asset dating works better on older demos than newer ones, which is convenient given that older demos are the ones hardest to date otherwise. Competitive players bought heavily early in TF2's life - unusuals were everywhere until people noticed the visual noise was a competitive disadvantage with no upside - so early comp demos carry plenty of dated cosmetics. A modern comp demo like serveme-627619 carries almost none, which is why its asset dating yields only ' 2019 or later' against a true date of 2026.",
+    "The 2009 entry is the corpus's only era-axis specimen. Everything else is 2020 or later at network protocol 24, so any rule below protocol 24 is exercised by exactly one file - treat a change that only that file catches as under-tested, not as covered."
   ],
   "demos": [
     {
@@ -208,6 +209,39 @@
       "eraEvidence": "Filename timestamp from demos.tf plus the server reservation id. Modern, so asset dating gives only a weak lower bound - see the note on serveme-627619.",
       "whyItMatters": "First king-of-the-hill map since z1800, and the densest entity stream measured so far - 1.84M entity updates across 11.9M property values.",
       "decodeStatus": "Decodes end to end: every dem_packet yields a snapshot, zero packet stops, zero errors."
+    },
+    {
+      "file": "demos/tf2-2009-build3862-pov-cp_badlands.dem",
+      "sha256": "86e61d93f85e7594c3f921b4bab947b262cc9099ff97d5b2c0b90c7b2d09a085",
+      "sizeBytes": 3343245,
+      "source": "recorded by the owner 2026-08-09 on TF2 build 3862, from the archive.org 'team-fortress-2-3862' pack (see DECISIONS.md D19)",
+      "pointOfView": "POV",
+      "demoProtocol": 3,
+      "networkProtocol": 15,
+      "serverName": "localhost:27015",
+      "clientName": "PinKushin",
+      "map": "cp_badlands",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 560.96,
+      "playbackTicks": 37397,
+      "playbackFrames": 10999,
+      "signonLengthBytes": 127927,
+      "commandCounts": {
+        "dem_signon": 8,
+        "dem_packet": 10999,
+        "dem_synctick": 1,
+        "dem_consolecmd": 2055,
+        "dem_usercmd": 37273,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "4 June 2009, exactly",
+      "eraEvidence": "Not dated from assets, because it did not have to be - it was recorded on a client whose own `version` command reports `Exe build: 13:52:56 Jun  4 2009 (3862)` and `Protocol version 15`. The only corpus entry with an exact, externally established date rather than an inferred lower bound.",
+      "whyItMatters": "The only pre-2020 demo and the only one below network protocol 24. It exercises five protocol-conditional rules on their old side simultaneously - the five-bit message type field, no svc_ServerInfo replay flag, a four-byte map CRC rather than a 16-byte hash, a 13-bit svc_Prefetch index, and fixed 20-bit string table lengths. Four of those had been written from reading demostf/parser and never executed; the fifth was not known to exist until this demo failed on it (RISKS B17).",
+      "knownIssues": "None. Decodes end to end with zero stops: 156 game event definitions, 10,998 entity snapshots, 70 game events across 13 types, and the recording player resolved by name from the userinfo table.",
+      "privacyNote": "Recorded on a listen server in insecure mode, so the userinfo record carries STEAM_0:0:0 rather than a real account id. clientName is the owner's public handle, which the repository already carries in its path.",
+      "notes": "Contrast tools/corpus/demos/etf2l-12025-pov-2020-07-21.dem: both are POV, eleven years apart. The pair is the closest thing this corpus has to a controlled comparison across the era axis."
     }
   ],
   "corpusGaps": {

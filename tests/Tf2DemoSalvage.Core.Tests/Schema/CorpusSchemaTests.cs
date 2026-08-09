@@ -234,7 +234,8 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         {
             if (command.Type == DemoCommandType.DataTables)
             {
-                return SendTableParser.Parse(command.Payload.Span);
+                return SendTableParser.Parse(
+                    command.Payload.Span, (ushort)DemoHeader.Parse(bytes).NetworkProtocol);
             }
         }
 
@@ -244,7 +245,12 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
     private static ServerInfoMessage? FindServerInfo(string path)
     {
         byte[] bytes = File.ReadAllBytes(path);
-        NetDecodeState state = new();
+        // Seeded from the header: the protocol sizes the message type field, so a
+        // protocol-15 demo yields no messages at all without it (RISKS B17).
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
+        };
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))
             .Where(c => c.Type is DemoCommandType.Signon or DemoCommandType.Packet)

@@ -31,8 +31,13 @@ public static class SendTableParser
 
     /// <summary>Parses the payload of a <c>dem_datatables</c> command.</summary>
     /// <param name="payload">The command's raw payload.</param>
+    /// <param name="networkProtocol">
+    /// The demo's network protocol, from its header. Property types are numbered
+    /// differently before and after <c>DPT_VectorXY</c> was added — see
+    /// <see cref="MapPropertyType"/>. Defaults to the current protocol.
+    /// </param>
     /// <returns>The demo's entity schema.</returns>
-    public static DemoSchema Parse(ReadOnlySpan<byte> payload)
+    public static DemoSchema Parse(ReadOnlySpan<byte> payload, ushort networkProtocol = CurrentProtocol)
     {
         BitReader reader = new(payload);
         List<SendTable> tables = [];
@@ -47,7 +52,7 @@ public static class SendTableParser
             List<SendProperty> properties = new(propertyCount);
             for (int i = 0; i < propertyCount; i++)
             {
-                properties.Add(ReadProperty(ref reader));
+                properties.Add(ReadProperty(ref reader, networkProtocol));
             }
 
             tables.Add(new SendTable(name, needsDecoder, properties));
@@ -66,9 +71,51 @@ public static class SendTableParser
         return new DemoSchema(tables, classes);
     }
 
-    private static SendProperty ReadProperty(ref BitReader reader)
+    /// <summary>The protocol current builds record at.</summary>
+    private const ushort CurrentProtocol = 24;
+
+    /// <summary>Last protocol whose property types were numbered without <c>VectorXY</c>.</summary>
+    /// <remarks>
+    /// **Bounded, not exact — the same open boundary as the message type width.** Protocol 15
+    /// uses the 2009 numbering and 24 uses the current one, both measured; the change is
+    /// somewhere in 16–23. See <c>RISKS.md</c> B18.
+    /// </remarks>
+    private const ushort VectorXyProtocol = 15;
+
+    /// <summary>Translates a wire type code into the canonical enum for its era.</summary>
+    /// <param name="wireType">The raw value read from the schema.</param>
+    /// <param name="networkProtocol">The demo's network protocol.</param>
+    /// <returns>The property type.</returns>
+    /// <remarks>
+    /// Valve's <c>dt_common.h</c>, between the <c>orangebox</c> branch and the <c>tf2</c> branch:
+    ///
+    /// <code>
+    /// 2009     Int=0 Float=1 Vector=2 String=3 Array=4 DataTable=5
+    /// current  Int=0 Float=1 Vector=2 VectorXY=3 String=4 Array=5 DataTable=6
+    /// </code>
+    ///
+    /// <c>DPT_VectorXY</c> was inserted at 3, pushing the three above it up by one. Reading a
+    /// 2009 schema with the current numbering turns every nested table into an array, and the
+    /// schema is where entity decoding starts — so the whole file becomes unreadable a few
+    /// hundred bits in.
+    /// </remarks>
+    public static SendPropType MapPropertyType(uint wireType, ushort networkProtocol)
     {
-        SendPropType type = (SendPropType)reader.ReadUInt32(TypeBits);
+        if (networkProtocol > VectorXyProtocol)
+        {
+            return (SendPropType)wireType;
+        }
+
+        // Below VectorXY's insertion point the two numberings agree, so only the three types
+        // above it are remapped.
+        return wireType < (uint)SendPropType.VectorXY
+            ? (SendPropType)wireType
+            : (SendPropType)(wireType + 1);
+    }
+
+    private static SendProperty ReadProperty(ref BitReader reader, ushort networkProtocol)
+    {
+        SendPropType type = MapPropertyType(reader.ReadUInt32(TypeBits), networkProtocol);
         string name = NetBitReading.ReadString(ref reader);
         int flags = (int)reader.ReadUInt32(FlagBits);
 

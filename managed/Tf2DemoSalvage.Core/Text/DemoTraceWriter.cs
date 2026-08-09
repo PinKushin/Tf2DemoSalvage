@@ -60,7 +60,9 @@ public static class DemoTraceWriter
         // Seeded from the header, because the protocol sizes the message type field and
         // svc_ServerInfo cannot be read without it. See NetDecodeState.NetworkProtocol.
         NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
-        EntityDecoder? entities = options.IncludeEntities ? BuildDecoder(commands) : null;
+        EntityDecoder? entities = options.IncludeEntities
+            ? BuildDecoder(commands, (ushort)header.NetworkProtocol)
+            : null;
         int snapshots = 0;
         int scanned = 0;
 
@@ -109,7 +111,9 @@ public static class DemoTraceWriter
     /// is the project's premise in miniature: the file explains its own entity layout, so the
     /// decoder is built from the demo rather than from a compiled-in definition.
     /// </remarks>
-    private static EntityDecoder? BuildDecoder(IReadOnlyList<DemoCommand> commands)
+    private static EntityDecoder? BuildDecoder(
+        IReadOnlyList<DemoCommand> commands,
+        ushort networkProtocol)
     {
         foreach (DemoCommand command in commands)
         {
@@ -118,7 +122,7 @@ public static class DemoTraceWriter
                 continue;
             }
 
-            DemoSchema schema = SendTableParser.Parse(command.Payload.Span);
+            DemoSchema schema = SendTableParser.Parse(command.Payload.Span, networkProtocol);
             return new EntityDecoder(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
         }
 

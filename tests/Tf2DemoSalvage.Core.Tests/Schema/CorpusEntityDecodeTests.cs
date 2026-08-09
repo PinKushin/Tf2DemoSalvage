@@ -274,7 +274,8 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         {
             if (command.Type == DemoCommandType.DataTables)
             {
-                return SendTableParser.Parse(command.Payload.Span);
+                return SendTableParser.Parse(
+                    command.Payload.Span, (ushort)DemoHeader.Parse(bytes).NetworkProtocol);
             }
         }
 

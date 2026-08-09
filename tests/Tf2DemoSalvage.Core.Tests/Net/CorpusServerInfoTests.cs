@@ -73,7 +73,14 @@ public sealed class CorpusServerInfoTests(ITestOutputHelper output)
 
     private static ServerInfoMessage? FirstServerInfo(byte[] bytes)
     {
-        NetDecodeState state = new();
+        // Seeded from the header, and this helper is why that matters: it looks for
+        // svc_ServerInfo, and the protocol sizes the message type field, so without the header
+        // a protocol-15 demo yields no ServerInfo at all rather than a wrong one. See
+        // RISKS.md B17 - the production writers hit the same ordering constraint.
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
+        };
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))
             .Where(c => c.Type is DemoCommandType.Signon or DemoCommandType.Packet)

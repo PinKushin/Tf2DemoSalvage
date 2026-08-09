@@ -28,7 +28,12 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
 
             // A competitive match is six a side plus a SourceTV slot, give or take spectators
             // and substitutions across a whole demo.
-            players.Count.ShouldBeGreaterThan(6, name);
+            // Not "more than six". That encoded an assumption the corpus made true by
+            // accident - every demo was a competitive match until one recorded alone on a
+            // listen server was added. The real invariant is that a demo which decoded at all
+            // named at least the player recording it, and that no roster exceeds the engine's
+            // limit.
+            players.Count.ShouldBeGreaterThan(0, name);
             players.Count.ShouldBeLessThan(64, name);
 
             foreach (PlayerInfo player in players)
@@ -45,9 +50,20 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
     [Fact]
     public void SteamIds_AreInTheRenderedTextFormat()
     {
-        // "[U:1:1234567]" for a real account, "BOT" for a fake player. Reading the field at the
-        // wrong offset gives leftover bytes from the name or the friends field instead, which
-        // is text but not this shape.
+        // The field holds a *rendered* id, and which rendering depends on the era:
+        //
+        //   Steam3, current   [U:1:1234567]
+        //   Steam2, 2009      STEAM_0:0:0
+        //   either            BOT, for a fake player
+        //
+        // A fourth era difference, found the same way as the others - by adding a demo old
+        // enough to disagree. It is cosmetic rather than structural, which is exactly why it
+        // is worth pinning: nothing downstream would fail on it, so an unnoticed change here
+        // would silently reshape any output keyed on the id.
+        //
+        // The check is still narrow on purpose. Reading this field at the wrong offset yields
+        // leftover bytes from the name or the friends field, which is text but matches none of
+        // these three shapes.
         foreach (string path in Corpus.Files())
         {
             string name = Path.GetFileName(path);
@@ -56,6 +72,7 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
             {
                 player.SteamId.ShouldNotBeNullOrEmpty(name);
                 (player.SteamId.StartsWith("[U:", StringComparison.Ordinal) ||
+                 player.SteamId.StartsWith("STEAM_", StringComparison.Ordinal) ||
                  player.SteamId == "BOT").ShouldBeTrue($"{name}: {player.SteamId}");
             }
         }
@@ -101,7 +118,12 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
     private static IReadOnlyList<PlayerInfo> Players(string path)
     {
         byte[] bytes = File.ReadAllBytes(path);
-        NetDecodeState state = new();
+        // Seeded from the header: the protocol sizes the message type field, so a
+        // protocol-15 demo yields no messages at all without it (RISKS B17).
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
+        };
         Dictionary<int, PlayerInfo> byEntity = [];
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
