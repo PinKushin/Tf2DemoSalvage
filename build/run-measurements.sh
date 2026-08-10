@@ -9,9 +9,9 @@
 # shared BY WORKLOAD, not by project, so two repos run mutation testing on the same machine and
 # must agree about how.
 #
-# THE LOCK IS PBJ'S, AND THAT IS NOT A MISTAKE
-# `/tmp/pbj-measurement.lock` is named for the project that created it, but it guards the BOX,
-# not the project. Giving this repo its own lock file would let both run at once, which is the
+# THE LOCK IS SHARED WITH EVERY OTHER PROJECT ON THIS BOX
+# `/tmp/measurement-box.lock` guards the BOX, not the project — which is why it is named for the
+# box. Giving this repo its own lock file would let two repos run at once, which is the
 # one thing the lock exists to prevent: Stryker rebuilds mutated copies continuously, and a
 # build failure caused by a concurrent job reads as a SURVIVING MUTANT, not as an error. Two
 # locks would silently corrupt both projects' results rather than colliding loudly.
@@ -34,7 +34,7 @@ export MSBUILDDISABLENODEREUSE=1
 MODE="${1:-corpus}"
 PULL="${2:-}"
 REPO="$HOME/tf2demosalvage"
-LOCK="/tmp/pbj-measurement.lock"
+LOCK="/tmp/measurement-box.lock"
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
