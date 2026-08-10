@@ -305,6 +305,46 @@ should all be *lower* than 2009's 232 / 16 / 156 if the build is genuinely older
 build is redundant with the one already in the corpus. That check costs one console command and
 should be run before recording anything.
 
+### Outcome, 2026-08-10: confirmed. Zero stops, and the branch ran
+
+```
+Protocol version 14
+Exe version 1.0.2.2 (tf)
+Exe build: 20:17:35 Mar 19 2008 (3420)
+```
+
+**The prediction held.** A 140-second POV demo on `cp_granary` decodes end to end: 12,608
+commands, 22,176 trace lines, **no stops, no unknown or undecoded markers**, frame check 2764
+against 2764 declared. The falsification condition — a failure anywhere other than string table
+decoding — did not occur.
+
+**The never-executed branch ran.** Sixteen `svc_createstringtable` messages decoded on the
+protocol ≤14 side of `CompressionFlagProtocol`, which until now existed only because
+`proto_version.h` said it should. Forty-five `svc_prefetch` messages exercised the 13-bit index
+on the same demo. The era axis now has a pre-Source-2009 anchor.
+
+**One registered secondary prediction was wrong, and it is the more interesting half.** The
+fingerprint was expected to be *lower than 2009 across the board*:
+
+| | 2008 (proto 14) | 2009 (proto 15) | modern (proto 24) |
+|---|---|---|---|
+| `max_classes` | **216** | 232 | 275 |
+| string tables | **16** | 16 | 16 |
+
+Max classes fell as expected. **String table count did not — it is 16 in all three eras, eighteen
+years apart.** So the table *set* is far more stable than the class list, and a count that was
+being treated as an era discriminator discriminates nothing. Dating by it would have produced a
+confident wrong answer for any era. The names differ where the count does not, so the discriminator
+worth using is the table *names*, not how many there are.
+
+**A container-level difference, not predicted and not in `proto_version.h`:** this demo carries
+**no `dem_stringtables` command at all**. Both the 2009 and 2013 demos carry exactly one. At
+protocol 14 the tables arrive only as `svc_CreateStringTable` in the signon stream. Any code that
+assumes a `dem_stringtables` command exists — as a place to recover tables from, or as a checkpoint
+— is assuming something an entire era does not provide. Same discovery shape as B17 and B18.
+
+**Grade: Measured.** Console output and parser output, both quoted.
+
 
 ---
 
