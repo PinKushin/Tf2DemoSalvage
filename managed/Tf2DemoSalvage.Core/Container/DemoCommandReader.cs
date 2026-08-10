@@ -81,8 +81,15 @@ public static class DemoCommandReader
             int tick = BinaryPrimitives.ReadInt32LittleEndian(data.Span[(position + 1)..]);
             position += CommandHeaderBytes;
 
+            // Read before the payload, because ReadPayload steps over it. This block was skipped
+            // for the whole life of the project - it is the recording client's camera, and the
+            // viewers cannot be built without it.
+            ViewInfo? view = type is DemoCommandType.Signon or DemoCommandType.Packet
+                ? ViewInfo.Read(data.Span[position..])
+                : null;
+
             ReadOnlyMemory<byte> payload = ReadPayload(data, type, ref position);
-            yield return new DemoCommand(type, tick, payload);
+            yield return new DemoCommand(type, tick, payload, view);
         }
     }
 

@@ -12,6 +12,59 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 /// </summary>
 public sealed class DemoCommandReaderTests
 {
+    [Fact]
+    public void PacketCommand_CarriesTheCameraItWasRecordedFrom()
+    {
+        // democmdinfo_t was read and discarded on every packet - 76 bytes per command, skipped
+        // to reach the payload. It holds the view origin and angles of the recording client,
+        // which is the only record in a demo of where the camera actually was, and it is plain
+        // floats rather than anything bit-packed.
+        //
+        // The 2D and 3D viewers need exactly this. Entity origins say where players stood; this
+        // says what the person recording was looking at, which is a different question and one
+        // nothing else in the file answers.
+        byte[] info = new byte[76];
+        BitConverter.GetBytes(1).CopyTo(info, 0);                    // flags
+        BitConverter.GetBytes(128.5f).CopyTo(info, 4);               // view origin x
+        BitConverter.GetBytes(-64.25f).CopyTo(info, 8);              // y
+        BitConverter.GetBytes(32f).CopyTo(info, 12);                 // z
+        BitConverter.GetBytes(10f).CopyTo(info, 16);                 // view angle pitch
+        BitConverter.GetBytes(-170.5f).CopyTo(info, 20);             // yaw
+        BitConverter.GetBytes(0f).CopyTo(info, 24);                  // roll
+
+        List<byte> command = [(byte)DemoCommandType.Packet];
+        command.AddRange(BitConverter.GetBytes(99));                 // tick
+        command.AddRange(info);
+        command.AddRange(new byte[8]);                               // sequence numbers
+        command.AddRange(BitConverter.GetBytes(4));                  // payload length
+        command.AddRange(new byte[4]);
+
+        DemoCommand packet = DemoCommandReader.Read(command.ToArray()).First();
+
+        ViewInfo view = packet.View.ShouldNotBeNull();
+        view.Flags.ShouldBe(1);
+        view.OriginX.ShouldBe(128.5f);
+        view.OriginY.ShouldBe(-64.25f);
+        view.OriginZ.ShouldBe(32f);
+        view.Pitch.ShouldBe(10f);
+        view.Yaw.ShouldBe(-170.5f);
+        view.Roll.ShouldBe(0f);
+    }
+
+    [Fact]
+    public void CommandsWithoutCameraInformation_ReportNone()
+    {
+        // Only dem_signon and dem_packet carry democmdinfo_t. Reporting a zeroed camera for the
+        // others would be inventing one, and a viewer cannot tell an invented origin from a real
+        // one at the origin.
+        List<byte> command = [(byte)DemoCommandType.ConsoleCmd];
+        command.AddRange(BitConverter.GetBytes(7));
+        command.AddRange(BitConverter.GetBytes(4));
+        command.AddRange(new byte[4]);
+
+        DemoCommandReader.Read(command.ToArray()).First().View.ShouldBeNull();
+    }
+
     private const int CommandInfoBytes = 76;
 
     /// <summary>Assembles a synthetic command stream (header bytes excluded).</summary>

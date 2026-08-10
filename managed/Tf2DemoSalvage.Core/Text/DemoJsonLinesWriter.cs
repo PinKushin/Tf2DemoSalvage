@@ -106,6 +106,30 @@ public static class DemoJsonLinesWriter
             });
         }
 
+        // The camera track, straight off the commands rather than out of the scan - democmdinfo_t
+        // sits in the container, not in the message stream. This is the recording client's own
+        // viewpoint over time, which is what a 2D or 3D viewer follows and which nothing else in
+        // the file records.
+        foreach (DemoCommand command in commands)
+        {
+            if (command.View is not { } view)
+            {
+                continue;
+            }
+
+            WriteLine(writer, json =>
+            {
+                json.WriteString("type", "camera");
+                json.WriteNumber("tick", command.Tick);
+                json.WriteNumber("x", view.OriginX);
+                json.WriteNumber("y", view.OriginY);
+                json.WriteNumber("z", view.OriginZ);
+                json.WriteNumber("pitch", view.Pitch);
+                json.WriteNumber("yaw", view.Yaw);
+                json.WriteNumber("roll", view.Roll);
+            });
+        }
+
         foreach ((int tick, UserMessage user) in scan.UserMessages)
         {
             WriteLine(writer, json =>

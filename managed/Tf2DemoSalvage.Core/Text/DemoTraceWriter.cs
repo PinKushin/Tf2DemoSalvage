@@ -158,6 +158,16 @@ public static class DemoTraceWriter
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"block {kind} tick {command.Tick} {{"));
 
+        // The camera this command was recorded from. Skipped by the reader until now, and the
+        // only record in the file of where the recording client was looking.
+        if (command.View is { } view)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    view origin {view.OriginX:F3} {view.OriginY:F3} {view.OriginZ:F3} " +
+                $"angles {view.Pitch:F3} {view.Yaw:F3} {view.Roll:F3} flags {view.Flags};"));
+        }
+
         foreach (INetMessage message in result.Messages)
         {
             if (message is PacketEntitiesMessage snapshot && entities is not null &&

@@ -13,6 +13,11 @@ namespace Tf2DemoSalvage.Core.Container;
 /// and <see cref="DemoCommandType.Signon"/> this is the network message data only —
 /// <c>democmdinfo_t</c> and the sequence numbers are consumed by the reader.
 /// </param>
+/// <param name="View">
+/// The camera this command was recorded from, or <c>null</c> for command types that carry no
+/// <c>democmdinfo_t</c>. Only <see cref="DemoCommandType.Signon"/> and
+/// <see cref="DemoCommandType.Packet"/> carry one.
+/// </param>
 /// <remarks>
 /// <see cref="ReadOnlyMemory{T}"/> rather than <c>ReadOnlySpan</c> so commands can be yielded
 /// from an iterator and held across an <c>await</c>; a span cannot leave the stack. Nothing is
@@ -21,4 +26,5 @@ namespace Tf2DemoSalvage.Core.Container;
 public readonly record struct DemoCommand(
     DemoCommandType Type,
     int Tick,
-    ReadOnlyMemory<byte> Payload);
+    ReadOnlyMemory<byte> Payload,
+    ViewInfo? View = null);
