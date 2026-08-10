@@ -264,3 +264,43 @@ search, even though that string would carry an exact protocol pair and a date.
 Better angle for a future attempt: the site orders threads by date, and TF2 moved to Source
 Multiplayer in **October 2011**. Threads from that fortnight in `TF2 General Discussion` are where
 a break would have been reported, and can be read directly rather than searched for.
+
+
+---
+
+## Pre-registered prediction for a protocol-14 demo
+
+Written **before** such a demo was obtained, so the outcome can falsify the model rather than be
+explained by it. A 2008 Orange Box build is being acquired at the time of writing.
+
+Every protocol-conditional branch in the parser, and what each does at 14 versus the 15 already
+validated:
+
+| Branch | Protocol 15 (validated) | Protocol 14 | Differs? |
+|---|---|---|---|
+| String table compression flag | present | **absent** | **YES — the only one** |
+| Message type field width | 5 bits | 5 bits | no |
+| `SendPropType` numbering | old | old | no |
+| `svc_ServerInfo` replay flag | absent | absent | no |
+| Map hash | 4-byte CRC | 4-byte CRC | no |
+| `svc_Prefetch` index | 13 bits | 13 bits | no |
+| String table / temp entity length | fixed | fixed | no |
+
+**The prediction: a protocol-14 demo decodes end to end with zero stops, exercising exactly one
+branch that has never run against real data** — the missing compression flag in
+`svc_CreateStringTable`, from `PROTOCOL_VERSION_14`.
+
+**What would falsify the model.** Any failure *not* in string table decoding. String tables are
+load-bearing, so a wrong compression-flag rule desynchronises everything after them and the trace
+stops in a `svc_createstringtable` block. A stop anywhere else — in `svc_ServerInfo`, in the
+schema, in entity decode — means an era difference exists between 14 and 15 that neither
+`proto_version.h` nor this project knows about, exactly as happened for B17 and B18 between 15
+and 24.
+
+**Secondary outcome regardless of the above:** the era-fingerprint table gains a fourth column,
+and with it a pre-Source-2009 anchor. Max classes, string table count and game event definitions
+should all be *lower* than 2009's 232 / 16 / 156 if the build is genuinely older.
+
+**If `version` reports 15 rather than 14**, the trip teaches nothing new about the format and the
+build is redundant with the one already in the corpus. That check costs one console command and
+should be run before recording anything.
