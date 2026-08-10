@@ -198,12 +198,29 @@ public sealed class SkippableMessageTests
     [Fact]
     public void FixAngle_IsAFlagAndThreeSixteenBitAngles()
     {
+        // Angles travel as a fraction of a full turn in 16 bits, so degrees are raw x 360 / 65536:
+        // a quarter turn is 16384 and an eighth is 8192.
+        //
+        // Asserting the tick behind the message proves only that the reader consumed the right
+        // number of bits. It is blind to what those bits became, which let both halves of the
+        // conversion be wrong without failing - and a wrong angle fails as a plausible number, not
+        // as an error. Roll is deliberately not zero-only: 0 x anything is 0, so a zero-valued
+        // field cannot tell a multiply from a divide.
         BitWriter writer = new();
         writer.Message(NetMessageType.FixAngle)
-            .Write(1, 1).Write(16384, 16).Write(8192, 16).Write(0, 16);
+            .Write(1, 1).Write(16384, 16).Write(8192, 16).Write(49152, 16);
         writer.NetTick(1616, 0, 0);
 
-        Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1616);
+        System.Collections.Generic.IReadOnlyList<INetMessage> messages = Read(writer);
+
+        FixAngleMessage angle = messages.OfType<FixAngleMessage>().ShouldHaveSingleItem();
+        angle.IsRelative.ShouldBeTrue();
+        angle.Pitch.ShouldBe(90f);
+        angle.Yaw.ShouldBe(45f);
+        angle.Roll.ShouldBe(270f);
+
+        // The alignment control this test used to be entirely made of.
+        messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1616);
     }
 
     [Fact]
