@@ -132,7 +132,38 @@ Worth recording, because the project's central bet is that these are rare.
 
 **One demo in protocols 16–23 would settle the first two at once.** That is roughly TF2
 2010–2013, so league archives from that window — ESEA, ETF2L, ozfortress — are the highest-value
-acquisition for this document.
+acquisition for this document. Such a demo is both the answer *and* the regression test, which is
+why it beats any amount of reading.
+
+### One deduction that narrows it without a demo
+
+`PROTOCOL_VERSION_REPLAY = 16`, and Replay shipped in mid-2012. So **protocol 15 spans June 2009
+to 2012** — a three-year era, which is why a 2009 demo and a 2011 demo would likely both be
+protocol 15.
+
+Both open changes are *network format* changes, and a protocol number only moves when the wire
+format does. So neither happened inside the protocol-15 era: both are at 16 or later. That rules
+out the possibility that they arrived quietly during those three years.
+
+### Searched and came up empty — do not repeat
+
+**The TF2 wiki's patch archive does not record protocol changes.** Established with a control
+rather than assumed:
+
+| Query | Hits |
+|---|---|
+| `Scout` | 808 — search works |
+| `protocol` | 3, all a custom mission |
+| `insource:protocol` | 0 — **unsupported, and silently returns zero** |
+
+That last row is worth its own warning: `insource:` needs CirrusSearch, which this wiki does not
+run, so it returns an empty result rather than an error. A search that cannot work looks exactly
+like a search that found nothing — the same false-negative shape as the VsTest runner scoring
+1.27% and a non-matching Stryker glob.
+
+Valve's own update pages *have* mentioned protocol changes at least once — the 119th update
+retrospective states demos recorded with protocol 12 stayed playable under 13 — so
+`teamfortress.com` post archives and SteamDB patch notes remain unexhausted. The wiki does not.
 
 ---
 
