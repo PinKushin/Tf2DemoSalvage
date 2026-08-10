@@ -130,24 +130,14 @@ public sealed class EntityDecoder
     /// Derived, never transmitted. A wrong width here does not fail — it misreads the class of
     /// every entering entity, and therefore every property they carry.
     ///
-    /// It is <c>floor(log2(count)) + 1</c>, not <c>ceil</c>. The two agree on exact powers of
-    /// two and on small counts, which is why fixtures with a handful of classes cannot tell
-    /// them apart — the first evidence came from a real demo, where 362 classes must be 9 bits
-    /// and the ceiling form said 10.
+    /// It is <c>floor(log2(count)) + 1</c>, not <c>ceil</c>. The two agree except on exact powers
+    /// of two, which is why fixtures with a handful of classes cannot tell them apart — the first
+    /// evidence came from a real demo, where 362 classes must be 9 bits and the ceiling form said
+    /// 10. Kept as the entity decoder's own entry point because that is where callers look for it,
+    /// but the implementation lives in <see cref="WireWidths.ClassId"/> so it cannot drift from
+    /// the copy <c>svc_ClassInfo</c> needs.
     /// </remarks>
-    public static int ClassIdBits(int classCount)
-    {
-        int bits = 0;
-        while (classCount > 1)
-        {
-            // Stryker disable once Assignment: >>> differs from >> only for a negative value,
-            // and the loop condition means a negative never reaches here. Equivalent mutant.
-            classCount >>= 1;
-            bits++;
-        }
-
-        return bits + 1;
-    }
+    public static int ClassIdBits(int classCount) => WireWidths.ClassId(classCount);
 
     /// <summary>Decodes one snapshot body.</summary>
     /// <param name="body">Buffer holding the body's bits, starting at bit zero.</param>

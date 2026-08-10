@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -35,17 +36,5 @@ public sealed record ClassInfoMessage(
     /// Bits needed to index the class list. Derived from <see cref="ClassCount"/>, and used by
     /// the entity decoder to read a class id.
     /// </summary>
-    public int ClassIdBits
-    {
-        get
-        {
-            int bits = 0;
-            while (1 << bits < ClassCount)
-            {
-                bits++;
-            }
-
-            return bits;
-        }
-    }
+    public int ClassIdBits => WireWidths.ClassId(ClassCount);
 }

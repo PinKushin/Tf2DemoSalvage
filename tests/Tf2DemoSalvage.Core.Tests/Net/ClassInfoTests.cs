@@ -1,4 +1,5 @@
 using System.Linq;
+using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
@@ -13,16 +14,17 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class ClassInfoTests
 {
-    private static int BitsFor(int count)
-    {
-        int bits = 0;
-        while (1 << bits < count)
-        {
-            bits++;
-        }
-
-        return bits;
-    }
+    /// <summary>
+    /// The width entry ids are written at, stated once for the fixtures that do not pin it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately the production function rather than a second copy. A fixture helper that
+    /// recomputes the width shares whatever the reader believes, so the two agree by construction
+    /// and the test cannot fail — which is how the ceiling form survived here.
+    /// <see cref="ClassInfo_ReadsEntryIdsAtFloorLogTwoPlusOne"/> states the widths as literals and
+    /// is what actually pins them.
+    /// </remarks>
+    private static int BitsFor(int count) => WireWidths.ClassId(count);
 
     /// <summary>Writes a ClassInfo carrying explicit entries.</summary>
     private static void WriteInto(BitWriter writer, params (int Id, string Class, string Table)[] classes)
@@ -33,7 +35,7 @@ public sealed class ClassInfoTests
 
         foreach ((int id, string className, string tableName) in classes)
         {
-            writer.Write((uint)id, BitsFor(classes.Length) + 1).String(className).String(tableName);
+            writer.Write((uint)id, BitsFor(classes.Length)).String(className).String(tableName);
         }
     }
 
@@ -42,6 +44,47 @@ public sealed class ClassInfoTests
         BitWriter writer = new();
         WriteInto(writer, classes);
         return writer.Build();
+    }
+
+    [Theory]
+    [InlineData(3, 2)]
+    [InlineData(4, 3)]
+    [InlineData(256, 9)]
+    [InlineData(362, 9)]
+    public void ClassInfo_ReadsEntryIdsAtFloorLogTwoPlusOne(int count, int idBits)
+    {
+        // Same width the entity decoder already uses - floor(log2(n)) + 1, the engine's
+        // GetServerClassBits - and this message is where it is first established. Two formulas
+        // for one wire quantity had drifted apart in this file: the entity decoder's, corrected
+        // against a real demo's 362 classes, and a ceiling form here.
+        //
+        // They disagree on exactly two shapes, and both rows are present:
+        //   3 classes - ceiling says 2, ceiling-plus-one (what the reader used) says 3, wire is 2
+        //   256 classes - a power of two, where ceiling says 8 and the wire is 9
+        // 256 is not hypothetical: it is max_classes for protocol 15, build 3862.
+        //
+        // The fixture states the width as a literal rather than calling the helper the reader
+        // agrees with. The old test could not fail, because fixture and reader shared one wrong
+        // formula - each confirmed the other and the wire was never consulted.
+        //
+        // A net_tick follows as the control. A wrong width leaves the reader mid-message, so the
+        // tick either fails to appear or comes back as something other than 4242.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.ClassInfo).Write((uint)count, 16).Write(0, 1);
+        foreach (int id in Enumerable.Range(0, count))
+        {
+            writer.Write((uint)id, idBits).String("C").String("DT");
+        }
+
+        writer.NetTick(4242, 0, 0);
+
+        NetMessageReadResult result = NetMessageReader.Read(writer.Build());
+        ClassInfoMessage info = result.Messages[0].ShouldBeOfType<ClassInfoMessage>();
+
+        info.Classes.Count.ShouldBe(count);
+        info.Classes[^1].Id.ShouldBe(count - 1);
+        info.ClassIdBits.ShouldBe(idBits);
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
     [Fact]
@@ -74,8 +117,8 @@ public sealed class ClassInfoTests
         ClassInfoMessage info = NetMessageReader.Read(packet)
             .Messages[0].ShouldBeOfType<ClassInfoMessage>();
 
-        // Four classes need two bits to index.
-        info.ClassIdBits.ShouldBe(2);
+        // Four classes need three bits: floor(log2(4)) + 1, the count's width in binary.
+        info.ClassIdBits.ShouldBe(3);
     }
 
     [Fact]

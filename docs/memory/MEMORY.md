@@ -20,3 +20,4 @@
 - [International names are required](international-names-are-required.md) — every decoder is UTF-8; ASCII corrupts a name into a plausible one, and the fixture builders hid it.
 - [The era axis is measured](era-axis-is-measured.md) — protocols 11/14/15/16/24 dated exactly by running period clients; gaps at 12–13 and 17–23; date a candidate from engine.dll before downloading it.
 - [Record both points of view](record-both-points-of-view.md) — a POV/STV pair of one session is the control that proved the 64 KiB schema cap was the writer's, not the parser's.
+- [Read the encoder, not the decoder](read-the-encoder-not-the-decoder.md) — an encoder states intent a decoder only implies; a case the corpus never contains is a case the corpus cannot rule on.

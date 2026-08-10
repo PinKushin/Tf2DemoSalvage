@@ -619,17 +619,13 @@ public static class NetMessageReader
             return new ClassInfoMessage(count, true, []);
         }
 
-        int idBits = 0;
-        while (1 << idBits < count)
-        {
-            idBits++;
-        }
+        int idBits = WireWidths.ClassId(count);
 
         List<ServerClass> classes = new(count);
         for (int i = 0; i < count; i++)
         {
             classes.Add(new ServerClass(
-                (int)reader.ReadUInt32(idBits + 1),
+                (int)reader.ReadUInt32(idBits),
                 NetBitReading.ReadString(ref reader),
                 NetBitReading.ReadString(ref reader)));
         }
