@@ -1,0 +1,124 @@
+# Mutation testing (Stryker.NET).
+#
+# Weekly, not per-push: a full core run takes 1.5-2 hours on the owner's machine because the
+# corpus is 305 MB of real demos and the strongest tests walk all of them. See DECISIONS.md D15.
+#
+# Two jobs rather than two workflows so the LFS corpus is fetched once. The CLI job runs first
+# because it takes about a minute and populates the shared LFS cache that the core job then
+# restores; reversing them would leave the core job pulling 305 MB while the CLI job pulled it
+# again in parallel. They stay separate jobs so the dashboard shows exactly which one failed.
+name: Mutation
+
+on:
+  schedule:
+    # Sunday 06:00 UTC. Long enough before the working week that a failure is seen on Monday.
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Only mutate code changed since main (much faster)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    name: CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetched explicitly below so the objects can be cached. Letting checkout pull LFS
+          # would spend the account's 1 GiB/month LFS bandwidth on every single run.
+          lfs: false
+          fetch-depth: 0
+
+      - name: List LFS objects
+        run: git lfs ls-files --long | cut -d' ' -f1 | sort > .lfs-assets-id
+
+      - name: Restore LFS cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.lfs-assets-id') }}
+
+      - name: Fetch corpus
+        run: |
+          git lfs pull
+          git lfs checkout
+          # A pointer stub is ~130 bytes. If the demos did not really arrive, every corpus test
+          # silently degrades to a no-op rather than failing - exactly the trap in RISKS B20.
+          smallest=$(find tools/corpus/demos -name '*.dem' -printf '%s\n' | sort -n | head -1)
+          echo "smallest demo: $smallest bytes"
+          test "$smallest" -gt 4096
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - run: dotnet tool restore
+
+      - name: Stryker (CLI)
+        working-directory: tests/Tf2DemoSalvage.Cli.Tests
+        run: dotnet stryker ${{ inputs.since && '--since:main' || '' }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-cli
+          path: tests/Tf2DemoSalvage.Cli.Tests/StrykerOutput/*/reports/
+          if-no-files-found: error
+
+  core:
+    name: Core
+    needs: cli
+    runs-on: ubuntu-latest
+    # A full run is 1.5-2 hours locally and a hosted runner is slower. Fail cleanly rather than
+    # being killed at GitHub's 6 hour ceiling with no report.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          fetch-depth: 0
+
+      - name: List LFS objects
+        run: git lfs ls-files --long | cut -d' ' -f1 | sort > .lfs-assets-id
+
+      - name: Restore LFS cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.lfs-assets-id') }}
+
+      - name: Fetch corpus
+        run: |
+          git lfs pull
+          git lfs checkout
+          smallest=$(find tools/corpus/demos -name '*.dem' -printf '%s\n' | sort -n | head -1)
+          echo "smallest demo: $smallest bytes"
+          test "$smallest" -gt 4096
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - run: dotnet tool restore
+
+      - name: Stryker (Core)
+        working-directory: tests/Tf2DemoSalvage.Core.Tests
+        run: dotnet stryker ${{ inputs.since && '--since:main' || '' }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-core
+          path: tests/Tf2DemoSalvage.Core.Tests/StrykerOutput/*/reports/
+          # Not a warning. An upload that finds nothing is how a workflow keeps a green tick
+          # while having stopped producing anything - see the CI annotations rule.
+          if-no-files-found: error

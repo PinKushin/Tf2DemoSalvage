@@ -1,0 +1,124 @@
+# Coverage-guided fuzzing (SharpFuzz + libFuzzer).
+#
+# Nightly and deliberately short. docs/FUZZING.md measured the current targets saturating after
+# roughly 15,000 executions - `ft:` stops moving and the remaining ~790,000 executions find
+# nothing. A long run against BitReader or VarInt today would burn hours to learn nothing, so
+# this is a regression guard, not a search.
+#
+# Raise MAX_TOTAL_TIME when targets #3 and #4 land (string-table and SendTable delta decode,
+# then whole-file parse). Those have enough distinct paths to justify a long job; these do not.
+#
+# No Git LFS here on purpose: fuzzing builds Core and the harness and never reads the demo
+# corpus, so this workflow spends none of the account's 1 GiB/month LFS bandwidth.
+name: Fuzz
+
+on:
+  schedule:
+    # 05:00 UTC daily, before the mutation run so the two never contend for a runner.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds per target'
+        type: string
+        default: '120'
+
+permissions:
+  contents: read
+
+env:
+  MAX_TOTAL_TIME: ${{ inputs.seconds || '120' }}
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # One job per target so the dashboard names which decoder failed, and so one crashing
+      # target does not hide the other's result.
+      fail-fast: false
+      matrix:
+        target: [bitreader, varint]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache libfuzzer-dotnet
+        id: libfuzzer-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/libfuzzer-dotnet
+          key: libfuzzer-dotnet-${{ runner.os }}-v1
+
+      - name: Build libfuzzer-dotnet
+        if: steps.libfuzzer-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+          git clone --depth 1 https://github.com/Metalnem/libfuzzer-dotnet.git /tmp/libfuzzer-dotnet
+          clang -fsanitize=fuzzer /tmp/libfuzzer-dotnet/libfuzzer-dotnet.cc -o ~/libfuzzer-dotnet
+
+      - name: Publish the harness
+        run: dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o publish
+
+      - name: Instrument the code under test
+        run: |
+          dotnet tool install --global SharpFuzz.CommandLine
+          before=$(stat -c%s publish/Tf2DemoSalvage.Core.dll)
+          # Instrument Core, not the harness. Re-run after every publish; publishing silently
+          # un-instruments (docs/FUZZING.md).
+          sharpfuzz publish/Tf2DemoSalvage.Core.dll
+          after=$(stat -c%s publish/Tf2DemoSalvage.Core.dll)
+          echo "Core.dll $before -> $after bytes"
+          # The only proof instrumentation actually happened. Without it the fuzzer runs happily
+          # and explores nothing, which looks identical to a clean run.
+          test "$after" -gt "$before"
+
+      - name: Restore fuzz corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: corpus-${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      - name: Fuzz
+        env:
+          TF2FUZZ_TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p corpus-${{ matrix.target }} artifacts-${{ matrix.target }}
+          before=$(ls corpus-${{ matrix.target }} | wc -l)
+
+          ~/libfuzzer-dotnet \
+            --target_path=$(which dotnet) \
+            --target_arg=$PWD/publish/Tf2DemoSalvage.Fuzz.dll \
+            corpus-${{ matrix.target }} \
+            -max_total_time=$MAX_TOTAL_TIME \
+            -print_final_stats=1 \
+            -artifact_prefix=artifacts-${{ matrix.target }}/
+
+          after=$(ls corpus-${{ matrix.target }} | wc -l)
+          echo "corpus entries: $before -> $after"
+
+      - name: Save fuzz corpus
+        # The fuzzer's memory. An input that took an hour to discover is worth keeping, and a
+        # corpus that never grows across runs is the tell that instrumentation broke.
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: corpus-${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: artifacts-${{ matrix.target }}/
+          if-no-files-found: ignore

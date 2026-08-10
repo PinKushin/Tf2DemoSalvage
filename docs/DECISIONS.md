@@ -860,3 +860,65 @@ Remaining options, in preference order:
    measure before adopting.
 3. **Accept it and keep `additional-timeout` raised**, paying roughly 25 seconds per hanging
    mutant, and always reading the floor alongside the headline.
+
+### D26 — CI runs mutation and fuzzing on separate schedules, and LFS bandwidth shapes both
+
+Two workflows, deliberately separate so each can be run independently and so the dashboard names
+which one failed: `.github/workflows/mutation.yml` and `.github/workflows/fuzz.yml`.
+
+#### The binding constraint is Git LFS bandwidth, not Actions minutes
+
+The repository is public, so Actions minutes are free and unlimited. **Git LFS is not.** The free
+tier allows 1 GiB of bandwidth per month for the account, and the corpus is 305 MB — so an
+uncached checkout exhausts the quota in **three runs**, whatever the repo's visibility.
+
+Both workflows are built around that:
+
+- `actions/checkout` runs with `lfs: false`, and the objects are fetched separately behind an
+  `actions/cache` keyed on the LFS object ids. The corpus changes rarely, so after the first run
+  this costs nothing.
+- The **fuzz workflow never fetches the corpus at all.** Fuzzing builds Core and the harness and
+  reads no demos, so it spends none of the quota and can run nightly.
+- The mutation workflow runs its two jobs in sequence rather than in parallel — CLI first, which
+  takes about a minute and populates the shared cache, then Core. Run in parallel they would both
+  miss the cache and pull 305 MB each.
+
+#### Cadence follows measured cost, not preference
+
+| Workflow | Schedule | Why |
+|---|---|---|
+| Mutation | weekly, Sunday 06:00 UTC | 1.5-2 hours locally, slower on a hosted runner (D15) |
+| Fuzz | nightly, 05:00 UTC, 120s per target | short by design, see below |
+
+**The fuzz job is deliberately short**, and that follows `docs/FUZZING.md` rather than caution:
+the current targets saturate after roughly 15,000 executions — `ft:` stops moving and the
+remaining ~790,000 executions discover nothing. A long nightly run against `BitReader` or
+`VarInt` would burn hours to learn nothing. It is a regression guard today, and `MAX_TOTAL_TIME`
+should rise when targets #3 and #4 land (string-table and SendTable delta decode, then whole-file
+parse), which have enough distinct paths to justify it.
+
+#### Both workflows assert that their inputs actually arrived
+
+Three checks exist because the corresponding failures are all silent:
+
+1. **The corpus really downloaded.** An LFS pointer stub is ~130 bytes; if the demos do not
+   arrive, every corpus test degrades to a no-op and passes. The workflow asserts the smallest
+   `.dem` exceeds 4 KB. This is RISKS B20 as a CI step.
+2. **Instrumentation really happened.** `sharpfuzz` rewriting `Tf2DemoSalvage.Core.dll` must grow
+   the file. An un-instrumented fuzz run explores nothing and looks exactly like a clean one.
+3. **Artifacts really uploaded.** `if-no-files-found: error`, not the default warning — an upload
+   that finds nothing is precisely how a workflow keeps a green tick after it has stopped
+   producing anything.
+
+#### Still to verify on the first real run
+
+Per the standing rule that a green tick is not a clean run, read the **annotations** of the first
+run of each workflow, not just the status:
+
+```bash
+gh api repos/{owner}/{repo}/check-runs/{job-id}/annotations --jq 'length'
+```
+
+Specifically unverified until then: whether a hosted 4-core runner finishes the core mutation
+inside the 300-minute timeout, and whether `libfuzzer-dotnet` builds cleanly against the runner's
+clang.
