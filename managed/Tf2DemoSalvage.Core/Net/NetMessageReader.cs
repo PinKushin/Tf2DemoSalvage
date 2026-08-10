@@ -405,8 +405,16 @@ public static class NetMessageReader
                             ChatMessage.Parse(userBody) is ChatMessage chat)
                         {
                             messages.Add(chat);
+                            break;
                         }
 
+                        // Everything else is reported by name rather than vanishing into an
+                        // anonymous skipped message. Each type has its own body layout defined
+                        // by the game DLL, so decoding all 79 is 79 formats - naming them is
+                        // most of the readability, and it makes the rest individually
+                        // addressable instead of hidden behind one count.
+                        messages.Add(new UserMessage(
+                            userType, UserMessageNames.Lookup(userType), userBits));
                         break;
                     }
 

@@ -1045,3 +1045,46 @@ stays true if globs are ever added.
 | Core.Tests mutation | 4 min | every change, freely |
 | Cli.Tests mutation | 1 min | every change, freely |
 | Corpus.Tests mutation | hours | weekly, CI only |
+
+### D28 — user messages are named, not decoded, and the name table is generated
+
+`svc_UserMessage` used to vanish into an anonymous `SkippedMessage` — 106 of them in a single
+2009 demo. They now report their type and its registered name.
+
+**Named rather than decoded, deliberately.** Each of the 79 types has its own body layout defined
+by the game DLL, so decoding them all is 79 separate formats. Naming the type is most of the
+readability for a fraction of the work, and it turns one anonymous count into 79 individually
+addressable items — any of which can be decoded later when something actually needs it.
+
+**The table is generated from `game/shared/tf/tf_usermessages.cpp` in the TF2 SDK, not recalled.**
+A user message carries no name on the wire, only an id, which is that file's registration order —
+so a wrong table renames every message in a trace while failing nothing.
+
+#### Two independent cross-checks, because the table could not be diffed across eras
+
+The 2009 SDK ships no TF2 game code, so the old registration order cannot be read from source.
+Both checks are behavioural instead:
+
+1. **`SayText2` lands at index 4**, matching a constant proven against real chat in real demos
+   long before this table existed.
+2. **Point-of-view demos carry `Damage`, `Rumble` and `VoiceSubtitle`; SourceTV demos carry
+   none of them.** Those go to the local player, so the split is exactly what the game would
+   produce — and a misaligned table would not reproduce it.
+
+**And the second check holds across eras**, which is what settles the era question: the 2009 POV
+demo shows `Damage` and `Rumble`, the 2020 POV demo shows them, and neither SourceTV demo does.
+The 2009 demo also uses **only ids 0–28**, with no MvM messages — those start at 55 and MvM
+shipped in 2012. So the low range has been append-only, and the table applies to both eras.
+
+That is evidence rather than proof. If a message was ever *inserted* rather than appended, ids
+after the insertion shift — the same trap as the property-type renumbering in RISKS B18. Ids past
+the end of the table are reported by number with no name, so an unknown one is visible rather
+than mislabelled.
+
+#### One oddity, recorded rather than explained
+
+Every modern corpus demo shows a dozen or so `MVMResetPlayerStats` (id 57) in ordinary
+competitive matches, and the 2009 demo shows `Geiger` and `Train` — both HL2 leftovers TF2 has
+no obvious use for. Either those ids mean something else in the builds that recorded these
+demos, or the game really does send them. Not resolved, and not blocking: the ids are reported
+alongside the names, so a reader can see the number that was actually on the wire.

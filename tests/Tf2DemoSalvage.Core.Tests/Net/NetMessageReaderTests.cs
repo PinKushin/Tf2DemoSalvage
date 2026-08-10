@@ -182,4 +182,83 @@ public sealed class NetMessageReaderTests
         result.StopReason.ShouldBeNull();
         result.BitsConsumed.ShouldBe(0);
     }
+
+    [Theory]
+    [InlineData(4, "SayText2")]
+    [InlineData(18, "Damage")]
+    [InlineData(0, "Geiger")]
+    [InlineData(78, "BuiltObject")]
+    public void UserMessage_IsReportedWithItsRegisteredName(int type, string expected)
+    {
+        // A user message is where TF2 puts most of what a reader wants - damage numbers,
+        // announcements, vote results - and every one of them used to appear in a trace as an
+        // anonymous skipped message. Naming the type is most of the readability.
+        //
+        // The ids come from the registration order in tf_usermessages.cpp, read from the SDK
+        // rather than recalled. SayText2 at 4 is the cross-check: it was already proven correct
+        // against real chat before the table existed.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.UserMessage)
+            .Write((uint)type, 8)
+            .Write(16, 11)
+            .Write(0xBEEF, 16);
+        writer.NetTick(4242, 0, 0);
+
+        NetMessageReadResult result = NetMessageReader.Read(writer.Build());
+
+        UserMessage user = result.Messages.OfType<UserMessage>().ShouldHaveSingleItem();
+        user.UserMessageType.ShouldBe(type);
+        user.Name.ShouldBe(expected);
+        user.BodyBits.ShouldBe(16);
+
+        // The tick behind it: naming a message must not change how many bits it consumes.
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
+    }
+
+    [Fact]
+    public void UnknownUserMessageType_IsReportedWithoutAName()
+    {
+        // The table is TF2's registration order at one point in its history, so an id past the
+        // end is expected on other eras or other games. Reporting the number with no name is
+        // honest; inventing one would be worse than saying nothing.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.UserMessage).Write(200, 8).Write(8, 11).Write(0xAB, 8);
+
+        UserMessage user = NetMessageReader.Read(writer.Build())
+            .Messages.OfType<UserMessage>().ShouldHaveSingleItem();
+
+        user.UserMessageType.ShouldBe(200);
+        user.Name.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ChatUserMessages_AreStillDecodedAsChat()
+    {
+        // The control. SayText2 was decoded before this change and must not regress into a
+        // merely-named message - naming the rest is an addition, not a replacement.
+        // Body shape copied from ChatMessageTests rather than invented: client index, a flag,
+        // then NUL-terminated localisation key, sender and text. An earlier version of this
+        // fixture guessed the layout and produced bytes that parsed to nothing.
+        byte[] bytes =
+        [
+            3, 1,
+            .. System.Text.Encoding.UTF8.GetBytes("TF_Chat_All"), 0,
+            .. System.Text.Encoding.UTF8.GetBytes("Sassy"), 0,
+            .. System.Text.Encoding.UTF8.GetBytes("hello"), 0,
+        ];
+
+        BitWriter writer = new();
+        writer.Message(NetMessageType.UserMessage)
+            .Write(4, 8)
+            .Write((uint)(bytes.Length * 8), 11);
+        foreach (byte b in bytes)
+        {
+            writer.Write(b, 8);
+        }
+
+        NetMessageReadResult result = NetMessageReader.Read(writer.Build());
+
+        result.Messages.OfType<ChatMessage>().ShouldHaveSingleItem();
+    }
+
 }
