@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// Entity decoding run against real demos, where a hand-built fixture cannot help.
 /// </summary>
 /// <remarks>
-/// The fixtures in <see cref="EntityDecoderTests"/> prove the decoder matches the SDK's write
+/// The fixtures in <c>EntityDecoderTests</c> (now in Tf2DemoSalvage.Core.Tests) prove the decoder matches the SDK's write
 /// path as read. They cannot prove that reading is right, because both sides came from the same
 /// head — and for a while they did not. Every fixture passed while real demos desynchronised
 /// inside <c>CTFPlayer</c>, because the flattened property order was wrong in a way that

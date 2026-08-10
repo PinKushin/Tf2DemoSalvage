@@ -5,6 +5,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Corpus.Tests/Tf2DemoSalvage.Corpus.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Core.Tests/Tf2DemoSalvage.Core.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
   </Folder>

@@ -973,3 +973,60 @@ position at an arbitrary tick, and that is the consumer this was built for.
 Inventing a consumer now to make the wiring look finished would add output nobody asked for and
 inflate the trace tenfold. The honest state is: the capability exists, is tested against every
 corpus demo, and waits for Phase 2.
+
+### D25 outcome — the split landed, and it settled the glob question by measurement
+
+Done 2026-08-10. Cleaner than planned: **no shared `TestSupport` project was needed**, because no
+corpus test uses `BitWriter` or `GameEventFixtures`. The seam really was already there. Only two
+files mixed the two kinds, exactly as predicted, and `ReferenceParser` came along with the
+differential test.
+
+| project | tests | wall clock |
+|---|---|---|
+| `Tf2DemoSalvage.Core.Tests` (synthetic) | 558 | **274 ms** |
+| `Tf2DemoSalvage.Corpus.Tests` | 62 | 12 s |
+| `Tf2DemoSalvage.Cli.Tests` | 51 | 7 s |
+
+#### Mutation on the fast project: 1h29m to 3m55s
+
+```
+Killed 808   Survived 51   Timeout 8   NoCoverage 100   ->  84.38 %
+```
+
+**The measurement got better, not just faster.** Timeouts fell from 134 to 8, which confirms D24's
+diagnosis outright: they were cold-corpus-walk artifacts, and the synthetic project never walks a
+demo. The honest floor is now `808 / 967 = 83.6%`, so the band between headline and floor
+collapsed from **71–86%** to **83.6–84.4%**. That is the difference between a number worth acting
+on and a number worth arguing about.
+
+#### Correction: no `mutate` globs, contrary to the plan
+
+D25 said the daily run must scope `mutate` to the pure files, or corpus-only code would report
+`NoCoverage` and produce a meaningless low score. Measured, that fear was overstated: 100
+NoCoverage mutants out of 967, and the score still clears the threshold.
+
+And nearly all of it is the output writers, not decode logic:
+
+```
+47  DemoJsonLinesWriter.cs      24  DemoTraceWriter.cs      15  DemoTextDumper.cs
+ 7  NetDecodeState.cs            3  RosterBuilder.cs         3  DemoScan.cs
+```
+
+Those are covered by the weekly corpus run, which is where they belong.
+
+**So no globs are configured.** The reasoning is asymmetric risk: a wrong glob fails *silently*,
+measuring a fraction of the intended set while reporting a plausible percentage (see
+`tests/STRYKER-NOTES.md`). Six globs is six chances to write one repo-relative out of habit, and
+the entire prize is recovering ten percent of a score that already passes. Not worth it.
+
+The file-set guard designed for those globs is therefore not needed either. Recorded rather than
+deleted, because the reasoning behind it — that a NoCoverage check cannot detect a missing file —
+stays true if globs are ever added.
+
+#### Cadence, now that the numbers are known
+
+| run | cost | cadence |
+|---|---|---|
+| Core.Tests mutation | 4 min | every change, freely |
+| Cli.Tests mutation | 1 min | every change, freely |
+| Corpus.Tests mutation | hours | weekly, CI only |
