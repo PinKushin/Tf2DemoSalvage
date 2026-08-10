@@ -191,7 +191,7 @@ public static class DemoTraceWriter
             if (message is TempEntitiesMessage effects && entities is not null &&
                 effects.BodyBits > 0)
             {
-                WriteTempEntities(writer, effects, entities);
+                WriteTempEntities(writer, effects, entities, options);
                 continue;
             }
 
@@ -266,8 +266,17 @@ public static class DemoTraceWriter
     }
 
     /// <summary>Expands a <c>svc_TempEntities</c> body into one line per effect.</summary>
+    /// <remarks>
+    /// Property values follow the same switch as an entity snapshot's, for the same reason: they
+    /// are the bulk of the bits. The difference is that an effect's properties are the whole of
+    /// what it says — an explosion without its origin is a report that something exploded
+    /// somewhere — so a viewer wants them where an entity's per-tick deltas are noise.
+    /// </remarks>
     private static void WriteTempEntities(
-        TextWriter writer, TempEntitiesMessage message, EntityDecoder entities)
+        TextWriter writer,
+        TempEntitiesMessage message,
+        EntityDecoder entities,
+        DemoTraceOptions options)
     {
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
@@ -278,10 +287,30 @@ public static class DemoTraceWriter
             foreach (DecodedTempEntity effect in entities.DecodeTempEntities(
                 message.Body.Span, message.Count, message.BodyBits))
             {
-                writer.WriteLine(string.Create(
+                string reliable = effect.IsReliable ? " reliable" : string.Empty;
+                string head = string.Create(
                     CultureInfo.InvariantCulture,
                     $"        effect {Named(entities, effect.ClassId)} " +
-                    $"delay {effect.DelaySeconds:F2} props {effect.Properties.Count};"));
+                    $"delay {effect.DelaySeconds:F2}{reliable}");
+
+                if (!options.IncludeEntityProperties || effect.Properties.Count == 0)
+                {
+                    writer.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{head} props {effect.Properties.Count};"));
+                    continue;
+                }
+
+                writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{head} {{"));
+                foreach (DecodedProperty property in effect.Properties)
+                {
+                    writer.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"            {property.Definition.OwnerTable}.{property.Definition.Property.Name} " +
+                        $"{property.Value};"));
+                }
+
+                writer.WriteLine("        }");
             }
         }
         catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)

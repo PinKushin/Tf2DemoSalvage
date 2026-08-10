@@ -52,6 +52,7 @@ public sealed record DecodedEntity(
 /// <param name="ClassId">Networked class, which says what kind of effect it is.</param>
 /// <param name="DelaySeconds">How long after the message the effect fires.</param>
 /// <param name="Properties">The effect's parameters, read like any entity's.</param>
+/// <param name="IsReliable">Whether the message carried this effect as its single reliable event.</param>
 /// <remarks>
 /// No entity index and no serial number: a temp entity is fire-and-forget and never enters the
 /// entity table, which is why it needs a record of its own rather than reusing
@@ -60,7 +61,8 @@ public sealed record DecodedEntity(
 public sealed record DecodedTempEntity(
     int ClassId,
     float DelaySeconds,
-    IReadOnlyList<DecodedProperty> Properties);
+    IReadOnlyList<DecodedProperty> Properties,
+    bool IsReliable = false);
 
 /// <summary>
 /// Walks a <c>svc_PacketEntities</c> body, producing entities and their changed properties.
@@ -252,10 +254,17 @@ public sealed class EntityDecoder
         ReadOnlySpan<byte> body, int count, int lengthBits)
     {
         BitReader reader = new(body);
-        List<DecodedTempEntity> effects = new(count);
+
+        // A count byte of zero means one effect, sent reliably - not an empty message. The engine
+        // spends the unused zero on the case it can infer, so a decoder that loops `count` times
+        // drops a real effect and leaves the body unread with nothing reporting a problem.
+        bool reliable = count == 0;
+        int effectCount = reliable ? 1 : count;
+
+        List<DecodedTempEntity> effects = new(effectCount);
         int classId = -1;
 
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < effectCount; i++)
         {
             float delay = reader.ReadBit()
                 ? reader.ReadUInt32(DelayBits) / DelayScale
@@ -276,7 +285,7 @@ public sealed class EntityDecoder
             }
 
             effects.Add(new DecodedTempEntity(
-                classId, delay, ReadProperties(ref reader, classId)));
+                classId, delay, ReadProperties(ref reader, classId), reliable));
         }
 
         // The message states its own body length, so a correct reading lands on it. Anything else
@@ -285,7 +294,7 @@ public sealed class EntityDecoder
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
-                $"Decoding {count} temp entities consumed {reader.BitsRead} bits of a stated " +
+                $"Decoding {effectCount} temp entities consumed {reader.BitsRead} bits of a stated " +
                 $"{lengthBits}."));
         }
 

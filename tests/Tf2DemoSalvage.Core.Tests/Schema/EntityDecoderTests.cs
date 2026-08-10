@@ -109,6 +109,34 @@ public sealed class EntityDecoderTests
         effects[1].Properties.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void TempEntities_CountOfZeroMeansOneReliableEffect(int wireCount, bool expected)
+    {
+        // A count byte of zero does not mean an empty message - it means exactly one effect, sent
+        // reliably. The engine spends the count byte's zero value on the case it can infer, and a
+        // decoder that loops `count` times therefore drops a real effect and leaves the body
+        // unread, with nothing anywhere reporting a problem.
+        //
+        // Not reachable from the corpus: 11,192 svc_TempEntities messages across every era carry a
+        // nonzero count, so the input that separates right from wrong does not occur there. The
+        // encoder half of demostf/parser is what settles it - it writes 0 for a single reliable
+        // event, which only round-trips against a reader that reads it back that way.
+        //
+        // The count-1 row is the control. Same bytes, same single effect, and the reliability flag
+        // must NOT come back set - otherwise this passes on a decoder that ignores the count.
+        BitWriter writer = new();
+        writer.Write(0, 1).Write(1, 1).Write(2, ClassBits).Write(0, 1);
+
+        DecodedTempEntity effect = Decoder()
+            .DecodeTempEntities(writer.Build(), wireCount, writer.BitCount)
+            .ShouldHaveSingleItem();
+
+        effect.ClassId.ShouldBe(1);
+        effect.IsReliable.ShouldBe(expected);
+    }
+
     [Fact]
     public void TempEntities_WithABodyThatDoesNotFit_AreRefusedRatherThanGuessed()
     {

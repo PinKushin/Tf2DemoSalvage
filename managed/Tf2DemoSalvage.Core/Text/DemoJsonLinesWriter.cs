@@ -157,6 +157,7 @@ public static class DemoJsonLinesWriter
                 json.WriteString("class", className);
                 json.WriteNumber("classId", effect.ClassId);
                 json.WriteNumber("delay", effect.DelaySeconds);
+                json.WriteBoolean("reliable", effect.IsReliable);
                 json.WriteStartObject("fields");
                 foreach (DecodedProperty property in effect.Properties)
                 {
