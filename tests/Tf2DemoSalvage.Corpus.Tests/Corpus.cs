@@ -19,6 +19,24 @@ internal static class Corpus
     /// <summary>Anything smaller than this is a Git LFS pointer stub, not a demo.</summary>
     public const int SmallestPlausibleDemo = 4096;
 
+    /// <summary>
+    /// Extra demos, present only on a developer's machine and never committed.
+    /// </summary>
+    /// <remarks>
+    /// The committed corpus is deliberately one specimen per category — era and point of view —
+    /// because GitHub's free Git LFS tier is 1 GiB of bandwidth a month and every CI job that
+    /// fetches it pays. A seventh protocol-24 SourceTV demo costs real budget to test nothing new.
+    ///
+    /// **Locally there is no such constraint**, and more real files is strictly better coverage.
+    /// Anything dropped in <c>tools/corpus/local/</c> joins the run automatically. The directory
+    /// is already git-ignored, and for a second reason worth keeping in mind: self-recorded demos
+    /// carry the recorder's screen name and SteamID.
+    ///
+    /// This makes a local run a superset of CI rather than a different thing, so a local pass
+    /// cannot hide a CI failure — only the reverse, which is the useful direction.
+    /// </remarks>
+    private const string LocalDirectoryName = "local";
+
     /// <summary>Every usable demo in the corpus, in a stable order.</summary>
     public static IReadOnlyList<string> Files()
     {
@@ -28,10 +46,21 @@ internal static class Corpus
             return [];
         }
 
+        // Sibling of demos/, not a child: tools/corpus/local. Combining it onto `directory` gave
+        // tools/corpus/demos/local, which does not exist — so the extra files were silently
+        // ignored and the suite reported the same 59 cases as before. A path that does not exist
+        // is not an error here, it is a no-op, which is exactly how this kind of mistake hides.
+        string local = Path.Combine(
+            Path.GetDirectoryName(directory) ?? directory, LocalDirectoryName);
+        IEnumerable<string> paths = System.IO.Directory.EnumerateFiles(directory, "*.dem");
+        if (System.IO.Directory.Exists(local))
+        {
+            paths = paths.Concat(System.IO.Directory.EnumerateFiles(local, "*.dem"));
+        }
+
         return
         [
-            .. System.IO.Directory
-                .EnumerateFiles(directory, "*.dem")
+            .. paths
                 .Where(p => new FileInfo(p).Length >= SmallestPlausibleDemo)
                 .OrderBy(p => p, StringComparer.Ordinal)
         ];

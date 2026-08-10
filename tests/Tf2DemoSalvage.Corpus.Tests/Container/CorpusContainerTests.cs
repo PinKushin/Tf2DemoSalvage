@@ -52,10 +52,16 @@ public sealed class CorpusContainerTests
         string? directory = FindCorpusDirectory();
         directory.ShouldNotBeNull("tools/corpus/demos was not found above the test binary.");
 
+        // Both sides scoped to the COMMITTED corpus. This compared against every file the loader
+        // returns, which since local demos joined includes tools/corpus/local — so it measured
+        // four files against ten and reported "-6 of 4 are smaller than 4096 bytes". The question
+        // is whether the LFS content arrived for the tracked demos; local files are not tracked
+        // and cannot answer it.
         string[] onDisk = Directory.GetFiles(directory, "*.dem");
         onDisk.ShouldNotBeEmpty();
 
-        string[] usable = [.. EnumerateCorpus()];
+        string[] usable =
+            [.. onDisk.Where(p => new FileInfo(p).Length >= SmallestPlausibleDemo)];
         usable.Length.ShouldBe(
             onDisk.Length,
             $"{onDisk.Length - usable.Length} of {onDisk.Length} demo files are smaller than " +
@@ -154,39 +160,17 @@ public sealed class CorpusContainerTests
         commands.ShouldNotContain(c => c.Type == DemoCommandType.UserCmd);
     }
 
-    private static IEnumerable<string> EnumerateCorpus()
-    {
-        string? directory = FindCorpusDirectory();
-        if (directory is null)
-        {
-            return [];
-        }
-
-        return Directory
-            .EnumerateFiles(directory, "*.dem")
-            .Where(p => new FileInfo(p).Length >= SmallestPlausibleDemo)
-            .OrderBy(p => p, StringComparer.Ordinal);
-    }
-
     /// <summary>
-    /// Walks up from the test binary to the repository root, identified by the corpus directory
-    /// itself. Avoids hard-coding a relative depth that breaks when the output path changes.
+    /// Delegates to <see cref="Corpus"/> rather than locating the demos again.
     /// </summary>
-    private static string? FindCorpusDirectory()
-    {
-        DirectoryInfo? current = new(AppContext.BaseDirectory);
+    /// <remarks>
+    /// This file used to carry its own copy of the walk-up search and the stub filter. The copies
+    /// agreed until `Corpus` learned to include `tools/corpus/local/`, and then this one silently
+    /// did not: every `[Fact]` here saw the extra demos and the `[Theory]` did not, so the suite
+    /// reported the same case count while taking three times as long. Two implementations of
+    /// "where are the demos" is one too many.
+    /// </remarks>
+    private static IEnumerable<string> EnumerateCorpus() => Corpus.Files();
 
-        while (current is not null)
-        {
-            string candidate = Path.Combine(current.FullName, "tools", "corpus", "demos");
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            current = current.Parent;
-        }
-
-        return null;
-    }
+    private static string? FindCorpusDirectory() => Corpus.Directory();
 }
