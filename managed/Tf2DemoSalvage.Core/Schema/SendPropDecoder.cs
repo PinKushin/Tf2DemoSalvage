@@ -234,6 +234,9 @@ public static class SendPropDecoder
         bool multiplayer = !plainCoord && (flags & CoordMpFlag) != 0;
         bool lowPrecision = !plainCoord && !multiplayer &&
                             (flags & CoordMpLowPrecisionFlag) != 0;
+        // Stryker disable once Bitwise: this block is only entered when at least one of the four
+        // coord flags is set, so once the other three are ruled out this one must be — and & and
+        // | agree. Equivalent by construction, not a missing test.
         bool integral = !plainCoord && !multiplayer && !lowPrecision &&
                         (flags & CoordMpIntegralFlag) != 0;
 

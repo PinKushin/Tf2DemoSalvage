@@ -215,19 +215,25 @@ public sealed class NetMessageReaderTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
-    [Fact]
-    public void UnknownUserMessageType_IsReportedWithoutAName()
+    [Theory]
+    [InlineData(79)]    // exactly one past the last entry
+    [InlineData(200)]   // far past it
+    public void UnknownUserMessageType_IsReportedWithoutAName(int type)
     {
         // The table is TF2's registration order at one point in its history, so an id past the
         // end is expected on other eras or other games. Reporting the number with no name is
         // honest; inventing one would be worse than saying nothing.
+        //
+        // 79 is the case that matters. The bound is `type < Names.Length`, and 200 satisfies a
+        // broken `<=` just as well as a correct `<` — it cannot see an off-by-one at the end of
+        // the table. Paired with the id-78 row above, these two pin the boundary exactly.
         BitWriter writer = new();
-        writer.Message(NetMessageType.UserMessage).Write(200, 8).Write(8, 11).Write(0xAB, 8);
+        writer.Message(NetMessageType.UserMessage).Write((uint)type, 8).Write(8, 11).Write(0xAB, 8);
 
         UserMessage user = NetMessageReader.Read(writer.Build())
             .Messages.OfType<UserMessage>().ShouldHaveSingleItem();
 
-        user.UserMessageType.ShouldBe(200);
+        user.UserMessageType.ShouldBe(type);
         user.Name.ShouldBeNull();
     }
 

@@ -19,6 +19,15 @@ namespace Tf2DemoSalvage.Core.Net;
 /// </remarks>
 internal static class UserMessageNames
 {
+    // Stryker disable String: this is transcribed data, not logic, and a per-name mutant can only
+    // be killed by asserting that name back — 79 change-detectors that break on every SDK update
+    // and catch nothing. They were 80 of the project's 147 survivors, over half the total, and
+    // reading them buried the real findings.
+    //
+    // What can actually go wrong here is ALIGNMENT: a message inserted rather than appended
+    // shifts every id after it. That is covered outside this region, by the first, last and
+    // SayText2 anchors in NetMessageReaderTests, and by the bounds on Lookup below. A wrong name
+    // at a correct index is only findable by diffing tf_usermessages.cpp, which no test can do.
     private static readonly string[] Names =
     [
         "Geiger",
@@ -101,6 +110,8 @@ internal static class UserMessageNames
         "SdkRequestEquipment",
         "BuiltObject",
     ];
+
+    // Stryker restore String
 
     /// <summary>The registered name for an id, or <c>null</c> if it is past the table.</summary>
     /// <param name="userMessageType">The id read from the wire.</param>
