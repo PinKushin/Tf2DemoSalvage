@@ -546,6 +546,21 @@ Reading every protocol-conditional branch in `demostf/parser` — a parser cover
 **All four are implemented here.** The container layer — the demo header and command stream —
 has **zero** version conditionals in that parser at all.
 
+> **This section is no longer the whole story, and the correction matters more than the original
+> claim.** "Four places" was measured by reading `demostf/parser`, which is a modern parser: it
+> hardcodes six-bit message types and the current property numbering, so it **cannot read a
+> protocol-15 demo at all**. Reading it could only ever enumerate the differences it already
+> handled.
+>
+> Decoding a real 2009 demo found three more — the message type field width (RISKS B17), the
+> `SendPropType` renumbering (B18), and the string table compression flag (D20) — of which the
+> first two appear in *neither* `demostf/parser` nor Valve's own `proto_version.h`.
+>
+> The bet still holds: the list is short, and the container really is invariant. But the honest
+> count is around eight, not four, and the lesson is that **a second implementation can only tell
+> you about the eras it was built for.** See `docs/TIMELINE.md` for the current list with
+> evidence grades.
+
 That is the strongest evidence so far for `ROADMAP.md` §1: the parts a parser must hardcode
 change rarely, and the part that changes constantly (the entity schema) travels inside every
 demo. It does not prove an old demo will decode — see `DECISIONS.md` D5, the corpus has no
