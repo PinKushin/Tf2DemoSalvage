@@ -201,4 +201,74 @@ public sealed class EntityTrackerTests
         state["DT_A.ammo"].AsInt.ShouldBe(32);
     }
 
+
+    [Fact]
+    public void EnteringEntity_StartsFromItsClassBaseline()
+    {
+        // A snapshot sends an entering entity as a delta against its class's *baseline*, not
+        // against nothing, so properties still at their default never appear on the wire.
+        // Without baselines the tracker simply does not know them - the gap documented on
+        // EntityTracker since it was written.
+        //
+        // The measurement is a property the enter update never mentioned. Asserting only on the
+        // one it did mention could not tell "baseline applied" from "baseline ignored".
+        EntityTracker tracker = new();
+        Dictionary<int, IReadOnlyList<DecodedProperty>> baselines = new()
+        {
+            [7] =
+            [
+                Value("DT_A", "health", 0, 100),
+                Value("DT_A", "ammo", 1, 32),
+                Value("DT_A", "team", 2, 2),
+            ],
+        };
+
+        tracker.Apply(
+            [Entity(3, EntityUpdateType.Enter, Value("DT_A", "health", 0, 55))],
+            classId => baselines.GetValueOrDefault(classId));
+
+        IReadOnlyDictionary<string, PropertyValue> state = tracker.State(3).ShouldNotBeNull();
+
+        // The update wins where they overlap - it is the newer value.
+        state["DT_A.health"].AsInt.ShouldBe(55);
+
+        // And the baseline supplies what the update left out. This is the whole point.
+        state["DT_A.ammo"].AsInt.ShouldBe(32);
+        state["DT_A.team"].AsInt.ShouldBe(2);
+    }
+
+    [Fact]
+    public void DeltaUpdate_DoesNotReapplyTheBaseline()
+    {
+        // A baseline seeds an entity when it enters, not on every update. Re-applying it on a
+        // delta would silently resurrect defaults over values the match had already changed -
+        // a player's health springing back to 100 because a later tick touched only their
+        // position.
+        EntityTracker tracker = new();
+        IReadOnlyList<DecodedProperty> baseline = [Value("DT_A", "health", 0, 100)];
+
+        tracker.Apply(
+            [Entity(3, EntityUpdateType.Enter, Value("DT_A", "health", 0, 55))],
+            _ => baseline);
+        tracker.Apply(
+            [Entity(3, EntityUpdateType.Delta, Value("DT_A", "ammo", 1, 7))],
+            _ => baseline);
+
+        IReadOnlyDictionary<string, PropertyValue> state = tracker.State(3).ShouldNotBeNull();
+        state["DT_A.health"].AsInt.ShouldBe(55);
+        state["DT_A.ammo"].AsInt.ShouldBe(7);
+    }
+
+    [Fact]
+    public void WithoutABaselineSource_BehaviourIsUnchanged()
+    {
+        // The control. Baselines are optional, and a caller that has none must get exactly the
+        // old behaviour rather than an empty state or a throw.
+        EntityTracker tracker = new();
+
+        tracker.Apply([Entity(3, EntityUpdateType.Enter, Value("DT_A", "health", 0, 55))]);
+
+        tracker.State(3).ShouldNotBeNull()["DT_A.health"].AsInt.ShouldBe(55);
+    }
+
 }

@@ -74,7 +74,27 @@ public sealed class EntityTracker
     /// <summary>Applies one snapshot's worth of decoded entities.</summary>
     /// <param name="entities">The entities a snapshot described.</param>
     /// <exception cref="ArgumentNullException"><paramref name="entities"/> is <c>null</c>.</exception>
-    public void Apply(IReadOnlyList<DecodedEntity> entities)
+    public void Apply(IReadOnlyList<DecodedEntity> entities) => Apply(entities, null);
+
+    /// <summary>Applies one snapshot's worth of decoded entities, seeding new ones from their
+    /// class baseline.</summary>
+    /// <param name="entities">The entities a snapshot described.</param>
+    /// <param name="baselines">
+    /// Supplies a class's baseline properties, or <c>null</c> when none are available. Optional:
+    /// without it the tracker behaves exactly as before, knowing only what the wire carried.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="entities"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// **Applied on entry only, never on a delta.** A snapshot sends an entering entity as a
+    /// delta against its class baseline, so properties left at their default never appear on the
+    /// wire — that is the gap this closes. Re-applying the baseline on every update would do the
+    /// opposite of helping: it would resurrect defaults over values the match had already
+    /// changed, springing a player's health back to full because a later tick touched only their
+    /// position.
+    /// </remarks>
+    public void Apply(
+        IReadOnlyList<DecodedEntity> entities,
+        Func<int, IReadOnlyList<DecodedProperty>?>? baselines)
     {
         ArgumentNullException.ThrowIfNull(entities);
 
@@ -86,7 +106,7 @@ public sealed class EntityTracker
                 continue;
             }
 
-            Slot slot = SlotFor(entity);
+            Slot slot = SlotFor(entity, out bool fresh);
 
             if (entity.UpdateType == EntityUpdateType.Leave)
             {
@@ -96,6 +116,17 @@ public sealed class EntityTracker
             }
 
             slot.Visible = true;
+
+            // Seed from the class baseline before the update's own properties, so the update
+            // wins wherever the two overlap - it is the newer value.
+            if (fresh && baselines is not null)
+            {
+                foreach (DecodedProperty property in
+                    baselines(entity.ClassId) ?? [])
+                {
+                    slot.Values[Key(property)] = property.Value;
+                }
+            }
 
             foreach (DecodedProperty property in entity.Properties)
             {
@@ -112,12 +143,13 @@ public sealed class EntityTracker
     /// from the entity that held the slot before. Merging into the old values would leave a dead
     /// player's properties visible on a live one — values that are real and plausible and wrong.
     /// </remarks>
-    private Slot SlotFor(DecodedEntity entity)
+    private Slot SlotFor(DecodedEntity entity, out bool fresh)
     {
         if (_slots.TryGetValue(entity.EntityIndex, out Slot? existing))
         {
             if (existing.SerialNumber == entity.SerialNumber)
             {
+                fresh = false;
                 return existing;
             }
 
@@ -126,6 +158,7 @@ public sealed class EntityTracker
 
         Slot created = new() { SerialNumber = entity.SerialNumber, Visible = true };
         _slots[entity.EntityIndex] = created;
+        fresh = true;
         return created;
     }
 
