@@ -423,6 +423,52 @@ the two if the model of steady growth holds; a value outside that range is itsel
 above is being tested — recording a demo before knowing which is how a result gets fitted to
 whichever story survives.
 
+### Outcome, 2026-08-10: neither case. Protocol 16, and the gap has its first specimen
+
+```
+Protocol version 16
+Exe version 1.1.5.8 (tf)
+Exe build: 13:46:52 Jun 15 2011 (4604) (440)
+```
+
+A June 2011 build, found by widening the search after the March 2013 candidate came back at 24.
+**Protocol 16 is inside the 16–23 gap** — the first client obtained from it.
+
+**Why 16 is the most valuable single value in that range.** It is not merely "somewhere in the
+middle": it sits exactly on a boundary this project implemented and could never execute.
+`svc_ServerInfo`'s replay flag is read as `protocol > 15`, so **16 is the first protocol that has
+it**. Every other corpus demo tests that rule from far away — 14 and 15 from below, 24 from well
+above — and a boundary is only really tested at the value where it changes.
+
+It also produces a combination of protocol-conditional rules that no demo in the corpus can:
+
+| Rule | Boundary | At 15 | **At 16** | At 24 |
+|---|---|---|---|---|
+| String table compression flag | 14 | present | present | present |
+| Schema bit-count width | 14 | 7 | **7** | 7 |
+| Message type field | 15 | 5-bit | **6-bit** | 6-bit |
+| `SendPropType` numbering | 15 | old | **new** | new |
+| `svc_ServerInfo` replay flag | 15 | absent | **present, first** | present |
+| `svc_Prefetch` index | 22 | 13-bit | **13-bit** | 14-bit |
+| Temp entity / table lengths | 23 | fixed | **fixed** | varint |
+
+The middle four are what make it worth having: **new type numbering and a six-bit message type
+together with a 13-bit prefetch index and fixed lengths.** Nothing in the corpus holds that
+combination, and it is precisely the interpolation the 15-to-24 jump forced this project to assume.
+
+**The `Exe build` fingerprint is now explained rather than merely observed.** Earlier entries noted
+that 2011 and 2013 print two trailing numbers where 2007 and 2008 print one. This build resolves
+them: `(4604) (440)` is the build number and the **Steam appid**. So the second field is an appid,
+the change happened between March 2008 and June 2011, and the "fingerprint" is a logging change
+rather than anything structural. Worth recording precisely because a suggestive pattern that turns
+out to mean something ordinary is the kind that otherwise gets quoted as evidence later.
+
+**Grade: Measured.** Console output from the client, quoted verbatim.
+
+**Remaining gap: 17–23.** Narrower than it was, and now bounded on both sides by measured
+specimens rather than by inference. A build filling it must be stamped between **June 2011 and
+March 2013**, and `bin/engine.dll` reads that date without launching anything (D30).
+
 ### Outcome, 2026-08-10: case two. Protocol 24, so a date bound rather than a demo
 
 ```
