@@ -1141,3 +1141,45 @@ runner plus the constraints it has to satisfy:
 
 A 3–5 hour weekly run also *helps* Oracle's idle-reclamation threshold rather than threatening
 it, adding roughly four hours a week on top of PBJ's 8.9.
+
+### D30 — date a candidate build before downloading it, and prefer ZIP items for that reason
+
+Closing the era axis means finding period clients, and the candidates on archive.org are 3–5 GB
+each with titles that often say only a year. Downloading one to find out it is redundant costs an
+hour; **the build date is four bytes of information sitting inside a 4 MB file.**
+
+**`bin/engine.dll` carries the build stamp as a plain string**, so a build can be dated without
+launching it, without Steam, and without unpacking anything:
+
+```
+Exe build: 18:14:51 Oct  9 2007 (%i)          <- 2007 launch, PatchVersion 1.0.0.5
+Exe build: 20:17:35 Mar 19 2008 (3420)        <- protocol 14
+Exe build: 17:24:29 Mar 25 2013 (5252) (215)  <- protocol 24
+```
+
+The `%i` is a format specifier, not a value — the build number is substituted at runtime, so the
+date is what the binary yields statically. Note the 2013 stamp takes **two** trailing numbers where
+the older two take one; two samples is not a rule, but it is a candidate fingerprint.
+
+**Archive.org will serve one file from inside a ZIP, and will not from inside a 7z.** Both formats
+get a browsable listing at `/download/<item>/<archive>/` (which redirects to `view_archive.php`),
+and that listing is enough to confirm the layout. But only ZIP supports fetching a member:
+
+```bash
+# ZIP: 4 MB, dates the build in seconds
+curl -sSL -o e.dll "https://archive.org/download/<item>/<archive>.zip/<path>%2Fbin%2Fengine.dll"
+
+# 7z: returns HTTP 200 with a ZERO-byte body
+```
+
+That is not a bug to work around — a solid 7z cannot be partially decompressed, so there is nothing
+to serve without expanding the whole archive. **Check for a `200` with `size_download=0`**, because
+the status code alone says success.
+
+**Consequence for the hunt:** prefer a ZIP candidate when one exists, and treat a 7z candidate as a
+full download. It is also worth reading the item's file listing first for a second reason — an item
+whose `.7z` sits inside a subdirectory needs that path in the URL, and a wrong filename returns a
+146-byte HTML 404 that `curl -o` will happily write over the target name.
+
+**Verified 2026-08-10** by dating the 2007 launch client (`Oct 9 2007`, PatchVersion 1.0.0.5) from
+a 3 GB ZIP for 4 MB, and by getting a zero-byte body from the equivalent 7z request.
