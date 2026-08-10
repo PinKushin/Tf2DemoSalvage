@@ -115,11 +115,18 @@ public sealed record DemoHeader
     /// Bytes after the terminator are undefined and must not be trusted to be zero — real demos
     /// leave whatever was in the buffer there. Decoding the whole field would append garbage to
     /// the map name.
+    ///
+    /// **UTF-8, not ASCII.** These fields are raw bytes the engine copied from UTF-8 sources, so
+    /// ASCII replaces every byte above 0x7F with a question mark. A demo recorded by a player
+    /// named <c>miałker</c> reported the header client as <c>mia??ker</c> while the
+    /// <c>userinfo</c> table — which already read UTF-8 — reported it correctly, in the same dump.
+    /// Both fields held a plausible name and nothing failed; the wrong one was only visible
+    /// beside the right one.
     /// </remarks>
     private static string ReadFixedText(ReadOnlySpan<byte> field)
     {
         int terminator = field.IndexOf((byte)0);
         ReadOnlySpan<byte> text = terminator < 0 ? field : field[..terminator];
-        return Encoding.ASCII.GetString(text);
+        return Encoding.UTF8.GetString(text);
     }
 }

@@ -42,7 +42,9 @@ public sealed class DemoHeaderTests
         {
             Span<byte> field = buffer.AsSpan(offset, width);
             field.Clear();
-            int written = Encoding.ASCII.GetBytes(value, field);
+            // UTF-8, not ASCII. The engine writes these fields as raw bytes from a UTF-8 source,
+            // so a helper that can only express ASCII cannot construct the case that matters.
+            int written = Encoding.UTF8.GetBytes(value, field);
             if (padWithGarbage && written + 1 < width)
             {
                 // Garbage *after* the NUL terminator, which a correct reader must ignore.
@@ -111,6 +113,27 @@ public sealed class DemoHeaderTests
 
         header.ServerName.ShouldBe(string.Empty);
         header.GameDirectory.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void Parse_NonAsciiText_SurvivesAsUtf8()
+    {
+        // Found by running a real demo, not by a mutant. A demo recorded on 2026-08-10 with a
+        // 2013 client reported the same player two different ways in one dump:
+        //
+        //   Client             mia??ker          <- from the header
+        //        0       2  miałker              <- from the userinfo string table
+        //
+        // The table reads UTF-8 and the header read ASCII, and `ł` is two bytes in UTF-8, so it
+        // became exactly two question marks. Nothing failed: both fields held a plausible name,
+        // and the wrong one only looked wrong next to the right one.
+        //
+        // The map name is the field that makes this more than cosmetic - community maps carry
+        // non-ASCII names, and a corrupted one silently fails to match anything keyed on it.
+        DemoHeader header = DemoHeader.Parse(BuildHeader(client: "miałker", map: "cp_köln"));
+
+        header.ClientName.ShouldBe("miałker");
+        header.MapName.ShouldBe("cp_köln");
     }
 
     [Fact]

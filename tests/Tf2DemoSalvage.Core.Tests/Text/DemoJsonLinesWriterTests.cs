@@ -38,13 +38,14 @@ public sealed class DemoJsonLinesWriterTests
         SignonLengthBytes = 850953,
     };
 
-    private static string Write(IReadOnlyList<DemoCommand>? commands = null)
+    private static string Write(
+        IReadOnlyList<DemoCommand>? commands = null, DemoHeader? header = null)
     {
         StringWriter writer = new() { NewLine = "\n" };
         DemoJsonLinesWriter.Write(
             writer,
             "sample.dem",
-            SampleHeader(),
+            header ?? SampleHeader(),
             commands ?? [new(DemoCommandType.Packet, 1, new byte[8])],
             null);
         return writer.ToString();
@@ -90,6 +91,27 @@ public sealed class DemoJsonLinesWriterTests
         header.GetProperty("map").GetString().ShouldBe("cp_process_final");
         header.GetProperty("networkProtocol").GetInt32().ShouldBe(24);
         header.GetProperty("playbackFrames").GetInt32().ShouldBe(120913);
+    }
+
+    [Fact]
+    public void NonAsciiText_RoundTripsThroughTheJson()
+    {
+        // Asserted by parsing the line back rather than by searching the raw text, because
+        // whether the writer emits the characters literally or as \uXXXX escapes is its own
+        // business - both are valid JSON and both must read back as the same string. Searching
+        // for the literal would be a test of the escaping policy, not of the data surviving.
+        DemoHeader header = SampleHeader() with
+        {
+            MapName = "cp_köln_b3",
+            ServerName = "Sërvér ✦ EU",
+            ClientName = "Пётр🚀",
+        };
+
+        JsonDocument first = Lines(Write(header: header))[0];
+
+        first.RootElement.GetProperty("map").GetString().ShouldBe("cp_köln_b3");
+        first.RootElement.GetProperty("server").GetString().ShouldBe("Sërvér ✦ EU");
+        first.RootElement.GetProperty("client").GetString().ShouldBe("Пётр🚀");
     }
 
     [Fact]

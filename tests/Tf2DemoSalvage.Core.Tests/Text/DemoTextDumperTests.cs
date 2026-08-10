@@ -149,6 +149,29 @@ public sealed class DemoTextDumperTests
     }
 
     [Fact]
+    public void Write_NonAsciiPlayerName_ReachesTheOutputIntact()
+    {
+        // End to end, because that is where this broke. Every layer decoded UTF-8 correctly on
+        // its own while the header did not, and one dump printed the same player as "miałker"
+        // and "mia??ker" in two places. TF2 names are arbitrary client-chosen bytes and players
+        // use that freely, so this is an ordinary case rather than an edge one.
+        //
+        // Each character fails differently under a byte-oriented reader: two-byte Cyrillic,
+        // three-byte CJK and CJK punctuation, and a four-byte sequence outside the Basic
+        // Multilingual Plane, which is a surrogate pair in a .NET string.
+        //
+        // Steam will not accept an emoji in a display name, so that last one is not a realistic
+        // TF2 player - it is here because the decoder must not corrupt any valid UTF-8 it is
+        // handed, and nothing else in the suite exercises a four-byte sequence end to end. The
+        // Cyrillic and CJK are ordinary.
+        const string awkward = "Пётр・大将🚀";
+
+        string dump = Dump(commands: EventPacketsWithPlayers(playerName: awkward));
+
+        dump.ShouldContain($"userid={awkward}(7)");
+    }
+
+    [Fact]
     public void Write_UnknownPlayerReference_StaysARawNumber()
     {
         // Resolution falls back rather than guessing. A field this parser wrongly believes
@@ -370,8 +393,9 @@ public sealed class DemoTextDumperTests
     /// </summary>
     /// <param name="userId">Value the event's field carries.</param>
     /// <param name="fieldName">Name of that field, which decides how it is resolved.</param>
+    /// <param name="playerName">Name written into the userinfo record, as UTF-8.</param>
     private static IReadOnlyList<DemoCommand> EventPacketsWithPlayers(
-        int userId = 7, string fieldName = "userid")
+        int userId = 7, string fieldName = "userid", string playerName = "Sassy")
     {
         BitWriter signon = new();
         // Entity index 0, not 1: the entry is written as "index follows the previous one",
@@ -379,7 +403,7 @@ public sealed class DemoTextDumperTests
         // index in decimal. The fixture previously said 1 while sitting at 0 - a disagreement
         // that never occurs in a real demo, and one the roster builder now rejects rather than
         // guessing which of the two to believe (RISKS B22).
-        WriteUserInfoTable(signon, name: "Sassy", userId: 7, entityIndex: 0);
+        WriteUserInfoTable(signon, name: playerName, userId: 7, entityIndex: 0);
 
         BitWriter definitions = new();
         BitWriter body = new();
@@ -407,10 +431,12 @@ public sealed class DemoTextDumperTests
     private static void WriteUserInfoTable(
         BitWriter writer, string name, int userId, int entityIndex)
     {
+        // UTF-8, not ASCII. Player names are arbitrary bytes the client chose and TF2 players use
+        // that freely; a fixture that can only express ASCII cannot test the case that breaks.
         byte[] record = new byte[PlayerInfo.RecordBytes];
-        System.Text.Encoding.ASCII.GetBytes(name).CopyTo(record, 0);
+        System.Text.Encoding.UTF8.GetBytes(name).CopyTo(record, 0);
         BitConverter.GetBytes((uint)userId).CopyTo(record, 32);
-        System.Text.Encoding.ASCII.GetBytes("[U:1:1]").CopyTo(record, 36);
+        System.Text.Encoding.UTF8.GetBytes("[U:1:1]").CopyTo(record, 36);
 
         // Entry layout, taken from StringTableCodec rather than guessed: a bit saying the index
         // follows the previous one, a bit saying text is present, a bit saying it is not a

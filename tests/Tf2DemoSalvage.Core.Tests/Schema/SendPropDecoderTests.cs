@@ -267,6 +267,35 @@ public sealed class SendPropDecoderTests
     }
 
     [Fact]
+    public void String_WithMultiByteCharacters_IsReadAsUtf8()
+    {
+        // The nine-bit prefix counts BYTES, not characters, and this is another place player
+        // names appear - an entity's name property is a string property. Reading it as ASCII
+        // leaves question marks; reading the length as a character count desynchronises the
+        // entity outright.
+        byte[] utf8 = "Пётр🚀"u8.ToArray();
+
+        BitWriter writer = new();
+        writer.Write((uint)utf8.Length, 9);
+        foreach (byte b in utf8)
+        {
+            writer.Write(b, 8);
+        }
+
+        writer.Write(0x7F, 7);             // must remain unread
+        BitReader reader = new(writer.Build());
+
+        SendPropDecoder.ReadString(ref reader).ShouldBe("Пётр🚀");
+
+        // Proves the length was interpreted as bytes. Three different counts disagree here, which
+        // is the point: 5 code points, 6 UTF-16 chars (the emoji is a surrogate pair), 12 bytes.
+        // Had the decoder consumed either character count the trailing sentinel would not line up.
+        utf8.Length.ShouldBe(12);
+        "Пётр🚀".Length.ShouldBe(6);
+        reader.ReadUInt32(7).ShouldBe(0x7Fu);
+    }
+
+    [Fact]
     public void EmptyString_ReadsAsEmptyAndConsumesOnlyItsLength()
     {
         BitWriter writer = new();

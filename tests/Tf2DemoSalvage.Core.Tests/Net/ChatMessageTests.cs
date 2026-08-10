@@ -103,6 +103,27 @@ public sealed class ChatMessageTests
     }
 
     [Fact]
+    public void Parse_NonAsciiSenderAndText_SurviveAsUtf8()
+    {
+        // Chat is the worst place to get this wrong: the sender field is a player name, and TF2
+        // names are arbitrary client-chosen bytes. Decoding these as ASCII replaces every byte
+        // above 0x7F with a question mark and nothing fails - the line still parses, still has a
+        // sender, and still reads as chat.
+        //
+        // Found by flipping this decoder to ASCII and watching the whole suite stay green, after
+        // the same bug was found for real in the header.
+        //
+        // The sender is a Steam display name, so the Cyrillic and CJK are ordinary; the emoji is
+        // not, since Steam rejects those in names. It stays because chat TEXT has no such
+        // restriction and because the decoder must not corrupt valid UTF-8 whatever its source.
+        ChatMessage chat = ChatMessage.Parse(
+            Body(3, 1, "TF_Chat_All", "Пётр・大将🚀", "gg 🎉 wp")).ShouldNotBeNull();
+
+        chat.From.ShouldBe("Пётр・大将🚀");
+        chat.Text.ShouldBe("gg 🎉 wp");
+    }
+
+    [Fact]
     public void Parse_EmptyKind_IsTheFullFormWithAnEmptyString()
     {
         // Zero is not a colour code. The deciding test is `> 0 && <= 8`, and every other case

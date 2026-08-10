@@ -89,6 +89,28 @@ public sealed class ServerInfoTests
     }
 
     [Fact]
+    public void NonAsciiStrings_SurviveAsUtf8()
+    {
+        // These four go through the message layer's NUL-terminated string reader, which every
+        // string on the wire uses - map and model precache tables, console commands, string table
+        // entries. Flipping that one reader to ASCII left the entire suite green, so nothing was
+        // pinning it despite it being the most-used decode path in the parser.
+        //
+        // Not a contrived case. Community maps and server names carry non-ASCII routinely, and a
+        // corrupted map name silently fails to match anything keyed on it.
+        NetMessageReadResult result = NetMessageReader.Read(
+            Build(map: "cp_köln_b3", serverName: "Sërvér ✦ EU", skybox: "sky_upward_01"));
+
+        ServerInfoMessage info = result.Messages[0].ShouldBeOfType<ServerInfoMessage>();
+        info.Map.ShouldBe("cp_köln_b3");
+        info.ServerName.ShouldBe("Sërvér ✦ EU");
+
+        // The control: an all-ASCII field read from the same stream, after the two above. If the
+        // reader mis-sized a multi-byte string it would desynchronise and this would be wrong too.
+        info.Skybox.ShouldBe("sky_upward_01");
+    }
+
+    [Fact]
     public void ServerInfo_ExposesTickRateDerivedFromTheInterval()
     {
         // TF2's 66.67 tick rate is 1 / 0.015. The interval is what is transmitted; the rate

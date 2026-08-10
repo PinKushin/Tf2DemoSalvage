@@ -164,6 +164,10 @@ public static class DemoJsonLinesWriter
             json.WriteEndObject();
         }
 
+        // Stryker disable once String: ASCII and UTF-8 agree here by construction. Utf8JsonWriter
+        // escapes every non-ASCII character to \uXXXX by default - a real dump renders miałker as
+        // "miałker" - so this buffer never holds a byte above 0x7F to decode differently.
+        // Equivalent, and the round-trip test above still pins that the data survives.
         writer.Write(System.Text.Encoding.UTF8.GetString(buffer.ToArray()));
         writer.Write('\n');
     }

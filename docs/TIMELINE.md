@@ -355,3 +355,32 @@ the two if the model of steady growth holds; a value outside that range is itsel
 **Run `version` first.** It costs one console command and it decides which of the two predictions
 above is being tested — recording a demo before knowing which is how a result gets fitted to
 whichever story survives.
+
+### Outcome, 2026-08-10: case two. Protocol 24, so a date bound rather than a demo
+
+```
+Protocol version 24
+Exe version 1729296 (tf)
+Exe build: 17:24:29 Mar 25 2013 (5252) (215)
+```
+
+**Measured.** The second registered case, exactly as written: the build is on the modern side, the
+demo it would record is redundant with `z1800.dem` for boundary purposes, and the finding is a
+bound on the calendar instead of a new protocol.
+
+**Protocol 24 was already live on 2013-03-25.** That is earlier than the SteamPipe conversion it
+was expected to arrive with, so 24 predates that change rather than shipping in it. The 23→24
+boundary therefore sits **before** 2013-03-25, and the Source Multiplayer era closed earlier than
+a SteamPipe-anchored guess would put it.
+
+**The gap is not closed and this build cannot close it.** Protocols 16–23 remain unrepresented,
+and with them four of the parser's seven boundaries stay unexecuted on their far side. What this
+run does is narrow the search: a build that fills the gap must be stamped **between October 2011
+and March 2013**, and `Exe build` in `bin/engine.dll` reads that date without launching anything —
+so candidates can be dated before being downloaded in full.
+
+**Grade: Measured.** Console output from a retail client, quoted verbatim.
+
+*Incidental fingerprint, unverified:* this build stamps `Exe build` with **two** trailing numbers
+where the 2008 build's format string carries one. If that holds across builds it dates a binary
+from the string table alone, but two samples is not a rule.
