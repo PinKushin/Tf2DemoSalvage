@@ -1209,6 +1209,18 @@ Only entities are unavailable. `Corpus.FilesWithSchema()` excludes it from tests
 schema, and `LaunchBuildSourceTv_TruncatesItsSchemaAtSixtyFourKilobytes` asserts the truncation
 directly so the exclusion is a recorded finding rather than a silent skip.
 
-**Whether this holds for all protocol-11 SourceTV demos is unknown** — one specimen. A second
-launch-era SourceTV recording would settle whether the cap is universal or specific to a schema
-that happens to exceed it, and cp_granary's 85 KB may simply be one of the larger ones.
+**Confirmed on a second recording, and the cap is map-independent.** A separate protocol-11
+SourceTV demo on **cp_gravelpit** — different session, different map, different schema — truncates
+at exactly 65,536 bytes as well:
+
+```
+cp_granary    STV   65,536   truncated
+cp_gravelpit  STV   65,536   truncated
+cp_granary    POV   85,063   parses
+```
+
+Two independent recordings landing on the identical power of two is not a schema that happens to
+exceed a limit; it is the writer's buffer. One specimen left open whether cp_granary was simply a
+large map, and the second closes it. The gravelpit demo lives in `tools/corpus/local/` rather than
+the committed corpus: it is a second specimen of an era already represented, and the finding it
+supports is recorded here.
