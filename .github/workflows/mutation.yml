@@ -7,6 +7,10 @@
 #   Cli.Tests      51 tests, needs one demo        ~1 min    daily
 #   Corpus.Tests   63 tests, walks 305 MB          hours     weekly
 #
+# Those are the owner's machine. Elsewhere is slower and the gap is not small: the same Core run
+# measured 11m16s on the Oracle mutation box (3 OCPU ARM64), so 30 minutes here is roughly 2.5x
+# margin rather than the 7x the 4-minute figure suggests. Do not trim it toward the local number.
+#
 # The corpus job is gated on the weekly cron so the daily run stays under ten minutes. A manual
 # dispatch runs everything.
 name: Mutation
