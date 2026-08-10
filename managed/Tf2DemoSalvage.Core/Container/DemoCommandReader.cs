@@ -88,8 +88,10 @@ public static class DemoCommandReader
                 ? ViewInfo.Read(data.Span[position..])
                 : null;
 
-            ReadOnlyMemory<byte> payload = ReadPayload(data, type, ref position);
-            yield return new DemoCommand(type, tick, payload, view);
+            int prologueStart = position;
+            ReadOnlyMemory<byte> payload = ReadPayload(data, type, ref position, out int prologueLength);
+            yield return new DemoCommand(
+                type, tick, payload, data.Slice(prologueStart, prologueLength), view);
         }
     }
 
@@ -114,27 +116,41 @@ public static class DemoCommandReader
         return tick;
     }
 
+    /// <summary>
+    /// Reads a command's payload, reporting how many bytes preceded it.
+    /// </summary>
+    /// <remarks>
+    /// The prologue length is an output rather than a discard so the caller can keep those bytes.
+    /// They are not decoded here — two of them are sequence numbers and most of democmdinfo_t is
+    /// a second split-screen view TF2 does not fill — but a demo cannot be written back
+    /// byte-exactly from fields nobody kept.
+    /// </remarks>
     private static ReadOnlyMemory<byte> ReadPayload(
         ReadOnlyMemory<byte> data,
         DemoCommandType type,
-        ref int position)
+        ref int position,
+        out int prologueLength)
     {
         switch (type)
         {
             case DemoCommandType.SyncTick:
+                prologueLength = 0;
                 return ReadOnlyMemory<byte>.Empty;
 
             case DemoCommandType.Signon:
             case DemoCommandType.Packet:
-                Skip(data, ref position, CommandInfoBytes + SequenceNumberBytes, type);
+                prologueLength = CommandInfoBytes + SequenceNumberBytes;
+                Skip(data, ref position, prologueLength, type);
                 return ReadLengthPrefixed(data, ref position, type);
 
             case DemoCommandType.UserCmd:
                 // A point-of-view demo only field: the outgoing command sequence number.
-                Skip(data, ref position, Int32Bytes, type);
+                prologueLength = Int32Bytes;
+                Skip(data, ref position, prologueLength, type);
                 return ReadLengthPrefixed(data, ref position, type);
 
             default:
+                prologueLength = 0;
                 return ReadLengthPrefixed(data, ref position, type);
         }
     }
