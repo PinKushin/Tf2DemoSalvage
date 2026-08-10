@@ -192,6 +192,21 @@ public static class DemoTraceWriter
     /// decoding depends on state built up from earlier snapshots, so one failure tends to
     /// invalidate those after it; saying where the first one was is the useful part.
     /// </remarks>
+    /// <summary>Renders a class as <c>Name(id)</c>, or just the id when the schema lacks it.</summary>
+    /// <remarks>
+    /// Both, not either. The name is what makes a trace readable — <c>CTFPlayer</c> rather than
+    /// <c>212</c> — but the id is what a reader needs to compare this output against another
+    /// parser's or against a raw bit dump, which is how the flattening-order bug was found. An id
+    /// with no name in the schema prints bare rather than inventing a placeholder.
+    /// </remarks>
+    private static string Named(EntityDecoder entities, int classId)
+    {
+        string name = entities.ClassName(classId);
+        return name.Length == 0
+            ? classId.ToString(CultureInfo.InvariantCulture)
+            : string.Create(CultureInfo.InvariantCulture, $"{name}({classId})");
+    }
+
     private static void WriteSnapshot(
         TextWriter writer,
         PacketEntitiesMessage snapshot,
@@ -224,14 +239,14 @@ public static class DemoTraceWriter
             {
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"        entity {entity.EntityIndex} {kind} class {entity.ClassId} " +
+                    $"        entity {entity.EntityIndex} {kind} class {Named(entities, entity.ClassId)} " +
                     $"props {entity.Properties.Count};"));
                 continue;
             }
 
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"        entity {entity.EntityIndex} {kind} class {entity.ClassId} {{"));
+                $"        entity {entity.EntityIndex} {kind} class {Named(entities, entity.ClassId)} {{"));
 
             foreach (DecodedProperty property in entity.Properties)
             {

@@ -390,4 +390,20 @@ public sealed class EntityDecoder
         _flattened[classId] = flat;
         return flat;
     }
+
+    /// <summary>The networked class's name, or an empty string if the schema has no such id.</summary>
+    /// <param name="classId">The class id read from an entering entity.</param>
+    /// <returns>The name, e.g. <c>CTFPlayer</c>.</returns>
+    /// <remarks>
+    /// Lives here rather than being threaded through every caller because the decoder already
+    /// holds the schema — a class id is only ever meaningful against the schema that produced it,
+    /// and passing a separate lookup alongside the decoder invites the two coming from different
+    /// demos.
+    ///
+    /// Empty rather than a placeholder for an unknown id: the caller prints the number too, so
+    /// there is nothing to invent, and a fabricated name would be indistinguishable from a real
+    /// one in a trace.
+    /// </remarks>
+    public string ClassName(int classId) =>
+        _classesById.TryGetValue(classId, out ServerClass found) ? found.ClassName : string.Empty;
 }

@@ -45,6 +45,35 @@ public sealed class DemoTraceWriterTests
         return writer.ToString();
     }
 
+    [Fact]
+    public void Entities_AreNamedByTheirClass_NotByItsNumber()
+    {
+        // The trace is the deliverable a person reads, so it should not be the least readable
+        // output this project produces. It printed `class 212` while the JSON Lines writer - the
+        // machine format - printed "CTFPlayer", which is backwards: the schema already carries
+        // the name and only the text dump was throwing it away.
+        //
+        // The number stays alongside it. A reader comparing against another parser's output, or
+        // against a raw bit dump, needs the id, and a name alone would make that impossible.
+        StringWriter writer = new() { NewLine = "\n" };
+        DemoTraceWriter.Write(
+            writer, "sample.dem", Header(), DemoFixtures.EntityLifecycle(), null,
+            new DemoTraceOptions { IncludeEntities = true });
+        string trace = writer.ToString();
+
+        // Asserted through to the end of the line, not just up to the class name. The first
+        // version stopped after `COther(1)` and passed against output that read
+        // `class CWorld(277)props 0;` - the substitution had eaten the following space, and an
+        // assertion that stops at the interesting token cannot see what it collided with.
+        trace.ShouldContain(
+            $"entity {DemoFixtures.EnteringEntity} ENTER class " +
+            $"{DemoFixtures.EnteringClassName}({DemoFixtures.EnteringClassId}) props 0;");
+
+        // Leave and Delete name their class too, from the id remembered when the entity entered.
+        trace.ShouldContain("entity 1 LEAVE class ");
+        trace.ShouldContain("entity 2 DELETE class ");
+    }
+
     private static byte[] TickPacket(uint tick)
     {
         BitWriter writer = new();
