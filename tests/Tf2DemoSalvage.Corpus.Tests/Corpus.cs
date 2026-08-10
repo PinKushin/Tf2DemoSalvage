@@ -164,6 +164,37 @@ internal static class Corpus
         throw new InvalidDataException($"{p} carries no dem_datatables command.");
     });
 
+    /// <summary>The demo's schema, or <c>null</c> when the demo does not carry a usable one.</summary>
+    /// <param name="path">Path to a corpus demo.</param>
+    /// <returns>The schema, or <c>null</c>.</returns>
+    /// <remarks>
+    /// **Not every demo has a schema, and that is a property of the demo rather than a defect.**
+    /// A SourceTV recording on TF2's launch build truncates <c>dem_datatables</c> at exactly
+    /// 65,536 bytes; the POV of the same session carries 85,063, which is how the truncation was
+    /// identified as the writer's rather than the parser's. The file is otherwise intact and every
+    /// other layer of it decodes.
+    ///
+    /// Tests that need entities use <see cref="FilesWithSchema"/> so those demos are excluded by
+    /// their own property rather than by name. The truncation is asserted directly elsewhere, so
+    /// skipping here hides nothing.
+    /// </remarks>
+    public static DemoSchema? TrySchema(string path)
+    {
+        try
+        {
+            return Schema(path);
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Demos whose <c>dem_datatables</c> parses, and which can therefore decode entities.</summary>
+    /// <returns>The subset of <see cref="Files"/> carrying a usable schema.</returns>
+    public static IReadOnlyList<string> FilesWithSchema() =>
+        [.. Files().Where(f => TrySchema(f) is not null)];
+
     /// <summary>Player rosters, keyed by demo path.</summary>
     private static readonly ConcurrentDictionary<string, IReadOnlyList<PlayerInfo>> Rosters =
         new(StringComparer.Ordinal);

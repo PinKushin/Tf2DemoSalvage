@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Primitives;
 
@@ -55,6 +57,28 @@ public static class SendTableParser
     /// </param>
     /// <returns>The demo's entity schema.</returns>
     public static DemoSchema Parse(ReadOnlySpan<byte> payload, ushort networkProtocol = CurrentProtocol)
+    {
+        try
+        {
+            return ReadSchema(payload, networkProtocol);
+        }
+        catch (EndOfStreamException exhausted)
+        {
+            // Running off the end is not the same failure as reading a wrong width, and the
+            // difference matters to a caller. A SourceTV recording on TF2's launch build truncates
+            // this payload at exactly 65,536 bytes — the POV of the same session carries 85,063 —
+            // so the demo is intact and its schema is simply cut off. Entities cannot be decoded
+            // from it, and nothing else about the demo is affected.
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"The dem_datatables payload ends mid-table after {payload.Length} bytes. " +
+                $"A schema truncated on the wire cannot be completed by guessing, so no entity " +
+                $"decoding is possible for this demo; the rest of it is unaffected."),
+                exhausted);
+        }
+    }
+
+    private static DemoSchema ReadSchema(ReadOnlySpan<byte> payload, ushort networkProtocol)
     {
         BitReader reader = new(payload);
         List<SendTable> tables = [];

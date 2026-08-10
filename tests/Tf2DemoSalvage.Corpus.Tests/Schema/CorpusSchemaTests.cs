@@ -20,9 +20,43 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 public sealed class CorpusSchemaTests(ITestOutputHelper output)
 {
     [Fact]
+    public void LaunchBuildSourceTv_TruncatesItsSchemaAtSixtyFourKilobytes()
+    {
+        // Pinned rather than skipped. FilesWithSchema() excludes this demo from every test that
+        // needs entities, and an exclusion nobody asserts is indistinguishable from a test that
+        // quietly stopped covering something.
+        //
+        // The finding: TF2's launch build truncates dem_datatables at exactly 65,536 bytes when
+        // SourceTV writes it. The POV recording of the SAME session carries 85,063, which is what
+        // establishes the schema really is larger and the cut is the writer's rather than this
+        // parser's. Four things say the file is otherwise intact: the size is exactly 2^16, the
+        // payload sits in the signon block at the START of the recording where an interrupted
+        // capture cannot reach, its frame check is exact at 3,897 of 3,897, and it ends with
+        // dem_stop.
+        string? truncated = Corpus.Files().FirstOrDefault(
+            f => Path.GetFileName(f) == "tf2-2007-build3258-stv-cp_granary.dem");
+        if (truncated is null)
+        {
+            return;                                  // corpus not checked out
+        }
+
+        Corpus.TrySchema(truncated).ShouldBeNull(
+            "the launch-build SourceTV schema is truncated and must not parse");
+
+        InvalidDataException failure =
+            Should.Throw<InvalidDataException>(() => Corpus.Schema(truncated));
+        failure.Message.ShouldContain("65536");
+
+        // The paired POV proves the schema is genuinely larger than the cut.
+        string pov = Corpus.Files().First(
+            f => Path.GetFileName(f) == "tf2-2007-build3258-pov-cp_granary.dem");
+        Corpus.TrySchema(pov).ShouldNotBeNull().ServerClasses.Count.ShouldBeGreaterThan(200);
+    }
+
+    [Fact]
     public void Schema_ParsesAndNamesAreRecognisable()
     {
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull(
                 $"{Path.GetFileName(path)}: no dem_datatables command found");
@@ -58,7 +92,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         // Two completely separate paths: a 16-bit count at the end of the datatables command,
         // and MaxClasses inside svc_ServerInfo in the signon stream. Agreement is the best
         // evidence available that both decoders are aligned.
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
             ServerInfoMessage info = FindServerInfo(path).ShouldNotBeNull();
@@ -72,7 +106,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
     [Fact]
     public void Schema_PropertiesLookLikeSourceEngineFields()
     {
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
 
@@ -92,7 +126,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
     [Fact]
     public void ReportSchemaShape()
     {
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
             SendTable player = schema.FindTable("DT_TFPlayer")!;
@@ -117,7 +151,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
     [Fact]
     public void Flatten_ProducesPlausibleListsForEveryClass()
     {
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
 
@@ -154,7 +188,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
     {
         // The properties Phase 2 and 3 exist to draw. If flattening dropped a table or applied
         // an exclusion too broadly, these would quietly go missing.
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
             ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
@@ -171,7 +205,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
     [Fact]
     public void ReportFlattenedShape()
     {
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
             ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
@@ -197,7 +231,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         // Quantifies what the coordinate encodings actually cost. SPROP_COORD_MP is
         // undocumented in VDC and unimplemented here, and this says how much of the schema
         // that leaves out of reach rather than leaving it to be guessed at.
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
             ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");

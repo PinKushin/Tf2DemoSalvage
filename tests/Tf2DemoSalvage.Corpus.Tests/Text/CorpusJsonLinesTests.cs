@@ -36,7 +36,9 @@ public sealed class CorpusJsonLinesTests
         //
         // Values are checked, not just line kinds. A player line naming nobody, or an event
         // line with no name, is the failure this is for.
-        IReadOnlyList<string> corpus = Corpus.Files();
+        // With a schema, because the JSON Lines writer now emits entity lifecycle and a demo whose
+        // dem_datatables is truncated has none to emit.
+        IReadOnlyList<string> corpus = Corpus.FilesWithSchema();
         if (corpus.Count == 0)
         {
             return;                                  // corpus not checked out

@@ -275,9 +275,15 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     ];
 
     /// <summary>Demos that open with a full snapshot, which is every SourceTV recording.</summary>
+    /// <summary>SourceTV demos that carry a usable schema.</summary>
+    /// <remarks>
+    /// Filtered on the schema, not on a file name. The protocol-11 SourceTV demo truncates its
+    /// dem_datatables at 64 KiB, so it has no schema to decode entities against - a property of
+    /// that recording rather than of this parser, asserted directly in CorpusSchemaTests.
+    /// </remarks>
     private static string[] SourceTvDemos() =>
     [
-        .. Corpus.Files()
+        .. Corpus.FilesWithSchema()
             .Where(f => !Path.GetFileName(f).Contains("pov", StringComparison.Ordinal)),
     ];
 
@@ -355,7 +361,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         // the window for everyone would have cost about 18% of this project's runtime, which
         // matters because the mutation run re-executes it per mutant; breaking early costs the
         // busy demos nothing and lets the quiet one read as far as it needs.
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             string name = Path.GetFileName(path);
             DemoSchema schema = Schema(path);
@@ -423,7 +429,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         // corpus: the 2009 demo sends m_vecOrigin as a single Vector, while modern demos send
         // it as a VectorXY plus a separate m_vecOrigin[2] float. That is DPT_VectorXY (B18)
         // showing up in the data rather than in a header.
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             string name = Path.GetFileName(path);
             DemoSchema schema = Schema(path);
@@ -486,7 +492,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         // change detector. A broken baseline path does not produce a slightly smaller number -
         // it produces exactly the without-baselines number, so a five-fold margin separates
         // "working" from "not wired up" with room to spare.
-        foreach (string path in Corpus.Files())
+        foreach (string path in Corpus.FilesWithSchema())
         {
             string name = Path.GetFileName(path);
             DemoSchema schema = Schema(path);

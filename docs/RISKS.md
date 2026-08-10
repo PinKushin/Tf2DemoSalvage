@@ -1179,3 +1179,36 @@ down, and no way to find it except by decoding a demo old enough to carry it.
   been silently wrong for the 2009 demo the whole time**: reading six bits where five were written
   yields the same value whenever the sixth bit is zero, which for a first message it usually is.
   The test passed by coincidence until a demo arrived where the coincidence did not hold.
+
+## B24 — SourceTV truncates the schema at 64 KiB on TF2's launch build — HANDLED, NOT FIXABLE
+
+The protocol-11 SourceTV demo throws parsing `dem_datatables`, three bits from the end of a
+**65,536-byte** payload. The POV recording of the *same session* carries **85,063 bytes** and parses
+cleanly.
+
+**That pair is the whole diagnosis.** One file alone reads as a parser bug; two recordings of one
+session, differing only in writer, say the schema is genuinely larger than 64 KiB and SourceTV cut
+it. Nothing in the parser can recover what was never written.
+
+**It is not an interrupted recording**, which was the first thing suspected:
+
+- 65,536 is exactly 2^16 — an early stop yields an arbitrary size
+- `dem_datatables` sits in the **signon block at the start** of the file, where a truncated capture
+  cannot reach
+- the frame check is exact: 3,897 packets against 3,897 declared
+- the file ends with `dem_stop`
+
+**Handled by refusing, not by guessing.** `SendTableParser.Parse` now catches the overrun and
+throws `InvalidDataException` naming the truncation, rather than letting an `EndOfStreamException`
+about bit offsets escape. A partial schema is worse than none: flattening a half-read table
+produces property indices that address real fields at wrong positions, which is the failure mode
+that makes a demo look decoded while every value is wrong.
+
+Everything else about the file works — 3,903 commands, all messages, chat, events, string tables.
+Only entities are unavailable. `Corpus.FilesWithSchema()` excludes it from tests that need a
+schema, and `LaunchBuildSourceTv_TruncatesItsSchemaAtSixtyFourKilobytes` asserts the truncation
+directly so the exclusion is a recorded finding rather than a silent skip.
+
+**Whether this holds for all protocol-11 SourceTV demos is unknown** — one specimen. A second
+launch-era SourceTV recording would settle whether the cap is universal or specific to a schema
+that happens to exceed it, and cp_granary's 85 KB may simply be one of the larger ones.
