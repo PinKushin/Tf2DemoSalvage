@@ -381,6 +381,11 @@ public static class DemoTraceWriter
             $"svc_usermessage {user.Name ?? "#" + user.UserMessageType.ToString(CultureInfo.InvariantCulture)} " +
             $"type {user.UserMessageType} bits {user.BodyBits}{UserFields(user)}"),
 
+        VoiceDataMessage voice => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_voicedata client {voice.Client} proximity {voice.Proximity} " +
+            $"bits {voice.BodyBits}"),
+
         SkippedMessage skipped => string.Create(
             CultureInfo.InvariantCulture, $"{WireName(skipped.Type)} bits {skipped.BodyBits}"),
 

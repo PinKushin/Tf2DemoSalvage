@@ -126,6 +126,40 @@ public sealed record VoiceInitMessage(string Codec, int Quality) : INetMessage
 }
 
 /// <summary>
+/// <c>svc_VoiceData</c> — one packet of a player's microphone audio.
+/// </summary>
+/// <param name="Client">The speaking client's slot. See the remarks before mapping it to a player.</param>
+/// <param name="Proximity">Whether the audio is positional rather than global.</param>
+/// <param name="BodyBits">Size of the codec payload, which is not decoded.</param>
+/// <remarks>
+/// **Who spoke and when, which no other message in a demo records.** The audio itself is a codec
+/// payload — Speex or CELT depending on era, declared by <c>svc_VoiceInit</c> — and decoding it is
+/// a different project. The header is the part a reader wants: it turns "someone used voice" into
+/// a timeline of who talked.
+///
+/// **How the client slot maps to a player is NOT yet established, and this record deliberately
+/// does not pretend otherwise.** Source is widely described as numbering voice clients from zero
+/// where entities number players from one, which would make the entity <c>Client + 1</c>. The only
+/// evidence available contradicts that: the protocol-11 SourceTV demo names two entities — 0 for
+/// SourceTV and 1 for the single human — and every one of its 125 voice packets reports
+/// <c>client 1</c>. Under the +1 rule that would be entity 2, which does not exist in the file.
+///
+/// One speaker in one demo cannot settle it, and a SourceTV slot may itself shift the numbering.
+/// Resolving voice to a name needs a recording with **two or more people talking**, where the
+/// mapping either lines up or does not. Until then the raw slot is reported and nothing is
+/// inferred from it — a plausible wrong name is worse than a number.
+///
+/// This message went unreported for a long time for a mundane reason: no demo in the corpus
+/// contained one. The two protocol-11 recordings carry 125 between them and nothing else carries
+/// any, which is a good argument for a corpus that spans eras rather than volume.
+/// </remarks>
+public sealed record VoiceDataMessage(int Client, int Proximity, int BodyBits) : INetMessage
+{
+    /// <inheritdoc />
+    public NetMessageType Type => NetMessageType.VoiceData;
+}
+
+/// <summary>
 /// <c>svc_TempEntities</c> — short-lived effects: explosions, tracers, impacts.
 /// </summary>
 /// <param name="Count">How many effects the body carries.</param>

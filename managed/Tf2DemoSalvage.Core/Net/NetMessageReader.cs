@@ -393,12 +393,16 @@ public static class NetMessageReader
 
                     case NetMessageType.VoiceData:
                     {
-                        // Client and proximity bytes, then a 16-bit length. The codec payload
-                        // is opaque here and only needs stepping over.
-                        _ = reader.ReadUInt32(8);
-                        _ = reader.ReadUInt32(8);
+                        // Client and proximity bytes, then a 16-bit length. Both were already
+                        // being read and thrown away, so a trace reported only a bit count and
+                        // lost the one thing a voice packet says: who was talking. The codec
+                        // payload stays opaque - decoding Speex or CELT is a different project.
+                        int voiceClient = (int)reader.ReadUInt32(8);
+                        int voiceProximity = (int)reader.ReadUInt32(8);
                         int voiceBits = (int)reader.ReadUInt32(VoiceDataLengthBits);
                         _ = NetBitReading.CopyBits(ref reader, voiceBits);
+
+                        messages.Add(new VoiceDataMessage(voiceClient, voiceProximity, voiceBits));
                         break;
                     }
 

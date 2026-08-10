@@ -114,6 +114,34 @@ public sealed class SkippableMessageTests
     }
 
     [Fact]
+    public void VoiceData_ReportsWhoSpoke()
+    {
+        // The client index was already being read and then discarded, so a trace said
+        // `svc_voicedata bits 1376` and threw away the only thing a reader wants from a voice
+        // packet: who was talking. Same shape as the small messages that used to be anonymous.
+        //
+        // 125 of these sit in the protocol-11 recordings and nowhere else in the corpus, which is
+        // why this went unreported for so long - no demo exercised it.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.VoiceData)
+            .Write(3, 8)                       // client
+            .Write(1, 8)                       // proximity
+            .Write(48, 16);                    // payload bits
+        writer.Write(0xABCDEF, 48);            // the codec payload, opaque
+        writer.NetTick(2020, 0, 0);
+
+        System.Collections.Generic.IReadOnlyList<INetMessage> messages = Read(writer);
+
+        VoiceDataMessage voice = messages.OfType<VoiceDataMessage>().ShouldHaveSingleItem();
+        voice.Client.ShouldBe(3);
+        voice.Proximity.ShouldBe(1);
+        voice.BodyBits.ShouldBe(48);
+
+        // The tick behind it: naming the speaker must not change how many bits are consumed.
+        messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2020);
+    }
+
+    [Fact]
     public void VoiceInit_OmitsTheSampleRateUnlessQualityIs255()
     {
         // The rate is only on the wire for quality 255; older messages imply it from the codec
