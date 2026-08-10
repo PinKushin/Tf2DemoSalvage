@@ -168,13 +168,7 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
     }
 
     /// <summary>The demo's network protocol, from its header.</summary>
-    private static ushort ProtocolOf(string path)
-    {
-        byte[] header = new byte[DemoHeader.SizeBytes];
-        using FileStream stream = File.OpenRead(path);
-        stream.ReadExactly(header);
-        return (ushort)DemoHeader.Parse(header).NetworkProtocol;
-    }
+    private static ushort ProtocolOf(string path) => Corpus.ProtocolOf(path);
 
     private static DemoCommand[] ReadPackets(string path)
     {

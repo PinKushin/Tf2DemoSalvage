@@ -185,7 +185,11 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
 
     private static (GameEventListMessage? List, NetDecodeState State) ReadUntilEventList(string path)
     {
-        NetDecodeState state = new();
+        // Seeded with the demo's own protocol. Without it every protocol-14 and 15 demo decodes
+        // to noise, and this method returns null rather than throwing - which both callers treat
+        // as "not reachable yet" and skip. The 2008 demo was excluded that way, silently, until a
+        // SourceTV recording of the same era produced an empty list instead of no list.
+        NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
 
         // svc_GameEventList arrives during signon, not during play - it is part of the state
         // the server hands a joining client, alongside the entity schema. So signon commands

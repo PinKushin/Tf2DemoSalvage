@@ -37,6 +37,28 @@ internal static class Corpus
     /// </remarks>
     private const string LocalDirectoryName = "local";
 
+    /// <summary>The demo's network protocol, read from its header.</summary>
+    /// <param name="path">Path to the demo.</param>
+    /// <returns>The protocol, for seeding a <see cref="NetDecodeState"/>.</returns>
+    /// <remarks>
+    /// **Decoding a corpus demo without this is wrong, and wrong quietly.** The message type
+    /// field is five bits at protocol 15 and below and six above (RISKS B17), so a default state
+    /// reads one bit too many from every old demo and everything after it is noise.
+    ///
+    /// It hid twice. `CorpusNetMessageTests` passed because reading six bits where five were
+    /// written gives the same value whenever the sixth is zero, which for a packet's first
+    /// message it usually is. `CorpusGameEventTests` passed because the misdecode returned no
+    /// event list at all, and that test treats a missing list as "not yet reachable" and skips -
+    /// so the 2008 demo was silently excluded from both from the day it was added.
+    /// </remarks>
+    public static ushort ProtocolOf(string path)
+    {
+        byte[] header = new byte[DemoHeader.SizeBytes];
+        using FileStream stream = File.OpenRead(path);
+        stream.ReadExactly(header);
+        return (ushort)DemoHeader.Parse(header).NetworkProtocol;
+    }
+
     /// <summary>Every usable demo in the corpus, in a stable order.</summary>
     public static IReadOnlyList<string> Files()
     {
