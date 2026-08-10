@@ -42,13 +42,18 @@ internal static class DemoScan
     /// Entity lifecycle in stream order — entering, leaving and being deleted. Empty unless the
     /// caller asked for it.
     /// </param>
+    /// <param name="UserMessages">
+    /// User messages whose body decoded, in stream order. Types with no known layout are not
+    /// collected — a type name and a bit count is not something a consumer can compute over.
+    /// </param>
     internal sealed record Result(
         SortedDictionary<int, PlayerInfo> Players,
         Dictionary<string, int> EventCounts,
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> EventSample,
         int EventTotal,
         List<(int Tick, ChatMessage Chat)> Chat,
-        List<EntityEvent> EntityEvents);
+        List<EntityEvent> EntityEvents,
+        List<(int Tick, UserMessage Message)> UserMessages);
 
     /// <summary>One entity entering, leaving or being deleted.</summary>
     /// <param name="Tick">The command tick it happened on.</param>
@@ -94,6 +99,7 @@ internal static class DemoScan
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> sample = [];
         List<(int Tick, ChatMessage Chat)> chat = [];
         List<EntityEvent> entityEvents = [];
+        List<(int Tick, UserMessage Message)> userMessages = [];
         int total = 0;
         int scanned = 0;
 
@@ -167,6 +173,14 @@ internal static class DemoScan
                         chat.Add((command.Tick, line));
                         break;
 
+                    // Only the ones whose body decoded. A record naming a type and a bit count
+                    // carries nothing a consumer can compute over, and CheapBreakModel alone is
+                    // 259 of the corpus's 756 user messages - listing every one would bury the
+                    // handful that say something. The trace remains the complete view.
+                    case UserMessage user when user.Fields is { Count: > 0 }:
+                        userMessages.Add((command.Tick, user));
+                        break;
+
                     case PacketEntitiesMessage snapshot when decoder is not null:
                         RecordLifecycle(
                             decoder, snapshot, command.Tick, classNames, entityEvents);
@@ -178,7 +192,8 @@ internal static class DemoScan
             }
         }
 
-        return new Result(players, counts, sample, total, chat, entityEvents);
+        return new Result(
+            players, counts, sample, total, chat, entityEvents, userMessages);
     }
 
     /// <summary>

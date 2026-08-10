@@ -106,6 +106,24 @@ public static class DemoJsonLinesWriter
             });
         }
 
+        foreach ((int tick, UserMessage user) in scan.UserMessages)
+        {
+            WriteLine(writer, json =>
+            {
+                json.WriteString("type", "usermessage");
+                json.WriteNumber("tick", tick);
+                json.WriteString("name", user.Name);
+                json.WriteNumber("messageType", user.UserMessageType);
+                json.WriteStartObject("fields");
+                foreach (KeyValuePair<string, object?> field in user.Fields!)
+                {
+                    WriteField(json, field);
+                }
+
+                json.WriteEndObject();
+            });
+        }
+
         foreach (DemoScan.EntityEvent entity in scan.EntityEvents)
         {
             WriteLine(writer, json =>

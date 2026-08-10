@@ -134,6 +134,40 @@ public sealed class DemoJsonLinesWriterTests
     }
 
     [Fact]
+    public void DecodedUserMessages_AreEmittedWithTheirFields()
+    {
+        // These carry the announcements a reader wants - who connected, what config the server
+        // loaded, round results - and the machine format had none of them. The trace has shown
+        // them since the bodies were decoded, so the two outputs disagreed about what the demo
+        // contained.
+        IReadOnlyList<JsonDocument> lines = Lines(Write(commands: DemoFixtures.TextMessage()));
+
+        JsonElement message = lines.Select(l => l.RootElement)
+            .Single(e => e.GetProperty("type").GetString() == "usermessage");
+
+        message.GetProperty("name").GetString().ShouldBe("TextMsg");
+        message.GetProperty("tick").GetInt32().ShouldBe(7);
+        message.GetProperty("fields").GetProperty("text").GetString().ShouldBe("#Game_connected");
+        message.GetProperty("fields").GetProperty("param1").GetString().ShouldBe("Sassy");
+    }
+
+    [Fact]
+    public void UndecodedUserMessages_AreNotEmitted()
+    {
+        // Only messages with a decoded body. A line saying "CheapBreakModel, 40 bits" carries
+        // nothing a consumer can compute over, and that type alone is 259 of the corpus's 756
+        // user messages - emitting all of them would bury the four that say something.
+        //
+        // The trace still lists every one of them in stream order, which is the output whose job
+        // is completeness.
+        string output = Write(commands: DemoFixtures.TextMessage(text: "#ok", param: ""));
+
+        Lines(output).Select(l => l.RootElement)
+            .Count(e => e.GetProperty("type").GetString() == "usermessage")
+            .ShouldBe(1);
+    }
+
+    [Fact]
     public void NonAsciiText_RoundTripsThroughTheJson()
     {
         // Asserted by parsing the line back rather than by searching the raw text, because

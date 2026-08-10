@@ -39,6 +39,36 @@ internal static class DemoFixtures
     /// <summary>Width of an entity's serial number.</summary>
     private const int SerialBits = 10;
 
+    /// <summary>A packet carrying one <c>TextMsg</c> user message with a decodable body.</summary>
+    /// <param name="tick">Tick to stamp the command with.</param>
+    /// <param name="text">The localisation key or literal text.</param>
+    /// <param name="param">One substitution, or empty for none.</param>
+    /// <returns>A single packet command.</returns>
+    public static IReadOnlyList<DemoCommand> TextMessage(
+        int tick = 7, string text = "#Game_connected", string param = "Sassy")
+    {
+        List<byte> body = [3];                               // destination
+        foreach (string value in param.Length == 0 ? new[] { text } : new[] { text, param })
+        {
+            body.AddRange(System.Text.Encoding.UTF8.GetBytes(value));
+            body.Add(0);
+        }
+
+        BitWriter packet = new();
+        packet.Message(NetMessageType.UserMessage)
+              .Write(TextMsgType, 8)
+              .Write((uint)(body.Count * 8), 11);
+        foreach (byte value in body)
+        {
+            packet.Write(value, 8);
+        }
+
+        return [new(DemoCommandType.Packet, tick, packet.Build())];
+    }
+
+    /// <summary><c>TextMsg</c>'s registered id.</summary>
+    private const uint TextMsgType = 5;
+
     /// <summary>A one-table, two-class schema as <c>dem_datatables</c> puts it on the wire.</summary>
     public static byte[] SchemaPayload()
     {
