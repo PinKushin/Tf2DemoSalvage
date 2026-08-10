@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-10T12:12:55.604Z
+  modified: 2026-08-10T17:13:17.189Z
 ---
 
 The flattened property order was wrong for weeks. Every fixture passed. It died in a single
@@ -77,6 +77,15 @@ the corpus tests ran.
 
 **Choosing where to look is part of the measurement**, and a passing check whose instrument cannot
 reach the failure is worth nothing. Related: [[ask-whether-the-data-arrived]].
+
+**I then made the identical error again, hours after writing the paragraph above.** A protocol-11
+demo arrived, I ran `--trace`, grepped for stop markers, found none, and reported "zero decode
+failures". Its SourceTV schema was truncated at 64 KiB and had never been parsed. The corpus tests
+caught it minutes later.
+
+Knowing an instrument's blind spot does not make you check for it — the check has to be attached
+to the action. So: **after `--trace`, the schema is still unverified. Use `--entity-limit 1`, or
+run the corpus suite.** Two eras in one day failed exactly here.
 
 ## The rule
 

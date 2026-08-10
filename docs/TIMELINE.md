@@ -24,9 +24,30 @@ The corpus's fixed points. Everything else is positioned relative to these.
 
 | Date | Protocol | Source | Grade |
 |---|---|---|---|
+| **9 October 2007** | **11** | TF2 build 3258 — the launch build. `Exe build: 18:14:51 Oct  9 2007 (3258)`, `PatchVersion=1.0.0.5`. | **Measured** |
+| **19 March 2008** | **14** | TF2 build 3420. `Exe build: 20:17:35 Mar 19 2008 (3420)`, `PatchVersion=1.0.2.2`. | **Measured** |
 | **4 June 2009** | 15 | TF2 build 3862. The client's own `version` reports `Exe build: 13:52:56 Jun 4 2009 (3862)`. | **Measured** |
+| **15 June 2011** | **16** | TF2 build 4604. `Exe build: 13:46:52 Jun 15 2011 (4604) (440)`, `Exe version 1.1.5.8`. | **Measured** |
+| **25 March 2013** | **24** | TF2 build 1729296. `Exe build: 17:24:29 Mar 25 2013 (5252) (215)`. | **Measured** |
 | 21–23 July 2020 | 24 | ETF2L match demos, dated by their league metadata | **Measured** |
 | 7 Aug 2026 | 24 | demos.tf and serveme downloads | **Measured** |
+
+**Every one of these was established the same way and it is worth stating the method once:** run
+the period client, read its `version`, record a demo, and check the demo header agrees. Three of
+them were additionally dated *before* the client was ever launched, by reading the build string
+out of `bin/engine.dll` — see `DECISIONS.md` D30, which also explains why that costs 4 MB rather
+than a 3–5 GB download when the archive is a ZIP.
+
+**Two gaps remain, and both are narrow:**
+
+| Gap | Window | Width |
+|---|---|---|
+| **12–13** | 9 Oct 2007 → 19 Mar 2008 | five months |
+| **17–23** | 15 Jun 2011 → 25 Mar 2013 | twenty-one months |
+
+Protocol 11 at launch was a surprise. The March 2008 build reports 14, and the launch build was
+expected to report 14 as well — three protocol versions came and went in TF2's first five months,
+which is a faster cadence than anything later in its history.
 
 `z1800.dem` carries no date. It was originally guessed at ~2015 from its protocol numbers, which
 was **wrong** — protocol pairs date nothing, since 3/24 spans at least 2015 to 2026. It is now
@@ -80,16 +101,28 @@ and the corpus has nothing that old.
 Facts that are not protocol-conditional but differ visibly by era. Useful for **dating an
 undated demo**, which is how `z1800.dem` was placed.
 
-| Measure | 2009 (protocol 15) | 2020 | 2026 |
-|---|---|---|---|
-| `svc_ServerInfo` max classes | **232** | 362 | **363** |
-| String tables declared | **16** | 20 | 20 |
-| Game event definitions | **156** | 401 | **414** |
-| Event field types (`string`/`float`/`long`/`short`/`byte`/`bool`) | **59/17/24/170/75/18** | 109/41/70/426/162/46 | 110/41/88/437/162/46 |
-| `userinfo` record size | 132 bytes | 132 | 132 |
+| Measure | 2007 (11) | 2008 (14) | 2009 (15) | 2011 (16) | 2013 (24) | 2020 (24) | 2026 (24) |
+|---|---|---|---|---|---|---|---|
+| `svc_ServerInfo` max classes | **216** | **216** | **232** | **256** | — | 362 | **363** |
+| String tables declared | **16** | **16** | **16** | 16 | 16 | 20 | 20 |
+| Game event definitions | — | — | **156** | — | — | 401 | **414** |
+| Event field types (`string`/`float`/`long`/`short`/`byte`/`bool`) | — | — | **59/17/24/170/75/18** | — | — | 109/41/70/426/162/46 | 110/41/88/437/162/46 |
+| `userinfo` record size | 132 bytes | 132 | 132 | 132 | 132 | 132 | 132 |
 
 All measured 2026-08-10. **Four independent measures, and they agree** — which is what makes this
 usable for dating rather than merely interesting.
+
+**Max classes is non-decreasing, and that is the useful shape:** 216, 216, 232, 256, … 362, 363.
+It grows as TF2 gains entity types and never shrinks, so it bounds a demo's age from below. Note
+that 2007 and 2008 **tie** at 216 — the count is monotonic but not strictly increasing, so it can
+place a demo in a range and cannot always separate adjacent builds.
+
+**The string table count is worthless for dating and it looked promising.** Sixteen in 2007, 2008,
+2009, 2011 and 2013; twenty in 2020 and 2026. Five eras spanning six years with an identical
+number, which was briefly treated as an era discriminator and would have produced a confident
+wrong answer for any demo in that span. What differs is the table *names*, not how many there are.
+Recorded here as a caution: a fingerprint that fails to move across five samples is not a
+fingerprint, and finding that out required the samples rather than reasoning.
 
 **The game-event fingerprint is the sharpest dating tool found so far.** `z1800.dem` matches the
 2020 demos exactly and differs from the 2026 ones, which is what confirmed its redating —

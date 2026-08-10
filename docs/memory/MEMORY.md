@@ -18,3 +18,5 @@
 - [proto_version.h enumerates the boundaries](proto-version-h-enumerates-the-boundaries.md) — Valve's own list of protocol changes; each constant names the last build WITHOUT the change.
 - [NUnit over xUnit, never deprecated packages](nunit-over-xunit-never-deprecated-packages.md) — NUnit is the default for new projects; a deprecated package is a build warning and breaks Zero Warnings.
 - [International names are required](international-names-are-required.md) — every decoder is UTF-8; ASCII corrupts a name into a plausible one, and the fixture builders hid it.
+- [The era axis is measured](era-axis-is-measured.md) — protocols 11/14/15/16/24 dated exactly by running period clients; gaps at 12–13 and 17–23; date a candidate from engine.dll before downloading it.
+- [Record both points of view](record-both-points-of-view.md) — a POV/STV pair of one session is the control that proved the 64 KiB schema cap was the writer's, not the parser's.
