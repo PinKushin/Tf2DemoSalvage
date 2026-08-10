@@ -41,24 +41,24 @@ public sealed class CorpusCodecCoverageTests(ITestOutputHelper output)
     /// <summary>Message types whose body is consumed without being understood.</summary>
     /// <remarks>
     /// Judged by what the decoded record retains, not by whether the reader stayed aligned. A
-    /// <see cref="SoundsMessage"/> knows its reliability flag and how many sounds it holds and
-    /// nothing about any of them; a <see cref="PacketEntitiesMessage"/> keeps its body as raw
-    /// bytes, which is enough to re-emit but not enough to say it is understood without the
-    /// schema that interprets it.
+    /// <see cref="EntityMessage"/> knows which entity and class a body is for and nothing about
+    /// its contents, because that layout is defined by the receiving class and cannot be decoded
+    /// generically. A <see cref="VoiceDataMessage"/> knows who spoke; the audio itself is a codec
+    /// payload and decoding it is a different project.
     /// </remarks>
     private static int OpaqueBits(INetMessage message) => message switch
     {
         SkippedMessage skipped => skipped.BodyBits,
-        SoundsMessage sounds => sounds.BodyBits,
 
-        // TempEntities was counted here until its body was decoded. It is dropped for the same
-        // reason PacketEntities was never counted: the message carries raw bytes, and the content
-        // IS interpreted — by EntityDecoder.DecodeTempEntities, validated against every corpus
-        // demo that carries one, 0 failures across protocols 14 to 24.
+        // Sounds and TempEntities were both counted here until their bodies were decoded, and are
+        // dropped for the reason PacketEntities was never counted: the message carries raw bytes
+        // and the content IS interpreted — by EntityDecoder.DecodeTempEntities and SoundDecoder.Decode, both
+        // validated against every corpus demo that carries one, 0 failures across protocols 11
+        // to 24.
         //
         // Reclassifying a bucket to improve the number is exactly the fudge this instrument exists
         // to prevent, so the bar is stated rather than felt: content interpreted somewhere in this
-        // project, not merely consumed at the right length. Sounds does not meet it.
+        // project, not merely consumed at the right length.
         VoiceDataMessage voice => voice.BodyBits,
         EntityMessage entity => entity.BodyBits,
         UserMessage { Fields: null } user => user.BodyBits,

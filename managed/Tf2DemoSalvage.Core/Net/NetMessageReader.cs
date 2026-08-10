@@ -267,12 +267,15 @@ public static class NetMessageReader
                             int soundBits = (int)reader.ReadUInt32(reliable
                                 ? SoundsReliableLengthBits
                                 : SoundsLengthBits);
-                            _ = NetBitReading.CopyBits(ref reader, soundBits);
+                            byte[] soundBody = NetBitReading.CopyBits(ref reader, soundBits);
 
-                            // Reported rather than dropped. The body stays opaque - the
-                            // reference implementation keeps it opaque too - but 231 anonymous
-                            // skipped messages in one demo told a reader nothing at all.
-                            messages.Add(new SoundsMessage(reliable, soundCount, soundBits));
+                            // The body is carried rather than dropped, and SoundDecoder reads it.
+                            // It stayed opaque for a long time because the reference parser leaves
+                            // it opaque - which was a fact about that parser's priorities, not
+                            // about the format, and svc_Sounds was the last undeciphered message
+                            // in the codec because of it.
+                            messages.Add(new SoundsMessage(
+                                reliable, soundCount, soundBits, soundBody));
                             break;
                         }
 

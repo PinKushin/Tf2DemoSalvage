@@ -6,6 +6,7 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <param name="IsReliable">Whether this was sent reliably, which also changes the wire shape.</param>
 /// <param name="Count">How many sounds the body carries. Always 1 when reliable.</param>
 /// <param name="BodyBits">How many bits the body occupies.</param>
+/// <param name="Body">The body bits, decoded by <see cref="SoundDecoder"/>.</param>
 /// <remarks>
 /// **The body is deliberately not decoded, and the reference implementation does not decode it
 /// either.** `demostf/parser` reads these same three header fields and keeps the payload as an
@@ -21,7 +22,9 @@ namespace Tf2DemoSalvage.Core.Net;
 /// field to eight bits; an unreliable one sends a count byte and a sixteen-bit length. Reading
 /// one shape for the other consumes the wrong number of bits and desynchronises the packet.
 /// </remarks>
-public sealed record SoundsMessage(bool IsReliable, int Count, int BodyBits) : INetMessage
+public sealed record SoundsMessage(
+    bool IsReliable, int Count, int BodyBits,
+    System.ReadOnlyMemory<byte> Body = default) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.Sounds;
