@@ -26,7 +26,7 @@ better but not harmless. Hostile or merely corrupt input can still produce an
 length field that drives an unbounded allocation, or a decode loop that does not
 terminate.
 
-**The corpus is one demo, and D5 says that probably will not change.** That is
+**The corpus was one demo when this was written, and is now ten across five protocols — but it is still sparse in the way that matters here.** That is
 the sharper reason. D5 concluded that community outreach for pre-2010 specimens
 is low-probability at scale, and that the schema-driven design is the hedge. A
 fuzzer is the other hedge: it cannot manufacture a 2009 demo, but it can

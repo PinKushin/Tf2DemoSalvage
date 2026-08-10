@@ -887,14 +887,18 @@ message is read. `NetDecodeState.NetworkProtocol` is seeded there and defaults t
 definitions, 10,998 entity snapshots, 70 game events across 13 types, and the recording player
 resolved by name out of the `userinfo` table.
 
-**Open: the exact boundary is unverified.** Protocol 15 is five bits and 24 is six, both
-measured. The flip is somewhere in 16–23 and the code picks 15 as the last five-bit protocol,
-because 16 is where Replay shipped and a protocol number only moves when the wire format does.
+**Boundary SETTLED at 15→16, 2026-08-10.** It was open — 15 measured at five bits, 24 at six, the
+flip somewhere in 16–23 — and the code guessed 15 as the last five-bit protocol on the reasoning
+that 16 is where Replay shipped. The guess was right, and it is now measured rather than reasoned.
 
-Tolerable because the failure is loud rather than silent — a wrong width desynchronises the
-first message of the signon and produces the wreckage described above, never a plausible-looking
-result. Contrast B14, which was latent for the entire life of the project. A protocol 16–23 demo
-would settle it, and none exists in the corpus.
+A June 2011 client (build 4604) records at **protocol 16**, and its demos decode end to end:
+11,131 commands in the POV and 3,769 in the SourceTV, no stops, no undecoded markers. **That
+result is only possible at six bits.** A five-bit read at protocol 16 desynchronises the first
+message of the signon, which is exactly the wreckage this entry describes — so the demo
+distinguishes the two widths on its first packet, and it chose six.
+
+The failure being loud is what made the guess tolerable in the meantime; it is not what made it
+correct. Contrast B14, which was latent for the entire life of the project.
 
 
 ## B18 — the property type enum was renumbered, and neither list mentions it
@@ -933,8 +937,16 @@ settled the flattening order (D12), applied across eras rather than across imple
 real old demo are invisible in Valve's own enumeration of era differences, which sets the ceiling
 on what D20 can be trusted to cover: it lists what the *engine* branches on, not what changed.
 
-**The boundary is the same open question as B17.** Protocol 15 uses the 2009 numbering, 24 uses
-the current one, both measured; the change is somewhere in 16–23. Also loud rather than silent.
+**Boundary SETTLED at 15→16, 2026-08-10, by the same demo that settled B17.** Protocol 15 uses the
+2009 numbering and 24 the current one, both measured; the change was somewhere in 16–23.
+
+The protocol-16 demo parses its schema with the **current** numbering — 256 server classes, and
+every decoded entity property matching the class it was read for. Under the 2009 numbering every
+nested table reads as an array, so the schema dies a few hundred bits in and no entity decodes at
+all. Getting a whole schema and matching properties is not something the wrong numbering produces.
+
+So `DPT_VectorXY` was inserted between protocols 15 and 16 — the same boundary as the message type
+width, which is consistent with both being part of whatever wire change earned protocol 16.
 
 
 ## B19 — a fourth era difference, and this one is silent

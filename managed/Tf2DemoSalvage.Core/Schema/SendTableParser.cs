@@ -117,9 +117,11 @@ public static class SendTableParser
 
     /// <summary>Last protocol whose property types were numbered without <c>VectorXY</c>.</summary>
     /// <remarks>
-    /// **Bounded, not exact — the same open boundary as the message type width.** Protocol 15
-    /// uses the 2009 numbering and 24 uses the current one, both measured; the change is
-    /// somewhere in 16–23. See <c>RISKS.md</c> B18.
+    /// **Exact, and measured.** This was bounded at "somewhere in 16–23" until a June 2011 client
+    /// (protocol 16) was obtained: its schema parses under the current numbering, yielding 256
+    /// server classes whose properties all match the class they were read for. Under the 2009
+    /// numbering every nested table reads as an array and the schema dies a few hundred bits in,
+    /// so a whole schema is not something the wrong numbering produces. See <c>RISKS.md</c> B18.
     /// </remarks>
     private const ushort VectorXyProtocol = 15;
 

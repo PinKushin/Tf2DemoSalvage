@@ -36,17 +36,20 @@ public sealed class NetDecodeState
 
     /// <summary>Last protocol whose message type field was five bits wide.</summary>
     /// <remarks>
-    /// **Bounded by measurement, not verified exactly.** Protocol 15 is five bits, confirmed
-    /// against a demo recorded on TF2 build 3862 (June 2009); protocol 24 is six, confirmed
-    /// across the whole corpus. The flip is somewhere in 16–23 and this picks the earliest
-    /// point consistent with both, because 16 is where Replay shipped and a protocol number
-    /// only moves when the wire format does.
+    /// **Exact, and measured on both sides.** Protocol 15 is five bits, confirmed against a demo
+    /// recorded on TF2 build 3862 (June 2009). Protocol 16 is six, confirmed against a demo
+    /// recorded on build 4604 (June 2011): it decodes end to end, 11,131 commands with no stops,
+    /// which a five-bit read cannot produce.
     ///
-    /// Guessing is tolerable here in a way it usually is not, because the failure mode is loud
-    /// rather than silent. A wrong width desynchronises the first message of the signon: the
-    /// 2009 demo produced 11,002 unreadable packets and a server protocol of 25,482 before this
-    /// was fixed, and zero afterwards. There is no reading of a wrong width that quietly
-    /// produces plausible output — see <c>RISKS.md</c> B17.
+    /// This was a guess until that demo arrived — the flip was known only to be somewhere in
+    /// 16–23, and 15 was chosen because 16 is where Replay shipped and a protocol number only
+    /// moves when the wire format does. The reasoning was right; it is now evidence.
+    ///
+    /// The failure mode is loud rather than silent, which is what made guessing tolerable in the
+    /// meantime. A wrong width desynchronises the first message of the signon: the 2009 demo
+    /// produced 11,002 unreadable packets and a server protocol of 25,482 before this was fixed,
+    /// and zero afterwards. There is no reading of a wrong width that quietly produces plausible
+    /// output — see <c>RISKS.md</c> B17.
     /// </remarks>
     private const ushort FiveBitTypeProtocol = 15;
 

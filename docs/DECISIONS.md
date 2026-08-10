@@ -637,6 +637,31 @@ but specifically **one demo in protocols 16–23**, which would settle B17 and B
 2007–2008 launch-era client (protocol 14) remains valuable for a different reason: it is the only
 thing that would exercise the string table compression rule from D20.
 
+#### D21 outcome, 2026-08-10 — the demo was cheaper, and it settled both
+
+A June 2011 client (build 4604) recording at **protocol 16** was obtained and settled B17 and B18
+together, exactly as this entry predicted, within minutes of being decoded. Six-bit message type
+and current `SendPropType` numbering, both at 16, so **both boundaries are 15→16** — the value the
+code had guessed. The research pass that preceded this produced no answer in a day; the demo
+produced two in seconds.
+
+**The general lesson is the one this entry already stated, now with a measurement behind it: for a
+rule whose failure is loud, a specimen beats research.** Not because research is useless — the SDK
+branch bracketing above is still the reason we understand *why* the boundary is where it is — but
+because a specimen answers the question the parser actually asks.
+
+**One of this entry's own quotes turned out to be evidence.** It cites a TF2 patch note about
+"backward compatibility code to allow demos recorded with protocol 12 to continue to be playable
+under protocol version 13", noted at the time only as proof the changelog route was viable. The
+launch client turned out to record at **protocol 11**, not the 14 assumed here, so protocols 12
+and 13 sit in a five-month window between October 2007 and March 2008 — and that patch note is
+independent confirmation that both existed and are consecutive. It was in hand before the demo
+was, and was not recognised as an answer because it was being read for a different question.
+
+**Corpus priority now:** protocols **12–13** (Oct 2007 → Mar 2008) and **17–23** (Jun 2011 → Mar
+2013). Both windows are narrow enough that `bin/engine.dll` dating (D30) makes candidate triage
+cheap.
+
 
 ### D22 — the trace reaches the command line, and the CLI gets its own tests
 
@@ -706,11 +731,11 @@ roster, and tests within a class run *sequentially* so they did not even overlap
 **Lesson worth keeping: measure the thing you are going to change, at the granularity you are
 going to change it.** Per-class timing was the wrong instrument for a per-test problem.
 
-**What is deliberately not cached.** Demo bytes — the corpus is 305 MB and Stryker runs several
+**What is deliberately not cached.** Demo bytes — the corpus was 305 MB when this was written (it is now 20 MB, D31) and Stryker runs several
 hosts at once, which would trade a time problem for a worse memory one. `EntityDecoder` — it is
 stateful by design, since a delta update's class comes from the snapshot the entity entered on,
 so a shared one would let one test's entities answer another's questions. And snapshot *bodies*,
-which are `ReadOnlyMemory` views over the demo bytes and would pin all 305 MB by the back door;
+which are `ReadOnlyMemory` views over the demo bytes and would pin the whole corpus by the back door;
 only the scalar header fields are kept.
 
 **A cap with teeth.** `FirstSnapshots` holds 400 per demo and *throws* if asked for more, rather
@@ -797,7 +822,7 @@ data, and `GetOrAdd` does not cache exceptions.
 Every other project the owner mutates finishes in 10-20 minutes. This one exceeds 90.
 
 **The corpus is the entire difference.** Others mutate against small synthetic fixtures; this one
-carries 305 MB of real demos, and its strongest tests are corpus tests, so every mutant touching
+carried 305 MB of real demos when this was written, and its strongest tests are corpus tests, so every mutant touching
 decode code re-walks eight files.
 
 **A trade, not waste.** Those tests found B12, B17, B18 and B20. Removing them would match the
@@ -884,7 +909,7 @@ which one failed: `.github/workflows/mutation.yml` and `.github/workflows/fuzz.y
 #### The binding constraint is Git LFS bandwidth, not Actions minutes
 
 The repository is public, so Actions minutes are free and unlimited. **Git LFS is not.** The free
-tier allows 1 GiB of bandwidth per month for the account, and the corpus is 305 MB — so an
+tier allows 1 GiB of bandwidth per month for the account, and the corpus was 305 MB — so an
 uncached checkout exhausts the quota in **three runs**, whatever the repo's visibility.
 
 Both workflows are built around that:
@@ -896,7 +921,7 @@ Both workflows are built around that:
   reads no demos, so it spends none of the quota and can run nightly.
 - The mutation workflow runs its two jobs in sequence rather than in parallel — CLI first, which
   takes about a minute and populates the shared cache, then Core. Run in parallel they would both
-  miss the cache and pull 305 MB each.
+  miss the cache and pull the whole corpus each.
 
 #### Cadence follows measured cost, not preference
 
@@ -1183,3 +1208,37 @@ whose `.7z` sits inside a subdirectory needs that path in the URL, and a wrong f
 
 **Verified 2026-08-10** by dating the 2007 launch client (`Oct 9 2007`, PatchVersion 1.0.0.5) from
 a 3 GB ZIP for 4 MB, and by getting a zero-byte body from the equivalent 7z request.
+
+### D31 — two corpora: gcor is one specimen per generation, lcor is everything else
+
+The committed corpus went from 10 demos and 308 MB to 6 and 16.5 MB in one change, then back to
+10 and 20.3 MB as five eras were added. Those are not the same ten demos, and the difference is
+the decision.
+
+**gcor — `tools/corpus/demos/`, committed.** One specimen per **era × point of view**. Ten files,
+20.3 MB, protocols 11, 14, 15, 16, 24.
+
+**lcor — `tools/corpus/local/`, git-ignored.** Everything else: modern matches, duplicate
+specimens, anything held for volume. Fourteen files, 774 MB. `Corpus.Files()` includes it
+automatically, so a **local run is a superset of CI** — a local pass cannot hide a CI failure,
+only the reverse, which is the useful direction.
+
+**What forced the split was a bill, not taste.** GitHub's free Git LFS tier is 1 GiB of bandwidth
+per month and every CI job that fetches the corpus spends it. At 308 MB that was three runs. Six
+of those ten demos were protocol-24 SourceTV recordings differing only in map and date — 257 MB to
+say the same thing six times. At 20.3 MB it is fifty runs.
+
+**The rule for growth: gcor grows for a new GENERATION, never for volume.** Another modern demo
+tests the modern path again; a protocol 12 demo tests four rules nothing else can reach. When told
+to "add demos", the default is lcor.
+
+**Era specimens are kept to 2–4 minutes deliberately, and that is what keeps gcor small — not the
+age of the client.** Measured across gcor: 0.18–0.23 MB/min for SourceTV on a listen server,
+0.34–0.92 for POV (which carries `dem_usercmd` once per tick where SourceTV carries none), 0.59
+for a 24-player match. The same recordings at 30 minutes would make gcor 90 MB. Every
+protocol-conditional rule fires during signon and the first snapshots, so length buys an era
+specimen nothing.
+
+**Consequence for the mutation box:** the corpus job's input is now effectively stable. Filling
+both remaining protocol gaps adds a few MB, not tens — provided the recordings stay short, which
+is a condition rather than a promise.

@@ -19,7 +19,16 @@ A standalone TF2 `.dem` parser that works across TF2's full history, including d
 
 ## Corpus reality
 
-There is currently **one** confirmed reference demo: `tools/corpus/demos/z1800.dem` (metadata in `tools/corpus/manifest.json`, full notes in `docs/FORMAT_NOTES.md`). It's a ~2015-era FACEIT SourceTV demo, demo protocol 3 / network protocol 24, structurally intact, fails in the live client for schema-validation reasons unrelated to file integrity — a good first Phase 1 target.
+**This section described a one-demo corpus and is now badly out of date in the good direction.** As of 2026-08-10 the committed corpus (**gcor**) is 10 demos / 20.3 MB spanning **five measured protocols** — 11, 14, 15, 16 and 24 — each recorded on a period client whose `version` output dates it exactly. Most eras carry a POV and a SourceTV recording of the same session, which is the pairing that has caught two writer-side findings. Metadata in `tools/corpus/manifest.json`, era table in `docs/TIMELINE.md`.
+
+`z1800.dem` is still there and is still the founding specimen, but the guess about it in the original text was wrong twice over: it is **2020 or later, not ~2015** (protocol numbers date nothing — see `docs/memory/z1800-is-modern-not-2015.md`), and it decodes end to end rather than being a target.
+
+Two corpora, and the distinction matters when you are told to add a demo:
+
+- **gcor** — `tools/corpus/demos/`, committed, one specimen per era × point of view. It grows **only for a new generation**, because GitHub's free Git LFS tier is 1 GiB/month and every CI job pays for it. Era specimens are kept to 2–4 minutes deliberately (`manifest.json` notes).
+- **lcor** — `tools/corpus/local/`, git-ignored, currently 14 demos / 774 MB. Modern matches, extra specimens, anything for volume. Tests pick it up automatically, so a local run is a superset of CI. **"Add these demos" means lcor unless the demo is a new protocol.**
+
+Remaining gaps on the era axis: protocols **12–13** and **17–23**.
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
 

@@ -39,13 +39,48 @@ Per your call: no Rust, no C++, no Python — and per further discussion, **no n
 
 ## 3. Phased roadmap
 
-**Phase 0 — Corpus & spec-mining.** Collect reference demos spanning eras: pre-2013 (pre-SteamPipe), 2013–2015, ~2018 (64-bit update), 2020–2022, immediately before/after the July 2023 break, and current. This corpus is both ground truth and the regression suite. **This is the one input only you can supply** — do you have a personal stash of old demos, and/or should we plan to pull from community archives (comp league demo archives like RGL/ETF2L/ozfortress, teamfortress.tv, demos.tf's own public archive)?
+**Phase 0 — Corpus & spec-mining.** *Largely answered, and not the way this paragraph expected.*
+The original plan was to collect old demos from community archives. Old demos turned out to be
+genuinely scarce (D5), and the route that worked instead was **acquiring old clients and recording
+new demos on them** — archive.org carries period TF2 builds, each one dates itself from
+`bin/engine.dll` before download (D30), and a listen server with `tv_enable 1` produces a matched
+POV and SourceTV pair.
 
-**Phase 1 — Core parser (C#, `Tf2DemoSalvage.Core`), text/structured output.** *In progress.
-Container, text dump, CLI, most net messages and `dem_datatables` are done; entity decode is
-not. Ordering note learned in practice: layer 2 messages carry no length prefix, so they must
-be implemented in the order the stream blocks on, not in order of apparent usefulness —
-`svc_ServerInfo` appears once per demo and gated the entire signon stream.* Envelope + `dem_datatables`/`dem_stringtables` parsing, generic SendTable-driven entity decode, normalized event stream (entity spawn/update/delete, game events, chat, user messages, tick timing). Output: **a Quake-style readable trace** — the demo decompiled to text, message by message, in stream order — plus a summary dump and JSON Lines for tools that want a machine format. **This alone delivers the core "recover lost demos" goal**, independent of any viewer.
+That gives dated specimens rather than undated ones, which is strictly better ground truth: the
+recorder knows what happened. Five protocols are now measured — 11 (launch, Oct 2007), 14, 15, 16
+and 24 — with gaps at 12–13 and 17–23. See `docs/TIMELINE.md` for the era table and
+`docs/RECORDING_CHECKLIST.md` for what to do while recording, so each era exercises the same
+things and differences between specimens are era differences.
+
+Community archives remain the only route for demos of *real matches* played at the time, which
+self-recording cannot reproduce — 12 players, real network conditions, real STV delay.
+
+**Phase 1 — Core parser (C#, `Tf2DemoSalvage.Core`), text/structured output.** *Substantially
+complete as of 2026-08-10.* Envelope + `dem_datatables`/`dem_stringtables` parsing, generic
+SendTable-driven entity decode, normalized event stream (entity spawn/update/delete, game events,
+chat, user messages, tick timing). Output: **a Quake-style readable trace** — the demo decompiled
+to text, message by message, in stream order — plus a summary dump and JSON Lines for tools that
+want a machine format. **This alone delivers the core "recover lost demos" goal**, independent of
+any viewer.
+
+**Status.** Container, text dump, trace, JSON Lines, CLI, every net message the corpus contains,
+`dem_datatables`, string tables, entity decode with baselines, and the normalized event stream are
+done. Every demo in the corpus decodes end to end across five protocols — 11, 14, 15, 16, 24 —
+with the one documented exception of a SourceTV recording whose schema the *writer* truncated
+(`RISKS.md` B24).
+
+Known remaining work, none of it blocking:
+
+- `svc_Sounds` and `svc_TempEntities` bodies stay opaque. The reference implementation leaves them
+  opaque too; this is a decision rather than a gap.
+- Game event fields print raw ids in JSON Lines where the text summary resolves them to player
+  names — the two outputs disagree, the same way they did for user messages until recently.
+- The voice client-to-player mapping is unresolved and needs a demo with two speakers
+  (`docs/RECORDING_CHECKLIST.md`).
+
+*Ordering note learned in practice: layer 2 messages carry no length prefix, so they must be
+implemented in the order the stream blocks on, not in order of apparent usefulness —
+`svc_ServerInfo` appears once per demo and gated the entire signon stream.*
 
 **Phase 2 — 2D top-down viewer (C#).** Player positions/orientation/deaths/objective state scrubbed over time on a top-down map projection. Use TF2's shipped overview/radar images where they exist, fall back to a wireframe top-down projected from BSP world geometry where they don't. **Correction (2026-08-07): that geometry is the FACES lump, not brushes** — brushes are collision volumes. See `docs/RENDERING_NOTES.md` §2.
 
