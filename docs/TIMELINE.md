@@ -304,3 +304,54 @@ should all be *lower* than 2009's 232 / 16 / 156 if the build is genuinely older
 **If `version` reports 15 rather than 14**, the trip teaches nothing new about the format and the
 build is redundant with the one already in the corpus. That check costs one console command and
 should be run before recording anything.
+
+
+---
+
+## Pre-registered prediction for a Source MP era demo (protocol 16–23)
+
+Written **before** the client was launched. A retail build stamped `Exe build: 17:24:29 Mar 25
+2013`, `PatchVersion=1729296`, is extracted and unrun at `F:\tf2-builds\tf2-2013`.
+
+**The gap this aims at.** The corpus has protocol 15 (2009) and protocol 24 (`z1800.dem`). Every
+protocol between them is unrepresented, and that span contains **four of the parser's seven
+protocol boundaries** — every one of them implemented from reading `proto_version.h` and another
+parser, none executed against a demo that sits on the far side. The date is chosen because it
+straddles TF2's SteamPipe transition, so the build is either the last of Source Multiplayer or the
+first of Source 2013.
+
+Each parser constant, and which side of it a 16–23 demo falls:
+
+| Constant | Boundary | At 15 (validated) | At 16–23 | At 24 (validated) |
+|---|---|---|---|---|
+| `CompressionFlagProtocol` | 14 | present | present | present |
+| `FiveBitTypeProtocol` | 15 | 5-bit type | **6-bit type** | 6-bit type |
+| `VectorXyProtocol` | 15 | old numbering | **new numbering** | new numbering |
+| `PrefetchWidthProtocol` | 22 | 13 bits | **13 or 14, by side** | 14 bits |
+| `TempEntitiesVarIntProtocol` | 23 | fixed 17-bit | **fixed 17-bit** | varint |
+| `VarIntLengthProtocol` | 23 | fixed | **fixed** | varint |
+
+**The prediction, in two cases, because `version` decides which.**
+
+- **Protocol 23.** Every branch above is already exercised on one side or the other by the two
+  demos in hand, so a 23 demo should decode **end to end with zero stops and no new branch taken**.
+  Its value is then confirmatory, not exploratory: it is the first evidence that the 16–23 span
+  behaves as interpolated rather than as assumed. That is worth having precisely because nothing
+  currently distinguishes "correct across the gap" from "untested across the gap".
+- **Protocol 24.** The build sits after the transition, the demo is redundant with `z1800.dem` for
+  boundary purposes, and the finding is a **date bound**: protocol 24 was already live on
+  2013-03-25, which narrows the 23→24 change to before that date.
+
+**What would falsify the model.** A stop at protocol 23 in any message type, since by the table
+above no branch flips between 15/24 and 23 that is not already covered from both sides. Such a
+stop means a boundary exists inside 16–23 that neither `proto_version.h` nor this project knows
+about — the same discovery shape as B17 (message type width) and B18 (`SendPropType` renumbering),
+both of which were found exactly this way and neither of which is in Valve's own list.
+
+**Secondary outcome regardless:** a third row in the era-fingerprint table, between 2009's
+232 / 16 / 156 and the modern figures. Max classes and game event definitions should fall between
+the two if the model of steady growth holds; a value outside that range is itself a finding.
+
+**Run `version` first.** It costs one console command and it decides which of the two predictions
+above is being tested — recording a demo before knowing which is how a result gets fitted to
+whichever story survives.
