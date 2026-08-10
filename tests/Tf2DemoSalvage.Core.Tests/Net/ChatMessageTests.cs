@@ -101,4 +101,58 @@ public sealed class ChatMessageTests
         // blank entry in the log rather than showing something went wrong.
         ChatMessage.Parse(Body(3, 1, "TF_Chat_All", "Sassy")).ShouldBeNull();
     }
+
+    [Fact]
+    public void Parse_EmptyKind_IsTheFullFormWithAnEmptyString()
+    {
+        // Zero is not a colour code. The deciding test is `> 0 && <= 8`, and every other case
+        // here supplies a byte that is either comfortably inside that range or comfortably a
+        // letter — so widening the lower bound to `>= 0` changed nothing any of them could see.
+        //
+        // The same fixture covers the string reader's own boundary. A NUL at offset zero is an
+        // empty string, not a missing one: reading it as missing abandons the message and loses
+        // the sender and text that follow it perfectly well.
+        ChatMessage chat = ChatMessage.Parse(Body(3, 1, "", "Sassy", "gg")).ShouldNotBeNull();
+
+        chat.Kind.ShouldBe("");
+        chat.From.ShouldBe("Sassy");
+        chat.Text.ShouldBe("gg");
+    }
+
+    [Fact]
+    public void Parse_HighestColourCode_IsStillTheSimplifiedForm()
+    {
+        // 8 is the last code, and the existing simplified-form case uses 1 — which cannot tell
+        // `<= 8` from `< 8`. Reading this as the full form takes the message itself as the
+        // localisation key and then finds no sender, losing the line entirely.
+        byte[] body = [5, 0, 0x08, .. Encoding.UTF8.GetBytes("headshot"), 0];
+
+        ChatMessage chat = ChatMessage.Parse(body).ShouldNotBeNull();
+
+        chat.From.ShouldBeNull();
+        chat.Kind.ShouldBeNull();
+        chat.Text.ShouldBe("headshot");
+    }
+
+    [Fact]
+    public void Parse_SimplifiedFormWithNoTerminator_IsRejected()
+    {
+        // The simplified path has its own unterminated-string case, separate from the full form's.
+        // Without this, dropping its null check is invisible.
+        byte[] body = [5, 0, 0x01, .. Encoding.UTF8.GetBytes("truncated")];
+
+        ChatMessage.Parse(body).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Parse_StripsTheHighestColourCode()
+    {
+        // Code 8 is inside the stripped range, and the strip test uses 1 and 3 — neither of which
+        // can tell `> 8` from `>= 8`. Leaving it in puts a backspace character in a chat log.
+        byte[] body = [3, 1, .. Encoding.UTF8.GetBytes("TF_Chat_All"), 0,
+            .. Encoding.UTF8.GetBytes("Sassy"), 0,
+            .. Encoding.UTF8.GetBytes("well"), 0x08, .. Encoding.UTF8.GetBytes("played"), 0];
+
+        ChatMessage.Parse(body).ShouldNotBeNull().Text.ShouldBe("wellplayed");
+    }
 }

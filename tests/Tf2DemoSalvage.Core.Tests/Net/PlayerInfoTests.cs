@@ -51,6 +51,26 @@ public sealed class PlayerInfoTests
     }
 
     [Fact]
+    public void Parse_EmptyNameField_IsAnEmptyStringNotThePadding()
+    {
+        // A terminator at offset zero. Every other case here puts at least one character before
+        // the NUL, so they cannot tell "found the terminator at 0" from "found no terminator" -
+        // and treating the two alike returns the entire 32-byte field, which is 32 NULs rendered
+        // as a string. That compares unequal to "" and prints as nothing, so it looks fine in a
+        // trace and breaks every lookup keyed on the name.
+        //
+        // Empty names are not hypothetical: a slot mid-connection carries one.
+        PlayerInfo info = PlayerInfo.Parse(Record(name: ""), entityIndex: 4);
+
+        info.Name.ShouldBe("");
+        info.Name.Length.ShouldBe(0);
+
+        // The control. The SteamID field uses the same reader, and must still be read normally -
+        // otherwise "the name is empty" and "the reader is broken" look the same.
+        info.SteamId.ShouldBe("[U:1:1234567]");
+    }
+
+    [Fact]
     public void Parse_TrimsTheNulPaddingRatherThanKeepingIt()
     {
         // The name field is 32 bytes whatever the name's length. Keeping the padding gives a
