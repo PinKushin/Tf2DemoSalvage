@@ -126,6 +126,37 @@ grep -E "mutation score|Killed:|Survived:|Timeout:|No Coverage" "${OUT}/stryker.
   | tail -8 > "${OUT}/summary.txt" || true
 cat "${OUT}/summary.txt" 2>/dev/null || true
 
+# THE COUNT, not just the score. A percentage alone cannot say whether the run finished.
+#
+# On 2026-08-10 a run of this project printed "All mutants have been tested, and your mutation
+# score has been calculated" and 37.74% having accounted for 1215 of 1954 mutants. The figure was
+# internally consistent with the subset it held, so nothing looked wrong, and it was believed and
+# acted on. The same shape as a test runner reporting `Passed! - 630` against a 646-test suite:
+# the verdict is fine and the COUNT is the tell.
+#
+# Zero is the case that must shout. A scoped run over code nobody touched legitimately produces no
+# mutants and a clean report in seconds, which at a glance is identical to a misconfigured `since`
+# target that mutates nothing at all. Success and "nothing was measured" have to look different.
+planned=$(grep -oE '[0-9]+[[:space:]]+total mutants will be tested' "${OUT}/stryker.log" \
+  | tail -1 | grep -oE '^[0-9]+') || true
+accounted=$(awk '/^(Killed|Survived|Timeout):[[:space:]]/ { total += $2 } END { print total + 0 }' \
+  "${OUT}/stryker.log")
+
+echo "mutants: ${accounted} accounted, ${planned:-unknown} planned"
+if [ "$accounted" = 0 ]; then
+  echo "ERROR: zero mutants tested. This is NOT a pass - nothing was measured." >&2
+  [ "$STATUS" = 0 ] && STATUS=3
+elif [ -n "${planned:-}" ] && [ "$accounted" -lt "$planned" ]; then
+  # Two causes, and the size tells them apart. RuntimeError mutants are counted as planned but
+  # appear in no status line the cleartext reporter prints, so this gap is the ONLY evidence they
+  # happened - a small number here is that, and is worth seeing. A gap of hundreds is a run that
+  # stopped early, and then the score below is over a partial set. Measured examples: 2 of 957 on
+  # a healthy run, 739 of 957 on a truncated one.
+  echo "GAP: $((planned - accounted)) of ${planned} mutants in no status line." \
+       "A few means RuntimeError mutants, which are reported nowhere else." \
+       "Many means the run stopped early and the score covers a partial set." >&2
+fi
+
 cd "$REPO"
 if [ -d "${PROJECT}/StrykerOutput" ]; then
   latest=$(ls -1dt "${PROJECT}/StrykerOutput/"*/ 2>/dev/null | head -1)
