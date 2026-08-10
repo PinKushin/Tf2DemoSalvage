@@ -922,3 +922,54 @@ gh api repos/{owner}/{repo}/check-runs/{job-id}/annotations --jq 'length'
 Specifically unverified until then: whether a hosted 4-core runner finishes the core mutation
 inside the 300-minute timeout, and whether `libfuzzer-dotnet` builds cleanly against the runner's
 clang.
+
+### D27 — entity baselines, and what they are not wired to yet
+
+`instancebaseline` is now read, stored and applied. An entering entity is seeded from its class
+baseline before the update's own properties, so defaults that never reach the wire are known.
+
+**Measured effect, over the same 300 snapshots per demo:**
+
+| demo | properties known without | with baselines |
+|---|---|---|
+| `z1800` | 3,369 | **49,452** |
+| `demostf-cp_process_f12` | 4,624 | 46,050 |
+| `tf2-2009-build3862` | 531 | 6,566 |
+
+Roughly **ninety percent of entity state was missing**, which is what the gap recorded on
+`EntityTracker` since it was written actually amounted to.
+
+#### Three rules, each verified by sabotage rather than asserted
+
+1. **Seed on entry only, never on a delta.** Re-applying a baseline on every update resurrects
+   defaults over values the match already changed — a player's health springing back to full
+   because a later tick touched only their position. Inverting the condition fails exactly the
+   two baseline tests.
+2. **The class id is the entry's *text*, not its index.** This is the reverse of `userinfo`,
+   where B22 established the entity index *is* the entry index. For `instancebaseline` the two
+   differ on essentially every entry — index 0 carries class 353, index 1 carries class 318.
+   Reusing B22's rule files every baseline under the wrong class, and a baseline on the wrong
+   class still decodes: real values into the wrong fields, silently.
+3. **Drop the decoded copy when the raw bits are rewritten.** Baselines change mid-match through
+   `svc_UpdateStringTable` — 101 times in one corpus demo — so a memo kept against a class id
+   would serve a stale parse for the rest of the file. Removing the invalidation fails exactly
+   the rewrite test, which reads before *and* after precisely so a never-invalidated cache
+   cannot pass.
+
+#### Stored raw, decoded on demand
+
+A demo carries a baseline for every class while a match instantiates only some, and one in the
+corpus runs to 7,669 bytes. The reference implementation makes the same choice for the same
+reason. No new codec was needed: a baseline is encoded exactly like an entity delta, so the
+existing property loop reads it.
+
+#### What this is not wired to, and why that is deliberate
+
+**Nothing in production consumes it yet.** The trace prints *deltas* — what changed each tick,
+in stream order — which is what a trace is for, and baselines do not belong there. `EntityTracker`
+plus baselines is Phase 2 infrastructure: the 2D viewer is exactly a query for every player's
+position at an arbitrary tick, and that is the consumer this was built for.
+
+Inventing a consumer now to make the wiring look finished would add output nobody asked for and
+inflate the trace tenfold. The honest state is: the capability exists, is tested against every
+corpus demo, and waits for Phase 2.

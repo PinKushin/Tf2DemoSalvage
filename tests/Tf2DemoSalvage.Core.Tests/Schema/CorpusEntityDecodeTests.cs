@@ -412,4 +412,116 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             coordinates.ShouldAllBe(c => Math.Abs(c) < 16384f, name);
         }
     }
+
+    [Fact]
+    public void Baselines_SupplyMostOfWhatAnEntityKnows()
+    {
+        // A snapshot sends an entering entity as a delta against its class baseline, so every
+        // property still at its default never reaches the wire. Measured across the corpus, that
+        // is roughly ninety percent of entity state: z1800 goes from 3,369 known properties to
+        // 49,452 over the same 300 snapshots.
+        //
+        // Asserted as a ratio rather than a total. The totals are real but depend on how many
+        // snapshots are read and on decode details elsewhere, so pinning them would make this a
+        // change detector. A broken baseline path does not produce a slightly smaller number -
+        // it produces exactly the without-baselines number, so a five-fold margin separates
+        // "working" from "not wired up" with room to spare.
+        foreach (string path in Corpus.Files())
+        {
+            string name = Path.GetFileName(path);
+            DemoSchema schema = Schema(path);
+            EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+            EntityTracker withBaselines = new();
+            EntityTracker without = new();
+            int baselines = 0;
+            bool started = false;
+
+            foreach ((PacketEntitiesMessage snapshot, IReadOnlyList<StringTableEntry> entries)
+                in EntityStream(path).Take(400))
+            {
+                if (entries.Count > 0)
+                {
+                    BaselineBuilder.Apply(entries, decoder);
+                    baselines += entries.Count;
+                    continue;
+                }
+
+                started |= snapshot.IsFullSnapshot;
+                if (!started)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<DecodedEntity> decoded =
+                    decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits);
+                withBaselines.Apply(decoded, decoder.Baseline);
+                without.Apply(decoded);
+            }
+
+            // Asserted, not assumed: a demo whose baselines never arrived would otherwise make
+            // the comparison below vacuous rather than failing. RISKS B20.
+            baselines.ShouldBeGreaterThan(0, name);
+
+            int with = Total(withBaselines);
+            int bare = Total(without);
+
+            bare.ShouldBeGreaterThan(0, name);
+            with.ShouldBeGreaterThan(bare * 5, name);
+        }
+    }
+
+    private static int Total(EntityTracker tracker) =>
+        tracker.ActiveEntities
+            .Select(tracker.State)
+            .Where(state => state is not null)
+            .Sum(state => state!.Count);
+
+    /// <summary>
+    /// Entity snapshots and <c>instancebaseline</c> entries, interleaved in stream order.
+    /// </summary>
+    /// <remarks>
+    /// Interleaved rather than collected separately because baselines are rewritten *during* a
+    /// match - up to 101 times in one corpus demo - so an entity entering at tick 5,000 must be
+    /// seeded from the baseline as it stood then, not from the final one.
+    /// </remarks>
+    private static IEnumerable<(PacketEntitiesMessage Snapshot, IReadOnlyList<StringTableEntry> Baselines)>
+        EntityStream(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
+        };
+
+        foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
+        {
+            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+            {
+                continue;
+            }
+
+            foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state).Messages)
+            {
+                switch (message)
+                {
+                    case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
+                        yield return (null!, create.Entries);
+                        break;
+
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == BaselineBuilder.TableName:
+                        yield return (null!, update.Entries);
+                        break;
+
+                    case PacketEntitiesMessage snapshot:
+                        yield return (snapshot, []);
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
 }
