@@ -1088,3 +1088,56 @@ competitive matches, and the 2009 demo shows `Geiger` and `Train` — both HL2 l
 no obvious use for. Either those ids mean something else in the builds that recorded these
 demos, or the game really does send them. Not resolved, and not blocking: the ids are reported
 alongside the names, so a reader can see the number that was actually on the wire.
+
+### D29 — mutation testing moves to the shared Oracle box, and the corpus job is why
+
+GitHub-hosted runners cannot finish this repo's slow mutation job. Measured 2026-08-10: the
+pre-split combined project took **1h29m locally** and was **still running at 4h36m** on a hosted
+4-core runner before its 300-minute timeout killed it with no report. **A hosted runner is
+roughly 3× slower than the owner's machine on this workload.**
+
+That is survivable for the fast projects and not for the corpus one, which is the whole reason
+the measurement boxes exist.
+
+#### The split across machines
+
+| Workload | Where | Cadence | Cost |
+|---|---|---|---|
+| `Core.Tests` (synthetic) | GitHub Actions | daily | ~4 min local, ~12 min hosted |
+| `Cli.Tests` | GitHub Actions | daily | ~1 min local |
+| `Corpus.Tests` | **`mutation-box`** | weekly | 1h25m local, est. 3–5h on the box |
+| Fuzzing | GitHub Actions | nightly, 120s/target | trivial |
+
+#### What was provisioned, and the one thing that was missing
+
+`~/tf2demosalvage` on `mutation-box`, with `build/run-measurements.sh` modelled on
+PokemonBattleJournal's runner — the boxes are shared **by workload, not by project**, so two
+repos run Stryker on one machine and have to agree about how.
+
+**`git-lfs` was not installed.** It is now. Without it a clone yields ~130-byte pointer stubs
+instead of demos, and every corpus test degrades to a passing no-op — RISKS B20 with a different
+cause. The runner therefore asserts the smallest `.dem` exceeds 4096 bytes before it starts, and
+that check is not decoration: it is the only thing standing between a broken clone and a clean
+green run that measured nothing.
+
+#### The lock guards the box, not the project
+
+`/tmp/measurement-box.lock` is shared with every other repo on that machine. Giving this repo its
+own lock file would let two projects mutate simultaneously, and **Stryker reads a build failure
+caused by a concurrent job as a surviving mutant, not as an error** — so two locks would quietly
+corrupt both projects' results rather than colliding loudly. It was originally named for PBJ and
+has since been renamed for the box, which is the correct name for something guarding a machine.
+
+#### Scheduling belongs to whoever owns the box
+
+The crontab is not edited from this repo, by owner's instruction. What is offered instead is the
+runner plus the constraints it has to satisfy:
+
+- must not overlap PBJ's 07:00 and 19:00 daily, or 08:15 Sunday — the flock **refuses rather than
+  queues**, so a collision silently skips a run;
+- needs a window of up to five hours, against PBJ's 38 minutes;
+- must not finish inside 02:00, the DST transition hour;
+- weekly is sufficient — daily would be waste, since the fast projects already run on Actions.
+
+A 3–5 hour weekly run also *helps* Oracle's idle-reclamation threshold rather than threatening
+it, adding roughly four hours a week on top of PBJ's 8.9.
