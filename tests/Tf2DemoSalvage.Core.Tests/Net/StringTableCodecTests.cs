@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -91,16 +92,68 @@ public sealed class StringTableCodecTests
 
         public int BitCount => _writer.BitCount;
 
-        internal static int BitsFor(int capacity)
-        {
-            int bits = 0;
-            while (1 << bits < capacity)
-            {
-                bits++;
-            }
+        /// <summary>
+        /// The width an explicit index is written at, for the fixtures that do not pin it.
+        /// </summary>
+        /// <remarks>
+        /// The production function rather than a copy of it, deliberately. A builder that
+        /// recomputes a derived width agrees with the codec whatever the codec believes, so every
+        /// test built on it is blind to the one thing it most needs to check. See
+        /// <see cref="CapacityThatIsNotAPowerOfTwo_SizesIndexAndCountByFloorLogTwo"/>, which
+        /// states the widths as literals and is what actually pins them.
+        /// </remarks>
+        internal static int BitsFor(int capacity) => WireWidths.StringTableIndex(capacity);
+    }
 
-            return bits;
+    [Fact]
+    public void CapacityThatIsNotAPowerOfTwo_SizesIndexAndCountByFloorLogTwo()
+    {
+        // Two derived widths come off a table's capacity: the entry count is
+        // floor(log2(max)) + 1 bits, and an explicit entry index is floor(log2(max)). Neither is
+        // transmitted, so getting one wrong does not fail - it shifts the whole table.
+        //
+        // Every capacity in the corpus is a power of two (1, 4, 64, 128, 256, 512, 1024, 2048,
+        // 4096, 8192, 16384 - checked across all 27 distinct tables in every era held here), and
+        // floor and ceiling agree on exactly those. So no demo can distinguish the two, and the
+        // codec's ceiling form sat unchallenged with a fixture builder that computed the width the
+        // same way - each confirming the other, neither consulting the wire.
+        //
+        // 100 is the smallest useful capacity that separates them: floor gives 6 and 7, ceiling
+        // gives 7 and 8. Widths are literals here for that reason. The engine's own Q_log2 and
+        // demostf/parser's log_base2 are both floor.
+        const int maxEntries = 100;
+
+        BitWriter body = new();
+        body.Write(0, 1).Write(5, 6);        // explicit index 5, at floor(log2(100)) = 6 bits
+        body.Write(1, 1).Write(0, 1).String("shockwave");
+        body.Write(0, 1);                    // no user data
+
+        BitWriter writer = new();
+        writer.Message(NetMessageType.CreateStringTable);
+        writer.String("userinfo").Write(maxEntries, 16);
+        writer.Write(1, 7);                  // one entry, at floor(log2(100)) + 1 = 7 bits
+        WriteVarInt(writer, (uint)body.BitCount);
+        writer.Write(0, 1);                  // not fixed user data size
+        writer.Write(0, 1);                  // not compressed
+        foreach (byte value in body.Build())
+        {
+            writer.Write(value, 8);
         }
+
+        // The control. A width read one bit too wide leaves the reader inside the table's body,
+        // so the tick either disappears or comes back as some other number.
+        writer.NetTick(4242, 0, 0);
+
+        NetMessageReadResult result = NetMessageReader.Read(
+            writer.Build(), StateWithProtocol(24));
+
+        StringTableEntry entry = result.Messages
+            .OfType<CreateStringTableMessage>().ShouldHaveSingleItem()
+            .Entries.ShouldHaveSingleItem();
+
+        entry.Index.ShouldBe(5);
+        entry.Text.ShouldBe("shockwave");
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
     /// <summary>Wraps table bits in a svc_CreateStringTable message.</summary>
@@ -131,7 +184,7 @@ public sealed class StringTableCodecTests
     {
         writer.Message(NetMessageType.CreateStringTable);
         writer.String(name).Write((uint)table.MaxEntries, 16);
-        writer.Write((uint)table.Count, TableBuilder.BitsFor(table.MaxEntries) + 1);
+        writer.Write((uint)table.Count, WireWidths.StringTableEntryCount(table.MaxEntries));
 
         // Protocol 24 sends the length as a varint rather than a fixed 20-bit field.
         if (protocol > 23)

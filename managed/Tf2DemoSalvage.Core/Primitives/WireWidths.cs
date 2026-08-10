@@ -25,17 +25,46 @@ public static class WireWidths
     /// powers of two, which is why a fixture with a handful of classes cannot tell them apart.
     /// TF2's counts include both shapes: 256 in protocol 15, 362 in protocol 24.
     /// </remarks>
-    public static int ClassId(int classCount)
+    public static int ClassId(int classCount) => Log2Floor(classCount) + 1;
+
+    /// <summary>Bits an explicit string table entry index occupies.</summary>
+    /// <param name="maxEntries">The table's declared capacity.</param>
+    /// <returns>The width used for entry indices on the wire.</returns>
+    /// <remarks>
+    /// <c>floor(log2(capacity))</c>, with no <c>+ 1</c> — an index addresses the capacity rather
+    /// than counting it. Every capacity observed in the corpus is a power of two, where floor and
+    /// ceiling agree, so this is one of the widths no demo held here can adjudicate.
+    /// </remarks>
+    public static int StringTableIndex(int maxEntries) => Log2Floor(maxEntries);
+
+    /// <summary>Bits the entry count of a <c>svc_CreateStringTable</c> occupies.</summary>
+    /// <param name="maxEntries">The table's declared capacity.</param>
+    /// <returns>The width used for the count on the wire.</returns>
+    /// <remarks>
+    /// One wider than an index, because a full table's count is the capacity itself and does not
+    /// fit in the width that addresses it.
+    /// </remarks>
+    public static int StringTableEntryCount(int maxEntries) => Log2Floor(maxEntries) + 1;
+
+    /// <summary>
+    /// <c>floor(log2(value))</c> — the position of the highest set bit, and 0 at or below 1.
+    /// </summary>
+    /// <remarks>
+    /// The engine's <c>Q_log2</c>. Every derived width in this file is this plus a constant, which
+    /// is the whole reason they belong together: the constant is what differs between them, and a
+    /// second hand-rolled log2 beside one of them is how they drift.
+    /// </remarks>
+    private static int Log2Floor(int value)
     {
         int bits = 0;
-        while (classCount > 1)
+        while (value > 1)
         {
             // Stryker disable once Assignment: >>> differs from >> only for a negative value,
             // and the loop condition means a negative never reaches here. Equivalent mutant.
-            classCount >>= 1;
+            value >>= 1;
             bits++;
         }
 
-        return bits + 1;
+        return bits;
     }
 }

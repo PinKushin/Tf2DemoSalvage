@@ -51,7 +51,7 @@ internal static class StringTableCodec
     {
         string name = NetBitReading.ReadString(ref reader);
         int maxEntries = (int)reader.ReadUInt32(16);
-        int entryCount = (int)reader.ReadUInt32(BitsFor(maxEntries) + 1);
+        int entryCount = (int)reader.ReadUInt32(WireWidths.StringTableEntryCount(maxEntries));
 
         int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
         int lengthBits = protocol > VarIntLengthProtocol
@@ -210,7 +210,7 @@ internal static class StringTableCodec
     {
         List<StringTableEntry> entries = new(entryCount);
         List<string> history = new(HistorySize);
-        int indexBits = BitsFor(maxEntries);
+        int indexBits = WireWidths.StringTableIndex(maxEntries);
         int lastIndex = -1;
 
         for (int i = 0; i < entryCount; i++)
@@ -278,15 +278,4 @@ internal static class StringTableCodec
         return bytes;
     }
 
-    /// <summary>Bits needed to hold an index into a table of <paramref name="capacity"/>.</summary>
-    private static int BitsFor(int capacity)
-    {
-        int bits = 0;
-        while (1 << bits < capacity)
-        {
-            bits++;
-        }
-
-        return bits;
-    }
 }
