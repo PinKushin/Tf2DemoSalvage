@@ -6,6 +6,9 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Core.Tests.Net;
 using Tf2DemoSalvage.Core.Text;
 
 namespace Tf2DemoSalvage.Core.Tests.Text;
@@ -91,6 +94,85 @@ public sealed class DemoJsonLinesWriterTests
         header.GetProperty("map").GetString().ShouldBe("cp_process_final");
         header.GetProperty("networkProtocol").GetInt32().ShouldBe(24);
         header.GetProperty("playbackFrames").GetInt32().ShouldBe(120913);
+    }
+
+    /// <summary>A one-table, two-class schema as `dem_datatables` puts it on the wire.</summary>
+    private static byte[] SchemaPayload()
+    {
+        BitWriter writer = new();
+        writer.Write(1, 1)                       // a table follows
+              .Write(0, 1)                       // needsDecoder
+              .String("DT_Test")
+              .Write(1, 10);                     // one property
+        writer.Write((uint)SendPropType.Int, 5)
+              .String("m_iHealth")
+              .Write(1, 16)                      // flags: unsigned
+              .Write(0, 32)                      // low
+              .Write(0, 32)                      // high
+              .Write(10, 7);                     // bit count
+        writer.Write(0, 1);                      // no more tables
+
+        writer.Write(2, 16);                     // two classes, so class ids are two bits
+        writer.Write(0, 16).String("CTest").String("DT_Test");
+        writer.Write(1, 16).String("COther").String("DT_Test");
+
+        return writer.Build();
+    }
+
+    /// <summary>A delta snapshot in which one entity leaves and another is deleted.</summary>
+    private static IReadOnlyList<DemoCommand> EntityLifecycleCommands()
+    {
+        // Leave and Delete carry nothing beyond their two-bit update type, so this fixture needs
+        // no property encoding to exercise lifecycle reporting.
+        BitWriter body = new();
+        body.UBitVar(0).Write((uint)EntityUpdateType.Leave, 2);
+        body.UBitVar(0).Write((uint)EntityUpdateType.Delete, 2);
+        int bodyBits = body.BitCount;
+
+        BitWriter packet = new();
+        packet.Message(NetMessageType.PacketEntities)
+              .Write(2048, 11)                   // max entries
+              .Write(1, 1)                       // is delta
+              .Write(100, 32)                    // delta from tick
+              .Write(0, 1)                       // baseline index
+              .Write(2, 11)                      // updated entries
+              .Write((uint)bodyBits, 20)
+              .Write(0, 1);                      // update baseline
+        packet.Append(body);
+
+        return
+        [
+            new(DemoCommandType.DataTables, 0, SchemaPayload()),
+            new(DemoCommandType.Packet, 42, packet.Build()),
+        ];
+    }
+
+    [Fact]
+    public void EntityLifecycle_IsReportedAsItsOwnLineType()
+    {
+        // Phase 1 asks for a normalized event stream covering "entity spawn/update/delete", and
+        // this machine format carried header, players, chat and game events but nothing about
+        // entities at all - the one part of the demo the schema work exists to reach.
+        //
+        // Lifecycle only, not per-property updates: entering, leaving and deleting are thousands
+        // of lines in a long demo where property changes are millions, and a consumer asking "when
+        // did this entity exist" should not have to read the second to learn the first.
+        IReadOnlyList<JsonDocument> lines = Lines(Write(commands: EntityLifecycleCommands()));
+
+        JsonElement[] entities =
+        [
+            .. lines.Select(l => l.RootElement)
+                .Where(e => e.GetProperty("type").GetString() == "entity")
+        ];
+
+        entities.Length.ShouldBe(2);
+
+        entities[0].GetProperty("event").GetString().ShouldBe("leave");
+        entities[0].GetProperty("entity").GetInt32().ShouldBe(0);
+        entities[0].GetProperty("tick").GetInt32().ShouldBe(42);
+
+        entities[1].GetProperty("event").GetString().ShouldBe("delete");
+        entities[1].GetProperty("entity").GetInt32().ShouldBe(1);
     }
 
     [Fact]

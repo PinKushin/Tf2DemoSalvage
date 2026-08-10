@@ -5,6 +5,7 @@ using System.IO;
 using System.Text.Json;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Text;
 
@@ -71,7 +72,12 @@ public static class DemoJsonLinesWriter
             json.WriteNumber("signonLengthBytes", header.SignonLengthBytes);
         });
 
-        DemoScan.Result scan = DemoScan.Run(commands, int.MaxValue, progress, (ushort)header.NetworkProtocol);
+        // Entity events are on here and off for the text dump. This is the machine format, and a
+        // consumer asking "when did entity 42 exist" has nowhere else to get the answer; the text
+        // dump has --trace for the same information in stream order.
+        DemoScan.Result scan = DemoScan.Run(
+            commands, int.MaxValue, progress, (ushort)header.NetworkProtocol,
+            includeEntityEvents: true);
 
         foreach (PlayerInfo player in scan.Players.Values)
         {
@@ -100,6 +106,26 @@ public static class DemoJsonLinesWriter
             });
         }
 
+        foreach (DemoScan.EntityEvent entity in scan.EntityEvents)
+        {
+            WriteLine(writer, json =>
+            {
+                json.WriteString("type", "entity");
+                json.WriteString("event", EntityEventName(entity.Update));
+                json.WriteNumber("tick", entity.Tick);
+                json.WriteNumber("entity", entity.EntityIndex);
+                json.WriteNumber("classId", entity.ClassId);
+                json.WriteString("class", entity.ClassName);
+
+                // Only meaningful when the entity entered: it is what distinguishes a reused
+                // index from the entity that held it before.
+                if (entity.Update == EntityUpdateType.Enter)
+                {
+                    json.WriteNumber("serial", entity.SerialNumber);
+                }
+            });
+        }
+
         foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object?>> fields)
             in scan.EventSample)
         {
@@ -118,6 +144,20 @@ public static class DemoJsonLinesWriter
             });
         }
     }
+
+    /// <summary>Lower-case wire name for a lifecycle transition.</summary>
+    /// <remarks>
+    /// Spelled out rather than emitting the enum's number, so a line stays readable without the
+    /// reader holding this project's enum ordering. <c>Delta</c> never reaches here — it is an
+    /// update to an existing entity, not a lifecycle change.
+    /// </remarks>
+    private static string EntityEventName(EntityUpdateType update) => update switch
+    {
+        EntityUpdateType.Enter => "enter",
+        EntityUpdateType.Leave => "leave",
+        EntityUpdateType.Delete => "delete",
+        _ => "update",
+    };
 
     /// <summary>
     /// Writes a field with its own type rather than stringifying everything.

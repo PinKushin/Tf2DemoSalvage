@@ -77,5 +77,26 @@ internal sealed class BitWriter
         return Write(0, 8);
     }
 
+    /// <summary>
+    /// Appends another writer's bits, without padding to a byte boundary.
+    /// </summary>
+    /// <remarks>
+    /// Needed whenever a message states its body's length in bits and the body has to be built
+    /// separately to measure it. Copying the bytes instead would silently pad to the next byte
+    /// and desynchronise everything after the body.
+    /// </remarks>
+    public BitWriter Append(BitWriter other)
+    {
+        System.ArgumentNullException.ThrowIfNull(other);
+
+        byte[] bytes = other.Build();
+        for (int bit = 0; bit < other.BitCount; bit++)
+        {
+            Write((uint)((bytes[bit / 8] >> (bit % 8)) & 1), 1);
+        }
+
+        return this;
+    }
+
     public byte[] Build() => [.. _bytes];
 }
