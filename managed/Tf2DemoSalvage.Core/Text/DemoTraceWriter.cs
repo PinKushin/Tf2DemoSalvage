@@ -192,6 +192,31 @@ public static class DemoTraceWriter
     /// decoding depends on state built up from earlier snapshots, so one failure tends to
     /// invalidate those after it; saying where the first one was is the useful part.
     /// </remarks>
+    /// <summary>Renders a decoded user message body, or nothing when it was not decoded.</summary>
+    /// <remarks>
+    /// Appended to the existing line rather than opening a block. These bodies are two or three
+    /// short values — a destination and a localisation key — and a block per message would make
+    /// the trace harder to scan than the anonymous version it replaced.
+    /// </remarks>
+    private static string UserFields(UserMessage user)
+    {
+        if (user.Fields is null || user.Fields.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        StringBuilder line = new();
+        foreach (KeyValuePair<string, object?> field in user.Fields)
+        {
+            line.Append(CultureInfo.InvariantCulture, $" {field.Key}=");
+            line.Append(field.Value is string text
+                ? Quote(text)
+                : Convert.ToString(field.Value, CultureInfo.InvariantCulture));
+        }
+
+        return line.ToString();
+    }
+
     /// <summary>Renders a class as <c>Name(id)</c>, or just the id when the schema lacks it.</summary>
     /// <remarks>
     /// Both, not either. The name is what makes a trace readable — <c>CTFPlayer</c> rather than
@@ -354,7 +379,7 @@ public static class DemoTraceWriter
         UserMessage user => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_usermessage {user.Name ?? "#" + user.UserMessageType.ToString(CultureInfo.InvariantCulture)} " +
-            $"type {user.UserMessageType} bits {user.BodyBits}"),
+            $"type {user.UserMessageType} bits {user.BodyBits}{UserFields(user)}"),
 
         SkippedMessage skipped => string.Create(
             CultureInfo.InvariantCulture, $"{WireName(skipped.Type)} bits {skipped.BodyBits}"),

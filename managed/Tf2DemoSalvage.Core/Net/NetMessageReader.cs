@@ -421,13 +421,12 @@ public static class NetMessageReader
                             break;
                         }
 
-                        // Everything else is reported by name rather than vanishing into an
-                        // anonymous skipped message. Each type has its own body layout defined
-                        // by the game DLL, so decoding all 79 is 79 formats - naming them is
-                        // most of the readability, and it makes the rest individually
-                        // addressable instead of hidden behind one count.
-                        messages.Add(new UserMessage(
-                            userType, UserMessageNames.Lookup(userType), userBits));
+                        // Everything else is named, and the handful worth reading also has its
+                        // body decoded. A type with no layout, or one whose layout does not
+                        // consume the body exactly, keeps its name and length and reports no
+                        // fields - see UserMessageBody for why that refusal is the point.
+                        messages.Add(UserMessageBody.Decode(
+                            userType, UserMessageNames.Lookup(userType), userBody, userBits));
                         break;
                     }
 
