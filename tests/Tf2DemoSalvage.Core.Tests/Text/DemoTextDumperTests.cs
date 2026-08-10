@@ -143,7 +143,7 @@ public sealed class DemoTextDumperTests
     {
         // The point of reading userinfo: a kill should read as a name, not an integer. userid 7
         // is the player at entity 1 in this fixture.
-        string dump = Dump(commands: EventPacketsWithPlayers());
+        string dump = Dump(commands: DemoFixtures.EventNamingAPlayer());
 
         dump.ShouldContain("userid=Sassy(7)");
     }
@@ -166,7 +166,7 @@ public sealed class DemoTextDumperTests
         // Cyrillic and CJK are ordinary.
         const string awkward = "Пётр・大将🚀";
 
-        string dump = Dump(commands: EventPacketsWithPlayers(playerName: awkward));
+        string dump = Dump(commands: DemoFixtures.EventNamingAPlayer(playerName: awkward));
 
         dump.ShouldContain($"userid={awkward}(7)");
     }
@@ -177,7 +177,7 @@ public sealed class DemoTextDumperTests
         // Resolution falls back rather than guessing. A field this parser wrongly believes
         // names a player, or an id belonging to someone who left, prints the number it read -
         // which is honest, where inventing a name would not be.
-        string dump = Dump(commands: EventPacketsWithPlayers(userId: 99));
+        string dump = Dump(commands: DemoFixtures.EventNamingAPlayer(userId: 99));
 
         dump.ShouldContain("userid=99");
         dump.ShouldNotContain("userid=Sassy");
@@ -193,7 +193,7 @@ public sealed class DemoTextDumperTests
         //
         // So resolution is an allowlist of field names. damageamount carries 7 here, which is a
         // real user id in this fixture, and must still print as a number.
-        string dump = Dump(commands: EventPacketsWithPlayers(fieldName: "damageamount"));
+        string dump = Dump(commands: DemoFixtures.EventNamingAPlayer(fieldName: "damageamount"));
 
         dump.ShouldContain("damageamount=7");
         dump.ShouldNotContain("damageamount=Sassy");
@@ -204,7 +204,7 @@ public sealed class DemoTextDumperTests
     {
         // TF2 sends a large sentinel rather than a null for an unassisted kill, so the raw
         // number would otherwise appear as a player id nobody holds.
-        string dump = Dump(commands: EventPacketsWithPlayers(userId: 16384, fieldName: "assister"));
+        string dump = Dump(commands: DemoFixtures.EventNamingAPlayer(userId: 16384, fieldName: "assister"));
 
         dump.ShouldContain("assister=none");
     }
@@ -374,12 +374,12 @@ public sealed class DemoTextDumperTests
         // earlier command than the events, exactly as in a real demo: a game event carries only
         // an id, so without a prior svc_GameEventList it decodes to nothing.
         BitWriter definitions = new();
-        WriteEventList(definitions);
+        DemoFixtures.WriteEventList(definitions);
 
         BitWriter events = new();
-        WriteEvent(events, 1, 7);
-        WriteEvent(events, 1, 8);
-        WriteEvent(events, 2, 7);
+        DemoFixtures.WriteEvent(events, 1, 7);
+        DemoFixtures.WriteEvent(events, 1, 8);
+        DemoFixtures.WriteEvent(events, 2, 7);
 
         return
         [
@@ -388,121 +388,9 @@ public sealed class DemoTextDumperTests
         ];
     }
 
-    /// <summary>
-    /// A userinfo table naming one player, then an event referencing them.
-    /// </summary>
-    /// <param name="userId">Value the event's field carries.</param>
-    /// <param name="fieldName">Name of that field, which decides how it is resolved.</param>
-    /// <param name="playerName">Name written into the userinfo record, as UTF-8.</param>
-    private static IReadOnlyList<DemoCommand> EventPacketsWithPlayers(
-        int userId = 7, string fieldName = "userid", string playerName = "Sassy")
-    {
-        BitWriter signon = new();
-        // Entity index 0, not 1: the entry is written as "index follows the previous one",
-        // which for the first entry means index 0, and a userinfo entry's text is that same
-        // index in decimal. The fixture previously said 1 while sitting at 0 - a disagreement
-        // that never occurs in a real demo, and one the roster builder now rejects rather than
-        // guessing which of the two to believe (RISKS B22).
-        WriteUserInfoTable(signon, name: playerName, userId: 7, entityIndex: 0);
-
-        BitWriter definitions = new();
-        BitWriter body = new();
-        body.Write(1, 9).String("player_hurt");
-        body.Write((uint)GameEventValueType.Short, 3).String(fieldName);
-        body.Write((uint)GameEventValueType.None, 3);
-        definitions.Message(NetMessageType.GameEventList).Write(1, 9).Write((uint)body.BitCount, 20);
-        AppendBitwise(definitions, body);
-
-        BitWriter events = new();
-        BitWriter eventBody = new();
-        eventBody.Write(1, 9).Write((uint)userId, 16);
-        events.Message(NetMessageType.GameEvent).Write((uint)eventBody.BitCount, 11);
-        AppendBitwise(events, eventBody);
-
-        return
-        [
-            new(DemoCommandType.Signon, 0, signon.Build()),
-            new(DemoCommandType.Signon, 0, definitions.Build()),
-            new(DemoCommandType.Packet, 99, events.Build()),
-        ];
-    }
-
-    /// <summary>Writes a userinfo string table holding one 132-byte player record.</summary>
-    private static void WriteUserInfoTable(
-        BitWriter writer, string name, int userId, int entityIndex)
-    {
-        // UTF-8, not ASCII. Player names are arbitrary bytes the client chose and TF2 players use
-        // that freely; a fixture that can only express ASCII cannot test the case that breaks.
-        byte[] record = new byte[PlayerInfo.RecordBytes];
-        System.Text.Encoding.UTF8.GetBytes(name).CopyTo(record, 0);
-        BitConverter.GetBytes((uint)userId).CopyTo(record, 32);
-        System.Text.Encoding.UTF8.GetBytes("[U:1:1]").CopyTo(record, 36);
-
-        // Entry layout, taken from StringTableCodec rather than guessed: a bit saying the index
-        // follows the previous one, a bit saying text is present, a bit saying it is not a
-        // substring back-reference, the text, then a bit saying user data follows and its
-        // length in bytes. An earlier version of this fixture invented a different shape and
-        // produced a table that parsed to nothing.
-        BitWriter table = new();
-        table.Write(1, 1);                                  // index is previous + 1
-        table.Write(1, 1);                                  // has text
-        table.Write(0, 1);                                  // not a substring reference
-        table.String(entityIndex.ToString(CultureInfo.InvariantCulture));
-        table.Write(1, 1);                                  // has user data
-        table.Write((uint)record.Length, 14);               // length in bytes
-        foreach (byte b in record)
-        {
-            table.Write(b, 8);
-        }
-
-        writer.Message(NetMessageType.CreateStringTable)
-            .String("userinfo")
-            .Write(64, 16)                                  // max entries
-            .Write(1, 7);                                   // entry count, log2(64)+1 bits
-
-        // This fixture sends no svc_ServerInfo, so decode state reports protocol 0 and every
-        // protocol-conditional field takes its oldest form. Two of them are here:
-        //
-        //   * the length is a fixed 20-bit field, not a varint (varint arrives at 24)
-        //   * there is no compression flag at all (it arrives at 15)
-        //
-        // Both have caught this fixture out. Writing the varint produced a table that silently
-        // parsed to nothing; writing the compression bit shifted the table by one when the
-        // pre-15 rule landed. Emulating protocol 0 means emulating *all* of it, and the list
-        // grows every time a new boundary is implemented — if this breaks again, the fix is to
-        // give the fixture a real svc_ServerInfo rather than to keep chasing the default.
-        writer.Write((uint)table.BitCount, 20);
-        writer.Write(0, 1);                                 // not fixed user data size
-        AppendBitwise(writer, table);
-    }
-
-    /// <summary>Writes a two-entry <c>svc_GameEventList</c>, each event holding one short.</summary>
-    private static void WriteEventList(BitWriter writer)
-    {
-        BitWriter body = new();
-        foreach ((int id, string name) in new[] { (1, "player_hurt"), (2, "player_death") })
-        {
-            body.Write((uint)id, 9).String(name);
-            body.Write((uint)GameEventValueType.Short, 3).String("userid");
-            body.Write((uint)GameEventValueType.None, 3);
-        }
-
-        writer.Message(NetMessageType.GameEventList).Write(2, 9).Write((uint)body.BitCount, 20);
-        AppendBitwise(writer, body);
-    }
-
-    private static void WriteEvent(BitWriter writer, int id, short userId)
-    {
-        BitWriter body = new();
-        body.Write((uint)id, 9).Write((ushort)userId, 16);
-
-        writer.Message(NetMessageType.GameEvent).Write((uint)body.BitCount, 11);
-        AppendBitwise(writer, body);
-    }
-
-    /// <summary>
-    /// Copies a body bit by bit, so it lands at the reader's current unaligned offset.
-    /// </summary>
+    /// <summary>Copies a body bit by bit, so it lands at the reader's current unaligned offset.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="body">Bits to append.</param>
     private static void AppendBitwise(BitWriter writer, BitWriter body)
     {
         byte[] bytes = body.Build();

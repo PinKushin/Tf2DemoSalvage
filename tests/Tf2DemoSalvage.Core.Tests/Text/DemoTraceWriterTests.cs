@@ -46,6 +46,29 @@ public sealed class DemoTraceWriterTests
     }
 
     [Fact]
+    public void GameEventPlayerFields_ResolveToNames()
+    {
+        // The trace printed `player_hurt userid 18 ... attacker 18` while the summary of the same
+        // demo printed `userid=cutemobb(18) ... attacker=gummo(17)`. Two outputs of one file
+        // disagreeing about who a kill belongs to, with the less readable one being the deliverable
+        // a person reads.
+        //
+        // The id stays alongside the name for the same reason the class id does: it is what makes
+        // the line checkable against another parser or a raw dump.
+        Trace(DemoFixtures.EventNamingAPlayer()).ShouldContain("userid Sassy(7)");
+
+        // The control, and it is the whole reason the rule is an allowlist rather than "resolve
+        // small integers". The same value 7 in a field that does NOT name a player must stay a
+        // number: the summary once resolved everything numeric and produced
+        // `damageamount=Ardaddy Ultrasex(14)` on a real demo, because 14 damage collided with
+        // user id 14.
+        string control = Trace(DemoFixtures.EventNamingAPlayer(fieldName: "damageamount"));
+
+        control.ShouldContain("damageamount 7");
+        control.ShouldNotContain("Sassy");
+    }
+
+    [Fact]
     public void Entities_AreNamedByTheirClass_NotByItsNumber()
     {
         // The trace is the deliverable a person reads, so it should not be the least readable

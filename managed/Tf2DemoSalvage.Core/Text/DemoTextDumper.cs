@@ -25,31 +25,6 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 public static class DemoTextDumper
 {
-    /// <summary>
-    /// Event fields known to carry a user id, and therefore worth resolving to a name.
-    /// </summary>
-    /// <remarks>
-    /// **An allowlist, because the alternative was demonstrably wrong.** Resolving every numeric
-    /// field produced `damageamount=Ardaddy Ultrasex(14)` on a real demo — 14 damage collided
-    /// with user id 14 — and turned `inflictor_entindex` into a player when the inflictor is a
-    /// weapon entity. Falling back on unknown ids does not help there: the value was known, it
-    /// simply was not a player.
-    ///
-    /// So a field earns resolution by being named, not by being a small integer. Entity-index
-    /// fields are deliberately absent: they address entities, and most of the ones events carry
-    /// are weapons and projectiles rather than players.
-    /// </remarks>
-    private static readonly HashSet<string> PlayerIdFields = new(StringComparer.Ordinal)
-    {
-        "userid", "attacker", "assister", "patient", "healer", "player",
-    };
-
-    /// <summary>
-    /// Value at or above which a player reference means "nobody". TF2 sends this rather than a
-    /// null or a negative for an unassisted kill.
-    /// </summary>
-    private const int NoPlayerSentinel = 16384;
-
     private const string Separator
         = "--------------------------------------------------------------------";
 
@@ -353,35 +328,10 @@ public static class DemoTextDumper
                 detail.Append(' ');
             }
 
-            detail.Append(field.Key).Append('=').Append(Render(field, byUserId));
+            detail.Append(field.Key).Append('=').Append(PlayerReferences.Render(field, byUserId));
         }
 
         return detail.ToString();
-    }
-
-    private static string Render(
-        KeyValuePair<string, object?> field,
-        IReadOnlyDictionary<int, PlayerInfo> byUserId)
-    {
-        string raw = Convert.ToString(field.Value, CultureInfo.InvariantCulture) ?? string.Empty;
-
-        if (!PlayerIdFields.Contains(field.Key) ||
-            !int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
-        {
-            return raw;
-        }
-
-        // An absent assister is transmitted as a large sentinel rather than a null, so a player
-        // who was never involved would otherwise be looked up and reported as absent anyway -
-        // this says so explicitly instead.
-        if (id >= NoPlayerSentinel)
-        {
-            return "none";
-        }
-
-        return byUserId.TryGetValue(id, out PlayerInfo player)
-            ? string.Create(CultureInfo.InvariantCulture, $"{player.Name}({id})")
-            : raw;
     }
 
     private static void WriteCommandListing(TextWriter writer, IReadOnlyList<DemoCommand> commands)

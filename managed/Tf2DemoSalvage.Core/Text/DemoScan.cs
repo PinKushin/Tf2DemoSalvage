@@ -20,9 +20,6 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 internal static class DemoScan
 {
-    /// <summary>The string table naming connected players.</summary>
-    private const string UserInfoTable = "userinfo";
-
     /// <summary>Label reported alongside scan progress.</summary>
     private const string ScanStage = "Scanning packets";
 
@@ -137,6 +134,11 @@ internal static class DemoScan
 
             foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state).Messages)
             {
+                // Roster first, and shared with the trace writer so the two outputs cannot
+                // disagree about who a user id belongs to. It handles both the create message and
+                // the update that carries mid-match joiners (RISKS B22).
+                Roster.Observe(message, state, players);
+
                 switch (message)
                 {
                     case GameEventMessage gameEvent:
@@ -156,18 +158,6 @@ internal static class DemoScan
 
                         break;
                     }
-
-                    case CreateStringTableMessage table when table.Name == UserInfoTable:
-                        RosterBuilder.Apply(table.Entries, players);
-                        break;
-
-                    // Mid-game joins arrive here, not in the create message (RISKS B22). An
-                    // update names its table only by creation-order id, which is why
-                    // NetDecodeState now remembers table names.
-                    case UpdateStringTableMessage update
-                        when state.StringTableName(update.TableId) == UserInfoTable:
-                        RosterBuilder.Apply(update.Entries, players);
-                        break;
 
                     case ChatMessage line:
                         chat.Add((command.Tick, line));

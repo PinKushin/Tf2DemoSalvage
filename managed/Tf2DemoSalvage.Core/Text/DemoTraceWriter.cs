@@ -66,6 +66,10 @@ public static class DemoTraceWriter
         int snapshots = 0;
         int scanned = 0;
 
+        // Accumulated as the walk proceeds, so a game event names the players the stream had
+        // introduced by that point rather than everyone who ever appears.
+        Dictionary<int, PlayerInfo> roster = [];
+
         foreach (DemoCommand command in commands)
         {
             scanned++;
@@ -74,7 +78,7 @@ public static class DemoTraceWriter
                 progress.Report(new DumpProgress("Tracing", scanned, commands.Count));
             }
 
-            WriteBlock(writer, command, state, options, entities, ref snapshots);
+            WriteBlock(writer, command, state, options, entities, roster, ref snapshots);
         }
     }
 
@@ -135,6 +139,7 @@ public static class DemoTraceWriter
         NetDecodeState state,
         DemoTraceOptions options,
         EntityDecoder? entities,
+        Dictionary<int, PlayerInfo> roster,
         ref int snapshots)
     {
         string kind = WireName(command.Type);
@@ -163,7 +168,14 @@ public static class DemoTraceWriter
                 continue;
             }
 
-            writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    {Render(message)};"));
+            // The roster is built as the walk proceeds rather than pre-scanned, so an event
+            // resolves against the players the stream had named BY THAT POINT. That is what a
+            // stream-order decompile should say: a name that had not arrived yet is not a name
+            // the reader could have had.
+            Roster.Observe(message, state, roster);
+
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"    {Render(message, roster)};"));
         }
 
         if (result.StopReason is not null)
@@ -288,7 +300,8 @@ public static class DemoTraceWriter
     }
 
     /// <summary>Renders one message as a keyword and its fields.</summary>
-    private static string Render(INetMessage message) => message switch
+    private static string Render(
+        INetMessage message, Dictionary<int, PlayerInfo> roster) => message switch
     {
         NetTickMessage tick => string.Create(
             CultureInfo.InvariantCulture,
@@ -304,7 +317,7 @@ public static class DemoTraceWriter
             CultureInfo.InvariantCulture,
             $"svc_chat from {Quote(chat.From ?? string.Empty)} text {Quote(chat.Text)}"),
 
-        GameEventMessage gameEvent => RenderEvent(gameEvent),
+        GameEventMessage gameEvent => RenderEvent(gameEvent, roster),
 
         ServerInfoMessage info => string.Create(
             CultureInfo.InvariantCulture,
@@ -392,7 +405,8 @@ public static class DemoTraceWriter
         _ => WireName(message.Type),
     };
 
-    private static string RenderEvent(GameEventMessage gameEvent)
+    private static string RenderEvent(
+        GameEventMessage gameEvent, Dictionary<int, PlayerInfo> roster)
     {
         StringBuilder line = new();
         line.Append("svc_gameevent ").Append(gameEvent.Name ?? string.Create(
@@ -410,7 +424,10 @@ public static class DemoTraceWriter
                 // which reads as an empty string and leaves a trailing space on the line.
                 null => LocalFieldValue,
 
-                _ => Convert.ToString(field.Value, CultureInfo.InvariantCulture),
+                // Player references become Name(id), by the same allowlist the summary uses -
+                // the two outputs must not disagree about who a kill belongs to. Non-player
+                // fields fall through unchanged.
+                _ => PlayerReferences.Render(field, Roster.ByUserId(roster)),
             });
         }
 
