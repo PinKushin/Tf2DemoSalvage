@@ -242,6 +242,39 @@
       "knownIssues": "None. Decodes end to end with zero stops: 156 game event definitions, 10,998 entity snapshots, 70 game events across 13 types, and the recording player resolved by name from the userinfo table.",
       "privacyNote": "Recorded on a listen server in insecure mode, so the userinfo record carries STEAM_0:0:0 rather than a real account id. clientName is the owner's public handle, which the repository already carries in its path.",
       "notes": "Contrast tools/corpus/demos/etf2l-12025-pov-2020-07-21.dem: both are POV, eleven years apart. The pair is the closest thing this corpus has to a controlled comparison across the era axis."
+    },
+    {
+      "file": "demos/tf2-2013-build1729296-pov-cp_badlands.dem",
+      "sha256": "238b1b5968767344e5afe9aeebfd5cb6775ad5d2fa15e35ce98096a4a34e35d0",
+      "sizeBytes": 1952532,
+      "source": "recorded by the owner 2026-08-10 on TF2 build 1729296, from an archive.org retail pack; extracted to F:\\tf2-builds\\tf2-2013",
+      "pointOfView": "POV",
+      "demoProtocol": 3,
+      "networkProtocol": 24,
+      "serverName": "localhost:27015",
+      "clientName": "miałker",
+      "map": "cp_badlands",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 120.97,
+      "playbackTicks": 8065,
+      "playbackFrames": 7838,
+      "signonLengthBytes": 175070,
+      "commandCounts": {
+        "dem_signon": 4,
+        "dem_packet": 7838,
+        "dem_synctick": 1,
+        "dem_consolecmd": 678,
+        "dem_usercmd": 7975,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "25 March 2013, exactly",
+      "eraEvidence": "Not dated from assets - `tools/inspect_demo.py date` finds no seasonal assets at all, because a freshly recorded listen-server demo carries no cosmetics. It did not have to be: the client reports `Protocol version 24`, `Exe version 1729296 (tf)`, `Exe build: 17:24:29 Mar 25 2013 (5252) (215)`. The second corpus entry with an exact externally established date rather than an inferred lower bound, and the demonstration that asset dating and build dating are independent methods - this file is undatable by the first and exact under the second.",
+      "whyItMatters": "Establishes that network protocol 24 was already live on 2013-03-25, which puts the 23->24 change BEFORE that date and earlier than a SteamPipe-anchored guess would place it. It does not fill the corpus's real gap: protocols 16-23 remain unrepresented, and with them four protocol-conditional rules stay unexecuted on their far side. Its practical value is as a control - a protocol-24 demo of known provenance to compare against z1800.dem, whose exact recording date is unknown.",
+      "knownIssues": "None. Decodes end to end with zero stops: 16,499 commands, 44,007 trace lines, no unknown or undecoded markers, frame check 7838 against 7838 declared.",
+      "privacyNote": "Recorded on a listen server in insecure mode, so the userinfo record carries STEAM_0:0:0 rather than a real account id. clientName is the in-game display name that client was configured with.",
+      "notes": "This file found a real bug on first read. Its recording player's name contains a non-ASCII character, and the dump printed it two different ways in one output - `mia??ker` from the header, which read ASCII, and correctly from the userinfo table, which read UTF-8. Nothing failed; both were plausible names. Every string decoder is UTF-8 as of that fix, and the disagreement between two decoders was the only signal."
     }
   ],
   "corpusGaps": {

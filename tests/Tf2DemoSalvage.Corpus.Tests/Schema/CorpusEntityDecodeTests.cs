@@ -27,6 +27,12 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     /// <summary><c>MAX_EDICTS</c>.</summary>
     private const int EntityLimit = 2048;
 
+    /// <summary>
+    /// Upper bound on snapshots read by a test that stops as soon as its claim is demonstrated.
+    /// Generous on purpose: it is a runaway guard, not a tuned window.
+    /// </summary>
+    private const int SnapshotCap = 4000;
+
     /// <summary>Half Source's world extent, in units, per axis.</summary>
     private const float WorldHalfExtent = 16384f;
 
@@ -312,6 +318,15 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         // test pinned entity 1, which is the recording player in a POV demo and a worldspawn-ish
         // slot with two properties in a SourceTV one - so it measured merging in one file and
         // nothing at all in another.
+        //
+        // It stops as soon as the claim is demonstrated, and the cap is generous rather than
+        // tuned. A fixed 400-snapshot window was enough for every demo in the corpus until a
+        // quiet one arrived: two minutes on a listen server with a single player, where nothing
+        // enters or leaves for a long stretch after the full snapshot, and every entity sat at
+        // exactly its largest single update. It accumulates like the others, just later. Raising
+        // the window for everyone would have cost about 18% of this project's runtime, which
+        // matters because the mutation run re-executes it per mutant; breaking early costs the
+        // busy demos nothing and lets the quiet one read as far as it needs.
         foreach (string path in Corpus.Files())
         {
             string name = Path.GetFileName(path);
@@ -320,8 +335,9 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             EntityTracker tracker = new();
             Dictionary<int, int> largestUpdate = [];
             bool started = false;
+            bool anyAccumulated = false;
 
-            foreach (PacketEntitiesMessage message in Snapshots(path).Take(400))
+            foreach (PacketEntitiesMessage message in Snapshots(path).Take(SnapshotCap))
             {
                 started |= message.IsFullSnapshot;
                 if (!started)
@@ -340,15 +356,31 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
                 }
 
                 tracker.Apply(entities);
+
+                anyAccumulated = tracker.ActiveEntities.Any(index =>
+                    tracker.State(index) is { } state &&
+                    state.Count > largestUpdate.GetValueOrDefault(index));
+
+                if (anyAccumulated)
+                {
+                    break;
+                }
             }
 
             tracker.ActiveEntities.ShouldNotBeEmpty(name);
 
-            bool anyAccumulated = tracker.ActiveEntities.Any(index =>
-                tracker.State(index) is { } state &&
-                state.Count > largestUpdate.GetValueOrDefault(index));
+            // On failure, say how far every entity got. "No entity accumulated" and "the decode
+            // produced nothing to accumulate" are different problems and the counts separate them.
+            string held = string.Join(", ", tracker.ActiveEntities
+                .Select(index => (index,
+                                  state: tracker.State(index)?.Count ?? 0,
+                                  max: largestUpdate.GetValueOrDefault(index)))
+                .OrderByDescending(entry => entry.state - entry.max)
+                .Take(6)
+                .Select(entry => $"e{entry.index} held={entry.state} maxUpdate={entry.max}"));
 
-            anyAccumulated.ShouldBeTrue(name);
+            anyAccumulated.ShouldBeTrue(
+                $"{name}: {tracker.ActiveEntities.Count} entities | {held}");
         }
     }
 
