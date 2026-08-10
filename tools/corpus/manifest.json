@@ -2,11 +2,11 @@
   "notes": [
     "Demo files are stored in Git LFS (see .gitattributes). Clone with `git lfs install` first, or the .dem files arrive as ~130-byte pointer stubs.",
     "ONE SPECIMEN PER CATEGORY, DELIBERATELY. The corpus was 10 demos and 308 MB; it is now 4 and 14.5 MB. Six of the ten were protocol-24 SourceTV recordings differing only in map and date, and they cost 257 MB to say the same thing six times. GitHub's free Git LFS tier is 1 GiB of bandwidth a month, and every CI job that fetches the corpus spends the whole of it in three runs - so the redundancy was not free, it was the budget.",
-    "ERA x POINT OF VIEW, which is the shape the committed corpus is kept in. SourceTV and POV are different containers - only POV carries dem_usercmd - so a difference seen in one mode is not an era finding until the other mode agrees. Protocol 14 and 24 now have both; protocol 15 has POV only, and a SourceTV recording on the 2009 client would complete it.",
+    "ERA x POINT OF VIEW, which is the shape the committed corpus is kept in. SourceTV and POV are different containers - only POV carries dem_usercmd - so a difference seen in one mode is not an era finding until the other mode agrees. Protocols 14, 16 and 24 have both; protocol 15 has POV only, and a SourceTV recording on the 2009 client would complete it.",
     "Per D5, every entry records how its era was established. Date demos from seasonal asset names in their string tables, never from protocol numbers - protocol 3 / network 24 spans at least 2013 through 2026 and dates nothing. Better still, date the CLIENT: three of the four entries here were recorded on period builds whose `version` command reports an exact date, which is how the era axis was closed at both ends (D30).",
     "Reproduce any field below with `python tools/inspect_demo.py walk|date <file>`.",
     "What was removed is not lost - it is in git history, and the sources are recorded in each entry. Restore a demo if a specific question needs it, rather than keeping six against the possibility. The differential comparison in tools/differential/ ran across four demos and 204,000 properties when it found the flattening-order bug; it now has fewer files to work with, which is a real cost and the reason to re-add one deliberately if that tooling is used again.",
-    "The remaining gap is protocols 16-23, spanning June 2009 to March 2013 - eight protocol numbers and nearly four years with no specimen at all. Four protocol-conditional rules are unexecuted on their far side. Candidate builds are dated from `bin/engine.dll` before downloading (D30). Anything found there is the one category worth ADDING; another modern demo is not."
+    "The remaining gap is protocols 17-23, spanning June 2011 to March 2013 - seven protocol numbers and under two years with no specimen at all. Four protocol-conditional rules are unexecuted on their far side. Candidate builds are dated from `bin/engine.dll` before downloading (D30). Anything found there is the one category worth ADDING; another modern demo is not."
   ],
   "demos": [
     {
@@ -103,6 +103,70 @@
       "knownIssues": "None. Decodes end to end with zero stops: 156 game event definitions, 10,998 entity snapshots, 70 game events across 13 types, and the recording player resolved by name from the userinfo table.",
       "privacyNote": "Recorded on a listen server in insecure mode, so the userinfo record carries STEAM_0:0:0 rather than a real account id. clientName is the owner's public handle, which the repository already carries in its path.",
       "notes": "Contrast tools/corpus/demos/etf2l-12025-pov-2020-07-21.dem: both are POV, eleven years apart. The pair is the closest thing this corpus has to a controlled comparison across the era axis."
+    },
+    {
+      "file": "demos/tf2-2011-build4604-pov-koth_viaduct.dem",
+      "sha256": "4f2750c3d3f5c3bd7812883be763640961d0d412209586b98eeb927e546a7088",
+      "sizeBytes": 1103382,
+      "source": "recorded by the owner 2026-08-10 on TF2 build 4604, listen server",
+      "pointOfView": "POV",
+      "demoProtocol": 3,
+      "networkProtocol": 16,
+      "serverName": "Team Fortress 2",
+      "clientName": "unnamed",
+      "map": "koth_viaduct",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 124.32,
+      "playbackTicks": 8288,
+      "playbackFrames": 2430,
+      "signonLengthBytes": 148303,
+      "commandCounts": {
+        "dem_signon": 4,
+        "dem_packet": 2430,
+        "dem_synctick": 1,
+        "dem_consolecmd": 542,
+        "dem_usercmd": 8151,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "15 June 2011, exactly",
+      "eraEvidence": "The client's own version command: `Protocol version 16`, `Exe version 1.1.5.8 (tf)`, `Exe build: 13:46:52 Jun 15 2011 (4604) (440)`. The trailing pair is the build number and the Steam appid.",
+      "whyItMatters": "The first specimen from inside the 16-23 gap, and 16 is the most valuable single value in it. svc_ServerInfo's replay flag is read as `protocol > 15`, so **16 is the first protocol that carries it** - every other entry tests that rule from a distance, 14 and 15 from below and 24 from well above, and a boundary is only really tested at the value where it changes. It decoded end to end, which it could not have done had the flag been read wrongly: everything after it would have desynchronised.\n\nIt also holds a combination no other entry can - new SendPropType numbering and a six-bit message type TOGETHER WITH a 13-bit svc_Prefetch index and fixed temp-entity lengths. That is exactly the interpolation the 15-to-24 jump forced the parser to assume.",
+      "knownIssues": "None. 11,131 commands, no stops or undecoded markers, frame check 2430 of 2430.",
+      "privacyNote": "The emulated client reports a synthetic account id rather than a real one - the pack ships a Steam emulator with `SteamUser=IZI LAN` and generates the value. Not the owner's account.",
+      "notes": "Pairs with the SourceTV recording of the same session. max_classes is 256 here, which sits cleanly between 2009's 232 and the modern 275 - the class list grows monotonically across the era axis where the string table COUNT does not move at all."
+    },
+    {
+      "file": "demos/tf2-2011-build4604-stv-koth_viaduct.dem",
+      "sha256": "d7ef4264b08d0beb94a642868b4254e6433c72679e6ef6f467c44301cf24da3f",
+      "sizeBytes": 932423,
+      "source": "recorded by the owner 2026-08-10 on TF2 build 4604, SourceTV on a listen server",
+      "pointOfView": "SourceTV",
+      "demoProtocol": 3,
+      "networkProtocol": 16,
+      "serverName": "Team Fortress 2",
+      "clientName": "SourceTV Demo",
+      "map": "koth_viaduct",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 231.58,
+      "playbackTicks": 15439,
+      "playbackFrames": 3762,
+      "signonLengthBytes": 406123,
+      "commandCounts": {
+        "dem_signon": 3,
+        "dem_packet": 3762,
+        "dem_synctick": 1,
+        "dem_datatables": 1,
+        "dem_stringtables": 1,
+        "dem_stop": 1
+      },
+      "era": "15 June 2011, exactly",
+      "eraEvidence": "The client's own version command: `Protocol version 16`, `Exe version 1.1.5.8 (tf)`, `Exe build: 13:46:52 Jun 15 2011 (4604) (440)`. The trailing pair is the build number and the Steam appid.",
+      "whyItMatters": "The SourceTV half of the protocol-16 pair, and the third era to have both modes. A difference between two recordings of the SAME session is an era or mode difference and not a coincidence of what happened, which is how the missing dem_stringtables at protocol 14 was confirmed rather than assumed.",
+      "knownIssues": "None. 3,769 commands, no stops, frame check 3762 of 3762.",
+      "privacyNote": "SourceTV records as a virtual client. The player slot carries the emulator's synthetic id, not a real account.",
+      "notes": "**A local SourceTV is not a proxy for a real one.** This was recorded on a listen server, so it is effectively LAN: the SourceTV and POV recordings of this session should line up almost exactly. A SourceTV relay over the internet does NOT reliably show what happened - it carries a delay and its own interpolation, and competitive players have long known its picture can differ from the player's. So agreement between these two files says the PARSER is consistent across modes; it says nothing about how far a real STV demo can diverge from the POV of the person who was there. Do not use this pair as evidence for the latter."
     },
     {
       "file": "demos/tf2-2013-build1729296-pov-cp_badlands.dem",

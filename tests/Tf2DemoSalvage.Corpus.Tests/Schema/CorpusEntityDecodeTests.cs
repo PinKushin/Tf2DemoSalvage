@@ -50,7 +50,18 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             entities.Count.ShouldBe(header.UpdatedEntries, name);
             entities.Select(e => e.EntityIndex).ShouldBeUnique(name);
             entities.ShouldAllBe(e => e.UpdateType == EntityUpdateType.Enter);
-            entities.Sum(e => e.Properties.Count).ShouldBeGreaterThan(2000, name);
+            // Scaled to the snapshot, not an absolute count. This was `> 2000`, sized against
+            // 12v12 matches whose opening snapshot names 855 entities; a one-player listen server
+            // names 195 and carries 657 properties, and failed a threshold that was really
+            // measuring how busy the server was.
+            //
+            // What the assertion is actually for is a decoder that walks the entity list correctly
+            // but produces empty property lists - the counts above would all still pass. A mean
+            // above one property per entity catches that at any scale. Some entities legitimately
+            // enter with none at all (CWorld does), so a per-entity floor would be wrong.
+            int properties = entities.Sum(e => e.Properties.Count);
+            properties.ShouldBeGreaterThan(
+                entities.Count, $"{name}: {entities.Count} entities, {properties} properties");
         }
     }
 
