@@ -178,6 +178,23 @@ public static class DemoTraceWriter
                 continue;
             }
 
+            // Sounds and temp entities expand in place. Unlike an entity snapshot these are a
+            // handful of lines each - a packet carries one or two sounds and a few effects, not
+            // eight hundred entities - so there is no volume argument for hiding them behind a
+            // flag, and they are the two things a reader most often wants position for.
+            if (message is SoundsMessage sound && sound.BodyBits > 0)
+            {
+                WriteSounds(writer, sound, state);
+                continue;
+            }
+
+            if (message is TempEntitiesMessage effects && entities is not null &&
+                effects.BodyBits > 0)
+            {
+                WriteTempEntities(writer, effects, entities);
+                continue;
+            }
+
             // The roster is built as the walk proceeds rather than pre-scanned, so an event
             // resolves against the players the stream had named BY THAT POINT. That is what a
             // stream-order decompile should say: a name that had not arrived yet is not a name
@@ -214,6 +231,68 @@ public static class DemoTraceWriter
     /// decoding depends on state built up from earlier snapshots, so one failure tends to
     /// invalidate those after it; saying where the first one was is the useful part.
     /// </remarks>
+    /// <summary>Expands a <c>svc_Sounds</c> body into one line per sound.</summary>
+    /// <remarks>
+    /// A sound that fails to decode is reported in place rather than dropped, for the reason the
+    /// whole trace exists: where a stream stops making sense is the information.
+    /// </remarks>
+    private static void WriteSounds(TextWriter writer, SoundsMessage message, NetDecodeState state)
+    {
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    svc_sounds {(message.IsReliable ? "reliable" : "unreliable")} " +
+            $"count {message.Count} bits {message.BodyBits} {{"));
+
+        try
+        {
+            foreach (DecodedSound sound in SoundDecoder.Decode(
+                message.Body.Span, message.Count, message.BodyBits, state.NetworkProtocol))
+            {
+                writer.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"        sound {sound.SoundNumber} entity {sound.EntityIndex} " +
+                    $"origin {sound.OriginX:F1} {sound.OriginY:F1} {sound.OriginZ:F1} " +
+                    $"volume {sound.Volume:F2} pitch {sound.Pitch} " +
+                    $"channel {sound.Channel} flags {sound.Flags};"));
+            }
+        }
+        catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"        undecoded {Quote(failure.Message)};"));
+        }
+
+        writer.WriteLine("    }");
+    }
+
+    /// <summary>Expands a <c>svc_TempEntities</c> body into one line per effect.</summary>
+    private static void WriteTempEntities(
+        TextWriter writer, TempEntitiesMessage message, EntityDecoder entities)
+    {
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    svc_tempentities count {message.Count} bits {message.BodyBits} {{"));
+
+        try
+        {
+            foreach (DecodedTempEntity effect in entities.DecodeTempEntities(
+                message.Body.Span, message.Count, message.BodyBits))
+            {
+                writer.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"        effect {Named(entities, effect.ClassId)} " +
+                    $"delay {effect.DelaySeconds:F2} props {effect.Properties.Count};"));
+            }
+        }
+        catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"        undecoded {Quote(failure.Message)};"));
+        }
+
+        writer.WriteLine("    }");
+    }
+
     /// <summary>Renders a decoded user message body, or nothing when it was not decoded.</summary>
     /// <remarks>
     /// Appended to the existing line rather than opening a block. These bodies are two or three

@@ -39,6 +39,10 @@ internal static class DemoScan
     /// Entity lifecycle in stream order — entering, leaving and being deleted. Empty unless the
     /// caller asked for it.
     /// </param>
+    /// <param name="Sounds">Sound events, in stream order.</param>
+    /// <param name="Effects">
+    /// Temp entities — explosions, tracers, impacts — with the class name resolved.
+    /// </param>
     /// <param name="UserMessages">
     /// User messages whose body decoded, in stream order. Types with no known layout are not
     /// collected — a type name and a bit count is not something a consumer can compute over.
@@ -50,7 +54,9 @@ internal static class DemoScan
         int EventTotal,
         List<(int Tick, ChatMessage Chat)> Chat,
         List<EntityEvent> EntityEvents,
-        List<(int Tick, UserMessage Message)> UserMessages);
+        List<(int Tick, UserMessage Message)> UserMessages,
+        List<(int Tick, DecodedSound Sound)> Sounds,
+        List<(int Tick, string ClassName, DecodedTempEntity Effect)> Effects);
 
     /// <summary>One entity entering, leaving or being deleted.</summary>
     /// <param name="Tick">The command tick it happened on.</param>
@@ -97,6 +103,8 @@ internal static class DemoScan
         List<(int Tick, ChatMessage Chat)> chat = [];
         List<EntityEvent> entityEvents = [];
         List<(int Tick, UserMessage Message)> userMessages = [];
+        List<(int Tick, DecodedSound Sound)> sounds = [];
+        List<(int Tick, string ClassName, DecodedTempEntity Effect)> effects = [];
         int total = 0;
         int scanned = 0;
 
@@ -171,6 +179,17 @@ internal static class DemoScan
                         userMessages.Add((command.Tick, user));
                         break;
 
+                    // Both need something the message alone does not carry - sounds need the
+                    // protocol, effects need the schema - which is why they are decoded here
+                    // rather than in the reader.
+                    case SoundsMessage sound when includeEntityEvents && sound.BodyBits > 0:
+                        RecordSounds(sound, command.Tick, networkProtocol, sounds);
+                        break;
+
+                    case TempEntitiesMessage temp when decoder is not null && temp.BodyBits > 0:
+                        RecordEffects(decoder, temp, command.Tick, classNames, effects);
+                        break;
+
                     case PacketEntitiesMessage snapshot when decoder is not null:
                         RecordLifecycle(
                             decoder, snapshot, command.Tick, classNames, entityEvents);
@@ -183,7 +202,55 @@ internal static class DemoScan
         }
 
         return new Result(
-            players, counts, sample, total, chat, entityEvents, userMessages);
+            players, counts, sample, total, chat, entityEvents, userMessages, sounds, effects);
+    }
+
+    /// <summary>Decodes a sounds body, skipping one that will not read.</summary>
+    private static void RecordSounds(
+        SoundsMessage message,
+        int tick,
+        ushort networkProtocol,
+        List<(int Tick, DecodedSound Sound)> into)
+    {
+        try
+        {
+            foreach (DecodedSound sound in SoundDecoder.Decode(
+                message.Body.Span, message.Count, message.BodyBits, networkProtocol))
+            {
+                into.Add((tick, sound));
+            }
+        }
+        catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
+        {
+            // The rest of the dump is independent of this body, and a demo that fails partway is
+            // exactly what this project exists to salvage.
+        }
+    }
+
+    /// <summary>Decodes a temp entities body, skipping one that will not read.</summary>
+    private static void RecordEffects(
+        EntityDecoder decoder,
+        TempEntitiesMessage message,
+        int tick,
+        Dictionary<int, string> classNames,
+        List<(int Tick, string ClassName, DecodedTempEntity Effect)> into)
+    {
+        try
+        {
+            foreach (DecodedTempEntity effect in decoder.DecodeTempEntities(
+                message.Body.Span, message.Count, message.BodyBits))
+            {
+                into.Add((
+                    tick,
+                    classNames.TryGetValue(effect.ClassId, out string? name) ? name : string.Empty,
+                    effect));
+            }
+        }
+        catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
+        {
+            // Skipped for the same reason as a sounds body: everything else in the dump is
+            // independent of this one, and salvaging what is readable is the point of the project.
+        }
     }
 
     /// <summary>

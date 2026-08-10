@@ -130,6 +130,44 @@ public static class DemoJsonLinesWriter
             });
         }
 
+        foreach ((int tick, DecodedSound sound) in scan.Sounds)
+        {
+            WriteLine(writer, json =>
+            {
+                json.WriteString("type", "sound");
+                json.WriteNumber("tick", tick);
+                json.WriteNumber("sound", sound.SoundNumber);
+                json.WriteNumber("entity", sound.EntityIndex);
+                json.WriteNumber("x", sound.OriginX);
+                json.WriteNumber("y", sound.OriginY);
+                json.WriteNumber("z", sound.OriginZ);
+                json.WriteNumber("volume", sound.Volume);
+                json.WriteNumber("pitch", sound.Pitch);
+                json.WriteNumber("channel", sound.Channel);
+                json.WriteNumber("flags", sound.Flags);
+            });
+        }
+
+        foreach ((int tick, string className, DecodedTempEntity effect) in scan.Effects)
+        {
+            WriteLine(writer, json =>
+            {
+                json.WriteString("type", "effect");
+                json.WriteNumber("tick", tick);
+                json.WriteString("class", className);
+                json.WriteNumber("classId", effect.ClassId);
+                json.WriteNumber("delay", effect.DelaySeconds);
+                json.WriteStartObject("fields");
+                foreach (DecodedProperty property in effect.Properties)
+                {
+                    json.WriteString(
+                        property.Definition.Property.Name, property.Value.ToString());
+                }
+
+                json.WriteEndObject();
+            });
+        }
+
         foreach ((int tick, UserMessage user) in scan.UserMessages)
         {
             WriteLine(writer, json =>
