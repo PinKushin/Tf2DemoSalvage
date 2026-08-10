@@ -4,7 +4,7 @@
     "Per D5, every entry records how its era was established. Date demos from seasonal asset names in their string tables, never from protocol numbers - protocol 3 / network 24 spans at least 2015 through 2026 and dates nothing.",
     "Reproduce any field below with `python tools/inspect_demo.py walk|date <file>`.",
     "Asset dating works better on older demos than newer ones, which is convenient given that older demos are the ones hardest to date otherwise. Competitive players bought heavily early in TF2's life - unusuals were everywhere until people noticed the visual noise was a competitive disadvantage with no upside - so early comp demos carry plenty of dated cosmetics. A modern comp demo like serveme-627619 carries almost none, which is why its asset dating yields only ' 2019 or later' against a true date of 2026.",
-    "The 2009 entry is the corpus's only era-axis specimen. Everything else is 2020 or later at network protocol 24, so any rule below protocol 24 is exercised by exactly one file - treat a change that only that file catches as under-tested, not as covered."
+    "The era axis now has three specimens with exact, externally established dates - protocol 14 (2008), 15 (2009) and 24 (2013) - each recorded on a period client whose `version` command reports its build. Everything else is 2020 or later at protocol 24. The remaining gap is protocols 16-23, the Source Multiplayer era from October 2011 to some point before March 2013, which no corpus file covers; four protocol-conditional rules are still unexecuted on their far side. A build filling it must be stamped between those dates, and `Exe build` in bin/engine.dll reads that stamp without launching anything."
   ],
   "demos": [
     {
@@ -209,6 +209,38 @@
       "eraEvidence": "Filename timestamp from demos.tf plus the server reservation id. Modern, so asset dating gives only a weak lower bound - see the note on serveme-627619.",
       "whyItMatters": "First king-of-the-hill map since z1800, and the densest entity stream measured so far - 1.84M entity updates across 11.9M property values.",
       "decodeStatus": "Decodes end to end: every dem_packet yields a snapshot, zero packet stops, zero errors."
+    },
+    {
+      "file": "demos/tf2-2008-build3420-pov-cp_granary.dem",
+      "sha256": "96057237a40cf8271c921fb60b1ee614aa3604e6c2ed37bf546c6ff926f8579d",
+      "sizeBytes": 988963,
+      "source": "recorded by the owner 2026-08-10 on TF2 build 3420, from an archive.org retail Orange Box pack; extracted to F:\\tf2-builds\\tf2-2008",
+      "pointOfView": "POV",
+      "demoProtocol": 3,
+      "networkProtocol": 14,
+      "serverName": "localhost:27015",
+      "clientName": "PinKushin",
+      "map": "cp_granary",
+      "gameDir": "tf",
+      "playbackTimeSeconds": 140.28,
+      "playbackTicks": 9352,
+      "playbackFrames": 2764,
+      "signonLengthBytes": 160909,
+      "commandCounts": {
+        "dem_signon": 6,
+        "dem_packet": 2764,
+        "dem_synctick": 1,
+        "dem_consolecmd": 573,
+        "dem_usercmd": 9262,
+        "dem_datatables": 1,
+        "dem_stop": 1
+      },
+      "era": "19 March 2008, exactly",
+      "eraEvidence": "The client's own version command: `Protocol version 14`, `Exe version 1.0.2.2 (tf)`, `Exe build: 20:17:35 Mar 19 2008 (3420)`. Third corpus entry with an exact externally established date rather than an inferred lower bound, and the oldest specimen by five years.",
+      "whyItMatters": "The corpus's only protocol-14 file and its pre-Source-2009 anchor. It confirmed a pre-registered prediction (docs/TIMELINE.md): decodes end to end with zero stops while exercising the one branch that had never run against real data - the absent string table compression flag below PROTOCOL_VERSION_14, across 16 svc_CreateStringTable messages - plus 45 svc_Prefetch messages on the 13-bit index. Both rules existed only because proto_version.h said they should.",
+      "knownIssues": "None. 12,608 commands, 22,176 trace lines, no stops and no unknown or undecoded markers, frame check 2764 against 2764 declared.",
+      "privacyNote": "Carries a REAL Steam account id, unlike the 2009 and 2013 entries which record STEAM_0:0:0. The 2008 build refuses to start without a running Steam process, so the client had a logged-in session to write. Retained deliberately with the owner's consent - the id is already public on their ESEA profile. Redacting it was rejected because altering the bytes destroys the file's value as a faithful specimen.",
+      "notes": "Carries NO dem_stringtables command, where the 2009 and 2013 entries each carry exactly one. At protocol 14 the tables arrive only as svc_CreateStringTable in the signon stream. Not documented in proto_version.h and not predicted - the same discovery shape as RISKS B17 and B18. It also disproved a fingerprint: the string table COUNT is 16 here, in the 2009 demo and in modern demos alike, so it dates nothing. Max classes does move: 216 here, 232 in 2009, 275 modern."
     },
     {
       "file": "demos/tf2-2009-build3862-pov-cp_badlands.dem",

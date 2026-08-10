@@ -281,6 +281,46 @@ public sealed class SendTableParserTests
     }
 
     [Theory]
+    [InlineData(24, 7)]
+    [InlineData(15, 7)]
+    [InlineData(14, 6)]
+    public void BitCountField_NarrowsBelowProtocol15(ushort protocol, int expectedWidth)
+    {
+        // Measured, not read from a header. Valve's proto_version.h does not mention this - the
+        // same blind spot as the message type width (B17) and the SendPropType renumbering (B18).
+        //
+        // A protocol-14 demo desynchronised after exactly one property, and the raw bits said why:
+        // its stream at bit 597 was the protocol-15 stream at bit 598, one bit earlier. The only
+        // field that can account for one bit in `type(5) + name + flags(16) + low(32) + high(32)
+        // + bits(N)` is the last one.
+        //
+        // Cross-checked against an unrelated part of the same file: at six bits the schema yields
+        // 216 server classes, and svc_ServerInfo independently reports max_classes 216. At seven
+        // it yields one table and nonsense.
+        //
+        // The width is asserted through a round trip rather than by reading a constant, so this
+        // measures the decoder rather than restating its source.
+        BitWriter writer = new();
+        writer.Write(1, 1)                                     // a table follows
+              .Write(0, 1)                                     // needsDecoder
+              .String("DT_Test")
+              .Write(1, 10);                                   // one property
+        writer.Write((uint)SendPropType.Int, 5)
+              .String("m_nValue")
+              .Write(0, 16)                                    // flags
+              .Write(0, 32)                                    // low
+              .Write(0, 32)                                    // high
+              .Write(33, expectedWidth);                      // bit count
+        writer.Write(0, 1);                                    // no more tables
+        writer.Write(0, 16);                                   // no classes
+
+        DemoSchema schema = SendTableParser.Parse(writer.Build(), protocol);
+
+        schema.Tables.ShouldHaveSingleItem().Properties.ShouldHaveSingleItem()
+            .BitCount.ShouldBe(33);
+    }
+
+    [Theory]
     [InlineData(24, 6, SendPropType.DataTable)]    // current: VectorXY occupies 3
     [InlineData(24, 5, SendPropType.Array)]
     [InlineData(24, 4, SendPropType.String)]

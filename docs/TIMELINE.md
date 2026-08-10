@@ -305,7 +305,7 @@ should all be *lower* than 2009's 232 / 16 / 156 if the build is genuinely older
 build is redundant with the one already in the corpus. That check costs one console command and
 should be run before recording anything.
 
-### Outcome, 2026-08-10: confirmed. Zero stops, and the branch ran
+### Outcome, 2026-08-10: FALSIFIED, and the failure was worth more than the confirmation
 
 ```
 Protocol version 14
@@ -313,15 +313,42 @@ Exe version 1.0.2.2 (tf)
 Exe build: 20:17:35 Mar 19 2008 (3420)
 ```
 
-**The prediction held.** A 140-second POV demo on `cp_granary` decodes end to end: 12,608
-commands, 22,176 trace lines, **no stops, no unknown or undecoded markers**, frame check 2764
-against 2764 declared. The falsification condition — a failure anywhere other than string table
-decoding — did not occur.
+**The prediction failed, on its own stated terms.** The falsification condition was "any failure
+not in string table decoding", and the schema — `dem_datatables` — did not parse at all:
 
-**The never-executed branch ran.** Sixteen `svc_createstringtable` messages decoded on the
-protocol ≤14 side of `CompressionFlagProtocol`, which until now existed only because
-`proto_version.h` said it should. Forty-five `svc_prefetch` messages exercised the 13-bit index
-on the same demo. The era axis now has a pre-Source-2009 anchor.
+```
+System.IO.EndOfStreamException : Requested 8 bits at bit offset 686782, but only 2 bits remain.
+```
+
+**It was first reported here as confirmed, and that was a measurement error.** The message stream
+does decode clean — 12,608 commands, 22,176 trace lines, no stops — and that was checked and
+reported as though it covered the demo. It does not: `--trace` without `--entities` never parses
+the schema, so the check was blind to the half that failed. *Choosing where to look is part of
+the measurement.*
+
+**Cause: the property bit-count field is six bits at protocol 14, not seven.** Found by
+comparison rather than by reading a spec, in four steps:
+
+1. The parse read **one table** where the 2009 demo reads 334, so the desync is immediate, not at
+   the tail. The end-of-stream error was where it finally ran out, not where it went wrong.
+2. Both eras' first table is `DT_AI_BaseNPC` with 12 properties, and properties 0 and 1 cost
+   **identical** bits in both — so the reader was still synchronised at property 2.
+3. The raw bits said by how much: protocol 14 at bit 597 is protocol 15 at bit **598**. One bit
+   fewer, in `type(5) + name + flags(16) + low(32) + high(32) + bits(N)`.
+4. Setting N to 6 yields **308 tables and 216 server classes** — and `svc_ServerInfo` in the same
+   file independently reports `max_classes 216`. Two unrelated parts of the file agreeing is what
+   makes this measured rather than fitted. At seven it yields one table and nonsense, and six
+   breaks the 2009 demo, so the rule is genuinely era-specific.
+
+Not in `proto_version.h`, like B17 and B18. Six bits holds 0–63, ample for anything Source sends;
+the seventh arrived with room to spare rather than out of need, which is presumably why the change
+went unrecorded.
+
+**With that fixed, the original prediction's substance does hold.** The demo now decodes end to
+end including its schema, and the never-executed branch ran: 16 `svc_createstringtable` messages
+on the ≤14 side of `CompressionFlagProtocol`, 45 `svc_prefetch` on the 13-bit index. The era axis
+has its pre-Source-2009 anchor. But it took a code change to get there, which is exactly what the
+prediction said would not be needed.
 
 **One registered secondary prediction was wrong, and it is the more interesting half.** The
 fingerprint was expected to be *lower than 2009 across the board*:

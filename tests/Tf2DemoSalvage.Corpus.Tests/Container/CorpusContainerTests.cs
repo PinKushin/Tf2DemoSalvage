@@ -83,7 +83,7 @@ public sealed class CorpusContainerTests
         // June 2009 client was added, and pinning it was an assumption that every demo is
         // modern - exactly the assumption this project exists to avoid. The real invariant is
         // that the protocol is one this parser knows how to read.
-        header.NetworkProtocol.ShouldBeOneOf(15, 24);
+        header.NetworkProtocol.ShouldBeOneOf(14, 15, 24);
         header.GameDirectory.ShouldBe("tf");
         header.MapName.ShouldNotBeNullOrWhiteSpace();
 
@@ -100,7 +100,20 @@ public sealed class CorpusContainerTests
         commands[^1].Tick.ShouldBe(header.PlaybackTicks);
 
         commands.Count(c => c.Type == DemoCommandType.DataTables).ShouldBe(1);
-        commands.Count(c => c.Type == DemoCommandType.StringTables).ShouldBe(1);
+
+        // dem_stringtables is NOT universal, and this assertion used to say it was. The
+        // protocol-14 demo carries none at all: at that era the tables arrive only as
+        // svc_CreateStringTable inside the signon stream, and the separate container command
+        // does not exist. Both the 2009 (protocol 15) and modern demos carry exactly one.
+        //
+        // Absent from proto_version.h, like the message type width (B17) and the SendPropType
+        // renumbering (B18). Worth asserting in both directions rather than relaxing to
+        // "zero or one": the count is a fact about the era, and a modern demo that stopped
+        // carrying the command would be a real regression this must still catch.
+        int expectedStringTables = header.NetworkProtocol > 14 ? 1 : 0;
+        commands.Count(c => c.Type == DemoCommandType.StringTables)
+            .ShouldBe(expectedStringTables, $"protocol {header.NetworkProtocol}");
+
         commands.ShouldContain(c => c.Type == DemoCommandType.Signon);
     }
 

@@ -25,6 +25,23 @@ public static class SendTableParser
     private const int TypeBits = 5;
     private const int PropCountBits = 10;
     private const int BitCountBits = 7;
+
+    /// <summary>Width of a property's bit-count field before it was widened to seven.</summary>
+    private const int OldBitCountBits = 6;
+
+    /// <summary>Last protocol whose property bit-count field is six bits wide.</summary>
+    /// <remarks>
+    /// **Measured, and absent from <c>proto_version.h</c>** — the same blind spot as the message
+    /// type width (B17) and the <c>SendPropType</c> renumbering (B18). Six bits holds 0–63, which
+    /// is enough for any property Source actually sends; the seventh bit arrived with room to
+    /// spare rather than out of need, which is presumably why nobody wrote the change down.
+    ///
+    /// One bit, and it costs the entire file. The schema is a single continuous bit stream with
+    /// no per-table length, so reading seven bits where six were written desynchronises after the
+    /// first numeric property and every table after it is noise.
+    /// </remarks>
+    private const ushort SixBitBitCountProtocol = 14;
+
     private const int ElementCountBits = 10;
     private const int ClassCountBits = 16;
     private const int ClassIdBits = 16;
@@ -136,7 +153,8 @@ public static class SendTableParser
 
         float low = BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32));
         float high = BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32));
-        int bitCount = (int)reader.ReadUInt32(BitCountBits);
+        int bitCount = (int)reader.ReadUInt32(
+            networkProtocol > SixBitBitCountProtocol ? BitCountBits : OldBitCountBits);
 
         return new SendProperty(type, name, flags, string.Empty, low, high, bitCount, 0);
     }

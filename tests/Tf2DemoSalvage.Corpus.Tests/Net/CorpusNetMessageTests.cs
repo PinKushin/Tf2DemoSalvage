@@ -38,7 +38,8 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
                 continue;
             }
 
-            int withTick = packets.Count(p => FirstMessage(p) is NetTickMessage);
+            ushort protocol = ProtocolOf(path);
+            int withTick = packets.Count(p => FirstMessage(p, protocol) is NetTickMessage);
 
             withTick.ShouldBeGreaterThan(
                 packets.Length / 2, $"{Path.GetFileName(path)}: net_Tick is usually first");
@@ -60,15 +61,14 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
         // offset. Any desynchronisation in either shows up immediately.
         foreach (string path in Corpus.Files())
         {
+            ushort protocol = ProtocolOf(path);
             List<int> offsets =
             [
                 .. ReadPackets(path)
                     .Take(PacketsToSample)
-                    .Select(FirstMessage)
-                    .OfType<NetTickMessage>()
-                    .Zip(
-                        ReadPackets(path).Take(PacketsToSample).Where(p => FirstMessage(p) is NetTickMessage),
-                        (tick, packet) => tick.Tick - packet.Tick)
+                    .Select(packet => (packet, first: FirstMessage(packet, protocol)))
+                    .Where(pair => pair.first is NetTickMessage)
+                    .Select(pair => ((NetTickMessage)pair.first!).Tick - pair.packet.Tick)
             ];
 
             offsets.ShouldNotBeEmpty($"{Path.GetFileName(path)}: no net_Tick found at all");
@@ -109,7 +109,8 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
 
             foreach (DemoCommand packet in packets)
             {
-                NetMessageReadResult result = NetMessageReader.Read(packet.Payload.Span);
+                NetMessageReadResult result = NetMessageReader.Read(
+                    packet.Payload.Span, new NetDecodeState { NetworkProtocol = ProtocolOf(path) });
                 bitsRead += result.BitsConsumed;
                 bitsTotal += packet.Payload.Length * 8L;
 
@@ -148,10 +149,31 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
     }
 
     /// <summary>First decoded message of a packet, or <c>null</c> if none could be read.</summary>
-    private static INetMessage? FirstMessage(DemoCommand packet)
+    /// <remarks>
+    /// The protocol is not optional. The message type field is five bits at protocol 15 and below
+    /// and six above (RISKS B17), so decoding an old demo with the default state reads one bit too
+    /// many and everything after it is noise.
+    ///
+    /// This silently passed for a long time. Reading six bits where five were written yields the
+    /// SAME value whenever the sixth bit happens to be zero, which for the 2009 demo's first
+    /// message it usually was - so the omission looked correct until a protocol-14 demo arrived
+    /// and the coincidence stopped holding.
+    /// </remarks>
+    private static INetMessage? FirstMessage(DemoCommand packet, ushort networkProtocol)
     {
-        IReadOnlyList<INetMessage> messages = NetMessageReader.Read(packet.Payload.Span).Messages;
+        NetDecodeState state = new() { NetworkProtocol = networkProtocol };
+        IReadOnlyList<INetMessage> messages =
+            NetMessageReader.Read(packet.Payload.Span, state).Messages;
         return messages.Count > 0 ? messages[0] : null;
+    }
+
+    /// <summary>The demo's network protocol, from its header.</summary>
+    private static ushort ProtocolOf(string path)
+    {
+        byte[] header = new byte[DemoHeader.SizeBytes];
+        using FileStream stream = File.OpenRead(path);
+        stream.ReadExactly(header);
+        return (ushort)DemoHeader.Parse(header).NetworkProtocol;
     }
 
     private static DemoCommand[] ReadPackets(string path)

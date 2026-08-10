@@ -1132,3 +1132,50 @@ reused overwrites the record, which is correct for both readings.
 Still open, and now unblocked: `instancebaseline` updates use the same path (62 in one demo, 13
 in the 2009 one), so static entity baselines are the next step — see `DECISIONS.md` D24 and the
 baseline research.
+
+## B23 — the schema's bit-count field is six bits before protocol 15 — FIXED
+
+A protocol-14 demo threw `EndOfStreamException` parsing `dem_datatables`, having consumed all but
+two bits of an 85,848-byte payload. The message stream decoded perfectly: 12,608 commands, no
+stops. Only the schema failed.
+
+**The first report of this demo said it decoded end to end, and that was wrong.** The trace was
+checked for stop markers and found clean — but `--trace` without `--entities` never touches the
+schema, so the check could not see the failure. A measurement that cannot observe the thing it is
+asked about returns a clean result, and the clean result is worthless. Same family as B20.
+
+**The end of the stream is not where the bug is.** Consuming 686,782 of 686,784 bits reads like an
+off-by-one at the tail; it is not. The parser read **one** table where the 2009 demo reads 334,
+then wandered through garbage for the rest of the payload and stopped when it ran out. The last
+bit consumed says only where the wandering ended.
+
+Found by differential comparison against the 2009 demo, which is the same method that settled B18:
+
+- Both files' first table is `DT_AI_BaseNPC`, 12 properties. Properties 0 and 1 cost identical
+  bits in both — 285 and 188 — so the reader was still synchronised entering property 2.
+- The raw bits located the discrepancy exactly: protocol 14 at bit 597 holds what protocol 15
+  holds at bit **598**. One bit fewer, somewhere in
+  `type(5) + name + flags(16) + low(32) + high(32) + bits(N)`.
+- `188 = 5 + 96 + 16 + 32 + 32 + 7` accounts for every bit of property 1 under the modern layout,
+  so N is the only free field.
+
+**N is 6 at protocol 14 and 7 from 15 on.** Cross-checked against an unrelated part of the same
+file rather than against the hypothesis that produced it: at six bits the schema yields **216
+server classes**, and `svc_ServerInfo` independently reports `max_classes 216`. At seven it yields
+one table. Six breaks the 2009 demo, so the rule is era-specific rather than a universal fix.
+
+Absent from `proto_version.h`, like B17 and B18. Six bits holds 0–63, enough for any property
+Source sends, so the widening bought headroom rather than fixing a limit — no reason to write it
+down, and no way to find it except by decoding a demo old enough to carry it.
+
+**Two corpus tests encoded modern assumptions and had to be corrected, not relaxed:**
+
+- `Container_EveryCorpusDemo_WalksCleanlyAndAgreesWithItsHeader` required exactly one
+  `dem_stringtables` command from every demo. Protocol 14 carries **none** — the tables arrive
+  only as `svc_CreateStringTable` in the signon stream. Now asserted in both directions by era,
+  because a modern demo that stopped carrying it would still be a real regression.
+- `CorpusNetMessageTests` decoded packets with `NetMessageReader.Read(payload)` and no protocol,
+  defaulting to 24 and a six-bit message type where protocol 14 and 15 write five. **This had
+  been silently wrong for the 2009 demo the whole time**: reading six bits where five were written
+  yields the same value whenever the sixth bit is zero, which for a first message it usually is.
+  The test passed by coincidence until a demo arrived where the coincidence did not hold.
