@@ -108,7 +108,15 @@ internal static class DemoScan
                     }
 
                     case CreateStringTableMessage table when table.Name == UserInfoTable:
-                        CollectPlayers(table, players);
+                        RosterBuilder.Apply(table.Entries, players);
+                        break;
+
+                    // Mid-game joins arrive here, not in the create message (RISKS B22). An
+                    // update names its table only by creation-order id, which is why
+                    // NetDecodeState now remembers table names.
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == UserInfoTable:
+                        RosterBuilder.Apply(update.Entries, players);
                         break;
 
                     case ChatMessage line:
@@ -124,22 +132,4 @@ internal static class DemoScan
         return new Result(players, counts, sample, total, chat);
     }
 
-    /// <summary>Reads player records out of a <c>userinfo</c> table.</summary>
-    /// <remarks>
-    /// The entity index is the entry's <em>name</em>, not a field in the record — that is the
-    /// join between game events, which speak user ids, and entities, which do not.
-    /// </remarks>
-    private static void CollectPlayers(
-        CreateStringTableMessage table, SortedDictionary<int, PlayerInfo> players)
-    {
-        foreach (StringTableEntry entry in table.Entries)
-        {
-            if (entry.UserData.Count >= PlayerInfo.RecordBytes &&
-                int.TryParse(entry.Text, NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out int entityIndex))
-            {
-                players[entityIndex] = PlayerInfo.Parse([.. entry.UserData], entityIndex);
-            }
-        }
-    }
 }

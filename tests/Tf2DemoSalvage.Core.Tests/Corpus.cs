@@ -157,20 +157,22 @@ internal static class Corpus
                 foreach (INetMessage message in
                     NetMessageReader.Read(command.Payload.Span, state).Messages)
                 {
-                    if (message is not CreateStringTableMessage { Name: "userinfo" } table)
+                    // Creates and updates both, through the same builder the production scan
+                    // uses - a helper that built rosters differently would be measuring
+                    // something other than what the tool produces.
+                    switch (message)
                     {
-                        continue;
-                    }
+                        case CreateStringTableMessage { Name: RosterBuilder.TableName } table:
+                            RosterBuilder.Apply(table.Entries, byEntity);
+                            break;
 
-                    foreach (StringTableEntry entry in table.Entries)
-                    {
-                        if (entry.UserData.Count >= PlayerInfo.RecordBytes &&
-                            int.TryParse(
-                                entry.Text, NumberStyles.Integer, CultureInfo.InvariantCulture,
-                                out int entityIndex))
-                        {
-                            byEntity[entityIndex] = PlayerInfo.Parse([.. entry.UserData], entityIndex);
-                        }
+                        case UpdateStringTableMessage update
+                            when state.StringTableName(update.TableId) == RosterBuilder.TableName:
+                            RosterBuilder.Apply(update.Entries, byEntity);
+                            break;
+
+                        default:
+                            break;
                     }
                 }
             }

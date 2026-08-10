@@ -608,7 +608,7 @@ public sealed class StringTableCodecTests
         AppendBits(writer, table.Bits(), table.BitCount);
 
         NetDecodeState state = new();
-        state.AddStringTable(256);
+        state.AddStringTable("userinfo", 256);
 
         UpdateStringTableMessage message = NetMessageReader.Read(writer.Build(), state)
             .Messages[0].ShouldBeOfType<UpdateStringTableMessage>();
@@ -631,7 +631,7 @@ public sealed class StringTableCodecTests
             .Write(0xFF, 8);
 
         NetDecodeState state = new();
-        state.AddStringTable(256);
+        state.AddStringTable("userinfo", 256);
 
         UpdateStringTableMessage message = NetMessageReader.Read(writer.Build(), state)
             .Messages[0].ShouldBeOfType<UpdateStringTableMessage>();
@@ -662,8 +662,8 @@ public sealed class StringTableCodecTests
     public void StringTableCapacity_IsRememberedPerTableAndZeroForUnknownIds()
     {
         NetDecodeState state = new();
-        state.AddStringTable(128);
-        state.AddStringTable(2048);
+        state.AddStringTable("userinfo", 128);
+        state.AddStringTable("modelprecache", 2048);
 
         state.StringTableCapacity(0).ShouldBe(128);
         state.StringTableCapacity(1).ShouldBe(2048);

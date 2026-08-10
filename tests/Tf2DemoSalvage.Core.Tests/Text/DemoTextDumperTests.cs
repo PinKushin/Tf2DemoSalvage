@@ -374,7 +374,12 @@ public sealed class DemoTextDumperTests
         int userId = 7, string fieldName = "userid")
     {
         BitWriter signon = new();
-        WriteUserInfoTable(signon, name: "Sassy", userId: 7, entityIndex: 1);
+        // Entity index 0, not 1: the entry is written as "index follows the previous one",
+        // which for the first entry means index 0, and a userinfo entry's text is that same
+        // index in decimal. The fixture previously said 1 while sitting at 0 - a disagreement
+        // that never occurs in a real demo, and one the roster builder now rejects rather than
+        // guessing which of the two to believe (RISKS B22).
+        WriteUserInfoTable(signon, name: "Sassy", userId: 7, entityIndex: 0);
 
         BitWriter definitions = new();
         BitWriter body = new();

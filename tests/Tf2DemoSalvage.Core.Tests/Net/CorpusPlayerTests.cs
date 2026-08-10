@@ -113,10 +113,59 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
         Corpus.Files().ShouldNotBeEmpty();
     }
 
+    [Theory]
+    [InlineData("demostf-koth_product_final-2026-08-07.dem", 19)]
+    [InlineData("z1800.dem", 26)]
+    public void MidGameJoins_AreInTheRoster(string fileName, int expected)
+    {
+        // RISKS B22. `userinfo` is created once during signon, so anyone who connects later
+        // arrives as an svc_UpdateStringTable. Reading only the create message yields the
+        // *signon* roster, not the match roster - and players dropping and rejoining mid-match
+        // is routine in TF2.
+        //
+        // Exact counts, not "more than before". Measured across the corpus: the create table
+        // names 18 and 25 players in these two demos respectively, and the updates each
+        // introduce one entity index that the create message never mentioned. A test asserting
+        // only ">= 18" would pass on the broken code.
+        //
+        // This stayed invisible because every other check here asks whether the roster is
+        // *plausible* - names non-empty, ids in range, count under 64 - and a roster missing one
+        // player is entirely plausible. Same shape as B20 and B21.
+        string? path = Corpus.Files().FirstOrDefault(p => Path.GetFileName(p) == fileName);
+        if (path is null)
+        {
+            return;                                  // corpus not checked out
+        }
+
+        Players(path).Count.ShouldBe(expected, fileName);
+    }
+
+    [Fact]
+    public void AnUpdatedSlot_CarriesTheLaterRecord()
+    {
+        // The other half of B22, and the half a count cannot see: an update may *replace* an
+        // existing slot rather than add one, when a player reconnects into it. Six of the eight
+        // corpus demos have such updates, so a roster built from the create message alone can
+        // name the wrong person at the right index while having exactly the right size.
+        //
+        // Measured as an invariant rather than a fixed name, because which slot gets reused is a
+        // property of the match, not of the parser: every roster entry must carry a full record.
+        foreach (string path in Corpus.Files())
+        {
+            string name = Path.GetFileName(path);
+
+            foreach (PlayerInfo player in Players(path))
+            {
+                player.Name.ShouldNotBeNullOrWhiteSpace($"{name}: entity {player.EntityIndex}");
+                player.SteamId.ShouldNotBeNullOrWhiteSpace($"{name}: entity {player.EntityIndex}");
+            }
+        }
+    }
+
     /// <summary>Every player named by the demo's <c>userinfo</c> table, walked once.</summary>
     /// <remarks>
-    /// Cached in <see cref="Corpus"/> rather than walked per test. Each of this class's four
-    /// tests needs the same roster, and building it means reading every packet in every demo —
+    /// Cached in <see cref="Corpus"/> rather than walked per test. Each of this class's tests
+    /// needs the same roster, and building it means reading every packet in every demo —
     /// measured at 6 to 12 seconds per test, which made this class the whole suite's critical
     /// path at roughly 32 of its 34 seconds. Tests within a class run sequentially, so the four
     /// walks did not even overlap.

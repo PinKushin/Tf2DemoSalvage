@@ -221,7 +221,7 @@ public static class NetMessageReader
                     case NetMessageType.CreateStringTable:
                         {
                             CreateStringTableMessage table = StringTableCodec.ReadCreate(ref reader, state);
-                            state.AddStringTable(table.MaxEntries);
+                            state.AddStringTable(table.Name, table.MaxEntries);
                             messages.Add(table);
                             break;
                         }

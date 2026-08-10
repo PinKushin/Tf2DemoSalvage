@@ -1030,7 +1030,7 @@ of commands — a golden-output test. That kills the field mutants as a class an
 where forty individual assertions would not.
 
 
-## B22 — mid-game joins are invisible, and one literal makes it worse than missing
+## B22 — mid-game joins are invisible, and one literal makes it worse than missing — FIXED
 
 **Owner-reported, 2026-08-09:** players dropping and rejoining mid-match is routine in TF2 and
 always has been. This parser does not see them.
@@ -1088,3 +1088,47 @@ connects the two.
 looked obviously safe — "the table is created once, everything after is waste". It is wrong for
 exactly the reason above. What caught it was asking the owner rather than reasoning about the
 code.
+
+
+### B22 resolution, 2026-08-10
+
+**Verified before changing anything**, because two of the three suspected defects turned out
+differently than reasoning suggested.
+
+**Measured across the corpus.** Every demo carries `userinfo` updates — z1800 has 18 updates
+holding 42 entries. Two demos are literally missing a player:
+
+| demo | from create | new in updates | true roster |
+|---|---|---|---|
+| `demostf-koth_product_final` | 18 | +1 | **19** |
+| `z1800` | 25 | +1 | **26** |
+
+Several more have *stale* records rather than missing ones, where a player reconnected into an
+existing slot — a failure a count cannot see.
+
+**Defect #3 was not real.** `ReadUpdate`'s hardcoded `fixedUserData: false` is *correct* for
+`userinfo`: its update entries decode to exactly 132 bytes, matching `PlayerInfo.RecordBytes`,
+across every demo. The literal remains wrong in principle for a table that does set the flag, but
+nothing in the corpus is being corrupted by it. Recorded rather than "fixed" on suspicion.
+
+**What the fix needed instead.** `UpdateStringTableMessage` names its table only by creation-order
+id, so `NetDecodeState` now records table *names* alongside capacities. And update entries carry
+no text at all — so the entity index had to come from `entry.Index`.
+
+That is safe because **the entity index *is* the entry index**: in a create message each entry
+also carries its index as decimal text, and the two agree on every entry of every corpus demo.
+Using the index for both paths is what lets creates and updates share one code path
+(`RosterBuilder`) instead of diverging.
+
+Where an entry carries text and it *disagrees* with the index, the entry is skipped rather than
+resolved by preference — a disagreement means one of the two readings is wrong, and a missing
+player is a better failure than a confidently wrong one. That guard immediately caught a
+synthetic fixture in `DemoTextDumperTests` which had been writing text `"1"` at index 0.
+
+**Entries with no user data are skipped, not removed.** They mark a slot being vacated, and the
+question this answers is "who played in this match", not "who is connected now". A slot later
+reused overwrites the record, which is correct for both readings.
+
+Still open, and now unblocked: `instancebaseline` updates use the same path (62 in one demo, 13
+in the 2009 one), so static entity baselines are the next step — see `DECISIONS.md` D24 and the
+baseline research.

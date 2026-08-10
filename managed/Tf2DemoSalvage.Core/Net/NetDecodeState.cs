@@ -75,9 +75,29 @@ public sealed class NetDecodeState
     /// </summary>
     private readonly List<int> _stringTableCapacities = [];
 
-    /// <summary>Records a table's capacity as it is created.</summary>
+    /// <summary>Names of the string tables declared so far, in creation order.</summary>
+    private readonly List<string> _stringTableNames = [];
+
+    /// <summary>Records a table's name and capacity as it is created.</summary>
+    /// <param name="name">The table's name, e.g. <c>userinfo</c>.</param>
     /// <param name="maxEntries">The table's capacity.</param>
-    public void AddStringTable(int maxEntries) => _stringTableCapacities.Add(maxEntries);
+    /// <remarks>
+    /// **The name is kept because an update does not carry one.** `svc_UpdateStringTable`
+    /// identifies its table only by creation-order id, so without this there is no way to ask
+    /// whether an update is for `userinfo` — which is why every player who joined after signon
+    /// was invisible (RISKS B22).
+    /// </remarks>
+    public void AddStringTable(string name, int maxEntries)
+    {
+        _stringTableNames.Add(name);
+        _stringTableCapacities.Add(maxEntries);
+    }
+
+    /// <summary>Name of the table with the given id, or <c>null</c> if it has not been seen.</summary>
+    /// <param name="tableId">Table id, by creation order.</param>
+    /// <returns>The name, or <c>null</c>.</returns>
+    public string? StringTableName(int tableId) =>
+        tableId >= 0 && tableId < _stringTableNames.Count ? _stringTableNames[tableId] : null;
 
     /// <summary>Capacity of the table with the given id, or 0 if it has not been seen.</summary>
     /// <param name="tableId">Table id, by creation order.</param>
