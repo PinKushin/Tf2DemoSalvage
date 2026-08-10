@@ -4,10 +4,10 @@ Status: implementation under way (updated 2026-08-09). **Phase 1 is substantiall
 container, the text dump, the Quake-style trace, JSON Lines, the CLI, the network message layer,
 the embedded entity schema, schema flattening, `svc_PacketEntities` decoding and cross-tick
 entity state all work against real demos, across two eras (network protocol 15 and 24).
-What remains for Phase 1: instance baselines (an entering entity is a delta against its class's
-baseline, so properties left at their default are absent from tracked state), and the messages
-still consumed for alignment only — `svc_Sounds`, `svc_UserMessage`, `svc_TempEntities`. `README.md` has the
-per-layer status and is kept current; this file remains the plan rather than the report.
+What remains for Phase 1: a compiler from the text output back to a `.dem`, which is what would
+actually prove the decode is lossless. Every message body the corpus contains is now decoded.
+`README.md` has the per-layer status and is kept current; this file remains the plan rather than
+the report.
 
 Originally locked for initial implementation (2026-08-07). See `docs/DECISIONS.md` in the repo for the ADR-style record of every choice below.
 
@@ -69,14 +69,20 @@ done. Every demo in the corpus decodes end to end across five protocols — 11, 
 with the one documented exception of a SourceTV recording whose schema the *writer* truncated
 (`RISKS.md` B24).
 
+`svc_Sounds` and `svc_TempEntities` are decoded as of 2026-08-10, which was the last of the
+message bodies that could be. The share of payload bits consumed without being understood is
+0.00–0.19% per demo, the remainder being `svc_EntityMessage` bodies (laid out by the receiving
+class, so there is no generic reading) and voice payloads (a codec, and a different project).
+`CorpusCodecCoverageTests` reports that number per demo and does not gate on it.
+
 Known remaining work, none of it blocking:
 
-- `svc_Sounds` and `svc_TempEntities` bodies stay opaque. The reference implementation leaves them
-  opaque too; this is a decision rather than a gap.
-- Game event fields print raw ids in JSON Lines where the text summary resolves them to player
-  names — the two outputs disagree, the same way they did for user messages until recently.
 - The voice client-to-player mapping is unresolved and needs a demo with two speakers
   (`docs/RECORDING_CHECKLIST.md`).
+- **No round trip at the message layer.** The container re-encodes byte-exactly, but the text
+  output cannot be compiled back into a demo, so nothing proves the decode kept everything. That
+  is the standard Quake demo tools set and the honest measure of "fully deciphered"; the bit-level
+  self-checks each message performs are weaker evidence in the same direction.
 
 *Ordering note learned in practice: layer 2 messages carry no length prefix, so they must be
 implemented in the order the stream blocks on, not in order of apparent usefulness —

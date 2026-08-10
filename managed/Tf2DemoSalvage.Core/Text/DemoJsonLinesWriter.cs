@@ -169,6 +169,8 @@ public static class DemoJsonLinesWriter
             });
         }
 
+        Dictionary<int, PlayerInfo> byUserId = Roster.ByUserId(scan.Players);
+
         foreach ((int tick, UserMessage user) in scan.UserMessages)
         {
             WriteLine(writer, json =>
@@ -184,6 +186,7 @@ public static class DemoJsonLinesWriter
                 }
 
                 json.WriteEndObject();
+                WritePlayerNames(json, user.Fields!, byUserId);
             });
         }
 
@@ -222,6 +225,7 @@ public static class DemoJsonLinesWriter
                 }
 
                 json.WriteEndObject();
+                WritePlayerNames(json, fields, byUserId);
             });
         }
     }
@@ -239,6 +243,58 @@ public static class DemoJsonLinesWriter
         EntityUpdateType.Delete => "delete",
         _ => "update",
     };
+
+    /// <summary>
+    /// Writes a <c>players</c> object naming whichever fields refer to players.
+    /// </summary>
+    /// <remarks>
+    /// Beside <c>fields</c> rather than inside it. The wire says <c>userid 7</c> and that is what
+    /// joins an event to the <c>player</c> records and to every other event, so replacing the 7
+    /// with a name would cost more than it gives; this adds the reading without moving the fact.
+    ///
+    /// The text summary has resolved these since it was written and this format did not, which
+    /// made the same demo read as two different things depending on which output was opened.
+    ///
+    /// Omitted entirely when nothing resolved, so an ordinary event carries no empty object. An
+    /// id the roster never named is skipped rather than guessed at; the absent-player sentinel is
+    /// written as JSON null, which is what it means.
+    /// </remarks>
+    private static void WritePlayerNames(
+        Utf8JsonWriter json,
+        IReadOnlyList<KeyValuePair<string, object?>> fields,
+        IReadOnlyDictionary<int, PlayerInfo> byUserId)
+    {
+        bool open = false;
+        foreach (KeyValuePair<string, object?> field in fields)
+        {
+            PlayerReferences.PlayerReference reference =
+                PlayerReferences.Resolve(field, byUserId);
+
+            if (!reference.IsPlayerField || (reference.Name is null && !reference.IsNobody))
+            {
+                continue;
+            }
+
+            if (!open)
+            {
+                json.WriteStartObject("players");
+                open = true;
+            }
+
+            if (reference.IsNobody)
+            {
+                json.WriteNull(field.Key);
+                continue;
+            }
+
+            json.WriteString(field.Key, reference.Name);
+        }
+
+        if (open)
+        {
+            json.WriteEndObject();
+        }
+    }
 
     /// <summary>
     /// Writes a field with its own type rather than stringifying everything.

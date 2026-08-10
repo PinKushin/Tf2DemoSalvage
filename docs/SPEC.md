@@ -948,15 +948,22 @@ Three tiers, and the distinction is deliberate:
 
 | Tier | Types | Rationale |
 |---|---|---|
-| Fully decoded | entities, game events, string tables, chat, `net_Tick`, `svc_ServerInfo`, `svc_ClassInfo`, `svc_Print`, `svc_SetConVar`, `svc_StringCmd` | the content is the point |
-| Header reported | `svc_Sounds`, `svc_TempEntities`, `svc_UserMessage`, `svc_EntityMessage` | body layout is per-effect, per-type or per-class; the reference implementation keeps these opaque too |
+| Fully decoded | entities, game events, string tables, chat, `svc_Sounds`, `svc_TempEntities`, most of `svc_UserMessage`, `net_Tick`, `svc_ServerInfo`, `svc_ClassInfo`, `svc_Print`, `svc_SetConVar`, `svc_StringCmd` | the content is the point |
+| Header reported | `svc_EntityMessage`, `svc_VoiceData`, user message types with no known layout | the body's layout is defined by the receiving class, or is a codec payload; neither can be decoded generically |
 | Fully reported | `svc_Prefetch`, `svc_FixAngle`, `svc_SetView`, `net_SignonState`, `svc_BspDecal`, `svc_VoiceInit`, `svc_File`, `svc_GetCvarValue` | small enough that the fields *are* the message |
 
-**The middle tier is not a gap being papered over.** `svc_Sounds` and `svc_TempEntities` carry
-per-effect delta-encoded bodies that `demostf/parser` also declines to decode, and four of
-`proto_version.h`'s boundaries are sound-related with no demo between protocols 15 and 24 to
-exercise them. Naming them turns one anonymous count into individually addressable items — the
-work that remains is now visible instead of hidden.
+**The middle tier moved twice, and both moves were earned rather than reclassified.**
+`svc_Sounds` and `svc_TempEntities` sat here on the grounds that `demostf/parser` declines to
+decode them — which was a fact about that parser's priorities, not about the format. Both are now
+decoded: temp entities off demostf's own `tempentities.rs`, sounds off Valve's
+`public/soundinfo.h`, since no second implementation of that one exists to check against.
+
+What is left in the tier cannot be moved by effort. A `svc_EntityMessage` body is laid out by the
+receiving entity's class and there is no generic reading of it; voice data is a codec payload and
+decoding it is a different project.
+
+`CorpusCodecCoverageTests` measures the split in bits rather than asserting this table is true,
+and it is deliberately not a gate: a gate would be set to today's number and then defended.
 
 ### The 2009 demo, message by message
 

@@ -268,4 +268,40 @@ public sealed class DemoJsonLinesWriterTests
             """);
     }
 
+
+    [Theory]
+    [InlineData("userid", true)]
+    [InlineData("damageamount", false)]
+    public void EventFields_CarryAPlayerNameOnlyWhereTheFieldNamesAPlayer(
+        string fieldName, bool named)
+    {
+        // The one place the two outputs still disagreed: the text summary resolved a kill's
+        // userid to a name and this format left it a bare integer, so the same demo read as
+        // two different things depending on which output a reader opened.
+        //
+        // Resolved beside the value rather than instead of it. A machine format that replaced 7
+        // with "Sassy" would lose the id that joins to everything else, so `fields` stays exactly
+        // what the wire said and `players` is the interpretation.
+        //
+        // The damageamount row is the control, and it is the case that actually went wrong once:
+        // resolving every numeric field produced damageamount=Ardaddy Ultrasex(14) on a real demo,
+        // because 14 damage collided with user id 14. Both rows carry the value 7 with user id 7
+        // in the roster, so a decoder that resolves by value rather than by field name passes the
+        // first row and fails this one.
+        string output = Write(DemoFixtures.EventNamingAPlayer(fieldName: fieldName));
+
+        JsonElement line = Lines(output)
+            .Select(document => document.RootElement)
+            .Single(root => root.GetProperty("type").GetString() == "event");
+
+        line.GetProperty("fields").GetProperty(fieldName).GetInt32().ShouldBe(7);
+
+        if (!named)
+        {
+            line.TryGetProperty("players", out _).ShouldBeFalse();
+            return;
+        }
+
+        line.GetProperty("players").GetProperty(fieldName).GetString().ShouldBe("Sassy");
+    }
 }

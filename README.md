@@ -6,69 +6,98 @@ Independent, clean-room project. Not affiliated with Valve. Ships no Valve-autho
 assets — maps are resolved from your own TF2 install or a source you configure, not bundled
 (see `docs/DECISIONS.md` D9).
 
-## Status — early, and honest about it
+## Status
 
-**Phase 1 in progress.** The container and much of the network message layer decode against
-real demos. Entity data — where player positions live — does not yet.
+**Phase 1 is substantially complete.** Every demo in the corpus decodes end to end across five
+network protocols — 11, 14, 15, 16 and 24, spanning October 2007 to 2013 and the modern game —
+and every message body those demos contain is decoded rather than stepped over.
 
 | Layer | State |
 |---|---|
 | Bit reader, varint decoding | Done. Unit tested, mutation tested, fuzzed. |
-| Demo header | Done. Parses all three corpus demos. |
-| Command stream | Done. Walks all three demos; counts match their headers exactly. |
-| Text dump + CLI | Done. `tf2demosalvage <demo.dem>` prints a readable dump. |
-| **Net messages (layer 2)** | **Partial.** See the table below. |
-| **Entity schema (layer 3)** | **Partial.** `dem_datatables` parses and flattens; `svc_PacketEntities` headers decode; 98% of property *value* encodings are implemented. Entity iteration is not started, and the missing 2% includes `m_vecOrigin`. |
+| Demo header, command stream | Done. Re-encodes byte-for-byte on every demo held here. |
+| Net messages (layer 2) | Done for every type the corpus contains, across all five protocols. |
+| Entity schema (layer 3) | Done. `dem_datatables` parses and flattens; entity deltas, instance baselines and cross-tick state all decode. |
+| Sounds, temp entities, user messages | Done. These were the last bodies consumed without being read. |
+| Text dump, Quake-style trace, JSON Lines, CLI | Done. |
 | 2D viewer (Phase 2), 3D viewer (Phase 3) | Not started. |
 
-Network messages decoded so far:
+### How much of the codec is actually deciphered
 
-| Message | Notes |
-|---|---|
-| `net_NOP`, `net_Tick` | Tick runs on the *server's* clock, offset from the demo's. |
-| `net_StringCmd`, `net_SetConVar`, `svc_Print` | Trivial, but they gate the POV demo's signon. |
-| `svc_ServerInfo` | Gates everything else in signon. Verified against the file header. |
-| `svc_ClassInfo` | Class list; sizes the class-id field every entity update uses. |
-| `svc_CreateStringTable`, `svc_UpdateStringTable` | 15 of 20 tables decode; 5 are LZSS-compressed and skipped. |
-| `svc_GameEventList`, `svc_GameEvent` | Implemented; not yet reached in the corpus. |
-
-Where decoding currently stops: **`svc_SignonState`** in the signon stream (trivial, not yet
-done), and **`svc_PacketEntities`** in roughly 90% of gameplay packets.
-
-`svc_PacketEntities` needs two things that do not exist yet. The schema it decodes against is
-now parsed, but not *flattened* — entity deltas index into a property list built by merging
-nested tables, applying exclusions, then sorting `SPROP_CHANGES_OFTEN` properties forward. Get
-that order wrong and the decoder reads real values into the wrong fields without failing, which
-is why `docs/RISKS.md` B4 calls it the place silent wrongness lives.
-
-280 tests, zero build warnings, zero surviving mutants.
-
-Testing is deliberately layered, because each layer answers a different question: unit tests
-(right answer on input we thought of), CsCheck properties (right across the whole input
-space), Stryker mutation testing (would the tests notice if the code were wrong), SharpFuzz
-(does it survive input nobody would write), corpus tests (does it work on bytes TF2 actually
-produced), and cross-parser differential tests (does an independent implementation agree —
-the only check that can catch a self-consistent misunderstanding). See `docs/DECISIONS.md`
-D6, D8 and D12, and `docs/DIFFERENTIAL.md`.
+The honest measure is not "decodes without stopping" — a reader that steps over a body it does
+not understand stays perfectly aligned and looks identical to one that reads it. So a corpus test
+counts payload bits in two buckets: **modelled**, meaning every field became a value, and
+**opaque**, meaning consumed at a known length and discarded.
 
 ```
-tf2demosalvage <demo.dem>            # readable dump to stdout
-tf2demosalvage <demo.dem> -s         # header and command counts only
-tf2demosalvage <demo.dem> -o out.txt # write to a file
+tf2-2007-build3258-stv-cp_granary.dem     192 of  1,966,872 payload bits opaque (0.01%)
+tf2-2009-build3862-pov-cp_badlands.dem    879 of    685,560 payload bits opaque (0.13%)
+tf2-2013-build1729296-stv-cp_foundry.dem   88 of  2,264,584 payload bits opaque (0.00%)
+z1800.dem                                 357 of 14,932,648 payload bits opaque (0.00%)
 ```
 
-So: the container is solved and verified against real files, and the interesting half — what is
-*inside* the packets — has not been attempted. Treat any claim beyond the table above as
-aspiration, not capability.
+0.00–0.19% per demo. What remains is `svc_EntityMessage`, whose body is laid out by the receiving
+entity's class and has no generic reading, and voice payloads, which are a codec. The test reports
+and does not gate — a gate would be set to today's number and then defended.
+
+**What is not proven:** the text output cannot be compiled back into a `.dem`. The container
+re-encodes byte-exactly, but until the message layer round-trips there is no proof the decode is
+lossless rather than merely plausible. That is the Quake demo tools standard and the remaining
+Phase 1 goal.
+
+### Corpus
+
+Ten demos are committed (Git LFS): matched POV and SourceTV pairs recorded on period TF2 clients
+from archive.org — 2007 launch, 2008, 2009, 2011, 2013 — plus modern demos. A larger local corpus
+is used for testing and deliberately not committed; `docs/DECISIONS.md` D31 has the split and the
+reason.
+
+Old demos turned out to be genuinely scarce, so the route that worked was acquiring old *clients*
+and recording new demos on them, which gives dated specimens instead of undated ones.
+`docs/TIMELINE.md` is the era table and `docs/RECORDING_CHECKLIST.md` is what to do while
+recording, so two eras differ only by era.
+
+### Testing
+
+761 tests, zero build warnings.
+
+Layered deliberately, because each layer answers a different question: unit tests (right answer on
+input we thought of), CsCheck properties (right across the whole input space), Stryker mutation
+testing (would the tests notice if the code were wrong), SharpFuzz (does it survive input nobody
+would write), corpus tests (does it work on bytes TF2 actually produced), and cross-parser
+differential tests (does an independent implementation agree — the only check that can catch a
+self-consistent misunderstanding). See `docs/DECISIONS.md` D6, D8 and D12, and
+`docs/DIFFERENTIAL.md`.
+
+Three bugs found in one session were unreachable from every demo held here — a temp entity count
+of zero, a class-id width, a string table width — because the corpus contains no input where the
+right and wrong answers differ. A corpus is evidence about the demos in it, and silence from it is
+not agreement.
+
+```
+tf2demosalvage <demo.dem>              # readable summary and command listing
+tf2demosalvage <demo.dem> -s           # header, counts, players and events only
+tf2demosalvage <demo.dem> -t           # decompile to text, message by message
+tf2demosalvage <demo.dem> -t -e        # ... with entity snapshots expanded
+tf2demosalvage <demo.dem> -j           # one JSON object per line
+tf2demosalvage <demo.dem> -o out.txt   # write to a file
+```
+
+Entities are off by default because expanding them turns a 39 MB demo into gigabytes of text;
+`--entity-limit <n>` is the practical way to look at them.
 
 ### Documentation map
 
 - `ROADMAP.md` — the phased plan.
-- `docs/DECISIONS.md` — D1–D11, every architectural choice and why.
+- `docs/DECISIONS.md` — D1-D31, every architectural choice and why.
 - `docs/SPEC.md` — the format spec, with every claim tagged by how it is known (CONFIRMED
   against real bytes / DOCUMENTED / UNDOCUMENTED / OPEN).
 - `docs/RISKS.md` — anticipated blockers, ordered by when they bite.
 - `docs/FORMAT_NOTES.md` — findings per corpus demo, including corrections to earlier claims.
+- `docs/TIMELINE.md` — the era axis: which protocol each build shipped, measured rather than
+  assumed, and what changes at each boundary.
+- `docs/RECORDING_CHECKLIST.md` — what to do while recording on a period client, so two eras
+  differ only by era.
 - `docs/FUZZING.md`, `docs/RENDERING_NOTES.md` — D8 and Phase 2/3 groundwork.
 - `docs/DIFFERENTIAL.md` — comparing output against an independent parser, and how to set the
   optional oracle up.
@@ -91,7 +120,7 @@ preference — the point is to understand the format — not a legal constraint.
 
 ## Why
 
-TF2 demos are self-contained — the network entity schema (`SendTables`) that describes how to decode a demo's data is embedded in the file itself, so a demo doesn't actually need to match the *current* game client's schema to be readable. The client crashes on old demos because it validates against its own live schema; a standalone parser that only reads what the file provides sidesteps that entirely. See `ROADMAP.md` §1 for the full explanation, and `docs/FORMAT_NOTES.md` for a real example (`z1800.dem`, a 2020-era demo that fails in the live client but is intact).
+TF2 demos are self-contained — the network entity schema (`SendTables`) that describes how to decode a demo's data is embedded in the file itself, so a demo doesn't actually need to match the *current* game client's schema to be readable. The client crashes on old demos because it validates against its own live schema; a standalone parser that only reads what the file provides sidesteps that entirely. See `ROADMAP.md` §1 for the full explanation, and `docs/FORMAT_NOTES.md` for a real example (`z1800.dem`, a modern demo that fails in the live client but is intact).
 
 ## Plan at a glance
 
