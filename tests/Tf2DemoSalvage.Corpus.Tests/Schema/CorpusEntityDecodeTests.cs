@@ -197,13 +197,30 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         //
         // Worth keeping as a caution: "I scanned 2,000 and found none" was evidence about the
         // reader, and it read as evidence about the format.
-        string pov = Corpus.Files()
-            .First(f => Path.GetFileName(f).Contains("pov", StringComparison.Ordinal));
+        // Every POV demo, not the first one found. This asserted `Decoded == 5000` against
+        // whichever file happened to sort first, which was a 45 MB match with snapshots to spare.
+        // When the corpus was trimmed the first POV file became a two-minute recording with 2,764
+        // packets, and the test failed for having been sized to a specific demo rather than to the
+        // claim. The claim is that a POV demo decodes without stopping - the count was a proxy for
+        // "a long way in", and a proxy that breaks when the corpus changes is the wrong measure.
+        string[] povDemos =
+        [
+            .. Corpus.Files().Where(f => Path.GetFileName(f).Contains("pov", StringComparison.Ordinal))
+        ];
 
-        DecodeRun run = DecodeContinuously(pov, 5000);
+        povDemos.ShouldNotBeEmpty();
 
-        run.Stopped.ShouldBeNull(Path.GetFileName(pov));
-        run.Decoded.ShouldBe(5000);
+        foreach (string pov in povDemos)
+        {
+            DecodeRun run = DecodeContinuously(pov, SnapshotCap);
+
+            run.Stopped.ShouldBeNull(Path.GetFileName(pov));
+
+            // A floor every POV recording in the corpus clears, including the shortest. It guards
+            // against a run that stops after two snapshots and reports no error, which is what
+            // `Stopped is null` alone would accept.
+            run.Decoded.ShouldBeGreaterThan(2000, Path.GetFileName(pov));
+        }
     }
 
     [Fact]
