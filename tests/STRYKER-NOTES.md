@@ -116,25 +116,48 @@ Three test projects, two of them (`Core.Tests`, `Corpus.Tests`) pointed at the s
 all of Core against only that project's tests.** Code exercised solely by the corpus is
 `NoCoverage` in the core run, and vice versa; neither number describes the suite.
 
-First core-only measurement, on `mutation-box` 2026-08-10 at 7294c4b, 11m16s:
+First core-only measurement, on `mutation-box` 2026-08-10 at 539389d, 33m05s:
 
 ```
-Killed: 113   Survived: 98   Timeout: 7   NoCoverage: 100   CompileError: 689
-final mutation score 37.74 %
+Killed: 798   Survived: 147   Timeout: 10   NoCoverage: 100   CompileError: 691
+final mutation score 76.59 %
 ```
 
-37.74% is `(113+7)/(113+7+98+100)` — arithmetic confirming D24's formula, and confirming the
-tests really ran (113 kills is not a runner failure; contrast the 1.27% above). The 689
-CompileError mutants are excluded from the score entirely and are not a finding.
+76.59% is `(798+10)/(798+10+147+100)`, confirming D24's formula. The CompileError mutants are
+excluded from the score entirely and are not a finding.
 
-`break: 80` on that project was therefore a gate it could not pass by construction, and it fired
-on the very first scheduled-style run. It is now `break: 0`, matching `Corpus.Tests`: the score is
-a signal to read, not a gate. **`Cli.Tests` keeps `break: 80`** — it is the only project whose
-tests cover the whole of what it mutates, so there the number means what it appears to mean.
+**The 100 NoCoverage are the split artefact, and they cost about eight points.** Score them out
+and the same run is `808/955` = **84.6%**, above the 80 floor. So core's tests are not the
+problem; being asked to answer for corpus-only code is.
 
-What to read instead of the headline: the survivor list, per the standing rule that the score is a
-floor and not a target. A survivor in code this project's tests *do* cover is a real finding; one
-in corpus-only code is an artefact of the split.
+That makes `break: 80` a gate this project cannot pass however good its tests get, and it fired on
+the first scheduled-style run. Set to `break: 0` for now, matching `Corpus.Tests` — but the better
+fix is a config whose `test-projects` lists **both** Core.Tests and Corpus.Tests, which would move
+those 100 into a real bucket and put the floor back in play. Unmeasured cost against an already
+hours-long corpus run, hence not done yet. **`Cli.Tests` keeps `break: 80`**: it is the only
+project whose tests cover the whole of what it mutates.
+
+## A truncated run prints a full report with a plausible score
+
+Thirty minutes before the run above, the same project on the same box reported **37.74% in
+11m16s** — and it was not a measurement. Both runs' per-file rows are byte-identical for as far
+as run 1 got (`DemoCommandReader` 12/0/63, `DemoHeader` 10/0/7, `ChatMessage` 85.29), then run 1
+stops. The totals give it away:
+
+| | killed | timeout | survived | nocov | accounted |
+|---|---|---|---|---|---|
+| truncated | 113 | 7 | 98 | 100 | **1215** |
+| complete | 798 | 10 | 147 | 100 | **1954** |
+
+739 mutants were never tested, and nothing in the output says so: Stryker printed *"All mutants
+have been tested, and your mutation score has been calculated"* and a percentage that is
+internally consistent with the subset it had. The likely cause is an interrupted run — the
+replacement started 31 seconds later — but the cause is not the lesson.
+
+**Compare the accounted total against a known-good run before believing a score.** This is the
+same rule as reading a test runner's `Total:` rather than its `Passed!`, and it caught a real
+error here: the 37.74% was reported upward as a genuine first measurement and three conclusions
+were drawn from it, including a GitHub job timeout sized against the wrong number.
 
 ## Timeouts are scored as kills
 

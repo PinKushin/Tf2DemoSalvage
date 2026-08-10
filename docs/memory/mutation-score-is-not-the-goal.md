@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-10T10:07:26.421Z
+  modified: 2026-08-10T10:18:40.060Z
 ---
 
 The owner's position, given 2026-08-08 while I was closing survivors one at a time toward a
@@ -88,5 +88,20 @@ whose `test-projects` lists BOTH, run weekly; the daily core run then stays a fa
 Unmeasured cost, which is why it was proposed rather than done.
 
 `Cli.Tests` keeps 80 and should: it is the only project covering all of what it mutates.
+
+**Score the 100 NoCoverage out and the same run is 84.6%** — above the floor. The tests are not
+the problem; being asked to answer for corpus-only code is.
+
+## The first number reported from that run was 37.74%, and it was not a measurement
+
+An earlier run the same morning printed *"All mutants have been tested"* and **37.74% in 11m16s**,
+having accounted for **1215 of 1954** mutants. Per-file rows identical to the good run until it
+simply stops. The percentage was internally consistent with the subset it held, so nothing looked
+wrong — and it was reported upward as a real first measurement, with three conclusions built on
+it, one of which sized a GitHub job timeout at 30 minutes against a workload that takes 33.
+
+**Compare the accounted mutant total against a known-good run before believing a score.** Same
+rule as reading a runner's `Total:` instead of its `Passed!`, and the reason a second run that
+disagrees is evidence about the FIRST one, not noise to average.
 
 See [[tests-before-codecs]] — writing tests after the code is what produces the survivors.

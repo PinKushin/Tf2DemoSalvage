@@ -7,9 +7,14 @@
 #   Cli.Tests      51 tests, needs one demo        ~1 min    daily
 #   Corpus.Tests   63 tests, walks 305 MB          hours     weekly
 #
-# Those are the owner's machine. Elsewhere is slower and the gap is not small: the same Core run
-# measured 11m16s on the Oracle mutation box (3 OCPU ARM64), so 30 minutes here is roughly 2.5x
-# margin rather than the 7x the 4-minute figure suggests. Do not trim it toward the local number.
+# Those are the owner's machine. Elsewhere is slower and the gap is large: the same Core project
+# measured 33m05s on the Oracle mutation box (3 OCPU ARM64) — roughly 8x, not the 3x a hosted
+# runner usually costs. Do not size a timeout from the 4-minute figure.
+#
+# An earlier box run of the same project reported 11m16s and a 37.74% score, and it was neither:
+# it printed "All mutants have been tested" having accounted for 1215 of 1954 mutants. A
+# truncated Stryker run still prints a full report with a plausible percentage, so compare the
+# mutant total against a known-good run before believing either number.
 #
 # The corpus job is gated on the weekly cron so the daily run stays under ten minutes. A manual
 # dispatch runs everything.
@@ -38,7 +43,10 @@ jobs:
   core:
     name: Core (synthetic)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 33m05s measured on the Oracle box; this runner's speed relative to that is not yet known,
+    # so the ceiling is set well clear of it rather than tuned. A job killed at the timeout uploads
+    # nothing and the `if-no-files-found: error` below then reports a second, misleading failure.
+    timeout-minutes: 90
     steps:
       # No Git LFS here at all. After the D25 split this project is entirely synthetic - it does
       # not read a single demo - so it costs none of the account's 1 GiB/month LFS bandwidth and
