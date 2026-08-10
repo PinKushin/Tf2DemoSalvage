@@ -50,7 +50,15 @@ public sealed class CorpusCodecCoverageTests(ITestOutputHelper output)
     {
         SkippedMessage skipped => skipped.BodyBits,
         SoundsMessage sounds => sounds.BodyBits,
-        TempEntitiesMessage temp => temp.BodyBits,
+
+        // TempEntities was counted here until its body was decoded. It is dropped for the same
+        // reason PacketEntities was never counted: the message carries raw bytes, and the content
+        // IS interpreted — by EntityDecoder.DecodeTempEntities, validated against every corpus
+        // demo that carries one, 0 failures across protocols 14 to 24.
+        //
+        // Reclassifying a bucket to improve the number is exactly the fudge this instrument exists
+        // to prevent, so the bar is stated rather than felt: content interpreted somewhere in this
+        // project, not merely consumed at the right length. Sounds does not meet it.
         VoiceDataMessage voice => voice.BodyBits,
         EntityMessage entity => entity.BodyBits,
         UserMessage { Fields: null } user => user.BodyBits,

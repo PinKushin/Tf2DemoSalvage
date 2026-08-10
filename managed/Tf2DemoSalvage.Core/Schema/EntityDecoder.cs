@@ -48,6 +48,20 @@ public sealed record DecodedEntity(
     EntityUpdateType UpdateType,
     IReadOnlyList<DecodedProperty> Properties);
 
+/// <summary>One temp entity — a short-lived effect such as an explosion, tracer or impact.</summary>
+/// <param name="ClassId">Networked class, which says what kind of effect it is.</param>
+/// <param name="DelaySeconds">How long after the message the effect fires.</param>
+/// <param name="Properties">The effect's parameters, read like any entity's.</param>
+/// <remarks>
+/// No entity index and no serial number: a temp entity is fire-and-forget and never enters the
+/// entity table, which is why it needs a record of its own rather than reusing
+/// <see cref="DecodedEntity"/>.
+/// </remarks>
+public sealed record DecodedTempEntity(
+    int ClassId,
+    float DelaySeconds,
+    IReadOnlyList<DecodedProperty> Properties);
+
 /// <summary>
 /// Walks a <c>svc_PacketEntities</c> body, producing entities and their changed properties.
 /// </summary>
@@ -212,6 +226,77 @@ public sealed class EntityDecoder
             entityIndex, existingClass, 0, updateType,
             ReadProperties(ref reader, existingClass));
     }
+
+    /// <summary>Decodes a <c>svc_TempEntities</c> body into its effects.</summary>
+    /// <param name="body">The message's body bytes.</param>
+    /// <param name="count">How many effects the message declares.</param>
+    /// <param name="lengthBits">The body's stated length in bits.</param>
+    /// <returns>The effects, in order.</returns>
+    /// <remarks>
+    /// **Temp entities are entities, which is why this lives here.** Each effect is a class id and
+    /// a property list read exactly as a <c>svc_PacketEntities</c> update reads one, against the
+    /// same flattened schema. Explosions, tracers, impacts and shell casings all arrive this way,
+    /// and until now the whole body was consumed by length and discarded — 761,828 of z1800's
+    /// 1,226,354 opaque payload bits, and the single largest undeciphered part of the codec.
+    ///
+    /// Layout taken from <c>demostf/parser</c> rather than guessed. Two details are the ones a
+    /// guess gets wrong:
+    ///
+    /// * the class id is stored **one higher than it is**, so a raw zero means "no class"
+    /// * an effect may omit the class entirely and **repeat the previous effect's**, so a decoder
+    ///   that treats each effect independently desynchronises at the second one
+    ///
+    /// The delay is eight bits of hundredths of a second, not a float.
+    /// </remarks>
+    public IReadOnlyList<DecodedTempEntity> DecodeTempEntities(
+        ReadOnlySpan<byte> body, int count, int lengthBits)
+    {
+        BitReader reader = new(body);
+        List<DecodedTempEntity> effects = new(count);
+        int classId = -1;
+
+        for (int i = 0; i < count; i++)
+        {
+            float delay = reader.ReadBit()
+                ? reader.ReadUInt32(DelayBits) / DelayScale
+                : 0f;
+
+            if (reader.ReadBit())
+            {
+                // Stored one higher than the real id, so that zero can mean "unset" on the wire.
+                classId = (int)reader.ReadUInt32(_classBits) - 1;
+            }
+
+            if (classId < 0)
+            {
+                throw new InvalidDataException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Temp entity {i} carries no class and none preceded it, so there is no " +
+                    $"schema to read its properties against."));
+            }
+
+            effects.Add(new DecodedTempEntity(
+                classId, delay, ReadProperties(ref reader, classId)));
+        }
+
+        // The message states its own body length, so a correct reading lands on it. Anything else
+        // means the layout above is wrong for this demo rather than the demo being damaged.
+        if (reader.BitsRead > lengthBits)
+        {
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Decoding {count} temp entities consumed {reader.BitsRead} bits of a stated " +
+                $"{lengthBits}."));
+        }
+
+        return effects;
+    }
+
+    /// <summary>Width of a temp entity's fire delay.</summary>
+    private const int DelayBits = 8;
+
+    /// <summary>The delay is sent in hundredths of a second.</summary>
+    private const float DelayScale = 100f;
 
     private List<DecodedProperty> ReadProperties(ref BitReader reader, int classId)
     {

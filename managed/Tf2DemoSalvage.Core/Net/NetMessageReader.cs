@@ -285,8 +285,9 @@ public static class NetMessageReader
                             int eventBits = protocol > TempEntitiesVarIntProtocol
                                 ? (int)VarInt.ReadUInt32(ref reader)
                                 : (int)reader.ReadUInt32(TempEntitiesLegacyLengthBits);
-                            _ = NetBitReading.CopyBits(ref reader, eventBits);
-                            messages.Add(new TempEntitiesMessage(effectCount, eventBits));
+                            byte[] eventBody = NetBitReading.CopyBits(ref reader, eventBits);
+                            messages.Add(new TempEntitiesMessage(
+                                effectCount, eventBits, eventBody));
                             break;
                         }
 

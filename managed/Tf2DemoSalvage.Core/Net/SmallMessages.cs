@@ -164,13 +164,19 @@ public sealed record VoiceDataMessage(int Client, int Proximity, int BodyBits) :
 /// </summary>
 /// <param name="Count">How many effects the body carries.</param>
 /// <param name="BodyBits">How many bits the body occupies.</param>
+/// <param name="Body">The body bits, carried for a schema-aware decoder.</param>
 /// <remarks>
-/// The body is a list of entity-like deltas against per-effect classes, so it is not decoded
-/// here. The length is protocol-conditional — a varint above protocol 23, a fixed 17-bit field
-/// below — which is `PROTOCOL_VERSION_23` in `proto_version.h` and is exercised on both sides by
-/// the corpus.
+/// The body is a list of entity-like deltas against per-effect classes, so it is carried here and
+/// decoded by <see cref="Tf2DemoSalvage.Core.Schema.EntityDecoder.DecodeTempEntities"/> — which
+/// needs the schema, and the schema arrives in a different demo command. Same arrangement as
+/// <see cref="PacketEntitiesMessage"/>, and for the same reason.
+///
+/// The length is protocol-conditional — a varint above protocol 23, a fixed 17-bit field below —
+/// which is `PROTOCOL_VERSION_23` in `proto_version.h` and is exercised on both sides by the
+/// corpus.
 /// </remarks>
-public sealed record TempEntitiesMessage(int Count, int BodyBits) : INetMessage
+public sealed record TempEntitiesMessage(
+    int Count, int BodyBits, System.ReadOnlyMemory<byte> Body = default) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.TempEntities;

@@ -69,6 +69,73 @@ public sealed class EntityDecoderTests
     }
 
     [Fact]
+    public void TempEntities_DecodeTheirDelayClassAndProperties()
+    {
+        // svc_TempEntities is the largest undeciphered part of the codec - 761,828 of z1800's
+        // 1,226,354 opaque payload bits - and it is what a viewer needs for explosions, tracers
+        // and impacts. Its body was consumed by length and discarded.
+        //
+        // Layout, from demostf/parser's tempentities.rs rather than guessed: per effect, a bit
+        // saying whether a fire delay follows (8 bits, hundredths of a second), a bit saying
+        // whether a class id follows (ClassIdBits wide and stored ONE HIGHER than the real id),
+        // then the same property list a PacketEntities update carries. An effect with no class
+        // bit repeats the previous effect's class.
+        BitWriter writer = new();
+
+        writer.Write(1, 1).Write(25, 8);           // delay present: 0.25s
+        writer.Write(1, 1).Write(2, ClassBits);    // class id 1, stored as 2
+        writer.Write(1, 1).UBitVar(0).Write(300, 10);   // m_iHealth = 300
+        writer.Write(0, 1);                        // no more properties
+
+        writer.Write(0, 1);                        // second effect: no delay
+        writer.Write(0, 1);                        // and no class - repeats the first
+        writer.Write(0, 1);                        // no properties
+
+        byte[] body = writer.Build();
+        IReadOnlyList<DecodedTempEntity> effects =
+            Decoder().DecodeTempEntities(body, 2, writer.BitCount);
+
+        effects.Count.ShouldBe(2);
+
+        effects[0].ClassId.ShouldBe(1);
+        effects[0].DelaySeconds.ShouldBe(0.25f, 0.001f);
+        effects[0].Properties.ShouldHaveSingleItem()
+            .Definition.Property.Name.ShouldBe("m_iHealth");
+
+        // The repeat. Without carrying the previous class forward, this effect has no schema to
+        // read against and the whole body desynchronises from here on.
+        effects[1].ClassId.ShouldBe(1);
+        effects[1].DelaySeconds.ShouldBe(0f);
+        effects[1].Properties.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void TempEntities_WithABodyThatDoesNotFit_AreRefusedRatherThanGuessed()
+    {
+        // The self-check that makes a researched layout safe: the message states its body length,
+        // and a correct reading consumes exactly that. Claiming more effects than the body holds
+        // is what a wrong layout looks like from inside.
+        BitWriter writer = new();
+        writer.Write(0, 1).Write(1, 1).Write(2, ClassBits).Write(0, 1);   // one complete effect
+
+        Should.Throw<System.IO.EndOfStreamException>(
+            () => Decoder().DecodeTempEntities(writer.Build(), 40, writer.BitCount));
+    }
+
+    [Fact]
+    public void TempEntities_WithNoClassOnTheFirstEffect_AreRefused()
+    {
+        // The class is optional per effect and repeats the previous one, so the FIRST effect
+        // having none leaves nothing to read its properties against. Guessing a class here would
+        // decode real bits against the wrong schema and produce plausible nonsense.
+        BitWriter writer = new();
+        writer.Write(0, 1).Write(0, 1).Write(0, 1);
+
+        Should.Throw<System.IO.InvalidDataException>(
+            () => Decoder().DecodeTempEntities(writer.Build(), 1, writer.BitCount));
+    }
+
+    [Fact]
     public void EnteringEntity_CarriesItsClassAndSerialNumber()
     {
         BitWriter writer = new();
