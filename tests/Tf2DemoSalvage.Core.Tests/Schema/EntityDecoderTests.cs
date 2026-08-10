@@ -422,4 +422,59 @@ public sealed class EntityDecoderTests
 
         entity.Properties.ShouldHaveSingleItem().Value.AsString.ShouldBe("abc");
     }
+
+    [Fact]
+    public void Baseline_DecodesAsAnOrdinaryPropertyList()
+    {
+        // A class baseline is encoded exactly like an entity delta - the same continuation-flag
+        // property loop, starting at index 0 - which is why no new codec is needed. Confirmed by
+        // reading demostf/parser, which decodes it by calling its own entity-update reader.
+        EntityDecoder decoder = Decoder();
+
+        BitWriter writer = new();
+        writer.Write(1, 1).UBitVar(0).Write(125, 10);       // property 0: m_iHealth = 125
+        writer.Write(1, 1).UBitVar(1).Write(3, 8);          // property 2 (0 + 1 + 1): m_iAmmo
+        writer.Write(0, 1);                                 // end of list
+
+        decoder.SetBaseline(0, writer.Build());
+
+        IReadOnlyList<DecodedProperty> baseline = decoder.Baseline(0).ShouldNotBeNull();
+        baseline.Count.ShouldBe(2);
+        baseline[0].Definition.Property.Name.ShouldBe("m_iHealth");
+        baseline[0].Value.AsInt.ShouldBe(125);
+        baseline[1].Definition.Property.Name.ShouldBe("m_iAmmo");
+        baseline[1].Value.AsInt.ShouldBe(3);
+    }
+
+    [Fact]
+    public void Baseline_ForAnUnknownClass_IsNull()
+    {
+        // Distinguishable from "a class with an empty baseline", which is why this returns null
+        // rather than an empty list: an entity of a class with no baseline must not be seeded
+        // with silence that looks like a decoded answer.
+        Decoder().Baseline(0).ShouldBeNull();
+    }
+
+    [Fact]
+    public void RewritingABaseline_ReplacesTheDecodedOne()
+    {
+        // Baselines are rewritten mid-match through svc_UpdateStringTable, so a decoded copy
+        // cached against a class id has to be dropped when the entry changes. The oracle solves
+        // this the same way - it deletes the memo on write rather than versioning it.
+        EntityDecoder decoder = Decoder();
+
+        BitWriter first = new();
+        first.Write(1, 1).UBitVar(0).Write(125, 10).Write(0, 1);
+        decoder.SetBaseline(0, first.Build());
+        decoder.Baseline(0).ShouldNotBeNull()[0].Value.AsInt.ShouldBe(125);
+
+        BitWriter second = new();
+        second.Write(1, 1).UBitVar(0).Write(42, 10).Write(0, 1);
+        decoder.SetBaseline(0, second.Build());
+
+        // Reading before the rewrite is what populates the memo, so this fails on a cache that
+        // is never invalidated - which is the whole reason the test reads twice.
+        decoder.Baseline(0).ShouldNotBeNull()[0].Value.AsInt.ShouldBe(42);
+    }
+
 }

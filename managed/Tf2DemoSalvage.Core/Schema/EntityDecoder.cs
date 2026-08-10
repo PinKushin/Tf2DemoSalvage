@@ -321,6 +321,59 @@ public sealed class EntityDecoder
         }
     }
 
+    /// <summary>Raw baseline bits per class, exactly as the string table carried them.</summary>
+    private readonly Dictionary<int, byte[]> _rawBaselines = [];
+
+    /// <summary>Decoded baselines, dropped whenever the raw bits are rewritten.</summary>
+    private readonly Dictionary<int, IReadOnlyList<DecodedProperty>> _decodedBaselines = [];
+
+    /// <summary>Records a class's baseline, as carried by the <c>instancebaseline</c> table.</summary>
+    /// <param name="classId">The networked class the baseline belongs to.</param>
+    /// <param name="raw">The entry's user data — an encoded property list.</param>
+    /// <remarks>
+    /// **Stored raw and decoded on demand**, because a demo carries a baseline for every class
+    /// while a match instantiates only some of them, and one of them ran to 7,669 bytes in the
+    /// corpus. The reference implementation makes the same choice for the same reason.
+    ///
+    /// Rewriting a baseline drops its decoded copy. Baselines are updated mid-match through
+    /// <c>svc_UpdateStringTable</c>, so a memo kept against a class id would otherwise serve a
+    /// stale parse for the rest of the demo.
+    /// </remarks>
+    public void SetBaseline(int classId, ReadOnlySpan<byte> raw)
+    {
+        _rawBaselines[classId] = raw.ToArray();
+        _decodedBaselines.Remove(classId);
+
+    }
+
+    /// <summary>A class's baseline properties, or <c>null</c> if it has none.</summary>
+    /// <param name="classId">The networked class.</param>
+    /// <returns>The decoded properties, or <c>null</c>.</returns>
+    /// <remarks>
+    /// Null rather than an empty list, deliberately: "this class has no baseline" and "this
+    /// class's baseline is empty" are different facts, and an entity seeded from silence that
+    /// looks like a decoded answer is the harder of the two to notice.
+    /// </remarks>
+    public IReadOnlyList<DecodedProperty>? Baseline(int classId)
+    {
+        if (_decodedBaselines.TryGetValue(classId, out IReadOnlyList<DecodedProperty>? cached))
+        {
+            return cached;
+        }
+
+        if (!_rawBaselines.TryGetValue(classId, out byte[]? raw))
+        {
+            return null;
+        }
+
+        // A baseline is encoded exactly like an entity delta, so the ordinary property loop
+        // reads it - no separate codec, which is the whole reason this was cheap to add.
+        BitReader reader = new(raw);
+        IReadOnlyList<DecodedProperty> decoded = ReadProperties(ref reader, classId);
+        _decodedBaselines[classId] = decoded;
+        return decoded;
+    }
+
     private IReadOnlyList<FlatProperty> FlattenedFor(int classId)
     {
         // Stryker disable once Block: this is a cache. Removing it recomputes the same list
