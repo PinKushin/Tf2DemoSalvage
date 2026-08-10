@@ -287,6 +287,9 @@ public sealed class SendTableParserTests
     [InlineData(15, 5, SendPropType.DataTable)]    // 2009: no VectorXY, everything shifts down
     [InlineData(15, 4, SendPropType.Array)]
     [InlineData(15, 3, SendPropType.String)]
+    [InlineData(15, 2, SendPropType.Vector)]       // 2009, below the insertion point: unshifted
+    [InlineData(15, 1, SendPropType.Float)]
+    [InlineData(15, 0, SendPropType.Int)]
     public void PropertyType_IsNumberedByEra(ushort protocol, uint wireType, SendPropType expected)
     {
         // Valve's dt_common.h, compared between the orangebox branch (2009) and the tf2 branch:
@@ -299,8 +302,15 @@ public sealed class SendTableParserTests
         // found by reading Valve's own list of era differences - only by decoding a demo old
         // enough to carry it.
         //
-        // Int, Float and Vector are deliberately not in this table: they are unmoved, so they
-        // cannot distinguish a correct mapping from an absent one.
+        // Int, Float and Vector look pointless here because they are unmoved, and they were
+        // deliberately left out on that reasoning. That was the wrong call, and mutation testing
+        // found it: the old-protocol path is `wireType < VectorXY ? wireType : wireType + 1`, and
+        // every shifted case above takes the second branch. Forcing that branch unconditionally
+        // therefore changed nothing any of them could see, and the mutant survived.
+        //
+        // The unmoved types are the only inputs that exercise the guard at all. They distinguish
+        // "below the insertion point, so unshifted" from "shift everything", which is a different
+        // question from the one the shifted rows ask.
         SendTableParser.MapPropertyType(wireType, protocol).ShouldBe(expected);
     }
 
