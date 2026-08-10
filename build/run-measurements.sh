@@ -16,12 +16,11 @@
 # build failure caused by a concurrent job reads as a SURVIVING MUTANT, not as an error. Two
 # locks would silently corrupt both projects' results rather than colliding loudly.
 #
-# WHY THE SCHEDULE IS WHERE IT IS
-# PBJ already owns 07:00 and 19:00 daily, plus 08:15 Sunday. This runs Sunday 21:00 — after all
-# of them, with roughly six hours clear before Monday 07:00. The flock REFUSES rather than
-# queues, so a job landing inside another's window is simply skipped that day; the gap is the
-# whole point. 02:00 is left empty because a job in the DST transition hour is skipped or run
-# twice.
+# WHERE THE SCHEDULE LIVES — not here
+# `ssh mutation-box cat '~/measurement-schedule.md'` is the slot map, and `crontab -l` on the box
+# outranks it. Copying either into this comment produces a third version that goes stale. The
+# booked slots for this repo as of 2026-08-10 are 09:00 daily (core), 09:20 daily (cli) and 20:00
+# Sunday (corpus); the PokemonBattleJournal agent owns all crontab edits on both boxes.
 set -euo pipefail
 
 export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
@@ -80,7 +79,17 @@ dotnet tool restore 9>&-
 
 # `9>&-` on every long command: an inherited fd 9 keeps the lock held by any surviving child,
 # and .NET leaves build servers alive on purpose.
-dotnet stryker 2>&1 9>&- | tee "${OUT}/stryker.log" || true
+#
+# The exit code is CAPTURED, not discarded. `| tee log || true` turns a threshold violation and a
+# refusal-to-start alike into exit 0, so the cron log reads as success either way — house rule 5
+# on the box, and not hypothetical: the 2026-08-10 core calibration exited non-zero on
+# "Final mutation score is below threshold break. Crashing..." and this script reported success.
+# The summary and report copy still have to run, hence the capture rather than letting `set -e`
+# abort here.
+set +e
+dotnet stryker 2>&1 9>&- | tee "${OUT}/stryker.log"
+STATUS=${PIPESTATUS[0]}
+set -e
 
 # The score line and the survivors are what a reader wants; the full log stays in the run dir.
 grep -E "mutation score|Killed:|Survived:|Timeout:|No Coverage" "${OUT}/stryker.log" \
@@ -98,4 +107,5 @@ ls -1dt "${HOME}/measurements/"*/ 2>/dev/null | tail -n +31 | while read -r old;
   rm -rf "$old"
 done
 
-echo "=== done — $(date -Is), results in ${OUT}"
+echo "=== done — $(date -Is), results in ${OUT}, stryker exit ${STATUS}"
+exit "$STATUS"

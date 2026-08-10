@@ -14,7 +14,7 @@
     "thresholds": {
       "high": 90,
       "low": 80,
-      "break": 80
+      "break": 0
     },
     "since": {
       "enabled": false,

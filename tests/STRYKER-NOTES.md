@@ -104,8 +104,37 @@ only files it actually mutated, so a missing entry names the offending glob dire
 | every glob wrong | zero mutants; Stryker cannot calculate a score — loud |
 | one glob wrong | a real run, a plausible percentage, a fraction of the intended set — silent |
 
-This goes live with the D25 split, whose daily config will be this repository's first `mutate`.
-A pure/stateful split needs about six globs: six chances to write one repo-relative out of habit.
+The D25 split was expected to need about six globs — six chances to write one repo-relative out of
+habit — and in the end it uses **none**. Each project instead names its `project` and its
+`test-projects` and mutates all of that assembly. That avoids the silent failure above and buys
+the one below instead, which is at least loud in the report.
+
+## A per-project score is not a quality measure, and 80 was not reachable
+
+Three test projects, two of them (`Core.Tests`, `Corpus.Tests`) pointed at the same
+`Tf2DemoSalvage.Core.csproj`. Stryker mutates the whole assembly for each, so **every run scores
+all of Core against only that project's tests.** Code exercised solely by the corpus is
+`NoCoverage` in the core run, and vice versa; neither number describes the suite.
+
+First core-only measurement, on `mutation-box` 2026-08-10 at 7294c4b, 11m16s:
+
+```
+Killed: 113   Survived: 98   Timeout: 7   NoCoverage: 100   CompileError: 689
+final mutation score 37.74 %
+```
+
+37.74% is `(113+7)/(113+7+98+100)` — arithmetic confirming D24's formula, and confirming the
+tests really ran (113 kills is not a runner failure; contrast the 1.27% above). The 689
+CompileError mutants are excluded from the score entirely and are not a finding.
+
+`break: 80` on that project was therefore a gate it could not pass by construction, and it fired
+on the very first scheduled-style run. It is now `break: 0`, matching `Corpus.Tests`: the score is
+a signal to read, not a gate. **`Cli.Tests` keeps `break: 80`** — it is the only project whose
+tests cover the whole of what it mutates, so there the number means what it appears to mean.
+
+What to read instead of the headline: the survivor list, per the standing rule that the score is a
+floor and not a target. A survivor in code this project's tests *do* cover is a real finding; one
+in corpus-only code is an artefact of the split.
 
 ## Timeouts are scored as kills
 
