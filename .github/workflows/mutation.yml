@@ -117,7 +117,10 @@ jobs:
     # and pull 305 MB each.
     needs: cli
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    # Measured: a hosted 4-core runner is roughly 3x slower than the owner's machine on this
+    # workload - the pre-split combined project took 1h29m locally and was still running at 4h36m
+    # here. GitHub's hard ceiling for a job is 6 hours, so this is near the practical maximum.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v7
         with:
@@ -149,7 +152,26 @@ jobs:
 
       - name: Stryker (Corpus)
         working-directory: tests/Tf2DemoSalvage.Corpus.Tests
-        run: dotnet stryker ${{ inputs.since && '--since:main' || '' }}
+        run: |
+          # Scheduled runs mutate only what changed in the last week. A full run is hours and
+          # the weekly cadence makes "everything, again" mostly wasted work.
+          #
+          # NOT `--since:main`. This workflow runs *on* main, so that would diff main against
+          # itself, find nothing, mutate nothing, and report a clean run - the same silent
+          # success as an upload that finds no files. The comparison point has to be a commit
+          # that is actually behind HEAD, which is why checkout uses fetch-depth: 0.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            since=$(git rev-list -1 --before='7 days ago' HEAD)
+            if [ -z "$since" ]; then
+              echo "no commit older than 7 days; running in full"
+              dotnet stryker
+            else
+              echo "mutating changes since $since ($(git log -1 --format=%cs "$since"))"
+              dotnet stryker --since:"$since"
+            fi
+          else
+            dotnet stryker ${{ inputs.since && '--since:main' || '' }}
+          fi
 
       - name: Upload report
         if: always()
