@@ -23,6 +23,10 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <param name="OriginY">Where it plays, Y.</param>
 /// <param name="OriginZ">Where it plays, Z.</param>
 /// <param name="SpeakerEntity">Speaker re-broadcasting it, or -1.</param>
+/// <param name="SpecialDsp">DSP preset, above protocol 21.</param>
+/// <param name="Sent">
+/// Which fields this sound actually transmitted, and which encoding forms it chose.
+/// </param>
 public readonly record struct DecodedSound(
     int EntityIndex,
     int SoundNumber,
@@ -38,7 +42,84 @@ public readonly record struct DecodedSound(
     float OriginX,
     float OriginY,
     float OriginZ,
-    int SpeakerEntity);
+    int SpeakerEntity,
+    int SpecialDsp = 0,
+    SoundFields Sent = SoundFields.None);
+
+/// <summary>
+/// Which fields a sound put on the wire, and which of the wire's forms it used.
+/// </summary>
+/// <remarks>
+/// **Not decoration: without this a sound cannot be re-encoded to the bits it came from.** Every
+/// field is optional and inherits the previous sound's value when absent, so a decoder that keeps
+/// only the values cannot tell "sent, and happened to be identical" from "not sent". Those produce
+/// different bit streams.
+///
+/// It is not a theoretical distinction. Re-encoding the corpus by the obvious rule — write the
+/// field when it differs from the previous sound — came out 12 bits short per occurrence on
+/// hundreds of bodies, always a multiple of an origin's 12-bit width. The engine compares
+/// positions at full precision and this decoder sees them after quantisation, so two sounds from
+/// one moving entity land in the same grid cell and the field looks redundant when the sender did
+/// not think so.
+///
+/// The three form flags are the same problem in a different dress: an entity index below 32 fits
+/// the narrow form but nothing forces the sender to use it, and a sequence number one higher than
+/// the last can be sent either as the increment form or in full.
+/// </remarks>
+[System.Flags]
+public enum SoundFields
+{
+    /// <summary>Nothing transmitted; every value inherited.</summary>
+    None = 0,
+
+    /// <summary>An entity index followed.</summary>
+    Entity = 1 << 0,
+
+    /// <summary>That index used the five-bit form rather than the full one.</summary>
+    EntityNarrow = 1 << 1,
+
+    /// <summary>A sound index followed.</summary>
+    SoundNumber = 1 << 2,
+
+    /// <summary>A flags value followed.</summary>
+    Flags = 1 << 3,
+
+    /// <summary>A channel followed.</summary>
+    Channel = 1 << 4,
+
+    /// <summary>The sequence number was sent as "one higher than the last".</summary>
+    SequenceIncrement = 1 << 5,
+
+    /// <summary>The sequence number was sent in full.</summary>
+    SequenceExplicit = 1 << 6,
+
+    /// <summary>A volume followed.</summary>
+    Volume = 1 << 7,
+
+    /// <summary>A sound level followed.</summary>
+    SoundLevel = 1 << 8,
+
+    /// <summary>A pitch followed.</summary>
+    Pitch = 1 << 9,
+
+    /// <summary>A DSP preset followed.</summary>
+    SpecialDsp = 1 << 10,
+
+    /// <summary>A delay followed.</summary>
+    Delay = 1 << 11,
+
+    /// <summary>An X coordinate followed.</summary>
+    OriginX = 1 << 12,
+
+    /// <summary>A Y coordinate followed.</summary>
+    OriginY = 1 << 13,
+
+    /// <summary>A Z coordinate followed.</summary>
+    OriginZ = 1 << 14,
+
+    /// <summary>A speaker entity followed.</summary>
+    Speaker = 1 << 15,
+}
 
 /// <summary>
 /// Decodes a <c>svc_Sounds</c> body into the sound events it describes.
@@ -69,38 +150,52 @@ public readonly record struct DecodedSound(
 /// </remarks>
 public static class SoundDecoder
 {
-    private const int EntityShortBits = 5;
-    private const int MaxEdictBits = 11;
+    // Internal rather than private because SoundEncoder writes the same fields back, and a
+    // second copy of a width is a second chance for the two halves to disagree - which is
+    // precisely what the round trip exists to detect, so it must not be able to hide here.
+    internal const int EntityShortBits = 5;
+    internal const int MaxEdictBits = 11;
     private const int SoundIndexBitsModern = 14;
     private const int SoundIndexBitsLegacy = 13;
     private const int FlagBitsModern = 11;
     private const int FlagBitsLegacy = 9;
-    private const int ChannelBits = 3;
-    private const int SequenceNumberBits = 10;
-    private const int VolumeBits = 7;
-    private const int SoundLevelBits = 9;
-    private const int PitchBits = 8;
-    private const int SpecialDspBits = 8;
-    private const int DelayBits = 13;
-    private const int SpeakerEntityBits = MaxEdictBits + 1;
+    internal const int ChannelBits = 3;
+    internal const int SequenceNumberBits = 10;
+    internal const int VolumeBits = 7;
+    internal const int SoundLevelBits = 9;
+    internal const int PitchBits = 8;
+    internal const int SpecialDspBits = 8;
+    internal const int DelayBits = 13;
+    internal const int SpeakerEntityBits = MaxEdictBits + 1;
+
+    /// <summary>Volume is sent as a seventh of a 127-step scale.</summary>
+    internal const float VolumeScale = 127f;
 
     /// <summary>Origin components are sent scaled down by eight, in two fewer bits than a coord.</summary>
-    private const int OriginBits = 14 - 2;
-    private const float OriginScale = 8f;
+    internal const int OriginBits = 14 - 2;
+    internal const float OriginScale = 8f;
 
     /// <summary>Protocol boundaries, from <c>soundinfo.h</c>'s own comments.</summary>
     private const int SoundIndexWidthProtocol = 22;
     private const int FlagWidthProtocol = 18;
-    private const int SpecialDspProtocol = 21;
+    internal const int SpecialDspProtocol = 21;
+
+    /// <summary>Width of a sound index at this protocol.</summary>
+    internal static int SoundNumberBits(int protocol) =>
+        protocol > SoundIndexWidthProtocol ? SoundIndexBitsModern : SoundIndexBitsLegacy;
+
+    /// <summary>Width of the flags field at this protocol.</summary>
+    internal static int FlagsBits(int protocol) =>
+        protocol > FlagWidthProtocol ? FlagBitsModern : FlagBitsLegacy;
 
     /// <summary><c>SND_STOP</c>: a stop carries none of the fields that describe playback.</summary>
-    private const int StopFlag = 1 << 2;
+    internal const int StopFlag = 1 << 2;
 
     /// <summary>Bias the engine applies so precision is lost only on large skip-aheads.</summary>
-    private const float DelayOffset = 0.100f;
+    internal const float DelayOffset = 0.100f;
 
     /// <summary>Engine defaults the first sound in a message deltas against.</summary>
-    private static DecodedSound Default => new(
+    internal static DecodedSound Default => new(
         EntityIndex: 0,
         SoundNumber: 0,
         Flags: 0,
@@ -155,23 +250,26 @@ public static class SoundDecoder
     {
         // The entity index is the one field that is not a plain delta: a set bit means a new
         // value follows, and a second bit chooses between a short five-bit form and a full one.
+        SoundFields sent = SoundFields.None;
+
         int entity = previous.EntityIndex;
         if (reader.ReadBit())
         {
-            entity = reader.ReadBit()
-                ? (int)reader.ReadUInt32(EntityShortBits)
-                : (int)reader.ReadUInt32(MaxEdictBits);
+            sent |= SoundFields.Entity;
+            bool narrow = reader.ReadBit();
+            sent |= narrow ? SoundFields.EntityNarrow : SoundFields.None;
+            entity = (int)reader.ReadUInt32(narrow ? EntityShortBits : MaxEdictBits);
         }
 
         int soundNumber = DeltaUInt(
-            ref reader, previous.SoundNumber,
-            protocol > SoundIndexWidthProtocol ? SoundIndexBitsModern : SoundIndexBitsLegacy);
+            ref reader, previous.SoundNumber, SoundNumberBits(protocol),
+            ref sent, SoundFields.SoundNumber);
 
         int flags = DeltaUInt(
-            ref reader, previous.Flags,
-            protocol > FlagWidthProtocol ? FlagBitsModern : FlagBitsLegacy);
+            ref reader, previous.Flags, FlagsBits(protocol), ref sent, SoundFields.Flags);
 
-        int channel = DeltaUInt(ref reader, previous.Channel, ChannelBits);
+        int channel = DeltaUInt(
+            ref reader, previous.Channel, ChannelBits, ref sent, SoundFields.Channel);
         bool ambient = reader.ReadBit();
         bool sentence = reader.ReadBit();
 
@@ -187,6 +285,7 @@ public static class SoundDecoder
                 Channel = channel,
                 IsAmbient = ambient,
                 IsSentence = sentence,
+                Sent = sent,
             };
         }
 
@@ -195,31 +294,44 @@ public static class SoundDecoder
         int sequence = previous.SequenceNumber;
         if (!reader.ReadBit())
         {
-            sequence = reader.ReadBit()
-                ? previous.SequenceNumber + 1
-                : (int)reader.ReadUInt32(SequenceNumberBits);
+            if (reader.ReadBit())
+            {
+                sent |= SoundFields.SequenceIncrement;
+                sequence = previous.SequenceNumber + 1;
+            }
+            else
+            {
+                sent |= SoundFields.SequenceExplicit;
+                sequence = (int)reader.ReadUInt32(SequenceNumberBits);
+            }
         }
 
-        float volume = reader.ReadBit()
-            ? reader.ReadUInt32(VolumeBits) / 127f
-            : previous.Volume;
+        float volume = previous.Volume;
+        if (reader.ReadBit())
+        {
+            sent |= SoundFields.Volume;
+            volume = reader.ReadUInt32(VolumeBits) / VolumeScale;
+        }
 
-        int soundLevel = reader.ReadBit()
-            ? (int)reader.ReadUInt32(SoundLevelBits)
-            : previous.SoundLevel;
+        int soundLevel = previous.SoundLevel;
+        if (reader.ReadBit())
+        {
+            sent |= SoundFields.SoundLevel;
+            soundLevel = (int)reader.ReadUInt32(SoundLevelBits);
+        }
 
-        int pitch = DeltaUInt(ref reader, previous.Pitch, PitchBits);
+        int pitch = DeltaUInt(ref reader, previous.Pitch, PitchBits, ref sent, SoundFields.Pitch);
 
         // Absent below protocol 22, and reading it there would consume eight bits belonging to
         // the delay flag and origin that follow.
         int specialDsp = protocol > SpecialDspProtocol
-            ? DeltaUInt(ref reader, 0, SpecialDspBits)
+            ? DeltaUInt(ref reader, 0, SpecialDspBits, ref sent, SoundFields.SpecialDsp)
             : 0;
-        _ = specialDsp;
 
         float delay = previous.DelaySeconds;
         if (reader.ReadBit())
         {
+            sent |= SoundFields.Delay;
             delay = ReadSigned(ref reader, DelayBits) / 1000f;
             if (delay < 0)
             {
@@ -229,25 +341,46 @@ public static class SoundDecoder
             delay -= DelayOffset;
         }
 
-        float x = DeltaScaled(ref reader, previous.OriginX);
-        float y = DeltaScaled(ref reader, previous.OriginY);
-        float z = DeltaScaled(ref reader, previous.OriginZ);
+        float x = DeltaScaled(ref reader, previous.OriginX, ref sent, SoundFields.OriginX);
+        float y = DeltaScaled(ref reader, previous.OriginY, ref sent, SoundFields.OriginY);
+        float z = DeltaScaled(ref reader, previous.OriginZ, ref sent, SoundFields.OriginZ);
 
-        int speaker = reader.ReadBit()
-            ? ReadSigned(ref reader, SpeakerEntityBits)
-            : previous.SpeakerEntity;
+        int speaker = previous.SpeakerEntity;
+        if (reader.ReadBit())
+        {
+            sent |= SoundFields.Speaker;
+            speaker = ReadSigned(ref reader, SpeakerEntityBits);
+        }
 
         return new DecodedSound(
             entity, soundNumber, flags, channel, ambient, sentence, sequence,
-            volume, soundLevel, pitch, delay, x, y, z, speaker);
+            volume, soundLevel, pitch, delay, x, y, z, speaker, specialDsp, sent);
     }
 
     /// <summary>A flag bit, then a value if it is set, otherwise the previous sound's.</summary>
-    private static int DeltaUInt(ref BitReader reader, int previous, int bits) =>
-        reader.ReadBit() ? (int)reader.ReadUInt32(bits) : previous;
+    private static int DeltaUInt(
+        ref BitReader reader, int previous, int bits, ref SoundFields sent, SoundFields field)
+    {
+        if (!reader.ReadBit())
+        {
+            return previous;
+        }
 
-    private static float DeltaScaled(ref BitReader reader, float previous) =>
-        reader.ReadBit() ? OriginScale * ReadSigned(ref reader, OriginBits) : previous;
+        sent |= field;
+        return (int)reader.ReadUInt32(bits);
+    }
+
+    private static float DeltaScaled(
+        ref BitReader reader, float previous, ref SoundFields sent, SoundFields field)
+    {
+        if (!reader.ReadBit())
+        {
+            return previous;
+        }
+
+        sent |= field;
+        return OriginScale * ReadSigned(ref reader, OriginBits);
+    }
 
     /// <summary>Reads a two's-complement value of the given width, sign-extended.</summary>
     /// <remarks>
