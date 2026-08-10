@@ -22,23 +22,23 @@ namespace Tf2DemoSalvage.Core.Net;
 public static class NetMessageReader
 {
     /// <summary>Protocol above which <c>svc_Prefetch</c> carries a 14-bit index.</summary>
-    private const int PrefetchWidthProtocol = 22;
+    internal const int PrefetchWidthProtocol = 22;
 
     /// <summary>Width of that index, before and after.</summary>
-    private const int PrefetchBitsModern = 14;
-    private const int PrefetchBitsLegacy = 13;
+    internal const int PrefetchBitsModern = 14;
+    internal const int PrefetchBitsLegacy = 13;
 
     /// <summary>Width of an unreliable <c>svc_Sounds</c> payload length.</summary>
-    private const int SoundsLengthBits = 16;
+    internal const int SoundsLengthBits = 16;
 
     /// <summary>Width of a reliable one, which also omits the count byte entirely.</summary>
-    private const int SoundsReliableLengthBits = 8;
+    internal const int SoundsReliableLengthBits = 8;
 
     /// <summary>Protocol above which <c>svc_TempEntities</c> uses a varint length.</summary>
-    private const int TempEntitiesVarIntProtocol = 23;
+    internal const int TempEntitiesVarIntProtocol = 23;
 
     /// <summary>Its fixed length width before that.</summary>
-    private const int TempEntitiesLegacyLengthBits = 17;
+    internal const int TempEntitiesLegacyLengthBits = 17;
 
     /// <summary>
     /// Width of the length field on <c>svc_UserMessage</c> and <c>svc_EntityMessage</c>.
@@ -64,7 +64,7 @@ public static class NetMessageReader
     private const int ModelIndexBits = 13;
 
     /// <summary>Width of <c>svc_SetView</c>'s entity index.</summary>
-    private const int SetViewBits = 11;
+    internal const int SetViewBits = 11;
 
     /// <summary>Quality value at which <c>svc_VoiceInit</c> also carries a sample rate.</summary>
     private const int VoiceVariableRateQuality = 255;
@@ -104,6 +104,7 @@ public static class NetMessageReader
 
         BitReader reader = new(payload);
         List<INetMessage> messages = new();
+        List<int> messageStarts = new();
         int lastGoodBit = 0;
 
         // Fewer bits left than a type field means trailing padding: packets are padded to a
@@ -124,7 +125,7 @@ public static class NetMessageReader
 
                 if (!Enum.IsDefined((NetMessageType)rawType))
                 {
-                    return Stopped(messages, lastGoodBit, null, string.Create(
+                    return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                         CultureInfo.InvariantCulture,
                         $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, " +
                         $"16, 20 and 22 are unused at network protocol 24 - an id in that set " +
@@ -146,7 +147,7 @@ public static class NetMessageReader
                     case NetMessageType.NetTick:
                         if (reader.BitsRemaining < NetTickBodyBits)
                         {
-                            return Stopped(messages, lastGoodBit, null, string.Create(
+                            return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                                 CultureInfo.InvariantCulture,
                                 $"Packet is truncated: {type} at bit {typeStartBit} needs " +
                                 $"{NetTickBodyBits} body bits but only {reader.BitsRemaining} remain."));
@@ -326,7 +327,7 @@ public static class NetMessageReader
                         int menuBytes = (int)reader.ReadUInt32(16);
                         if (!TryReadByteBody(ref reader, menuBytes, out string? menuProblem))
                         {
-                            return Stopped(messages, lastGoodBit, type, menuProblem!);
+                            return Stopped(messages, messageStarts, lastGoodBit, type, menuProblem!);
                         }
 
                         break;
@@ -337,7 +338,7 @@ public static class NetMessageReader
                         int keyValueBytes = (int)reader.ReadUInt32(32);
                         if (!TryReadByteBody(ref reader, keyValueBytes, out string? keyProblem))
                         {
-                            return Stopped(messages, lastGoodBit, type, keyProblem!);
+                            return Stopped(messages, messageStarts, lastGoodBit, type, keyProblem!);
                         }
 
                         break;
@@ -477,7 +478,7 @@ public static class NetMessageReader
                     }
 
                     default:
-                        return Stopped(messages, lastGoodBit, type, string.Create(
+                        return Stopped(messages, messageStarts, lastGoodBit, type, string.Create(
                             CultureInfo.InvariantCulture,
                             $"{type} at bit {typeStartBit} is not decoded yet. Messages carry no " +
                             $"length prefix, so the rest of this packet cannot be reached until " +
@@ -492,17 +493,26 @@ public static class NetMessageReader
                     messages.Add(new SkippedMessage(type, reader.BitsRead - bodyStartBit));
                 }
 
+                // Exactly one message per iteration, which is what keeps this list parallel to
+                // the message list. The check above is what guarantees it: a case that adds
+                // nothing gets a SkippedMessage instead.
+                messageStarts.Add(typeStartBit);
                 lastGoodBit = reader.BitsRead;
             }
         }
         catch (EndOfStreamException exception)
         {
-            return Stopped(messages, lastGoodBit, null, string.Create(
+            return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                 CultureInfo.InvariantCulture,
                 $"A message body ran past the end of the packet: {exception.Message}"));
         }
 
-        return new NetMessageReadResult { Messages = messages, BitsConsumed = lastGoodBit };
+        return new NetMessageReadResult
+        {
+            Messages = messages,
+            MessageStartBits = messageStarts,
+            BitsConsumed = lastGoodBit,
+        };
     }
 
     /// <summary>Reads a 16-bit fixed-point angle as degrees.</summary>
@@ -635,12 +645,14 @@ public static class NetMessageReader
 
     private static NetMessageReadResult Stopped(
         List<INetMessage> messages,
+        List<int> messageStarts,
         int bitsConsumed,
         NetMessageType? stoppedAt,
         string reason) =>
         new()
         {
             Messages = messages,
+            MessageStartBits = messageStarts,
             BitsConsumed = bitsConsumed,
             StoppedAt = stoppedAt,
             StopReason = reason,

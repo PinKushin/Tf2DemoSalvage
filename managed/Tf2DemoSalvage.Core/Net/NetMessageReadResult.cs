@@ -17,6 +17,20 @@ public sealed record NetMessageReadResult
     public required IReadOnlyList<INetMessage> Messages { get; init; }
 
     /// <summary>
+    /// Bit offset of each message's type field, parallel to <see cref="Messages"/>.
+    /// </summary>
+    /// <remarks>
+    /// Reported because the alternative is a second implementation of the framing, and a second
+    /// implementation agrees with the first about a message it read wrongly. The re-encoding tests
+    /// need to know where a message started in order to compare its bits, and deriving that from
+    /// the message's own fields would be exactly that second implementation.
+    ///
+    /// A message's extent is the next entry minus this one, and the last message runs to
+    /// <see cref="BitsConsumed"/>.
+    /// </remarks>
+    public required IReadOnlyList<int> MessageStartBits { get; init; }
+
+    /// <summary>
     /// Number of bits successfully consumed. Excludes the type field of whatever stopped the
     /// walk, so it marks the last known-good position.
     /// </summary>

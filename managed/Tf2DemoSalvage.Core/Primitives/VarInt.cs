@@ -42,6 +42,29 @@ public static class VarInt
     /// </summary>
     internal const int MaxGroups64 = 10;
 
+    /// <summary>Writes an unsigned 32-bit varint.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="value">The value.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Seven payload bits per byte, low group first, with the high bit set on every byte except
+    /// the last. The encoding is canonical here — the fewest groups that hold the value — which
+    /// matters for a round trip rather than for correctness: a decoder accepts a padded encoding,
+    /// so writing one back would decode to the right number and produce different bytes.
+    /// </remarks>
+    public static void WriteUInt32(BitWriter writer, uint value)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+
+        while (value >= ContinuationFlag)
+        {
+            writer.Write((value & PayloadMask) | ContinuationFlag, 8);
+            value >>= GroupBits;
+        }
+
+        writer.Write(value, 8);
+    }
+
     /// <summary>Reads an unsigned 32-bit varint.</summary>
     /// <param name="reader">Reader positioned at the first byte of the encoding.</param>
     /// <returns>The decoded value.</returns>
