@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Fetched explicitly below so the objects can be cached. Letting checkout pull LFS
           # would spend the account's 1 GiB/month LFS bandwidth on every single run.
@@ -40,7 +40,7 @@ jobs:
         run: git lfs ls-files --long | cut -d' ' -f1 | sort > .lfs-assets-id
 
       - name: Restore LFS cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .git/lfs
           key: lfs-${{ hashFiles('.lfs-assets-id') }}
@@ -55,7 +55,7 @@ jobs:
           echo "smallest demo: $smallest bytes"
           test "$smallest" -gt 4096
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-report-cli
           path: tests/Tf2DemoSalvage.Cli.Tests/StrykerOutput/*/reports/
@@ -81,7 +81,7 @@ jobs:
     # being killed at GitHub's 6 hour ceiling with no report.
     timeout-minutes: 300
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: false
           fetch-depth: 0
@@ -90,7 +90,7 @@ jobs:
         run: git lfs ls-files --long | cut -d' ' -f1 | sort > .lfs-assets-id
 
       - name: Restore LFS cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .git/lfs
           key: lfs-${{ hashFiles('.lfs-assets-id') }}
@@ -103,7 +103,7 @@ jobs:
           echo "smallest demo: $smallest bytes"
           test "$smallest" -gt 4096
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -115,7 +115,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-report-core
           path: tests/Tf2DemoSalvage.Core.Tests/StrykerOutput/*/reports/
