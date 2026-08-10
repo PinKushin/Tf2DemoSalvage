@@ -228,3 +228,39 @@ exact protocol pair with a date attached.
   property numbering, so it cannot read a protocol-15 demo. It is a reference for modern demos,
   not for the era axis.
 - The corpus itself, which has now falsified more assumptions than any document.
+
+
+---
+
+## Acquisition leads, and what each would actually settle
+
+Searched 2026-08-10. Recorded so the same ground is not re-covered.
+
+| Lead | Would settle | Status |
+|---|---|---|
+| A demo from either side of **October 2011** | the message-type width **and** the `SendPropType` renumbering, together | **the priority.** Nothing found yet |
+| `teamfortress.tv` thread *"2007 Team Fortress 2 (aka Orange Box) Client/Server"* (`/21291/`) | the **protocol 14** compression flag | found; see caveats below |
+| GotFrag archives | old competitive demos | pages are on the Wayback Machine; binary downloads almost never are |
+
+### The Orange Box client lead
+
+A community redistribution of the 2007 launch build, mirrored from a Facepunch thread as
+`OBTF2Client.zip` via torrent and Mediafire. Launch-era TF2 is pre-protocol-15, so a demo
+recorded on it would exercise `PROTOCOL_VERSION_14` — the string table compression flag, which is
+implemented here and has never run against real data.
+
+**Two caveats, stated rather than buried.** It is an unofficial redistribution of the game — a
+commenter in the thread asks outright whether running it risks a VAC ban — which is a different
+provenance from the archive.org build the 2009 demo came from. And the links are eleven years old,
+so they may simply be dead.
+
+### Searching `teamfortress.tv`
+
+Its search **does not do phrase matching** — quoted strings are OR-ed across terms, so
+`"engine version is"` returns map-discussion threads. That makes hunting the engine's exact error
+message (`demo network protocol N outdated, engine version is M`) impractical through the site
+search, even though that string would carry an exact protocol pair and a date.
+
+Better angle for a future attempt: the site orders threads by date, and TF2 moved to Source
+Multiplayer in **October 2011**. Threads from that fortnight in `TF2 General Discussion` are where
+a break would have been reported, and can be read directly rather than searched for.
