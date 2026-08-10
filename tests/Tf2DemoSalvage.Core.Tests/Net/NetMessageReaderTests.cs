@@ -261,4 +261,54 @@ public sealed class NetMessageReaderTests
         result.Messages.OfType<ChatMessage>().ShouldHaveSingleItem();
     }
 
+
+    [Fact]
+    public void UnreliableSounds_ReportCountAndLength()
+    {
+        // svc_Sounds was the single most common skipped message in the corpus - 231 in one 2009
+        // demo. Reported by header now, not decoded: the reference implementation keeps the body
+        // opaque too, and four of proto_version.h's boundaries are sound-related with no demo
+        // between protocols 15 and 24 to exercise them.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.Sounds)
+            .Write(0, 1)                       // not reliable
+            .Write(3, 8)                       // three sounds
+            .Write(24, 16)                     // 24 bits of body
+            .Write(0xABCDEF, 24);
+        writer.NetTick(77, 0, 0);
+
+        NetMessageReadResult result = NetMessageReader.Read(writer.Build());
+
+        SoundsMessage sounds = result.Messages.OfType<SoundsMessage>().ShouldHaveSingleItem();
+        sounds.IsReliable.ShouldBeFalse();
+        sounds.Count.ShouldBe(3);
+        sounds.BodyBits.ShouldBe(24);
+
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(77);
+    }
+
+    [Fact]
+    public void ReliableSounds_ImplyOneSoundAndAShorterLengthField()
+    {
+        // The trap in this message: the reliable flag changes *two* fields at once. A reliable
+        // message sends no count and an eight-bit length; an unreliable one sends a count byte
+        // and a sixteen-bit length. Reading one shape for the other desynchronises the packet,
+        // which is why the tick behind it is asserted rather than just the fields.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.Sounds)
+            .Write(1, 1)                       // reliable
+            .Write(16, 8)                      // eight-bit length, no count byte
+            .Write(0xBEEF, 16);
+        writer.NetTick(88, 0, 0);
+
+        NetMessageReadResult result = NetMessageReader.Read(writer.Build());
+
+        SoundsMessage sounds = result.Messages.OfType<SoundsMessage>().ShouldHaveSingleItem();
+        sounds.IsReliable.ShouldBeTrue();
+        sounds.Count.ShouldBe(1);
+        sounds.BodyBits.ShouldBe(16);
+
+        result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(88);
+    }
+
 }

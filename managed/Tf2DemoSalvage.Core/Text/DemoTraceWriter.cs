@@ -284,6 +284,11 @@ public static class DemoTraceWriter
         ClassInfoMessage classes => string.Create(
             CultureInfo.InvariantCulture, $"svc_classinfo count {classes.Classes.Count}"),
 
+        SoundsMessage sounds => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_sounds {(sounds.IsReliable ? "reliable" : "unreliable")} " +
+            $"count {sounds.Count} bits {sounds.BodyBits}"),
+
         // Named where the id is known, numbered where it is not. A user message carries no name
         // on the wire, and an unnamed one is the single most common message in some demos.
         UserMessage user => string.Create(

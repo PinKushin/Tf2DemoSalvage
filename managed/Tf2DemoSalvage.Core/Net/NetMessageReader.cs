@@ -259,15 +259,19 @@ public static class NetMessageReader
                             // unreliable one sends a count byte and a sixteen-bit length. Reading one
                             // shape for the other consumes the wrong number of bits.
                             bool reliable = reader.ReadBit();
-                            if (!reliable)
-                            {
-                                _ = reader.ReadUInt32(8);
-                            }
+
+                            // Reliable implies exactly one sound and sends no count byte.
+                            int soundCount = reliable ? 1 : (int)reader.ReadUInt32(8);
 
                             int soundBits = (int)reader.ReadUInt32(reliable
                                 ? SoundsReliableLengthBits
                                 : SoundsLengthBits);
                             _ = NetBitReading.CopyBits(ref reader, soundBits);
+
+                            // Reported rather than dropped. The body stays opaque - the
+                            // reference implementation keeps it opaque too - but 231 anonymous
+                            // skipped messages in one demo told a reader nothing at all.
+                            messages.Add(new SoundsMessage(reliable, soundCount, soundBits));
                             break;
                         }
 
