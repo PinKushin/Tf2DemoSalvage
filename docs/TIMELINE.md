@@ -135,6 +135,41 @@ Worth recording, because the project's central bet is that these are rare.
 acquisition for this document. Such a demo is both the answer *and* the regression test, which is
 why it beats any amount of reading.
 
+### Engine branches date the protocol ranges — and pin both open boundaries to October 2011
+
+TF2 did not stay on one engine. From the Valve Developer Community's own page: it *"originally
+runs on Source 2007 ... later upgraded to Source 2009 in 2009, then **Source Multiplayer in
+October 2011**, Source 2013 Multiplayer in 2013 (during SteamPipe), and finally has its own
+branch since 2022."*
+
+Combined with the protocol ranges each branch used:
+
+| Engine branch | Protocols | TF2 dates |
+|---|---|---|
+| Source 2007 | ≤ 14 | Oct 2007 – 2009 |
+| Source 2009 | **15–16** | 2009 – **Oct 2011** |
+| Source Multiplayer | **18–23** | **Oct 2011** – 2013 |
+| Source 2013 Multiplayer | 24 | 2013 – 2022 |
+| TF2 branch | 24 | 2022 – |
+
+**Both open boundaries collapse onto the October 2011 engine change.** The reasoning:
+
+- the 2009 demo is protocol 15, Source 2009, and has **neither** the six-bit message type nor
+  `DPT_VectorXY` — measured;
+- modern demos are protocol 24, Source 2013, and have **both** — measured;
+- `DPT_VectorXY` entered the engine line with Left 4 Dead in late 2008, but **Source 2009 never
+  received it** — which the 2009 demo proves directly;
+- TF2 inherited the L4D-era engine work when it moved to **Source Multiplayer in October 2011**,
+  the jump from protocol 16 to 18.
+
+So "somewhere in 16–23" becomes **at the 16 → 18 transition, October 2011**. Still bounded rather
+than measured, but the window went from eight protocol versions to one engine change.
+
+**What this changes about acquisition.** A demo from *before* October 2011 should be protocol 15
+or 16 and use the old numbering; one from *after* should be 18+ and use the new. Either confirms
+the boundary — so the target is no longer "anything from 2010–2013" but specifically **a demo
+from either side of October 2011**, and the two together would settle it outright.
+
 ### One deduction that narrows it without a demo
 
 `PROTOCOL_VERSION_REPLAY = 16`, and Replay shipped in mid-2012. So **protocol 15 spans June 2009
@@ -161,9 +196,25 @@ run, so it returns an empty result rather than an error. A search that cannot wo
 like a search that found nothing — the same false-negative shape as the VsTest runner scoring
 1.27% and a non-matching Stryker glob.
 
-Valve's own update pages *have* mentioned protocol changes at least once — the 119th update
-retrospective states demos recorded with protocol 12 stayed playable under 13 — so
-`teamfortress.com` post archives and SteamDB patch notes remain unexhausted. The wiki does not.
+**Steam's own news archive does not record them either.** Checked properly: 3,920 news items back
+to June 2008, 4.9 million characters of patch notes, pulled from Steam's public news API — which
+is what SteamDB displays. Controls confirm the corpus is searchable (`Fixed` in 1,331 items,
+`demo` in 344, `network` in 77). **`protocol` appears in zero.**
+
+What the patch notes *do* record is the symptom, never the cause:
+
+| Date | Note |
+|---|---|
+| 2010-07-20 | "Fixed old demos with different **data tables** thinking the SourceTV player entity was burning" |
+| 2013-02-28 | "Fixed a problem that was preventing some older demos from being played" |
+| 2013-07-12 | same wording again |
+
+**So the changelog route is exhausted, and the reason is structural:** Valve documents the fix,
+not the format change. The people who noticed a format change first were the ones reviewing demos
+daily — the competitive scene — so `teamfortress.tv` threads, dated by their post IDs, are the
+remaining source. The engine emits an explicit error naming both numbers
+(`demo network protocol N outdated, engine version is M`), and a forum post quoting it carries an
+exact protocol pair with a date attached.
 
 ---
 
