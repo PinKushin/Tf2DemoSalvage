@@ -123,4 +123,43 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
 
         Corpus.Files().ShouldNotBeEmpty();
     }
+
+    [Fact]
+    public void NoMessageIsAnonymous()
+    {
+        // Phase 1's finish line for the message layer. Every message type the corpus contains is
+        // now reported with its own fields; none falls back to SkippedMessage, whose rendering is
+        // a bare name and a bit count and tells a reader nothing but "something was here".
+        //
+        // Asserted against the trace text rather than against message types, because the trace
+        // is what a reader actually sees - a type could be modelled and still render as nothing
+        // useful.
+        foreach (string path in Corpus.Files())
+        {
+            string name = Path.GetFileName(path);
+            string[] anonymous =
+            [
+                .. Trace(path)
+                    .Split('\n')
+                    .Select(line => line.Trim().TrimEnd(';'))
+                    .Where(IsAnonymous)
+                    .Distinct(),
+            ];
+
+            anonymous.ShouldBeEmpty($"{name}: {string.Join(", ", anonymous.Take(5))}");
+        }
+    }
+
+    /// <summary>Whether a trace line is a bare "name bits N", which is how a skip renders.</summary>
+    private static bool IsAnonymous(string line)
+    {
+        if (!line.StartsWith("svc_", StringComparison.Ordinal) &&
+            !line.StartsWith("net_", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string[] parts = line.Split(' ');
+        return parts.Length == 3 && parts[1] == "bits" && int.TryParse(parts[2], out _);
+    }
 }

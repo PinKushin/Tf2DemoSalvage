@@ -246,9 +246,10 @@ public static class NetMessageReader
                         {
                             // A single index, one bit wider from protocol 23 onward. Nothing else.
                             int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
-                            _ = reader.ReadUInt32(protocol > PrefetchWidthProtocol
+                            int soundIndex = (int)reader.ReadUInt32(protocol > PrefetchWidthProtocol
                                 ? PrefetchBitsModern
                                 : PrefetchBitsLegacy);
+                            messages.Add(new PrefetchMessage(soundIndex));
                             break;
                         }
 
@@ -279,33 +280,37 @@ public static class NetMessageReader
                         {
                             // Length-prefixed like svc_PacketEntities, so the payload can be stepped
                             // over exactly without understanding the events inside it.
-                            _ = reader.ReadUInt32(8);
+                            int effectCount = (int)reader.ReadUInt32(8);
                             int protocol = state.ServerInfo?.NetworkProtocol ?? 0;
                             int eventBits = protocol > TempEntitiesVarIntProtocol
                                 ? (int)VarInt.ReadUInt32(ref reader)
                                 : (int)reader.ReadUInt32(TempEntitiesLegacyLengthBits);
                             _ = NetBitReading.CopyBits(ref reader, eventBits);
+                            messages.Add(new TempEntitiesMessage(effectCount, eventBits));
                             break;
                         }
 
                     case NetMessageType.FixAngle:
                         // A relative flag and three 16-bit angles. Read separately because the
                         // total is 49 bits and ReadUInt32 tops out at 32.
-                        _ = reader.ReadBit();
-                        _ = reader.ReadUInt32(16);
-                        _ = reader.ReadUInt32(16);
-                        _ = reader.ReadUInt32(16);
+                        bool relativeAngle = reader.ReadBit();
+                        float pitch = ReadAngle(ref reader);
+                        float yaw = ReadAngle(ref reader);
+                        float roll = ReadAngle(ref reader);
+                        messages.Add(new FixAngleMessage(relativeAngle, pitch, yaw, roll));
                         break;
 
                     case NetMessageType.File:
-                        _ = reader.ReadUInt32(32);
-                        _ = NetBitReading.ReadString(ref reader);
-                        _ = reader.ReadBit();
+                    {
+                        uint transferId = reader.ReadUInt32(32);
+                        string fileName = NetBitReading.ReadString(ref reader);
+                        messages.Add(new FileMessage(transferId, fileName, reader.ReadBit()));
                         break;
+                    }
 
                     case NetMessageType.GetCvarValue:
-                        _ = reader.ReadUInt32(32);
-                        _ = NetBitReading.ReadString(ref reader);
+                        messages.Add(new GetCvarValueMessage(
+                            reader.ReadUInt32(32), NetBitReading.ReadString(ref reader)));
                         break;
 
                     case NetMessageType.Menu:
@@ -372,13 +377,17 @@ public static class NetMessageReader
 
                         // The entity and model indices are present only when this flag is set,
                         // which is most of the difference: a world decal carries neither.
-                        if (reader.ReadBit())
+                        bool onEntity = reader.ReadBit();
+                        int decalEntity = 0;
+                        int decalModel = 0;
+                        if (onEntity)
                         {
-                            _ = reader.ReadUInt32(EntityIndexBits);
-                            _ = reader.ReadUInt32(ModelIndexBits);
+                            decalEntity = (int)reader.ReadUInt32(EntityIndexBits);
+                            decalModel = (int)reader.ReadUInt32(ModelIndexBits);
                         }
 
                         _ = reader.ReadBit();           // low priority
+                        messages.Add(new BspDecalMessage(onEntity, decalEntity, decalModel));
                         break;
                     }
 
@@ -426,21 +435,22 @@ public static class NetMessageReader
                     {
                         // Index and class come before the length, so a reader that went
                         // straight for the length would take twenty of their bits instead.
-                        _ = reader.ReadUInt32(EntityMessageIndexBits);
-                        _ = reader.ReadUInt32(EntityMessageClassBits);
+                        int targetEntity = (int)reader.ReadUInt32(EntityMessageIndexBits);
+                        int targetClass = (int)reader.ReadUInt32(EntityMessageClassBits);
                         int entityMessageBits = (int)reader.ReadUInt32(UserMessageLengthBits);
                         _ = NetBitReading.CopyBits(ref reader, entityMessageBits);
+                        messages.Add(new EntityMessage(targetEntity, targetClass, entityMessageBits));
                         break;
                     }
 
                     case NetMessageType.SetView:
                         // Which entity the client's view follows. One index, nothing else.
-                        _ = reader.ReadUInt32(SetViewBits);
+                        messages.Add(new SetViewMessage((int)reader.ReadUInt32(SetViewBits)));
                         break;
 
                     case NetMessageType.SignOnState:
-                        _ = reader.ReadUInt32(8);
-                        _ = reader.ReadUInt32(32);
+                        messages.Add(new SignOnStateMessage(
+                            (int)reader.ReadUInt32(8), (int)reader.ReadUInt32(32)));
                         break;
 
                     case NetMessageType.VoiceInit:
@@ -448,12 +458,14 @@ public static class NetMessageReader
                         // The sample rate is only transmitted at quality 255. Older messages
                         // imply it from the codec name — 22050 for celt, 11025 otherwise — so
                         // reading sixteen bits unconditionally would consume what follows.
-                        _ = NetBitReading.ReadString(ref reader);
-                        if (reader.ReadUInt32(8) == VoiceVariableRateQuality)
+                        string codec = NetBitReading.ReadString(ref reader);
+                        int quality = (int)reader.ReadUInt32(8);
+                        if (quality == VoiceVariableRateQuality)
                         {
-                            _ = reader.ReadUInt32(16);
+                            quality = (int)reader.ReadUInt32(16);
                         }
 
+                        messages.Add(new VoiceInitMessage(codec, quality));
                         break;
                     }
 
@@ -485,6 +497,15 @@ public static class NetMessageReader
 
         return new NetMessageReadResult { Messages = messages, BitsConsumed = lastGoodBit };
     }
+
+    /// <summary>Reads a 16-bit fixed-point angle as degrees.</summary>
+    /// <remarks>
+    /// Source sends angles as a fraction of a full turn, so the conversion is
+    /// <c>value x 360 / 65536</c>. Reporting the raw integer would be honest but useless - the
+    /// value of svc_FixAngle to a reader is where the player was made to look.
+    /// </remarks>
+    private static float ReadAngle(ref BitReader reader) =>
+        reader.ReadUInt32(16) * (360f / 65536f);
 
     /// <summary>
     /// Consumes a body whose length is stated in bytes, rejecting a length the packet cannot

@@ -929,3 +929,43 @@ disagree with.
 - VDC *Networking Entities* §"Mismatched Class Tables" — directly relevant to the
   client-rejection story.
 - `demostf/parser` message and entity modules, for the undocumented layer 3.
+
+
+## Every message reports itself — **CONFIRMED**, 2026-08-10
+
+Phase 1's finish line for the message layer. **No message type in the corpus renders anonymously
+any more.** `SkippedMessage` still exists, and should: it is what an unrecognised type falls back
+to, and a trace that hid one would describe a healthier file than the one on disk. But nothing in
+eight demos across two protocol eras reaches it.
+
+A corpus test enforces this rather than a note claiming it: `NoMessageIsAnonymous` scans the
+rendered trace for the shape a skip produces — a bare `svc_name bits N` — and fails naming the
+demo and the type.
+
+### What "reported" means, and what it does not
+
+Three tiers, and the distinction is deliberate:
+
+| Tier | Types | Rationale |
+|---|---|---|
+| Fully decoded | entities, game events, string tables, chat, `net_Tick`, `svc_ServerInfo`, `svc_ClassInfo`, `svc_Print`, `svc_SetConVar`, `svc_StringCmd` | the content is the point |
+| Header reported | `svc_Sounds`, `svc_TempEntities`, `svc_UserMessage`, `svc_EntityMessage` | body layout is per-effect, per-type or per-class; the reference implementation keeps these opaque too |
+| Fully reported | `svc_Prefetch`, `svc_FixAngle`, `svc_SetView`, `net_SignonState`, `svc_BspDecal`, `svc_VoiceInit`, `svc_File`, `svc_GetCvarValue` | small enough that the fields *are* the message |
+
+**The middle tier is not a gap being papered over.** `svc_Sounds` and `svc_TempEntities` carry
+per-effect delta-encoded bodies that `demostf/parser` also declines to decode, and four of
+`proto_version.h`'s boundaries are sound-related with no demo between protocols 15 and 24 to
+exercise them. Naming them turns one anonymous count into individually addressable items — the
+work that remains is now visible instead of hidden.
+
+### The 2009 demo, message by message
+
+```
+11000  net_tick              10998  svc_packetentities     5739  svc_empty
+  231  svc_sounds              106  svc_usermessage          70  svc_gameevent
+   53  svc_tempentities         32  svc_prefetch             29  svc_fixangle
+   21  svc_entitymessage        16  svc_createstringtable    15  svc_updatestringtable
+   15  svc_stufftext             4  svc_bspdecal
+```
+
+Every line names a type. Before this pass, 375 of those were anonymous.

@@ -284,6 +284,51 @@ public static class DemoTraceWriter
         ClassInfoMessage classes => string.Create(
             CultureInfo.InvariantCulture, $"svc_classinfo count {classes.Classes.Count}"),
 
+        FileMessage file => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_file {(file.IsRequested ? "request" : "offer")} " +
+            $"id {file.TransferId} name {Quote(file.FileName)}"),
+
+        GetCvarValueMessage cvar => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_getcvarvalue cookie {cvar.Cookie} name {Quote(cvar.CvarName)}"),
+
+        PrefetchMessage prefetch => string.Create(
+            CultureInfo.InvariantCulture, $"svc_prefetch sound {prefetch.SoundIndex}"),
+
+        FixAngleMessage angle => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_fixangle {(angle.IsRelative ? "relative" : "absolute")} " +
+            $"pitch {angle.Pitch:F3} yaw {angle.Yaw:F3} roll {angle.Roll:F3}"),
+
+        SetViewMessage view => string.Create(
+            CultureInfo.InvariantCulture, $"svc_setview entity {view.EntityIndex}"),
+
+        SignOnStateMessage signon => string.Create(
+            CultureInfo.InvariantCulture,
+            $"net_signonstate state {signon.State} spawn {signon.SpawnCount}"),
+
+        EntityMessage entityMessage => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_entitymessage entity {entityMessage.EntityIndex} " +
+            $"class {entityMessage.ClassId} bits {entityMessage.BodyBits}"),
+
+        // A world decal carries no entity or model, so it renders as a different shape rather
+        // than as zeroes that look like real indices.
+        BspDecalMessage { OnEntity: true } decal => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_bspdecal entity {decal.EntityIndex} model {decal.ModelIndex}"),
+
+        BspDecalMessage => "svc_bspdecal world",
+
+        VoiceInitMessage voice => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_voiceinit codec {Quote(voice.Codec)} quality {voice.Quality}"),
+
+        TempEntitiesMessage temp => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_tempentities count {temp.Count} bits {temp.BodyBits}"),
+
         SoundsMessage sounds => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_sounds {(sounds.IsReliable ? "reliable" : "unreliable")} " +
