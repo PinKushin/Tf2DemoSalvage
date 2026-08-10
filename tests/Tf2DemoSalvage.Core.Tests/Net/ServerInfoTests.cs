@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 

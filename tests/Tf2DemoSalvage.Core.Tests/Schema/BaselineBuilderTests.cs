@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Tests.Net;
 using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Schema;
 

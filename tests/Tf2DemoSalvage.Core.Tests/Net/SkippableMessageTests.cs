@@ -1,5 +1,6 @@
 using System.Linq;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -127,7 +128,12 @@ public sealed class SkippableMessageTests
             .Write(3, 8)                       // client
             .Write(1, 8)                       // proximity
             .Write(48, 16);                    // payload bits
-        writer.Write(0xABCDEF, 48);            // the codec payload, opaque
+        // Two writes, because a field is at most 32 bits wide. The fixture asked for 48 in one
+        // call and the old test-only writer accepted it - C# masks a shift count to 0-31, so bits
+        // 32-47 silently repeated bits 0-15 rather than being zero. It never mattered here, since
+        // the payload is opaque and only its length is asserted, but the writer was producing
+        // bytes nobody intended.
+        writer.Write(0xABCDEF, 32).Write(0, 16);   // the codec payload, opaque
         writer.NetTick(2020, 0, 0);
 
         System.Collections.Generic.IReadOnlyList<INetMessage> messages = Read(writer);

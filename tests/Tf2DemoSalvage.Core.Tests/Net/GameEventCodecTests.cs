@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Tf2DemoSalvage.Core.Net;
 using static Tf2DemoSalvage.Core.Tests.Net.GameEventFixtures;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
