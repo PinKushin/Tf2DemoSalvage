@@ -337,7 +337,22 @@ scale with. It was already wrong once inside the text dump, when the player sect
 second pass.
 
 
-## D17 — SQLite export is deferred until something needs random access by tick
+## D17 — SQLite export is removed, not deferred
+
+**Withdrawn entirely on 2026-08-10, at the owner's instruction: "remove sqlite output from the
+roadmap completely its not needed idk where it even came from honestly."** It is gone from
+`ROADMAP.md` and `managed/README.md`. Nothing was ever built, so there is no code to remove.
+
+**Where it came from, since the owner reasonably did not recognise it:** the original `ROADMAP.md`
+draft, written in the planning conversation before any code existed. It was the planner's
+suggestion, not a requirement the owner stated, and it survived this long purely because it was
+written down — which is the failure mode a roadmap invites. The and/or phrasing ("JSON Lines
+and/or a per-demo SQLite file") was doing real work, and nobody chose.
+
+The reasoning below is kept as the record of why it was never built. D18 supersedes the whole
+question: the trace is the primary deliverable, and per that decision **the demo is its own best
+archive** — a `.dem` is bit-packed, so any derived format is larger than the thing it came from.
+Derived formats exist for *reading*, not for keeping.
 
 `ROADMAP.md` §3 lists "JSON Lines **and/or** a per-demo SQLite file". The and/or was always
 there; this records the choice.
