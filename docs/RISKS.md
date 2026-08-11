@@ -1833,7 +1833,7 @@ message's whole body as opaque. The bucket was left alone on purpose — moving 
 number by bookkeeping. The bits are now *interpreted* rather than merely consumed, and the
 instrument should be changed only with that argument made explicitly, not as a side effect.
 
-## B31 — 63 of 1397 Opus chunk blocks do not consume exactly — OPEN
+## B31 — 63 of 1397 Opus chunk blocks do not consume exactly — RESOLVED
 
 Found 2026-08-11 while resolving the `svc_VoiceData` framing ([findings/02](findings/02-net-messages.md)).
 
@@ -1857,3 +1857,22 @@ shape, not to skip the blocks that fail.
 precedes the miss, and cross-check against a demo with a single continuous speaker where the
 sequence numbers should be contiguous. The 2018-era archive currently downloading is CELT rather
 than Steam voice, so it does not help here; the modern demos.tf pulls do.
+
+**Resolved 2026-08-11, and the recorded hypothesis was wrong.** This entry guessed that the
+1-byte chunks were "a marker with a different shape, perhaps not followed by a sequence field at
+all". They are not. Every one of the 147 one-byte chunks carries the payload `0x68` — a valid
+Opus TOC byte, the same one that leads the 78-86 byte chunks — so they are ordinary minimal Opus
+packets and nothing about them is special.
+
+What the misses actually were, found by dumping the failing blocks rather than reasoning about
+them: **all 63 ended with exactly 2 bytes remaining, and those two bytes were `FFFF` every
+time.** A block may end with a `0xFFFF` sentinel read through the chunk-length field, occupying
+the length field alone with no sequence number and no data behind it.
+
+Both wrong readings fail badly and differently, which is why this had to be established rather
+than assumed. Treating `0xFFFF` as a chunk length asks for 65535 bytes that are not there;
+treating the block as malformed discards audio that is perfectly well formed.
+
+With the sentinel handled, **1452 of 1452 payloads and all 3969 chunks consume exactly**, and
+exactly 63 report the terminator — the same 63. Recorded in
+[findings/02](findings/02-net-messages.md).
