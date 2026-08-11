@@ -33,6 +33,16 @@ namespace Tf2DemoSalvage.Core.Primitives;
 /// </remarks>
 public static class Snappy
 {
+    /// <summary>
+    /// Largest output-to-input ratio a well-formed Snappy stream can reach.
+    /// </summary>
+    /// <remarks>
+    /// A copy tag is two bytes and can reproduce at most 64, so 64 is the ceiling on what one
+    /// byte of input can become, with a margin for the preamble. This is a sanity bound on a
+    /// declared length, not a limit on legitimate data.
+    /// </remarks>
+    private const long MaxExpansionRatio = 64;
+
     /// <summary>Literal lengths at or above this are stored in trailing bytes.</summary>
     private const int LiteralLengthInTrailingBytes = 60;
 
@@ -51,7 +61,28 @@ public static class Snappy
     public static byte[] Decompress(ReadOnlySpan<byte> compressed)
     {
         int read = 0;
-        int targetLength = (int)ReadVarInt(compressed, ref read);
+        uint declaredLength = ReadVarInt(compressed, ref read);
+
+        // **The declared length is data, and it was being believed.** Found by fuzzing on
+        // 2026-08-11: a stream may declare any 32-bit size, and casting it straight to int
+        // produces either a negative length or one past int.MaxValue, both of which reach
+        // `new byte[]` and throw OverflowException - an undocumented failure escaping the
+        // parser rather than a refusal. String tables arrive Snappy-compressed off the network,
+        // so a demo can carry this.
+        //
+        // The bound is the input's own size rather than a constant: Snappy's maximum compression
+        // ratio is bounded by its copy encoding, so an output vastly larger than the input it
+        // came from is a malformed stream regardless of what the preamble claims.
+        if (declaredLength > (uint)int.MaxValue ||
+            declaredLength > (uint)compressed.Length * MaxExpansionRatio)
+        {
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"A Snappy stream of {compressed.Length} bytes declares {declaredLength} bytes " +
+                $"of output, which no stream that size can produce."));
+        }
+
+        int targetLength = (int)declaredLength;
         byte[] output = new byte[targetLength];
         int written = 0;
 

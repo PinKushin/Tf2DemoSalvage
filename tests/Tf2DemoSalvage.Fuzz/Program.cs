@@ -32,11 +32,20 @@ internal static class Program
                 Fuzzer.LibFuzzer.Run(VarIntFuzzTarget.Consume);
                 break;
 
+            case "container":
+                Fuzzer.LibFuzzer.Run(ContainerFuzzTarget.Consume);
+                break;
+
+            case "snappy":
+                Fuzzer.LibFuzzer.Run(SnappyFuzzTarget.Consume);
+                break;
+
             default:
                 // Not ArgumentException: this is environment configuration, not a parameter, and
                 // S3928 rightly objects to naming something that is not in the argument list.
                 throw new InvalidOperationException(
-                    $"Unknown {TargetVariable} '{target}'. Expected 'bitreader' or 'varint'.");
+                    $"Unknown {TargetVariable} '{target}'. Expected one of: bitreader, " +
+                    $"varint, container, snappy.");
         }
     }
 }
