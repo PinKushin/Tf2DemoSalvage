@@ -201,3 +201,45 @@ directory at 796, and the sign-on length written last at 1068 from a file-positi
 
 **One loose end worth recording.** The whole validation block sits inside a guard on a flag at
 `+0x548`; when that flag is set, no check runs at all. What sets it is not yet known.
+
+### Three engines, nineteen years, one unchanged constant
+
+The 2007 and July 2026 engines were read the same way. The header test is the same three lines in
+all three, and only one number in it has ever moved:
+
+| engine | protocol | the test | accepts |
+|---|---|---|---|
+| 2007, build 3258 | 11 | `if (network != 0xb)` | **11 only — a strict equality** |
+| 2008, build 3420 | 14 | `if (network != 0xe && network < 0xc)` | ≥ 12 |
+| July 2026 | 24 | `if (network != 0x18 && network < 0xc)` | ≥ 12 |
+
+**The launch engine had no compatibility at all.** Equality, one accepted value. The `< 0xc` clause
+appears in 2008 and is the November 2007 code.
+
+**And it is still there today, with 12 still in it.** Ten protocol bumps later, the floor Valve
+wrote five weeks after release has never been raised. `0xc` is now a **vestigial constant**: it
+admits eight protocol versions that no modern client can decode a single packet of, because
+nothing downstream of the header knows anything about them.
+
+Two consequences, and the second is the interesting one.
+
+**Protocol 11 is the only version modern TF2 refuses at the door.** Everything from 12 up passes
+the header check and fails later, in the stream. So "the client can no longer play this file" has
+two entirely different mechanisms behind it depending on whether the demo predates or postdates
+12 November 2007, and only the launch era gets a clean error.
+
+**The container version has never moved.** `demoProtocol` is accepted when it is 2 or 3 — written
+`(iVar3 < 4) && (1 < iVar3)` in 2008 and compiled to the unsigned trick `iVar3 - 2U < 2` today —
+identical range in both. The `.dem` container is the single most stable thing in this format: one
+version bump in nineteen years, and the previous version is still accepted.
+
+This is the same category as the vestigial fields in [09](09-valve-implementation.md): **a
+constant that stopped being maintained is a fossil, and it dates the last time anyone looked at
+the code around it.** Nobody has revisited demo header compatibility since 2007.
+
+**A smaller fossil, in the same function.** The live engine's second error string reads
+
+> `ERROR: demo file protocol %i outdated, engine vnoteersion is %i`
+
+with `note` spliced into `version`. It is in the shipped binary — the raw bytes and the decompiler
+agree — so modern TF2 ships a corrupted format string on a path nobody has hit in years.
