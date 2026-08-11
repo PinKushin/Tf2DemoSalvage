@@ -444,6 +444,96 @@ public sealed class UserMessageLayoutTests
         Decode("PlayerExtinguished", [4]).Fields.ShouldBeNull();
     }
 
+    /// <summary>Team byte, vote index long, then whatever the message adds.</summary>
+    private static List<byte> VoteHeader(byte team, uint index)
+    {
+        byte[] head = new byte[5];
+        head[0] = team;
+        BinaryPrimitives.WriteUInt32LittleEndian(head.AsSpan(1), index);
+        return [.. head];
+    }
+
+    [Fact]
+    public void VoteStart_HasAOneBitFlagBetweenTwoByteFields()
+    {
+        // The reason this layout is worth a test of its own: WRITE_BOOL is a single bit, and it
+        // sits between the strings and the target entity. So the body is byte-aligned up to the
+        // flag and bit-aligned after it, and its length is not a multiple of eight - the corpus
+        // holds 329-, 369- and 481-bit instances.
+        //
+        // A decoder reading the flag as a byte would be seven bits out for the target and would
+        // report a plausible player index rather than failing, which is the failure mode this
+        // whole file exists to avoid.
+        List<byte> body = VoteHeader(2, 17);
+        body.Add(23);
+        body.AddRange(Encoding.UTF8.GetBytes("#TF_vote_kick_player_cheating"));
+        body.Add(0);
+        body.AddRange(Encoding.UTF8.GetBytes("someone"));
+        body.Add(0);
+
+        // The flag and the target share a byte: flag set, then 12 shifted up one bit.
+        Tf2DemoSalvage.Core.Primitives.BitWriter tail = new();
+        tail.WriteBit(true).Write(12, 8);
+        body.AddRange(tail.Build());
+
+        UserMessage message = UserMessageBody.Decode(
+            46, "VoteStart", [.. body], ((body.Count - 2) * 8) + 9, Protocol);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "team").ShouldBe(2);
+        Value(message, "vote").ShouldBe(17);
+        Value(message, "caller").ShouldBe(23);
+        Value(message, "issue").ShouldBe("#TF_vote_kick_player_cheating");
+        Value(message, "details").ShouldBe("someone");
+        Value(message, "yes_no").ShouldBe(true);
+        Value(message, "target").ShouldBe(12);
+    }
+
+    [Fact]
+    public void VotePass_IsTheHeaderAndTwoStrings()
+    {
+        List<byte> body = VoteHeader(2, 17);
+        body.AddRange(Encoding.UTF8.GetBytes("#TF_vote_passed_ban_player"));
+        body.Add(0);
+        body.AddRange(Encoding.UTF8.GetBytes("cwed2k5"));
+        body.Add(0);
+
+        UserMessage message = Decode("VotePass", [.. body]);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "vote").ShouldBe(17);
+        Value(message, "passed").ShouldBe("#TF_vote_passed_ban_player");
+        Value(message, "details").ShouldBe("cwed2k5");
+    }
+
+    [Fact]
+    public void VoteFailed_IsExactlyFortyEightBits()
+    {
+        // Byte, long, byte - and tf_usermessages.cpp registers the message at 6 bytes, so the
+        // width was predicted from the registration table and the writer independently.
+        List<byte> body = VoteHeader(2, 6);
+        body.Add(3);
+
+        UserMessage message = Decode("VoteFailed", [.. body]);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "team").ShouldBe(2);
+        Value(message, "vote").ShouldBe(6);
+        Value(message, "reason").ShouldBe(3);
+
+        Decode("VoteFailed", [.. VoteHeader(2, 6)]).Fields.ShouldBeNull();
+    }
+
+    [Fact]
+    public void CallVoteFailed_IsAReasonAndACooldown()
+    {
+        UserMessage message = Decode("CallVoteFailed", [4, 0x1E, 0x00]);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "reason").ShouldBe(4);
+        Value(message, "seconds").ShouldBe(30);
+    }
+
     [Fact]
     public void AKnownLayoutThatRefuses_WithholdsTheNameToo()
     {

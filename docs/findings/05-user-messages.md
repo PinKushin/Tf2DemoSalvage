@@ -293,8 +293,22 @@ of widths, not one**, unless the values are known.
 
 ## What is still opaque
 
-**435 of 445 decode. 479 bits remain**, and every one of them is a *naming* problem rather than a
-layout problem:
+**Every user message in a modern demo now decodes.** Across the two 2026 pub recordings — 1,388
+messages of 27 types — the opaque bit count is **zero**. The last layouts were the vote family:
+
+```
+VoteStart  team=2 vote=6 caller=8 issue="#TF_vote_kick_player_cheating"
+           details="<player>" yes_no=True target=2
+VoteFailed team=2 vote=6 reason=3
+```
+
+`VoteStart` is worth keeping as an example of why byte-oriented thinking fails here: `WRITE_BOOL`
+is **one bit**, and it sits between the strings and the target entity. The message is byte-aligned
+before it and bit-aligned after, so its length is not a multiple of eight — 329, 369 and 481 bits
+in the corpus. Reading the flag as a byte leaves the target seven bits out, which yields a
+plausible player index rather than an error.
+
+### On the committed corpus, 435 of 445 decode. The remaining 479 bits are a *naming* problem, not a layout one:
 
 | message | count | opaque bits | why |
 |---|---|---|---|
