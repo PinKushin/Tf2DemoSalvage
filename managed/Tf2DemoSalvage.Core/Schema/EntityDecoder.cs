@@ -41,12 +41,18 @@ public readonly record struct DecodedProperty(
 /// <param name="SerialNumber">Distinguishes a reused slot from the entity that held it before.</param>
 /// <param name="UpdateType">What happened to it.</param>
 /// <param name="Properties">Properties this snapshot changed, in wire order.</param>
+/// <param name="IndexPayloadBits">
+/// Payload width the entity index delta was sent at, or 0 when it was the narrowest that holds
+/// the value. Carried because the sender does not always pick the narrowest, and which bucket it
+/// used is not recoverable from the index - both decode to the same number (RISKS B25).
+/// </param>
 public sealed record DecodedEntity(
     int EntityIndex,
     int ClassId,
     int SerialNumber,
     EntityUpdateType UpdateType,
-    IReadOnlyList<DecodedProperty> Properties);
+    IReadOnlyList<DecodedProperty> Properties,
+    int IndexPayloadBits = 0);
 
 /// <summary>One temp entity — a short-lived effect such as an explosion, tracer or impact.</summary>
 /// <param name="ClassId">Networked class, which says what kind of effect it is.</param>
@@ -161,7 +167,7 @@ public sealed class EntityDecoder
 
         for (int i = 0; i < header.UpdatedEntries; i++)
         {
-            entityIndex += (int)UBitVar.Read(ref reader) + 1;
+            entityIndex += (int)UBitVar.Read(ref reader, out int indexPayloadBits) + 1;
 
             if (entityIndex is < 0 or >= MaxEntities)
             {
@@ -171,7 +177,7 @@ public sealed class EntityDecoder
                     $"stream has desynchronised."));
             }
 
-            entities.Add(ReadEntity(ref reader, entityIndex));
+            entities.Add(ReadEntity(ref reader, entityIndex, indexPayloadBits));
         }
 
         // Removals are listed only on a delta. Reading them unconditionally would consume bits
@@ -247,7 +253,10 @@ public sealed class EntityDecoder
 
         foreach (DecodedEntity entity in entities)
         {
-            UBitVar.Write(writer, (uint)(entity.EntityIndex - previousIndex - 1));
+            UBitVar.Write(
+                writer,
+                (uint)(entity.EntityIndex - previousIndex - 1),
+                entity.IndexPayloadBits);
             previousIndex = entity.EntityIndex;
 
             writer.Write((uint)entity.UpdateType, 2);
@@ -366,7 +375,7 @@ public sealed class EntityDecoder
         }
     }
 
-    private DecodedEntity ReadEntity(ref BitReader reader, int entityIndex)
+    private DecodedEntity ReadEntity(ref BitReader reader, int entityIndex, int indexPayloadBits)
     {
         EntityUpdateType updateType = (EntityUpdateType)reader.ReadUInt32(2);
 
@@ -378,14 +387,15 @@ public sealed class EntityDecoder
 
             return new DecodedEntity(
                 entityIndex, classId, serial, updateType,
-                ReadProperties(ref reader, classId));
+                ReadProperties(ref reader, classId), indexPayloadBits);
         }
 
         if (updateType != EntityUpdateType.Delta)
         {
             // Leave and Delete carry nothing beyond the update type itself.
             _entityClasses.TryGetValue(entityIndex, out int knownClass);
-            return new DecodedEntity(entityIndex, knownClass, 0, updateType, []);
+            return new DecodedEntity(
+                entityIndex, knownClass, 0, updateType, [], indexPayloadBits);
         }
 
         if (!_entityClasses.TryGetValue(entityIndex, out int existingClass))
@@ -398,7 +408,7 @@ public sealed class EntityDecoder
 
         return new DecodedEntity(
             entityIndex, existingClass, 0, updateType,
-            ReadProperties(ref reader, existingClass));
+            ReadProperties(ref reader, existingClass), indexPayloadBits);
     }
 
     /// <summary>Decodes a <c>svc_TempEntities</c> body into its effects.</summary>

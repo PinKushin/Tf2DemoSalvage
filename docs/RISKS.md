@@ -1277,3 +1277,28 @@ to 100% and prove nothing; the encoder writes the canonical form and the report 
 exceptions. Resolving it wants the engine's writer, in the manner of
 `docs/memory/read-the-encoder-not-the-decoder.md` — an encoder states intent that a decoder only
 implies.
+
+## B25 update, 2026-08-11 — the wider UBitVar is carried now, and a measurement disagreement is open
+
+**The width is recorded rather than guessed.** `UBitVar.Read` reports the payload width the sender
+chose and `DecodedEntity.IndexPayloadBits` carries it, so an index sent at twelve bits where eight
+would do is written back at twelve. This is the same answer the format has demanded everywhere
+else: which encoding the sender picked is not recoverable from the value, so the shape has to
+travel with it.
+
+**Two other things were wrong in the original entry and are corrected here.**
+
+The rate was understated. B25 said 0.22% of snapshots, measured over the first 900 commands of each
+demo. Over whole demos it is nearer 3%, and on some files far more — the shape is commoner later in
+a match than at the start, which is exactly what a sample from the opening minute cannot see.
+
+What was called "trailing slack" was mostly this same bug wearing a disguise. A canonical encoder
+produces a *shorter* body, so the first difference appears past the end of our content and reads as
+a padding difference. Fixing the width made those disappear rather than moving them.
+
+**Open: the two instruments disagree.** `CorpusAssemblyRoundTripTests` declines no snapshot at all
+on demos where `CorpusEntityRoundTripTests` reports thousands of mismatches, and both encode
+through the same `EncodeEntities`. A clean rebuild did not change either number, so it is not stale
+binaries. Until that is reconciled, the assembly gate is the number to trust — it compares against
+the demo end to end, and it is a gate rather than a report — and the entity report should be read
+as unexplained rather than as a defect count.

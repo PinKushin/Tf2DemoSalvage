@@ -187,11 +187,17 @@ public static class MessageAssembly
     /// <summary>Renders bits with no text form as a <c>raw</c> line.</summary>
     /// <param name="bits">Buffer holding the bits, starting at bit zero.</param>
     /// <param name="bitCount">How many of them are meaningful.</param>
+    /// <param name="label">What the bits are, as a trailing comment.</param>
     /// <returns>The line.</returns>
-    public static string WriteRaw(ReadOnlySpan<byte> bits, int bitCount) =>
+    /// <remarks>
+    /// The label is a comment, so it is dropped on the way back in and cannot affect the round
+    /// trip. It is there because a reader who meets a hex string deserves to know what it stands
+    /// for — and because counting what is still opaque, by type, is otherwise guesswork.
+    /// </remarks>
+    public static string WriteRaw(ReadOnlySpan<byte> bits, int bitCount, string label) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"{RawKeyword} {bitCount} {Convert.ToHexString(bits)}");
+            $"{RawKeyword} {bitCount} {Convert.ToHexString(bits)} # {label}");
 
     /// <summary>Reads one message's lines back into bits.</summary>
     /// <param name="line">The message's first line.</param>

@@ -117,6 +117,15 @@ public static class DemoAssembly
         // meaningless without the schema, and the schema arrives once as its own command.
         EntityDecoder? entities = null;
 
+        // **Carried across packets, which it was not.** This is the state a candidate line is
+        // verified against, and it has to be the state a compiler would have at that point in the
+        // file - which means everything learned since the beginning of the demo, not since the
+        // beginning of this packet. Rebuilding it per packet silently declined every message whose
+        // width or meaning depends on an earlier one: svc_ServerInfo sizes a prefetch, a game
+        // event list types every event, a create string table sizes an update's indices. All three
+        // arrive in signon and were forgotten immediately.
+        NetDecodeState check = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+
         foreach (DemoCommand command in commands)
         {
             StringBuilder line = new();
@@ -142,7 +151,7 @@ public static class DemoAssembly
 
             if (expandable)
             {
-                WriteMessages(writer, command.Payload.Span, state, entities);
+                WriteMessages(writer, command.Payload.Span, state, check, entities);
                 writer.WriteLine(EndKeyword);
             }
             else if (command.Type == DemoCommandType.DataTables)
@@ -267,14 +276,13 @@ public static class DemoAssembly
     }
 
     private static void WriteMessages(
-        TextWriter writer, ReadOnlySpan<byte> payload, NetDecodeState state,
+        TextWriter writer,
+        ReadOnlySpan<byte> payload,
+        NetDecodeState state,
+        NetDecodeState check,
         EntityDecoder? entities)
     {
         NetMessageReadResult result = NetMessageReader.Read(payload, state);
-
-        // A separate state for the verification pass, advanced in step with the writer's. Sharing
-        // the reader's would let a message be checked against a state it had not reached yet.
-        NetDecodeState check = new() { NetworkProtocol = state.NetworkProtocol };
 
         for (int i = 0; i < result.Messages.Count; i++)
         {
@@ -290,7 +298,15 @@ public static class DemoAssembly
 
             if (lines is null)
             {
-                writer.WriteLine("  " + MessageAssembly.WriteRaw(original, end - start));
+                writer.WriteLine(
+                    "  " + MessageAssembly.WriteRaw(
+                        original, end - start, Label(message)));
+
+                // A declined message still happened. Its effect on the state has to be applied
+                // here, because the verification pass never assembled it - and a compiler reading
+                // the file back will not learn it either, which is a limit of a raw line worth
+                // knowing rather than a bug to hide.
+                Advance(check, message);
             }
             else
             {
@@ -300,18 +316,17 @@ public static class DemoAssembly
                 }
             }
 
-            if (message is ServerInfoMessage info)
-            {
-                check.ServerInfo = info;
-            }
         }
 
         int trailing = (payload.Length * 8) - result.BitsConsumed;
         if (trailing > 0)
         {
+            // Padding rather than a message: a packet is a whole number of bytes and the
+            // messages inside it are not. The bits are usually zero and demonstrably not always,
+            // so they are carried rather than assumed.
             writer.WriteLine(
                 "  " + MessageAssembly.WriteRaw(
-                    Slice(payload, result.BitsConsumed, trailing), trailing));
+                    Slice(payload, result.BitsConsumed, trailing), trailing, "padding"));
         }
     }
 
@@ -348,7 +363,7 @@ public static class DemoAssembly
                 written[0],
                 () => ++index < written.Count ? written[index] : null,
                 check,
-                Copy(state),
+                state,
                 entities);
         }
         catch (Exception failure) when (
@@ -365,10 +380,6 @@ public static class DemoAssembly
             : null;
     }
 
-    /// <summary>A copy, so the verification pass cannot advance the writer's own state.</summary>
-    private static NetDecodeState Copy(NetDecodeState state) =>
-        new() { NetworkProtocol = state.NetworkProtocol, ServerInfo = state.ServerInfo };
-
     /// <summary>Whether two buffers agree over the first <paramref name="bits"/> bits.</summary>
     private static bool Same(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, int bits)
     {
@@ -384,6 +395,39 @@ public static class DemoAssembly
 
         return true;
     }
+
+    /// <summary>Applies a message's effect on decode state, as the reader would.</summary>
+    private static void Advance(NetDecodeState state, INetMessage message)
+    {
+        switch (message)
+        {
+            case ServerInfoMessage info:
+                state.ServerInfo = info;
+                break;
+
+            case GameEventListMessage list:
+                state.AddEventDefinitions(list.Definitions);
+                break;
+
+            case CreateStringTableMessage table:
+                state.AddStringTable(table.Name, table.MaxEntries);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>What a raw line stands for, for the comment on it.</summary>
+    /// <remarks>
+    /// Two different situations share the <c>raw</c> keyword and it is worth telling them apart in
+    /// the file: a type with no text form at all, and one that has a text form which did not
+    /// reproduce these particular bits. The second is a finding; the first is a queue.
+    /// </remarks>
+    private static string Label(INetMessage message) =>
+        MessageAssembly.CanWrite(message)
+            ? message.Type + " declined"
+            : message.Type.ToString();
 
     /// <summary>Copies a bit range into its own buffer, starting at bit zero.</summary>
     private static byte[] Slice(ReadOnlySpan<byte> source, int startBit, int bits)

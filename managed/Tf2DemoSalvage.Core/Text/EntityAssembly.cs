@@ -72,7 +72,8 @@ public static class EntityAssembly
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  entity {entity.EntityIndex} {entity.UpdateType.ToString().ToUpperInvariant()} " +
-                $"class={entity.ClassId} serial={entity.SerialNumber} {{"));
+                $"class={entity.ClassId} serial={entity.SerialNumber} " +
+                $"ibits={entity.IndexPayloadBits} {{"));
 
             foreach (DecodedProperty property in entity.Properties)
             {
@@ -91,8 +92,38 @@ public static class EntityAssembly
             lines.Add(string.Create(CultureInfo.InvariantCulture, $"  removed {removed}"));
         }
 
+        // **The slack is data, not padding, and assuming it away costs a tenth of all snapshots.**
+        // A body states its length in bits and the sender builds it in bytes, so a snapshot
+        // routinely ends before its stated end - and what sits in the gap is not reliably zero.
+        // Writing zeros there produced a body that decoded identically and did not match the demo,
+        // which is why 3,897 snapshots were still being carried as hex after everything else had
+        // been promoted.
+        decoder.EncodeEntities(
+            entities, decoder.RemovedEntities, message.IsDelta, 0, out int written);
+
+        int slack = message.LengthBits - written;
+        if (slack > 0)
+        {
+            lines.Add(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  slack {slack} {Convert.ToHexString(Bits(message.Body.Span, written, slack))}"));
+        }
+
         lines.Add(BlockEnd);
         return lines;
+    }
+
+    /// <summary>Copies a bit range into its own buffer, starting at bit zero.</summary>
+    private static byte[] Bits(ReadOnlySpan<byte> source, int startBit, int count)
+    {
+        Tf2DemoSalvage.Core.Primitives.BitWriter writer = new();
+        for (int i = 0; i < count; i++)
+        {
+            int bit = startBit + i;
+            writer.Write((uint)((source[bit / 8] >> (bit % 8)) & 1), 1);
+        }
+
+        return writer.Build();
     }
 
     /// <summary>Renders a temp entities body, or <c>null</c> when it will not decode.</summary>
@@ -246,6 +277,8 @@ public static class EntityAssembly
         Dictionary<string, string> header = Fields(tokens);
         List<DecodedEntity> entities = [];
         List<int> removed = [];
+        byte[] slack = [];
+        int slackBits = 0;
 
         while (true)
         {
@@ -269,13 +302,30 @@ public static class EntityAssembly
                 continue;
             }
 
+            if (parts[0] == "slack")
+            {
+                slackBits = int.Parse(parts[1], CultureInfo.InvariantCulture);
+                slack = Convert.FromHexString(parts[2]);
+                continue;
+            }
+
             entities.Add(ReadEntity(parts, nextLine, decoder));
         }
 
         bool isDelta = Field(header, "delta") != 0;
         int lengthBits = Field(header, "bits");
 
-        byte[] body = decoder.EncodeEntities(entities, removed, isDelta, lengthBits);
+        // Content first, then whatever the sender left in the gap, then zeros if anything is
+        // still short of the stated length.
+        byte[] content = decoder.EncodeEntities(entities, removed, isDelta, 0, out int written);
+
+        Tf2DemoSalvage.Core.Primitives.BitWriter body = new();
+        body.AppendBits(content, written);
+        body.AppendBits(slack, slackBits);
+        for (int bit = body.BitCount; bit < lengthBits; bit++)
+        {
+            body.WriteBit(false);
+        }
 
         return new PacketEntitiesMessage(
             Field(header, "max"),
@@ -285,7 +335,7 @@ public static class EntityAssembly
             Field(header, "updated"),
             lengthBits,
             Field(header, "updatebaseline") != 0,
-            body);
+            body.Build());
     }
 
     private static DecodedEntity ReadEntity(
@@ -327,7 +377,10 @@ public static class EntityAssembly
         }
 
         return new DecodedEntity(
-            index, classId, Field(fields, "serial"), update, properties);
+            index, classId, Field(fields, "serial"), update, properties,
+            fields.TryGetValue("ibits", out string? width)
+                ? int.Parse(width, CultureInfo.InvariantCulture)
+                : 0);
     }
 
     private static Dictionary<string, string> Fields(IReadOnlyList<string> tokens)
