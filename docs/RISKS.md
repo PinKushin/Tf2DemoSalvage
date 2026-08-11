@@ -1307,8 +1307,31 @@ a `slack` line.
 The leftover is a fact about the format and is now reported as one: **32,407 snapshots end before
 their stated length, 3,474,371 bits in total.** A body is measured in bits and built in bytes.
 
-**Still open, and much smaller than it looked: 4,277 snapshots (0.41%) whose content genuinely
-does not re-encode**, all in modern demos, while the assembly gate declines none of them. That
-residue is unexplained. The owner has ILSpy, IDA and Ghidra available, which is the way to settle
-it — the engine's own `bf_write` is the only authority on which bucket a UBitVar takes, and
-guessing has already cost two wrong hypotheses here.
+**The residue is named now, and it is one phenomenon rather than a mystery.** 267 of 89,762
+snapshots (0.30%) do not re-encode their content. Tallying which entity is to blame:
+
+```
+   91  CSceneEntity          50  CBaseAnimatingOverlay   47  CSpriteTrail
+   19  CTFProjectile_Rocket  16  CTFAmmoPack             12  CDynamicLight
+```
+
+and the properties on those entities:
+
+```
+  170  m_vecOrigin      92  001 / 003 / 000 (array elements)      89  lengthprop16
+```
+
+**It is not item or loadout data**, which was the standing guess — the classes are scene entities,
+animation overlays, sprite trails and projectiles, none of which carry economy attributes.
+
+**It is the same phenomenon as B25 in a different field: Source's writers do not always choose the
+narrowest encoding, and the choice is not recoverable from the value.** For `SPROP_COORD_MP` the
+in-bounds bit picks an 11-bit integer field over a 14-bit one, and this encoder picks narrow
+whenever the value fits. Inverting that rule as an experiment took the failures from 267 to
+**80,438**, so the rule is right almost always — and the 267 are senders that chose otherwise.
+`lengthprop16` and the numbered element names say an array count width is a second instance.
+
+**The fix is the pattern this format has demanded five times already: record the shape.** A
+coordinate's in-bounds bit and an array's count width have to travel with the decoded value, as
+`SoundFields` does for sounds and `IndexPayloadBits` now does for entity indices. That is a
+contained change rather than an investigation, and it is the next step here.
