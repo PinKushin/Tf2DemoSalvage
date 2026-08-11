@@ -40,10 +40,27 @@ z1800.dem                                 357 of 14,932,648 payload bits opaque 
 entity's class and has no generic reading, and voice payloads, which are a codec. The test reports
 and does not gate — a gate would be set to today's number and then defended.
 
-**What is not proven:** the text output cannot be compiled back into a `.dem`. The container
-re-encodes byte-exactly, but until the message layer round-trips there is no proof the decode is
-lossless rather than merely plausible. That is the Quake demo tools standard and the remaining
-Phase 1 goal.
+### Whether the decode is lossless
+
+A different question from the one above, and the sharper one. A field can be read and thrown away
+without anything noticing: the reader stays aligned, the trace looks complete, the length check
+passes. So the parser re-encodes what it decoded and compares against the demo's own bytes.
+
+- **Every message**, on every demo held here, comes back bit for bit — 87,733 of them across five
+  protocols. That is a gate, not a report.
+- **Entity snapshots**, rebuilt from decoded property values rather than replayed, are exact on
+  13,942 of 13,973. Every demo recorded before 2013 is at 100%; the 31 exceptions are modern and
+  are documented in `docs/RISKS.md` B25 rather than smoothed over.
+- **Sound bodies** are exact on all 11,989, which matters because `svc_Sounds` is the one decoder
+  with no second implementation anywhere to check it against.
+
+Building that found four things nothing else could: a temp entity count of zero meaning one
+reliable effect, three messages discarding their bodies, `svc_VoiceInit` overwriting a quality with
+a sample rate, and `svc_BspDecal` decoding a position and then dropping it.
+
+**What is still not proven:** the *text* output cannot be compiled back into a `.dem`. The pieces
+now exist — a bit writer, a message writer, an entity encoder — but the text parser that would
+drive them does not. That is the Quake demo tools standard and the remaining Phase 1 goal.
 
 ### Corpus
 
@@ -59,7 +76,7 @@ recording, so two eras differ only by era.
 
 ### Testing
 
-761 tests, zero build warnings.
+773 tests, zero build warnings.
 
 Layered deliberately, because each layer answers a different question: unit tests (right answer on
 input we thought of), CsCheck properties (right across the whole input space), Stryker mutation

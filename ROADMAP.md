@@ -79,10 +79,14 @@ Known remaining work, none of it blocking:
 
 - The voice client-to-player mapping is unresolved and needs a demo with two speakers
   (`docs/RECORDING_CHECKLIST.md`).
-- **No round trip at the message layer.** The container re-encodes byte-exactly, but the text
-  output cannot be compiled back into a demo, so nothing proves the decode kept everything. That
-  is the standard Quake demo tools set and the honest measure of "fully deciphered"; the bit-level
-  self-checks each message performs are weaker evidence in the same direction.
+- **The text output cannot be compiled back into a demo.** The pieces exist as of 2026-08-11 — a
+  bit writer, a message writer covering every type the corpus contains, an entity encoder — and
+  they are exercised the other way round: every message re-encodes bit for bit, and entity
+  snapshots rebuilt from decoded values are exact on 99.78%. What is missing is the parser that
+  turns the trace back into those objects. That is the last Phase 1 item.
+- **RISKS B25**, a UBitVar written one selector step wider than canonical on 0.16% of modern
+  snapshots. Found by the entity round trip and by nothing else, because both forms decode to the
+  same number.
 
 *Ordering note learned in practice: layer 2 messages carry no length prefix, so they must be
 implemented in the order the stream blocks on, not in order of apparent usefulness —
