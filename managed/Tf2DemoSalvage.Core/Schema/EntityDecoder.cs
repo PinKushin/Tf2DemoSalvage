@@ -137,6 +137,16 @@ public sealed class EntityDecoder
     }
 
     /// <summary>
+    /// Bits the most recent snapshot's entity section occupied, before any removals.
+    /// </summary>
+    /// <remarks>
+    /// Exposed so a re-encoder can be compared against what the decoder consumed. Comparing
+    /// against the body's stated length instead conflates three different things: the entities,
+    /// the removal list, and whatever the sender left after them.
+    /// </remarks>
+    public int EntitySectionBits { get; private set; }
+
+    /// <summary>
     /// Entity indices the most recent delta snapshot reported as removed.
     /// </summary>
     public IReadOnlyList<int> RemovedEntities => _removed;
@@ -191,6 +201,10 @@ public sealed class EntityDecoder
 
             entities.Add(ReadEntity(ref reader, entityIndex, indexPayloadBits));
         }
+
+        // Where the entity section ended, so an encoder can be checked against what the decoder
+        // actually consumed rather than against the whole body.
+        EntitySectionBits = reader.BitsRead;
 
         // Removals are listed only on a delta. Reading them unconditionally would consume bits
         // belonging to whatever follows a full snapshot.
