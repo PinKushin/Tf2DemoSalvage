@@ -1573,3 +1573,69 @@ property against a hand-built schema. Verified by sabotage — and the sabotage 
 lesson: a re-encode comparison whose *original* came from our own encoder cannot catch an error
 applied uniformly, because it appears in both sides. Only the shape-survival assertion fails.
 That test now says so rather than implying a correctness guarantee it does not provide.
+
+## B28 — `VoiceMask` is 9 bytes at launch and 33 today, and only the modern width is implemented — OPEN
+
+Found 2026-08-11 by reading `usermessages->Register` out of six shipped clients rather than from
+any SDK. Valve registers each user message with a byte size, and `VoiceMask` writes
+`VOICE_MAX_PLAYERS_DW` dword pairs — audible mask, server-banned mask — then one flag byte, so
+`size = 8 × dwords + 1`:
+
+| build | registered size | implied `VOICE_MAX_PLAYERS` |
+|---|---|---|
+| 2007 launch, 2008 | **9** | 32 |
+| 2009 | **17** | 64 |
+| 2011, 2013, 2026 | **33** | 128 |
+
+`UserMessageBody.VoiceMaskDwords` is 4, i.e. 33 bytes only. A protocol-11 or 14 `VoiceMask` is a
+quarter that width and a protocol-15 one is half.
+
+**Severity is low and the reason is worth stating: it fails safely, and not by luck.** The reader
+requires *exact* consumption (`==`, not `<=`), so a 9-byte body simply refuses the 33-byte layout
+and the message is reported by id with no fields. Under a `<=` check it would have read sixteen
+dwords of adjacent bits and reported them as mute state — plausible numbers, no error. That rule
+was adopted for `Damage` under B26 and has now paid for itself twice, the second time on an era
+and a message nobody was examining.
+
+**Not yet observed firing**, because no corpus demo has been shown to contain a pre-2011
+`VoiceMask` — it is sent on voice state changes and the era demos are short listen-server
+recordings. So this is a known gap rather than a known failure.
+
+**Fix, when done, is a width chosen by era**, which is the same table-selection problem as B29 and
+should land with it rather than as a second one-off protocol conditional.
+
+## B29 — protocol 24 cannot select a user message name table above id 50 — OPEN
+
+The user message id table belongs to the **game DLL**, and the protocol number belongs to the
+**engine**. They move independently, and protocol 24 has now spanned thirteen years.
+
+Measured from the binaries on 2026-08-11:
+
+| build | registers | ids | notes |
+|---|---|---|---|
+| 2007, 2008 | 29 | 0–28 | ends at `PlayerStatsUpdate`; no haptics block |
+| 2009 | 41 | 0–40 | ends at `CheapBreakModel` |
+| 2011 | 49 | 0–48 | ends at `PlayerBonusPoints` |
+| **March 2013** | **66** | **0–65** | **no `RDTeamPointsChanged`** |
+| **July 2026** | **79** | **0–78** | ends at `BuiltObject` |
+
+Both 2013 and 2026 are protocol 24. `RDTeamPointsChanged` was inserted at id 51 some time after
+March 2013 — the string appears nowhere in that build — so **every id from 51 up means something
+different in the two, while carrying the same protocol number**. Concretely, id 69 is
+`HapSetDrag` in March 2013 and `PlayerLoadoutUpdated` in 2026.
+
+`UserMessageNames.Lookup` keys on protocol alone, so it cannot distinguish them. Its type-level
+remarks also state the table was transcribed from the 2013 SDK; the binaries show it matches the
+**2026** client entry for entry, so the comment is wrong about its own provenance even though the
+data is right for modern demos.
+
+**Currently invisible, for a good reason.** The refusing-layout gate withholds a name whenever a
+known layout does not fit, which is what leaves the March 2013 demo reporting `#69` rather than a
+confident `PlayerLoadoutUpdated`. That is correct behaviour arrived at without knowing this risk
+existed. It only covers ids this project has layouts for, though — an id in 51–65 with no layout
+would be named from the wrong table silently.
+
+**Fix requires dating a protocol-24 demo**, which the header cannot do: no build number is
+carried. The available levers are content fingerprints of the kind already used to place
+`z1800.dem` — game event schema, string table contents, or the highest id actually observed. Do
+not add a protocol conditional here; the discriminator is not the protocol.

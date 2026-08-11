@@ -36,14 +36,73 @@ closes the loop: the file, the binary, and the date all agree, and none of it de
 | Protocol | Build | Date | Evidence |
 |---|---|---|---|
 | **11** | 3258 | **9 October 2007** | client `version`; TF2 shipped 10 Oct 2007, so this is the launch build |
+| **13** | — | **≤ 15 November 2007** | that day's patch note, below — no client, no demo |
 | **14** | 3420 | **19 March 2008** | client `version` |
 | **15** | 3862 | **4 June 2009** | client `version` |
 | **16** | 4604 | **15 June 2011** | client `version` |
 | **24** | 5252 / 1729296 | **25 March 2013** | client `version` |
 
-Gaps, still unmeasured: **12–13**, somewhere between October 2007 and March 2008 — a five-month
-window — and **17–23**, between June 2011 and March 2013. Nine protocol numbers across two narrow
-windows.
+Gaps, still unmeasured: **12–13**, now squeezed into the five weeks after launch, and **17–23**,
+between June 2011 and March 2013. Nine protocol numbers, and one of the two windows is much
+tighter than it was.
+
+## The one boundary Valve wrote down, and why a patch note is a ceiling
+
+Everything above came from running a period client. Protocols 12 and 13 did not, because no
+client for either survives — they come from the TF2 patch notes for **15 November 2007**:
+
+> Added backward compatibility code to allow demos recorded with protocol 12 to continue to be
+> playable under protocol version 13
+
+Two protocol numbers in one sentence, which is more than the other eighteen years of notes
+contain put together. The build shipped that day *is* protocol 13, so both 12 and 13 exist by
+15 November — five weeks after a launch build measured at protocol 11.
+
+**But the date belongs to the fix, not to the bump, and the first version of this section
+conflated them.** Read what the sentence actually describes: *adding backward compatibility
+code*. That is a repair, and a repair lags the break. For it to be written, protocol 13 had to
+have shipped, players had to have discovered their protocol-12 recordings no longer played, and
+somebody had to have reported it. None of that happens on the morning of the bump. So 13 was
+live for some unknown number of days before 15 November, and 12 sits further back still — toward
+the 25 October patch, the largest of the four candidates.
+
+The corroboration is in the same patch. It carries a **second and separate** demo repair, *"Fix
+for broken .dem file playback"*. Two independent demo fixes shipping together describes a demo
+system that had been broken in the field for a while, not one that broke that morning.
+
+So the row is graded **bounded**, not sourced: `13 ≤ 15 Nov 2007`, with the true date earlier by
+an unknown margin. Calling it "dated exactly" would have been the single most confident wrong
+thing in this document.
+
+**The general lesson, and it applies to every changelog date in this project:** a changelog
+records when someone *responded* to something. It is an upper bound on the event, and the lag is
+whatever the report-and-fix cycle was at that company in that year. A dated patch note is not a
+dated change — it is a dated *complaint*. Treat it as a ceiling and say so, because the
+alternative is a date that looks measured, reads as measured, and is off by weeks in a direction
+you never checked.
+
+That distinction is exactly why the evidence grades at the top of `TIMELINE.md` exist. **Measured**
+rows come from a client that printed its own build string; this row came from Valve reacting to
+users, which is a different and weaker kind of fact wearing the same clothes.
+
+## Valve documents effects, never mechanisms
+
+The above is the *only* protocol bump documented anywhere in TF2's patch notes. Not 11→12, not
+13→14, not 15→16, not any of the eight bumps between 2011 and 2013. Nineteen years, one hit — and
+finding it required searching for the demo breakage rather than for the word "protocol".
+
+The reason is structural. A protocol change is a mechanism, so it is invisible to a changelog
+written for players. A protocol change that breaks something a player notices becomes an *effect*,
+and only then does it get written down. The protocol numbers in that sentence are incidental
+detail that leaked into a note written about something else entirely.
+
+Which is also why this route dated one boundary and none of the others, and why it cannot answer
+whether 11→14 carried breaking format changes: those bumps broke nothing a player complained
+about, so nothing was written.
+
+It says one more thing, about the demo format's standing inside Valve. They *did* care that old
+recordings kept playing — enough to write compatibility code five weeks after launch — and then
+never did it again for any later bump. Which is precisely the gap this project exists in.
 
 ## The cadence of change, which is not uniform at all
 

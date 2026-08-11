@@ -139,3 +139,107 @@ the reader simply runs out at the end.
 
 Worth knowing before treating a short read as corruption — for this format it usually means the
 recording stopped, not that the file is damaged.
+
+## The engine's own header reader, read out of `engine.dll` (2026-08-11)
+
+Everything above was worked out from the bytes. The 2008 engine (build 3420, protocol 14) was then
+disassembled, and two functions settle the container outright. `CDemoFile` ships in no SDK, so this
+is the only place the answers exist.
+
+### `ReadDemoHeader` — the accept rule, and it is not an equality
+
+```
+memset(header, 0, 0x430)
+compare 8 bytes against "HL2DEMO"        -> "%s has invalid demo header ID."
+if (network != 14 && network < 12)       -> "ERROR: demo network protocol %i outdated, engine version is %i"
+if (demoProtocol < 4 && demoProtocol > 1) -> accept
+                                          -> "ERROR: demo file protocol %i outdated, engine version is %i"
+```
+
+Four facts fall out, none of them previously knowable:
+
+**The header is `0x430` = 1072 bytes**, memset as one block. That is the number this project
+arrived at by measurement, now confirmed at the source.
+
+**Two protocols, validated separately, with separate messages.** The engine distinguishes the
+*container* version from the *network* version and always has.
+
+**The network accept rule is `>= 12`, not `== 14`.** This is the compatibility code Valve's
+15 November 2007 patch note describes — "backward compatibility code to allow demos recorded with
+protocol 12 to continue to be playable under protocol version 13" — still present four months
+later. It answers a question the changelogs could not:
+
+| transition | breaking? | evidence |
+|---|---|---|
+| 11 → 12 | **yes** | the protocol-14 engine *refuses* a protocol-11 demo |
+| 12 → 13 → 14 | **no** | one engine accepts all three interchangeably |
+
+So the format did break once in TF2's first five months, at the very first step, and then not
+again through 14. Valve drew the compatibility line immediately above 11 and never moved it —
+which is also why a launch-era recording cannot be played by any later client, and why this
+project exists.
+
+**The container accept range is 2 and 3.** `demoProtocol < 4 && demoProtocol > 1`. Version 2 was
+still playable in 2008; every TF2 demo in the corpus is 3.
+
+### `StartRecording` — the writer states the constants
+
+The recorder zeroes the same `0x430` block and writes:
+
+```
+header + 0x08 = 3       demo protocol
+header + 0x0C = 14      network protocol
+```
+
+both as literals. **That dates build 3420 to protocol 14 from the binary alone**, independently of
+running the client — and the same technique would date any build whose `engine.dll` can be
+obtained, which is the cheap triage path for the 17–23 gap.
+
+The field offsets used by both functions confirm the layout field for field: magic at 0, demo
+protocol at 8, network protocol at 12, server name at 16, client name at 276, map at 536, game
+directory at 796, and the sign-on length written last at 1068 from a file-position call.
+
+**One loose end worth recording.** The whole validation block sits inside a guard on a flag at
+`+0x548`; when that flag is set, no check runs at all. What sets it is not yet known.
+
+### Three engines, nineteen years, one unchanged constant
+
+The 2007 and July 2026 engines were read the same way. The header test is the same three lines in
+all three, and only one number in it has ever moved:
+
+| engine | protocol | the test | accepts |
+|---|---|---|---|
+| 2007, build 3258 | 11 | `if (network != 0xb)` | **11 only — a strict equality** |
+| 2008, build 3420 | 14 | `if (network != 0xe && network < 0xc)` | ≥ 12 |
+| July 2026 | 24 | `if (network != 0x18 && network < 0xc)` | ≥ 12 |
+
+**The launch engine had no compatibility at all.** Equality, one accepted value. The `< 0xc` clause
+appears in 2008 and is the November 2007 code.
+
+**And it is still there today, with 12 still in it.** Ten protocol bumps later, the floor Valve
+wrote five weeks after release has never been raised. `0xc` is now a **vestigial constant**: it
+admits eight protocol versions that no modern client can decode a single packet of, because
+nothing downstream of the header knows anything about them.
+
+Two consequences, and the second is the interesting one.
+
+**Protocol 11 is the only version modern TF2 refuses at the door.** Everything from 12 up passes
+the header check and fails later, in the stream. So "the client can no longer play this file" has
+two entirely different mechanisms behind it depending on whether the demo predates or postdates
+12 November 2007, and only the launch era gets a clean error.
+
+**The container version has never moved.** `demoProtocol` is accepted when it is 2 or 3 — written
+`(iVar3 < 4) && (1 < iVar3)` in 2008 and compiled to the unsigned trick `iVar3 - 2U < 2` today —
+identical range in both. The `.dem` container is the single most stable thing in this format: one
+version bump in nineteen years, and the previous version is still accepted.
+
+This is the same category as the vestigial fields in [09](09-valve-implementation.md): **a
+constant that stopped being maintained is a fossil, and it dates the last time anyone looked at
+the code around it.** Nobody has revisited demo header compatibility since 2007.
+
+**A smaller fossil, in the same function.** The live engine's second error string reads
+
+> `ERROR: demo file protocol %i outdated, engine vnoteersion is %i`
+
+with `note` spliced into `version`. It is in the shipped binary — the raw bytes and the decompiler
+agree — so modern TF2 ships a corrupted format string on a path nobody has hit in years.
