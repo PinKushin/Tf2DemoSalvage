@@ -67,6 +67,19 @@ public static class UserMessageBody
             "VGUIMenu" => VguiMenu(body, bodyBits),
             "PlayerStatsUpdate" => PlayerStatsUpdate(body, bodyBits),
             "MapStatsUpdate" => MapStatsUpdate(body, bodyBits),
+            "BreakModel" => BreakModel(body, bodyBits, skin: true),
+            "BreakModel_Pumpkin" => BreakModel(body, bodyBits, skin: true),
+            "BreakModelRocketDud" => BreakModel(body, bodyBits, skin: false),
+            "CheapBreakModel" => CheapBreakModel(body, bodyBits),
+            "SpawnFlyingBird" => SpawnFlyingBird(body, bodyBits),
+            "PlayerTauntSoundLoopStart" => EntityAndString(body, bodyBits, "sound"),
+            "PlayerShieldBlocked" => ShieldBlocked(body, bodyBits),
+            "PlayerTauntSoundLoopEnd" => SingleByte(body, bodyBits, "entity"),
+            "PlayerGodRayEffect" => SingleByte(body, bodyBits, "entity"),
+            "PlayerTeleportHomeEffect" => SingleByte(body, bodyBits, "entity"),
+            "PlayerLoadoutUpdated" => SingleByte(body, bodyBits, "entity"),
+            "MVMResetPlayerStats" => SingleByte(body, bodyBits, "entity"),
+            "AchievementEvent" => AchievementEvent(body, bodyBits),
             _ => null,
         };
 
@@ -152,6 +165,183 @@ public static class UserMessageBody
         catch (EndOfStreamException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// <c>BreakModel</c> and friends — a model shattering somewhere, with an orientation.
+    /// </summary>
+    /// <remarks>
+    /// Written by anything that breaks: `tf_item_wearable.cpp` on a cosmetic, `tf_pumpkin_bomb`,
+    /// `tf_weaponbase_rocket` for a dud. The shape is a model index, a position, an orientation,
+    /// and for the full form a skin:
+    ///
+    /// <code>
+    /// WRITE_SHORT( GetModelIndex() );
+    /// WRITE_VEC3COORD( GetAbsOrigin() );
+    /// WRITE_ANGLES( GetAbsAngles() );
+    /// WRITE_SHORT( GetSkin() );          // BreakModel only, not the rocket dud
+    /// </code>
+    ///
+    /// **`WRITE_ANGLES` is `WRITE_VEC3COORD`.** `bf_write::WriteBitAngles` copies the angle triple
+    /// into a `Vector` and calls `WriteBitVec3Coord` — and carries a standing fix-me comment from
+    /// Valve saying as much. So an orientation is encoded as a position, three presence bits and
+    /// coordinate axes, and an angle costs exactly what a coordinate costs. Worth knowing before
+    /// deriving any width that involves angles: there is no separate angle encoding to look for.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? BreakModel(
+        ReadOnlySpan<byte> body, int bodyBits, bool skin)
+    {
+        try
+        {
+            BitReader reader = new(body);
+            List<KeyValuePair<string, object?>> fields =
+                [new("model", (int)reader.ReadUInt32(16))];
+
+            ReadVector(ref reader, fields, string.Empty);
+            ReadVector(ref reader, fields, "ang_");
+
+            if (skin)
+            {
+                fields.Add(new("skin", (int)reader.ReadUInt32(16)));
+            }
+
+            return reader.BitsRead == bodyBits ? fields : null;
+        }
+        catch (EndOfStreamException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary><c>CheapBreakModel</c> — the same without an orientation or a skin.</summary>
+    /// <remarks>
+    /// A model index and a position, so a full body is 16 + 3 + 66 = **85 bits**, and that width
+    /// is distinctive enough to act as a fingerprint for the message's own id. It is what revealed
+    /// that the id table shifts between eras — see <see cref="UserMessageNames"/>.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? CheapBreakModel(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        try
+        {
+            BitReader reader = new(body);
+            List<KeyValuePair<string, object?>> fields =
+                [new("model", (int)reader.ReadUInt32(16))];
+
+            ReadVector(ref reader, fields, string.Empty);
+
+            return reader.BitsRead == bodyBits ? fields : null;
+        }
+        catch (EndOfStreamException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary><c>SpawnFlyingBird</c> — a position and five floats of flight parameters.</summary>
+    /// <remarks>
+    /// `entity_bird.cpp`. The five floats are 160 bits, so a body with a full position is 229 —
+    /// which is exactly what every protocol-24 demo carrying one contains.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? SpawnFlyingBird(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        try
+        {
+            BitReader reader = new(body);
+            List<KeyValuePair<string, object?>> fields = [];
+            ReadVector(ref reader, fields, string.Empty);
+
+            foreach (string name in BirdFields)
+            {
+                fields.Add(new(name, BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32))));
+            }
+
+            return reader.BitsRead == bodyBits ? fields : null;
+        }
+        catch (EndOfStreamException)
+        {
+            return null;
+        }
+    }
+
+    private static readonly string[] BirdFields =
+        ["fly_angle", "fly_angle_rate", "accel_z", "speed", "glide_time"];
+
+    /// <summary><c>AchievementEvent</c> — which achievement progressed, and how far.</summary>
+    /// <remarks>
+    /// **A message that grew, at a fixed id.** The modern writer sends two shorts —
+    /// `WRITE_SHORT( iAchievement ); WRITE_SHORT( iCount );` in `basemultiplayerplayer.cpp` — for
+    /// 32 bits. The 2009 demo's is **16 bits**: the achievement only. The count was added later.
+    ///
+    /// This is a third distinct kind of era change, alongside the two already known. `Damage`
+    /// changed *layout* at a fixed id; the table around `CheapBreakModel` changed *ids* at a fixed
+    /// layout; this changes *length* at a fixed id and a compatible prefix.
+    ///
+    /// Both widths are accepted, and that is not a guess dressed as a fallback: 16 and 32 are
+    /// exact, they are the only two forms the writer has ever had, and the achievement id occupies
+    /// the same leading short in both. Anything else is refused. Keying it on protocol instead
+    /// would need a boundary, and the corpus gives none — the only evidence is 16 bits at protocol
+    /// 15 and 32 at 24, with nothing in between.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? AchievementEvent(
+        ReadOnlySpan<byte> body, int bodyBits) => bodyBits switch
+        {
+            32 =>
+            [
+                new("achievement", (int)BinaryPrimitives.ReadUInt16LittleEndian(body)),
+                new("count", (int)BinaryPrimitives.ReadUInt16LittleEndian(body[2..])),
+            ],
+            16 => [new("achievement", (int)BinaryPrimitives.ReadUInt16LittleEndian(body))],
+            _ => null,
+        };
+
+    /// <summary><c>PlayerShieldBlocked</c> — who was blocked, and who blocked them.</summary>
+    private static List<KeyValuePair<string, object?>>? ShieldBlocked(
+        ReadOnlySpan<byte> body, int bodyBits) =>
+        bodyBits != 16 ? null : [new("attacker", (int)body[0]), new("victim", (int)body[1])];
+
+    /// <summary>An entity index followed by a NUL-terminated string.</summary>
+    private static List<KeyValuePair<string, object?>>? EntityAndString(
+        ReadOnlySpan<byte> body, int bodyBits, string field)
+    {
+        if (!IsWholeBytes(bodyBits, body) || body.Length < 2)
+        {
+            return null;
+        }
+
+        int end = ByteLength(bodyBits);
+        int offset = 1;
+        if (!ReadString(body, end, ref offset, out string value) || offset != end)
+        {
+            return null;
+        }
+
+        return [new("entity", (int)body[0]), new(field, value)];
+    }
+
+    /// <summary>Reads a <c>BitVec3Coord</c>: three presence bits, then the axes that were sent.</summary>
+    private static void ReadVector(
+        ref BitReader reader, List<KeyValuePair<string, object?>> fields, string prefix)
+    {
+        bool hasX = reader.ReadBit();
+        bool hasY = reader.ReadBit();
+        bool hasZ = reader.ReadBit();
+
+        if (hasX)
+        {
+            fields.Add(new(prefix + "x", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+        }
+
+        if (hasY)
+        {
+            fields.Add(new(prefix + "y", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+        }
+
+        if (hasZ)
+        {
+            fields.Add(new(prefix + "z", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
         }
     }
 
