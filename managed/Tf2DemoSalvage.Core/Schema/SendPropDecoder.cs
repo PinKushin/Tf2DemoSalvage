@@ -101,14 +101,28 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing how the value is encoded.</param>
     /// <returns>The decoded value.</returns>
-    public static float ReadFloat(ref BitReader reader, SendProperty property)
+    public static float ReadFloat(ref BitReader reader, SendProperty property) =>
+        ReadFloat(ref reader, property, out _);
+
+    /// <summary>Reads a float property, reporting the encoding choice it was sent with.</summary>
+    /// <param name="reader">Reader positioned at the value.</param>
+    /// <param name="property">The definition describing how the value is encoded.</param>
+    /// <param name="inBounds">
+    /// Whether a multiplayer coordinate used the narrow integer field. Meaningless for every other
+    /// encoding, and reported because it is not recoverable from the value: both widths decode to
+    /// the same number, so a re-encode that guesses gets it right most of the time and no test can
+    /// see the difference except a comparison against the demo.
+    /// </param>
+    /// <returns>The decoded value.</returns>
+    public static float ReadFloat(ref BitReader reader, SendProperty property, out bool inBounds)
     {
+        inBounds = false;
         // Coordinate flags are tested before SPROP_NOSCALE because the engine tests them in
         // that order. Reversing it is not a wrong value but a desynchronisation: a coordinate
         // is 2 to 20 bits, a noscale float is always 32.
         if ((property.Flags & CoordFlags) != 0)
         {
-            return ReadCoord(ref reader, property.Flags);
+            return ReadCoord(ref reader, property.Flags, out inBounds);
         }
 
         if ((property.Flags & NoScaleFlag) != 0)
@@ -134,14 +148,28 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing each component.</param>
     /// <returns>The decoded components.</returns>
-    public static (float X, float Y, float Z) ReadVector(ref BitReader reader, SendProperty property)
+    public static (float X, float Y, float Z) ReadVector(
+        ref BitReader reader, SendProperty property) =>
+        ReadVector(ref reader, property, out _);
+
+    /// <summary>Reads a vector, reporting each component's encoding choice as a bit mask.</summary>
+    /// <param name="reader">Reader positioned at the value.</param>
+    /// <param name="property">The definition describing each component.</param>
+    /// <param name="inBounds">Bit per component: set when it used the narrow integer field.</param>
+    /// <returns>The decoded components.</returns>
+    public static (float X, float Y, float Z) ReadVector(
+        ref BitReader reader, SendProperty property, out int inBounds)
     {
-        float x = ReadFloat(ref reader, property);
-        float y = ReadFloat(ref reader, property);
+        float x = ReadFloat(ref reader, property, out bool firstInBounds);
+        float y = ReadFloat(ref reader, property, out bool secondInBounds);
+
+        inBounds = (firstInBounds ? 1 : 0) | (secondInBounds ? 2 : 0);
 
         if ((property.Flags & NormalFlag) == 0)
         {
-            return (x, y, ReadFloat(ref reader, property));
+            float third = ReadFloat(ref reader, property, out bool thirdInBounds);
+            inBounds |= thirdInBounds ? 4 : 0;
+            return (x, y, third);
         }
 
         // A normal is unit length, so the third component is derived rather than sent - only
@@ -166,9 +194,22 @@ public static class SendPropDecoder
     /// <param name="reader">Reader positioned at the value.</param>
     /// <param name="property">The definition describing each component.</param>
     /// <returns>The decoded components.</returns>
-    public static (float X, float Y) ReadVectorXY(ref BitReader reader, SendProperty property)
+    public static (float X, float Y) ReadVectorXY(
+        ref BitReader reader, SendProperty property) => ReadVectorXY(ref reader, property, out _);
+
+    /// <summary>Reads a two-component vector, reporting each component's encoding choice.</summary>
+    /// <param name="reader">Reader positioned at the value.</param>
+    /// <param name="property">The definition describing each component.</param>
+    /// <param name="inBounds">Bit per component: set when it used the narrow integer field.</param>
+    /// <returns>The decoded components.</returns>
+    public static (float X, float Y) ReadVectorXY(
+        ref BitReader reader, SendProperty property, out int inBounds)
     {
-        return (ReadFloat(ref reader, property), ReadFloat(ref reader, property));
+        float x = ReadFloat(ref reader, property, out bool firstInBounds);
+        float y = ReadFloat(ref reader, property, out bool secondInBounds);
+
+        inBounds = (firstInBounds ? 1 : 0) | (secondInBounds ? 2 : 0);
+        return (x, y);
     }
 
     /// <summary>Reads a length-prefixed string.</summary>
@@ -224,7 +265,7 @@ public static class SendPropDecoder
     /// reads the sign bit only when an integer is present, where the non-integral variants
     /// always read it.
     /// </remarks>
-    private static float ReadCoord(ref BitReader reader, int flags)
+    private static float ReadCoord(ref BitReader reader, int flags, out bool inBoundsChoice)
     {
         // Strict first-match precedence, as the engine's FloatDefinition does it: COORD, then
         // COORD_MP, then LOWPRECISION, then INTEGRAL. These are not independent modifiers, and
@@ -242,6 +283,7 @@ public static class SendPropDecoder
 
         // SPROP_COORD has no in-bounds bit; its first two bits say which parts are present.
         bool inBounds = !plainCoord && reader.ReadBit();
+        inBoundsChoice = inBounds;
         bool hasInteger = reader.ReadBit();
         bool hasFraction = plainCoord ? reader.ReadBit() : !integral;
 

@@ -1330,36 +1330,34 @@ attributes, and the versions of TF2 with no item system fail nothing at all.
 | The in-bounds bit is not "narrow when it fits" | invert the rule | 267 to 80,438, so the rule is right nearly always |
 | The fraction is truncated, not rounded | truncate and mask as `bf_write` does | no change at all |
 
-**The remaining rule is still wrong, and 99.9% is not a defence.** A demo is deterministic; the
-engine picks from a condition, and "usually the narrow one" describes outputs rather than the
-condition.
+**Resolved by adopting Valve's rule and recording what it cannot derive.** Two changes, in that
+order, because the order is the point.
 
-**The authority is public, and it is not a decompile.** `bf_write::WriteBitCoordMP` is in Valve's
-own `src/tier1/bitbuf.cpp` in `ValveSoftware/source-sdk-2013`:
+First, the sign predicate became Valve's: `signbit = (f <= -COORD_RESOLUTION)`, not "is the value
+negative". Taken from `bf_write::WriteBitCoordMP` in `src/tier1/bitbuf.cpp`. It scored *worse* on
+its own — 13,966 exact became 13,965 — and was adopted anyway, because using a rule known to be
+wrong on the grounds that it fits the corpus better is fitting to the corpus. A correct rule that
+produces more mismatches is evidence about the values reaching it.
 
-```c
-int  signbit = (f <= -( bLowPrecision ? COORD_RESOLUTION_LOWPRECISION : COORD_RESOLUTION ));
-int  intval  = (int)abs(f);
-int  fractval = abs((int)(f*COORD_DENOMINATOR)) & (COORD_DENOMINATOR-1);
-bool bInBounds = intval < (1 << COORD_INTEGER_BITS_MP);
+Second, that evidence was chased. A value-only round trip — encode a decoded coordinate, decode it
+again, compare — passes on **1,001,048 of 1,001,048** components. So the encoder and decoder agree
+about every value, and what remained could only be a *choice*: which of two encodings of the same
+value the sender used. `DecodedProperty.CoordShape` now records the in-bounds bit per component and
+the encoder honours it, exactly as `IndexPayloadBits` does for index deltas.
 
-// integer present, float variant:
-bits = intval * 8 + signbit * 4 + 2 + bInBounds;
-bits += bInBounds ? (fractval << (3+COORD_INTEGER_BITS_MP)) : (fractval << (3+COORD_INTEGER_BITS));
+```
+                       content re-encoded exactly
+before                 1,007,612 of 1,040,124   96.87%   (measurement bug included)
+after the measurement fix                       99.59%
+after property index widths                     99.95%   (at a 900-command sample)
+after Valve's sign rule + recorded coord choice  1,039,144 of 1,040,124   99.91%
 ```
 
-That confirms the field order this project reads — in-bounds, has-integer, sign, integer,
-fraction — and confirms the in-bounds predicate as `intval < 2048`. Both already match.
+**980 snapshots (0.09%) still do not re-encode**, and that is where this stands. The approach is
+proven — six kinds of encoding choice now travel with the value rather than being guessed — and
+the residue is small enough that the next step is a bit-level diff of one case rather than another
+sweep.
 
-**Three more hypotheses died against it:**
-
-| Hypothesis | Result |
-|---|---|
-| Sign is `f <= -COORD_RESOLUTION`, not "is negative" | tried; 13,966 to 13,965, so marginally worse |
-| Fraction is truncated and masked rather than rounded | no change |
-| In-bounds is not "narrow when it fits" | 267 to 80,438 |
-
-Six hypotheses have now been tested and killed on this one field. **The next step is not another
-one** — it is a bit-level diff of a single failing coordinate: the wire's bits at that property's
-own offset against ours, with the decoded value printed beside them. Everything needed for that
-already exists in `CorpusEntityRoundTripTests.Describe`.
+**What this does and does not affect.** The decode reads every one of these bits off the wire, so
+positions are read correctly and anything built on decoded values is unaffected. Only a re-encode
+was ever guessing.

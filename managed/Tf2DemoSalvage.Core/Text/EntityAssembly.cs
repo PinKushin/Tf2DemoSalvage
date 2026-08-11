@@ -78,9 +78,10 @@ public static class EntityAssembly
             foreach (DecodedProperty property in entity.Properties)
             {
                 string value = PropertyText.Write(property.Definition, property.Value);
+                string shape = Shape(property);
                 lines.Add(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"    prop {property.Index} {property.Definition.OwnerTable}." +
+                    $"    prop {property.Index}{shape} {property.Definition.OwnerTable}." +
                     $"{property.Definition.Property.Name} {value}"));
             }
 
@@ -169,9 +170,10 @@ public static class EntityAssembly
             foreach (DecodedProperty property in effect.Properties)
             {
                 string value = PropertyText.Write(property.Definition, property.Value);
+                string shape = Shape(property);
                 lines.Add(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"    prop {property.Index} {property.Definition.OwnerTable}." +
+                    $"    prop {property.Index}{shape} {property.Definition.OwnerTable}." +
                     $"{property.Definition.Property.Name} {value}"));
             }
 
@@ -250,15 +252,30 @@ public static class EntityAssembly
                 break;
             }
 
-            int index = int.Parse(tokens[1], CultureInfo.InvariantCulture);
+            (int index, int indexWidth, int shape) = ParseIndex(tokens[1]);
             properties.Add(new DecodedProperty(
-                index, flat[index], PropertyText.Read(flat[index], tokens, 3)));
+                index, flat[index], PropertyText.Read(flat[index], tokens, 3), indexWidth, shape));
         }
 
         return new DecodedTempEntity(classId, delay, properties);
     }
 
     private static string Round(float value) => value.ToString("R", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The property's encoding choices, appended to its index as <c>index/width/coord</c>.
+    /// </summary>
+    /// <remarks>
+    /// Written only when there is something to say, so an ordinary property keeps a bare index.
+    /// Both parts are choices the sender made that the value cannot recover: which UBitVar bucket
+    /// the index delta used, and which components of a coordinate took the narrow integer field.
+    /// </remarks>
+    private static string Shape(DecodedProperty property) =>
+        property.IndexPayloadBits == 0 && property.CoordShape == 0
+            ? string.Empty
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"/{property.IndexPayloadBits}/{property.CoordShape}");
 
     /// <summary>Reads a snapshot's lines back into a message.</summary>
     /// <param name="tokens">The <c>svc_packetentities</c> line's tokens.</param>
@@ -365,15 +382,17 @@ public static class EntityAssembly
                 break;
             }
 
-            int propertyIndex = int.Parse(tokens[1], CultureInfo.InvariantCulture);
-
             // The name is written for a reader and ignored here: the index is what addresses the
             // flattened list, and a name that disagreed with it would be the schema's problem
             // rather than something to reconcile at parse time.
+            (int propertyIndex, int indexWidth, int shape) = ParseIndex(tokens[1]);
+
             properties.Add(new DecodedProperty(
                 propertyIndex,
                 flat[propertyIndex],
-                PropertyText.Read(flat[propertyIndex], tokens, 3)));
+                PropertyText.Read(flat[propertyIndex], tokens, 3),
+                indexWidth,
+                shape));
         }
 
         return new DecodedEntity(
@@ -381,6 +400,16 @@ public static class EntityAssembly
             fields.TryGetValue("ibits", out string? width)
                 ? int.Parse(width, CultureInfo.InvariantCulture)
                 : 0);
+    }
+
+    /// <summary>Splits <c>index</c> or <c>index/width/coord</c> into its three parts.</summary>
+    private static (int Index, int Width, int CoordShape) ParseIndex(string token)
+    {
+        string[] parts = token.Split('/');
+        return (
+            int.Parse(parts[0], CultureInfo.InvariantCulture),
+            parts.Length > 1 ? int.Parse(parts[1], CultureInfo.InvariantCulture) : 0,
+            parts.Length > 2 ? int.Parse(parts[2], CultureInfo.InvariantCulture) : 0);
     }
 
     private static Dictionary<string, string> Fields(IReadOnlyList<string> tokens)

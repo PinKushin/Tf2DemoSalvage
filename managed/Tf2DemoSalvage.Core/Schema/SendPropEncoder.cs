@@ -62,7 +62,21 @@ public static class SendPropEncoder
     /// <param name="property">The definition describing how the value is encoded.</param>
     /// <param name="value">The value.</param>
     /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
-    public static void WriteFloat(BitWriter writer, SendProperty property, float value)
+    public static void WriteFloat(BitWriter writer, SendProperty property, float value) =>
+        WriteFloat(writer, property, value, null);
+
+    /// <summary>Writes a float property, honouring a recorded encoding choice.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="property">The definition describing how the value is encoded.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="inBounds">
+    /// The in-bounds bit the sender used, or <c>null</c> to derive it. Honoured rather than
+    /// derived because a sender may use the wide field for a value the narrow one would hold, and
+    /// both decode to the same number.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    public static void WriteFloat(
+        BitWriter writer, SendProperty property, float value, bool? inBounds)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
@@ -71,7 +85,7 @@ public static class SendPropEncoder
         // is always 32.
         if ((property.Flags & SendPropDecoder.CoordFlags) != 0)
         {
-            WriteCoord(writer, value, property.Flags);
+            WriteCoord(writer, value, property.Flags, inBounds);
             return;
         }
 
@@ -110,16 +124,26 @@ public static class SendPropEncoder
     /// <param name="value">The components.</param>
     /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
     public static void WriteVector(
-        BitWriter writer, SendProperty property, (float X, float Y, float Z) value)
+        BitWriter writer, SendProperty property, (float X, float Y, float Z) value) =>
+        WriteVector(writer, property, value, 0);
+
+    /// <summary>Writes a vector, honouring each component's recorded encoding choice.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="property">The definition describing each component.</param>
+    /// <param name="value">The components.</param>
+    /// <param name="inBounds">Bit per component, as <c>ReadVector</c> reported them.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    public static void WriteVector(
+        BitWriter writer, SendProperty property, (float X, float Y, float Z) value, int inBounds)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
-        WriteFloat(writer, property, value.X);
-        WriteFloat(writer, property, value.Y);
+        WriteFloat(writer, property, value.X, (inBounds & 1) != 0);
+        WriteFloat(writer, property, value.Y, (inBounds & 2) != 0);
 
         if ((property.Flags & SendPropDecoder.NormalFlag) == 0)
         {
-            WriteFloat(writer, property, value.Z);
+            WriteFloat(writer, property, value.Z, (inBounds & 4) != 0);
             return;
         }
 
@@ -134,12 +158,22 @@ public static class SendPropEncoder
     /// <param name="value">The components.</param>
     /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
     public static void WriteVectorXY(
-        BitWriter writer, SendProperty property, (float X, float Y) value)
+        BitWriter writer, SendProperty property, (float X, float Y) value) =>
+        WriteVectorXY(writer, property, value, 0);
+
+    /// <summary>Writes a two-component vector, honouring the recorded encoding choices.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="property">The definition describing each component.</param>
+    /// <param name="value">The components.</param>
+    /// <param name="inBounds">Bit per component, as <c>ReadVectorXY</c> reported them.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    public static void WriteVectorXY(
+        BitWriter writer, SendProperty property, (float X, float Y) value, int inBounds)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
-        WriteFloat(writer, property, value.X);
-        WriteFloat(writer, property, value.Y);
+        WriteFloat(writer, property, value.X, (inBounds & 1) != 0);
+        WriteFloat(writer, property, value.Y, (inBounds & 2) != 0);
     }
 
     /// <summary>Writes a length-prefixed string.</summary>
@@ -172,7 +206,17 @@ public static class SendPropEncoder
     /// and so does this. The integral variant is the odd one: no fraction at all, and no sign bit
     /// when there is no integer part either, where the others always write one.
     /// </remarks>
-    public static void WriteCoord(BitWriter writer, float value, int flags)
+    public static void WriteCoord(BitWriter writer, float value, int flags) =>
+        WriteCoord(writer, value, flags, null);
+
+    /// <summary>Writes a coordinate, honouring a recorded in-bounds choice.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="value">The coordinate.</param>
+    /// <param name="flags">The property's flags, which select the variant.</param>
+    /// <param name="recordedInBounds">The bit the sender used, or <c>null</c> to derive it.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    public static void WriteCoord(
+        BitWriter writer, float value, int flags, bool? recordedInBounds)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
@@ -211,9 +255,12 @@ public static class SendPropEncoder
 
         if (!plainCoord)
         {
-            // The one genuine choice on this path: the in-bounds bit selects an 11-bit integer
-            // field instead of a 14-bit one. Narrow whenever the value fits.
-            writer.WriteBit(integer < 1 << SendPropDecoder.CoordIntegerBitsInBounds);
+            // Valve's own predicate is `intval < (1 << COORD_INTEGER_BITS_MP)`, and it is derived
+            // from the value the SENDER had rather than the one that came back - so it is honoured
+            // when recorded and derived only when there is nothing to honour.
+            writer.WriteBit(
+                recordedInBounds
+                    ?? integer < 1 << SendPropDecoder.CoordIntegerBitsInBounds);
         }
 
         writer.WriteBit(hasInteger);
@@ -237,9 +284,12 @@ public static class SendPropEncoder
 
         if (hasInteger)
         {
-            int width = plainCoord || integer >= 1 << SendPropDecoder.CoordIntegerBitsInBounds
-                ? SendPropDecoder.CoordIntegerBits
-                : SendPropDecoder.CoordIntegerBitsInBounds;
+            bool narrow = !plainCoord &&
+                (recordedInBounds ?? integer < 1 << SendPropDecoder.CoordIntegerBitsInBounds);
+
+            int width = narrow
+                ? SendPropDecoder.CoordIntegerBitsInBounds
+                : SendPropDecoder.CoordIntegerBits;
 
             if (integer > 1 << width)
             {
