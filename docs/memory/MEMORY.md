@@ -23,3 +23,4 @@
 - [Read the encoder, not the decoder](read-the-encoder-not-the-decoder.md) — an encoder states intent a decoder only implies; a case the corpus never contains is a case the corpus cannot rule on.
 - [Round trips need the encoding shape](round-trip-needs-the-encoding-shape.md) — which optional fields were sent is not recoverable from the values; record it or the demo cannot be rebuilt.
 - [Measure the output, not the capability](measure-the-output-not-the-capability.md) — a report built from a predicate reads clean while every instance quietly falls back.
+- [Valve publishes bitbuf](valve-publishes-bitbuf.md) — bf_write/bf_read are in source-sdk-2013 src/tier1; read it before decompiling anything bit-level.
