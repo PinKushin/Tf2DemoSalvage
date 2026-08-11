@@ -96,12 +96,17 @@ public sealed class EntitySectionLengthTests(ITestOutputHelper output)
                     deltas[difference] = deltas.GetValueOrDefault(difference) + 1;
                     snapshots++;
 
-                    if (difference != 0 && examples.Count < 6)
+                    if (difference != 0 && examples.Count < 12)
                     {
+                        // The file name matters more than it looks. A residue this small - nine
+                        // snapshots in a hundred and eleven thousand - is only tractable if you
+                        // can tell which recording produced it, and the answer turned out to be
+                        // the discriminator: whether the shortfall is the writer giving up
+                        // mid-message or a genuine encoder bug depends on the demo it came from.
                         examples.Add(string.Create(
                             CultureInfo.InvariantCulture,
-                            $"consumed {consumed}, produced {producedWithFlag}, " +
-                            $"{entities.Count} entities, last is " +
+                            $"{Path.GetFileName(path)}: consumed {consumed}, " +
+                            $"produced {producedWithFlag}, {entities.Count} entities, last is " +
                             $"{entities[^1].UpdateType} with {entities[^1].Properties.Count} props, " +
                             $"delta={snapshot.IsDelta}, stated={snapshot.LengthBits}"));
                     }
