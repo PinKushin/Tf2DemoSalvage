@@ -52,6 +52,10 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
         long structured = 0;
         long raw = 0;
 
+        // Every demo's text, kept so the report counts what was written rather than what could
+        // have been.
+        System.Text.StringBuilder everything = new();
+
         foreach (string path in Corpus.Files())
         {
             string name = Path.GetFileName(path);
@@ -84,6 +88,7 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
             demos++;
             bytes += original.Length;
             Count(text.ToString(), ref structured, ref raw);
+            everything.Append(text.ToString());
         }
 
         // A corpus that stopped being found would otherwise pass this without comparing anything.
@@ -105,104 +110,49 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
             $"{structured:N0} of {structured + raw:N0} message lines are structured " +
             $"({100.0 * structured / (structured + raw):F1}%)"));
 
-        ReportWhatIsStillRaw(output);
+        ReportWhatIsStillRaw(output, everything.ToString());
     }
 
     /// <summary>
-    /// Names the message types still carried as bits, in bit order.
+    /// Names what is still carried as bits, by what the writer actually emitted.
     /// </summary>
     /// <remarks>
-    /// The work queue. A line count says how much text there is; bits say how much of the demo a
-    /// viewer still cannot read, which is the number that matters - a single svc_PacketEntities
-    /// outweighs a thousand net_nops.
+    /// **Measured from the output, not from <c>CanWrite</c>, because that is the mistake this
+    /// report made for two commits.** Asking which types have a text form answers a different
+    /// question from asking which messages got one: a type can have a text form that declines on
+    /// every instance, and the report will happily say the queue is empty. It did - 6.3 million
+    /// bits were still hex while this printed nothing at all.
+    ///
+    /// The writer labels each raw line with what it stands for and whether the type had a text
+    /// form that declined, so counting the output cannot disagree with the output.
     /// </remarks>
-    private static void ReportWhatIsStillRaw(ITestOutputHelper output)
+    private static void ReportWhatIsStillRaw(ITestOutputHelper output, string assembly)
     {
         Dictionary<string, long> bits = new(StringComparer.Ordinal);
         Dictionary<string, long> counts = new(StringComparer.Ordinal);
 
-        foreach (string path in Corpus.Files())
+        foreach (string line in assembly.Split('\n'))
         {
-            byte[] bytes = File.ReadAllBytes(path);
-            NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
-
-            foreach (DemoCommand command in
-                DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(CommandLimit))
+            string trimmed = line.Trim();
+            if (!trimmed.StartsWith("raw ", StringComparison.Ordinal))
             {
-                if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-                {
-                    continue;
-                }
-
-                NetMessageReadResult result = NetMessageReader.Read(command.Payload.Span, state);
-                for (int i = 0; i < result.Messages.Count; i++)
-                {
-                    if (MessageAssembly.CanWrite(result.Messages[i]))
-                    {
-                        continue;
-                    }
-
-                    int end = i + 1 < result.Messages.Count
-                        ? result.MessageStartBits[i + 1]
-                        : result.BitsConsumed;
-
-                    string key = result.Messages[i].Type.ToString();
-                    bits[key] = bits.GetValueOrDefault(key) + end - result.MessageStartBits[i];
-                    counts[key] = counts.GetValueOrDefault(key) + 1;
-                }
+                continue;
             }
+
+            string[] parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            int marker = trimmed.IndexOf("# ", StringComparison.Ordinal);
+            string label = marker < 0 ? "unlabelled" : trimmed[(marker + 2)..];
+
+            bits[label] = bits.GetValueOrDefault(label) +
+                int.Parse(parts[1], CultureInfo.InvariantCulture);
+            counts[label] = counts.GetValueOrDefault(label) + 1;
         }
 
-        long compressed = 0;
-        long compressedBits = 0;
-        long plain = 0;
-        long plainBits = 0;
-
-        foreach (string path in Corpus.Files())
-        {
-            byte[] demo = File.ReadAllBytes(path);
-            NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
-
-            foreach (DemoCommand command in
-                DemoCommandReader.Read(demo.AsMemory(DemoHeader.SizeBytes)).Take(CommandLimit))
-            {
-                if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-                {
-                    continue;
-                }
-
-                foreach (INetMessage message in
-                    NetMessageReader.Read(command.Payload.Span, state).Messages)
-                {
-                    if (message is not CreateStringTableMessage table || table.Wire is null)
-                    {
-                        continue;
-                    }
-
-                    if (table.IsCompressed)
-                    {
-                        compressed++;
-                        compressedBits += table.Wire.BodyBits;
-                    }
-                    else
-                    {
-                        plain++;
-                        plainBits += table.Wire.BodyBits;
-                    }
-                }
-            }
-        }
-
-        output.WriteLine(string.Create(
-            CultureInfo.InvariantCulture,
-            $"create string tables: {plain:N0} plain ({plainBits:N0} bits), " +
-            $"{compressed:N0} compressed ({compressedBits:N0} bits)"));
-
-        output.WriteLine("still raw, by bits:");
-        foreach ((string type, long total) in bits.OrderByDescending(entry => entry.Value))
+        output.WriteLine("still bits, by what they are:");
+        foreach ((string label, long total) in bits.OrderByDescending(entry => entry.Value))
         {
             output.WriteLine(string.Create(
-                CultureInfo.InvariantCulture, $"    {total,14:N0}  {counts[type],9:N0}  {type}"));
+                CultureInfo.InvariantCulture, $"    {total,14:N0}  {counts[label],9:N0}  {label}"));
         }
     }
 

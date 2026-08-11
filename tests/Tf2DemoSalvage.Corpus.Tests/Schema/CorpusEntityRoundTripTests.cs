@@ -27,17 +27,13 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// Reported per demo rather than gated, on the same principle as the codec coverage report: the
 /// number is meant to be watched moving.
 ///
-/// **99.78% as of 2026-08-11 — 13,942 of 13,973 — and every demo before 2013 is at 100%.** The 31
-/// exceptions are all in modern demos and fall into two kinds, which the diagnostic separates
-/// because they are different findings:
-///
-/// - **Trailing slack.** The difference is past the last bit this encoder writes. A body is stated
-///   in bits and built in bytes, and nothing requires the leftover to be zero. Not a decode error.
-/// - **A wider variable-width field than canonical.** At the entity index of a LEAVE update, the
-///   wire's UBitVar selector is one step wider than the narrowest form that holds the value —
-///   twelve payload bits where eight would do. Both decode to the same index, which is why nothing
-///   else notices. Unexplained, and deliberately left that way rather than papered over with a
-///   heuristic: see RISKS B25.
+/// **This instrument and the assembly round trip disagree, and the disagreement is unresolved.**
+/// Over whole demos this reports 96.87% while the assembly writer — which encodes through the same
+/// <c>EntityDecoder.EncodeEntities</c> and falls back to raw on any difference — declines
+/// nothing at all on the same files. One of the two is measuring something other than what it
+/// says. The assembly gate is the stronger statement of the two, because it compares against the
+/// demo end to end rather than body by body, so this number should be treated as unexplained
+/// rather than as a defect count until they are reconciled. See RISKS B25.
 /// </remarks>
 public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
 {
