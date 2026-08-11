@@ -1832,3 +1832,28 @@ reachable by anything in the corpus.
 message's whole body as opaque. The bucket was left alone on purpose — moving it would zero the
 number by bookkeeping. The bits are now *interpreted* rather than merely consumed, and the
 instrument should be changed only with that argument made explicitly, not as a side effect.
+
+## B31 — 63 of 1397 Opus chunk blocks do not consume exactly — OPEN
+
+Found 2026-08-11 while resolving the `svc_VoiceData` framing ([findings/02](findings/02-net-messages.md)).
+
+The outer Steam framing is settled — 1452 of 1452 payloads consume exactly. The layer inside a type
+`0x06` sub-packet is modelled as repeated `u16 chunk length, u16 sequence, <chunk length> bytes`,
+and that consumes exactly for **1334 of 1397** blocks.
+
+**The 63 that do not are unexplained.** There is a distinct population of 1-byte chunks — 147 of
+them against a normal size range of 78–86 — and the plausible story is that a 1-byte chunk is a
+marker with a different shape, perhaps not followed by a sequence field at all. That is a
+hypothesis. It has not been tested, and it is recorded here rather than in the findings for exactly
+that reason.
+
+**Severity is low but the failure mode is not benign.** Unlike an exact-consumption check on a
+message that then refuses, a mis-framed chunk hands the Opus decoder bytes that are not a frame
+boundary. Opus will usually reject those, but "usually" is not a guarantee, and a decoder that
+accepts them produces audible noise rather than an error. So the fix must be to establish the real
+shape, not to skip the blocks that fail.
+
+**What would settle it**: dump the 63 failing blocks with their chunk sequences and look at what
+precedes the miss, and cross-check against a demo with a single continuous speaker where the
+sequence numbers should be contiguous. The 2018-era archive currently downloading is CELT rather
+than Steam voice, so it does not help here; the modern demos.tf pulls do.

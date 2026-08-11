@@ -139,3 +139,72 @@ our 2026 demos show it as the default; that later default change is still unbrac
 2026, and `steam` after. A parser that wanted audio from the competitive archive on demos.tf would
 need **CELT**, because that is what the bulk of recorded, downloadable TF2 voice is encoded in —
 which is the awkward answer, since CELT is the one an Opus decoder cannot read.
+
+## The voice payload framing, measured (2026-08-11)
+
+`svc_VoiceData`'s body was carried whole and called opaque. It is not opaque — only its innermost
+layer is, and that layer is what a codec library reads. Everything above it is framing this project
+can resolve, and now has.
+
+Established by **exact consumption**: parse the whole payload, require the parser to land precisely
+on the end, and count. A model that is nearly right scores zero, not "most", which is what makes
+the number worth reporting.
+
+### `steam` — Opus, and fully framed
+
+```
+u64  steamID64                      the speaker, independent of the client slot
+repeat until 4 bytes remain:
+  u8 type
+    0x0B  u16 sample rate           always 24000 across the corpus
+    0x00  u16                       55 occurrences, all in 18-byte packets
+    0x06  u16 length, then <length> bytes of Opus
+u32  tail
+```
+
+*Measured*: **1452 of 1452 packets consume exactly.** The route there is worth keeping, because the
+first two attempts scored **0**:
+
+1. Parsing to the end of the payload — 0 exact, and a type histogram containing *every* byte value
+   from `0x00` to `0xFF`. That histogram is the tell: a desynchronised parser walking noise. The
+   only real signal in it was `0x0B` appearing 1458 times against 1452 packets.
+2. Arithmetic settled it without further guessing. Three packets, declared type-`0x06` length
+   against bytes remaining: 543/525/529, 309/291/295, 273/255/259 — **slack of exactly 4 every
+   time.** A four-byte tail, not a parse error. With that, 1397 of 1452.
+3. The remaining 55 were the 18-byte packets, which carry type `0x00` instead of `0x06`:
+   8 + 3 + 1 + *2* + 4 = 18 gives the field width without needing to know the meaning. 1452 of 1452.
+
+**The steamID is the interesting field.** `svc_VoiceData` already gives a client slot; this gives
+the account. A slot is only meaningful against the roster at that moment, and it is reused when
+players leave — the steamID is not.
+
+### Inside type `0x06`
+
+```
+repeat: u16 chunk length, u16 sequence, <chunk length> bytes
+```
+
+*Measured*: **1334 of 1397** blocks consume exactly. Chunk sizes cluster at 78–86 bytes; sequence
+numbers run 0–164.
+
+**63 blocks do not, and that is open rather than explained.** There is a distinct population of
+1-byte chunks — 147 of them — and the obvious story is that those are a marker with a different
+shape. That is a hypothesis, not a finding, and it is written here as one. See `RISKS.md`.
+
+### `vaudio_celt` and `vaudio_speex` — no framing at all
+
+Both are bare concatenated codec frames, which the length histograms show without any parsing:
+
+| codec | packet lengths observed | implied frame |
+|---|---|---|
+| `vaudio_celt` (z1800) | 64, 128, 192 | **64 bytes** |
+| `vaudio_speex` (2007 STV) | 28, 56, 84, 168 | **28 bytes** |
+
+Every length is an exact multiple of one number, which is what "no header" looks like. CELT's first
+byte is constant at `0x18` across all 806 packets while bytes 1–3 vary in 802 of them — consistent
+with a fixed codec mode rather than with a packet header.
+
+A 28-byte Speex frame is 224 bits, which is Speex narrowband quality 5 (220 bits, byte-aligned) —
+and `svc_VoiceInit` independently reports quality 5 for every pre-2016 demo in the corpus. Two
+unrelated routes to the same parameter, in the sense of
+[01](01-container.md)'s view-angle cross-check.
