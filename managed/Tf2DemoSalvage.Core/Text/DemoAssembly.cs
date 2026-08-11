@@ -8,6 +8,7 @@ using System.Text;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Text;
 
@@ -112,6 +113,10 @@ public static class DemoAssembly
         // without knowing which.
         NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
 
+        // Built when dem_datatables goes past, and carried from there on: an entity snapshot is
+        // meaningless without the schema, and the schema arrives once as its own command.
+        EntityDecoder? entities = null;
+
         foreach (DemoCommand command in commands)
         {
             StringBuilder line = new();
@@ -137,8 +142,12 @@ public static class DemoAssembly
 
             if (expandable)
             {
-                WriteMessages(writer, command.Payload.Span, state);
+                WriteMessages(writer, command.Payload.Span, state, entities);
                 writer.WriteLine(EndKeyword);
+            }
+            else if (command.Type == DemoCommandType.DataTables)
+            {
+                entities = BuildDecoder(command, (ushort)header.NetworkProtocol);
             }
         }
     }
@@ -155,6 +164,7 @@ public static class DemoAssembly
         Dictionary<string, string> fields = new(StringComparer.Ordinal);
         List<DemoCommand> commands = [];
         NetDecodeState state = new();
+        EntityDecoder? entities = null;
         bool inHeader = false;
         bool headerSeen = false;
 
@@ -204,7 +214,13 @@ public static class DemoAssembly
 
             if (command.Type is DemoCommandType.Signon or DemoCommandType.Packet)
             {
-                command = command with { Payload = ReadMessages(reader, state) };
+                command = command with { Payload = ReadMessages(reader, state, entities) };
+            }
+            else if (command.Type == DemoCommandType.DataTables)
+            {
+                // The same schema the writer had, from the same bytes. Rebuilt here rather than
+                // carried in the text, because the text is not where a schema belongs.
+                entities = BuildDecoder(command, state.NetworkProtocol);
             }
 
             commands.Add(command);
@@ -230,8 +246,29 @@ public static class DemoAssembly
     /// the last message go out the same way - a payload is a whole number of bytes and the
     /// messages inside it are not, so there is nearly always a remainder.
     /// </remarks>
+    /// <summary>Builds a decoder from a dem_datatables payload, or nothing if it will not parse.</summary>
+    /// <remarks>
+    /// One corpus demo has no readable schema at all - a protocol-11 SourceTV recording whose
+    /// writer truncated the table at 64 KiB (RISKS B24). Its entity snapshots stay as bits, which
+    /// is the correct outcome rather than a failure to report.
+    /// </remarks>
+    private static EntityDecoder? BuildDecoder(DemoCommand command, ushort protocol)
+    {
+        try
+        {
+            DemoSchema schema = SendTableParser.Parse(command.Payload.Span, protocol);
+            return new EntityDecoder(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or EndOfStreamException)
+        {
+            return null;
+        }
+    }
+
     private static void WriteMessages(
-        TextWriter writer, ReadOnlySpan<byte> payload, NetDecodeState state)
+        TextWriter writer, ReadOnlySpan<byte> payload, NetDecodeState state,
+        EntityDecoder? entities)
     {
         NetMessageReadResult result = NetMessageReader.Read(payload, state);
 
@@ -249,7 +286,7 @@ public static class DemoAssembly
 
             byte[] original = Slice(payload, start, end - start);
             IReadOnlyList<string>? lines = TryStructured(
-                message, original, end - start, check, state.NetworkProtocol);
+                message, original, end - start, check, state.NetworkProtocol, entities);
 
             if (lines is null)
             {
@@ -287,25 +324,32 @@ public static class DemoAssembly
         byte[] original,
         int bitCount,
         NetDecodeState state,
-        ushort protocol)
+        ushort protocol,
+        EntityDecoder? entities)
     {
         if (!MessageAssembly.CanWrite(message))
         {
             return null;
         }
 
-        IReadOnlyList<string> lines;
+        IReadOnlyList<string>? lines;
         BitWriter check = new();
         try
         {
-            lines = MessageAssembly.Write(message, protocol);
+            lines = MessageAssembly.Write(message, protocol, entities);
+            if (lines is null)
+            {
+                return null;
+            }
 
             int index = 0;
+            IReadOnlyList<string> written = lines;
             MessageAssembly.Assemble(
-                lines[0],
-                () => ++index < lines.Count ? lines[index] : null,
+                written[0],
+                () => ++index < written.Count ? written[index] : null,
                 check,
-                Copy(state));
+                Copy(state),
+                entities);
         }
         catch (Exception failure) when (
             failure is InvalidDataException or EndOfStreamException or FormatException or
@@ -403,7 +447,8 @@ public static class DemoAssembly
     /// because the trailing bits were written out as their own <c>raw</c> line. Padding to a
     /// boundary here instead would be inventing bits.
     /// </remarks>
-    private static byte[] ReadMessages(TextReader reader, NetDecodeState state)
+    private static byte[] ReadMessages(
+        TextReader reader, NetDecodeState state, EntityDecoder? entities)
     {
         BitWriter writer = new();
 
@@ -430,7 +475,8 @@ public static class DemoAssembly
                     return next is null ? null : Strip(next);
                 },
                 writer,
-                state);
+                state,
+                entities);
         }
 
         throw new InvalidDataException("A packet block was not closed with 'end'.");

@@ -640,7 +640,16 @@ public sealed class EntityDecoder
         return decoded;
     }
 
-    private IReadOnlyList<FlatProperty> FlattenedFor(int classId)
+    /// <summary>The flattened property list a class's updates index into.</summary>
+    /// <param name="classId">The networked class.</param>
+    /// <returns>Its properties, in the order the wire numbers them.</returns>
+    /// <remarks>
+    /// Public because the assembly text addresses properties by index, so reading that text back
+    /// means resolving an index against the same list the decoder used. Recomputing the
+    /// flattening on the reading side would be a second implementation of the one thing that
+    /// cannot be allowed to differ: the order decides which value lands in which field.
+    /// </remarks>
+    public IReadOnlyList<FlatProperty> FlattenedFor(int classId)
     {
         // Stryker disable once Block: this is a cache. Removing it recomputes the same list
         // and returns the same answer, only slower - nothing observable changes.

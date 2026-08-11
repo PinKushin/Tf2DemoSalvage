@@ -6,6 +6,7 @@ using System.Text;
 
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Text;
 
@@ -50,21 +51,35 @@ public static class MessageAssembly
             SetConVarMessage or SignOnStateMessage or SetViewMessage or FixAngleMessage or
             FileMessage or GetCvarValueMessage or PrefetchMessage or ServerInfoMessage or
             ClassInfoMessage or VoiceInitMessage or BspDecalMessage or EntityMessage or
-            VoiceDataMessage or UserMessage or ChatMessage or SoundsMessage;
+            VoiceDataMessage or UserMessage or ChatMessage or SoundsMessage or
+            PacketEntitiesMessage;
     }
 
     /// <summary>Renders a message as one or more lines of assembly.</summary>
     /// <param name="message">The message.</param>
     /// <param name="protocol">The demo's protocol, which sizes some fields.</param>
-    /// <returns>The lines, without newlines and without the caller's indentation.</returns>
+    /// <param name="entities">
+    /// The schema, for messages that cannot be read without one. <c>null</c> before
+    /// <c>dem_datatables</c> has gone past, which is when those messages stay as bits.
+    /// </param>
+    /// <returns>
+    /// The lines, without newlines and without the caller's indentation, or <c>null</c> when this
+    /// message needs a schema that is not available or carries a body that will not decode.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="message"/> is <c>null</c>.</exception>
     /// <exception cref="NotSupportedException">The message has no text form.</exception>
-    public static IReadOnlyList<string> Write(INetMessage message, ushort protocol)
+    public static IReadOnlyList<string>? Write(
+        INetMessage message, ushort protocol, EntityDecoder? entities)
     {
         ArgumentNullException.ThrowIfNull(message);
 
         return message switch
         {
+            // Null rather than an exception when the schema has not arrived or the body will not
+            // decode. The caller falls back to raw, which is what those bits already were.
+            PacketEntitiesMessage snapshot =>
+                entities is null ? null : EntityAssembly.Write(snapshot, entities),
+
             NetEmptyMessage => ["net_nop"],
 
             NetTickMessage tick =>
@@ -168,10 +183,15 @@ public static class MessageAssembly
     /// <param name="nextLine">Supplies further lines when the message opened a block.</param>
     /// <param name="writer">Destination for the message's bits.</param>
     /// <param name="state">Decode state, which sizes the type field and conditional fields.</param>
+    /// <param name="entities">The schema, for messages whose values are defined by it.</param>
     /// <exception cref="ArgumentNullException">Any argument is <c>null</c>.</exception>
     /// <exception cref="InvalidDataException">The line is not a message this can assemble.</exception>
     public static void Assemble(
-        string line, Func<string?> nextLine, BitWriter writer, NetDecodeState state)
+        string line,
+        Func<string?> nextLine,
+        BitWriter writer,
+        NetDecodeState state,
+        EntityDecoder? entities = null)
     {
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(nextLine);
@@ -193,7 +213,7 @@ public static class MessageAssembly
             return;
         }
 
-        INetMessage message = Build(tokens, nextLine, state);
+        INetMessage message = Build(tokens, nextLine, state, entities);
 
         if (!NetMessageWriter.TryWrite(writer, message, state))
         {
@@ -210,8 +230,18 @@ public static class MessageAssembly
     }
 
     private static INetMessage Build(
-        List<string> tokens, Func<string?> nextLine, NetDecodeState state) => tokens[0] switch
+        List<string> tokens,
+        Func<string?> nextLine,
+        NetDecodeState state,
+        EntityDecoder? entities) => tokens[0] switch
     {
+        "svc_packetentities" => EntityAssembly.Build(
+            tokens,
+            nextLine,
+            entities ?? throw new InvalidDataException(
+                "A packet entities block appeared before any dem_datatables command, so there " +
+                "is no schema to read its properties against.")),
+
         "net_nop" => NetEmptyMessage.Instance,
 
         "net_tick" => new NetTickMessage(

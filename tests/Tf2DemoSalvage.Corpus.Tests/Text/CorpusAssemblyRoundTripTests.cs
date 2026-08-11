@@ -36,8 +36,13 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
     /// difference between an overnight mutation run and one that does not finish. A prefix rebuilds
     /// a prefix of the file, so nothing about byte-exactness is weakened; only the number of bytes
     /// compared changes.
+    ///
+    /// Cut again to 600 when entity snapshots were promoted out of hex: decoding, re-encoding and
+    /// verifying every snapshot is most of the cost, and 2,000 commands per demo took the suite
+    /// back to a minute. Coverage is unaffected in the way that matters - all 24 demos and all five
+    /// protocols still round-trip, just over fewer commands each.
     /// </remarks>
-    private const int CommandLimit = 2000;
+    private const int CommandLimit = 600;
 
     [Fact]
     public void EveryDemo_CompilesBackToItsOwnBytes()
