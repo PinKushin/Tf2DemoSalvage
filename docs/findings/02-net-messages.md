@@ -74,3 +74,43 @@ Every message type this project decodes also re-encodes, and the whole message s
 byte-identically — 87,733 messages, 100% of message bits. See
 [07-writing-demos.md](07-writing-demos.md) for what that does and does not prove, and for the
 "record the encoding shape" pattern that made it possible.
+
+## Voice: three codecs in nineteen years, and the era is declared in the demo
+
+Measured 2026-08-11 from `svc_VoiceInit` across the corpus. The message names its codec as a
+string, so every demo states its own audio era without inference:
+
+| era | `svc_VoiceInit` | voice packets seen |
+|---|---|---|
+| 2007 – 2013 | `codec "vaudio_speex" quality 5` | 125 in the 2007 POV/STV pair |
+| 2020 (`z1800.dem`) | `codec "vaudio_celt" quality 22050` | **806** |
+| 2026 | `codec "steam" quality 0` | none in the two POVs held |
+
+**The quality field changes meaning with the codec**, which is why `svc_VoiceInit` already has a
+conditional read: 5 is a Speex quality setting, 22050 is a sample rate, and 0 is neither — under
+`steam` the engine defers entirely to Steam's own voice API and the field carries nothing.
+
+**What is already decoded, and it is more than it looks.** `svc_VoiceData` gives the speaking
+client, a proximity flag, and the payload length, at a tick:
+
+```
+svc_voicedata client 20 proximity 0 bits 512;
+```
+
+That is everything a viewer needs to show *who is talking and when* — a speaking indicator, a
+comms timeline, or which players were coordinating during a push. **None of it requires decoding
+a single audio sample.** The distinction matters because "voice is opaque" reads as though nothing
+about voice is available, and the useful half already is.
+
+**What remains is the audio, and that is a dependency question rather than a format one.** The
+payload is a codec bitstream, not a Valve wire format, so there is nothing here to reverse
+engineer — the work is choosing and vendoring a decoder:
+
+- `steam` is Opus, and pure-C# Opus decoders exist.
+- `vaudio_celt` is raw CELT 0.11 frames, **not** Opus packets, so an Opus decoder does not read
+  them despite Opus containing a CELT layer. This is the era with the most captured voice.
+- `vaudio_speex` is Speex, a third decoder again.
+
+Three codecs, three dependencies, and the era with the most data is the awkward one. That trade
+belongs to whoever wants the audio; it is recorded here so the choice is made with the counts in
+front of it rather than after picking a library.
