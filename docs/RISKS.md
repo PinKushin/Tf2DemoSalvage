@@ -1636,6 +1636,36 @@ existed. It only covers ids this project has layouts for, though — an id in 51
 would be named from the wrong table silently.
 
 **Fix requires dating a protocol-24 demo**, which the header cannot do: no build number is
-carried. The available levers are content fingerprints of the kind already used to place
-`z1800.dem` — game event schema, string table contents, or the highest id actually observed. Do
-not add a protocol conditional here; the discriminator is not the protocol.
+carried. Do not add a protocol conditional here; the discriminator is not the protocol.
+
+### The discriminator exists, and it is a date — added 2026-08-11
+
+The owner's point: **the message names are features, and features are dated in changelogs.** So
+the table dates itself, and the boundary is a single row.
+
+`RDTeamPointsChanged` is the *only* insertion separating the two protocol-24 tables. Robot
+Destruction entered TF2 with `rd_asteroid` in the **8 July 2014** patch, as a Mann Co. beta map.
+Therefore:
+
+| a protocol-24 demo recorded | uses | ids 51+ mean |
+|---|---|---|
+| before 8 July 2014 | the 66-entry March 2013 table | `SpawnFlyingBird` at 51, `HapSetDrag` at 69 |
+| after | the 79-entry modern table | `RDTeamPointsChanged` at 51, `PlayerLoadoutUpdated` at 69 |
+
+Three further additions in the same span are datable the same way and can corroborate a
+placement — `BonusDucks` (Scream Fortress 2014, 29 Oct 2014), `EOTLDuckEvent` (End of the Line,
+8 Dec 2014), `QuestObjectiveCompleted` (Gun Mettle, 2 July 2015). **Observing any of them proves
+the modern table** without needing a date at all, which is the more robust form: a demo carrying
+`QuestObjectiveCompleted` is necessarily post-2015 regardless of what its header says.
+
+So the implementation has two tiers, and the cheap one is decisive on its own:
+
+1. **Direct evidence.** If the demo contains an id that only one candidate table can explain, use
+   that table. The highest id observed already bounds it — a demo reaching id 78 cannot be the
+   66-entry build.
+2. **Fallback.** Where no such id appears, ids 0–50 are identical in both tables and can be named
+   safely; 51 and above stay withheld, which is the behaviour today.
+
+That reduces B29 from "we cannot know" to "we can usually know, and we degrade to the current
+correct-but-quiet behaviour when we cannot". See `findings/05` for the reasoning and the caveat
+that these dates bound the insertion from *above*.
