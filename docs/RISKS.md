@@ -1698,3 +1698,25 @@ carries — any of `RDTeamPointsChanged`, `BonusDucks`, `EOTLDuckEvent` or `Ques
 proves the modern table on sight, and the highest id observed bounds it from the other side. That
 is demo-level evidence, so it belongs to whatever assembles the decode, not to a function that sees
 one id and a protocol number.
+
+### B28 resolved, 2026-08-11 — the width follows the era, and the corpus cannot confirm it
+
+`VoiceMaskDwordsFor` now returns one dword pair at protocol 14 and below, two at 15, and four
+above — 9, 17 and 33 bytes, matching the registered sizes in the 2007/2008, 2009 and 2011+
+clients. The field *count* follows the width too, so a 9-byte body yields one `can_hear`/`muted`
+pair rather than four read off the end of the span.
+
+**Stated plainly: no demo validates this.** Neither corpus contains a single `VoiceMask` — not in
+the ten committed demos, not in the local set. The message is sent on voice state changes and
+none of the recordings caught one. So the evidence is the registered size in six binaries plus
+the tests, and that is all it is.
+
+That makes the tests carry the whole weight, so they are built to fail for the right reason. The
+theory asserts each era **refuses its neighbours' widths**, not merely that it accepts its own —
+a decoder accepting any of 9, 17 or 33 everywhere would pass an accepts-its-own test at every row
+while being precisely the bug. And one case reads a launch-era body field by field, because width
+and field count are separate mistakes.
+
+**The 2011 boundary is where the measurement is, not necessarily where the change is.** 2009 and
+2011 are the nearest specimens on either side, so protocols 16 and above share the modern width
+until a build between them says otherwise. Same shape as every other bracketed boundary here.
