@@ -1604,7 +1604,7 @@ recordings. So this is a known gap rather than a known failure.
 **Fix, when done, is a width chosen by era**, which is the same table-selection problem as B29 and
 should land with it rather than as a second one-off protocol conditional.
 
-## B29 — protocol 24 cannot select a user message name table above id 50 — NARROWED
+## B29 — protocol 24 cannot select a user message name table above id 50 — RESOLVED
 
 The user message id table belongs to the **game DLL**, and the protocol number belongs to the
 **engine**. They move independently, and protocol 24 has now spanned thirteen years.
@@ -1720,3 +1720,39 @@ and field count are separate mistakes.
 **The 2011 boundary is where the measurement is, not necessarily where the change is.** 2009 and
 2011 are the nearest specimens on either side, so protocols 16 and above share the modern width
 until a build between them says otherwise. Same shape as every other bracketed boundary here.
+
+### B29 resolved, 2026-08-11 — the body picks the table, and only when it is decisive
+
+**Every user message in the committed corpus now has a name.** The last one, `#69` in the March
+2013 demo, reads `HapSetDrag`.
+
+The fix is a second candidate rather than a heuristic. `UserMessageNames.Alternate` returns what
+the March 2013 table calls an id — but only at protocol 24, and only above id 50, since the two
+tables agree exactly below the `RDTeamPointsChanged` insertion. `UserMessageBody.Decode` reaches
+for it **only when the primary name's layout has refused the body**, which is already this
+project's standing evidence that a name is wrong.
+
+| case | result |
+|---|---|
+| primary layout accepts | primary name — unchanged for every modern demo |
+| primary has no layout | primary name — nothing contradicts it |
+| primary refuses, alternate fits | **alternate name** |
+| both refuse | neither claimed, id reported bare |
+
+**Why not the obvious fix.** Withholding names across the disagreement band was the first idea and
+it is worse than the problem. `z1800.dem` carries ids **53, 57, 70 and 71** — squarely inside that
+band — and it is a modern demo, so all four are named correctly today. Blanket withholding would
+destroy four right answers to guard against a case the March 2013 demos do not even exercise:
+they carry nothing above id 29 except the one at 69. Evidence beats caution when the evidence is
+available.
+
+**A registered size is a layout.** Making this work needed a falsifier for messages whose contents
+are never decoded, and Valve supplies one: the size in the `Register` call. `HapMeleeContact` is
+registered at **zero bytes**, so a body of any width refutes it outright. Two haptics messages now
+carry width-only layouts for exactly this purpose — they read nothing and prove a great deal.
+
+**What is still not solved, stated plainly.** Ids in 51–65 where *both* candidates are registered
+variable-length and neither has a layout remain undecidable from the body alone, and the modern
+table wins by default. None occur in either corpus. Deciding those needs the demo *dated* — the
+string-table cosmetic fingerprint that placed `z1800.dem` — which is a larger piece of work and
+now the only thing between this and a complete answer.

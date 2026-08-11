@@ -442,7 +442,8 @@ public static class NetMessageReader
                                 userType,
                                 UserMessageNames.Lookup(userType, state.NetworkProtocol),
                                 userBody, userBits,
-                                state.NetworkProtocol)
+                                state.NetworkProtocol,
+                                UserMessageNames.Alternate(userType, state.NetworkProtocol))
                             with { Body = userBody });
                         break;
                     }

@@ -189,7 +189,7 @@ public sealed class NetMessageReaderTests
     [InlineData(2, "HudText")]
     [InlineData(9, "ShowMenu")]
     [InlineData(78, "BuiltObject")]
-    [InlineData(84, "HapMeleeContact")]
+    [InlineData(82, "HapSetDrag")]
     public void UserMessage_IsReportedWithItsRegisteredName(int type, string expected)
     {
         // A user message is where TF2 puts most of what a reader wants - damage numbers,
@@ -245,6 +245,10 @@ public sealed class NetMessageReaderTests
         // the game's 79 messages, extending the modern id space to 0–84. **The assertion was
         // right and the input went stale** — 79 is now SPHapWeapEvent and genuinely has a name.
         // Moving the boundary is the fix; weakening the assertion would have been the wrong one.
+        //
+        // The named half of the pair is HapMeleeContact at 84, in its own test below rather than
+        // in the theory above, because it is registered at *zero* bytes and so cannot share that
+        // theory's 16-bit dummy body.
         BitWriter writer = new();
         writer.Message(NetMessageType.UserMessage).Write((uint)type, 8).Write(8, 11).Write(0xAB, 8);
 
@@ -253,6 +257,24 @@ public sealed class NetMessageReaderTests
 
         user.UserMessageType.ShouldBe(type);
         user.Name.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TheLastId_IsNamedOnlyWithTheEmptyBodyItsRegistrationDeclares()
+    {
+        // Id 84 is HapMeleeContact, the last entry in the modern id space, and Valve registers it
+        // at zero bytes - the event is that a melee weapon touched something, and there is nothing
+        // else to say. So the registered *width* is the whole layout, and it is a real falsifier
+        // rather than a formality: it is what lets a candidate be rejected for a message whose
+        // contents this project never decodes.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.UserMessage).Write(84, 8).Write(0, 11);
+
+        UserMessage user = NetMessageReader.Read(writer.Build())
+            .Messages.OfType<UserMessage>().ShouldHaveSingleItem();
+
+        user.Name.ShouldBe("HapMeleeContact");
+        user.BodyBits.ShouldBe(0);
     }
 
     [Fact]
