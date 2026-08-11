@@ -51,7 +51,7 @@ public sealed class UserMessageBodyTests
         // 80 of them across the corpus.
         byte[] body = TextMsgBody(3, "#TF_Name_Change", "Sassy", "b4nny");
 
-        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8);
+        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
         message.Fields.ShouldNotBeNull();
         Field(message, "destination").ShouldBe("3");
@@ -69,7 +69,7 @@ public sealed class UserMessageBodyTests
         // bodies in the corpus carry four slots and 76 of them use none.
         byte[] body = TextMsgBody(3, "#Game_connected", "asian zyzz", "", "", "");
 
-        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8);
+        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
         Field(message, "param1").ShouldBe("asian zyzz");
         message.Fields.ShouldNotBeNull();
@@ -83,7 +83,7 @@ public sealed class UserMessageBodyTests
         // fact about the message, where an unused substitution slot is padding.
         byte[] body = TextMsgBody(3, "");
 
-        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8);
+        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
         message.Fields.ShouldNotBeNull();
         Field(message, "text").ShouldBe(string.Empty);
@@ -98,7 +98,7 @@ public sealed class UserMessageBodyTests
         body.Add(0);
         body.Add(1);
 
-        UserMessage message = UserMessageBody.Decode(3, "SayText", [.. body], body.Count * 8);
+        UserMessage message = UserMessageBody.Decode(3, "SayText", [.. body], body.Count * 8, ModernProtocol);
 
         Field(message, "client").ShouldBe("7");
         Field(message, "text").ShouldBe("gg wp");
@@ -110,7 +110,7 @@ public sealed class UserMessageBodyTests
         // Same requirement as everywhere else in this parser: names are arbitrary client bytes.
         byte[] body = TextMsgBody(1, "#TF_Chat", "Пётр");
 
-        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8);
+        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
         Field(message, "param1").ShouldBe("Пётр");
     }
@@ -123,7 +123,7 @@ public sealed class UserMessageBodyTests
         // anyway would present a misparse as data.
         byte[] body = TextMsgBody(3, "#TF_Name_Change");
 
-        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, (body.Length * 8) + 32);
+        UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, (body.Length * 8) + 32, ModernProtocol);
 
         message.Fields.ShouldBeNull();
         message.Name.ShouldBe("TextMsg");
@@ -135,7 +135,7 @@ public sealed class UserMessageBodyTests
     {
         // Most of the 79 types have no decoder and never will - CheapBreakModel is 259 of the
         // corpus's 756 user messages and says nothing a reader wants. They must stay reported.
-        UserMessage message = UserMessageBody.Decode(45, "CheapBreakModel", [1, 2, 3], 24);
+        UserMessage message = UserMessageBody.Decode(45, "CheapBreakModel", [1, 2, 3], 24, ModernProtocol);
 
         message.Fields.ShouldBeNull();
         message.Name.ShouldBe("CheapBreakModel");
@@ -150,7 +150,7 @@ public sealed class UserMessageBodyTests
         // value would invent one.
         byte[] body = [3, .. Encoding.UTF8.GetBytes("no terminator")];
 
-        UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8).Fields.ShouldBeNull();
+        UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol).Fields.ShouldBeNull();
     }
 
     /// <summary>SPROP_COORD, the flag the coordinate encoder selects the plain form with.</summary>
@@ -178,7 +178,7 @@ public sealed class UserMessageBodyTests
             .AppendBits(coords.Build(), coords.BitCount);
 
         UserMessage message = UserMessageBody.Decode(
-            26, "Damage", whole.Build(), whole.BitCount);
+            26, "Damage", whole.Build(), whole.BitCount, ModernProtocol);
 
         message.Fields.ShouldNotBeNull();
         Value(message, "damage").ShouldBe(45);
@@ -196,10 +196,80 @@ public sealed class UserMessageBodyTests
         writer.Write(120, 16).Write(0, 32).WriteBit(false);
 
         UserMessage message = UserMessageBody.Decode(
-            26, "Damage", writer.Build(), writer.BitCount);
+            26, "Damage", writer.Build(), writer.BitCount, ModernProtocol);
 
         message.Fields.ShouldNotBeNull();
         Value(message, "damage").ShouldBe(120);
         message.Fields!.Any(field => field.Key == "x").ShouldBeFalse();
     }
+
+    [Fact]
+    public void Damage_WhenTheLayoutStopsShortOfTheStatedLength_ReportsNothing()
+    {
+        // The stated length is exact, not padded: the 77-bit bodies in the protocol-14 corpus
+        // demo prove a body is free to end mid-byte. So a layout that finishes early has not
+        // fitted the body, it has read a prefix of it - and the leftover bits are the evidence.
+        //
+        // This is the check that let a whole era through. Accepting "consumed no more than
+        // stated" passes any layout short enough, and the modern one is short enough for a
+        // protocol-14 body, so 20 of that demo's 24 damage messages reported invented numbers.
+        Tf2DemoSalvage.Core.Primitives.BitWriter writer = new();
+        writer.Write(120, 16).Write(0, 32).WriteBit(false);
+
+        UserMessage message = UserMessageBody.Decode(
+            26, "Damage", writer.Build(), writer.BitCount + 8, ModernProtocol);
+
+        message.Fields.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Damage_BeforeProtocolFifteen_IsOneByteAndAVector()
+    {
+        // A different message, not a variant of the same one: no damage-type long, no bit saying
+        // whether a position follows, and a single byte of damage where the modern layout sends a
+        // short. The vector is the same BitVec3Coord and is always present.
+        Tf2DemoSalvage.Core.Primitives.BitWriter coords = new();
+        SendPropEncoder.WriteCoord(coords, -1061.5f, CoordFlag);
+        SendPropEncoder.WriteCoord(coords, 928.25f, CoordFlag);
+        SendPropEncoder.WriteCoord(coords, 64f, CoordFlag);
+
+        Tf2DemoSalvage.Core.Primitives.BitWriter whole = new();
+        whole.Write(36, 8)
+            .WriteBit(true).WriteBit(true).WriteBit(true)
+            .AppendBits(coords.Build(), coords.BitCount);
+
+        UserMessage message = UserMessageBody.Decode(
+            18, "Damage", whole.Build(), whole.BitCount, OldProtocol);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "damage").ShouldBe(36);
+        Value(message, "x").ShouldBe(-1061.5f);
+        Value(message, "y").ShouldBe(928.25f);
+        Value(message, "z").ShouldBe(64f);
+
+        // No "bits" field, because that era does not send one. Reporting a zero would claim the
+        // damage had no type flags rather than that the era never said.
+        message.Fields!.Any(field => field.Key == "bits").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Damage_FromTheProtocolFourteenDemo_RefusesTheModernLayout()
+    {
+        // Captured from tf2-2008-build3420-pov-cp_granary.dem, where the modern layout read it as
+        // damage=16164 with a plausible-looking position. TF2 damage does not reach five figures.
+        byte[] body = [0x24, 0x3F, 0x09, 0x01, 0xD7, 0x7E, 0xFD, 0x8B, 0x05, 0x01];
+
+        UserMessageBody.Decode(18, "Damage", body, 77, ModernProtocol).Fields.ShouldBeNull();
+
+        UserMessage message = UserMessageBody.Decode(18, "Damage", body, 77, OldProtocol);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "damage").ShouldBe(36);
+    }
+
+    /// <summary>Protocol 24, where the damage layout is the one Valve's published client reads.</summary>
+    private const int ModernProtocol = 24;
+
+    /// <summary>Protocol 14, the corpus's March 2008 build.</summary>
+    private const int OldProtocol = 14;
 }

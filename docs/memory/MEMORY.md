@@ -24,3 +24,4 @@
 - [Round trips need the encoding shape](round-trip-needs-the-encoding-shape.md) — which optional fields were sent is not recoverable from the values; record it or the demo cannot be rebuilt.
 - [Measure the output, not the capability](measure-the-output-not-the-capability.md) — a report built from a predicate reads clean while every instance quietly falls back.
 - [Valve publishes bitbuf](valve-publishes-bitbuf.md) — bf_write/bf_read are in source-sdk-2013 src/tier1; read it before decompiling anything bit-level.
+- [Length arithmetic identifies a layout](length-arithmetic-identifies-a-layout.md) — stated bit lengths and the gaps between them rule layouts out before any byte is read; check the length with `==`, never `<=`.

@@ -439,7 +439,8 @@ public static class NetMessageReader
                         // consume the body exactly, keeps its name and length and reports no
                         // fields - see UserMessageBody for why that refusal is the point.
                         messages.Add(UserMessageBody.Decode(
-                                userType, UserMessageNames.Lookup(userType), userBody, userBits)
+                                userType, UserMessageNames.Lookup(userType), userBody, userBits,
+                                state.NetworkProtocol)
                             with { Body = userBody });
                         break;
                     }
