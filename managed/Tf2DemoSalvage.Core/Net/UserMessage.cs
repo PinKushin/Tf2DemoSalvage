@@ -24,11 +24,16 @@ namespace Tf2DemoSalvage.Core.Net;
 /// most say nothing a reader wants. <c>CheapBreakModel</c> alone is 259 of the corpus's 756 user
 /// messages and describes a piece of scenery shattering.
 /// </remarks>
+/// <param name="Body">
+/// The body's bits, kept verbatim. Most user message types have no known layout, so this is the
+/// only form in which they can be written back to the demo they came from.
+/// </param>
 public sealed record UserMessage(
     int UserMessageType,
     string? Name,
     int BodyBits,
-    IReadOnlyList<KeyValuePair<string, object?>>? Fields = null) : INetMessage
+    IReadOnlyList<KeyValuePair<string, object?>>? Fields = null,
+    System.ReadOnlyMemory<byte> Body = default) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.UserMessage;

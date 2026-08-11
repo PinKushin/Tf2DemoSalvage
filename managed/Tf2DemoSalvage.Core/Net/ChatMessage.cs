@@ -14,8 +14,17 @@ namespace Tf2DemoSalvage.Core.Net;
 /// </param>
 /// <param name="From">Sender's name as sent, or null on the simplified form.</param>
 /// <param name="Text">The message, with inline colour codes removed.</param>
-public sealed record ChatMessage(int ClientEntityIndex, string? Kind, string? From, string Text)
-    : INetMessage
+/// <param name="BodyBits">How many bits the user message body occupies.</param>
+/// <param name="Body">
+/// The body's bits, kept verbatim so the message can be written back to the demo it came from.
+/// </param>
+public sealed record ChatMessage(
+    int ClientEntityIndex,
+    string? Kind,
+    string? From,
+    string Text,
+    int BodyBits = 0,
+    System.ReadOnlyMemory<byte> Body = default) : INetMessage
 {
     /// <inheritdoc />
     /// <remarks>

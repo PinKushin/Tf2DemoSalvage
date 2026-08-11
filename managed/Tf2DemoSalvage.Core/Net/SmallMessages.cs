@@ -90,7 +90,15 @@ public sealed record SignOnStateMessage(int State, int SpawnCount) : INetMessage
 /// Note the field order: index and class come *before* the length. A reader that went straight
 /// for the length would take twenty of their bits instead.
 /// </remarks>
-public sealed record EntityMessage(int EntityIndex, int ClassId, int BodyBits) : INetMessage
+/// <param name="Body">
+/// The body's bits, kept verbatim. Not decoration: the content cannot be decoded generically, so
+/// carrying it is the only way the message can be written back to the demo it came from.
+/// </param>
+public sealed record EntityMessage(
+    int EntityIndex,
+    int ClassId,
+    int BodyBits,
+    System.ReadOnlyMemory<byte> Body = default) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.EntityMessage;
@@ -119,7 +127,14 @@ public sealed record BspDecalMessage(bool OnEntity, int EntityIndex, int ModelIn
 /// </summary>
 /// <param name="Codec">Codec name, e.g. <c>vaudio_celt</c>.</param>
 /// <param name="Quality">Quality setting, or the sample rate when the quality byte is 255.</param>
-public sealed record VoiceInitMessage(string Codec, int Quality) : INetMessage
+/// <param name="SampleRate">
+/// The rate transmitted behind quality 255, or <c>null</c> when the message carried none.
+/// Recorded separately because <paramref name="Quality"/> is overwritten by it: without this,
+/// "quality 22050" and "the escape followed by 22050" are the same message and only one of them
+/// can be written back.
+/// </param>
+public sealed record VoiceInitMessage(
+    string Codec, int Quality, int? SampleRate = null) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.VoiceInit;
@@ -153,7 +168,15 @@ public sealed record VoiceInitMessage(string Codec, int Quality) : INetMessage
 /// contained one. The two protocol-11 recordings carry 125 between them and nothing else carries
 /// any, which is a good argument for a corpus that spans eras rather than volume.
 /// </remarks>
-public sealed record VoiceDataMessage(int Client, int Proximity, int BodyBits) : INetMessage
+/// <param name="Body">
+/// The body's bits, kept verbatim. Not decoration: the content cannot be decoded generically, so
+/// carrying it is the only way the message can be written back to the demo it came from.
+/// </param>
+public sealed record VoiceDataMessage(
+    int Client,
+    int Proximity,
+    int BodyBits,
+    System.ReadOnlyMemory<byte> Body = default) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.VoiceData;

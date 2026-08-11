@@ -23,11 +23,11 @@ namespace Tf2DemoSalvage.Core.Net;
 /// round-trip because of it. Three shapes are currently unwritable and each one names a specific
 /// gap rather than an oversight:
 ///
-/// - <see cref="EntityMessage"/> and <see cref="VoiceDataMessage"/> keep a body length but not the
-///   body, so there is nothing to write back.
 /// - <c>svc_SetPause</c> and <c>svc_Menu</c> produce no message at all, so nothing reaches here.
-/// - String tables, game events and user messages decode into values, and re-encoding those means
-///   an encoder per format — the string table one has to reproduce a compressed payload exactly.
+/// - String tables and user messages decode into values, and re-encoding those means an encoder
+///   per format — the string table one also has to reproduce a compressed payload exactly.
+/// - A <see cref="GameEventMessage"/> that arrived before its definition, which decodes to an id
+///   and nothing else and therefore cannot be rebuilt.
 ///
 /// Filling those in is what moves the number, and the number is what says whether it worked.
 /// </remarks>
@@ -53,7 +53,7 @@ public static class NetMessageWriter
 
         // Checked before the type field is written, so a refusal leaves the stream untouched
         // rather than half-written. A caller comparing bits has to be able to stop cleanly.
-        if (!CanWrite(message))
+        if (!CanWrite(message) || !HasDefinition(message, state))
         {
             return false;
         }
@@ -66,7 +66,7 @@ public static class NetMessageWriter
         // From ServerInfo rather than from state.NetworkProtocol, because that is what the reader
         // uses: a message arriving before ServerInfo is read at protocol 0, and writing it at the
         // demo's real protocol would produce a field of a different width than the one decoded.
-        WriteBody(writer, message, state.ServerInfo?.NetworkProtocol ?? 0);
+        WriteBody(writer, message, state, state.ServerInfo?.NetworkProtocol ?? 0);
         return true;
     }
 
@@ -83,12 +83,30 @@ public static class NetMessageWriter
             NetEmptyMessage or NetTickMessage or PrintMessage or StringCmdMessage or
             SetConVarMessage or ServerInfoMessage or PacketEntitiesMessage or PrefetchMessage or
             SoundsMessage or TempEntitiesMessage or FixAngleMessage or FileMessage or
-            GetCvarValueMessage or SetViewMessage or SignOnStateMessage => true,
+            GetCvarValueMessage or SetViewMessage or SignOnStateMessage or
+            GameEventListMessage or VoiceInitMessage or VoiceDataMessage or EntityMessage or
+            UserMessage or ChatMessage or ClassInfoMessage => true,
+
+            // Its fields are a dictionary, so the definition is what supplies their order. An
+            // event that arrived before its own definition has neither.
+            GameEventMessage gameEvent => gameEvent.IsDecoded,
             _ => false,
         };
     }
 
-    private static void WriteBody(BitWriter writer, INetMessage message, int protocol)
+    /// <summary>Whether the state holds what a message needs beyond its own fields.</summary>
+    /// <remarks>
+    /// Only game events need this, and the reason is worth stating: their values are a dictionary,
+    /// so field ORDER lives in the definition rather than in the message. Writing them in
+    /// enumeration order would produce a body that decodes to the same values and does not match
+    /// the demo.
+    /// </remarks>
+    private static bool HasDefinition(INetMessage message, NetDecodeState state) =>
+        message is not GameEventMessage gameEvent ||
+        state.EventDefinitions.ContainsKey(gameEvent.EventId);
+
+    private static void WriteBody(
+        BitWriter writer, INetMessage message, NetDecodeState state, int protocol)
     {
         switch (message)
         {
@@ -200,6 +218,74 @@ public static class NetMessageWriter
 
             case SignOnStateMessage signon:
                 writer.Write((uint)signon.State, 8).Write((uint)signon.SpawnCount, 32);
+                break;
+
+            case GameEventListMessage list:
+                GameEventCodec.WriteList(writer, list);
+                break;
+
+            case ClassInfoMessage classes:
+                // The create-on-client flag suppresses the entry list entirely, and the entries
+                // are written at a width derived from the count rather than transmitted.
+                writer.Write((uint)classes.ClassCount, 16).WriteBit(classes.CreateOnClient);
+                if (!classes.CreateOnClient)
+                {
+                    foreach (ServerClass serverClass in classes.Classes)
+                    {
+                        writer.Write((uint)serverClass.Id, classes.ClassIdBits)
+                            .WriteString(serverClass.ClassName)
+                            .WriteString(serverClass.TableName);
+                    }
+                }
+
+                break;
+
+            case VoiceInitMessage voiceInit:
+                // The sample rate rides in the quality field's 255 escape, so writing sixteen
+                // bits unconditionally would add a field the wire does not have.
+                writer.WriteString(voiceInit.Codec);
+                if (voiceInit.SampleRate is { } rate)
+                {
+                    writer.Write(NetMessageReader.VoiceVariableRateQuality, 8).Write((uint)rate, 16);
+                }
+                else
+                {
+                    writer.Write((uint)voiceInit.Quality, 8);
+                }
+
+                break;
+
+            case VoiceDataMessage voice:
+                writer.Write((uint)voice.Client, 8)
+                    .Write((uint)voice.Proximity, 8)
+                    .Write((uint)voice.BodyBits, NetMessageReader.VoiceDataLengthBits)
+                    .AppendBits(voice.Body.Span, voice.BodyBits);
+                break;
+
+            case EntityMessage entity:
+                writer.Write((uint)entity.EntityIndex, NetMessageReader.EntityMessageIndexBits)
+                    .Write((uint)entity.ClassId, NetMessageReader.EntityMessageClassBits)
+                    .Write((uint)entity.BodyBits, NetMessageReader.UserMessageLengthBits)
+                    .AppendBits(entity.Body.Span, entity.BodyBits);
+                break;
+
+            case ChatMessage chat:
+                // Chat has no message id of its own - it is one of forty-odd payloads sharing
+                // svc_UserMessage, and it is written back as the user message it arrived in.
+                writer.Write(ChatMessage.SayText2Type, 8)
+                    .Write((uint)chat.BodyBits, NetMessageReader.UserMessageLengthBits)
+                    .AppendBits(chat.Body.Span, chat.BodyBits);
+                break;
+
+            case UserMessage user:
+                writer.Write((uint)user.UserMessageType, 8)
+                    .Write((uint)user.BodyBits, NetMessageReader.UserMessageLengthBits)
+                    .AppendBits(user.Body.Span, user.BodyBits);
+                break;
+
+            case GameEventMessage gameEvent:
+                GameEventCodec.WriteEvent(
+                    writer, gameEvent, state.EventDefinitions[gameEvent.EventId]);
                 break;
 
             default:

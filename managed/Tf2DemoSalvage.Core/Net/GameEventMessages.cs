@@ -10,8 +10,14 @@ namespace Tf2DemoSalvage.Core.Net;
 /// Sent once, early. Everything <see cref="GameEventMessage"/> can report depends on having
 /// seen it first.
 /// </remarks>
-public sealed record GameEventListMessage(IReadOnlyList<GameEventDefinition> Definitions)
-    : INetMessage
+/// <param name="BodyBits">
+/// The body length the message stated, kept because it is not derivable from the contents: a
+/// sender measures its buffer after rounding, so a body routinely runs a few bits past its last
+/// field and those bits are on the wire.
+/// </param>
+public sealed record GameEventListMessage(
+    IReadOnlyList<GameEventDefinition> Definitions,
+    int BodyBits = 0) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.GameEventList;
@@ -33,10 +39,16 @@ public sealed record GameEventListMessage(IReadOnlyList<GameEventDefinition> Def
 /// reported with a null <paramref name="Name"/> rather than stopping the walk: the loss is one
 /// event, not the rest of the packet.
 /// </remarks>
+/// <param name="BodyBits">
+/// The body length the message stated, kept because it is not derivable from the contents: a
+/// sender measures its buffer after rounding, so a body routinely runs a few bits past its last
+/// field and those bits are on the wire.
+/// </param>
 public sealed record GameEventMessage(
     int EventId,
     string? Name,
-    IReadOnlyDictionary<string, object?> Values) : INetMessage
+    IReadOnlyDictionary<string, object?> Values,
+    int BodyBits = 0) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.GameEvent;

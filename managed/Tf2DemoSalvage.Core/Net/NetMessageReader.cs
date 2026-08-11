@@ -43,16 +43,16 @@ public static class NetMessageReader
     /// <summary>
     /// Width of the length field on <c>svc_UserMessage</c> and <c>svc_EntityMessage</c>.
     /// </summary>
-    private const int UserMessageLengthBits = 11;
+    internal const int UserMessageLengthBits = 11;
 
     /// <summary>Width of <c>svc_EntityMessage</c>'s entity index.</summary>
-    private const int EntityMessageIndexBits = 11;
+    internal const int EntityMessageIndexBits = 11;
 
     /// <summary>Width of its class id, which is fixed rather than derived from the class count.</summary>
-    private const int EntityMessageClassBits = 9;
+    internal const int EntityMessageClassBits = 9;
 
     /// <summary>Width of <c>svc_VoiceData</c>'s payload length.</summary>
-    private const int VoiceDataLengthBits = 16;
+    internal const int VoiceDataLengthBits = 16;
 
     /// <summary>Width of a decal's texture index: the SDK's MAX_DECAL_INDEX_BITS.</summary>
     private const int DecalTextureBits = 9;
@@ -67,7 +67,7 @@ public static class NetMessageReader
     internal const int SetViewBits = 11;
 
     /// <summary>Quality value at which <c>svc_VoiceInit</c> also carries a sample rate.</summary>
-    private const int VoiceVariableRateQuality = 255;
+    internal const int VoiceVariableRateQuality = 255;
 
     /// <summary>Bits per byte, for the two messages whose lengths are stated in bytes.</summary>
     private const int BitsPerByte = 8;
@@ -405,9 +405,10 @@ public static class NetMessageReader
                         int voiceClient = (int)reader.ReadUInt32(8);
                         int voiceProximity = (int)reader.ReadUInt32(8);
                         int voiceBits = (int)reader.ReadUInt32(VoiceDataLengthBits);
-                        _ = NetBitReading.CopyBits(ref reader, voiceBits);
+                        byte[] voiceBody = NetBitReading.CopyBits(ref reader, voiceBits);
 
-                        messages.Add(new VoiceDataMessage(voiceClient, voiceProximity, voiceBits));
+                        messages.Add(new VoiceDataMessage(
+                            voiceClient, voiceProximity, voiceBits, voiceBody));
                         break;
                     }
 
@@ -426,7 +427,7 @@ public static class NetMessageReader
                         if (userType == ChatMessage.SayText2Type &&
                             ChatMessage.Parse(userBody) is ChatMessage chat)
                         {
-                            messages.Add(chat);
+                            messages.Add(chat with { BodyBits = userBits, Body = userBody });
                             break;
                         }
 
@@ -435,7 +436,8 @@ public static class NetMessageReader
                         // consume the body exactly, keeps its name and length and reports no
                         // fields - see UserMessageBody for why that refusal is the point.
                         messages.Add(UserMessageBody.Decode(
-                            userType, UserMessageNames.Lookup(userType), userBody, userBits));
+                                userType, UserMessageNames.Lookup(userType), userBody, userBits)
+                            with { Body = userBody });
                         break;
                     }
 
@@ -446,8 +448,10 @@ public static class NetMessageReader
                         int targetEntity = (int)reader.ReadUInt32(EntityMessageIndexBits);
                         int targetClass = (int)reader.ReadUInt32(EntityMessageClassBits);
                         int entityMessageBits = (int)reader.ReadUInt32(UserMessageLengthBits);
-                        _ = NetBitReading.CopyBits(ref reader, entityMessageBits);
-                        messages.Add(new EntityMessage(targetEntity, targetClass, entityMessageBits));
+                        byte[] entityMessageBody =
+                            NetBitReading.CopyBits(ref reader, entityMessageBits);
+                        messages.Add(new EntityMessage(
+                            targetEntity, targetClass, entityMessageBits, entityMessageBody));
                         break;
                     }
 
@@ -468,12 +472,14 @@ public static class NetMessageReader
                         // reading sixteen bits unconditionally would consume what follows.
                         string codec = NetBitReading.ReadString(ref reader);
                         int quality = (int)reader.ReadUInt32(8);
+                        int? sampleRate = null;
                         if (quality == VoiceVariableRateQuality)
                         {
                             quality = (int)reader.ReadUInt32(16);
+                            sampleRate = quality;
                         }
 
-                        messages.Add(new VoiceInitMessage(codec, quality));
+                        messages.Add(new VoiceInitMessage(codec, quality, sampleRate));
                         break;
                     }
 

@@ -178,9 +178,16 @@ public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
                 // ServerInfo has to reach the write state at the point in the stream it arrived,
                 // not at the end of the packet: it sets the protocol that sizes later fields, and
                 // a message before it is read at protocol 0.
+                // The write state has to see what the read state saw, at the point it saw it.
+                // ServerInfo sets the protocol that sizes later fields; a game event list supplies
+                // the field ORDER every later event is written in.
                 if (message is ServerInfoMessage info)
                 {
                     writeState.ServerInfo = info;
+                }
+                else if (message is GameEventListMessage list)
+                {
+                    writeState.AddEventDefinitions(list.Definitions);
                 }
             }
 
@@ -188,8 +195,17 @@ public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
         }
     }
 
-    private static NetDecodeState Snapshot(NetDecodeState state) =>
-        new() { NetworkProtocol = state.NetworkProtocol, ServerInfo = state.ServerInfo };
+    private static NetDecodeState Snapshot(NetDecodeState state)
+    {
+        NetDecodeState copy = new()
+        {
+            NetworkProtocol = state.NetworkProtocol,
+            ServerInfo = state.ServerInfo,
+        };
+
+        copy.AddEventDefinitions(state.EventDefinitions.Values);
+        return copy;
+    }
 
     /// <summary>Copies <paramref name="bits"/> bits starting at <paramref name="startBit"/>.</summary>
     private static byte[] BitsAt(byte[] source, int startBit, int bits)

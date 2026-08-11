@@ -53,7 +53,7 @@ internal static class GameEventCodec
             definitions.Add(new GameEventDefinition(id, name, fields));
         }
 
-        return new GameEventListMessage(definitions);
+        return new GameEventListMessage(definitions, lengthBits);
     }
 
     /// <summary>Reads a <c>svc_GameEvent</c> body against the definitions seen so far.</summary>
@@ -69,7 +69,8 @@ internal static class GameEventCodec
         {
             // An event before its definition. The length prefix already moved the outer
             // reader past it, so this costs one event rather than the rest of the packet.
-            return new GameEventMessage(eventId, null, new Dictionary<string, object?>());
+            return new GameEventMessage(
+                eventId, null, new Dictionary<string, object?>(), lengthBits);
         }
 
         Dictionary<string, object?> values = new(definition.Fields.Count, StringComparer.Ordinal);
@@ -78,7 +79,108 @@ internal static class GameEventCodec
             values[field.Name] = ReadValue(ref bodyReader, field.Type);
         }
 
-        return new GameEventMessage(eventId, definition.Name, values);
+        return new GameEventMessage(eventId, definition.Name, values, lengthBits);
+    }
+
+    /// <summary>Writes a <c>svc_GameEventList</c> body, length prefix included.</summary>
+    /// <remarks>
+    /// The body is built before it is written, because its own length comes first. Nothing here
+    /// is optional, so unlike a sound there is no encoding shape to recover — the definitions
+    /// determine the bits exactly, apart from the trailing padding the length implies.
+    /// </remarks>
+    internal static void WriteList(BitWriter writer, GameEventListMessage message)
+    {
+        BitWriter body = new();
+        foreach (GameEventDefinition definition in message.Definitions)
+        {
+            body.Write((uint)definition.Id, EventIdBits).WriteString(definition.Name);
+            foreach (GameEventField field in definition.Fields)
+            {
+                body.Write((uint)field.Type, ValueTypeBits).WriteString(field.Name);
+            }
+
+            body.Write((uint)GameEventValueType.None, ValueTypeBits);
+        }
+
+        Pad(body, message.BodyBits);
+        writer.Write((uint)message.Definitions.Count, CountBits)
+            .Write((uint)body.BitCount, ListLengthBits)
+            .AppendBits(body.Build(), body.BitCount);
+    }
+
+    /// <summary>Writes a <c>svc_GameEvent</c> body, length prefix included.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="message">The event.</param>
+    /// <param name="definition">
+    /// The event's definition, which supplies field ORDER. The decoded values are a dictionary
+    /// and a dictionary does not remember the wire's order, so writing them in enumeration order
+    /// would produce a body that decodes to the same values and different bits.
+    /// </param>
+    internal static void WriteEvent(
+        BitWriter writer, GameEventMessage message, GameEventDefinition definition)
+    {
+        BitWriter body = new();
+        body.Write((uint)message.EventId, EventIdBits);
+
+        foreach (GameEventField field in definition.Fields)
+        {
+            WriteValue(body, field.Type, message.Values[field.Name]);
+        }
+
+        Pad(body, message.BodyBits);
+        writer.Write((uint)body.BitCount, EventLengthBits)
+            .AppendBits(body.Build(), body.BitCount);
+    }
+
+    /// <summary>Zero-fills to the body length the message declared.</summary>
+    /// <remarks>
+    /// Real demos need this. A sender measures its buffer in bytes and states the length in bits,
+    /// so a body routinely runs a few bits past its last field. Those bits are on the wire, and
+    /// omitting them would shorten the message and shift everything after it in the packet.
+    /// </remarks>
+    private static void Pad(BitWriter body, int bodyBits)
+    {
+        for (int bit = body.BitCount; bit < bodyBits; bit++)
+        {
+            body.WriteBit(false);
+        }
+    }
+
+    private static void WriteValue(BitWriter writer, GameEventValueType type, object? value)
+    {
+        switch (type)
+        {
+            case GameEventValueType.String:
+                writer.WriteString((string)value!);
+                break;
+
+            case GameEventValueType.Float:
+                writer.Write((uint)BitConverter.SingleToInt32Bits((float)value!), 32);
+                break;
+
+            case GameEventValueType.Long:
+                writer.Write((uint)(int)value!, 32);
+                break;
+
+            case GameEventValueType.Short:
+                writer.Write((uint)(ushort)(short)value!, 16);
+                break;
+
+            case GameEventValueType.Byte:
+                writer.Write((byte)value!, 8);
+                break;
+
+            case GameEventValueType.Bool:
+                writer.WriteBit((bool)value!);
+                break;
+
+            case GameEventValueType.Local:
+                // Declared but never broadcast, so it occupies no bits in either direction.
+                break;
+
+            default:
+                throw new InvalidOperationException($"Unhandled game event value type {type}.");
+        }
     }
 
     private static object? ReadValue(ref BitReader reader, GameEventValueType type) => type switch
