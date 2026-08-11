@@ -99,6 +99,40 @@ Command header, **5 bytes** at demo protocol 3:
 
 `RawData` is `int32 size` followed by `size` bytes.
 
+### `dem_usercmd` payload — the recording player's input
+
+Bit-packed, delta-coded against a **default-constructed `CUserCmd`** rather than against the
+previous command (`CInput::EncodeUserCmdToBuffer` constructs `nullcmd` on every call), so each one
+decodes independently. Every field is a presence bit followed by the field when set.
+
+| Order | Field | Width when present | Value when absent |
+|---|---|---|---|
+| 1 | `command_number` | 32 | **1**, not 0 |
+| 2 | `tick_count` | 32 | **1**, not 0 |
+| 3–5 | `viewangles[0..2]` | 32 each, IEEE float | 0 |
+| 6–8 | `forwardmove`, `sidemove`, `upmove` | 32 each, IEEE float | 0 |
+| 9 | `buttons` | 32, `IN_*` flags | 0 |
+| 10 | `impulse` | 8 | 0 |
+| 11 | `weaponselect` | 11 (`MAX_EDICT_BITS`) | 0 |
+| 11a | `weaponsubtype` | 6 (`WEAPON_SUBTYPE_BITS`) | 0 |
+| 12 | `mousedx` | 16, **signed** | 0 |
+| 13 | `mousedy` | 16, **signed** | 0 |
+
+Field 11a's presence bit exists **only when field 11's is set** — it is the one conditional
+presence bit in the layout.
+
+`entitygroundcontact` follows in the SDK but is `#if`-guarded out for TF2; the guards differ
+between the read and write halves, which is recorded in
+[findings/09](findings/09-valve-implementation.md). `random_seed` is never sent — the reader
+derives it from `command_number` via MD5.
+
+**The trailing bits to the byte boundary are not zero and are not derivable.** They are
+uninitialised engine stack preserved by `bf_write`'s read-modify-write tail; 99.8% of commands end
+three bits short of a byte and those bits take every value from 0 to 7. A byte-exact rewrite must
+carry them. See [findings/01](findings/01-container.md).
+
+`dem_consolecmd`'s payload is a single null-terminated string.
+
 `democmdinfo_t` at protocol 3 is **76 bytes**: one `Split_t` of `int32 flags`
 plus six `Vector`s (view origin, view angles, local view angles — each duplicated
 for a second POV slot), 3×`float32` each. Confirmed by walking: any other size

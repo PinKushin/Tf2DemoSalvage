@@ -243,3 +243,80 @@ the code around it.** Nobody has revisited demo header compatibility since 2007.
 
 with `note` spliced into `version`. It is in the shipped binary — the raw bytes and the decompiler
 agree — so modern TF2 ships a corrupted format string on a path nobody has hit in years.
+
+## `dem_usercmd` is the player, and its padding is uninitialised engine stack (2026-08-11)
+
+The last container-level payload this project carried without reading. A `dem_usercmd` is one
+`CUserCmd` — view angles, movement, buttons, impulse, weapon switch, raw mouse deltas — written by
+`CDemoRecorder::RecordUserInput` at command rate. **It is the only thing in a demo that describes
+the person rather than the world**, and SourceTV recordings have none of it, because there is no
+player behind the camera.
+
+*Sourced*, from `game/shared/usercmd.cpp` and `game/client/in_main.cpp`. Read from the **encoder**:
+`WriteUsercmd` states the condition that clears each presence bit, and `ReadUsercmd` only implies
+it.
+
+Four things a reasonable guess gets wrong.
+
+**The baseline is a default-constructed `CUserCmd`, not the previous command.**
+`CInput::EncodeUserCmdToBuffer` puts `CUserCmd nullcmd;` on the stack for every call. So the
+delta is against a constant, and every command decodes independently — a decoder that carried
+state between commands would work on a clean file and desynchronise at the first gap.
+
+**Because of that, an absent `command_number` means one, not zero.** The writer's condition is
+`to->command_number != from->command_number + 1` and `from` is always zeroed, so the bit is cleared
+for the value **1**. Same for `tick_count`. A decoder defaulting the field to zero is off by one on
+nearly every command in the file.
+
+**The `weaponsubtype` presence bit is nested inside `weaponselect`'s.** It is the only conditional
+presence bit in the layout. Reading it unconditionally costs one bit and shifts both mouse deltas
+into plausible-looking values.
+
+**`mousedx`/`mousedy` go through `WriteShort` and are signed.** Read unsigned, a small leftward
+flick becomes a number near 65535 — which looks like data until something integrates it.
+
+### The finding: every demo leaks a few bits of the engine's stack
+
+`RecordUserInput` writes into a plain `byte buffer[256]` declared on the stack and never cleared,
+and `bf_write` composes its partial tail dword with a read-modify-write that preserves the bits
+outside its mask. So whatever was already in that stack slot survives into the file.
+
+*Measured*, across the ten point-of-view demos:
+
+| | |
+|---|---|
+| user commands | 385,236 |
+| ending 3 bits short of a byte | 99.8% |
+| values those 3 bits take | all of 0–7 |
+
+Some demos are narrower than others — the 2013 recording only ever emits `0` or `7`, the 2020
+ETF2L demo the same, while the 2026 RGL pug spreads across all eight — which is the fingerprint of
+**leftovers from a previous, longer write** rather than of anything meaningful.
+
+It is a fidelity problem rather than a disclosure one: at most seven bits per command, sourced from
+the demo writer's own buffer. But it has a hard consequence for this project. **A user command
+cannot be re-encoded from its values**, so the padding has to be carried. Assuming zero would
+rebuild a file differing from the original in nearly every user command *while every decoded field
+still read correctly* — which is the failure shape that only a round-trip property catches, and it
+was caught on the first corpus run.
+
+### Two independent decodes of the same three floats agree
+
+The strongest evidence the layout is right, and the only piece of it that does not depend on this
+project's reading of Valve's source. A demo stores the view angles **twice**, by unrelated routes:
+`democmdinfo_t` as plain little-endian floats ahead of every packet, and the user command
+bit-packed behind presence bits. Neither path can see the other.
+
+*Measured*: **329,969 of 330,853** packets carry angles bit-identical to the last user command
+before them — 99.7%. The remainder is the client sending input faster than the server sends
+snapshots. A transposed field or a width off by one could not produce that number.
+
+Every one of the 385,236 commands re-encodes byte-exactly, at protocols 11, 14, 15, 16 and 24.
+**The layout has not changed in nineteen years.**
+
+### `dem_consolecmd` was never printed either
+
+Not a decoding problem — it is a null-terminated string and always was. It went unprinted because
+there was nothing to work out, so nothing prompted anyone to do it. Worth having anyway: it is
+where every bound console command the recording player typed shows up, and the opening run of a
+demo is a client dumping its `dsp_*` and `cl_*` settings.
