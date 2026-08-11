@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -25,9 +26,14 @@ namespace Tf2DemoSalvage.Core.Net;
 /// implemented from its struct's C types rather than its read function desynchronised a whole
 /// packet while every individual number it produced looked reasonable.
 ///
-/// Only a handful of the 79 types are here, chosen from what the corpus actually contains rather
-/// than from what sounded useful. <c>CheapBreakModel</c> is 259 of 756 user messages and reports a
-/// piece of scenery breaking; <c>Rumble</c> drives a controller. Neither will ever be decoded.
+/// The types here are chosen from what the corpus actually contains, ordered by how many opaque
+/// bits each one accounts for rather than by how useful it sounds.
+///
+/// **"Opaque" and "carries nothing anyone wants" are different statements, and it is worth being
+/// able to make the second.** This file used to say <c>Rumble</c> would never be decoded because
+/// it drives a controller. It is decoded now — three bytes, from
+/// <c>__MsgFunc_Rumble</c> — and the point is that the claim is now established rather than
+/// assumed. Declining to read something is only a judgement once you can read it.
 /// </remarks>
 public static class UserMessageBody
 {
@@ -54,6 +60,13 @@ public static class UserMessageBody
             "Train" => SingleByte(body, bodyBits, "state"),
             "VoiceSubtitle" => VoiceSubtitle(body, bodyBits),
             "Damage" => Damage(body, bodyBits, networkProtocol),
+            "Fade" => Fade(body, bodyBits),
+            "Shake" => Shake(body, bodyBits),
+            "Rumble" => Rumble(body, bodyBits),
+            "ResetHUD" => SingleByte(body, bodyBits, "unused"),
+            "VGUIMenu" => VguiMenu(body, bodyBits),
+            "PlayerStatsUpdate" => PlayerStatsUpdate(body, bodyBits),
+            "MapStatsUpdate" => MapStatsUpdate(body, bodyBits),
             _ => null,
         };
 
@@ -276,6 +289,242 @@ public static class UserMessageBody
             new("item", (int)body[2]),
         ];
     }
+
+    /// <summary><c>Fade</c> — a full-screen colour wash, used for spawns and stuns.</summary>
+    /// <remarks>
+    /// <c>__MsgFunc_Fade</c> in <c>game/client/view_effects.cpp</c>: three shorts and four bytes,
+    /// which is 80 bits — and every Fade in the corpus is exactly 80 bits. The width was a
+    /// prediction from the source before a single body was read.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? Fade(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (bodyBits != FadeBits)
+        {
+            return null;
+        }
+
+        return
+        [
+            new("duration", (int)BinaryPrimitives.ReadUInt16LittleEndian(body)),
+            new("holdtime", (int)BinaryPrimitives.ReadUInt16LittleEndian(body[2..])),
+            new("flags", (int)BinaryPrimitives.ReadUInt16LittleEndian(body[4..])),
+            new("r", (int)body[6]),
+            new("g", (int)body[7]),
+            new("b", (int)body[8]),
+            new("a", (int)body[9]),
+        ];
+    }
+
+    /// <summary><c>Shake</c> — screen shake, which is what an explosion looks like from inside.</summary>
+    /// <remarks>
+    /// <c>__MsgFunc_Shake</c> in <c>game/client/view_effects.cpp</c>: a byte and three floats,
+    /// 104 bits. Every Shake in the corpus is 104 bits.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? Shake(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (bodyBits != ShakeBits)
+        {
+            return null;
+        }
+
+        return
+        [
+            new("command", (int)body[0]),
+            new("amplitude", BinaryPrimitives.ReadSingleLittleEndian(body[1..])),
+            new("frequency", BinaryPrimitives.ReadSingleLittleEndian(body[5..])),
+            new("duration", BinaryPrimitives.ReadSingleLittleEndian(body[9..])),
+        ];
+    }
+
+    /// <summary><c>Rumble</c> — controller vibration. Three bytes, and no use to a replay.</summary>
+    /// <remarks>
+    /// Decoded anyway because it is cheap and because "opaque" and "carries nothing anyone wants"
+    /// are different statements. This project can now say the second about Rumble; before, it
+    /// could only say the first. <c>__MsgFunc_Rumble</c> in <c>clientmode_shared.cpp</c>.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? Rumble(
+        ReadOnlySpan<byte> body, int bodyBits) =>
+        bodyBits != RumbleBits
+            ? null
+            : [new("waveform", (int)body[0]), new("data", (int)body[1]), new("flags", (int)body[2])];
+
+    /// <summary><c>VGUIMenu</c> — show or hide a panel, with optional key/value data.</summary>
+    /// <remarks>
+    /// <c>__MsgFunc_VGUIMenu</c> in <c>clientmode_shared.cpp</c>: a panel name, a show flag, a
+    /// count, and that many name/value string pairs. The MOTD arrives this way, which is why the
+    /// corpus's bodies are mostly `"info" show=0` and a handful of `"MOTD"`.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? VguiMenu(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (!IsWholeBytes(bodyBits, body))
+        {
+            return null;
+        }
+
+        int end = ByteLength(bodyBits);
+        int offset = 0;
+        if (!ReadString(body, end, ref offset, out string panel) || offset + 2 > end)
+        {
+            return null;
+        }
+
+        List<KeyValuePair<string, object?>> fields =
+            [new("panel", panel), new("show", body[offset] != 0)];
+
+        int count = body[offset + 1];
+        offset += 2;
+
+        for (int pair = 0; pair < count; pair++)
+        {
+            if (!ReadString(body, end, ref offset, out string key) ||
+                !ReadString(body, end, ref offset, out string value))
+            {
+                return null;
+            }
+
+            fields.Add(new(key, value));
+        }
+
+        return offset == end ? fields : null;
+    }
+
+    /// <summary><c>PlayerStatsUpdate</c> — a round's scoreboard numbers for one class.</summary>
+    /// <remarks>
+    /// <c>CTFStatPanel::MsgFunc_PlayerStatsUpdate</c> in <c>tf_hud_statpanel.cpp</c>: a class
+    /// byte, an alive byte, a 32-bit field saying which stats follow, and one 32-bit value per set
+    /// bit. So the body is 48 bits plus 32 per stat, and every width the corpus contains — 112,
+    /// 144, 176, 208, 240, 272 — is exactly that.
+    ///
+    /// **Valve's own reader enforces exact consumption here**, and says why: it checks
+    /// <c>0 == msg.GetNumBytesLeft()</c> and bails "rather than risk polluting player stats with
+    /// garbage". That is the same rule this file applies to every layout, arrived at
+    /// independently and for the same reason.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? PlayerStatsUpdate(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (!IsWholeBytes(bodyBits, body) || ByteLength(bodyBits) < 6)
+        {
+            return null;
+        }
+
+        List<KeyValuePair<string, object?>> fields =
+        [
+            new("class", ClassName(body[0])),
+            new("alive", body[1] != 0),
+        ];
+
+        return Stats(body, ByteLength(bodyBits), 2, StatNames, fields);
+    }
+
+    /// <summary><c>MapStatsUpdate</c> — the same shape, keyed by map rather than by class.</summary>
+    /// <remarks>
+    /// <c>CTFStatPanel::MsgFunc_MapStatsUpdate</c>: a 32-bit map id and the same set-bit field.
+    /// Only one map stat has ever existed, so every body in the corpus is 96 bits — the 64-bit
+    /// header plus one value.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? MapStatsUpdate(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (!IsWholeBytes(bodyBits, body) || ByteLength(bodyBits) < 8)
+        {
+            return null;
+        }
+
+        List<KeyValuePair<string, object?>> fields =
+            [new("map", (int)BinaryPrimitives.ReadUInt32LittleEndian(body))];
+
+        return Stats(body, ByteLength(bodyBits), 4, MapStatNames, fields);
+    }
+
+    /// <summary>Reads the set-bit field and one 32-bit value per stat it names.</summary>
+    /// <remarks>
+    /// **The loop stops at the end of the name table as well as when the bits run out**, because
+    /// that is what the game does: <c>while ( iSendBits > 0 &amp;&amp; iStat &lt;= TFSTAT_LAST )</c>.
+    ///
+    /// **In this build that guard is unreachable, and noticing why is the useful part.** The
+    /// field is 32 bits and <c>TFStatType_t</c> runs to 44, so bit 31 selects stat 32 and stats 33
+    /// through 44 cannot be sent through this message at all. The guard only bites when the table
+    /// is SHORTER than 32 entries — which is what an older era looks like, and is why the era
+    /// caveat on <see cref="StatNames"/> is about labels rather than about widths.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? Stats(
+        ReadOnlySpan<byte> body, int end, int offset, string[] names,
+        List<KeyValuePair<string, object?>> fields)
+    {
+        uint sent = BinaryPrimitives.ReadUInt32LittleEndian(body[offset..]);
+        offset += 4;
+
+        for (int stat = 1; stat < names.Length && sent > 0; stat++, sent >>= 1)
+        {
+            if ((sent & 1) == 0)
+            {
+                continue;
+            }
+
+            if (offset + 4 > end)
+            {
+                return null;
+            }
+
+            fields.Add(new(names[stat], BinaryPrimitives.ReadInt32LittleEndian(body[offset..])));
+            offset += 4;
+        }
+
+        return offset == end ? fields : null;
+    }
+
+    /// <summary>The class a stats update belongs to.</summary>
+    private static string ClassName(byte value) =>
+        value < Classes.Length ? Classes[value] : value.ToString(CultureInfo.InvariantCulture);
+
+    // Stryker disable String: transcribed from tf_shareddefs.h and tf_gamestats_shared.h. A
+    // per-name mutant can only be killed by asserting that name back - change detectors that
+    // break on every SDK update and catch nothing. What can go wrong is ALIGNMENT, which the
+    // width arithmetic and the exact-consumption check cover.
+    private static readonly string[] Classes =
+        ["none", "scout", "sniper", "soldier", "demoman", "medic", "heavy", "pyro", "spy", "engineer"];
+
+    /// <summary>
+    /// <c>TFStatType_t</c>, in order. Index 0 is <c>TFSTAT_UNDEFINED</c> and is never sent.
+    /// </summary>
+    /// <remarks>
+    /// **Era caveat, and it is real here in a way it was not for the message ids.** Stats were
+    /// appended over the game's life, so this 2013-SDK list is longer than what a 2008 build sent.
+    /// Appending is the safe direction — a low index means the same stat in every era — but a stat
+    /// inserted rather than appended would rename everything after it, and there is no old SDK to
+    /// diff against. The VALUES do not depend on this table at all, only on the set-bit count, so
+    /// a wrong name here cannot cause a misread; it can only mislabel.
+    /// </remarks>
+    private static readonly string[] StatNames =
+    [
+        "undefined", "shots_hit", "shots_fired", "kills", "deaths", "damage", "captures",
+        "defenses", "dominations", "revenge", "points_scored", "buildings_destroyed", "headshots",
+        "playtime", "healing", "invulns", "kill_assists", "backstabs", "health_leached",
+        "buildings_built", "max_sentry_kills", "teleports", "fire_damage", "bonus_points",
+        "blast_damage", "damage_taken", "health_kits", "ammo_kits", "class_changes", "crits",
+        "suicides", "currency_collected", "damage_assist", "healing_assist", "damage_boss",
+        "damage_blocked", "damage_ranged", "damage_ranged_crit_random",
+        "damage_ranged_crit_boosted", "revived", "throwable_hit", "throwable_kill",
+        "killstreak_max", "kills_runecarrier", "flag_returns",
+    ];
+
+    /// <summary><c>TFMapStatType_t</c>. Only one map stat has ever existed.</summary>
+    private static readonly string[] MapStatNames = ["undefined", "playtime"];
+
+    // Stryker restore String
+
+    /// <summary>Three shorts and four colour bytes.</summary>
+    private const int FadeBits = 80;
+
+    /// <summary>A command byte and three floats.</summary>
+    private const int ShakeBits = 104;
+
+    /// <summary>Waveform, data, flags.</summary>
+    private const int RumbleBits = 24;
 
     private static List<KeyValuePair<string, object?>>? SingleString(
         ReadOnlySpan<byte> body, int bodyBits, string field)

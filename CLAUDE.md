@@ -32,6 +32,40 @@ Remaining gaps on the era axis: protocols **12–13** and **17–23**.
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
 
+## `docs/findings/` is a rolling account — keep it current as you go
+
+`docs/findings/` is the **reverse-engineering history of TF2's demo system**: how each part of the
+format was worked out, what was believed first, what turned out to be wrong, and which piece of
+evidence settled it. It is written to be read end to end and quoted in a write-up.
+
+**Update it in the same commit as the finding, not at the end of the project.** A finding written
+up weeks later loses the thing that makes it worth reading — the wrong turn, the measurement that
+killed it, the number that made it obvious.
+
+What belongs there, in rough order of value:
+
+- **Anything learned about Valve's own code and engine behaviour**, not just about the wire format.
+  Vestigial fields, placeholder bytes, dead guards, clamps, how `bf_write` behaves under pressure.
+  This is the part with the least prior art and the most interest.
+- **Dates and history.** Valve publishes *what* changed between protocols and never *when*. The
+  protocol-to-build-date table is original research and every new specimen extends it.
+- **Wrong conclusions and what killed them.** Kept deliberately — a conclusion recorded without the
+  reasoning that failed is the kind that gets confidently repeated.
+
+Keep the division of labour clean, because duplicated prose goes stale:
+
+| Document | Answers |
+|---|---|
+| `docs/SPEC.md` | what the format **is** |
+| `docs/findings/` | **how we know**, and what we got wrong |
+| `docs/RISKS.md` | what is still **open**, numbered |
+| `docs/DECISIONS.md` | **why the project** is built this way |
+| `docs/TIMELINE.md` | the **era axis** |
+
+Mark each claim with its evidence class — read from published source, measured on the corpus,
+arithmetic, differential, or interpolated. They are not equal, and the difference has repeatedly
+decided arguments. Flag interpolations every time.
+
 ## AI memory is mirrored into this repo
 
 `docs/memory/` holds the assistant's working memory, committed so it survives a machine
