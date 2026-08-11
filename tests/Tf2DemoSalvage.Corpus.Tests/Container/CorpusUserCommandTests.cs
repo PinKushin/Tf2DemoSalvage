@@ -70,6 +70,67 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ViewAnglesAgreeWithTheCameraTrackTheEngineWroteSeparately()
+    {
+        // **The one check here that does not depend on this project's reading of Valve's source.**
+        // Everything else - the fixtures, the round trip - tests the codec against the same
+        // interpretation that produced it. This tests it against the engine.
+        //
+        // A demo records the same three angles twice by two unrelated routes: democmdinfo_t
+        // stores them as plain little-endian floats ahead of every packet, and the user command
+        // stores them bit-packed behind presence bits. Nothing in either path can see the other,
+        // so if the bit-level decode had a field transposed or a width wrong, the two would
+        // disagree. They cannot agree by accident.
+        int matched = 0;
+        int compared = 0;
+
+        foreach (string path in Corpus.Files())
+        {
+            UserCommand? latest = null;
+
+            foreach (DemoCommand command in
+                DemoCommandReader.Read(File.ReadAllBytes(path).AsMemory(DemoHeader.SizeBytes)))
+            {
+                if (command.Type == DemoCommandType.UserCmd && !command.Payload.IsEmpty)
+                {
+                    latest = UserCommand.Decode(command.Payload.Span);
+                    continue;
+                }
+
+                if (command.View is not { } view || latest is null)
+                {
+                    continue;
+                }
+
+                compared++;
+
+                // Compared as bits rather than with a tolerance. Nothing computes these - both
+                // sides are the same float the engine held, written twice - so an epsilon would
+                // only widen the test enough to hide a real disagreement.
+                if (SameBits(view.Pitch, latest.Pitch) && SameBits(view.Yaw, latest.Yaw) &&
+                    SameBits(view.Roll, latest.Roll))
+                {
+                    matched++;
+                }
+            }
+        }
+
+        compared.ShouldBeGreaterThan(0, "no packet followed a user command in any demo");
+
+        // A rate rather than an equality, because not every packet lands on a command boundary:
+        // the client sends input faster than the server sends snapshots, and a dropped command
+        // leaves a stale one in hand. Measured at 329,969 of 330,853 - 99.7% - across the ten
+        // point-of-view demos. The floor is set well below that and still nowhere near what an
+        // incorrect decode could reach.
+        double rate = (double)matched / compared;
+        output.WriteLine($"{matched} of {compared} packets matched the last command ({rate:P1})");
+        rate.ShouldBeGreaterThan(0.95);
+    }
+
+    private static bool SameBits(float left, float right) =>
+        BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
+
+    [Fact]
     public void PlayerInputVariesRatherThanSittingAtItsDefaults()
     {
         // The control for the test above. Re-encoding a payload whose every presence bit is zero

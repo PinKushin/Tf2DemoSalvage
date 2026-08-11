@@ -28,3 +28,5 @@
 - [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays files this project generated; dem_synctick is tick zero and the signon dominates size.
 - [Binaries answer what the SDK cannot](binaries-answer-what-the-sdk-cannot.md) — six clients gave every unnamed message id; scan PE bytes for the push pattern, don't trust Ghidra's analysis.
 - [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — Valve notes date their build exactly; only a note describing a REPAIR lags its subject.
+- [Padding is not zero](padding-is-not-zero.md) — bit padding carries uninitialised writer stack; read it, never recompute it.
+- [Two recordings of one value](two-recordings-of-one-value.md) — a value stored twice by unrelated routes tests the decode against the engine, not against your own reading.

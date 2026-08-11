@@ -146,6 +146,21 @@ public static class DemoTraceWriter
 
         if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
         {
+            // The two container commands that carry a decodable payload of their own. Everything
+            // else in this branch - dem_synctick, dem_stop, dem_datatables, dem_stringtables - is
+            // either empty or handled by its own pass, so it stays a bare one-line block.
+            if (command.Type == DemoCommandType.UserCmd && !command.Payload.IsEmpty)
+            {
+                WriteUserCommand(writer, kind, command);
+                return;
+            }
+
+            if (command.Type == DemoCommandType.ConsoleCmd && !command.Payload.IsEmpty)
+            {
+                WriteConsoleCommand(writer, kind, command);
+                return;
+            }
+
             // Still a block. A trace that omitted dem_synctick or dem_stop would not describe
             // the file it read.
             writer.WriteLine(string.Create(
@@ -607,6 +622,95 @@ public static class DemoTraceWriter
         }
 
         return quoted.Append('"').ToString();
+    }
+
+    /// <summary>Expands a <c>dem_usercmd</c> into the input it records.</summary>
+    /// <remarks>
+    /// Groups that sit at their defaults are left out. Most commands carry angles, movement and
+    /// buttons and nothing else, so printing every field would triple the size of this part of
+    /// the trace to say "zero" several hundred thousand times.
+    ///
+    /// The padding is printed when it is non-zero because it is genuinely in the file, and
+    /// because a reader who does not know it is uninitialised engine stack would otherwise never
+    /// find out. See <see cref="UserCommand"/>.
+    /// </remarks>
+    private static void WriteUserCommand(TextWriter writer, string kind, DemoCommand command)
+    {
+        UserCommand input = UserCommand.Decode(command.Payload.Span);
+
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"block {kind} tick {command.Tick} {{"));
+
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    command {input.CommandNumber} client_tick {input.TickCount};"));
+
+        if (input.Pitch != 0 || input.Yaw != 0 || input.Roll != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    angles {input.Pitch:F3} {input.Yaw:F3} {input.Roll:F3};"));
+        }
+
+        if (input.ForwardMove != 0 || input.SideMove != 0 || input.UpMove != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    move {input.ForwardMove:F3} {input.SideMove:F3} {input.UpMove:F3};"));
+        }
+
+        if (input.Buttons != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    buttons {UserCommandButtons.Describe(input.Buttons)};"));
+        }
+
+        if (input.Impulse != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"    impulse {input.Impulse};"));
+        }
+
+        if (input.WeaponSelect != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    weapon {input.WeaponSelect} subtype {input.WeaponSubtype};"));
+        }
+
+        if (input.MouseDx != 0 || input.MouseDy != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    mouse {input.MouseDx} {input.MouseDy};"));
+        }
+
+        if (input.Padding != 0)
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"    pad 0x{input.Padding:X};"));
+        }
+
+        writer.WriteLine("}");
+    }
+
+    /// <summary>Expands a <c>dem_consolecmd</c> into the command line it holds.</summary>
+    /// <remarks>
+    /// A null-terminated string and nothing else, which is why it went unprinted for so long -
+    /// there was no decoding to do and so nothing prompted anyone to do it. It is worth having:
+    /// this is where `killserver`, `say`, and every bound console command the recording player
+    /// typed actually appear.
+    /// </remarks>
+    private static void WriteConsoleCommand(TextWriter writer, string kind, DemoCommand command)
+    {
+        ReadOnlySpan<byte> payload = command.Payload.Span;
+        int end = payload.IndexOf((byte)0);
+        string text = Encoding.UTF8.GetString(end < 0 ? payload : payload[..end]);
+
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"block {kind} tick {command.Tick} {{ command {Quote(text)}; }}"));
     }
 
     private static string WireName(DemoCommandType type) => type switch

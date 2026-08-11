@@ -218,3 +218,47 @@ every previously-unnamed id in the corpus.
 **The general point: "not in the source" is not "not knowable".** The distinction that matters is
 between something Valve never wrote down and something Valve never *published*. The second is
 still sitting in the binary, in order, with its constants attached.
+
+## `entitygroundcontact` is guarded by different macros on each side of the wire (2026-08-11)
+
+Found while reading `game/shared/usercmd.cpp` for the `dem_usercmd` layout ([01](01-container.md)).
+The last field of a user command is an optional list of ground contacts, and it is conditional:
+
+```cpp
+// in WriteUsercmd
+#if defined( HL2_CLIENT_DLL )
+	if ( to->entitygroundcontact.Count() != 0 ) { ... }
+#endif
+
+// in ReadUsercmd
+#if defined( HL2_DLL )
+	if ( buf->ReadOneBit() ) { ... }
+#endif
+```
+
+**Two halves of one wire format, gated on two different macros.** `HL2_CLIENT_DLL` and `HL2_DLL`
+are the client and server sides of the same game, so any configuration defining exactly one of them
+writes a command the other cannot read — and it fails silently, because the desynchronisation is a
+single presence bit at the end of a message with no terminator and no checksum.
+
+TF2 defines neither, so its commands simply stop after the mouse deltas and this never fires. That
+is *why* it survives: the bug is unreachable in the configuration anyone ships, which is exactly
+the condition under which a mismatch like this never gets found.
+
+Same category as the vestigial protocol floor in [01](01-container.md) and the misspelled format
+string beside it: **the parts of Valve's code nobody executes are where the interesting things
+are still sitting.**
+
+## `random_seed` is derived, not transmitted (2026-08-11)
+
+A smaller one from the same file, and worth stating because it looks like a missing field. `CUserCmd`
+has a `random_seed` used to keep client and server prediction of spread and recoil in step, and it
+never goes on the wire. `ReadUsercmd` computes it:
+
+```cpp
+move->random_seed = MD5_PseudoRandom( move->command_number ) & 0x7fffffff;
+```
+
+So it is a pure function of a field already present. A parser reporting it is not reading anything
+out of the file — which is why this project does not report it, rather than deriving a number and
+presenting it alongside measured ones. *Sourced.*

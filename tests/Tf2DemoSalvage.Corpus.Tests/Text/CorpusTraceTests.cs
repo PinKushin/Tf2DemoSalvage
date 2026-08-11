@@ -150,6 +150,42 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         }
     }
 
+    [Fact]
+    public void UserCommandsAndConsoleCommandsAreExpandedRatherThanCounted()
+    {
+        // Both were bare one-line blocks until the payload behind them was decoded, which is a
+        // failure mode worth naming: a trace listing `block dem_usercmd tick 72;` reads as
+        // complete, because nothing about it says a payload went unread.
+        int expanded = 0;
+
+        foreach (string path in Corpus.Files())
+        {
+            string trace = Trace(path);
+
+            if (!trace.Contains("block dem_usercmd", StringComparison.Ordinal))
+            {
+                // SourceTV recordings have no player behind the camera and so carry none.
+                continue;
+            }
+
+            expanded++;
+            string name = Path.GetFileName(path);
+
+            // The block must open rather than terminate, and it must carry the resolved command
+            // number - the field whose absent form means one rather than zero.
+            trace.ShouldContain("block dem_usercmd tick ", Case.Sensitive, name);
+            trace.ShouldNotContain("block dem_usercmd tick 0;", Case.Sensitive, name);
+            trace.ShouldContain("    command ", Case.Sensitive, name);
+
+            // A player who was moving at all produces angles, and every corpus demo opens with
+            // someone already in the world.
+            trace.ShouldContain("    angles ", Case.Sensitive, name);
+        }
+
+        expanded.ShouldBeGreaterThan(0, "no point-of-view demo reached the trace");
+        output.WriteLine($"{expanded} demos expanded their user commands");
+    }
+
     /// <summary>Whether a trace line is a bare "name bits N", which is how a skip renders.</summary>
     private static bool IsAnonymous(string line)
     {
