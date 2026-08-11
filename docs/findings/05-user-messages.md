@@ -212,6 +212,46 @@ is what an older era looks like.
 comment: rather than risk polluting player stats with garbage. The same rule this project arrived
 at independently, for the same reason.
 
+## A real multiplayer demo changes what "the biggest message" means
+
+The committed corpus is listen-server recordings with one or two players. That shape hides an
+entire population of messages, and it took a 2026 pub round with 23 players to show it:
+
+| message | committed corpus | one 7-minute pub round |
+|---|---|---|
+| `CloseCaption` | a handful | **616** |
+| `Damage` | 108 across all eras | 145 |
+| `VoiceSubtitle` | 3 | 51 |
+| `SpawnFlyingBird` | 2 | 11 |
+
+`CloseCaption` — every voice line and announcer call — is **more numerous than every other user
+message in that demo combined**, and the corpus had essentially none of it. Nobody talks on a
+listen server with one player in it.
+
+That is a corpus-shape lesson rather than a format one: **a corpus selected for era coverage is not
+a corpus selected for message coverage.** Eleven eras of empty servers will never contain a busy
+one, and there is no amount of protocol-axis work that finds `CloseCaption`.
+
+The pub demo also widened messages already decoded, which is the more useful half. `Damage` gained
+99- and 104-bit forms — new coordinate shapes, an axis sent with **fraction only** — and
+`PlayerStatsUpdate` reached 432 bits, twelve stats in one message where the corpus's largest was
+seven. Both decoded without change, which exercises those loops far harder than the corpus could.
+
+### The layouts that demo made worth writing
+
+| message | layout | source |
+|---|---|---|
+| `CloseCaption` | token string, short of tenths, flag byte | `hud_closecaption.cpp` |
+| `VoiceMask` | 4 × (can-hear dword, muted dword) **interleaved**, then a byte | `voice_gamemgr.cpp` |
+| `PlayerIgnited` | igniter, victim, weapon | `tf_player.cpp` |
+| `PlayerExtinguished`, `PlayerJarated`, `PlayerShieldBlocked` | two entity indices | various |
+
+**`VoiceMask` is the one where exact consumption cannot help.** Two contiguous arrays and two
+interleaved ones consume identical bits, so the check that validates every other layout here is
+blind to the difference — only reading the writer distinguishes them. Its width is also predicted
+through two levels of macro: `VOICE_MAX_PLAYERS_DW*4*2 + 1` where `VOICE_MAX_PLAYERS` is
+`MAX_PLAYERS` = 101, giving four dwords and 33 bytes, and every instance in the corpus is 264 bits.
+
 ## Three different kinds of era change, at the same layer
 
 Worth separating, because they need different defences and the first two were initially confused

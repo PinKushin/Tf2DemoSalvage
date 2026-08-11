@@ -55,6 +55,23 @@ The table **names** do change across eras, and `max_classes` moves (216, 216, 23
 those are the discriminators. Recorded because "a quantity that looks like a fingerprint" is worth
 checking against more than one era before relying on it.
 
+## A user id is a connection counter, not a player slot
+
+From the `userinfo` table. The server increments it for **every client that has ever joined**, so
+it says nothing about how many players are present and has no small ceiling.
+
+Measured: the committed corpus's rosters sit in the 490–530 range, while a 2026 pub server that had
+been up for hours runs **1090–1147 across 23 players**. Both are correct.
+
+This was worth catching because it had been asserted otherwise — a plausibility check bounded user
+ids at 1024, which held only because every corpus demo was recorded on a freshly started listen
+server where the counter had barely moved. The same shape as the "more than six players" assumption
+that preceded it: **a corpus of one kind of recording makes accidental invariants look structural.**
+
+What *is* structural is the entity index, which MAX_EDICTS genuinely bounds. The user id's only
+real constraint is that it is a non-negative int, so the useful check is one only a bit-level
+misread could fail — billions, not thousands.
+
 ## Everything is UTF-8
 
 Player names are arbitrary client bytes and routinely carry Cyrillic and CJK. An ASCII decoder

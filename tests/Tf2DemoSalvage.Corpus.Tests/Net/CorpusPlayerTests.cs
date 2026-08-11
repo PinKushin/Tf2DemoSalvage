@@ -40,7 +40,21 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
                 player.Name.ShouldNotBeNullOrWhiteSpace(name);
                 player.Name.Length.ShouldBeLessThanOrEqualTo(32, name);
                 player.Name.ShouldAllBe(c => !char.IsControl(c), name);
-                player.UserId.ShouldBeInRange(0, 1024, name);
+                // **A user id is a per-connection counter, not a player slot.** The server
+                // increments it for every client that has ever joined, so a busy pub that has
+                // been up for hours is well past a thousand: the 2026 pub demo's roster runs
+                // 1090-1147 across 23 players. The old ceiling of 1024 was the same mistake as
+                // the "more than six players" one above - an assumption the corpus made true by
+                // accident, because every demo in it was recorded on a freshly started listen
+                // server where the counter had barely moved.
+                //
+                // What is actually structural: the field is a signed int, so the only values a
+                // correct read cannot produce are negative ones, and a bit-level misread lands
+                // in the billions rather than the thousands. Hence a bound that only a misread
+                // reaches, rather than one describing how busy a server has been.
+                player.UserId.ShouldBeInRange(0, 1_000_000, name);
+
+                // The entity index IS slot-bounded, by MAX_EDICTS. This is the tight one.
                 player.EntityIndex.ShouldBeInRange(0, 2048, name);
             }
         }
