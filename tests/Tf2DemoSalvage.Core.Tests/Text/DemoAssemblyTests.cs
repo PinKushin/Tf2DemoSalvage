@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Text;
 
 namespace Tf2DemoSalvage.Core.Tests.Text;
@@ -114,7 +115,7 @@ public sealed class DemoAssemblyTests
               signonlength 4
             end
 
-            packet 9 data 00FF   # one packet
+            consolecmd 9 data 00FF   # not a packet, so its payload stays whole
             """;
 
         using StringReader reader = new(source);
@@ -122,6 +123,78 @@ public sealed class DemoAssemblyTests
 
         header.NetworkProtocol.ShouldBe(24);
         commands.ShouldHaveSingleItem().Payload.ToArray().ShouldBe(new byte[] { 0x00, 0xFF });
+    }
+
+    [Fact]
+    public void APacketBlock_AssemblesItsMessageLinesBackIntoThePayload()
+    {
+        // Packets are the one command whose payload is expanded rather than hex, so this is the
+        // grammar's only nested shape. net_nop is six bits and net_tick sixty-five, so the block
+        // does not land on a byte boundary - the trailing raw line is what makes the payload a
+        // whole number of bytes, and inventing padding instead would change the demo.
+        const string source = """
+            demo
+              demoprotocol 3
+              networkprotocol 24
+              server "s"
+              client "c"
+              map "m"
+              gamedir "tf"
+              playbacktime 1
+              playbackticks 2
+              playbackframes 3
+              signonlength 4
+            end
+            packet 9 view AABB
+              net_nop
+              net_tick 1234 7 8
+              raw 5 00
+            end
+            """;
+
+        using StringReader reader = new(source);
+        DemoCommand command = DemoAssembly.Parse(reader).Commands.ShouldHaveSingleItem();
+
+        command.Prologue.ToArray().ShouldBe(new byte[] { 0xAA, 0xBB });
+        // 6 (net_nop is a type field and nothing else) + 70 (net_tick: type, tick,
+        // and two 16-bit counters) + 5 = 81 bits, which is 11 bytes.
+        command.Payload.Length.ShouldBe(11);
+
+        // The proof is that it reads back as what was written, through the ordinary reader.
+        NetMessageReadResult result = NetMessageReader.Read(
+            command.Payload.Span, new NetDecodeState { NetworkProtocol = 24 });
+
+        result.Messages[0].ShouldBeOfType<NetEmptyMessage>();
+        NetTickMessage tick = result.Messages[1].ShouldBeOfType<NetTickMessage>();
+        tick.Tick.ShouldBe(1234);
+        tick.HostFrameTimeRaw.ShouldBe((ushort)7);
+    }
+
+    [Fact]
+    public void AnUnclosedPacketBlock_IsRefused()
+    {
+        // Silently accepting it would compile a demo whose last packet is short by however many
+        // messages the file was truncated after - a file that plays and is wrong.
+        const string source = """
+            demo
+              demoprotocol 3
+              networkprotocol 24
+              server "s"
+              client "c"
+              map "m"
+              gamedir "tf"
+              playbacktime 1
+              playbackticks 2
+              playbackframes 3
+              signonlength 4
+            end
+            packet 9
+              net_nop
+            """;
+
+        using StringReader reader = new(source);
+
+        Should.Throw<InvalidDataException>(() => DemoAssembly.Parse(reader));
     }
 
     [Fact]

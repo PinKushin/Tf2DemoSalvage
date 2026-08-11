@@ -6,6 +6,8 @@ using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Text;
 
@@ -23,10 +25,10 @@ namespace Tf2DemoSalvage.Core.Text;
 /// a reader could not get better elsewhere — what it has instead is completeness, which is the only
 /// property that makes the round trip mean anything.
 ///
-/// The intended path from here is to promote payloads out of hex, message by message, keeping the
-/// round trip green throughout. When every one is structured text, the hex is gone and the two
-/// formats have converged. Until then the hex is honest about what has not been done yet, in the
-/// way the codec coverage report is.
+/// Packet payloads are expanded into one line per message, and a message with no text form yet
+/// appears as <c>raw</c> with its bit length and its bits. That is the shape the format grows in:
+/// each type promoted out of <c>raw</c> keeps the round trip green or it does not get promoted.
+/// Every other command's payload is still whole-payload hex.
 ///
 /// Nothing is derived on the way back in. The <c>democmdinfo_t</c> block travels as raw bytes even
 /// though its camera fields are decoded elsewhere, because a demo has to be reproducible from what
@@ -105,6 +107,11 @@ public static class DemoAssembly
         WriteField(writer, "signonlength", header.SignonLengthBytes);
         writer.WriteLine(EndKeyword);
 
+        // The same state the reader keeps, for the same reason: the message type field is five
+        // bits at or below protocol 15 and six above, so a payload cannot be split into messages
+        // without knowing which.
+        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+
         foreach (DemoCommand command in commands)
         {
             StringBuilder line = new();
@@ -118,13 +125,21 @@ public static class DemoAssembly
                     .Append(Convert.ToHexString(command.Prologue.Span));
             }
 
-            if (!command.Payload.IsEmpty)
+            bool expandable = command.Type is DemoCommandType.Signon or DemoCommandType.Packet;
+
+            if (!expandable && !command.Payload.IsEmpty)
             {
                 line.Append(' ').Append(DataKeyword).Append(' ')
                     .Append(Convert.ToHexString(command.Payload.Span));
             }
 
             writer.WriteLine(line.ToString());
+
+            if (expandable)
+            {
+                WriteMessages(writer, command.Payload.Span, state);
+                writer.WriteLine(EndKeyword);
+            }
         }
     }
 
@@ -139,6 +154,7 @@ public static class DemoAssembly
 
         Dictionary<string, string> fields = new(StringComparer.Ordinal);
         List<DemoCommand> commands = [];
+        NetDecodeState state = new();
         bool inHeader = false;
         bool headerSeen = false;
 
@@ -172,10 +188,26 @@ public static class DemoAssembly
                 }
 
                 fields[line[..space]] = Unquote(line[(space + 1)..]);
+
+                // Set as soon as it is read, because the packets that follow cannot be assembled
+                // without it: it sizes the message type field.
+                if (line[..space] == "networkprotocol")
+                {
+                    state.NetworkProtocol = ushort.Parse(
+                        fields["networkprotocol"], CultureInfo.InvariantCulture);
+                }
+
                 continue;
             }
 
-            commands.Add(ParseCommand(line));
+            DemoCommand command = ParseCommand(line);
+
+            if (command.Type is DemoCommandType.Signon or DemoCommandType.Packet)
+            {
+                command = command with { Payload = ReadMessages(reader, state) };
+            }
+
+            commands.Add(command);
         }
 
         if (!headerSeen)
@@ -184,6 +216,53 @@ public static class DemoAssembly
         }
 
         return (BuildHeader(fields), commands);
+    }
+
+    /// <summary>Expands a packet payload into one line per message.</summary>
+    /// <remarks>
+    /// A message the assembler has no text form for is written as its own bits rather than being
+    /// folded into a neighbour, so promoting a type later changes one line and nothing around it.
+    /// The bits after the last message go out the same way - a payload is a whole number of bytes
+    /// and the messages inside it are not, so there is nearly always a remainder.
+    /// </remarks>
+    private static void WriteMessages(
+        TextWriter writer, ReadOnlySpan<byte> payload, NetDecodeState state)
+    {
+        NetMessageReadResult result = NetMessageReader.Read(payload, state);
+
+        for (int i = 0; i < result.Messages.Count; i++)
+        {
+            int start = result.MessageStartBits[i];
+            int end = i + 1 < result.Messages.Count
+                ? result.MessageStartBits[i + 1]
+                : result.BitsConsumed;
+
+            writer.WriteLine(
+                "  " + (MessageAssembly.CanWrite(result.Messages[i])
+                    ? MessageAssembly.Write(result.Messages[i])
+                    : MessageAssembly.WriteRaw(Slice(payload, start, end - start), end - start)));
+        }
+
+        int trailing = (payload.Length * 8) - result.BitsConsumed;
+        if (trailing > 0)
+        {
+            writer.WriteLine(
+                "  " + MessageAssembly.WriteRaw(
+                    Slice(payload, result.BitsConsumed, trailing), trailing));
+        }
+    }
+
+    /// <summary>Copies a bit range into its own buffer, starting at bit zero.</summary>
+    private static byte[] Slice(ReadOnlySpan<byte> source, int startBit, int bits)
+    {
+        BitWriter writer = new();
+        for (int i = 0; i < bits; i++)
+        {
+            int bit = startBit + i;
+            writer.Write((uint)((source[bit / 8] >> (bit % 8)) & 1), 1);
+        }
+
+        return writer.Build();
     }
 
     private static DemoCommand ParseCommand(string line)
@@ -227,6 +306,35 @@ public static class DemoAssembly
         }
 
         return new DemoCommand(type, tick, payload, prologue);
+    }
+
+    /// <summary>Assembles a packet's message lines back into a payload.</summary>
+    /// <remarks>
+    /// The block ends at <c>end</c>, and the payload it produces is a whole number of bytes
+    /// because the trailing bits were written out as their own <c>raw</c> line. Padding to a
+    /// boundary here instead would be inventing bits.
+    /// </remarks>
+    private static byte[] ReadMessages(TextReader reader, NetDecodeState state)
+    {
+        BitWriter writer = new();
+
+        while (reader.ReadLine() is { } raw)
+        {
+            string line = Strip(raw);
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            if (line == EndKeyword)
+            {
+                return writer.Build();
+            }
+
+            MessageAssembly.Assemble(line, writer, state);
+        }
+
+        throw new InvalidDataException("A packet block was not closed with 'end'.");
     }
 
     private static DemoHeader BuildHeader(Dictionary<string, string> fields) => new()

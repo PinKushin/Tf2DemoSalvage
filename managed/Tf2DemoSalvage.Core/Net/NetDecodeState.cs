@@ -29,7 +29,7 @@ public sealed class NetDecodeState
     /// unqualified <see cref="NetDecodeState"/> should behave as a modern demo, which is what
     /// every synthetic fixture in the tests assumes and what almost every real demo is.
     /// </remarks>
-    public ushort NetworkProtocol { get; init; } = CurrentProtocol;
+    public ushort NetworkProtocol { get; set; } = CurrentProtocol;
 
     /// <summary>The protocol current builds record at.</summary>
     private const ushort CurrentProtocol = 24;
