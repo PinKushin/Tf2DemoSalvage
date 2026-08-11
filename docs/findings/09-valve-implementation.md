@@ -174,6 +174,29 @@ Where both are available, read both, and treat the writer as authoritative. Wher
 is available — as for `engine.dll` — expect to be missing the intent, and lean harder on
 arithmetic and on the corpus.
 
+## `VoiceMask` grew twice, and the size is a dated proxy for `MAX_PLAYERS`
+
+Read from the registration calls in the shipped clients (see [05](05-user-messages.md)). Valve
+registers each user message with a byte size, and `VoiceMask` writes `VOICE_MAX_PLAYERS_DW`
+dword *pairs* — an audible mask and a server-banned mask — followed by one byte for the server
+mod enable flag. So `size = 8 × dwords + 1`, and the size inverts to a player ceiling:
+
+| build | registered size | dword pairs | implied `VOICE_MAX_PLAYERS` |
+|---|---|---|---|
+| 2007 launch, 2008 | **9** | 1 | 32 |
+| 2009 | **17** | 2 | 64 |
+| 2011, 2013, 2026 | **33** | 4 | 128 (101 rounds to 4) |
+
+The 2007 **client and server** DLLs agree on 9 independently, which is the control — two
+separately compiled binaries from one build.
+
+Two things worth keeping. First, this is a Valve internal constant dated by measurement, which is
+the sort of thing no changelog records. Second, it is a live decoding hazard: this project sizes
+`VoiceMask` at 33 bytes, so a launch-era one is a quarter of the expected width. It fails safely
+only because the reader demands *exact* consumption — under a `<=` check it would have read
+sixteen fabricated dwords of mute state and reported them as fact. That rule was adopted for
+`Damage` at protocol 14 and paid off again here, on a message and an era nobody was looking at.
+
 ## What is *not* knowable from the SDK
 
 Worth listing so the next investigation does not start here:
@@ -184,3 +207,14 @@ Worth listing so the next investigation does not start here:
   differential comparison against `demostf/parser`, not by reading anything.
 - SourceTV's relay behaviour, and therefore how far a relayed recording may diverge from what a
   player saw.
+
+**One item came off this list on 2026-08-11: the pre-2013 user message tables.** They are not in
+any SDK — the 2009 SDK ships no TF2 game code, and the sdk2013 drop describes a build years later
+than its name. They are, however, plainly readable in every shipped `client.dll`, because
+`usermessages->Register("Name", size)` compiles to a push of the size then a push of the name, so
+the table is a literal sequence in `.text`. Six eras were read that way, and the result named
+every previously-unnamed id in the corpus.
+
+**The general point: "not in the source" is not "not knowable".** The distinction that matters is
+between something Valve never wrote down and something Valve never *published*. The second is
+still sitting in the binary, in order, with its constants attached.

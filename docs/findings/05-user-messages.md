@@ -319,6 +319,74 @@ The unnamed ids are the era-shifted ones, and their bodies are readable: `#40` a
 `CheapBreakModel` shapes. What is missing is not the layout but the *identity*, and naming them
 from their shape would be a guess where the whole point of the gate is to stop guessing.
 
+### Resolved 2026-08-11, by reading the registration order out of six shipped clients
+
+Everything above this line was inferred from demo bodies. The tables were then read directly
+from the game binaries — 2007, 2008, 2009, 2011, March 2013 and the live July 2026 client — and
+all five unnamed ids are now named. Two of the inferences were right, and the other three were
+wrong in a way no amount of corpus staring would have fixed.
+
+**Right:** `#40` in 2009 and `#41` in 2011 are both `CheapBreakModel`, exactly as the 85-bit body
+shape predicted.
+
+**Wrong:** `#44`, `#52` and `#69` are not game messages at all.
+
+| build | game table ends at | `HapSetDrag` lands at | demo carries |
+|---|---|---|---|
+| 2009 | 40, `CheapBreakModel` | **44** | `#44` |
+| 2011 | 48, `PlayerBonusPoints` | **52** | `#52` |
+| Mar 2013 | 65, `MVMLocalPlayerWaveSpendingValue` | **69** | `#69` |
+
+All three sit exactly four past the end of their build's table, and the reason is the same in
+each: **a second registration block follows the game's, and it is haptics.** Six messages, always
+in this order, for the Novint Falcon force-feedback device:
+
+```
+SPHapWeapEvent 4   HapDmg var   HapPunch var   HapSetDrag var   HapSetConst var   HapMeleeContact 0
+```
+
+`HapSetDrag` is the fourth, hence the constant `+4`. A drag value is one float, which is the
+32-bit body measured on all three. And the block is **absent from the 2007 and 2008 clients** —
+which is precisely why those two eras are the only ones in the corpus with no unnamed ids at all.
+
+Three lessons, in increasing order of how much they cost:
+
+1. **The registration table is not the whole id space.** Every prior model here assumed
+   `tf_usermessages.cpp` was the complete list, so a body that did not fit was read as a shifted
+   id. It was an *appended* id from a different translation unit entirely.
+2. **A consistent offset is a structure, not a coincidence.** Three eras, three different table
+   lengths, and the same `+4`. That pattern was visible in the corpus the whole time and was
+   never looked for, because each era was investigated on its own.
+3. **TF2 demos contain haptics traffic.** The server sends these to every client regardless of
+   whether anyone owns a Falcon, so they are in ordinary recordings. Nothing in the SDK's TF2
+   game code hints at it — the block lives in the haptics module.
+
+### The id table shifts within protocol 24, and now we know exactly how
+
+The suspicion recorded below turned out to be correct, and the binaries give the mechanism.
+
+**Our transcribed table is the *2026* client's, not the 2013 one.** The live client registers 79
+messages, ids 0–78 ending at `BuiltObject`, and it matches this project's array entry for entry.
+The March 2013 client registers 66, ids 0–65, and **does not contain `RDTeamPointsChanged` at
+all** — that name appears nowhere in the binary. It was inserted at id 51 some time after March
+2013, shifting everything above it up by one.
+
+So within one protocol number:
+
+| id 69 | in the March 2013 build | in the July 2026 build |
+|---|---|---|
+| means | `HapSetDrag` | `PlayerLoadoutUpdated` |
+| body | 32 bits | 8 bits |
+
+Same protocol, same id, two different messages, thirteen years apart. **The protocol number
+cannot select a name table above id 50.**
+
+**The existing gate already handled this, for a case nobody knew existed.** `PlayerLoadoutUpdated`
+is a single `WRITE_BYTE`, the March 2013 body was 32 bits, the layout refused, and the name was
+withheld — leaving `#69`, which is the true statement. That is the "a name is a claim, and a
+refusing layout is evidence against it" rule catching a collision it was not designed for, which
+is the difference between a rule and a special case.
+
 ### The id table can shift within one protocol number
 
 `PlayerLoadoutUpdated`'s writer is a single byte — `WRITE_BYTE( entindex() )` — so 8 bits. The
