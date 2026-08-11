@@ -27,13 +27,16 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// Reported per demo rather than gated, on the same principle as the codec coverage report: the
 /// number is meant to be watched moving.
 ///
-/// **This instrument and the assembly round trip disagree, and the disagreement is unresolved.**
-/// Over whole demos this reports 96.87% while the assembly writer — which encodes through the same
-/// <c>EntityDecoder.EncodeEntities</c> and falls back to raw on any difference — declines
-/// nothing at all on the same files. One of the two is measuring something other than what it
-/// says. The assembly gate is the stronger statement of the two, because it compares against the
-/// demo end to end rather than body by body, so this number should be treated as unexplained
-/// rather than as a defect count until they are reconciled. See RISKS B25.
+/// **This compares CONTENT, and the distinction is what reconciled it with the assembly gate.**
+/// It used to compare the whole stated body length, which meant comparing the caller's zero-fill
+/// against whatever the sender happened to leave after its last field - and reporting that as a
+/// decoder defect. Over whole demos that read as 96.87%; measured over the content it is 99.59%,
+/// and the difference was never about the decoder at all.
+///
+/// The leftover is reported separately because it is a fact about the format: 32,407 snapshots end
+/// before their stated length, 3.47 M bits in total. <c>EntityDecoder.EncodeEntities</c>
+/// cannot reproduce those - it is given entities, not the sender's buffer - which is exactly why
+/// the assembly writer carries them on a <c>slack</c> line instead.
 /// </remarks>
 public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
 {
@@ -45,14 +48,18 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
     {
         long snapshots = 0;
         long exact = 0;
+        long slackBearing = 0;
+        long slackBits = 0;
         List<string> firstFailures = [];
 
         foreach (string path in Corpus.Files())
         {
             string name = Path.GetFileName(path);
-            (long total, long matched, string? failure) = Measure(path);
+            (long total, long matched, long bearing, long bits, string? failure) = Measure(path);
             snapshots += total;
             exact += matched;
+            slackBearing += bearing;
+            slackBits += bits;
 
             if (failure is not null && firstFailures.Count < 6)
             {
@@ -80,10 +87,20 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
         snapshots.ShouldBeGreaterThan(1000);
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"total: {exact:N0} of {snapshots:N0} ({100.0 * exact / snapshots:F2}%)"));
+            $"total: {exact:N0} of {snapshots:N0} ({100.0 * exact / snapshots:F2}%) " +
+            $"re-encode their content exactly"));
+
+        // Reported rather than folded into the failure count, because it is a fact about the
+        // format rather than about this decoder: a body is stated in bits and built in bytes, so
+        // it can end before its stated end, and what sits in the gap is not reliably zero.
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{slackBearing:N0} snapshots end before their stated length, {slackBits:N0} bits " +
+            $"in total - carried by the assembly writer on a slack line"));
     }
 
-    private static (long Total, long Exact, string? FirstFailure) Measure(string path)
+    private static (long Total, long Exact, long SlackBearing, long SlackBits, string? FirstFailure)
+        Measure(string path)
     {
         byte[] bytes = File.ReadAllBytes(path);
         ushort protocol = Corpus.ProtocolOf(path);
@@ -92,6 +109,8 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
 
         long total = 0;
         long exact = 0;
+        long slackBearing = 0;
+        long slackBits = 0;
         string? firstFailure = null;
 
         foreach (DemoCommand command in
@@ -111,7 +130,7 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
                     // recording whose writer truncated dem_datatables at 64 KiB (RISKS B24). It
                     // has no entities to re-encode, and that is the writer's fault rather than
                     // this decoder's, so it is skipped rather than counted as a failure.
-                    return (0, 0, null);
+                    return (0, 0, 0, 0, null);
                 }
 
                 continue;
@@ -147,8 +166,25 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
                     entities, decoder.RemovedEntities, snapshot.IsDelta, snapshot.LengthBits,
                     out int encodedBits);
 
-                int difference = FirstDifferingBit(
-                    snapshot.Body.Span, rewritten, snapshot.LengthBits);
+                // **Compared over the content, not over the stated length.** EncodeEntities
+                // encodes entities; it is not given the bits the sender left after them and
+                // cannot invent them. Comparing the padded region measured the caller's zero-fill
+                // against the demo's leftovers and reported it as a decoder defect - which is
+                // what made this instrument disagree with the assembly round trip, where those
+                // bits travel explicitly on a `slack` line.
+                if (snapshot.LengthBits > encodedBits)
+                {
+                    slackBearing++;
+                    slackBits += snapshot.LengthBits - encodedBits;
+                }
+
+                // Clamped, because the encoder can also write MORE than the stated length - a
+                // field wider than the one that was read. That is a mismatch to report, not an
+                // index to run off the end of the original with.
+                int comparable = Math.Min(encodedBits, snapshot.LengthBits);
+                int difference = encodedBits > snapshot.LengthBits
+                    ? comparable
+                    : FirstDifferingBit(snapshot.Body.Span, rewritten, comparable);
 
                 if (difference < 0)
                 {
@@ -169,7 +205,7 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
             }
         }
 
-        return (total, exact, firstFailure);
+        return (total, exact, slackBearing, slackBits, firstFailure);
     }
 
     /// <summary>
