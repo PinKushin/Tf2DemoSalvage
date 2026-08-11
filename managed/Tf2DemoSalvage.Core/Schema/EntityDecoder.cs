@@ -30,6 +30,11 @@ public enum EntityUpdateType : byte
 /// <param name="Index">Position in the class's flattened property list.</param>
 /// <param name="Definition">The property that position addresses.</param>
 /// <param name="Value">The decoded value.</param>
+/// <param name="CoordShape">
+/// Which components of a coordinate used the narrow integer field, one bit each. Zero for every
+/// other kind of property, and carried for the same reason as the index width: the sender's
+/// choice is not recoverable from the value.
+/// </param>
 /// <param name="IndexPayloadBits">
 /// Payload width the property index delta was sent at, or 0 for the narrowest that holds it.
 /// Carried for the same reason the entity index's is: the sender does not always choose the
@@ -39,7 +44,8 @@ public readonly record struct DecodedProperty(
     int Index,
     FlatProperty Definition,
     PropertyValue Value,
-    int IndexPayloadBits = 0);
+    int IndexPayloadBits = 0,
+    int CoordShape = 0);
 
 /// <summary>One entity as a snapshot described it.</summary>
 /// <param name="EntityIndex">Slot in the entity table.</param>
@@ -315,13 +321,14 @@ public sealed class EntityDecoder
                 writer, (uint)(property.Index - previous - 1), property.IndexPayloadBits);
             previous = property.Index;
 
-            WriteValue(writer, property.Definition, property.Value);
+            WriteValue(writer, property.Definition, property.Value, property.CoordShape);
         }
 
         writer.WriteBit(false);
     }
 
-    private static void WriteValue(BitWriter writer, FlatProperty flat, PropertyValue value)
+    private static void WriteValue(
+        BitWriter writer, FlatProperty flat, PropertyValue value, int shape = 0)
     {
         SendProperty property = flat.Property;
 
@@ -332,15 +339,15 @@ public sealed class EntityDecoder
                 break;
 
             case SendPropType.Float:
-                SendPropEncoder.WriteFloat(writer, property, value.AsFloat);
+                SendPropEncoder.WriteFloat(writer, property, value.AsFloat, (shape & 1) != 0);
                 break;
 
             case SendPropType.Vector:
-                SendPropEncoder.WriteVector(writer, property, value.AsVector);
+                SendPropEncoder.WriteVector(writer, property, value.AsVector, shape);
                 break;
 
             case SendPropType.VectorXY:
-                SendPropEncoder.WriteVectorXY(writer, property, value.AsVectorXY);
+                SendPropEncoder.WriteVectorXY(writer, property, value.AsVectorXY, shape);
                 break;
 
             case SendPropType.String:
@@ -574,14 +581,23 @@ public sealed class EntityDecoder
             }
 
             properties.Add(new DecodedProperty(
-                index, flat[index], ReadValue(ref reader, flat[index]), indexPayloadBits));
+                index,
+                flat[index],
+                ReadValue(ref reader, flat[index], out int coordShape),
+                indexPayloadBits,
+                coordShape));
         }
 
         return properties;
     }
 
-    private static PropertyValue ReadValue(ref BitReader reader, FlatProperty flat)
+    private static PropertyValue ReadValue(ref BitReader reader, FlatProperty flat) =>
+        ReadValue(ref reader, flat, out _);
+
+    private static PropertyValue ReadValue(
+        ref BitReader reader, FlatProperty flat, out int coordShape)
     {
+        coordShape = 0;
         SendProperty property = flat.Property;
 
         switch (property.Type)
@@ -590,17 +606,23 @@ public sealed class EntityDecoder
                 return PropertyValue.FromInt(SendPropDecoder.ReadInt(ref reader, property));
 
             case SendPropType.Float:
-                return PropertyValue.FromFloat(SendPropDecoder.ReadFloat(ref reader, property));
+            {
+                float value = SendPropDecoder.ReadFloat(ref reader, property, out bool inBounds);
+                coordShape = inBounds ? 1 : 0;
+                return PropertyValue.FromFloat(value);
+            }
 
             case SendPropType.Vector:
             {
-                (float x, float y, float z) = SendPropDecoder.ReadVector(ref reader, property);
+                (float x, float y, float z) =
+                    SendPropDecoder.ReadVector(ref reader, property, out coordShape);
                 return PropertyValue.FromVector(x, y, z);
             }
 
             case SendPropType.VectorXY:
             {
-                (float x, float y) = SendPropDecoder.ReadVectorXY(ref reader, property);
+                (float x, float y) =
+                    SendPropDecoder.ReadVectorXY(ref reader, property, out coordShape);
                 return PropertyValue.FromVectorXY(x, y);
             }
 
