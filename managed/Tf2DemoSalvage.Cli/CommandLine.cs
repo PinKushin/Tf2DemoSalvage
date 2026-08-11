@@ -17,6 +17,11 @@ public enum OutputFormat
 
     /// <summary>One JSON object per line.</summary>
     JsonLines = 3,
+
+    /// <summary>
+    /// The assembly form: complete, compilable back into the demo, and not meant to be read.
+    /// </summary>
+    Assembly = 4,
 }
 
 /// <summary>
@@ -36,6 +41,16 @@ public sealed record CommandLine
 
     /// <summary>Where to write, or <c>null</c> for standard output.</summary>
     public string? OutputPath { get; init; }
+
+    /// <summary>
+    /// Whether to read assembly text and write a demo, rather than the other way round.
+    /// </summary>
+    /// <remarks>
+    /// A direction rather than a format, which is why it is separate from
+    /// <see cref="OutputFormat"/>: the input is text and the output is a <c>.dem</c>, so every
+    /// other option describes something that does not apply.
+    /// </remarks>
+    public bool Compile { get; init; }
 
     /// <summary>What to write.</summary>
     public OutputFormat Format { get; init; }
@@ -70,6 +85,7 @@ public sealed record CommandLine
         string demoPath = args[0];
         string? outputPath = null;
         OutputFormat format = OutputFormat.Dump;
+        bool compile = false;
         bool entities = false;
         int limit = 0;
 
@@ -106,6 +122,14 @@ public sealed record CommandLine
                     format = OutputFormat.JsonLines;
                     break;
 
+                case "-a" or "--asm":
+                    format = OutputFormat.Assembly;
+                    break;
+
+                case "-c" or "--compile":
+                    compile = true;
+                    break;
+
                 case "-e" or "--entities":
                     entities = true;
                     break;
@@ -136,6 +160,13 @@ public sealed record CommandLine
             }
         }
 
+        if (compile && outputPath is null)
+        {
+            // A demo is binary and standard output is text. Writing one to the other produces a
+            // file that looks right in a terminal and will not play.
+            return Invalid("--compile needs -o: a demo cannot go to standard output");
+        }
+
         return new CommandLine
         {
             DemoPath = demoPath,
@@ -143,6 +174,7 @@ public sealed record CommandLine
             Format = format,
             IncludeEntities = entities,
             EntitySnapshotLimit = limit,
+            Compile = compile,
         };
     }
 

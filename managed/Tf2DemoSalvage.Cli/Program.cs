@@ -69,6 +69,11 @@ public static class Program
             return ExitFailure;
         }
 
+        if (line.Compile)
+        {
+            return Compile(line);
+        }
+
         byte[] bytes = File.ReadAllBytes(line.DemoPath);
         DemoHeader header = DemoHeader.Parse(bytes);
         List<DemoCommand> commands =
@@ -100,6 +105,27 @@ public static class Program
         return ExitSuccess;
     }
 
+    /// <summary>Compiles assembly text back into a demo.</summary>
+    /// <remarks>
+    /// The other direction, and the one that makes the text worth writing. A file produced by
+    /// <c>--asm</c> and compiled here is byte-identical to the demo it came from, which is the
+    /// only check that can show nothing was lost on the way out.
+    /// </remarks>
+    private static int Compile(CommandLine line)
+    {
+        using StreamReader reader = new(line.DemoPath);
+        (DemoHeader header, IReadOnlyList<DemoCommand> commands) = DemoAssembly.Parse(reader);
+
+        byte[] demo = DemoWriter.Write(header, commands);
+        File.WriteAllBytes(line.OutputPath!, demo);
+
+        Console.Error.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"compiled {commands.Count} commands to {line.OutputPath} ({demo.Length:N0} bytes)"));
+
+        return ExitSuccess;
+    }
+
     /// <summary>Writes the demo in whichever form was asked for.</summary>
     private static void Write(
         TextWriter writer,
@@ -123,6 +149,10 @@ public static class Program
                 DemoJsonLinesWriter.Write(writer, name, header, commands, progress);
                 break;
 
+            case OutputFormat.Assembly:
+                DemoAssembly.Write(writer, header, commands);
+                break;
+
             default:
                 // Summary and Dump differ only by the command listing, so they share a branch
                 // rather than each getting an empty case that says nothing.
@@ -138,13 +168,17 @@ public static class Program
     {
         writer.WriteLine("tf2demosalvage - read a TF2 demo in readable form");
         writer.WriteLine();
-        writer.WriteLine("usage: tf2demosalvage <demo.dem> [-o <out.txt>] [-s|-t|-j] [-e] [--entity-limit <n>]");
+        writer.WriteLine("usage: tf2demosalvage <demo.dem> [-o <out.txt>] [-s|-t|-j|-a] [-e] [--entity-limit <n>]");
+        writer.WriteLine("       tf2demosalvage <demo.dasm> -c -o <out.dem>");
         writer.WriteLine();
         writer.WriteLine("  -o, --output <path>     write to a file instead of standard output");
         writer.WriteLine();
         writer.WriteLine("  -s, --summary           header, counts, players and events; no command listing");
         writer.WriteLine("  -t, --trace             decompile to text, message by message, in stream order");
         writer.WriteLine("  -j, --jsonl             one JSON object per line");
+        writer.WriteLine("  -a, --asm                complete text that compiles back to the demo");
+        writer.WriteLine();
+        writer.WriteLine("  -c, --compile           read assembly text and write a demo (needs -o)");
         writer.WriteLine("                          (default: the summary plus a per-command listing)");
         writer.WriteLine();
         writer.WriteLine("  -e, --entities          expand entity snapshots into properties (trace only)");

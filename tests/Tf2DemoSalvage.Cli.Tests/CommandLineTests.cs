@@ -193,4 +193,34 @@ public sealed class CommandLineTests
         CommandLine.Parse(["--help"]).DemoPath.ShouldBeEmpty();
     }
 
+
+    [Theory]
+    [InlineData("-a")]
+    [InlineData("--asm")]
+    public void AsmFlag_SelectsTheAssemblyFormat(string flag)
+    {
+        CommandLine.Parse(["demo.dem", flag]).Format.ShouldBe(OutputFormat.Assembly);
+    }
+
+    [Fact]
+    public void Compile_WithoutAnOutputPath_IsRefused()
+    {
+        // A demo is binary and standard output is text. Allowing it would write a file that looks
+        // plausible in a terminal and does not play - a failure with no error message, which is
+        // the worst shape a CLI mistake can take.
+        CommandLine line = CommandLine.Parse(["demo.dasm", "-c"]);
+
+        line.Error.ShouldNotBeNull();
+        line.Error.ShouldContain("-o");
+    }
+
+    [Fact]
+    public void Compile_WithAnOutputPath_IsAccepted()
+    {
+        CommandLine line = CommandLine.Parse(["demo.dasm", "--compile", "-o", "out.dem"]);
+
+        line.Error.ShouldBeNull();
+        line.Compile.ShouldBeTrue();
+        line.OutputPath.ShouldBe("out.dem");
+    }
 }
