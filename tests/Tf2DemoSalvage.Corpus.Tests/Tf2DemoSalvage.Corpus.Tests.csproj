@@ -34,6 +34,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
   </ItemGroup>
 
 </Project>

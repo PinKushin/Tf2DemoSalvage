@@ -3,11 +3,13 @@
     <Project Path="managed/Tf2DemoSalvage.Cli/Tf2DemoSalvage.Cli.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Viewer3D/Tf2DemoSalvage.Viewer3D.csproj" />
+    <Project Path="managed/Tf2DemoSalvage.Audio/Tf2DemoSalvage.Audio.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Corpus.Tests/Tf2DemoSalvage.Corpus.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Core.Tests/Tf2DemoSalvage.Core.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Audio.Tests/Tf2DemoSalvage.Audio.Tests.csproj" />
   </Folder>
 </Solution>

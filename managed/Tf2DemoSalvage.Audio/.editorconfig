@@ -1,0 +1,13 @@
+# Scoped to the native-audio-interop layer only. Nothing here relaxes a rule for the rest of
+# the solution.
+
+[*.cs]
+
+# S6640: "Avoid using this unsafe code block."
+#
+# Passing PCM buffers across a P/Invoke boundary to libopus IS unsafe pointer interop by
+# construction - opus_decode takes byte*/short* directly. The alternative is a managed
+# marshalling copy on every decoded frame, and the project's own rule (unsafe/Span/stackalloc
+# before reaching for native code) picks direct pointers deliberately, the same reasoning
+# recorded for the Direct3D layer in managed/Tf2DemoSalvage.Viewer3D/.editorconfig.
+dotnet_diagnostic.S6640.severity = none
