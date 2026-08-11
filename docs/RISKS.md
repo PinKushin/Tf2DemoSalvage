@@ -1394,8 +1394,25 @@ that carries a flag and the index 110 is flag + 10 bits, with no terminator beca
 at the body end. But a fixed 10 is wrong elsewhere and a capacity-derived 10 breaks decoding, so
 the width is neither constant nor derived from `max_entries`.
 
-**Next: the engine binary, outside the repo.** `bf_write` is public but the deletion loop is not —
-`cl_ents_parse.cpp` and `sv_ents_write.cpp` are engine code and are not in source-sdk-2013. The
-authority is `engine.dll` from a period build, read in Ghidra with its project and output paths
-under a temp directory, never inside a working tree. What comes back should be a sentence in this
-file and a named constant, not pasted code.
+**The Rust parser has no answer either.** demostf/parser models this section exactly as we do —
+`while data.read()? { removed_entities.push(data.read_sized::<u32>(11)?) }` on read, and a flag
+plus an 11-bit index plus a terminating zero on write. Its reader is *bounded* to the body
+(`stream.read_bits(length)`), so on these snapshots it would run out mid-index and hard-error
+rather than produce a different answer. Two independent implementations sharing an assumption is
+not corroboration.
+
+**Localised to the removal list, and nothing else.** `EntitySectionLengthTests` compares the two
+halves of this codec on the entity section alone — bits the decoder consumed against bits the
+encoder produces — and they agree on **61,701 of 61,701** snapshots. So entities, properties,
+index deltas and coordinate choices are all exact, and the entire remaining discrepancy is in the
+handful of bits after them. That is now a gate, so it cannot regress unnoticed.
+
+**Blocked on a JDK, not on a decision.** The deletion loop is engine code — `cl_ents_parse.cpp`
+and `sv_ents_write.cpp` are not in source-sdk-2013 — so the remaining authority is a period
+`engine.dll` in Ghidra. Ghidra 12.1.2 is installed and fails to start under JDK 25: its Felix OSGi
+layer aborts with "the data file must be inside the data dir", which is not a stale cache
+(clearing `felixcache` changes nothing). `application.java.min=21` with no declared maximum, and
+JDK 21 is not on this machine. Installing Temurin 21 alongside 25 unblocks it.
+
+When that runs: project and output paths under a temp directory, never inside a working tree, and
+what comes back belongs here as a sentence and a named constant rather than as pasted code.
