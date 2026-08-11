@@ -89,7 +89,7 @@ if [ "$after" -le "$before" ]; then
   exit 1
 fi
 
-TF2FUZZ_TARGET="$TARGET" "${HOME}/libfuzzer-dotnet/libfuzzer-dotnet" \
+TF2FUZZ_TARGET="$TARGET" "${HOME}/libfuzzer-dotnet" \
   --target_path="$(which dotnet)" \
   --target_arg="${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Fuzz.dll" \
   "${HOME}/corpus-${TARGET}" \
