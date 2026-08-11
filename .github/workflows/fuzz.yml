@@ -1,12 +1,16 @@
 # Coverage-guided fuzzing (SharpFuzz + libFuzzer).
 #
-# Nightly and deliberately short. docs/FUZZING.md measured the current targets saturating after
-# roughly 15,000 executions - `ft:` stops moving and the remaining ~790,000 executions find
-# nothing. A long run against BitReader or VarInt today would burn hours to learn nothing, so
-# this is a regression guard, not a search.
+# Nightly and deliberately short for the two primitive targets. docs/FUZZING.md measured
+# bitreader and varint saturating after roughly 15,000 executions - `ft:` stops moving and the
+# remaining ~790,000 executions find nothing. A long run against either would burn hours to
+# learn nothing, so those two stay a regression guard rather than a search.
 #
-# Raise MAX_TOTAL_TIME when targets #3 and #4 land (string-table and SendTable delta decode,
-# then whole-file parse). Those have enough distinct paths to justify a long job; these do not.
+# container and snappy landed 2026-08-11 and are the targets that comment used to say "when they
+# land, raise the budget" about. They earned it immediately: the first deterministic run (see
+# ContainerFuzzPropertyTests) found a Snappy declared-length overflow and a dem_stop tick
+# truncation, both reachable from a crafted demo. Real bugs on the first pass means there is
+# more still findable, so they get their own longer per-target time via the matrix below rather
+# than sharing the 120s default.
 #
 # No Git LFS here on purpose: fuzzing builds Core and the harness and never reads the demo
 # corpus, so this workflow spends none of the account's 1 GiB/month LFS bandwidth.
@@ -26,9 +30,6 @@ on:
 permissions:
   contents: read
 
-env:
-  MAX_TOTAL_TIME: ${{ inputs.seconds || '120' }}
-
 jobs:
   fuzz:
     name: ${{ matrix.target }}
@@ -39,7 +40,21 @@ jobs:
       # target does not hide the other's result.
       fail-fast: false
       matrix:
-        target: [bitreader, varint]
+        include:
+          - target: bitreader
+            seconds: '120'
+          - target: varint
+            seconds: '120'
+          # Longer: these two are where the corpus test already found real bugs on its first
+          # run, and both have a length read from the data itself driving further reads or an
+          # allocation - the shape that rewards more search time, unlike the two primitives
+          # above which merely stay inside a fixed contract.
+          - target: container
+            seconds: '600'
+          - target: snappy
+            seconds: '600'
+    env:
+      MAX_TOTAL_TIME: ${{ inputs.seconds || matrix.seconds }}
 
     steps:
       - uses: actions/checkout@v7

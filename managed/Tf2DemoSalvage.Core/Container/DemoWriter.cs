@@ -37,6 +37,9 @@ public static class DemoWriter
     /// </remarks>
     private const int StopTickBytes = 3;
 
+    /// <summary>Largest tick the three-byte dem_stop field can hold.</summary>
+    private const int MaxStopTick = (1 << (StopTickBytes * 8)) - 1;
+
     /// <summary>Writes the demo.</summary>
     /// <param name="header">The header to write.</param>
     /// <param name="commands">Commands in stream order.</param>
@@ -62,6 +65,24 @@ public static class DemoWriter
             // there. Emitting four would append a byte no real demo has.
             if (command.Type == DemoCommandType.Stop)
             {
+                // **Refuse rather than truncate.** Three bytes hold 0 to 2^24-1, and a tick
+                // outside that silently became a different tick on the way out - found by
+                // fuzzing on 2026-08-11, where a round trip returned tick 9209979 for a command
+                // written at -544438149. Real demos never reach 2^24, so this cannot fire on a
+                // recording; it fires on a caller constructing one, which is exactly when a
+                // silent corruption is hardest to notice.
+                if (command.Tick < 0 || command.Tick > MaxStopTick)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(commands),
+                        command.Tick,
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"dem_stop stores its tick in {StopTickBytes} bytes, so it cannot " +
+                            $"represent {command.Tick}. Writing it would produce a demo that " +
+                            $"reads back as a different tick."));
+                }
+
                 BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Tick);
                 output.Write(scratch[..StopTickBytes]);
                 break;
