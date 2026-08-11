@@ -1471,6 +1471,17 @@ Across the corpus the damage origin now sits a median 57 units from the camera a
 right, and self-damage from a rocket jump is what puts the origin on top of the player. Before the
 fix the protocol-14 demo produced no complete vector at all.
 
-**The old side below 14 is an interpolation.** Protocol 11 carries no Damage message in the corpus
-and 12–13 have no specimen, so `<= 14` is a boundary measured on one side only. Measured at 14 and
-15, which is where the change is.
+**Protocol 11 was an interpolation for about an hour, and now is not.** The committed protocol-11
+files carry no Damage message at all — nobody was hurt in them — so the rule below 14 initially
+rested on nothing. Closed by recording one deliberately: a soldier next to a resupply cabinet,
+rocket-jumping into himself for 52 seconds, which produces 43 damage messages in a 460 KB file.
+All 43 decode, at the same 77 and 72 bits as protocol 14, with damage 27–46 and origins a median
+79 units from the camera. `tf2-2007-build3258-pov-damage.dem`, local corpus.
+
+**That is the cheapest evidence available on this axis and it generalises.** A period client that
+runs can be made to emit any message on demand — the question "does this era send X differently"
+does not need a matching competitive demo to turn up, it needs someone to do the thing that sends
+X. Protocols 12–13 and 17–23 still have no specimen, so those remain interpolations, but for every
+era whose client runs a missing message is now a recording task rather than a search.
+
+Measured at 11, 14 and 15. The change is between 14 and 15.

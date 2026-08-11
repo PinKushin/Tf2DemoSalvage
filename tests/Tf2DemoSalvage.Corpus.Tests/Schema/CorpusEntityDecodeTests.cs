@@ -165,7 +165,14 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    private sealed record DecodeRun(int Decoded, string? Stopped);
+    /// <summary>What a walk decoded, out of what the demo actually offered it.</summary>
+    /// <param name="Decoded">Snapshots decoded from the first full one onward.</param>
+    /// <param name="Available">
+    /// Snapshots the walk was handed over the same span. Equal to <paramref name="Decoded"/> when
+    /// nothing stopped, and it is the pair that makes the claim testable on a demo of any length.
+    /// </param>
+    /// <param name="Stopped">The error that ended the walk, or <c>null</c>.</param>
+    private sealed record DecodeRun(int Decoded, int Available, string? Stopped);
 
     private static DecodeRun DecodeContinuously(string path, int limit)
     {
@@ -174,6 +181,8 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         bool started = false;
         int decoded = 0;
 
+        int available = 0;
+
         foreach (PacketEntitiesMessage message in Snapshots(path).Take(limit))
         {
             started |= message.IsFullSnapshot;
@@ -181,6 +190,8 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             {
                 continue;
             }
+
+            available++;
 
             try
             {
@@ -191,11 +202,11 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             {
                 // Running off the end of the body is the same desynchronisation reported a
                 // different way - the reader asks for bits the message does not have.
-                return new DecodeRun(decoded, error.Message);
+                return new DecodeRun(decoded, available, error.Message);
             }
         }
 
-        return new DecodeRun(decoded, null);
+        return new DecodeRun(decoded, available, null);
     }
 
     [Fact]
@@ -220,18 +231,44 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         ];
 
         povDemos.ShouldNotBeEmpty();
+        int offered = 0;
 
         foreach (string pov in povDemos)
         {
             DecodeRun run = DecodeContinuously(pov, SnapshotCap);
 
+            output.WriteLine(
+                $"{Path.GetFileName(pov)}: {run.Decoded} of {run.Available} snapshots, " +
+                $"stopped: {run.Stopped ?? "not at all"}");
+
             run.Stopped.ShouldBeNull(Path.GetFileName(pov));
 
-            // A floor every POV recording in the corpus clears, including the shortest. It guards
-            // against a run that stops after two snapshots and reports no error, which is what
-            // `Stopped is null` alone would accept.
-            run.Decoded.ShouldBeGreaterThan(2000, Path.GetFileName(pov));
+            // Every snapshot the demo offered, rather than a fixed number of them. An absolute
+            // count is the mistake this test has now made twice: sized to a 45 MB match, broken
+            // when the corpus was trimmed, resized to 2,000, then broken again by a 52-second
+            // protocol-11 recording that offered 1,029 snapshots and decoded all of them. The
+            // claim was never "at least N" - it is "it does not stop" - and a demo shorter than
+            // the floor fails a test it satisfies perfectly.
+            //
+            // Being straight about what this line does: it cannot currently fail on its own,
+            // because the only path that leaves Decoded below Available is the catch that also
+            // sets Stopped. It is here as the literal statement of the claim, so a later change
+            // to the walk cannot quietly skip snapshots and still pass.
+            run.Decoded.ShouldBe(run.Available, Path.GetFileName(pov));
+
+            offered += run.Available;
         }
+
+        // The floor is on the corpus, not on any file in it, and that distinction is the whole
+        // point. A demo may legitimately be one frame long - `record` and `stop` on consecutive
+        // ticks produces a valid file - so every per-demo minimum eventually rejects a demo for
+        // being short rather than for being wrong. This test has now done that twice, at 5,000
+        // and at 2,000, both times against a file that decoded perfectly.
+        //
+        // What actually needs guarding is that the run as a whole did something, which is a
+        // property of the corpus. Here it is roughly 30,000, so this cannot fire without most of
+        // the corpus vanishing - at which point the empty check above is the honest report.
+        offered.ShouldBeGreaterThan(1000, "the POV corpus offered almost no snapshots");
     }
 
     [Fact]
