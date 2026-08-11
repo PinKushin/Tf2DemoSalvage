@@ -1307,31 +1307,43 @@ a `slack` line.
 The leftover is a fact about the format and is now reported as one: **32,407 snapshots end before
 their stated length, 3,474,371 bits in total.** A body is measured in bits and built in bytes.
 
-**The residue is named now, and it is one phenomenon rather than a mystery.** 267 of 89,762
-snapshots (0.30%) do not re-encode their content. Tallying which entity is to blame:
+**The residue is one family now, and three hypotheses are dead.** Isolating the exact property
+whose bits diverge, rather than the snapshot, leaves:
 
 ```
-   91  CSceneEntity          50  CBaseAnimatingOverlay   47  CSpriteTrail
-   19  CTFProjectile_Rocket  16  CTFAmmoPack             12  CDynamicLight
+  148  Vector flags=0x2400  SPROP_COORD_MP
+   19  Vector flags=0x8400  SPROP_COORD_MP_INTEGRAL
+    3  Float  flags=0x8804
 ```
 
-and the properties on those entities:
+Nothing else. Every other kind of property re-encodes exactly on every demo.
+
+**It is not item or loadout data.** That was the standing guess and the classes refute it — scene
+entities, animation overlays, sprite trails, projectiles, ammo packs. None carry economy
+attributes, and the versions of TF2 with no item system fail nothing at all.
+
+**Ruled out by experiment, not by argument:**
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Property index deltas use a non-minimal UBitVar | carry the width, as entity indices do | **confirmed and fixed** — removed 97 of 267 |
+| The in-bounds bit is not "narrow when it fits" | invert the rule | 267 to 80,438, so the rule is right nearly always |
+| The fraction is truncated, not rounded | truncate and mask as `bf_write` does | no change at all |
+
+**The remaining rule is still wrong, and 99.7% is not a defence.** A demo is deterministic; the
+engine picks the in-bounds bit from a condition, and "usually the narrow one" is a description of
+the outputs rather than the condition. The failing values are the shape of the clue:
 
 ```
-  170  m_vecOrigin      92  001 / 003 / 000 (array elements)      89  lengthprop16
+(-12330.59, 1690.531, -0.781)     (0.438, -6883.969, 0.031)
+(-0.594, 0.781, 10204.16)         (12331.41, -0, -0.438)
+(-0.844, -0.5, 2012.25)           (1117, 1168, 0)
 ```
 
-**It is not item or loadout data**, which was the standing guess — the classes are scene entities,
-animation overlays, sprite trails and projectiles, none of which carry economy attributes.
+Large magnitudes past the 2048 boundary dominate, and negative zero appears. The next step is a
+bit-level diff of one case — wire against ours at the property's own offset — rather than another
+guess. `bf_write::WriteBitCoordMP` is the authority and the owner has ILSpy, IDA and Ghidra.
 
-**It is the same phenomenon as B25 in a different field: Source's writers do not always choose the
-narrowest encoding, and the choice is not recoverable from the value.** For `SPROP_COORD_MP` the
-in-bounds bit picks an 11-bit integer field over a 14-bit one, and this encoder picks narrow
-whenever the value fits. Inverting that rule as an experiment took the failures from 267 to
-**80,438**, so the rule is right almost always — and the 267 are senders that chose otherwise.
-`lengthprop16` and the numbered element names say an array count width is a second instance.
-
-**The fix is the pattern this format has demanded five times already: record the shape.** A
-coordinate's in-bounds bit and an array's count width have to travel with the decoded value, as
-`SoundFields` does for sounds and `IndexPayloadBits` now does for entity indices. That is a
-contained change rather than an investigation, and it is the next step here.
+**What this does and does not affect.** The decode reads the in-bounds bit off the wire, so
+positions are read correctly and a viewer built on the decoded values is unaffected. What is
+guessing is the *re-encode*, and only about which of two valid widths the sender chose.
