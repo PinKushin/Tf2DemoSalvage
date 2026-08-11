@@ -103,6 +103,17 @@ jobs:
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ matrix.target }}-
 
+      - name: Seed the container target
+        # Without a seed the corpus starts empty, and the container target's input has an
+        # 8-byte magic and a 1072-byte fixed header before anything varies - mutation from
+        # nothing never crosses that reliably. Not a demo from the corpus: lfs is disabled
+        # above and this workflow never reads tools/corpus/demos. TF2FUZZ_SEED_PATH makes the
+        # harness generate its own valid demo from DemoWriter instead.
+        if: matrix.target == 'container'
+        run: |
+          mkdir -p corpus-container
+          TF2FUZZ_SEED_PATH=corpus-container/seed dotnet publish/Tf2DemoSalvage.Fuzz.dll
+
       - name: Fuzz
         env:
           TF2FUZZ_TARGET: ${{ matrix.target }}
