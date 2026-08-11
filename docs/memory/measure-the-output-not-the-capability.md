@@ -25,6 +25,16 @@ The fix has two parts and the second is what makes it stick:
 Attributing the declines then took one measurement, not a guess: four of the five causes
 were a single bug (verification state rebuilt per packet instead of carried across the demo).
 
+A second instance the same day, in the same file: a round-trip report compared over the
+*stated* length of a body rather than over the bits the encoder actually wrote. The encoder
+zero-fills what it was not given, so the comparison was measuring its own padding against
+whatever the sender left behind, and calling the difference a decoder defect. 96.87% became
+99.59% when the comparison was narrowed to the content — and the 3% never existed.
+
+Both cases have the same tell: **the measurement covered ground the code under test never
+claimed.** Ask what region, predicate or artefact the code is actually responsible for, and
+measure exactly that.
+
 **How to apply:** whenever a report is built from a predicate rather than from the artefact,
 ask what happens when the predicate is true and the operation still fails. If that is
 possible, the report is measuring the wrong thing. Related:
