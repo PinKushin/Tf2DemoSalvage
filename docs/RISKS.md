@@ -1416,7 +1416,7 @@ The last is worth restating precisely: the *message* is never truncated, but a *
 can be.
 
 
-## B26 — the Damage user message has an older layout before some build between 2008 and 2009 — OPEN
+## B26 — the Damage user message has an older layout at protocol 14 and below — RESOLVED
 
 `svc_UserMessage/Damage` is what draws a damage number in a POV demo, and it is the only record of
 the *direction* incoming damage came from — entity positions say where everyone stood, this says
@@ -1436,14 +1436,41 @@ msg.ReadBitVec3Coord( vecOrigin );   // 3 presence bits, then the axes that were
 skipping it takes the position from the wrong place — producing a plausible coordinate rather than
 an error.
 
-**It decodes on every era in the corpus except one.** After implementing it, opaque Damage bits are
-zero everywhere but `tf2-2008-build3420-pov-cp_granary.dem`, which still carries 308. Protocol 14.
+**Protocol 14 and below send a different message: one byte of damage, then the vector.** No
+damage-type long, no bit saying whether a position follows, and the vector is always there.
 
-**Hypothesis for that demo:** TF2 inherited HL2's Damage message and changed it later. HL2's
-`CHudDamageIndicator::MsgFunc_Damage` reads a byte of armour, a byte of damage, a long of damage
-bits and then a vector with no presence flag — 48 bits before the vector where the modern form has
-49. Both files are in source-sdk-2013 (`src/game/client/hl2/hud_damageindicator.cpp`), so this is a
-reading job rather than an investigation.
+**The hypothesis this entry used to carry was wrong, and worth keeping for the shape of the error.**
+It guessed TF2 had inherited HL2's Damage message, which reads a byte of armour, a byte of damage,
+a long, and a vector — "48 bits before the vector where the modern form has 49", so the two would
+sit one bit apart and a wrong guess would produce a plausible position. Reading the HL2 file
+instead of recalling it kills that immediately: it does not send a vector at all, it sends three
+raw `WRITE_FLOAT`s, and the whole message is a fixed 144 bits. It was never a candidate for a
+77-bit body. That is *research before code* — the guess was the cheap part, skipping the
+verification was what would have cost.
 
-The two forms are one bit apart before the vector, so a decoder that guesses wrong produces a
-plausible position rather than a failure. Distinguish them by protocol, not by trying both.
+**What actually identified the layout was arithmetic on lengths, before any bytes were read.** The
+protocol-14 bodies are 77 bits and 72 bits. A `BitVec3Coord` is three presence bits plus its axes,
+and an axis is 22 bits with a fraction or 17 without, so a full vector is 69 and one bare axis
+makes it 64 — leaving exactly 8 bits of header either way. The same five-bit step appears between
+the modern 118 and 113, which is what says the two eras share a vector encoding and differ only
+ahead of it. The leading byte then reads 36, 40, 50, 44 across the demo, and TF2 damage looks like
+that.
+
+**Two defects, and the second is the one to remember.** The layout was wrong, but the check that
+should have caught it was also wrong: the decoder accepted `BitsRead <= bodyBits`, and the modern
+layout fits *under* 77 bits. So 20 of the demo's 24 messages reported invented fields — `damage=16164`
+against a game whose largest single hit is about 450 — while the other 4 overran and were refused.
+A stated length that is exact in bits (these bodies end mid-byte, which proves it) must be checked
+with `==`. A lenient bound does not tolerate rounding, it accepts any layout short enough.
+
+**Verified against two decoders that share nothing with this one.** At tick 280 the camera is at
+(-1012.4, 6068.7, -398.5) from the container's `democmdinfo` prologue, an explosion sound is at
+(-1008, 6064, -352) from `svc_sounds`, and the damage origin reads (-1061.5, 6127.0, -355.0).
+Across the corpus the damage origin now sits a median 57 units from the camera at protocol 14 and
+21–57 at every later era, with no message beyond 140 — the distribution an era gets when it is
+right, and self-damage from a rocket jump is what puts the origin on top of the player. Before the
+fix the protocol-14 demo produced no complete vector at all.
+
+**The old side below 14 is an interpolation.** Protocol 11 carries no Damage message in the corpus
+and 12–13 have no specimen, so `<= 14` is a boundary measured on one side only. Measured at 14 and
+15, which is where the change is.

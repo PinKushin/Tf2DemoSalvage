@@ -36,12 +36,14 @@ public static class UserMessageBody
     /// <param name="name">The registered name, or <c>null</c> if the id is past the table.</param>
     /// <param name="body">The body bytes, as copied from the stream.</param>
     /// <param name="bodyBits">The body's stated length in bits.</param>
+    /// <param name="networkProtocol">The demo header's network protocol.</param>
     /// <returns>
     /// The message, with <see cref="UserMessage.Fields"/> set only when a known layout consumed
     /// the body exactly.
     /// </returns>
     public static UserMessage Decode(
-        int userMessageType, string? name, ReadOnlySpan<byte> body, int bodyBits)
+        int userMessageType, string? name, ReadOnlySpan<byte> body, int bodyBits,
+        int networkProtocol)
     {
         List<KeyValuePair<string, object?>>? fields = name switch
         {
@@ -51,7 +53,7 @@ public static class UserMessageBody
             "Geiger" => SingleByte(body, bodyBits, "range"),
             "Train" => SingleByte(body, bodyBits, "state"),
             "VoiceSubtitle" => VoiceSubtitle(body, bodyBits),
-            "Damage" => Damage(body, bodyBits),
+            "Damage" => Damage(body, bodyBits, networkProtocol),
             _ => null,
         };
 
@@ -81,64 +83,106 @@ public static class UserMessageBody
     /// The vector is three presence bits followed by only the axes that were sent, the same shape
     /// <c>svc_BspDecal</c> uses. An absent axis is zero, which the engine relies on: it treats an
     /// all-zero origin as "no direction" and points the indicator at the camera instead.
+    ///
+    /// **Protocol 14 and below send a different message, not a variant of this one**: one byte of
+    /// damage and the vector, with no damage-type long and no bit saying whether a position
+    /// follows. Established by arithmetic on the corpus rather than by trying layouts until one
+    /// fitted — the March 2008 demo's bodies are 77 and 72 bits, a `BitVec3Coord` is 69 or 64,
+    /// and the difference is eight. The five-bit gap between those two lengths is the same one
+    /// between the modern 118 and 113: an axis sent without its fraction. The leading byte then
+    /// reads 36, 40, 50 and 44 across the demo, which are damage values.
     /// </remarks>
     private static List<KeyValuePair<string, object?>>? Damage(
-        ReadOnlySpan<byte> body, int bodyBits)
+        ReadOnlySpan<byte> body, int bodyBits, int networkProtocol)
     {
-        // Short, long, and the flag: 49 bits before anything optional.
-        if (bodyBits < 49)
-        {
-            return null;
-        }
-
         try
         {
             BitReader reader = new(body);
-            int damage = (int)reader.ReadUInt32(16);
-            uint ignored = reader.ReadUInt32(32);
+            List<KeyValuePair<string, object?>> fields;
 
-            List<KeyValuePair<string, object?>> fields =
-            [
-                new("damage", damage),
-                new("bits", (int)ignored),
-            ];
-
-            if (!reader.ReadBit())
+            if (networkProtocol > ByteDamageProtocol)
             {
-                // The game returns here, so the body ends here too.
-                return reader.BitsRead <= bodyBits ? fields : null;
+                if (bodyBits < ModernHeaderBits)
+                {
+                    return null;
+                }
+
+                int damage = (int)reader.ReadUInt32(16);
+                uint ignored = reader.ReadUInt32(32);
+                fields = [new("damage", damage), new("bits", (int)ignored)];
+
+                // A clear bit ends the message - the game returns there, so the body stops too.
+                if (reader.ReadBit())
+                {
+                    ReadOrigin(ref reader, fields);
+                }
+            }
+            else
+            {
+                if (bodyBits < OldHeaderBits)
+                {
+                    return null;
+                }
+
+                // No "bits" field: that era does not send one, and reporting a zero would say the
+                // damage carried no type flags rather than that the era never stated any.
+                fields = [new("damage", (int)reader.ReadUInt32(8))];
+                ReadOrigin(ref reader, fields);
             }
 
-            bool hasX = reader.ReadBit();
-            bool hasY = reader.ReadBit();
-            bool hasZ = reader.ReadBit();
-
-            // Read in order, and only the axes that were sent - reading three unconditionally
-            // would consume bits belonging to whatever follows.
-            if (hasX)
-            {
-                fields.Add(new("x", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
-            }
-
-            if (hasY)
-            {
-                fields.Add(new("y", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
-            }
-
-            if (hasZ)
-            {
-                fields.Add(new("z", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
-            }
-
-            // The body is padded to a byte, so the check is that nothing overran rather than that
-            // it landed exactly - the same rule every bit-level layout here uses.
-            return reader.BitsRead <= bodyBits ? fields : null;
+            // Exactly, not merely within. The stated length is in bits and these bodies end
+            // mid-byte, so a layout that stops short has read a prefix of the body rather than
+            // fitted it - which is precisely how the modern layout passed for a protocol-14
+            // demo and reported five-figure damage for a game whose maximum hit is about 450.
+            return reader.BitsRead == bodyBits ? fields : null;
         }
         catch (EndOfStreamException)
         {
             return null;
         }
     }
+
+    /// <summary>Reads a <c>BitVec3Coord</c>: three presence bits, then the axes that were sent.</summary>
+    private static void ReadOrigin(
+        ref BitReader reader, List<KeyValuePair<string, object?>> fields)
+    {
+        // All three flags first, then the values - reading each axis as its flag is met would
+        // still be correct here, but the engine's own order is what a later encoder has to match.
+        bool hasX = reader.ReadBit();
+        bool hasY = reader.ReadBit();
+        bool hasZ = reader.ReadBit();
+
+        if (hasX)
+        {
+            fields.Add(new("x", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+        }
+
+        if (hasY)
+        {
+            fields.Add(new("y", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+        }
+
+        if (hasZ)
+        {
+            fields.Add(new("z", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+        }
+    }
+
+    /// <summary>Last protocol whose damage message was a byte and a vector.</summary>
+    /// <remarks>
+    /// Measured at 14 and at 15, the two sides of the change: the March 2008 demo (protocol 14)
+    /// carries 24 of these and none fits the modern layout, the June 2009 demo (protocol 15)
+    /// carries 16 and all of them do. Protocols 12 and 13 have no specimen, and protocol 11 has
+    /// no damage message at all in the corpus, so the old side is an interpolation below 14 —
+    /// the same standing caveat as every other rule keyed on a protocol this corpus straddles.
+    /// </remarks>
+    private const int ByteDamageProtocol = 14;
+
+    /// <summary>Short, long and the flag: what the modern layout needs before anything optional.</summary>
+    private const int ModernHeaderBits = 49;
+
+    /// <summary>A byte and the vector's three presence bits.</summary>
+    private const int OldHeaderBits = 11;
 
     /// <summary>A plain <c>SPROP_COORD</c>, which is what a damage origin is sent as.</summary>
     private static SendProperty Coordinate { get; } =
