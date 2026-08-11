@@ -63,10 +63,6 @@ cd "$WORKDIR"
 if [ "$PULL" -eq 1 ]; then
   git fetch --quiet origin
   git reset --quiet --hard origin/main
-  # reset --hard triggers LFS smudging only for files that changed. A fresh clone or a git-lfs
-  # install after the fact can leave demos.tf as pointer text with no changed commit to force
-  # a re-fetch, so this is pulled explicitly rather than assumed.
-  git lfs pull --quiet 2>&1 || echo "WARNING: git lfs pull failed, corpus seeding may fall back to synthetic" >&2
 fi
 
 SHA="$(git rev-parse --short HEAD)"
@@ -85,38 +81,29 @@ dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o "${HOME}/fuzz-out-${TARGE
 # grow the input past the 1072-byte header purely by chance - measured on 2026-08-11: 12
 # million executions, coverage never moved past the header check (cov: 8, flat).
 #
-# Real demos when available: git-lfs was installed on this box on 2026-08-11 specifically so
-# the fuzzer could start from actual recordings rather than a synthetic one-command file. Real
-# corpus demos carry many commands, real entity snapshots and real string tables, which is
-# strictly richer seed material - the synthetic seed only ever reaches a bare dem_stop.
-#
-# GitHub Actions cannot follow this path: lfs is deliberately disabled there (see fuzz.yml) so
-# the workflow spends none of the account's 1 GiB/month LFS bandwidth, so CI keeps the
-# synthetic TF2FUZZ_SEED_PATH fallback this block also provides.
+# Real demos when available, from ~/tf2-seeds - a handful of real gcor demos placed there
+# once, by hand, from a machine that already pulled them through git-lfs. Deliberately NOT
+# `git lfs pull` on this box: this box has its own LFS bandwidth-consuming pulls to avoid, and
+# every run re-fetching the corpus (or even checking it is present) would spend the same 1
+# GiB/month budget the GitHub workflow avoids by disabling lfs outright. Real corpus demos
+# carry many commands, real entity snapshots and real string tables, which is strictly richer
+# seed material than the synthetic fallback, which only ever reaches a bare dem_stop.
 if [ "$TARGET" = "container" ]; then
   seeded=0
-  if [ -d "${WORKDIR}/tools/corpus/demos" ]; then
-    for demo in "${WORKDIR}"/tools/corpus/demos/*.dem; do
+  if [ -d "${HOME}/tf2-seeds" ]; then
+    for demo in "${HOME}"/tf2-seeds/*.dem; do
       [ -f "$demo" ] || continue
-      # An LFS pointer file is small text ("version https://git-lfs...", under 200 bytes) and
-      # would poison the corpus if lfs pull silently failed; a real demo is hundreds of KB+.
-      # Checked rather than assumed, because a silent LFS failure here would look identical to
-      # a clean run - the same failure shape as the padding and coverage-capture findings
-      # earlier this session.
-      size=$(stat -c%s "$demo")
-      if [ "$size" -gt 4096 ]; then
-        cp "$demo" "${HOME}/corpus-${TARGET}/seed-$(basename "$demo")"
-        seeded=$((seeded + 1))
-      fi
+      cp "$demo" "${HOME}/corpus-${TARGET}/seed-$(basename "$demo")"
+      seeded=$((seeded + 1))
     done
   fi
 
   if [ "$seeded" -eq 0 ]; then
-    echo "WARNING: no real corpus demo found (LFS not pulled?), falling back to a synthetic seed" >&2
+    echo "no demos in ~/tf2-seeds, falling back to a synthetic seed" >&2
     TF2FUZZ_SEED_PATH="${HOME}/corpus-${TARGET}/seed" \
       dotnet "${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Fuzz.dll" 9>&-
   else
-    echo "seeded container corpus with ${seeded} real demo(s)"
+    echo "seeded container corpus with ${seeded} demo(s) from ~/tf2-seeds"
   fi
 fi
 
