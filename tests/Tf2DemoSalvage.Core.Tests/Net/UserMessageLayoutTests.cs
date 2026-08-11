@@ -355,6 +355,96 @@ public sealed class UserMessageLayoutTests
     }
 
     [Fact]
+    public void CloseCaption_ReadsATokenADurationAndItsFlags()
+    {
+        // The most numerous user message in the game by a wide margin - 616 in one seven-minute
+        // pub round, more than every other user message in that demo combined. It was invisible
+        // until a real multiplayer demo arrived, because listen-server recordings with one or two
+        // players barely produce any.
+        List<byte> body = [.. Encoding.UTF8.GetBytes("spy.taunts02"), 0, 31, 0, 0b0101];
+
+        UserMessage message = Decode("CloseCaption", [.. body]);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "token").ShouldBe("spy.taunts02");
+
+        // Tenths on the wire. Reporting the raw 31 would invite reading it as ticks.
+        Value(message, "seconds").ShouldBe(3.1f);
+        Value(message, "warn_if_missing").ShouldBe(true);
+        Value(message, "from_player").ShouldBe(false);
+        Value(message, "male").ShouldBe(true);
+        Value(message, "female").ShouldBe(false);
+    }
+
+    [Fact]
+    public void CloseCaption_WithTrailingBytes_IsRefused()
+    {
+        List<byte> body = [.. Encoding.UTF8.GetBytes("x"), 0, 10, 0, 1, 0xFF];
+
+        Decode("CloseCaption", [.. body]).Fields.ShouldBeNull();
+    }
+
+    [Fact]
+    public void VoiceMask_ReadsTwoInterleavedDwordArrays()
+    {
+        // The interleaving is the part worth asserting. voice_gamemgr.cpp writes a dword of the
+        // can-hear mask and a dword of the mute mask alternately, and two contiguous arrays would
+        // consume exactly the same 264 bits while producing a completely different answer - so
+        // exact consumption cannot catch that mistake and only this test can.
+        byte[] body = new byte[33];
+        for (int word = 0; word < 4; word++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(word * 8), (uint)(0x1000 + word));
+            BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan((word * 8) + 4), (uint)(0x2000 + word));
+        }
+
+        body[32] = 1;
+
+        UserMessage message = Decode("VoiceMask", body);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "can_hear0").ShouldBe(0x1000);
+        Value(message, "muted0").ShouldBe(0x2000);
+        Value(message, "can_hear3").ShouldBe(0x1003);
+        Value(message, "muted3").ShouldBe(0x2003);
+        Value(message, "mod_enable").ShouldBe(true);
+    }
+
+    [Fact]
+    public void VoiceMask_WidthComesFromMaxPlayers()
+    {
+        // VOICE_MAX_PLAYERS_DW*4*2 + 1 where VOICE_MAX_PLAYERS is MAX_PLAYERS = 101, so four
+        // dwords and 33 bytes. Predicted from two levels of macro before a body was read, and
+        // every VoiceMask in the corpus is 264 bits.
+        Decode("VoiceMask", new byte[33]).Fields.ShouldNotBeNull();
+        Decode("VoiceMask", new byte[32]).Fields.ShouldBeNull();
+        Decode("VoiceMask", new byte[34]).Fields.ShouldBeNull();
+    }
+
+    [Fact]
+    public void PlayerIgnited_NamesTheIgniterTheVictimAndTheWeapon()
+    {
+        UserMessage message = Decode("PlayerIgnited", [3, 9, 21]);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "igniter").ShouldBe(3);
+        Value(message, "victim").ShouldBe(9);
+        Value(message, "weapon").ShouldBe(21);
+    }
+
+    [Fact]
+    public void TheTwoEntityMessages_NameTheirOwnRoles()
+    {
+        // Same two bytes, different meanings, and the names are the whole value of decoding them.
+        // A shared "entity0/entity1" would consume the body just as exactly and say nothing.
+        Value(Decode("PlayerExtinguished", [4, 7]), "healer").ShouldBe(4);
+        Value(Decode("PlayerJarated", [4, 7]), "thrower").ShouldBe(4);
+        Value(Decode("PlayerShieldBlocked", [4, 7]), "attacker").ShouldBe(4);
+
+        Decode("PlayerExtinguished", [4]).Fields.ShouldBeNull();
+    }
+
+    [Fact]
     public void AKnownLayoutThatRefuses_WithholdsTheNameToo()
     {
         // A name is a claim, and a layout that refuses is evidence against it. Reporting

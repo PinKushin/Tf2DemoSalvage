@@ -187,7 +187,7 @@ public sealed class NetMessageReaderTests
     [Theory]
     [InlineData(4, "SayText2")]
     [InlineData(2, "HudText")]
-    [InlineData(14, "CloseCaption")]
+    [InlineData(9, "ShowMenu")]
     [InlineData(78, "BuiltObject")]
     public void UserMessage_IsReportedWithItsRegisteredName(int type, string expected)
     {
@@ -204,6 +204,11 @@ public sealed class NetMessageReaderTests
         // number - which means a shared 16-bit dummy body cannot test naming for a type that has
         // a layout. Those types are anchored in UserMessageNamesTests instead, which checks the
         // table directly rather than through a synthetic packet.
+        //
+        // Expect to edit this list occasionally, and treat that as the good kind of maintenance:
+        // it only changes when a message gains a decoder. CloseCaption sat here until it was
+        // implemented, and Damage and Geiger before that. The set of undecoded messages shrinks,
+        // so an entry leaving this list is a coverage win rather than a regression.
         BitWriter writer = new();
         writer.Message(NetMessageType.UserMessage)
             .Write((uint)type, 8)

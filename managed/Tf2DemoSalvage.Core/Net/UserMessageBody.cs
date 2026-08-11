@@ -73,13 +73,20 @@ public static class UserMessageBody
             "CheapBreakModel" => (true, CheapBreakModel(body, bodyBits)),
             "SpawnFlyingBird" => (true, SpawnFlyingBird(body, bodyBits)),
             "PlayerTauntSoundLoopStart" => (true, EntityAndString(body, bodyBits, "sound")),
-            "PlayerShieldBlocked" => (true, ShieldBlocked(body, bodyBits)),
+            "PlayerShieldBlocked" => (true, TwoEntities(body, bodyBits, "attacker", "victim")),
             "PlayerTauntSoundLoopEnd" => (true, SingleByte(body, bodyBits, "entity")),
             "PlayerGodRayEffect" => (true, SingleByte(body, bodyBits, "entity")),
             "PlayerTeleportHomeEffect" => (true, SingleByte(body, bodyBits, "entity")),
             "PlayerLoadoutUpdated" => (true, SingleByte(body, bodyBits, "entity")),
             "MVMResetPlayerStats" => (true, SingleByte(body, bodyBits, "entity")),
             "AchievementEvent" => (true, AchievementEvent(body, bodyBits)),
+            "CloseCaption" => (true, CloseCaption(body, bodyBits)),
+            "VoiceMask" => (true, VoiceMask(body, bodyBits)),
+            "PlayerIgnited" => (true, Ignited(body, bodyBits)),
+            "PlayerIgnitedInv" => (true, Ignited(body, bodyBits)),
+            "PlayerExtinguished" => (true, TwoEntities(body, bodyBits, "healer", "victim")),
+            "PlayerJarated" => (true, TwoEntities(body, bodyBits, "thrower", "victim")),
+            "PlayerJaratedFade" => (true, TwoEntities(body, bodyBits, "thrower", "victim")),
             _ => (false, null),
         };
 
@@ -301,10 +308,117 @@ public static class UserMessageBody
             _ => null,
         };
 
-    /// <summary><c>PlayerShieldBlocked</c> — who was blocked, and who blocked them.</summary>
-    private static List<KeyValuePair<string, object?>>? ShieldBlocked(
+    /// <summary><c>CloseCaption</c> — subtitle token, how long to show it, and who said it.</summary>
+    /// <remarks>
+    /// <c>CHudCloseCaption::MsgFunc_CloseCaption</c> in <c>hud_closecaption.cpp</c>: a token
+    /// string, a short of duration in tenths of a second, and a flag byte.
+    ///
+    /// **By count this is the largest message in the game's traffic** — 616 of them in a
+    /// seven-minute pub round, more than every other user message in that demo combined. Every
+    /// voice line, every announcer call. It was invisible until a real multiplayer demo arrived:
+    /// the committed corpus, all listen-server recordings with one or two players, contains
+    /// almost none.
+    ///
+    /// The duration is stored in tenths, so it is reported in seconds rather than as the raw
+    /// short — a value of 25 means 2.5 seconds and reporting 25 would invite reading it as ticks.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? CloseCaption(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (!IsWholeBytes(bodyBits, body))
+        {
+            return null;
+        }
+
+        int end = ByteLength(bodyBits);
+        int offset = 0;
+        if (!ReadString(body, end, ref offset, out string token) || offset + 3 != end)
+        {
+            return null;
+        }
+
+        int flags = body[offset + 2];
+
+        return
+        [
+            new("token", token),
+            new("seconds", BinaryPrimitives.ReadUInt16LittleEndian(body[offset..]) / 10f),
+            new("warn_if_missing", (flags & 1) != 0),
+            new("from_player", (flags & 2) != 0),
+            new("male", (flags & 4) != 0),
+            new("female", (flags & 8) != 0),
+        ];
+    }
+
+    /// <summary><c>VoiceMask</c> — who this client may hear, and who they have muted.</summary>
+    /// <remarks>
+    /// <c>voice_gamemgr.cpp</c> writes the two masks **interleaved**, a dword of each at a time,
+    /// then a byte:
+    ///
+    /// <code>
+    /// for ( dw = 0; dw &lt; VOICE_MAX_PLAYERS_DW; dw++ )
+    /// {
+    ///     WRITE_LONG( gameRulesMask.GetDWord(dw) );
+    ///     WRITE_LONG( g_BanMasks[iClient].GetDWord(dw) );
+    /// }
+    /// WRITE_BYTE( !!g_PlayerModEnable[iClient] );
+    /// </code>
+    ///
+    /// **The registered size predicts the width exactly, through two levels of macro.**
+    /// `VOICE_MAX_PLAYERS_DW*4 * 2 + 1` where `VOICE_MAX_PLAYERS` is `MAX_PLAYERS` = 101, so the
+    /// dword count is 4 and the body is 33 bytes — and every VoiceMask in the corpus is 264 bits.
+    /// Interleaved rather than two contiguous arrays is the kind of detail that produces a
+    /// plausible-looking wrong answer if guessed, since both orderings consume the same bits.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? VoiceMask(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (bodyBits != VoiceMaskBits)
+        {
+            return null;
+        }
+
+        List<KeyValuePair<string, object?>> fields = [];
+        for (int word = 0; word < VoiceMaskDwords; word++)
+        {
+            int at = word * 8;
+            fields.Add(new(
+                Numbered("can_hear", word),
+                (int)BinaryPrimitives.ReadUInt32LittleEndian(body[at..])));
+            fields.Add(new(
+                Numbered("muted", word),
+                (int)BinaryPrimitives.ReadUInt32LittleEndian(body[(at + 4)..])));
+        }
+
+        fields.Add(new("mod_enable", body[VoiceMaskDwords * 8] != 0));
+        return fields;
+    }
+
+    /// <summary><c>PlayerIgnited</c> — who set whom on fire, and with what.</summary>
+    private static List<KeyValuePair<string, object?>>? Ignited(
         ReadOnlySpan<byte> body, int bodyBits) =>
-        bodyBits != 16 ? null : [new("attacker", (int)body[0]), new("victim", (int)body[1])];
+        bodyBits != 24
+            ? null
+            :
+            [
+                new("igniter", (int)body[0]),
+                new("victim", (int)body[1]),
+                new("weapon", (int)body[2]),
+            ];
+
+    /// <summary>Two entity indices, which several TF2 messages are exactly.</summary>
+    private static List<KeyValuePair<string, object?>>? TwoEntities(
+        ReadOnlySpan<byte> body, int bodyBits, string first, string second) =>
+        bodyBits != 16 ? null : [new(first, (int)body[0]), new(second, (int)body[1])];
+
+    private static string Numbered(string name, int index) =>
+        string.Create(CultureInfo.InvariantCulture, $"{name}{index}");
+
+    /// <summary><c>MAX_PLAYERS</c> is 101, so the mask needs four dwords.</summary>
+    private const int VoiceMaskDwords = 4;
+
+    /// <summary>Two interleaved dword arrays plus the mod-enable byte.</summary>
+    private const int VoiceMaskBits = ((VoiceMaskDwords * 4 * 2) + 1) * 8;
 
     /// <summary>An entity index followed by a NUL-terminated string.</summary>
     private static List<KeyValuePair<string, object?>>? EntityAndString(
