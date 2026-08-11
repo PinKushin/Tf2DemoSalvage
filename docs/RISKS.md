@@ -1574,7 +1574,7 @@ lesson: a re-encode comparison whose *original* came from our own encoder cannot
 applied uniformly, because it appears in both sides. Only the shape-survival assertion fails.
 That test now says so rather than implying a correctness guarantee it does not provide.
 
-## B28 — `VoiceMask` is 9 bytes at launch and 33 today, and only the modern width is implemented — OPEN
+## B28 — `VoiceMask` is 9 bytes at launch and 33 today, and only the modern width is implemented — RESOLVED
 
 Found 2026-08-11 by reading `usermessages->Register` out of six shipped clients rather than from
 any SDK. Valve registers each user message with a byte size, and `VoiceMask` writes
@@ -1603,6 +1603,17 @@ recordings. So this is a known gap rather than a known failure.
 
 **Fix, when done, is a width chosen by era**, which is the same table-selection problem as B29 and
 should land with it rather than as a second one-off protocol conditional.
+
+**Resolved 2026-08-11**, and it did land with B29. `UserMessageBody.VoiceMaskDwordsFor` selects
+1 dword pair at protocol ≤ 14, 2 at 15, and 4 above — the three registered sizes, 9 / 17 / 33
+bytes, from the table above. Still not observed firing on the corpus, so this is a layout the
+binaries state rather than one a demo has exercised: the era specimens are short listen-server
+recordings and none of them contains a pre-2011 `VoiceMask`. The exact-consumption rule remains
+what makes an era mismatch refuse rather than fabricate.
+
+This entry stayed marked OPEN after the code shipped, which is its own small lesson: a risk
+register is only as good as the pass that closes entries, and nothing in the build can catch a
+stale one.
 
 ## B29 — protocol 24 cannot select a user message name table above id 50 — RESOLVED
 
