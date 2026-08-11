@@ -585,3 +585,29 @@ so candidates can be dated before being downloaded in full.
 *Incidental fingerprint, unverified:* this build stamps `Exe build` with **two** trailing numbers
 where the 2008 build's format string carries one. If that holds across builds it dates a binary
 from the string table alone, but two samples is not a rule.
+
+## Hunting a protocol 17–23 specimen: what has been checked
+
+The last unmeasured stretch is **15 Jun 2011 → 25 Mar 2013**, nine protocol numbers. Two routes,
+and the second is now much cheaper than it was.
+
+**Route A — a period demo.** The specimen itself. Checked 2026-08-11:
+
+| source | verdict |
+|---|---|
+| `demos.igmdb.org` | **2018+ only** — ESEA 29–31, ETF2L 29–42, RGL 7–9, Insomnia 65/69. No 2011–2013 content. |
+| ETF2L's own archive (`etf2l.org/demos/`) | **Best remaining lead.** ETF2L Seasons **11–13** fall inside the window (late 2011 → early 2013), and the league has run continuously since 2007. The listing is JS-rendered, so it needs a browser rather than a fetch. |
+| teamfortress.tv request threads | List ETF2L S11/S12 and ESEA S11/S12 as obtainable, by request rather than direct download. |
+
+**Route B — a period client, then record one.** This is how protocols 11, 14, 15, 16 and 24 were
+measured, and it got cheaper on 2026-08-11: `StartRecording` writes the protocol into the header
+as a **literal**, so a candidate `engine.dll` can be both dated and protocol-identified from about
+4 MB, with no install and nothing launched. See `findings/01`.
+
+That turns Route B from "download a build and run it" into triage: pull only `bin/engine.dll` from
+any 2011–2013 build, `grep -a "Exe build"` it for the date, and read the constant for the
+protocol. Candidates come from `DepotDownloader` against app 440 depot 441 with a period manifest.
+
+**Either route settles several rows at once**, which is why this is the highest-value acquisition
+left: the 5-bit message type boundary, the `SendPropType` renumbering, and both are currently
+graded *bounded* across this same gap.
