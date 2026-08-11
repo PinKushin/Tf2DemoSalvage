@@ -170,11 +170,11 @@ public static class UserMessageBody
 
     /// <summary>Last protocol whose damage message was a byte and a vector.</summary>
     /// <remarks>
-    /// Measured at 14 and at 15, the two sides of the change: the March 2008 demo (protocol 14)
-    /// carries 24 of these and none fits the modern layout, the June 2009 demo (protocol 15)
-    /// carries 16 and all of them do. Protocols 12 and 13 have no specimen, and protocol 11 has
-    /// no damage message at all in the corpus, so the old side is an interpolation below 14 —
-    /// the same standing caveat as every other rule keyed on a protocol this corpus straddles.
+    /// Measured at 11, 14 and 15. The March 2008 demo (protocol 14) carries 24 of these and none
+    /// fits the modern layout; the June 2009 demo (protocol 15) carries 16 and all of them do; a
+    /// protocol-11 recording made specifically to produce them carries 43, all on this layout at
+    /// the same 77 and 72 bits. Protocols 12 and 13 have no specimen, so the rule is interpolated
+    /// across those two and nowhere else.
     /// </remarks>
     private const int ByteDamageProtocol = 14;
 
