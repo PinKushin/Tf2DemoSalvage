@@ -1,7 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+
+using Microsoft.Extensions.Logging;
+
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Text;
 
@@ -46,9 +51,12 @@ public static class Program
             return ExitUsage;
         }
 
+        using ILoggerFactory factory = LogSetup.Create(line.Verbosity);
+        ILogger logger = factory.CreateLogger("tf2demosalvage");
+
         try
         {
-            return Run(line);
+            return Run(line, logger);
         }
         catch (Exception exception) when (
             exception is IOException or InvalidDataException or UnauthorizedAccessException)
@@ -56,30 +64,32 @@ public static class Program
             // Expected failure modes: a file that is missing, unreadable, or not a demo.
             // Anything else is a defect and should surface with its stack trace rather than
             // being flattened into a tidy message.
-            Console.Error.WriteLine($"error: {exception.Message}");
+            logger.LogError(exception, "{Message}", exception.Message);
             return ExitFailure;
         }
     }
 
-    private static int Run(CommandLine line)
+    private static int Run(CommandLine line, ILogger logger)
     {
         if (!File.Exists(line.DemoPath))
         {
-            Console.Error.WriteLine($"error: no such file: {line.DemoPath}");
+            logger.LogError("no such file: {Path}", line.DemoPath);
             return ExitFailure;
         }
 
         if (line.Compile)
         {
-            return Compile(line);
+            return Compile(line, logger);
         }
 
+        Stopwatch clock = Stopwatch.StartNew();
         byte[] bytes = File.ReadAllBytes(line.DemoPath);
         DemoHeader header = DemoHeader.Parse(bytes);
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
 
         string name = Path.GetFileName(line.DemoPath);
+        Report(logger, name, bytes.Length, header, commands, clock);
 
         if (line.OutputPath is null)
         {
@@ -98,11 +108,69 @@ public static class Program
             Write(writer, line, name, header, commands, bar);
         }
 
-        Console.Error.WriteLine(string.Create(
-            CultureInfo.InvariantCulture,
-            $"wrote {commands.Count} commands to {line.OutputPath}"));
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "wrote {Commands} commands to {Path} in {Elapsed:N1}s",
+                commands.Count, line.OutputPath, clock.Elapsed.TotalSeconds);
+        }
 
         return ExitSuccess;
+    }
+
+    /// <summary>Reports what was read, and anything about it worth knowing before it is written.</summary>
+    /// <remarks>
+    /// **The warnings here are the point; the informational lines are context for them.** Both
+    /// checks below are things a reader would otherwise discover only by noticing that output
+    /// stopped early, and neither is an error — a demo missing its <c>dem_stop</c> is a recording
+    /// that was killed rather than a file that is broken, and it still decodes.
+    /// </remarks>
+    private static void Report(
+        ILogger logger, string name, int bytes, DemoHeader header,
+        List<DemoCommand> commands, Stopwatch clock)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "{Name}: {Bytes:N0} bytes, protocol {Protocol}, map {Map}, {Seconds:N1}s of play",
+                name, bytes, header.NetworkProtocol, header.MapName,
+                header.PlaybackTimeSeconds);
+        }
+
+        // Guarded rather than left to the logger to discard: grouping the command list is real
+        // work, and this runs once per demo in a batch that may cover hundreds.
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug(
+                "read {Commands:N0} commands in {Elapsed:N2}s",
+                commands.Count, clock.Elapsed.TotalSeconds);
+
+            foreach (IGrouping<DemoCommandType, DemoCommand> group in
+                commands.GroupBy(command => command.Type).OrderByDescending(g => g.Count()))
+            {
+                logger.LogDebug("  {Type}: {Count:N0}", group.Key, group.Count());
+            }
+        }
+
+        // A recording that was ended by quitting the server rather than by `stop` still gets a
+        // dem_stop from the engine, so its absence means the file was cut short - z1800.dem is
+        // one byte short of complete and reads fine regardless.
+        if (!commands.Any(command => command.Type == DemoCommandType.Stop))
+        {
+            logger.LogWarning(
+                "{Name} has no dem_stop: the recording was truncated, not ended", name);
+        }
+
+        // The header states the frame count and the stream contains it, by completely different
+        // paths. They disagree when a demo was cut mid-write.
+        int packets = commands.Count(command => command.Type == DemoCommandType.Packet);
+        int declared = header.PlaybackFrames;
+        if (packets != declared)
+        {
+            logger.LogWarning(
+                "{Name} declares {Declared:N0} frames but holds {Actual:N0}",
+                name, declared, packets);
+        }
     }
 
     /// <summary>Compiles assembly text back into a demo.</summary>
@@ -111,7 +179,7 @@ public static class Program
     /// <c>--asm</c> and compiled here is byte-identical to the demo it came from, which is the
     /// only check that can show nothing was lost on the way out.
     /// </remarks>
-    private static int Compile(CommandLine line)
+    private static int Compile(CommandLine line, ILogger logger)
     {
         using StreamReader reader = new(line.DemoPath);
         (DemoHeader header, IReadOnlyList<DemoCommand> commands) = DemoAssembly.Parse(reader);
@@ -119,9 +187,12 @@ public static class Program
         byte[] demo = DemoWriter.Write(header, commands);
         File.WriteAllBytes(line.OutputPath!, demo);
 
-        Console.Error.WriteLine(string.Create(
-            CultureInfo.InvariantCulture,
-            $"compiled {commands.Count} commands to {line.OutputPath} ({demo.Length:N0} bytes)"));
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "compiled {Commands} commands to {Path} ({Bytes:N0} bytes)",
+                commands.Count, line.OutputPath, demo.Length);
+        }
 
         return ExitSuccess;
     }
@@ -183,6 +254,9 @@ public static class Program
         writer.WriteLine();
         writer.WriteLine("  -e, --entities          expand entity snapshots into properties (trace only)");
         writer.WriteLine("      --entity-limit <n>  expand only the first n snapshots; implies -e");
+        writer.WriteLine();
+        writer.WriteLine("  -v, --verbose           report per-stage detail and timings");
+        writer.WriteLine("  -q, --quiet             warnings and errors only");
         writer.WriteLine();
         writer.WriteLine("  -h, --help              this message");
         writer.WriteLine();

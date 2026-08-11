@@ -12,7 +12,23 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Logging lives here and not in Core, deliberately. Core reports what happened by RETURNING
+      it - NetMessageReadResult carries where a walk stopped and why - so a caller cannot ignore
+      a decode failure without deciding to. A log line is a side effect that can be discarded
+      silently, and it would also cost Core its dependency-free property, which the fuzz target
+      relies on.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.10" />
   </ItemGroup>
 
 </Project>
