@@ -189,6 +189,7 @@ public sealed class NetMessageReaderTests
     [InlineData(2, "HudText")]
     [InlineData(9, "ShowMenu")]
     [InlineData(78, "BuiltObject")]
+    [InlineData(84, "HapMeleeContact")]
     public void UserMessage_IsReportedWithItsRegisteredName(int type, string expected)
     {
         // A user message is where TF2 puts most of what a reader wants - damage numbers,
@@ -228,7 +229,7 @@ public sealed class NetMessageReaderTests
     }
 
     [Theory]
-    [InlineData(79)]    // exactly one past the last entry
+    [InlineData(85)]    // exactly one past the last entry
     [InlineData(200)]   // far past it
     public void UnknownUserMessageType_IsReportedWithoutAName(int type)
     {
@@ -236,9 +237,14 @@ public sealed class NetMessageReaderTests
         // end is expected on other eras or other games. Reporting the number with no name is
         // honest; inventing one would be worse than saying nothing.
         //
-        // 79 is the case that matters. The bound is `type < Names.Length`, and 200 satisfies a
+        // 85 is the case that matters. The bound is `type < table.Length`, and 200 satisfies a
         // broken `<=` just as well as a correct `<` — it cannot see an off-by-one at the end of
-        // the table. Paired with the id-78 row above, these two pin the boundary exactly.
+        // the table. Paired with the id-84 row above, these two pin the boundary exactly.
+        //
+        // This row read 79 until 2026-08-11, when the haptics block was found registered after
+        // the game's 79 messages, extending the modern id space to 0–84. **The assertion was
+        // right and the input went stale** — 79 is now SPHapWeapEvent and genuinely has a name.
+        // Moving the boundary is the fix; weakening the assertion would have been the wrong one.
         BitWriter writer = new();
         writer.Message(NetMessageType.UserMessage).Write((uint)type, 8).Write(8, 11).Write(0xAB, 8);
 

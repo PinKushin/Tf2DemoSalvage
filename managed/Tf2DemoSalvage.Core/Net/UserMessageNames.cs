@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Tf2DemoSalvage.Core.Net;
 
 /// <summary>
@@ -159,43 +162,122 @@ internal static class UserMessageNames
         "BuiltObject",
     ];
 
+    /// <summary>
+    /// The six Novint Falcon haptics messages, registered immediately after the game's table.
+    /// </summary>
+    /// <remarks>
+    /// **This block is why ids past the end of the game table appear in ordinary demos.** The
+    /// server sends these to every client regardless of whether anyone owns the device, so they
+    /// are in normal recordings — `HapSetDrag`, the fourth, accounts for the ids that sat unnamed
+    /// in the corpus for weeks at 44 (2009), 52 (2011) and 69 (March 2013), each exactly four past
+    /// its own build's last game message. A drag value is one float, which is the 32-bit body
+    /// measured on all three.
+    ///
+    /// Absent from the 2007 and 2008 clients entirely, which is exactly why those two eras are the
+    /// only ones in the corpus with no unnamed ids at all.
+    /// </remarks>
+    private static readonly string[] Haptics =
+        ["SPHapWeapEvent", "HapDmg", "HapPunch", "HapSetDrag", "HapSetConst", "HapMeleeContact"];
+
     // Stryker restore String
 
-    /// <summary>The registered name for an id, or <c>null</c> if it cannot be named safely.</summary>
+    /// <summary>Builds one era's table by removing what its build had not shipped and truncating.</summary>
+    /// <param name="lastGameMessage">The last message that build registers; everything after is dropped.</param>
+    /// <param name="absent">Names that build does not contain at all, wherever they appear.</param>
+    /// <param name="haptics">Whether the haptics block follows the game table in that build.</param>
+    /// <remarks>
+    /// **Derived rather than transcribed five times, deliberately.** The eras share long prefixes,
+    /// so five literal arrays would be ~250 lines of near-duplicate data that could drift apart
+    /// silently. Expressing each era as a *difference* from the current table also states the
+    /// finding directly: the shifts are insertions, not appends, and each removal below names the
+    /// message a given build had not shipped yet.
+    ///
+    /// The lengths this must produce are the era fingerprints — 29, 41, 49, 79 game messages —
+    /// and <c>UserMessageNamesTests</c> asserts them, because an off-by-one here renames every
+    /// message above the mistake without failing anything else.
+    /// </remarks>
+    private static string[] Compose(string lastGameMessage, string[] absent, bool haptics)
+    {
+        List<string> names = new(Names.Length + Haptics.Length);
+        foreach (string name in Names)
+        {
+            if (Array.IndexOf(absent, name) >= 0)
+            {
+                continue;
+            }
+
+            names.Add(name);
+            if (string.Equals(name, lastGameMessage, StringComparison.Ordinal))
+            {
+                break;
+            }
+        }
+
+        if (haptics)
+        {
+            names.AddRange(Haptics);
+        }
+
+        return [.. names];
+    }
+
+    /// <summary>2007 and 2008: 29 messages, no haptics block.</summary>
+    private static readonly string[] Launch =
+        Compose("PlayerStatsUpdate", [], haptics: false);
+
+    /// <summary>2009, build 3862: 41 messages, then haptics at 41–46.</summary>
+    private static readonly string[] Era2009 =
+        Compose("CheapBreakModel", ["MapStatsUpdate", "TrainingObjective"], haptics: true);
+
+    /// <summary>2011, build 4604: 49 messages, then haptics at 49–54.</summary>
+    private static readonly string[] Era2011 =
+        Compose("PlayerBonusPoints", ["MapStatsUpdate", "BreakModelRocketDud"], haptics: true);
+
+    /// <summary>July 2026: all 79 messages, then haptics at 79–84.</summary>
+    private static readonly string[] Current = Compose("BuiltObject", [], haptics: true);
+
+    /// <summary>The registered name for an id in the era that recorded it, or <c>null</c>.</summary>
     /// <param name="userMessageType">The id read from the wire.</param>
     /// <param name="networkProtocol">The demo header's network protocol.</param>
     /// <returns>The name, or <c>null</c> to report the id by number.</returns>
-    /// <remarks>
-    /// **Names above <see cref="LastStableId"/> are withheld below protocol 24, because the table
-    /// demonstrably shifts there.** See the type's remarks for the measurement. Reporting the id
-    /// by number is the honest answer: this table describes a build those demos predate.
-    /// </remarks>
     internal static string? Lookup(int userMessageType, int networkProtocol)
     {
-        if (userMessageType < 0 || userMessageType >= Names.Length)
-        {
-            return null;
-        }
-
-        return userMessageType <= LastStableId || networkProtocol >= ShiftedTableProtocol
-            ? Names[userMessageType]
-            : null;
+        string[] table = TableFor(networkProtocol);
+        return userMessageType < 0 || userMessageType >= table.Length
+            ? null
+            : table[userMessageType];
     }
 
-    /// <summary>
-    /// Highest id measured to mean the same thing at every protocol the corpus holds.
-    /// </summary>
+    /// <summary>The table for a protocol, or the shared head where no build has been measured.</summary>
     /// <remarks>
-    /// <c>PlayerStatsUpdate</c>, confirmed at protocols 11, 14, 15, 16 and 24 with matching widths.
-    /// Everything below it agrees too. Above it, the table moves — see the type's remarks.
+    /// **Each arm is a client that was read, not a guess.** Protocols 12 and 13 fall to the launch
+    /// table because 11 and 14 bracket them and agree; that is interpolation across an interval
+    /// whose endpoints are identical, which is the only kind this project accepts.
+    ///
+    /// **Protocols 17–23 get the launch table, which names only the head every era shares.** No
+    /// client and no demo survives from that window, and the two tables on either side disagree
+    /// about id 40 — so naming it would be picking one at random. Reporting the number is the
+    /// honest answer.
+    ///
+    /// **Protocol 24 is not one era, and this is the known gap (`RISKS.md` B29.)** It spans March
+    /// 2013 to now. The March 2013 client registers 66 messages and has no `RDTeamPointsChanged`;
+    /// the current one registers 79 with it inserted at id 51, so every id from 51 up means two
+    /// different things under one protocol number. The current table is used because it is right
+    /// for the overwhelming majority of protocol-24 demos and identical to the 2013 table below
+    /// id 51. Distinguishing them needs evidence from the demo's *contents* rather than its
+    /// header — the ids it actually carries — which is a decode-wide question, not one this
+    /// function can answer from an id and a protocol.
     /// </remarks>
-    private const int LastStableId = 28;
+    private static string[] TableFor(int networkProtocol) => networkProtocol switch
+    {
+        >= 24 => Current,
+        16 => Era2011,
+        15 => Era2009,
 
-    /// <summary>First protocol this table is known to describe exactly.</summary>
-    /// <remarks>
-    /// The transcription is from the 2013 SDK, and the 2013 demo is protocol 24. Whether the table
-    /// also holds for protocols 17–23 is untested — no specimen exists — so this is a boundary at
-    /// the edge of the evidence rather than in the middle of it.
-    /// </remarks>
-    private const int ShiftedTableProtocol = 24;
+        // 14 and below, and the unmeasured 17-23, share this arm because they need the same
+        // answer for opposite reasons: 11 to 14 *is* the launch table, measured, while 17 to 23
+        // gets it as the largest table nothing contradicts. Splitting them into two arms
+        // returning the same array would only add a branch no test could distinguish.
+        _ => Launch,
+    };
 }
