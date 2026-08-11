@@ -212,21 +212,74 @@ is what an older era looks like.
 comment: rather than risk polluting player stats with garbage. The same rule this project arrived
 at independently, for the same reason.
 
+## Three different kinds of era change, at the same layer
+
+Worth separating, because they need different defences and the first two were initially confused
+for each other:
+
+| Kind | Example | What moves | Detected by |
+|---|---|---|---|
+| **Layout changes, id fixed** | `Damage` at protocol 14/15 | the body's shape | body width arithmetic |
+| **Ids change, layout fixed** | `CheapBreakModel` 40 → 41 → 42 | which id carries it | a distinctive width acting as a fingerprint |
+| **Length grows, id and prefix fixed** | `AchievementEvent` | fields appended | two exact widths, compatible prefix |
+
+`AchievementEvent` is the third: the modern writer sends `WRITE_SHORT( iAchievement ); WRITE_SHORT(
+iCount );` for 32 bits, and the 2009 demo's is **16** — the achievement only, before the count
+existed. Both are accepted, which is not a fallback dressed up: 16 and 32 are exact, they are the
+only two forms the writer has had, and the achievement occupies the same leading short in both.
+Keying it on protocol would need a boundary the corpus cannot supply.
+
+## `WRITE_ANGLES` is `WRITE_VEC3COORD`
+
+`bf_write::WriteBitAngles` copies the angle triple into a `Vector` and calls `WriteBitVec3Coord`,
+carrying a standing fix-me comment from Valve saying exactly that.
+
+**So an orientation is encoded as a position.** Three presence bits and coordinate axes; an angle
+costs precisely what a coordinate costs. There is no separate angle encoding in this layer to look
+for, which matters whenever a width involving angles is being derived — `BreakModel` is a short, a
+position, an *orientation encoded as a position*, and a short.
+
+## Coordinate widths depend on the value, not just the field
+
+An axis is 22 bits with a fraction and 17 without, so **the same field encodes to different widths
+for different values**. A position at whole-numbered coordinates is 54 bits where a fractional one
+is 69.
+
+This bit the test suite rather than the parser: a `SpawnFlyingBird` fixture built at (10, 20, 30)
+came to 214 bits where every bird in the corpus is 229, because whole numbers skip their fractional
+part. A fixture has to carry fractions to be stating the same claim the corpus does. Recorded
+because it is a standing hazard for any width predicted from a layout — **the layout gives a range
+of widths, not one**, unless the values are known.
+
 ## What is still opaque
 
-3,920 bits across 11 types, all small and all modern:
+**435 of 445 decode. 479 bits remain**, and every one of them is a *naming* problem rather than a
+layout problem:
 
-| message | count | opaque bits |
-|---|---|---|
-| `PlayerTauntSoundLoopStart` | 10 | 1,768 |
-| `CheapBreakModel` | 15 | 1,265 |
-| `BreakModel` | 4 | 466 |
-| `PlayerLoadoutUpdated` | 3 | 96 |
-| `PlayerShieldBlocked` | 1 | 85 |
-| `PlayerTauntSoundLoopEnd` | 10 | 80 |
-| `BreakModelRocketDud`, `SpawnFlyingBird` | 2 each | 64 each |
-| `AchievementEvent` | 1 | 16 |
-| `MVMResetPlayerStats`, `PlayerGodRayEffect` | 1 each | 8 each |
+| message | count | opaque bits | why |
+|---|---|---|---|
+| ids `#40`, `#41`, `#44`, `#52` | 7 | 383 | pre-2013 ids the name table cannot label — withheld deliberately |
+| `PlayerLoadoutUpdated` | 3 | 96 | see below |
+
+The unnamed ids are the era-shifted ones, and their bodies are readable: `#40` and `#41` are 85-bit
+`CheapBreakModel` shapes. What is missing is not the layout but the *identity*, and naming them
+from their shape would be a guess where the whole point of the gate is to stop guessing.
+
+### The id table can shift within one protocol number
+
+`PlayerLoadoutUpdated`'s writer is a single byte — `WRITE_BYTE( entindex() )` — so 8 bits. The
+March 2013 demo carries **32 bits** at that id, and it is protocol 24, the same protocol the name
+table was transcribed for.
+
+**So the table is a property of the game DLL, not of the network protocol.** A protocol number
+bumps when the *engine's* wire format changes; the user message list lives in `tf_usermessages.cpp`
+and can be reordered by any game update without the protocol moving at all. Protocol 24 spans
+thirteen years ([06](06-protocol-eras.md)) — far too long to assume one registration order.
+
+Evidence is currently thin: one demo, three messages, and no protocol-24 file that contains id 69
+to compare against. The exact-consumption check catches it — the message is refused rather than
+mis-decoded — but the *name* is still claimed, which is the same defect that was just fixed for
+older eras, one level up. Open.
 
 ## `svc_EntityMessage` is not generic, but it is a closed set
 
