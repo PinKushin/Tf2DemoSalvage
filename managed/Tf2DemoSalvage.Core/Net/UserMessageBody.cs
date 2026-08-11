@@ -85,7 +85,7 @@ public static class UserMessageBody
             "VotePass" => (true, VotePass(body, bodyBits)),
             "VoteFailed" => (true, VoteFailed(body, bodyBits)),
             "CallVoteFailed" => (true, CallVoteFailed(body, bodyBits)),
-            "VoiceMask" => (true, VoiceMask(body, bodyBits)),
+            "VoiceMask" => (true, VoiceMask(body, bodyBits, networkProtocol)),
             "PlayerIgnited" => (true, Ignited(body, bodyBits)),
             "PlayerIgnitedInv" => (true, Ignited(body, bodyBits)),
             "PlayerExtinguished" => (true, TwoEntities(body, bodyBits, "healer", "victim")),
@@ -494,15 +494,16 @@ public static class UserMessageBody
     /// plausible-looking wrong answer if guessed, since both orderings consume the same bits.
     /// </remarks>
     private static List<KeyValuePair<string, object?>>? VoiceMask(
-        ReadOnlySpan<byte> body, int bodyBits)
+        ReadOnlySpan<byte> body, int bodyBits, int networkProtocol)
     {
-        if (bodyBits != VoiceMaskBits)
+        int dwords = VoiceMaskDwordsFor(networkProtocol);
+        if (bodyBits != VoiceMaskBitsFor(dwords))
         {
             return null;
         }
 
         List<KeyValuePair<string, object?>> fields = [];
-        for (int word = 0; word < VoiceMaskDwords; word++)
+        for (int word = 0; word < dwords; word++)
         {
             int at = word * 8;
             fields.Add(new(
@@ -513,7 +514,7 @@ public static class UserMessageBody
                 (int)BinaryPrimitives.ReadUInt32LittleEndian(body[(at + 4)..])));
         }
 
-        fields.Add(new("mod_enable", body[VoiceMaskDwords * 8] != 0));
+        fields.Add(new("mod_enable", body[dwords * 8] != 0));
         return fields;
     }
 
@@ -537,11 +538,38 @@ public static class UserMessageBody
     private static string Numbered(string name, int index) =>
         string.Create(CultureInfo.InvariantCulture, $"{name}{index}");
 
-    /// <summary><c>MAX_PLAYERS</c> is 101, so the mask needs four dwords.</summary>
-    private const int VoiceMaskDwords = 4;
+    /// <summary>How many dword pairs the mask carries, which is an era question.</summary>
+    /// <remarks>
+    /// **`VOICE_MAX_PLAYERS_DW` grew twice, and the registered size records it.** Read from
+    /// `usermessages->Register` in the shipped clients on 2026-08-11: `VoiceMask` is **9 bytes**
+    /// in the 2007 and 2008 builds, **17** in 2009, and **33** from 2011 on. Those invert through
+    /// `dwords * 4 * 2 + 1` to one, two and four dword pairs — a `VOICE_MAX_PLAYERS` of 32, 64 and
+    /// 128. The 2007 client and server DLLs agree on 9 independently, which is the control.
+    ///
+    /// This was a live gap until then: only the 33-byte form existed, so a launch-era `VoiceMask`
+    /// was a quarter the expected width. It failed *safely* rather than silently, because the
+    /// caller demands exact consumption — under an "at most" check it would have read sixteen
+    /// dwords of adjacent bits and reported them as mute state. See `RISKS.md` B28.
+    ///
+    /// The 2011 boundary is where the measurement is, not where the change necessarily is: 2009
+    /// and 2011 are the two nearest specimens, so anything in protocols 16 and above shares the
+    /// modern width until a build between them says otherwise.
+    /// </remarks>
+    private static int VoiceMaskDwordsFor(int networkProtocol) => networkProtocol switch
+    {
+        <= LaunchVoiceMaskProtocol => 1,
+        MidVoiceMaskProtocol => 2,
+        _ => 4,
+    };
 
     /// <summary>Two interleaved dword arrays plus the mod-enable byte.</summary>
-    private const int VoiceMaskBits = ((VoiceMaskDwords * 4 * 2) + 1) * 8;
+    private static int VoiceMaskBitsFor(int dwords) => ((dwords * 4 * 2) + 1) * 8;
+
+    /// <summary>Protocol 14 and below: the 2007 and 2008 clients register nine bytes.</summary>
+    private const int LaunchVoiceMaskProtocol = 14;
+
+    /// <summary>Protocol 15: the 2009 client registers seventeen.</summary>
+    private const int MidVoiceMaskProtocol = 15;
 
     /// <summary>An entity index followed by a NUL-terminated string.</summary>
     private static List<KeyValuePair<string, object?>>? EntityAndString(

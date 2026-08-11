@@ -29,6 +29,9 @@ public sealed class UserMessageLayoutTests
     private static UserMessage Decode(string name, byte[] body) =>
         UserMessageBody.Decode(0, name, body, body.Length * 8, Protocol);
 
+    private static UserMessage Decode(string name, byte[] body, int networkProtocol) =>
+        UserMessageBody.Decode(0, name, body, body.Length * 8, networkProtocol);
+
     private static object? Value(UserMessage message, string field) =>
         message.Fields!.First(pair => pair.Key == field).Value;
 
@@ -419,6 +422,49 @@ public sealed class UserMessageLayoutTests
         Decode("VoiceMask", new byte[33]).Fields.ShouldNotBeNull();
         Decode("VoiceMask", new byte[32]).Fields.ShouldBeNull();
         Decode("VoiceMask", new byte[34]).Fields.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(11, 9)]
+    [InlineData(14, 9)]
+    [InlineData(15, 17)]
+    [InlineData(16, 33)]
+    [InlineData(24, 33)]
+    public void VoiceMask_WidthFollowsTheErasMaxPlayers(int networkProtocol, int bytes)
+    {
+        // Read from the registered sizes in the shipped clients, not inferred: VoiceMask is
+        // registered at 9 bytes in the 2007 and 2008 builds, 17 in 2009, and 33 from 2011 on.
+        // The size inverts through VOICE_MAX_PLAYERS_DW*4*2 + 1 to a player ceiling of 32, 64
+        // and 128 - a Valve internal constant dated by measurement, which no changelog records.
+        Decode("VoiceMask", new byte[bytes], networkProtocol).Fields.ShouldNotBeNull();
+
+        // The control, and the reason this is a Theory rather than three asserts: every era must
+        // REFUSE its neighbours' widths. A decoder that accepted any of 9, 17 or 33 everywhere
+        // would satisfy the line above at every row while being exactly the bug this fixes.
+        Decode("VoiceMask", new byte[bytes + 8], networkProtocol).Fields.ShouldBeNull();
+        if (bytes > 9)
+        {
+            Decode("VoiceMask", new byte[bytes - 8], networkProtocol).Fields.ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public void VoiceMask_AtLaunchCarriesOneDwordPair()
+    {
+        // The width is only half of it - the field COUNT has to follow too, or a 9-byte body
+        // would be read as four pairs off the end of the span. One pair, then the flag byte.
+        byte[] body = new byte[9];
+        BinaryPrimitives.WriteUInt32LittleEndian(body, 0xAAAA);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(4), 0xBBBB);
+        body[8] = 1;
+
+        UserMessage message = Decode("VoiceMask", body, 11);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "can_hear0").ShouldBe(0xAAAA);
+        Value(message, "muted0").ShouldBe(0xBBBB);
+        Value(message, "mod_enable").ShouldBe(true);
+        message.Fields!.ShouldNotContain(pair => pair.Key == "can_hear1");
     }
 
     [Fact]
