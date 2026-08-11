@@ -4,18 +4,31 @@ namespace Tf2DemoSalvage.Core.Net;
 /// TF2's user message names, in the order the game registers them.
 /// </summary>
 /// <remarks>
-/// **Generated from `game/shared/tf/tf_usermessages.cpp` in the TF2 SDK, not recalled.** A user
-/// message carries no name on the wire — only an id, which is that file's registration order —
-/// so a wrong table renames every message in a trace without failing anything.
+/// **This is the July 2026 client's table, verified against the binary.** A user message carries
+/// no name on the wire — only an id, which is registration order — so a wrong table renames every
+/// message in a trace without failing anything.
+///
+/// It was transcribed from `game/shared/tf/tf_usermessages.cpp` in the sdk2013 drop, and was
+/// described here as "the 2013 table" until 2026-08-11, when the registration sequence was read
+/// out of six shipped clients. It matches the **live 2026** client entry for entry, ids 0–78
+/// ending at `BuiltObject`. The March 2013 client registers only 66 and does not contain
+/// `RDTeamPointsChanged` anywhere — that name was inserted at id 51 later. So the SDK drop
+/// describes a build years newer than its name, and the data here is right for modern demos and
+/// wrong above id 50 for early protocol-24 ones. See `RISKS.md` B29.
+///
+/// **The table is not the whole id space.** A second registration block follows it — six Novint
+/// Falcon haptics messages, `SPHapWeapEvent`, `HapDmg`, `HapPunch`, `HapSetDrag`, `HapSetConst`,
+/// `HapMeleeContact` — which is why ids exactly four past the end of each era's table appear in
+/// real demos. Those are `HapSetDrag`, and this project does not name them yet.
 ///
 /// `SayText2` landing at 4 is the cross-check that the ordering is right: that constant was
 /// proven against real chat in real demos long before this table existed.
 ///
-/// **Era caveat, now measured for the ids the corpus exercises.** This is the registration order
-/// of one build, and ids are assigned by position, so a message inserted rather than appended
-/// shifts everything after it — the same trap as the property-type renumbering in RISKS B18. The
-/// 2009 SDK ships no TF2 game code, so the old table cannot be diffed from source; see
-/// `DECISIONS.md` D28 for what the corpus says instead.
+/// **Era caveat, now measured against every era's binary.** This is the registration order of one
+/// build, and ids are assigned by position, so a message inserted rather than appended shifts
+/// everything after it — the same trap as the property-type renumbering in RISKS B18. The lengths
+/// are: 29 entries in 2007 and 2008 (ending at `PlayerStatsUpdate`), 41 in 2009, 49 in 2011, 66 in
+/// March 2013, 79 today.
 ///
 /// **The head of the table is stable and the tail is not, and both halves are measured.**
 ///
@@ -23,24 +36,32 @@ namespace Tf2DemoSalvage.Core.Net;
 /// Geiger at 0, Train at 1, TextMsg at 5, ResetHUD at 6, ItemPickup at 8, Shake at 10, Fade at 11,
 /// VGUIMenu at 12, Rumble at 13, Damage at 18 and PlayerStatsUpdate at 28 in every era, with
 /// matching widths — 8-bit Geigers, 24-bit Rumbles, 80- and 88-bit VGUIMenus. Eighteen years and
-/// no movement.
+/// no movement, and the six binaries agree with the histogram exactly.
 ///
-/// **Above 28 it shifts twice.** `CheapBreakModel` is a short and a coordinate vector, so its full
-/// form is 85 bits, and that width is unmistakable. It appears at id **40** in the 2009 demo, id
-/// **41** in the 2011 pair, and id **42** in every protocol-24 file. Corroborated by a second
-/// disagreement at the same time: id 52 carries a 32-bit body in 2011 where protocol 24 puts a
-/// 229-bit `SpawnFlyingBird` there. So two messages were inserted rather than appended between
-/// 2009 and 2013, and every id after them moved.
+/// **Above 28 it grows.** `CheapBreakModel` is a short and a coordinate vector, so its full form
+/// is 85 bits, and that width is unmistakable. It appears at id **40** in the 2009 demo, id **41**
+/// in the 2011 pair, and id **42** in every protocol-24 file — all three now confirmed against the
+/// registration order in those builds' own clients.
+///
+/// **The second disagreement was read wrong for a day, and the correction is the useful part.**
+/// Ids 44, 52 and 69 carry 32-bit bodies in the 2009, 2011 and March 2013 demos, and were taken as
+/// evidence of messages inserted mid-table. They are not: each sits exactly four past the end of
+/// its own build's table (40, 48, 65), because a second registration block follows the game's and
+/// `HapSetDrag` is its fourth entry. A consistent offset across three eras with three different
+/// table lengths is a structure, not three coincidences — and nothing in the corpus could have
+/// said so, because the extra block is not in the SDK at all.
 ///
 /// That is why <see cref="Lookup"/> withholds names above 28 below protocol 24. Reporting
 /// `PlayerShieldBlocked` for the 2009 demo's id 40 — which is what this table did until
 /// 2026-08-11 — is a wrong name on a correctly decoded message, the exact failure this file's
 /// header warns about.
 ///
-/// **Two lessons, both general.** Check alignment before suspecting a layout: protocol 14's
+/// **Three lessons, all general.** Check alignment before suspecting a layout: protocol 14's
 /// Damage misdecode had a shifted id as its first suspect, and one histogram ruled it out and
-/// pointed at the layout instead (RISKS B26). And a *width* is what makes alignment checkable at
-/// all — a message whose length is distinctive acts as a fingerprint for its own id.
+/// pointed at the layout instead (RISKS B26). A *width* is what makes alignment checkable at
+/// all — a message whose length is distinctive acts as a fingerprint for its own id. And the
+/// registration table is not the id space: an id past the end of it is not evidence of a shift,
+/// it is evidence of another table.
 ///
 /// Anything past the end of this table is reported by number with no name.
 /// </remarks>
