@@ -81,29 +81,38 @@ dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o "${HOME}/fuzz-out-${TARGE
 # grow the input past the 1072-byte header purely by chance - measured on 2026-08-11: 12
 # million executions, coverage never moved past the header check (cov: 8, flat).
 #
-# Real demos when available, from ~/tf2-seeds - a handful of real gcor demos placed there
-# once, by hand, from a machine that already pulled them through git-lfs. Deliberately NOT
-# `git lfs pull` on this box: this box has its own LFS bandwidth-consuming pulls to avoid, and
-# every run re-fetching the corpus (or even checking it is present) would spend the same 1
-# GiB/month budget the GitHub workflow avoids by disabling lfs outright. Real corpus demos
-# carry many commands, real entity snapshots and real string tables, which is strictly richer
-# seed material than the synthetic fallback, which only ever reaches a bare dem_stop.
+# Real demos from the working tree's own tools/corpus/demos - the box already has the real
+# bytes on disk, fetched once by hand on 2026-08-11. Deliberately does NOT call `git lfs pull`
+# (git-lfs is not even installed on this box any more): re-pulling on a cron cadence spends
+# real bandwidth for no gain once the corpus is already local, and this script must never grow
+# that habit back in. If the corpus ever needs refreshing here, do it by hand, once, the same
+# way it was fetched the first time - not from inside this script.
+#
+# Real corpus demos carry many commands, real entity snapshots and real string tables, which
+# is strictly richer seed material than the synthetic fallback, which only ever reaches a bare
+# dem_stop.
 if [ "$TARGET" = "container" ]; then
   seeded=0
-  if [ -d "${HOME}/tf2-seeds" ]; then
-    for demo in "${HOME}"/tf2-seeds/*.dem; do
+  if [ -d "${WORKDIR}/tools/corpus/demos" ]; then
+    for demo in "${WORKDIR}"/tools/corpus/demos/*.dem; do
       [ -f "$demo" ] || continue
-      cp "$demo" "${HOME}/corpus-${TARGET}/seed-$(basename "$demo")"
-      seeded=$((seeded + 1))
+      # An LFS pointer file is small text ("version https://git-lfs...", well under 4KB); a
+      # real demo is hundreds of KB or more. Checked rather than assumed, because a demo that
+      # silently reverted to pointer text would look identical to a clean seeding step.
+      size=$(stat -c%s "$demo")
+      if [ "$size" -gt 4096 ]; then
+        cp "$demo" "${HOME}/corpus-${TARGET}/seed-$(basename "$demo")"
+        seeded=$((seeded + 1))
+      fi
     done
   fi
 
   if [ "$seeded" -eq 0 ]; then
-    echo "no demos in ~/tf2-seeds, falling back to a synthetic seed" >&2
+    echo "no real demo found in tools/corpus/demos, falling back to a synthetic seed" >&2
     TF2FUZZ_SEED_PATH="${HOME}/corpus-${TARGET}/seed" \
       dotnet "${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Fuzz.dll" 9>&-
   else
-    echo "seeded container corpus with ${seeded} demo(s) from ~/tf2-seeds"
+    echo "seeded container corpus with ${seeded} real demo(s) from tools/corpus/demos"
   fi
 fi
 
