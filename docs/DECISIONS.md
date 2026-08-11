@@ -1242,3 +1242,49 @@ specimen nothing.
 **Consequence for the mutation box:** the corpus job's input is now effectively stable. Filling
 both remaining protocol gaps adds a few MB, not tens — provided the recordings stay short, which
 is a condition rather than a promise.
+
+## D20 — one renderer with two camera modes, on Direct3D 11 via Silk.NET
+
+Decided 2026-08-11, when the viewer stopped being hypothetical.
+
+**One project, not two.** The intended progression is a top-down labelled overview first, then a
+free camera over real map geometry. Those differ by a projection matrix and a camera controller —
+orthographic against perspective — not by a codebase. A separate 2D viewer would be thrown away at
+exactly the point it started being interesting, so the empty `managed/Tf2DemoSalvage.Viewer2D`
+placeholder was deleted rather than filled in.
+
+The staging falls out of what is already decoded, which is convenient:
+
+| stage | needs | status |
+|---|---|---|
+| top-down, labelled players | entity origins, `democmdinfo_t` camera track | **decoded already** |
+| map geometry | BSP + VPK reading | Phase 3, not started |
+| free camera, voice playback | the above, plus the codec work | in progress |
+
+The useful stage is reachable before the expensive one, and the expensive one is additive.
+
+**Direct3D 11, and the usual reason for it is wrong.** "TF2 is a Direct3D game" does not constrain
+a tool that reads TF2's *files* rather than using its renderer. BSP geometry is vertices and faces;
+VTF textures are DXT-compressed and upload unconverted as BC1/BC3 under Direct3D or as S3TC under
+OpenGL. There is no compatibility argument in either direction, and it is written down here
+explicitly so nobody re-derives the wrong one later.
+
+The reasons that do hold:
+
+- **This project is Windows-only regardless**, so OpenGL's portability buys nothing.
+- **PIX and the Windows graphics tooling** are better than the OpenGL equivalents.
+- **Silk.NET's Direct3D bindings are a thin layer over the COM vtables.** Every buffer map, every
+  `UpdateSubresource`, every copy is visible and controllable. An abstraction such as Veldrid or
+  MonoGame hides precisely the things worth reaching for when something turns out to be slow —
+  which is the same argument as using `unsafe` at the codec interop boundary rather than a
+  marshalling layer. Keep the layer thin where the cost lives.
+
+The cost is real and was accepted knowingly: raw COM in C# means `ComPtr<T>`, manual device and
+swap-chain setup, and HLSL through `D3DCompile` — a few hundred lines before anything is on screen,
+against roughly eighty for OpenGL. It is front-loaded, so it lands before there is much to lose.
+
+**`AllowUnsafeBlocks` and one scoped analyzer suppression.** `S6640` ("avoid using this unsafe code
+block") is disabled by an `.editorconfig` in the renderer directory alone. There is no safe
+formulation of this layer to prefer — the alternative to unsafe is a marshalling copy per frame —
+and scoping the suppression to the directory means the analyzer still objects if `unsafe` ever
+appears in `Core`, where it would be a decision to argue on its own merits.

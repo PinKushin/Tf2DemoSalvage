@@ -2,6 +2,7 @@
   <Folder Name="/managed/">
     <Project Path="managed/Tf2DemoSalvage.Cli/Tf2DemoSalvage.Cli.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
+    <Project Path="managed/Tf2DemoSalvage.Viewer3D/Tf2DemoSalvage.Viewer3D.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />

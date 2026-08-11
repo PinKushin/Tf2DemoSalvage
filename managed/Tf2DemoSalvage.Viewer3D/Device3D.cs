@@ -1,0 +1,179 @@
+using System;
+using Silk.NET.Core.Native;
+using Silk.NET.Direct3D11;
+using Silk.NET.DXGI;
+using Silk.NET.Windowing;
+
+namespace Tf2DemoSalvage.Viewer3D;
+
+/// <summary>
+/// Owns the Direct3D 11 device, swap chain and back buffer view for one window.
+/// </summary>
+/// <remarks>
+/// **Direct3D 11 rather than OpenGL, and not for the reason it looks like.** The map data this
+/// will eventually draw is API-agnostic — BSP geometry is vertices and faces, and VTF textures are
+/// DXT-compressed, which uploads unconverted as BC1/BC3 under either API. Nothing about TF2 being
+/// a Direct3D game constrains a tool that reads its files rather than using its renderer. The
+/// actual reasons are that this project is Windows-only regardless, and that PIX and the Windows
+/// graphics tooling are better than the OpenGL equivalents. Recorded in `docs/DECISIONS.md` D18
+/// so the wrong rationale does not get re-derived later.
+///
+/// Everything here is COM through raw pointers, which is what the project's `AllowUnsafeBlocks`
+/// is for: the alternative at this boundary is a copy per frame, and this is exactly the case the
+/// "unsafe before native" rule describes.
+/// </remarks>
+internal sealed unsafe class Device3D : IDisposable
+{
+    /// <summary>Back buffers. Two is the minimum a flip-model swap chain accepts.</summary>
+    private const uint BufferCount = 2;
+
+    private readonly D3D11 _d3d;
+    private ComPtr<ID3D11Device> _device;
+    private ComPtr<ID3D11DeviceContext> _context;
+    private ComPtr<IDXGISwapChain> _swapChain;
+    private ComPtr<ID3D11RenderTargetView> _backBufferView;
+    private bool _disposed;
+
+    private Device3D(
+        D3D11 d3d,
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        ComPtr<IDXGISwapChain> swapChain)
+    {
+        _d3d = d3d;
+        _device = device;
+        _context = context;
+        _swapChain = swapChain;
+    }
+
+    /// <summary>Creates a device and swap chain bound to a window.</summary>
+    /// <param name="window">The window to present into. Must already be initialised.</param>
+    /// <returns>The device.</returns>
+    /// <exception cref="InvalidOperationException">The window exposes no Win32 handle.</exception>
+    public static Device3D Create(IWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+
+        nint handle = window.Native?.DXHandle
+            ?? throw new InvalidOperationException(
+                "The window has no Win32 handle, so a swap chain cannot be bound to it.");
+
+        D3D11 d3d = D3D11.GetApi(window);
+
+        SwapChainDesc description = new()
+        {
+            BufferDesc = new ModeDesc
+            {
+                Width = (uint)window.FramebufferSize.X,
+                Height = (uint)window.FramebufferSize.Y,
+
+                // The presentation format, not the working one. Lighting and blending happen
+                // before this in linear space; sRGB here is what makes the result look right on
+                // a display rather than washed out.
+                Format = Format.FormatB8G8R8A8Unorm,
+            },
+            SampleDesc = new SampleDesc(count: 1, quality: 0),
+            BufferUsage = DXGI.UsageRenderTargetOutput,
+            BufferCount = BufferCount,
+            OutputWindow = handle,
+            Windowed = true,
+            SwapEffect = SwapEffect.FlipDiscard,
+        };
+
+        ComPtr<ID3D11Device> device = default;
+        ComPtr<ID3D11DeviceContext> context = default;
+        ComPtr<IDXGISwapChain> swapChain = default;
+
+        SilkMarshal.ThrowHResult(d3d.CreateDeviceAndSwapChain(
+            pAdapter: default(ComPtr<IDXGIAdapter>),
+            DriverType: D3DDriverType.Hardware,
+            Software: 0,
+            Flags: 0u,
+            pFeatureLevels: null,
+            FeatureLevels: 0u,
+            SDKVersion: D3D11.SdkVersion,
+            pSwapChainDesc: &description,
+            ppSwapChain: ref swapChain,
+            ppDevice: ref device,
+            pFeatureLevel: null,
+            ppImmediateContext: ref context));
+
+        Device3D created = new(d3d, device, context, swapChain);
+        created.CreateBackBufferView();
+        return created;
+    }
+
+    /// <summary>Clears the back buffer and presents it.</summary>
+    /// <param name="red">Clear colour, red channel.</param>
+    /// <param name="green">Clear colour, green channel.</param>
+    /// <param name="blue">Clear colour, blue channel.</param>
+    public void ClearAndPresent(float red, float green, float blue)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        float* colour = stackalloc float[4] { red, green, blue, 1f };
+        _context.ClearRenderTargetView(_backBufferView, colour);
+
+        // No vertical sync yet. A demo viewer scrubbing through ticks wants frames as fast as it
+        // can produce them while the camera is being dragged; pacing belongs with playback.
+        SilkMarshal.ThrowHResult(_swapChain.Present(SyncInterval: 0u, Flags: 0u));
+    }
+
+    /// <summary>Rebuilds the back buffer at a new size.</summary>
+    /// <param name="width">New width in pixels.</param>
+    /// <param name="height">New height in pixels.</param>
+    /// <remarks>
+    /// The view has to be released before <c>ResizeBuffers</c>, because the swap chain cannot
+    /// resize a buffer something still holds a reference to. Skipping that release fails with a
+    /// generic E_INVALIDARG that says nothing about the cause.
+    /// </remarks>
+    public void Resize(int width, int height)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (width <= 0 || height <= 0)
+        {
+            // Minimising reports a zero-sized framebuffer, which is not an error and must not
+            // reach ResizeBuffers.
+            return;
+        }
+
+        _backBufferView.Dispose();
+        _backBufferView = default;
+
+        SilkMarshal.ThrowHResult(_swapChain.ResizeBuffers(
+            BufferCount, (uint)width, (uint)height, Format.FormatB8G8R8A8Unorm, 0u));
+
+        CreateBackBufferView();
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _backBufferView.Dispose();
+        _swapChain.Dispose();
+        _context.Dispose();
+        _device.Dispose();
+        _d3d.Dispose();
+        _disposed = true;
+    }
+
+    private void CreateBackBufferView()
+    {
+        SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0u, out ComPtr<ID3D11Texture2D> buffer));
+
+        ComPtr<ID3D11RenderTargetView> view = default;
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(
+            buffer, (RenderTargetViewDesc*)null, ref view));
+
+        buffer.Dispose();
+        _backBufferView = view;
+        _context.OMSetRenderTargets(
+            1u, _backBufferView.GetAddressOf(), (ID3D11DepthStencilView*)null);
+    }
+}

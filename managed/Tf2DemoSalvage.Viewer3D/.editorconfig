@@ -1,0 +1,15 @@
+# Scoped to the Direct3D layer only. Nothing here relaxes a rule for the rest of the solution.
+
+[*.cs]
+
+# S6640: "Avoid using this unsafe code block."
+#
+# Direct3D's C# surface IS COM: every device call goes through an interface pointer, descriptors
+# are passed by address, and clear colours are float[4] the API reads through a pointer. There is
+# no safe formulation of this layer to prefer - the choice is unsafe C# or a marshalling copy on
+# every frame, and the project's own rule (unsafe/Span/stackalloc before reaching for native code)
+# picks the former deliberately.
+#
+# This is disabled for the renderer directory and nowhere else. If unsafe appears in Core, that is
+# a decision to argue about on its own merits and the analyzer should still say so there.
+dotnet_diagnostic.S6640.severity = none
