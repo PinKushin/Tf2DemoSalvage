@@ -244,7 +244,7 @@ the code around it.** Nobody has revisited demo header compatibility since 2007.
 with `note` spliced into `version`. It is in the shipped binary — the raw bytes and the decompiler
 agree — so modern TF2 ships a corrupted format string on a path nobody has hit in years.
 
-## `dem_usercmd` is the player, and its padding is uninitialised engine stack (2026-08-11)
+## `dem_usercmd` is the player, and its padding is the command before it (2026-08-11)
 
 The last container-level payload this project carried without reading. A `dem_usercmd` is one
 `CUserCmd` — view angles, movement, buttons, impulse, weapon switch, raw mouse deltas — written by
@@ -275,11 +275,21 @@ into plausible-looking values.
 **`mousedx`/`mousedy` go through `WriteShort` and are signed.** Read unsigned, a small leftward
 flick becomes a number near 65535 — which looks like data until something integrates it.
 
-### The finding: every demo leaks a few bits of the engine's stack
+### The finding: the padding is stale bits of the previous command
 
-`RecordUserInput` writes into a plain `byte buffer[256]` declared on the stack and never cleared,
-and `bf_write` composes its partial tail dword with a read-modify-write that preserves the bits
-outside its mask. So whatever was already in that stack slot survives into the file.
+**This one was written up wrong first, and the wrong version is kept here because the correction is
+the interesting part.**
+
+`bf_write` composes its partial tail dword with a read-modify-write that preserves every bit outside
+its mask:
+
+```cpp
+dword1 ^= ( mask1 & ( curData ^ dword1 ) );
+```
+
+and `StartWriting` never clears the buffer it is handed. So bits a write does not cover keep
+whatever was already there. That much is *sourced*, from `tier1/bitbuf.cpp` and
+`public/tier1/bitbuf.h`.
 
 *Measured*, across the ten point-of-view demos:
 
@@ -289,16 +299,31 @@ outside its mask. So whatever was already in that stack slot survives into the f
 | ending 3 bits short of a byte | 99.8% |
 | values those 3 bits take | all of 0–7 |
 
-Some demos are narrower than others — the 2013 recording only ever emits `0` or `7`, the 2020
-ETF2L demo the same, while the 2026 RGL pug spreads across all eight — which is the fingerprint of
-**leftovers from a previous, longer write** rather than of anything meaningful.
+**The first account of this said "uninitialised engine stack" and called it a leak.** That was an
+assertion, not a measurement. Non-zero and varying is consistent with several mechanisms, and the
+one asserted happened to be the alarming one. It also contradicted a sentence in the same paragraph
+— that the per-demo distributions look like *leftovers from a previous, longer write* — which is a
+different mechanism entirely and was sitting right there.
 
-It is a fidelity problem rather than a disclosure one: at most seven bits per command, sourced from
-the demo writer's own buffer. But it has a hard consequence for this project. **A user command
-cannot be re-encoded from its values**, so the padding has to be carried. Assuming zero would
-rebuild a file differing from the original in nearly every user command *while every decoded field
-still read correctly* — which is the failure shape that only a round-trip property catches, and it
-was caught on the first corpus run.
+The condition that separates them: if the buffer is merely reused and never cleared, the untouched
+tail still holds what the **previous** command wrote at those exact bit offsets, and that is
+predictable. Foreign memory is not.
+
+*Measured*: **150,606 of 199,929** non-zero pads — **75.3%** overall, and 86–97% within each demo
+except the 2026 RGL pug at 62% — are bit-for-bit what the previous user command put at the same
+absolute offsets. Chance for a three-bit field known to be non-zero is about one in seven.
+
+So nothing escapes the file that was not already in the file. It is not a disclosure of anything:
+the only content is the preceding command, which the demo contains anyway. What this measurement
+cannot separate is a stack array at a stable address from a reused static buffer — both predict the
+same result — and it does not account for the ~25% that do not match, which stays open rather than
+explained.
+
+The consequence for this project is unchanged by the correction. **A user command cannot be
+re-encoded from its values**, so the padding has to be carried. Assuming zero would rebuild a file
+differing from the original in nearly every user command *while every decoded field still read
+correctly* — the failure shape that only a round-trip property catches, and it was caught on the
+first corpus run.
 
 ### Two independent decodes of the same three floats agree
 

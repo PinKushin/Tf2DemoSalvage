@@ -57,19 +57,22 @@ namespace Tf2DemoSalvage.Core.Container;
 /// <c>MD5_PseudoRandom( command_number ) &amp; 0x7fffffff</c>, so it is a function of a field that
 /// is already here rather than something the file carries.
 ///
-/// **The trailing bits are uninitialised engine stack, and every demo leaks a few.**
-/// <c>CDemoRecorder::RecordUserInput</c> writes into a plain <c>byte buffer[256]</c> declared on
-/// the stack and never cleared, and <c>bf_write</c> composes each partial tail dword with a
-/// read-modify-write that preserves the bits outside its mask — so whatever was in that stack slot
-/// survives into the file. Measured across the corpus: 373,000 commands, 99.8% of them ending
-/// three bits short of a byte, and those three bits take every value from 0 to 7. Some demos are
-/// narrower than others — the 2013 recording only ever emits 0 or 7 — which is the fingerprint of
-/// leftovers from a previous, longer write rather than of anything meaningful.
+/// **The trailing bits are stale bits of the previous command, not zero.** <c>bf_write</c>
+/// composes each partial tail dword with a read-modify-write that preserves every bit outside its
+/// mask, and <c>StartWriting</c> never clears the buffer it is handed, so bits a write does not
+/// cover keep whatever was already there. Measured across the corpus: 385,236 commands, 99.8% of
+/// them ending three bits short of a byte, those bits taking every value from 0 to 7 — and
+/// 150,606 of the 199,929 non-zero ones are bit-for-bit what the *previous* command wrote at the
+/// same absolute offsets.
 ///
-/// It is a fidelity problem rather than a disclosure one: at most seven bits per command, and they
-/// come from the demo writer's own buffer. But it does mean a command **cannot be re-encoded from
-/// its values**, which is why <see cref="Padding"/> is carried. A decoder that assumed zero here
-/// would rebuild a file that differs from the original in nearly every user command.
+/// That last number is the point. An earlier version of this comment called the padding
+/// uninitialised process memory and described it as a leak, which was an assertion rather than a
+/// measurement; nothing escapes the file that the file did not already contain. See
+/// `docs/findings/01-container.md`.
+///
+/// It does mean a command **cannot be re-encoded from its values**, which is why
+/// <see cref="Padding"/> is carried. A decoder that assumed zero here would rebuild a file that
+/// differs from the original in nearly every user command.
 /// </remarks>
 public sealed record UserCommand(
     int? RawCommandNumber,
@@ -201,6 +204,21 @@ public sealed record UserCommand(
         }
 
         return writer.Build();
+    }
+
+    /// <summary>Where a payload's fields stop, in bits, before the padding begins.</summary>
+    /// <param name="payload">The command's bytes, without the length prefix.</param>
+    /// <returns>The bit offset of the first padding bit.</returns>
+    /// <remarks>
+    /// Exposed because the padding's origin is only checkable against absolute bit offsets: the
+    /// bits a command leaves untouched are the ones the *previous* command wrote at the same
+    /// positions, and locating those needs this number.
+    /// </remarks>
+    public static int FieldBits(ReadOnlySpan<byte> payload)
+    {
+        BitReader reader = new(payload);
+        _ = Read(ref reader);
+        return reader.BitsRead;
     }
 
     /// <summary>How many bits sit between the last field and the next byte boundary.</summary>

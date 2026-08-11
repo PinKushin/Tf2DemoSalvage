@@ -127,7 +127,7 @@ between the read and write halves, which is recorded in
 derives it from `command_number` via MD5.
 
 **The trailing bits to the byte boundary are not zero and are not derivable.** They are
-uninitialised engine stack preserved by `bf_write`'s read-modify-write tail; 99.8% of commands end
+stale bits of the previous command, preserved by `bf_write`'s read-modify-write tail; 99.8% of commands end
 three bits short of a byte and those bits take every value from 0 to 7. A byte-exact rewrite must
 carry them. See [findings/01](findings/01-container.md).
 

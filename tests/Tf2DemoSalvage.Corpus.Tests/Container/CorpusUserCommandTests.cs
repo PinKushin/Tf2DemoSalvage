@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Container;
 
@@ -125,6 +126,83 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
         double rate = (double)matched / compared;
         output.WriteLine($"{matched} of {compared} packets matched the last command ({rate:P1})");
         rate.ShouldBeGreaterThan(0.95);
+    }
+
+    [Fact]
+    public void ThePaddingBitsAreThePreviousCommandsRatherThanForeignMemory()
+    {
+        // This test exists because the first account of the padding was wrong. It was written up
+        // as uninitialised process memory - a leak - on the strength of the bits being non-zero
+        // and varying. Non-zero and varying is consistent with several mechanisms, and "leak" was
+        // the one that got asserted rather than the one that got tested.
+        //
+        // The condition that separates them: if the buffer is simply reused and never cleared,
+        // the unwritten tail still holds what the PREVIOUS command put at those exact bit
+        // offsets, and that is predictable. Foreign memory is not.
+        int testable = 0;
+        int predicted = 0;
+
+        foreach (string path in Corpus.Files())
+        {
+            byte[]? previous = null;
+
+            foreach (DemoCommand command in
+                DemoCommandReader.Read(File.ReadAllBytes(path).AsMemory(DemoHeader.SizeBytes))
+                    .Where(c => c.Type == DemoCommandType.UserCmd))
+            {
+                byte[] payload = command.Payload.ToArray();
+                UserCommand decoded = UserCommand.Decode(payload);
+                int fieldBits = UserCommand.FieldBits(payload);
+                int padWidth = (BitsPerByte - (fieldBits % BitsPerByte)) % BitsPerByte;
+
+                // Only commands where the previous payload actually extended far enough to have
+                // written those positions can say anything, so the rest are excluded rather than
+                // counted as misses.
+                if (previous is not null && decoded.Padding != 0 && padWidth > 0 &&
+                    previous.Length * BitsPerByte >= fieldBits + padWidth)
+                {
+                    testable++;
+
+                    if (ReadAt(previous, fieldBits, padWidth) == decoded.Padding)
+                    {
+                        predicted++;
+                    }
+                }
+
+                previous = payload;
+            }
+        }
+
+        testable.ShouldBeGreaterThan(0);
+
+        // Measured at 86-97% per demo, against a chance floor of about one in seven for a
+        // three-bit field that is known to be non-zero. The floor here is set well below the
+        // measurement and still far above anything foreign memory could reach.
+        double rate = (double)predicted / testable;
+        output.WriteLine($"{predicted} of {testable} non-zero pads matched the previous " +
+                         $"command's bits at the same offsets ({rate:P1})");
+        rate.ShouldBeGreaterThan(0.5);
+    }
+
+    private const int BitsPerByte = 8;
+
+    private static uint ReadAt(byte[] data, int bitOffset, int width)
+    {
+        BitReader reader = new(data);
+        int skipped = 0;
+
+        while (skipped + 32 <= bitOffset)
+        {
+            _ = reader.ReadUInt32(32);
+            skipped += 32;
+        }
+
+        if (bitOffset - skipped > 0)
+        {
+            _ = reader.ReadUInt32(bitOffset - skipped);
+        }
+
+        return reader.ReadUInt32(width);
     }
 
     private static bool SameBits(float left, float right) =>
