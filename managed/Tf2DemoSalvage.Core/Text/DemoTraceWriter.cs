@@ -202,7 +202,7 @@ public static class DemoTraceWriter
             Roster.Observe(message, state, roster);
 
             writer.WriteLine(string.Create(
-                CultureInfo.InvariantCulture, $"    {Render(message, roster)};"));
+                CultureInfo.InvariantCulture, $"    {Render(message, roster, entities)};"));
         }
 
         if (result.StopReason is not null)
@@ -354,6 +354,20 @@ public static class DemoTraceWriter
     /// parser's or against a raw bit dump, which is how the flattening-order bug was found. An id
     /// with no name in the schema prints bare rather than inventing a placeholder.
     /// </remarks>
+    /// <summary>The SDK's name for an entity message's type byte, as a trailing " name" or empty.</summary>
+    /// <remarks>
+    /// Empty rather than absent when nothing can be named, so the line keeps one shape. The name
+    /// needs the class, which is why this takes the decoder rather than the byte alone - see
+    /// <see cref="EntityMessageNames"/> for the collision that makes it necessary.
+    /// </remarks>
+    private static string Suffixed(EntityDecoder? entities, int classId, int messageType)
+    {
+        string? named = entities is null
+            ? null
+            : EntityMessageNames.Lookup(entities.ClassName(classId), messageType);
+        return named is null ? string.Empty : string.Create(CultureInfo.InvariantCulture, $" {named}");
+    }
+
     private static string Named(EntityDecoder entities, int classId)
     {
         string name = entities.ClassName(classId);
@@ -419,7 +433,8 @@ public static class DemoTraceWriter
 
     /// <summary>Renders one message as a keyword and its fields.</summary>
     private static string Render(
-        INetMessage message, Dictionary<int, PlayerInfo> roster) => message switch
+        INetMessage message, Dictionary<int, PlayerInfo> roster,
+        EntityDecoder? schema = null) => message switch
     {
         NetTickMessage tick => string.Create(
             CultureInfo.InvariantCulture,
@@ -479,13 +494,16 @@ public static class DemoTraceWriter
             CultureInfo.InvariantCulture,
             $"net_signonstate state {signon.State} spawn {signon.SpawnCount}"),
 
-        // The leading byte selects the case inside the receiving class's ReceiveMessage. It is
-        // reported unnamed on purpose - the same number means different things to different
-        // classes, so naming it would claim a handler the class id has not been resolved to.
+        // The leading byte selects the case inside the receiving class's ReceiveMessage, so the
+        // class has to be resolved before the byte can be named: 1 is BASEENTITY_MSG_REMOVE_DECALS
+        // to most handlers and PLAY_PLAYER_JINGLE to C_BasePlayer. With no schema in hand the
+        // number is still reported bare, which claims nothing.
         EntityMessage { MessageType: int entityMessageType } addressed => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_entitymessage entity {addressed.EntityIndex} " +
-            $"class {addressed.ClassId} bits {addressed.BodyBits} type {entityMessageType}"),
+            $"class {(schema is null ? addressed.ClassId.ToString(CultureInfo.InvariantCulture) : Named(schema, addressed.ClassId))} " +
+            $"bits {addressed.BodyBits} type {entityMessageType}" +
+            $"{Suffixed(schema, addressed.ClassId, entityMessageType)}"),
 
         EntityMessage entityMessage => string.Create(
             CultureInfo.InvariantCulture,

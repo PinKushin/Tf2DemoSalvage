@@ -1757,7 +1757,7 @@ table wins by default. None occur in either corpus. Deciding those needs the dem
 string-table cosmetic fingerprint that placed `z1800.dem` — which is a larger piece of work and
 now the only thing between this and a complete answer.
 
-## B30 — `svc_EntityMessage` is the last opaque payload, and naming it needs the class — OPEN
+## B30 — `svc_EntityMessage` is the last opaque payload, and naming it needs the class — RESOLVED
 
 Measured 2026-08-11 with `CorpusCodecCoverageTests` over **40 demos**. Thirty-nine report
 **0.00%** opaque. One does not:
@@ -1791,3 +1791,33 @@ inherited set is the whole set and this closes rather than opens.
 message's whole body as opaque, and subtracting the eight bits it already interprets would take
 the number to zero without anyone learning what the messages say. The instrument's own rule
 applies: content interpreted, not merely consumed at the right length.
+
+### B30 resolved, 2026-08-11 — the class resolves the byte
+
+`EntityMessageNames.Lookup(className, messageType)` names the type byte, and the trace now prints
+the class by name rather than by number:
+
+```
+svc_entitymessage entity 309 class CBaseAnimating(1) bits 8 type 1 BASEENTITY_MSG_REMOVE_DECALS;
+```
+
+**The class is a required argument, not a convenience.** Value 1 is
+`BASEENTITY_MSG_REMOVE_DECALS` to most handlers and `PLAY_PLAYER_JINGLE` to `C_BasePlayer` — same
+byte, same position, nothing in the body to separate them. Naming it without the class would be a
+claim about which handler applies, which is the failure the user message era gate exists to
+prevent. Where no schema is in hand the number still prints bare and claims nothing.
+
+**The player test is a suffix match, and that has its own control.** TF2 ships
+`CTFPlayerResource` and `CTFPlayerDestructionLogic`, neither of which is a `C_BasePlayer`, and a
+substring test would misname both. Verified by sabotage: switching `EndsWith` to `Contains` fails
+`AClassMerelyContainingPlayerIsNotAPlayer` and nothing else.
+
+**The set is closed rather than sampled.** The SDK has eighteen `ReceiveMessage` overrides, and
+`game/client/tf/` overrides it **not at all**, so TF2's set is the inherited one — `C_BaseEntity`,
+`C_BasePlayer`, `C_RopeKeyframe`, `C_Tesla`, `C_EnvScreenEffect`. Only the two constants above are
+reachable by anything in the corpus.
+
+**What this does not do, deliberately.** `CorpusCodecCoverageTests` still counts an entity
+message's whole body as opaque. The bucket was left alone on purpose — moving it would zero the
+number by bookkeeping. The bits are now *interpreted* rather than merely consumed, and the
+instrument should be changed only with that argument made explicitly, not as a side effect.
