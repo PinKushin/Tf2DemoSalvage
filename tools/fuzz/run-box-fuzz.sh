@@ -75,9 +75,12 @@ echo "==> fuzz ${TARGET} (${SECONDS_BUDGET}s) on ${SHA} at $(date '+%F %H:%M:%S 
 rm -rf "${HOME}/fuzz-out-${TARGET}"
 mkdir -p "${HOME}/fuzz-out-${TARGET}" "${HOME}/findings-${TARGET}" "${HOME}/corpus-${TARGET}"
 
-# Seed the container target with a synthesized valid demo. Without one, mutation has to
-# discover an 8-byte magic AND grow the input past the 1072-byte header purely by chance -
-# measured on 2026-08-11: 12 million executions, coverage never moved past the header check.
+dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o "${HOME}/fuzz-out-${TARGET}" --nologo -v q 9>&-
+
+# Seed the container target with a synthesized valid demo, now that the publish above has
+# produced a DLL to run. Without a seed, mutation has to discover an 8-byte magic AND grow the
+# input past the 1072-byte header purely by chance - measured on 2026-08-11: 12 million
+# executions, coverage never moved past the header check.
 #
 # Not a copy from tools/corpus/demos: those are Git LFS pointer files on this box (no git-lfs
 # installed here), and copying the pointer text would seed the fuzzer with "version
@@ -85,12 +88,14 @@ mkdir -p "${HOME}/fuzz-out-${TARGET}" "${HOME}/findings-${TARGET}" "${HOME}/corp
 # with DemoWriter instead - the same object the deterministic property tests already build -
 # which is also more honest about what "valid" means: the writer's own opinion of the format,
 # not a byte blob nobody here can regenerate.
+#
+# Before instrumentation on purpose: writing a file exercises none of the branches SharpFuzz
+# rewrites, so running this uninstrumented and running it after are equivalent, and doing it
+# first keeps the seed step's failure mode independent of instrumentation ever going wrong.
 if [ "$TARGET" = "container" ]; then
   TF2FUZZ_SEED_PATH="${HOME}/corpus-${TARGET}/seed" \
     dotnet "${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Fuzz.dll" 9>&-
 fi
-
-dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o "${HOME}/fuzz-out-${TARGET}" --nologo -v q 9>&-
 
 # Instrument Core, not the harness: coverage feedback has to come from the code under test
 # or the fuzzer explores nothing while still reporting a clean run - see the "no proof
