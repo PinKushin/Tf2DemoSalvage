@@ -17,17 +17,30 @@ namespace Tf2DemoSalvage.Core.Net;
 /// 2009 SDK ships no TF2 game code, so the old table cannot be diffed from source; see
 /// `DECISIONS.md` D28 for what the corpus says instead.
 ///
-/// It does not appear to have happened up to id 28. Histogramming type against body width across
-/// protocols 11, 14, 15, 16 and 24 puts Geiger at 0, Train at 1, TextMsg at 5, ResetHUD at 6,
-/// ItemPickup at 8, Shake at 10, Fade at 11, VGUIMenu at 12, Rumble at 13, Damage at 18 and
-/// PlayerStatsUpdate at 28 in every era, with matching widths — 8-bit Geigers, 24-bit Rumbles,
-/// 80- and 88-bit VGUIMenus. Eighteen years and no shift in the head of the table.
+/// **The head of the table is stable and the tail is not, and both halves are measured.**
 ///
-/// **That is worth knowing because it says where to look when an era misdecodes.** Protocol 14's
-/// Damage message reported five-figure damage, and a shifted id was the first suspect; the
-/// histogram ruled it out in one run and pointed at the layout instead, which is what had changed
-/// (RISKS B26). Check alignment before suspecting a layout — it is one measurement and it
-/// eliminates half the possibilities.
+/// Up to id 28, histogramming type against body width across protocols 11, 14, 15, 16 and 24 puts
+/// Geiger at 0, Train at 1, TextMsg at 5, ResetHUD at 6, ItemPickup at 8, Shake at 10, Fade at 11,
+/// VGUIMenu at 12, Rumble at 13, Damage at 18 and PlayerStatsUpdate at 28 in every era, with
+/// matching widths — 8-bit Geigers, 24-bit Rumbles, 80- and 88-bit VGUIMenus. Eighteen years and
+/// no movement.
+///
+/// **Above 28 it shifts twice.** `CheapBreakModel` is a short and a coordinate vector, so its full
+/// form is 85 bits, and that width is unmistakable. It appears at id **40** in the 2009 demo, id
+/// **41** in the 2011 pair, and id **42** in every protocol-24 file. Corroborated by a second
+/// disagreement at the same time: id 52 carries a 32-bit body in 2011 where protocol 24 puts a
+/// 229-bit `SpawnFlyingBird` there. So two messages were inserted rather than appended between
+/// 2009 and 2013, and every id after them moved.
+///
+/// That is why <see cref="Lookup"/> withholds names above 28 below protocol 24. Reporting
+/// `PlayerShieldBlocked` for the 2009 demo's id 40 — which is what this table did until
+/// 2026-08-11 — is a wrong name on a correctly decoded message, the exact failure this file's
+/// header warns about.
+///
+/// **Two lessons, both general.** Check alignment before suspecting a layout: protocol 14's
+/// Damage misdecode had a shifted id as its first suspect, and one histogram ruled it out and
+/// pointed at the layout instead (RISKS B26). And a *width* is what makes alignment checkable at
+/// all — a message whose length is distinctive acts as a fingerprint for its own id.
 ///
 /// Anything past the end of this table is reported by number with no name.
 /// </remarks>
@@ -127,11 +140,41 @@ internal static class UserMessageNames
 
     // Stryker restore String
 
-    /// <summary>The registered name for an id, or <c>null</c> if it is past the table.</summary>
+    /// <summary>The registered name for an id, or <c>null</c> if it cannot be named safely.</summary>
     /// <param name="userMessageType">The id read from the wire.</param>
-    /// <returns>The name, or <c>null</c>.</returns>
-    internal static string? Lookup(int userMessageType) =>
-        userMessageType >= 0 && userMessageType < Names.Length
+    /// <param name="networkProtocol">The demo header's network protocol.</param>
+    /// <returns>The name, or <c>null</c> to report the id by number.</returns>
+    /// <remarks>
+    /// **Names above <see cref="LastStableId"/> are withheld below protocol 24, because the table
+    /// demonstrably shifts there.** See the type's remarks for the measurement. Reporting the id
+    /// by number is the honest answer: this table describes a build those demos predate.
+    /// </remarks>
+    internal static string? Lookup(int userMessageType, int networkProtocol)
+    {
+        if (userMessageType < 0 || userMessageType >= Names.Length)
+        {
+            return null;
+        }
+
+        return userMessageType <= LastStableId || networkProtocol >= ShiftedTableProtocol
             ? Names[userMessageType]
             : null;
+    }
+
+    /// <summary>
+    /// Highest id measured to mean the same thing at every protocol the corpus holds.
+    /// </summary>
+    /// <remarks>
+    /// <c>PlayerStatsUpdate</c>, confirmed at protocols 11, 14, 15, 16 and 24 with matching widths.
+    /// Everything below it agrees too. Above it, the table moves — see the type's remarks.
+    /// </remarks>
+    private const int LastStableId = 28;
+
+    /// <summary>First protocol this table is known to describe exactly.</summary>
+    /// <remarks>
+    /// The transcription is from the 2013 SDK, and the 2013 demo is protocol 24. Whether the table
+    /// also holds for protocols 17–23 is untested — no specimen exists — so this is a boundary at
+    /// the edge of the evidence rather than in the middle of it.
+    /// </remarks>
+    private const int ShiftedTableProtocol = 24;
 }

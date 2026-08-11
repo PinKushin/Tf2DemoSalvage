@@ -7,7 +7,7 @@ message. That makes this layer the one where a parser is most likely to produce 
 Status as of 2026-08-11: **395 of 445 user messages in the corpus decode, up from 217.** Opaque
 bits fell from 14,672 to 3,920.
 
-## The id table is registration order, and it has not moved
+## The id table is registration order — stable at the head, shifting at the tail
 
 A user message's id is its position in the game's registration list. Insert a message rather than
 append one and every id after it shifts — the same trap as the property-type renumbering in
@@ -31,13 +31,60 @@ the 2013 SDK, so a priori it describes one build.
 | 18 | Damage | see below | 2008 on |
 | 28 | PlayerStatsUpdate | 112–272 | every era |
 
-Eighteen years, and the head of the table does not shift. Widths agree too, which is a second
+Eighteen years, and **through id 28** the table does not shift. Widths agree too, which is a second
 independent check — a shifted id would land a 24-bit Rumble body on a name expecting something
 else.
 
-**Why this is worth stating explicitly:** when protocol 14's `Damage` decoded to garbage, a shifted
+### Above id 28 it shifts twice, and the width is what reveals it
+
+**This was initially recorded as "the table has not moved", and that was an overclaim** — the
+histogram above only covered the ids the older demos actually contain, all of which are ≤ 28.
+Extending it to the higher ids shows the opposite.
+
+`CheapBreakModel` is a short and a coordinate vector, so its full form is **85 bits**, and that
+width is unmistakable:
+
+| demo | protocol | id carrying an 85-bit body |
+|---|---|---|
+| 2009 | 15 | **40** |
+| 2011, both POV and SourceTV | 16 | **41** |
+| every protocol-24 file | 24 | **42** |
+
+Corroborated by a second disagreement in the same files: id 52 carries a 32-bit body in 2011, where
+protocol 24 puts a 229-bit `SpawnFlyingBird` there. So **two messages were inserted rather than
+appended between 2009 and 2013**, and every id after them moved.
+
+The consequence was a live bug: this project reported the 2009 demo's id 40 as
+`PlayerShieldBlocked` — which the registration table declares as **2 bytes** against an observed 85
+bits. A wrong name on a correctly decoded message, which is exactly the failure this layer is most
+prone to. Names above 28 are now withheld below protocol 24 and the id is reported by number.
+
+**A distinctive body width is a fingerprint for its own id.** That is what made the shift visible
+at all, and it is the general technique: where a message's length is unusual, it identifies itself
+regardless of what the name table claims.
+
+### The registration table declares sizes, and they are a free cross-check
+
+`game/shared/tf/tf_usermessages.cpp` registers each message with a byte size, or `-1` for variable:
+
+```cpp
+usermessages->Register( "Geiger", 1 );
+usermessages->Register( "Shake", 13 );
+usermessages->Register( "Fade", 10 );
+usermessages->Register( "Rumble", 3 );
+usermessages->Register( "PlayerShieldBlocked", 2 );
+usermessages->Register( "Damage", -1 );
+```
+
+Every fixed size matches what this project decodes — Geiger 8 bits, Shake 104, Fade 80, Rumble 24.
+More usefully, **a declared size that contradicts an observed width proves a misalignment** without
+needing to understand the layout at all. That is how the id shift was confirmed rather than merely
+suspected.
+
+**Why this matters beyond bookkeeping:** when protocol 14's `Damage` decoded to garbage, a shifted
 id was the first suspect. One histogram eliminated it and pointed at the layout instead. *Check
-alignment before suspecting a layout* — it is one measurement and it halves the search.
+alignment before suspecting a layout* — it is one measurement and it halves the search. The same
+instrument later found a shift that was real.
 
 ## `Damage`, and the era break at protocol 15
 
@@ -181,5 +228,29 @@ at independently, for the same reason.
 | `AchievementEvent` | 1 | 16 |
 | `MVMResetPlayerStats`, `PlayerGodRayEffect` | 1 each | 8 each |
 
-`EntityMessage` is a separate and harder case: its body is defined by the *receiving entity's
-class*, so there is no generic layout to read at all.
+## `svc_EntityMessage` is not generic, but it is a closed set
+
+Recorded here because it was initially written off as undecodable in principle, and that was wrong.
+
+Its body is handled by the *receiving entity's class* — `ReceiveMessage( int classID, bf_read
+&msg )` — so it is not schema-driven the way entity state is. But the SDK contains only **18
+`ReceiveMessage` implementations in total**, most of them HL2 and episodic, and
+`game/client/tf/` overrides it **not at all**. TF2's entity messages are therefore the inherited
+set: `C_BaseEntity`, `C_BasePlayer`, `C_RopeKeyframe`, `C_Tesla`, `C_EnvScreenEffect`.
+
+Every implementation has the same opening move — read a **message-type byte**, then switch:
+
+```cpp
+int messageType = msg.ReadByte();
+switch( messageType )
+{
+    case BASEENTITY_MSG_REMOVE_DECALS:  RemoveAllDecals();  break;   // == 1
+}
+```
+
+And the corpus agrees: every `svc_EntityMessage` in it is **8 bits with class id 1** — one type
+byte and no payload, which is `RemoveAllDecals` and nothing else.
+
+So the honest statement is not "impossible" but "**not generic, and small**". The class id on the
+wire selects the handler, the first byte selects the case, and the set of handlers is enumerable
+from published source.
