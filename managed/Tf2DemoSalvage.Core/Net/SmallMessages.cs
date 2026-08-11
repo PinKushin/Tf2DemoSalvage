@@ -102,6 +102,38 @@ public sealed record EntityMessage(
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.EntityMessage;
+
+    /// <summary>The leading message-type byte, or <c>null</c> when the body carries none.</summary>
+    /// <remarks>
+    /// **This message is not generically decodable, but it is a closed set — and the set is
+    /// small.** Its body is handled by the receiving entity's class, through
+    /// <c>ReceiveMessage( int classID, bf_read &amp;msg )</c>, so there is no schema to drive it
+    /// the way entity state is driven. That was originally written off as "impossible", which was
+    /// wrong: the SDK contains **18 `ReceiveMessage` implementations in total**, most of them HL2
+    /// and episodic, and <c>game/client/tf/</c> overrides it not at all. TF2's set is therefore
+    /// the inherited one — `C_BaseEntity`, `C_BasePlayer`, `C_RopeKeyframe`, `C_Tesla`,
+    /// `C_EnvScreenEffect`.
+    ///
+    /// Every one of them opens the same way, which is what makes this property meaningful:
+    ///
+    /// <code>
+    /// int messageType = msg.ReadByte();
+    /// switch( messageType )
+    /// {
+    ///     case BASEENTITY_MSG_REMOVE_DECALS:  RemoveAllDecals();  break;   // == 1
+    /// }
+    /// </code>
+    ///
+    /// So the class id on the wire selects the handler and this byte selects the case. Every
+    /// entity message in the corpus is 8 bits with class id 1 — one type byte and no payload,
+    /// which is `RemoveAllDecals` and nothing else.
+    ///
+    /// **The byte is reported and not named.** `BASEENTITY_MSG_REMOVE_DECALS` and
+    /// `PLAY_PLAYER_JINGLE` are both 1, for different classes, so a name here would be a claim
+    /// about which handler applies — and that needs the class id resolved to a class name first.
+    /// Reporting the number states what is on the wire without asserting what it means.
+    /// </remarks>
+    public int? MessageType => BodyBits >= 8 && !Body.IsEmpty ? Body.Span[0] : null;
 }
 
 /// <summary>

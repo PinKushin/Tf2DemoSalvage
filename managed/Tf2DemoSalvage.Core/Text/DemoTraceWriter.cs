@@ -479,6 +479,14 @@ public static class DemoTraceWriter
             CultureInfo.InvariantCulture,
             $"net_signonstate state {signon.State} spawn {signon.SpawnCount}"),
 
+        // The leading byte selects the case inside the receiving class's ReceiveMessage. It is
+        // reported unnamed on purpose - the same number means different things to different
+        // classes, so naming it would claim a handler the class id has not been resolved to.
+        EntityMessage { MessageType: int entityMessageType } addressed => string.Create(
+            CultureInfo.InvariantCulture,
+            $"svc_entitymessage entity {addressed.EntityIndex} " +
+            $"class {addressed.ClassId} bits {addressed.BodyBits} type {entityMessageType}"),
+
         EntityMessage entityMessage => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_entitymessage entity {entityMessage.EntityIndex} " +
