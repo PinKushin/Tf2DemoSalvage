@@ -3,6 +3,23 @@ using System.Globalization;
 
 namespace Tf2DemoSalvage.Cli;
 
+/// <summary>How much the tool reports about its own progress.</summary>
+/// <remarks>
+/// Three levels rather than a bool, because the two useful directions are opposites: a batch run
+/// over a corpus wants less than the default, and a failing demo wants more.
+/// </remarks>
+public enum Verbosity
+{
+    /// <summary>Warnings and errors only.</summary>
+    Quiet = 0,
+
+    /// <summary>The default: what was read, what was written, and anything unusual.</summary>
+    Normal = 1,
+
+    /// <summary>Per-stage detail, including timings and per-command-type counts.</summary>
+    Verbose = 2,
+}
+
 /// <summary>What the tool should write.</summary>
 public enum OutputFormat
 {
@@ -67,6 +84,14 @@ public sealed record CommandLine
     /// <summary>Whether the user asked for help.</summary>
     public bool HelpRequested { get; init; }
 
+    /// <summary>How much to report about the run itself.</summary>
+    /// <remarks>
+    /// Diagnostics only. Nothing here changes what the tool writes to standard output — the
+    /// demo's decoded form goes there and must stay pipeable, so every log line goes to standard
+    /// error regardless of level.
+    /// </remarks>
+    public Verbosity Verbosity { get; init; }
+
     /// <summary>Parses arguments.</summary>
     /// <param name="args">The raw arguments.</param>
     /// <returns>The parsed command line, with <see cref="Error"/> set if it was invalid.</returns>
@@ -88,6 +113,7 @@ public sealed record CommandLine
         bool compile = false;
         bool entities = false;
         int limit = 0;
+        Verbosity verbosity = Verbosity.Normal;
 
         // An explicit cursor rather than a for-loop: options that take a value consume two
         // arguments, and advancing a for-loop's counter from inside its body reads badly
@@ -128,6 +154,14 @@ public sealed record CommandLine
 
                 case "-c" or "--compile":
                     compile = true;
+                    break;
+
+                case "-v" or "--verbose":
+                    verbosity = Verbosity.Verbose;
+                    break;
+
+                case "-q" or "--quiet":
+                    verbosity = Verbosity.Quiet;
                     break;
 
                 case "-e" or "--entities":
@@ -175,6 +209,7 @@ public sealed record CommandLine
             IncludeEntities = entities,
             EntitySnapshotLimit = limit,
             Compile = compile,
+            Verbosity = verbosity,
         };
     }
 
