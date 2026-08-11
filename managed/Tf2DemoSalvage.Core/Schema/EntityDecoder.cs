@@ -30,10 +30,16 @@ public enum EntityUpdateType : byte
 /// <param name="Index">Position in the class's flattened property list.</param>
 /// <param name="Definition">The property that position addresses.</param>
 /// <param name="Value">The decoded value.</param>
+/// <param name="IndexPayloadBits">
+/// Payload width the property index delta was sent at, or 0 for the narrowest that holds it.
+/// Carried for the same reason the entity index's is: the sender does not always choose the
+/// narrowest bucket, and both widths decode to the same index (RISKS B25).
+/// </param>
 public readonly record struct DecodedProperty(
     int Index,
     FlatProperty Definition,
-    PropertyValue Value);
+    PropertyValue Value,
+    int IndexPayloadBits = 0);
 
 /// <summary>One entity as a snapshot described it.</summary>
 /// <param name="EntityIndex">Slot in the entity table.</param>
@@ -305,7 +311,8 @@ public sealed class EntityDecoder
         foreach (DecodedProperty property in properties)
         {
             writer.WriteBit(true);
-            UBitVar.Write(writer, (uint)(property.Index - previous - 1));
+            UBitVar.Write(
+                writer, (uint)(property.Index - previous - 1), property.IndexPayloadBits);
             previous = property.Index;
 
             WriteValue(writer, property.Definition, property.Value);
@@ -556,7 +563,7 @@ public sealed class EntityDecoder
         // when the flag is clear.
         while (reader.ReadBit())
         {
-            index += (int)UBitVar.Read(ref reader) + 1;
+            index += (int)UBitVar.Read(ref reader, out int indexPayloadBits) + 1;
 
             if (index < 0 || index >= flat.Count)
             {
@@ -567,7 +574,7 @@ public sealed class EntityDecoder
             }
 
             properties.Add(new DecodedProperty(
-                index, flat[index], ReadValue(ref reader, flat[index])));
+                index, flat[index], ReadValue(ref reader, flat[index]), indexPayloadBits));
         }
 
         return properties;
