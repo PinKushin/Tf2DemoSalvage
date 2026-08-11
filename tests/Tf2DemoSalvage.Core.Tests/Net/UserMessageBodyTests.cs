@@ -126,20 +126,29 @@ public sealed class UserMessageBodyTests
         UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, (body.Length * 8) + 32, ModernProtocol);
 
         message.Fields.ShouldBeNull();
-        message.Name.ShouldBe("TextMsg");
         message.BodyBits.ShouldBe((body.Length * 8) + 32);
+
+        // The name goes with the fields. A layout that refuses is evidence the id is not the
+        // message this table claims, so asserting the name over it would state something the
+        // bytes contradict - see UserMessageLayoutTests for the case that motivated it.
+        message.Name.ShouldBeNull();
     }
 
     [Fact]
     public void UnknownMessage_KeepsItsNameAndLength()
     {
-        // Most of the 79 types have no decoder and never will - CheapBreakModel is 259 of the
-        // corpus's 756 user messages and says nothing a reader wants. They must stay reported.
-        UserMessage message = UserMessageBody.Decode(45, "CheapBreakModel", [1, 2, 3], 24, ModernProtocol);
+        // Types with no decoder must stay reported by name. Withholding a name is evidence-driven
+        // - it fires only where a layout exists to contradict it - so a message this project has
+        // never decoded says nothing either way, and dropping its name would discard information
+        // rather than avoid a false claim.
+        //
+        // This used to use CheapBreakModel as the example of "will never be decoded". It is
+        // decoded now, which is the better outcome and a reminder that the set shrinks.
+        UserMessage message = UserMessageBody.Decode(2, "HudText", [1, 2, 3], 24, ModernProtocol);
 
         message.Fields.ShouldBeNull();
-        message.Name.ShouldBe("CheapBreakModel");
-        message.UserMessageType.ShouldBe(45);
+        message.Name.ShouldBe("HudText");
+        message.UserMessageType.ShouldBe(2);
         message.BodyBits.ShouldBe(24);
     }
 

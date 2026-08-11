@@ -51,39 +51,43 @@ public static class UserMessageBody
         int userMessageType, string? name, ReadOnlySpan<byte> body, int bodyBits,
         int networkProtocol)
     {
-        List<KeyValuePair<string, object?>>? fields = name switch
+        (bool Known, List<KeyValuePair<string, object?>>? Fields) decoded = name switch
         {
-            "TextMsg" => TextMsg(body, bodyBits),
-            "SayText" => SayText(body, bodyBits),
-            "ItemPickup" => SingleString(body, bodyBits, "item"),
-            "Geiger" => SingleByte(body, bodyBits, "range"),
-            "Train" => SingleByte(body, bodyBits, "state"),
-            "VoiceSubtitle" => VoiceSubtitle(body, bodyBits),
-            "Damage" => Damage(body, bodyBits, networkProtocol),
-            "Fade" => Fade(body, bodyBits),
-            "Shake" => Shake(body, bodyBits),
-            "Rumble" => Rumble(body, bodyBits),
-            "ResetHUD" => SingleByte(body, bodyBits, "unused"),
-            "VGUIMenu" => VguiMenu(body, bodyBits),
-            "PlayerStatsUpdate" => PlayerStatsUpdate(body, bodyBits),
-            "MapStatsUpdate" => MapStatsUpdate(body, bodyBits),
-            "BreakModel" => BreakModel(body, bodyBits, skin: true),
-            "BreakModel_Pumpkin" => BreakModel(body, bodyBits, skin: true),
-            "BreakModelRocketDud" => BreakModel(body, bodyBits, skin: false),
-            "CheapBreakModel" => CheapBreakModel(body, bodyBits),
-            "SpawnFlyingBird" => SpawnFlyingBird(body, bodyBits),
-            "PlayerTauntSoundLoopStart" => EntityAndString(body, bodyBits, "sound"),
-            "PlayerShieldBlocked" => ShieldBlocked(body, bodyBits),
-            "PlayerTauntSoundLoopEnd" => SingleByte(body, bodyBits, "entity"),
-            "PlayerGodRayEffect" => SingleByte(body, bodyBits, "entity"),
-            "PlayerTeleportHomeEffect" => SingleByte(body, bodyBits, "entity"),
-            "PlayerLoadoutUpdated" => SingleByte(body, bodyBits, "entity"),
-            "MVMResetPlayerStats" => SingleByte(body, bodyBits, "entity"),
-            "AchievementEvent" => AchievementEvent(body, bodyBits),
-            _ => null,
+            "TextMsg" => (true, TextMsg(body, bodyBits)),
+            "SayText" => (true, SayText(body, bodyBits)),
+            "ItemPickup" => (true, SingleString(body, bodyBits, "item")),
+            "Geiger" => (true, SingleByte(body, bodyBits, "range")),
+            "Train" => (true, SingleByte(body, bodyBits, "state")),
+            "VoiceSubtitle" => (true, VoiceSubtitle(body, bodyBits)),
+            "Damage" => (true, Damage(body, bodyBits, networkProtocol)),
+            "Fade" => (true, Fade(body, bodyBits)),
+            "Shake" => (true, Shake(body, bodyBits)),
+            "Rumble" => (true, Rumble(body, bodyBits)),
+            "ResetHUD" => (true, SingleByte(body, bodyBits, "unused")),
+            "VGUIMenu" => (true, VguiMenu(body, bodyBits)),
+            "PlayerStatsUpdate" => (true, PlayerStatsUpdate(body, bodyBits)),
+            "MapStatsUpdate" => (true, MapStatsUpdate(body, bodyBits)),
+            "BreakModel" => (true, BreakModel(body, bodyBits, skin: true)),
+            "BreakModel_Pumpkin" => (true, BreakModel(body, bodyBits, skin: true)),
+            "BreakModelRocketDud" => (true, BreakModel(body, bodyBits, skin: false)),
+            "CheapBreakModel" => (true, CheapBreakModel(body, bodyBits)),
+            "SpawnFlyingBird" => (true, SpawnFlyingBird(body, bodyBits)),
+            "PlayerTauntSoundLoopStart" => (true, EntityAndString(body, bodyBits, "sound")),
+            "PlayerShieldBlocked" => (true, ShieldBlocked(body, bodyBits)),
+            "PlayerTauntSoundLoopEnd" => (true, SingleByte(body, bodyBits, "entity")),
+            "PlayerGodRayEffect" => (true, SingleByte(body, bodyBits, "entity")),
+            "PlayerTeleportHomeEffect" => (true, SingleByte(body, bodyBits, "entity")),
+            "PlayerLoadoutUpdated" => (true, SingleByte(body, bodyBits, "entity")),
+            "MVMResetPlayerStats" => (true, SingleByte(body, bodyBits, "entity")),
+            "AchievementEvent" => (true, AchievementEvent(body, bodyBits)),
+            _ => (false, null),
         };
 
-        return new UserMessage(userMessageType, name, bodyBits, fields);
+        // A name is a claim, and a layout that refuses is evidence against it. Withholding the
+        // name reports the id by number, which is what the older-era gate does for the same reason.
+        string? supported = decoded is { Known: true, Fields: null } ? null : name;
+
+        return new UserMessage(userMessageType, supported, bodyBits, decoded.Fields);
     }
 
     /// <summary><c>Damage</c> — how much, and where it came from.</summary>

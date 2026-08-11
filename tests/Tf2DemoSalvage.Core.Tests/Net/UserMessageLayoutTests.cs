@@ -355,6 +355,45 @@ public sealed class UserMessageLayoutTests
     }
 
     [Fact]
+    public void AKnownLayoutThatRefuses_WithholdsTheNameToo()
+    {
+        // A name is a claim, and a layout that refuses is evidence against it. Reporting
+        // "PlayerLoadoutUpdated" over a body that is not one asserts something unsupported.
+        //
+        // The case is real rather than hypothetical: that message's writer is a single
+        // WRITE_BYTE, and the March 2013 demo carries 32 bits at its id - at protocol 24, the
+        // protocol this table was transcribed for. So the registration order is a property of the
+        // game DLL, not of the network protocol, and protocol 24 alone cannot vouch for it.
+        UserMessage refused = Decode("PlayerLoadoutUpdated", [1, 2, 3, 4]);
+
+        refused.Name.ShouldBeNull();
+        refused.Fields.ShouldBeNull();
+        refused.UserMessageType.ShouldBe(0);
+        refused.BodyBits.ShouldBe(32);
+    }
+
+    [Fact]
+    public void AKnownLayoutThatFits_KeepsItsName()
+    {
+        // The control. Withholding every name would satisfy the test above while destroying the
+        // point, so a body that does fit has to keep its name.
+        Decode("PlayerLoadoutUpdated", [7]).Name.ShouldBe("PlayerLoadoutUpdated");
+    }
+
+    [Fact]
+    public void AMessageWithNoLayoutAtAll_KeepsItsName()
+    {
+        // The other control, and the more important one. Withholding is evidence-driven: it fires
+        // only where a layout exists to contradict the name. A message this project has never
+        // decoded says nothing either way, so removing its name would discard information rather
+        // than avoid a false claim.
+        UserMessage message = Decode("HudText", [1, 2, 3]);
+
+        message.Name.ShouldBe("HudText");
+        message.Fields.ShouldBeNull();
+    }
+
+    [Fact]
     public void AnUnknownClassNumber_IsReportedAsItsNumber()
     {
         // Nine classes have existed since 2007 and no tenth is expected, but a number outside the

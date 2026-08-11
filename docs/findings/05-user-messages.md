@@ -276,10 +276,29 @@ bumps when the *engine's* wire format changes; the user message list lives in `t
 and can be reordered by any game update without the protocol moving at all. Protocol 24 spans
 thirteen years ([06](06-protocol-eras.md)) — far too long to assume one registration order.
 
-Evidence is currently thin: one demo, three messages, and no protocol-24 file that contains id 69
-to compare against. The exact-consumption check catches it — the message is refused rather than
-mis-decoded — but the *name* is still claimed, which is the same defect that was just fixed for
-older eras, one level up. Open.
+Evidence is thin — one demo, three messages, and no other protocol-24 file containing id 69 to
+compare against — so the *cause* stays open. The *symptom* does not: a name is now withheld
+whenever a known layout refuses the body.
+
+### A name is a claim, and a refusing layout is evidence against it
+
+Generalised from the two era fixes, and it needs no protocol boundary at all:
+
+- The id is **always** reported.
+- The name is reported **unless** this project knows the message's layout and the body does not fit
+  it. Then the id stands alone.
+- A message with **no** layout keeps its name, because nothing contradicts it. Withholding there
+  would discard information rather than avoid a false claim — the rule is evidence-driven, not
+  precautionary.
+
+Measured across the corpus, this fires on exactly five ids — `#40`, `#41`, `#44`, `#52`, `#69` —
+and touches nothing else. 435 messages keep both their name and their fields. That it does not
+over-fire is the point: a rule that withheld names broadly would satisfy the same tests while
+destroying the table's whole purpose.
+
+It also caught its own motivating case without being told about it. `PlayerLoadoutUpdated` was
+named right up until the rule existed; now the March 2013 demo reports `#69`, which is the honest
+statement — *something* is at that id and it is not a one-byte message.
 
 ## `svc_EntityMessage` is not generic, but it is a closed set
 
