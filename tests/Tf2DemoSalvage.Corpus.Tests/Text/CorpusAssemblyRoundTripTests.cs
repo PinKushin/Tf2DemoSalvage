@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Text;
 
 namespace Tf2DemoSalvage.Core.Tests.Text;
@@ -93,6 +94,61 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
             CultureInfo.InvariantCulture,
             $"{structured:N0} of {structured + raw:N0} message lines are structured " +
             $"({100.0 * structured / (structured + raw):F1}%)"));
+
+        ReportWhatIsStillRaw(output);
+    }
+
+    /// <summary>
+    /// Names the message types still carried as bits, in bit order.
+    /// </summary>
+    /// <remarks>
+    /// The work queue. A line count says how much text there is; bits say how much of the demo a
+    /// viewer still cannot read, which is the number that matters - a single svc_PacketEntities
+    /// outweighs a thousand net_nops.
+    /// </remarks>
+    private static void ReportWhatIsStillRaw(ITestOutputHelper output)
+    {
+        Dictionary<string, long> bits = new(StringComparer.Ordinal);
+        Dictionary<string, long> counts = new(StringComparer.Ordinal);
+
+        foreach (string path in Corpus.Files())
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
+
+            foreach (DemoCommand command in
+                DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(CommandLimit))
+            {
+                if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+                {
+                    continue;
+                }
+
+                NetMessageReadResult result = NetMessageReader.Read(command.Payload.Span, state);
+                for (int i = 0; i < result.Messages.Count; i++)
+                {
+                    if (MessageAssembly.CanWrite(result.Messages[i]))
+                    {
+                        continue;
+                    }
+
+                    int end = i + 1 < result.Messages.Count
+                        ? result.MessageStartBits[i + 1]
+                        : result.BitsConsumed;
+
+                    string key = result.Messages[i].Type.ToString();
+                    bits[key] = bits.GetValueOrDefault(key) + end - result.MessageStartBits[i];
+                    counts[key] = counts.GetValueOrDefault(key) + 1;
+                }
+            }
+        }
+
+        output.WriteLine("still raw, by bits:");
+        foreach ((string type, long total) in bits.OrderByDescending(entry => entry.Value))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"    {total,14:N0}  {counts[type],9:N0}  {type}"));
+        }
     }
 
     /// <summary>Counts message lines by whether they carry text or bits.</summary>

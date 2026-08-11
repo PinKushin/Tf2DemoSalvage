@@ -220,27 +220,53 @@ public static class DemoAssembly
 
     /// <summary>Expands a packet payload into one line per message.</summary>
     /// <remarks>
-    /// A message the assembler has no text form for is written as its own bits rather than being
-    /// folded into a neighbour, so promoting a type later changes one line and nothing around it.
-    /// The bits after the last message go out the same way - a payload is a whole number of bytes
-    /// and the messages inside it are not, so there is nearly always a remainder.
+    /// **Every structured message is assembled back and compared before it is written.** That is
+    /// what makes promoting a type safe: a text form that loses something falls back to <c>raw</c>
+    /// instead of producing a file that will not compile to the same bytes. The cost is decoding
+    /// each candidate twice; the benefit is that the round trip cannot be broken by an experiment.
+    ///
+    /// A message with no text form is written as its own bits rather than folded into a
+    /// neighbour, so promoting a type later changes one line and nothing around it. The bits after
+    /// the last message go out the same way - a payload is a whole number of bytes and the
+    /// messages inside it are not, so there is nearly always a remainder.
     /// </remarks>
     private static void WriteMessages(
         TextWriter writer, ReadOnlySpan<byte> payload, NetDecodeState state)
     {
         NetMessageReadResult result = NetMessageReader.Read(payload, state);
 
+        // A separate state for the verification pass, advanced in step with the writer's. Sharing
+        // the reader's would let a message be checked against a state it had not reached yet.
+        NetDecodeState check = new() { NetworkProtocol = state.NetworkProtocol };
+
         for (int i = 0; i < result.Messages.Count; i++)
         {
+            INetMessage message = result.Messages[i];
             int start = result.MessageStartBits[i];
             int end = i + 1 < result.Messages.Count
                 ? result.MessageStartBits[i + 1]
                 : result.BitsConsumed;
 
-            writer.WriteLine(
-                "  " + (MessageAssembly.CanWrite(result.Messages[i])
-                    ? MessageAssembly.Write(result.Messages[i])
-                    : MessageAssembly.WriteRaw(Slice(payload, start, end - start), end - start)));
+            byte[] original = Slice(payload, start, end - start);
+            IReadOnlyList<string>? lines = TryStructured(
+                message, original, end - start, check, state.NetworkProtocol);
+
+            if (lines is null)
+            {
+                writer.WriteLine("  " + MessageAssembly.WriteRaw(original, end - start));
+            }
+            else
+            {
+                foreach (string line in lines)
+                {
+                    writer.WriteLine("  " + line);
+                }
+            }
+
+            if (message is ServerInfoMessage info)
+            {
+                check.ServerInfo = info;
+            }
         }
 
         int trailing = (payload.Length * 8) - result.BitsConsumed;
@@ -250,6 +276,69 @@ public static class DemoAssembly
                 "  " + MessageAssembly.WriteRaw(
                     Slice(payload, result.BitsConsumed, trailing), trailing));
         }
+    }
+
+    /// <summary>
+    /// Renders a message as text, or <c>null</c> when the text does not assemble back to the same
+    /// bits.
+    /// </summary>
+    private static IReadOnlyList<string>? TryStructured(
+        INetMessage message,
+        byte[] original,
+        int bitCount,
+        NetDecodeState state,
+        ushort protocol)
+    {
+        if (!MessageAssembly.CanWrite(message))
+        {
+            return null;
+        }
+
+        IReadOnlyList<string> lines;
+        BitWriter check = new();
+        try
+        {
+            lines = MessageAssembly.Write(message, protocol);
+
+            int index = 0;
+            MessageAssembly.Assemble(
+                lines[0],
+                () => ++index < lines.Count ? lines[index] : null,
+                check,
+                Copy(state));
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or EndOfStreamException or FormatException or
+                OverflowException or NotSupportedException)
+        {
+            // A text form that cannot read its own output is a bug worth finding, but not one
+            // worth failing a decompile over: raw carries the same bits either way.
+            return null;
+        }
+
+        return check.BitCount == bitCount && Same(original, check.Build(), bitCount)
+            ? lines
+            : null;
+    }
+
+    /// <summary>A copy, so the verification pass cannot advance the writer's own state.</summary>
+    private static NetDecodeState Copy(NetDecodeState state) =>
+        new() { NetworkProtocol = state.NetworkProtocol, ServerInfo = state.ServerInfo };
+
+    /// <summary>Whether two buffers agree over the first <paramref name="bits"/> bits.</summary>
+    private static bool Same(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, int bits)
+    {
+        for (int bit = 0; bit < bits; bit++)
+        {
+            int index = bit / 8;
+            int shift = bit % 8;
+            if (((left[index] >> shift) & 1) != ((right[index] >> shift) & 1))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Copies a bit range into its own buffer, starting at bit zero.</summary>
@@ -331,7 +420,17 @@ public static class DemoAssembly
                 return writer.Build();
             }
 
-            MessageAssembly.Assemble(line, writer, state);
+            // A message may consume further lines of its own - a sounds block, a class list - so
+            // it is handed a way to pull them rather than being given one line at a time.
+            MessageAssembly.Assemble(
+                line,
+                () =>
+                {
+                    string? next = reader.ReadLine();
+                    return next is null ? null : Strip(next);
+                },
+                writer,
+                state);
         }
 
         throw new InvalidDataException("A packet block was not closed with 'end'.");
