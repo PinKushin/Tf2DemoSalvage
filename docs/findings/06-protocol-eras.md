@@ -36,14 +36,48 @@ closes the loop: the file, the binary, and the date all agree, and none of it de
 | Protocol | Build | Date | Evidence |
 |---|---|---|---|
 | **11** | 3258 | **9 October 2007** | client `version`; TF2 shipped 10 Oct 2007, so this is the launch build |
+| **13** | — | **15 November 2007** | that day's patch note, below — no client, no demo |
 | **14** | 3420 | **19 March 2008** | client `version` |
 | **15** | 3862 | **4 June 2009** | client `version` |
 | **16** | 4604 | **15 June 2011** | client `version` |
 | **24** | 5252 / 1729296 | **25 March 2013** | client `version` |
 
-Gaps, still unmeasured: **12–13**, somewhere between October 2007 and March 2008 — a five-month
-window — and **17–23**, between June 2011 and March 2013. Nine protocol numbers across two narrow
-windows.
+Gaps, still unmeasured: **12**, now squeezed into the five weeks after launch, and **17–23**,
+between June 2011 and March 2013. Eight protocol numbers, and one of the two windows is much
+tighter than it was.
+
+## The one boundary Valve dated for us, and why it is the only one
+
+Everything above came from running a period client. Protocol 13 did not, because there is no
+client for it — it came from the TF2 patch notes for **15 November 2007**:
+
+> Added backward compatibility code to allow demos recorded with protocol 12 to continue to be
+> playable under protocol version 13
+
+Two numbers in one sentence. That dates 13 to the day and forces 12 strictly earlier, into the
+five weeks between 9 October and 15 November — four candidate patches, on 25 and 31 October and
+1 and 7 November. It is graded **sourced**, not measured: Valve's own words about their own
+build, but nothing here has decoded a protocol-12 or 13 demo.
+
+**The same patch also carries "Fix for broken .dem file playback"**, which makes 15 November 2007
+the earliest date on which Valve is known to have touched the demo system at all — five weeks
+after release.
+
+**Now the part worth keeping.** This is the *only* protocol bump documented anywhere in TF2's
+patch notes. Not 11→12, not 13→14, not 15→16, not any of the eight bumps between 2011 and 2013.
+Valve wrote this one because they had shipped a user-visible fix — old demos would otherwise have
+stopped playing — and the note is about the fix, not about the bump. The bump is incidental
+detail that leaked into a sentence written for another purpose.
+
+Which is the general shape of this whole document: **Valve documents effects, never mechanisms.**
+A protocol change is a mechanism, so it is invisible; a protocol change that breaks something a
+player will notice becomes an effect, and only then does it get written down. Searching the
+changelog for "protocol" finds one hit in nineteen years, and finding it required searching for
+the demo breakage instead.
+
+It also says something about the demo format's standing inside Valve. They *did* care that old
+recordings kept playing — enough to write compatibility code five weeks after launch — and then
+never did it again for any later bump. Which is precisely the gap this project exists in.
 
 ## The cadence of change, which is not uniform at all
 
