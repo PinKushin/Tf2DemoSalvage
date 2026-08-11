@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -37,6 +39,10 @@ public sealed class UserMessageBodyTests
 
     private static string? Field(UserMessage message, string name) =>
         message.Fields?.FirstOrDefault(f => f.Key == name).Value?.ToString();
+
+    /// <summary>The field's value with its own type, for layouts that are not all strings.</summary>
+    private static object? Value(UserMessage message, string name) =>
+        message.Fields!.First(field => field.Key == name).Value;
 
     [Fact]
     public void TextMsg_ReportsItsDestinationAndStrings()
@@ -145,5 +151,55 @@ public sealed class UserMessageBodyTests
         byte[] body = [3, .. Encoding.UTF8.GetBytes("no terminator")];
 
         UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8).Fields.ShouldBeNull();
+    }
+
+    /// <summary>SPROP_COORD, the flag the coordinate encoder selects the plain form with.</summary>
+    private const int CoordFlag = 1 << 1;
+
+    [Fact]
+    public void Damage_CarriesTheAmountAndWhereItCameFrom()
+    {
+        // The message behind a POV demo's damage numbers, and the layout is Valve's own client
+        // rather than a guess - CHudDamageIndicator::MsgFunc_Damage reads a short, a long it
+        // discards, a bit saying whether a position follows, and then a coordinate vector.
+        //
+        // The discarded long matters here even though the game ignores it: it is on the wire, so
+        // a decoder that skips it reads the position from the wrong bits.
+        Tf2DemoSalvage.Core.Primitives.BitWriter coords = new();
+        SendPropEncoder.WriteCoord(coords, -1332.5f, CoordFlag);
+        SendPropEncoder.WriteCoord(coords, 2976f, CoordFlag);
+        SendPropEncoder.WriteCoord(coords, 64.25f, CoordFlag);
+
+        // The coordinate bits have to land at the writer's own offset rather than being byte
+        // aligned, so they are appended bit by bit.
+        Tf2DemoSalvage.Core.Primitives.BitWriter whole = new();
+        whole.Write(45, 16).Write(0, 32).WriteBit(true)
+            .WriteBit(true).WriteBit(true).WriteBit(true)
+            .AppendBits(coords.Build(), coords.BitCount);
+
+        UserMessage message = UserMessageBody.Decode(
+            26, "Damage", whole.Build(), whole.BitCount);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "damage").ShouldBe(45);
+        Value(message, "x").ShouldBe(-1332.5f);
+        Value(message, "y").ShouldBe(2976f);
+        Value(message, "z").ShouldBe(64.25f);
+    }
+
+    [Fact]
+    public void Damage_WithNoPosition_StopsAfterTheFlag()
+    {
+        // The game returns early when the bit is clear, so nothing follows it. Reading a vector
+        // anyway would consume bits that are not there and reject a message that is fine.
+        Tf2DemoSalvage.Core.Primitives.BitWriter writer = new();
+        writer.Write(120, 16).Write(0, 32).WriteBit(false);
+
+        UserMessage message = UserMessageBody.Decode(
+            26, "Damage", writer.Build(), writer.BitCount);
+
+        message.Fields.ShouldNotBeNull();
+        Value(message, "damage").ShouldBe(120);
+        message.Fields!.Any(field => field.Key == "x").ShouldBeFalse();
     }
 }

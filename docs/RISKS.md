@@ -1414,3 +1414,36 @@ mechanism rather than the last one.
 10-bit index, a width derived from `max_entries`, and sender truncation of the message itself.
 The last is worth restating precisely: the *message* is never truncated, but a *field inside it*
 can be.
+
+
+## B26 — the Damage user message has an older layout before some build between 2008 and 2009 — OPEN
+
+`svc_UserMessage/Damage` is what draws a damage number in a POV demo, and it is the only record of
+the *direction* incoming damage came from — entity positions say where everyone stood, this says
+which of them hurt you and by how much.
+
+The layout is Valve's, from `CHudDamageIndicator::MsgFunc_Damage` in
+`src/game/client/tf/tf_hud_damageindicator.cpp`:
+
+```c
+damage.iScale = msg.ReadShort();     // 16 bits
+msg.ReadLong();                      // 32 bits, read and discarded by the game
+if ( !msg.ReadOneBit() ) return;     // 1 bit: does a position follow
+msg.ReadBitVec3Coord( vecOrigin );   // 3 presence bits, then the axes that were sent
+```
+
+**The discarded long still has to be read.** The game throws it away, but it occupies 32 bits, and
+skipping it takes the position from the wrong place — producing a plausible coordinate rather than
+an error.
+
+**It decodes on every era in the corpus except one.** After implementing it, opaque Damage bits are
+zero everywhere but `tf2-2008-build3420-pov-cp_granary.dem`, which still carries 308. Protocol 14.
+
+**Hypothesis for that demo:** TF2 inherited HL2's Damage message and changed it later. HL2's
+`CHudDamageIndicator::MsgFunc_Damage` reads a byte of armour, a byte of damage, a long of damage
+bits and then a vector with no presence flag — 48 bits before the vector where the modern form has
+49. Both files are in source-sdk-2013 (`src/game/client/hl2/hud_damageindicator.cpp`), so this is a
+reading job rather than an investigation.
+
+The two forms are one bit apart before the vector, so a decoder that guesses wrong produces a
+plausible position rather than a failure. Distinguish them by protocol, not by trying both.

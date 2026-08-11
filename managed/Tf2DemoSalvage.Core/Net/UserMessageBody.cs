@@ -1,9 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 
+using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Schema;
+
 namespace Tf2DemoSalvage.Core.Net;
+
+
 
 /// <summary>
 /// Decodes the bodies of the user messages worth reading, and refuses the rest.
@@ -45,11 +51,98 @@ public static class UserMessageBody
             "Geiger" => SingleByte(body, bodyBits, "range"),
             "Train" => SingleByte(body, bodyBits, "state"),
             "VoiceSubtitle" => VoiceSubtitle(body, bodyBits),
+            "Damage" => Damage(body, bodyBits),
             _ => null,
         };
 
         return new UserMessage(userMessageType, name, bodyBits, fields);
     }
+
+    /// <summary><c>Damage</c> — how much, and where it came from.</summary>
+    /// <remarks>
+    /// **This is what draws a damage number in a POV demo**, and it is the only place the
+    /// direction of incoming damage is recorded: entity positions say where everyone stood, this
+    /// says which of them hurt you and by how much.
+    ///
+    /// The layout is Valve's own client rather than a reading of the bytes —
+    /// <c>CHudDamageIndicator::MsgFunc_Damage</c> in <c>tf_hud_damageindicator.cpp</c>:
+    ///
+    /// <code>
+    /// damage.iScale = msg.ReadShort();
+    /// msg.ReadLong();                       // read and ignored
+    /// if ( !msg.ReadOneBit() ) return;
+    /// msg.ReadBitVec3Coord( vecOrigin );
+    /// </code>
+    ///
+    /// **The ignored long still has to be read.** The game discards it, but it occupies 32 bits,
+    /// and a decoder that skips it takes the position from the wrong place — which would produce
+    /// a plausible coordinate rather than an error.
+    ///
+    /// The vector is three presence bits followed by only the axes that were sent, the same shape
+    /// <c>svc_BspDecal</c> uses. An absent axis is zero, which the engine relies on: it treats an
+    /// all-zero origin as "no direction" and points the indicator at the camera instead.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? Damage(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        // Short, long, and the flag: 49 bits before anything optional.
+        if (bodyBits < 49)
+        {
+            return null;
+        }
+
+        try
+        {
+            BitReader reader = new(body);
+            int damage = (int)reader.ReadUInt32(16);
+            uint ignored = reader.ReadUInt32(32);
+
+            List<KeyValuePair<string, object?>> fields =
+            [
+                new("damage", damage),
+                new("bits", (int)ignored),
+            ];
+
+            if (!reader.ReadBit())
+            {
+                // The game returns here, so the body ends here too.
+                return reader.BitsRead <= bodyBits ? fields : null;
+            }
+
+            bool hasX = reader.ReadBit();
+            bool hasY = reader.ReadBit();
+            bool hasZ = reader.ReadBit();
+
+            // Read in order, and only the axes that were sent - reading three unconditionally
+            // would consume bits belonging to whatever follows.
+            if (hasX)
+            {
+                fields.Add(new("x", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+            }
+
+            if (hasY)
+            {
+                fields.Add(new("y", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+            }
+
+            if (hasZ)
+            {
+                fields.Add(new("z", SendPropDecoder.ReadFloat(ref reader, Coordinate)));
+            }
+
+            // The body is padded to a byte, so the check is that nothing overran rather than that
+            // it landed exactly - the same rule every bit-level layout here uses.
+            return reader.BitsRead <= bodyBits ? fields : null;
+        }
+        catch (EndOfStreamException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A plain <c>SPROP_COORD</c>, which is what a damage origin is sent as.</summary>
+    private static SendProperty Coordinate { get; } =
+        new(SendPropType.Float, "damage_origin", 1 << 1, string.Empty, 0f, 0f, 0, 0);
 
     /// <summary>
     /// <c>TextMsg</c> — a destination, a localisation key, and up to four substitutions.
