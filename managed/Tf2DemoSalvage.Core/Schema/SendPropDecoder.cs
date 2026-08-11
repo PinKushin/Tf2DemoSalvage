@@ -21,41 +21,41 @@ namespace Tf2DemoSalvage.Core.Schema;
 /// </remarks>
 public static class SendPropDecoder
 {
-    private const int UnsignedFlag = 1 << 0;
-    private const int CoordFlag = 1 << 1;
-    private const int NoScaleFlag = 1 << 2;
-    private const int NormalFlag = 1 << 5;
+    internal const int UnsignedFlag = 1 << 0;
+    internal const int CoordFlag = 1 << 1;
+    internal const int NoScaleFlag = 1 << 2;
+    internal const int NormalFlag = 1 << 5;
 
     /// <summary>
     /// The same bit as <see cref="NormalFlag"/>, which on an integer property means the value
     /// is varint-encoded rather than fixed width.
     /// </summary>
-    private const int VarIntFlag = 1 << 5;
-    private const int CoordMpFlag = 1 << 13;
-    private const int CoordMpLowPrecisionFlag = 1 << 14;
-    private const int CoordMpIntegralFlag = 1 << 15;
+    internal const int VarIntFlag = 1 << 5;
+    internal const int CoordMpFlag = 1 << 13;
+    internal const int CoordMpLowPrecisionFlag = 1 << 14;
+    internal const int CoordMpIntegralFlag = 1 << 15;
 
     /// <summary>Every coordinate encoding, in the order the engine tests them.</summary>
-    private const int CoordFlags =
+    internal const int CoordFlags =
         CoordFlag | CoordMpFlag | CoordMpLowPrecisionFlag | CoordMpIntegralFlag;
 
     /// <summary>Integer bits when the value is inside the world bounds: <c>COORD_INTEGER_BITS_MP</c>.</summary>
-    private const int CoordIntegerBitsInBounds = 11;
+    internal const int CoordIntegerBitsInBounds = 11;
 
     /// <summary>Integer bits otherwise: <c>COORD_INTEGER_BITS</c>.</summary>
-    private const int CoordIntegerBits = 14;
+    internal const int CoordIntegerBits = 14;
 
     /// <summary>Fraction bits at normal precision: <c>COORD_FRACTIONAL_BITS</c>.</summary>
-    private const int CoordFractionBits = 5;
+    internal const int CoordFractionBits = 5;
 
     /// <summary>Fraction bits at low precision: <c>COORD_FRACTIONAL_BITS_MP_LOWPRECISION</c>.</summary>
-    private const int CoordFractionBitsLowPrecision = 3;
+    internal const int CoordFractionBitsLowPrecision = 3;
 
     /// <summary>Bits a normal uses for magnitude, plus one for sign.</summary>
-    private const int NormalFractionBits = 11;
+    internal const int NormalFractionBits = 11;
 
     /// <summary>Width of a networked string's length prefix: <c>DT_MAX_STRING_BITS</c>.</summary>
-    private const int StringLengthBits = 9;
+    internal const int StringLengthBits = 9;
 
     /// <summary>Reads an integer property.</summary>
     /// <param name="reader">Reader positioned at the value.</param>

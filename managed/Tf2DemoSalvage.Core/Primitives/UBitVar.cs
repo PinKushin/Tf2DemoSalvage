@@ -30,6 +30,30 @@ public static class UBitVar
         return reader.ReadUInt32(PayloadBits[selector]);
     }
 
+    /// <summary>Writes one variable-width value.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="value">The value.</param>
+    /// <exception cref="System.ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// The narrowest payload that holds the value, which is not merely an optimisation: a decoder
+    /// reads whatever width the selector names, so a wider encoding of the same number is a
+    /// different bit stream. Byte-exact re-encoding needs the canonical choice.
+    /// </remarks>
+    public static void Write(BitWriter writer, uint value)
+    {
+        System.ArgumentNullException.ThrowIfNull(writer);
+
+        (uint selector, int bits) = value switch
+        {
+            < 1u << 4 => (0u, 4),
+            < 1u << 8 => (1u, 8),
+            < 1u << 12 => (2u, 12),
+            _ => (3u, 32),
+        };
+
+        writer.Write(selector, SelectorBits).Write(value, bits);
+    }
+
     /// <summary>Bits a value occupies once encoded, including the selector.</summary>
     /// <param name="value">Value to measure.</param>
     /// <returns>Total encoded width in bits.</returns>

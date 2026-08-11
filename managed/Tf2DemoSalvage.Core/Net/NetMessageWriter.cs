@@ -262,7 +262,7 @@ public static class NetMessageWriter
                 {
                     if (axis is { } coordinate)
                     {
-                        SendPropEncoder.WriteCoord(writer, coordinate);
+                        SendPropEncoder.WriteCoord(writer, coordinate, SendPropDecoder.CoordFlag);
                     }
                 }
 

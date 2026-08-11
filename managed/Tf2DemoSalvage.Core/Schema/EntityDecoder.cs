@@ -184,6 +184,188 @@ public sealed class EntityDecoder
         return entities;
     }
 
+    /// <summary>Re-encodes a decoded snapshot back into a <c>svc_PacketEntities</c> body.</summary>
+    /// <param name="entities">The entities, in the order they were decoded.</param>
+    /// <param name="removed">Entity indices the snapshot reported as removed.</param>
+    /// <param name="isDelta">Whether the snapshot was a delta, which is what carries removals.</param>
+    /// <param name="lengthBits">The body length to pad out to.</param>
+    /// <returns>The body's bits.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="entities"/> or <paramref name="removed"/> is <c>null</c>.
+    /// </exception>
+    /// <remarks>
+    /// **Here rather than in a class of its own, because the flattened schema is what both
+    /// directions need** and a second copy of the flattening would be free to disagree with the
+    /// first — which is the one mistake this code cannot afford, since the flattening order is
+    /// what decides which value lands in which field.
+    ///
+    /// Nothing here is a guess. An entity index is a delta from the previous one, a property index
+    /// likewise, and both are determined by the indices themselves; the update type, the class and
+    /// the serial number are all recorded. That is what makes comparing the result against the
+    /// demo a real experiment rather than a tautology: every bit written comes from a value the
+    /// decoder produced, so a value it got wrong cannot come back right.
+    ///
+    /// The trailing padding matters more than it looks. A body is measured in bits and stated in
+    /// bits, but the sender rounds, so a snapshot routinely ends a few bits early. Those bits are
+    /// zeros, and the removal loop reads a clear bit as "no more removals" — which is exactly why
+    /// they can be padding at all.
+    /// </remarks>
+    public byte[] EncodeEntities(
+        IReadOnlyList<DecodedEntity> entities,
+        IReadOnlyList<int> removed,
+        bool isDelta,
+        int lengthBits) =>
+        EncodeEntities(entities, removed, isDelta, lengthBits, out _);
+
+    /// <summary>Re-encodes a snapshot, reporting the exact bit count.</summary>
+    /// <param name="entities">The entities, in the order they were decoded.</param>
+    /// <param name="removed">Entity indices the snapshot reported as removed.</param>
+    /// <param name="isDelta">Whether the snapshot was a delta, which is what carries removals.</param>
+    /// <param name="lengthBits">The body length to pad out to.</param>
+    /// <param name="bitCount">Bits written, before any padding to a byte boundary.</param>
+    /// <returns>The body's bits.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="entities"/> or <paramref name="removed"/> is <c>null</c>.
+    /// </exception>
+    /// <remarks>
+    /// The count is not recoverable from the returned array: the last byte is padded to a
+    /// boundary, so a caller comparing against an original would be comparing up to seven bits of
+    /// slack it invented. That slack is enough to attribute a mismatch to the wrong entity.
+    /// </remarks>
+    public byte[] EncodeEntities(
+        IReadOnlyList<DecodedEntity> entities,
+        IReadOnlyList<int> removed,
+        bool isDelta,
+        int lengthBits,
+        out int bitCount)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        ArgumentNullException.ThrowIfNull(removed);
+
+        BitWriter writer = new();
+        int previousIndex = -1;
+
+        foreach (DecodedEntity entity in entities)
+        {
+            UBitVar.Write(writer, (uint)(entity.EntityIndex - previousIndex - 1));
+            previousIndex = entity.EntityIndex;
+
+            writer.Write((uint)entity.UpdateType, 2);
+
+            if (entity.UpdateType == EntityUpdateType.Enter)
+            {
+                writer.Write((uint)entity.ClassId, _classBits)
+                    .Write((uint)entity.SerialNumber, SerialNumberBits);
+            }
+            else if (entity.UpdateType != EntityUpdateType.Delta)
+            {
+                // Leave and Delete carry nothing beyond the update type itself.
+                continue;
+            }
+
+            WriteProperties(writer, entity.Properties);
+        }
+
+        if (isDelta)
+        {
+            foreach (int index in removed)
+            {
+                writer.WriteBit(true).Write((uint)index, RemovedIndexBits);
+            }
+
+            writer.WriteBit(false);
+        }
+
+        bitCount = writer.BitCount;
+
+        for (int bit = writer.BitCount; bit < lengthBits; bit++)
+        {
+            writer.WriteBit(false);
+        }
+
+        return writer.Build();
+    }
+
+    private static void WriteProperties(
+        BitWriter writer, IReadOnlyList<DecodedProperty> properties)
+    {
+        int previous = -1;
+
+        // A one-bit continuation flag before each property rather than a count, so the list ends
+        // with a clear bit rather than being sized up front.
+        foreach (DecodedProperty property in properties)
+        {
+            writer.WriteBit(true);
+            UBitVar.Write(writer, (uint)(property.Index - previous - 1));
+            previous = property.Index;
+
+            WriteValue(writer, property.Definition, property.Value);
+        }
+
+        writer.WriteBit(false);
+    }
+
+    private static void WriteValue(BitWriter writer, FlatProperty flat, PropertyValue value)
+    {
+        SendProperty property = flat.Property;
+
+        switch (property.Type)
+        {
+            case SendPropType.Int:
+                SendPropEncoder.WriteInt(writer, property, value.AsInt);
+                break;
+
+            case SendPropType.Float:
+                SendPropEncoder.WriteFloat(writer, property, value.AsFloat);
+                break;
+
+            case SendPropType.Vector:
+                SendPropEncoder.WriteVector(writer, property, value.AsVector);
+                break;
+
+            case SendPropType.VectorXY:
+                SendPropEncoder.WriteVectorXY(writer, property, value.AsVectorXY);
+                break;
+
+            case SendPropType.String:
+                SendPropEncoder.WriteString(writer, value.AsString);
+                break;
+
+            case SendPropType.Array:
+                WriteArray(writer, flat, value);
+                break;
+
+            default:
+                throw new InvalidDataException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Property '{property.Name}' has type {property.Type}, which never appears " +
+                    $"in a flattened list - DataTable properties are structure, not values."));
+        }
+    }
+
+    private static void WriteArray(BitWriter writer, FlatProperty flat, PropertyValue value)
+    {
+        if (flat.ArrayElement is not SendProperty element)
+        {
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Array property '{flat.Property.Name}' has no element template, so its " +
+                $"elements cannot be encoded."));
+        }
+
+        IReadOnlyList<PropertyValue> values = value.AsArray;
+
+        // Sized from the declared maximum, exactly as on the way in - a fixed width here would be
+        // right for one array and wrong for every other.
+        writer.Write((uint)values.Count, ClassIdBits(flat.Property.ElementCount));
+
+        FlatProperty elementFlat = new(element, flat.OwnerTable, null);
+        foreach (PropertyValue item in values)
+        {
+            WriteValue(writer, elementFlat, item);
+        }
+    }
+
     private DecodedEntity ReadEntity(ref BitReader reader, int entityIndex)
     {
         EntityUpdateType updateType = (EntityUpdateType)reader.ReadUInt32(2);

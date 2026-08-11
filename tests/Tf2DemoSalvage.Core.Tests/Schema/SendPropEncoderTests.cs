@@ -41,7 +41,7 @@ public sealed class SendPropEncoderTests
             float expected = (MathF.Round(value * FractionSteps) / FractionSteps) + 0f;
 
             BitWriter writer = new();
-            SendPropEncoder.WriteCoord(writer, expected);
+            SendPropEncoder.WriteCoord(writer, expected, CoordFlag);
 
             BitReader reader = new(writer.Build());
             float actual = SendPropDecoder.ReadFloat(ref reader, Coord);
@@ -63,7 +63,7 @@ public sealed class SendPropEncoderTests
         // The widths, pinned as literals. Zero is the case worth stating: two clear bits and no
         // sign, because a sign bit nobody reads would shift every message after this one.
         BitWriter writer = new();
-        SendPropEncoder.WriteCoord(writer, value);
+        SendPropEncoder.WriteCoord(writer, value, CoordFlag);
 
         writer.BitCount.ShouldBe(expectedBits);
     }
@@ -74,7 +74,7 @@ public sealed class SendPropEncoderTests
         // 0.9999 is 31.997 thirty-seconds. Rounding gives 32, which is not a fraction at all -
         // left as one it would be written into a five-bit field as 0 and read back as 0.0.
         BitWriter writer = new();
-        SendPropEncoder.WriteCoord(writer, 0.9999f);
+        SendPropEncoder.WriteCoord(writer, 0.9999f, CoordFlag);
 
         BitReader reader = new(writer.Build());
         SendPropDecoder.ReadFloat(ref reader, Coord).ShouldBe(1f);

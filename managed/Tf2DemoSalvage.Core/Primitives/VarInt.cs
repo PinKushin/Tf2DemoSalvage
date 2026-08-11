@@ -151,10 +151,24 @@ public static class VarInt
     /// <exception cref="InvalidDataException">The encoding is too long to be a 64-bit varint.</exception>
     public static long ReadInt64(ref BitReader reader) => DecodeZigZag(ReadUInt64(ref reader));
 
+    /// <summary>Writes a signed 32-bit varint.</summary>
+    /// <param name="writer">Destination.</param>
+    /// <param name="value">The value.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Zig-zag first, so small negatives stay short: -1 becomes 1 rather than 0xFFFFFFFF, which
+    /// would otherwise cost the full five groups.
+    /// </remarks>
+    public static void WriteInt32(BitWriter writer, int value) =>
+        WriteUInt32(writer, EncodeZigZag(value));
+
     // Stryker disable once Bitwise: the operand is unsigned, so >> is already a logical shift
     // and >>> is the same operation. Equivalent mutant, not a missing test.
     private static int DecodeZigZag(uint value) => (int)(value >> 1) ^ -(int)(value & 1);
 
     // Stryker disable once Bitwise: unsigned operand, as above.
     private static long DecodeZigZag(ulong value) => (long)(value >> 1) ^ -(long)(value & 1);
+
+    /// <summary>Folds a signed value onto an unsigned one, small magnitudes staying small.</summary>
+    private static uint EncodeZigZag(int value) => (uint)((value << 1) ^ (value >> 31));
 }

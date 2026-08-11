@@ -1236,3 +1236,44 @@ exceed a limit; it is the writer's buffer. One specimen left open whether cp_gra
 large map, and the second closes it. The gravelpit demo lives in `tools/corpus/local/` rather than
 the committed corpus: it is a second specimen of an era already represented, and the finding it
 supports is recorded here.
+
+## B25 — a UBitVar one step wider than it needs to be, on 0.16% of modern snapshots — OPEN
+
+**Found by re-encoding, and by nothing else, because both forms decode to the same number.**
+
+`EntityDecoder.EncodeEntities` reproduces 13,942 of 13,973 entity snapshots bit for bit across
+the corpus (2026-08-11). Every demo recorded before 2013 is at 100%. The 31 exceptions are all
+modern, and they split into two kinds:
+
+| Kind | Count in the sample | Status |
+|---|---|---|
+| Difference past the last bit written | 3 of 6 inspected | Not a decode error — see below |
+| Wider UBitVar selector at a LEAVE update's entity index | 3 of 6 inspected | **Open** |
+
+**Trailing slack is not a defect.** A packet entities body states its length in bits and the
+sender builds it in bytes, so the stated length can run past the last meaningful bit, and nothing
+requires the leftover to be zero. The re-encoder pads with zeros; the demo sometimes has something
+else there. The removal list terminates on a clear bit, so those bits are never read.
+
+**The wider selector is genuinely unexplained.** At the entity index preceding a LEAVE update:
+
+```
+wire  011100011000     selector 2 -> 12-bit payload
+ours  101100011010     selector 1 ->  8-bit payload
+```
+
+Both decode to the same entity index, which is precisely why no other test could see it — the
+decode is correct, and only the re-encode disagrees. Two readings are possible and the corpus
+cannot yet separate them:
+
+1. The engine's `WriteUBitVar` is not canonical on this path, and picks a wider bucket under some
+   condition (a LEAVE update is the only shape observed so far, which is suggestive but is three
+   samples).
+2. The value being encoded is not the delta this project computes, and happens to agree modulo the
+   payload width.
+
+**Not papered over.** A heuristic that widens the selector for LEAVE updates would take the number
+to 100% and prove nothing; the encoder writes the canonical form and the report carries the
+exceptions. Resolving it wants the engine's writer, in the manner of
+`docs/memory/read-the-encoder-not-the-decoder.md` — an encoder states intent that a decoder only
+implies.
