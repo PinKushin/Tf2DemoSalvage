@@ -1485,3 +1485,91 @@ X. Protocols 12–13 and 17–23 still have no specimen, so those remain interpo
 era whose client runs a missing message is now a recording task rather than a search.
 
 Measured at 11, 14 and 15. The change is between 14 and 15.
+
+## B27 — array elements lost their encoding shape, so arrays re-encoded wider — FIXED
+
+Found 2026-08-11 by enlarging the local corpus with thirteen demos.tf recordings chosen for map and
+mode variety. The gate that caught it, `TheEntitySectionEncodesToExactlyWhatItDecodedFrom`, compares
+our decoder's consumed bits against our encoder's produced bits for the entity section alone, so it
+cannot be confused by the removal list.
+
+**111,219 of 111,228 agree exactly. Nine do not, and all nine produce MORE than they consumed:**
+
+```
+    4  +3 bits
+    4  +15 bits
+    1  +6 bits
+```
+
+**The demo names are the diagnosis.** Attributing each failure to its file splits them into two
+populations that have nothing to do with each other:
+
+| bits | demos | shape |
+|---|---|---|
+| +3, +6 | `ctf_tinybine` | delta snapshots, 13–14 entities, last is Delta with 1 property |
+| +15 | `pass_coastal_rc8`, `pass_sanctum_a2a` | **both PASS Time maps**, and both a full and a delta snapshot each |
+
+### The `ctf_tinybine` group looks like the writer giving up
+
+In four of the five, the snapshot's stated length exceeds what the decoder consumed by **exactly
+32 bits** — 2704 against 2736, 2332 against 2364, 3001 against 3033, 3347 against 3379. That is the
+`bf_write` signature already documented in `docs/findings/09-valve-implementation.md`: a field that
+did not fit was abandoned rather than truncated, so the message ends early and the trailing bits
+are whatever they were.
+
+If that reading is right, the encoder is not wrong so much as *too complete* — it writes the form
+the sender intended rather than the one the sender managed. Reproducing that faithfully means
+recording that the writer gave up, which is the same "record the encoding shape" problem that has
+recurred six times elsewhere.
+
+The fifth case contradicts it and is the one to look at first: `consumed 3112, stated 3109`. The
+decoder consumed **three bits more than the snapshot claims to hold**, which no amount of writer
+overflow explains.
+
+### The PASS Time group is a genuine encoder defect
+
+This one has no overflow in it at all. `consumed 117298, produced 117313, stated 117298` — the
+decoder consumed exactly the stated length, and the re-encode is fifteen bits longer. Same for
+`pass_sanctum` at 147161.
+
+So something in a PASS Time schema encodes wider than it decoded. The mode ships entity classes no
+other map has, and PASS Time is the first non-standard mode ever added to this corpus — it had
+never been exercised before these downloads. Fifteen bits is a specific enough number to be one
+property, or three of five.
+
+**Next step**: narrow to the property. The snapshots are large (215 and 290 entities), so the way in
+is to re-encode entity by entity and find which one's width disagrees, then which of its properties.
+
+### Why this matters beyond nine snapshots
+
+The residue was **zero** across a corpus of thirteen demos that were all 6v6 competitive on five
+maps. Thirteen more recordings, chosen for variety rather than volume, found it immediately. The
+lesson is the same one the user message layer taught on the same day: **a corpus that is uniform in
+shape cannot falsify assumptions that its shape makes true.**
+
+### Resolved, same day
+
+**Both groups were one bug: an array's elements each carry a coordinate shape, and none of them
+were kept.** `ReadArray` called the overload of `ReadValue` that discards the shape, so every
+element decoded, threw its shape away, and re-encoded as shape 0 — the original width only when
+the sender happened to have used the shape a shapeless encoder derives.
+
+That explains the sizes without any further theory. `m_trackPoints` on the PASS Time maps holds 16
+elements and came out **+15**; `m_vecPoints` on `ctf_tinybine` holds 1 and came out **+3**. The
+`bf_write` overflow reading of the `ctf_tinybine` group was wrong — the 32-bit shortfall against
+the stated length was real but incidental, and had nothing to do with the mismatch.
+
+`DecodedProperty` now carries `ElementShapes`, and after the fix **111,228 of 111,228 snapshots
+re-encode to exactly the bits they decoded from**, across all thirty demos.
+
+**How it was found matters more than the fix.** A snapshot-wide bit count says nothing about which
+of 290 entities caused it, so `EntityDecoder.EntityEndBits` was added — each entity's decode end
+offset — and re-encoding growing prefixes narrows a mismatch to one entity, then one property.
+That diagnostic is kept; it is what turns "nine snapshots disagree" into "class 240, `m_trackPoints`".
+
+**Regression coverage is synthetic, deliberately.** The gate that caught this walks the local
+corpus, which is git-ignored and invisible to CI, so `ArrayElementShapeTests` asserts the same
+property against a hand-built schema. Verified by sabotage — and the sabotage exposed a second
+lesson: a re-encode comparison whose *original* came from our own encoder cannot catch an error
+applied uniformly, because it appears in both sides. Only the shape-survival assertion fails.
+That test now says so rather than implying a correctness guarantee it does not provide.

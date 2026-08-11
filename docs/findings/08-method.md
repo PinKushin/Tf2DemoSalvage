@@ -118,6 +118,40 @@ own guard is dead code in that build.
 A test written to confirm something and failing instead is the cheapest discovery mechanism there
 is.
 
+## A uniform corpus manufactures invariants that look structural
+
+The single most productive day's finding, and it cost nothing but adding recordings of a *different
+shape* rather than more of the same.
+
+Every threshold below was written against a corpus of competitive 6v6 SourceTV demos on five maps,
+plus listen-server era specimens. Each held perfectly until one recording of a different kind
+arrived, and each was measuring the corpus rather than the format:
+
+| assertion | broken by | what it actually encoded |
+|---|---|---|
+| "more than six players" | a listen-server demo recorded alone | every demo is a competitive match |
+| "at least 5,000 snapshots", then 2,000 | a 52-second era specimen | every demo is a long match |
+| "user id ≤ 1024" | a pub server up for hours | every server is freshly started |
+| "at least 50 entity origins" | a 2v2 Ultiduo demo | every match is 6v6 on a full-sized map |
+| "tick offset spread ≤ 64" | a demo recorded during a CPU stall | every recording is unbroken |
+
+None of these were sloppy when written — each had a stated rationale, and several carry comments
+explaining why the number was chosen. **The flaw is not the number, it is that the corpus could not
+falsify it.**
+
+Two rules follow.
+
+**Prefer assertions that are structural over ones that are observed.** An entity index is bounded by
+`MAX_EDICTS` and that is a fact about the engine; a user id is a connection counter with no small
+ceiling, and any bound on it describes the servers you happened to record. When the only available
+check is a magnitude, choose one that only a *misread* could fail — billions, not thousands — and
+say so in the comment.
+
+**Vary the corpus along the axis you are not testing.** Era coverage was pursued hard and paid off;
+mode and player-count coverage was never pursued at all, and thirteen recordings chosen for variety
+found a real encoder defect (RISKS B27) plus three false invariants in an afternoon. The population
+you have not sampled is where your assumptions live.
+
 ## Things that misled
 
 **Measuring capability instead of output.** A report built from "can this be written?" printed a

@@ -40,12 +40,27 @@ public enum EntityUpdateType : byte
 /// Carried for the same reason the entity index's is: the sender does not always choose the
 /// narrowest bucket, and both widths decode to the same index (RISKS B25).
 /// </param>
+/// <param name="ElementShapes">
+/// Each array element's coordinate shape, or <c>null</c> for a non-array property.
+/// </param>
+/// <remarks>
+/// **An array's elements each carry their own encoding shape, and it is not recoverable from the
+/// values.** A coordinate can arrive with an integer part, a fractional part, both or neither, and
+/// the decoded number is identical across several of those forms — so re-encoding without the
+/// shape produces a body of a different width that still says the same thing.
+///
+/// This was missed when shapes were first recorded, because `ReadArray` called the overload of
+/// `ReadValue` that discards them. It went unnoticed for as long as the corpus contained no array
+/// property whose elements varied: a 16-element `m_trackPoints` on a PASS Time map re-encoded
+/// fifteen bits long, and a one-element `m_vecPoints` three bits long (RISKS B27).
+/// </remarks>
 public readonly record struct DecodedProperty(
     int Index,
     FlatProperty Definition,
     PropertyValue Value,
     int IndexPayloadBits = 0,
-    int CoordShape = 0);
+    int CoordShape = 0,
+    IReadOnlyList<int>? ElementShapes = null);
 
 /// <summary>One entity as a snapshot described it.</summary>
 /// <param name="EntityIndex">Slot in the entity table.</param>
@@ -146,6 +161,21 @@ public sealed class EntityDecoder
     /// </remarks>
     public int EntitySectionBits { get; private set; }
 
+    /// <summary>Bit offset each entity finished at, parallel to the decoded entities.</summary>
+    /// <remarks>
+    /// **Attribution, for a mismatch too small to find any other way.** When the encoder and the
+    /// decoder disagree about a snapshot's width, the difference is a single number for the whole
+    /// section — and a snapshot can hold three hundred entities. Subtracting consecutive entries
+    /// here gives each entity's decoded width, which can be compared against re-encoding a prefix,
+    /// so the disagreement narrows to one entity and then to one property.
+    ///
+    /// Reported as data rather than logged, like every other diagnostic in this parser: a caller
+    /// that wants it can assert on it, and one that does not pays an int per entity.
+    /// </remarks>
+    public IReadOnlyList<int> EntityEndBits => _entityEndBits;
+
+    private readonly List<int> _entityEndBits = [];
+
     /// <summary>
     /// Entity indices the most recent delta snapshot reported as removed.
     /// </summary>
@@ -184,6 +214,7 @@ public sealed class EntityDecoder
         BitReader reader = new(body);
         List<DecodedEntity> entities = new(header.UpdatedEntries);
         _removed.Clear();
+        _entityEndBits.Clear();
 
         int entityIndex = -1;
 
@@ -200,6 +231,7 @@ public sealed class EntityDecoder
             }
 
             entities.Add(ReadEntity(ref reader, entityIndex, indexPayloadBits));
+            _entityEndBits.Add(reader.BitsRead);
         }
 
         // Where the entity section ended, so an encoder can be checked against what the decoder
@@ -343,14 +375,17 @@ public sealed class EntityDecoder
                 writer, (uint)(property.Index - previous - 1), property.IndexPayloadBits);
             previous = property.Index;
 
-            WriteValue(writer, property.Definition, property.Value, property.CoordShape);
+            WriteValue(
+                writer, property.Definition, property.Value, property.CoordShape,
+                property.ElementShapes);
         }
 
         writer.WriteBit(false);
     }
 
     private static void WriteValue(
-        BitWriter writer, FlatProperty flat, PropertyValue value, int shape = 0)
+        BitWriter writer, FlatProperty flat, PropertyValue value, int shape = 0,
+        IReadOnlyList<int>? elementShapes = null)
     {
         SendProperty property = flat.Property;
 
@@ -377,7 +412,7 @@ public sealed class EntityDecoder
                 break;
 
             case SendPropType.Array:
-                WriteArray(writer, flat, value);
+                WriteArray(writer, flat, value, elementShapes);
                 break;
 
             default:
@@ -388,7 +423,9 @@ public sealed class EntityDecoder
         }
     }
 
-    private static void WriteArray(BitWriter writer, FlatProperty flat, PropertyValue value)
+    private static void WriteArray(
+        BitWriter writer, FlatProperty flat, PropertyValue value,
+        IReadOnlyList<int>? elementShapes)
     {
         if (flat.ArrayElement is not SendProperty element)
         {
@@ -405,9 +442,15 @@ public sealed class EntityDecoder
         writer.Write((uint)values.Count, ClassIdBits(flat.Property.ElementCount));
 
         FlatProperty elementFlat = new(element, flat.OwnerTable, null);
-        foreach (PropertyValue item in values)
+        for (int i = 0; i < values.Count; i++)
         {
-            WriteValue(writer, elementFlat, item);
+            // **Each element has its own coordinate shape, and it must be carried.** Writing
+            // shape 0 for every element re-encodes a float that arrived in one coordinate form
+            // as another, which is the same width only by luck - RISKS B27, where a 16-element
+            // array came out fifteen bits long.
+            WriteValue(
+                writer, elementFlat, values[i],
+                elementShapes is not null && i < elementShapes.Count ? elementShapes[i] : 0);
         }
     }
 
@@ -605,21 +648,24 @@ public sealed class EntityDecoder
             properties.Add(new DecodedProperty(
                 index,
                 flat[index],
-                ReadValue(ref reader, flat[index], out int coordShape),
+                ReadValue(ref reader, flat[index], out int coordShape, out int[]? elementShapes),
                 indexPayloadBits,
-                coordShape));
+                coordShape,
+                elementShapes));
         }
 
         return properties;
     }
 
-    private static PropertyValue ReadValue(ref BitReader reader, FlatProperty flat) =>
-        ReadValue(ref reader, flat, out _);
+    private static PropertyValue ReadValue(
+        ref BitReader reader, FlatProperty flat, out int coordShape) =>
+        ReadValue(ref reader, flat, out coordShape, out _);
 
     private static PropertyValue ReadValue(
-        ref BitReader reader, FlatProperty flat, out int coordShape)
+        ref BitReader reader, FlatProperty flat, out int coordShape, out int[]? elementShapes)
     {
         coordShape = 0;
+        elementShapes = null;
         SendProperty property = flat.Property;
 
         switch (property.Type)
@@ -652,7 +698,7 @@ public sealed class EntityDecoder
                 return PropertyValue.FromString(SendPropDecoder.ReadString(ref reader));
 
             case SendPropType.Array:
-                return ReadArray(ref reader, flat);
+                return ReadArray(ref reader, flat, out elementShapes);
 
             default:
                 throw new InvalidDataException(string.Create(
@@ -662,7 +708,8 @@ public sealed class EntityDecoder
         }
     }
 
-    private static PropertyValue ReadArray(ref BitReader reader, FlatProperty flat)
+    private static PropertyValue ReadArray(
+        ref BitReader reader, FlatProperty flat, out int[] elementShapes)
     {
         if (flat.ArrayElement is not SendProperty element)
         {
@@ -685,13 +732,15 @@ public sealed class EntityDecoder
         }
 
         List<PropertyValue> values = new(count);
+        int[] shapes = new int[count];
         FlatProperty elementFlat = new(element, flat.OwnerTable, null);
 
         for (int i = 0; i < count; i++)
         {
-            values.Add(ReadValue(ref reader, elementFlat));
+            values.Add(ReadValue(ref reader, elementFlat, out shapes[i]));
         }
 
+        elementShapes = shapes;
         return PropertyValue.FromArray(values);
     }
 

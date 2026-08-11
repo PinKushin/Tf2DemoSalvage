@@ -120,7 +120,15 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             string name = Path.GetFileName(path);
             List<(float X, float Y, float Z)> origins = Origins(FirstFull(path).Entities);
 
-            origins.Count.ShouldBeGreaterThan(50, name);
+            // Only enough to make the loop below non-vacuous. The count was 50 until an Ultiduo
+            // demo arrived with 40: that mode is 2v2 on a tiny map, so it simply has fewer
+            // entities carrying an origin. Nothing was wrong with the decode.
+            //
+            // A count is the wrong place to be strict here anyway — the real assertion is the
+            // bounds check, and PlayerPositions_AreSpreadAcrossTheMap carries the guard against a
+            // decoder returning a constant. A floor sized to 6v6 competitive play was measuring
+            // the corpus's uniformity, not the parser.
+            origins.Count.ShouldBeGreaterThan(10, name);
 
             foreach ((float x, float y, float z) in origins)
             {
