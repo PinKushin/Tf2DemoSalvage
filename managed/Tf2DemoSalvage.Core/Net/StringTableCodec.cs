@@ -223,8 +223,12 @@ internal static class StringTableCodec
         for (int i = 0; i < entryCount; i++)
         {
             // Consecutive indices are the common case, so a single bit covers them.
-            int index = reader.ReadBit() ? lastIndex + 1 : (int)reader.ReadUInt32(indexBits);
+            bool follows = reader.ReadBit();
+            int index = follows ? lastIndex + 1 : (int)reader.ReadUInt32(indexBits);
             lastIndex = index;
+
+            int historyIndex = -1;
+            int copyLength = 0;
 
             string? text = null;
             if (reader.ReadBit())
@@ -233,8 +237,8 @@ internal static class StringTableCodec
                 {
                     // Shares a prefix with a recent string: take that many bytes from it and
                     // read only the differing tail.
-                    int historyIndex = (int)reader.ReadUInt32(HistoryIndexBits);
-                    int copyLength = (int)reader.ReadUInt32(SubstringLengthBits);
+                    historyIndex = (int)reader.ReadUInt32(HistoryIndexBits);
+                    copyLength = (int)reader.ReadUInt32(SubstringLengthBits);
                     string source = historyIndex < history.Count ? history[historyIndex] : string.Empty;
                     // Stryker disable once Equality: at copyLength == source.Length both
                     // branches yield the same string, because source[..source.Length] is
@@ -268,10 +272,99 @@ internal static class StringTableCodec
                     : ReadBytes(ref reader, (int)reader.ReadUInt32(UserDataLengthBits));
             }
 
-            entries.Add(new StringTableEntry(index, text, userData));
+            entries.Add(new StringTableEntry(
+                index, text, userData, follows, historyIndex, copyLength));
         }
 
         return entries;
+    }
+
+    /// <summary>Writes table entries back, exactly as they were sent.</summary>
+    /// <param name="entries">The entries.</param>
+    /// <param name="maxEntries">The table's capacity, which sizes an explicit index.</param>
+    /// <param name="fixedUserData">Whether payloads are a fixed width.</param>
+    /// <param name="userDataSizeBits">That width, in bits.</param>
+    /// <returns>The body's bits, and how many of them are meaningful.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entries"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// The rolling history is rebuilt here rather than carried, because it is derivable: it is the
+    /// last 32 strings written, in order. What is not derivable — which of them an entry reused
+    /// and how much of it — travels on the entry itself.
+    /// </remarks>
+    internal static (byte[] Body, int BitCount) WriteEntries(
+        IReadOnlyList<StringTableEntry> entries,
+        int maxEntries,
+        bool fixedUserData,
+        int userDataSizeBits)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        BitWriter writer = new();
+        List<string> history = new(HistorySize);
+        int indexBits = WireWidths.StringTableIndex(maxEntries);
+
+        foreach (StringTableEntry entry in entries)
+        {
+            writer.WriteBit(entry.FollowsPrevious);
+
+            // A one-entry table needs no index field at all - floor(log2(1)) is zero - and the
+            // reader consumes nothing there, so writing a bit would insert one.
+            if (!entry.FollowsPrevious && indexBits > 0)
+            {
+                writer.Write((uint)entry.Index, indexBits);
+            }
+
+            if (entry.Text is null)
+            {
+                writer.WriteBit(false);
+            }
+            else
+            {
+                writer.WriteBit(true).WriteBit(entry.HistoryIndex >= 0);
+
+                if (entry.HistoryIndex >= 0)
+                {
+                    string source = entry.HistoryIndex < history.Count
+                        ? history[entry.HistoryIndex]
+                        : string.Empty;
+
+                    int prefix = Math.Min(entry.CopyLength, source.Length);
+
+                    writer.Write((uint)entry.HistoryIndex, HistoryIndexBits)
+                        .Write((uint)entry.CopyLength, SubstringLengthBits)
+                        .WriteString(entry.Text[prefix..]);
+                }
+                else
+                {
+                    writer.WriteString(entry.Text);
+                }
+
+                history.Add(entry.Text);
+                if (history.Count > HistorySize)
+                {
+                    history.RemoveAt(0);
+                }
+            }
+
+            if (entry.UserData.Count == 0)
+            {
+                writer.WriteBit(false);
+                continue;
+            }
+
+            writer.WriteBit(true);
+            byte[] payload = [.. entry.UserData];
+
+            if (fixedUserData)
+            {
+                writer.AppendBits(payload, userDataSizeBits);
+                continue;
+            }
+
+            writer.Write((uint)payload.Length, UserDataLengthBits).WriteBytes(payload);
+        }
+
+        return (writer.Build(), writer.BitCount);
     }
 
     private static byte[] ReadBytes(ref BitReader reader, int count)

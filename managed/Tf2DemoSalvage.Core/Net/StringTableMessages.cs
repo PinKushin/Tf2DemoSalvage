@@ -6,7 +6,31 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <param name="Index">Position in the table.</param>
 /// <param name="Text">The string, or <c>null</c> if this update carried only user data.</param>
 /// <param name="UserData">Attached bytes, empty when the entry has none.</param>
-public sealed record StringTableEntry(int Index, string? Text, IReadOnlyList<byte> UserData);
+/// <param name="FollowsPrevious">
+/// Whether the index was sent as "one after the last" rather than in full.
+/// </param>
+/// <param name="HistoryIndex">
+/// Which of the last 32 strings this entry's text was built from, or <c>-1</c> when the text was
+/// sent whole.
+/// </param>
+/// <param name="CopyLength">How many characters were taken from that string.</param>
+/// <remarks>
+/// **The last three are the encoding shape, and without them an entry cannot be written back.**
+/// A table's strings are sent against a rolling history of the last 32, so a name sharing a prefix
+/// with an earlier one transmits only its tail — and which earlier one, and how much of it, is a
+/// choice the sender made that the decoded string does not record. The same is true of the index:
+/// a sequential entry sends one bit where an explicit one sends a full field.
+///
+/// This is the same problem <c>svc_Sounds</c> had. Values are not enough; the shape has to travel
+/// with them.
+/// </remarks>
+public sealed record StringTableEntry(
+    int Index,
+    string? Text,
+    IReadOnlyList<byte> UserData,
+    bool FollowsPrevious = false,
+    int HistoryIndex = -1,
+    int CopyLength = 0);
 
 /// <summary>
 /// <c>svc_CreateStringTable</c> — declares a table and its initial contents.

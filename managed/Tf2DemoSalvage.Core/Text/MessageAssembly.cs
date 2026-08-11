@@ -53,7 +53,7 @@ public static class MessageAssembly
             ClassInfoMessage or VoiceInitMessage or BspDecalMessage or EntityMessage or
             VoiceDataMessage or UserMessage or ChatMessage or SoundsMessage or
             PacketEntitiesMessage or GameEventListMessage or GameEventMessage or
-            TempEntitiesMessage;
+            TempEntitiesMessage or CreateStringTableMessage or UpdateStringTableMessage;
     }
 
     /// <summary>Renders a message as one or more lines of assembly.</summary>
@@ -85,6 +85,10 @@ public static class MessageAssembly
                 entities is null ? null : EntityAssembly.WriteEffects(effects, entities),
 
             GameEventListMessage list => EventAssembly.WriteList(list),
+
+            CreateStringTableMessage table => StringTableAssembly.WriteCreate(table),
+
+            UpdateStringTableMessage update => StringTableAssembly.WriteUpdate(update),
 
             // An event that arrived before its definition decoded to an id and nothing else, so
             // there is nothing to write down.
@@ -238,6 +242,12 @@ public static class MessageAssembly
         {
             state.ServerInfo = info;
         }
+        else if (message is CreateStringTableMessage table)
+        {
+            // Registered as the reader registers it: an update names a table by creation order
+            // and its entry indices are sized from that table's capacity.
+            state.AddStringTable(table.Name, table.MaxEntries);
+        }
         else if (message is GameEventListMessage list)
         {
             // Every later event is written against these: the field order lives in the
@@ -252,6 +262,10 @@ public static class MessageAssembly
         NetDecodeState state,
         EntityDecoder? entities) => tokens[0] switch
     {
+        "svc_createstringtable" => StringTableAssembly.BuildCreate(tokens, nextLine),
+
+        "svc_updatestringtable" => StringTableAssembly.BuildUpdate(tokens, nextLine, state),
+
         "svc_gameeventlist" => EventAssembly.BuildList(tokens, nextLine),
 
         "svc_gameevent" => EventAssembly.BuildEvent(tokens, nextLine, state),

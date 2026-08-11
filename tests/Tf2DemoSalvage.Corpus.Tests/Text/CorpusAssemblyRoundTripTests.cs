@@ -95,6 +95,11 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
         // The progress measure, and the only part of this test that is a report rather than a
         // gate: how much of the message stream is text a person could edit, against how much is
         // still bits nobody has promoted yet.
+        //
+        // There is a floor and it is not 100%. Roughly one raw line per packet is the padding
+        // after the last message - bits rather than a message, and never anything else - and a
+        // compressed string table keeps its payload because reproducing a Snappy stream byte for
+        // byte is not something a parser can promise.
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{structured:N0} of {structured + raw:N0} message lines are structured " +
