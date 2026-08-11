@@ -1756,3 +1756,38 @@ variable-length and neither has a layout remain undecidable from the body alone,
 table wins by default. None occur in either corpus. Deciding those needs the demo *dated* — the
 string-table cosmetic fingerprint that placed `z1800.dem` — which is a larger piece of work and
 now the only thing between this and a complete answer.
+
+## B30 — `svc_EntityMessage` is the last opaque payload, and naming it needs the class — OPEN
+
+Measured 2026-08-11 with `CorpusCodecCoverageTests` over **40 demos**. Thirty-nine report
+**0.00%** opaque. One does not:
+
+```
+rgl-pug-2026-08-10-pov.dem: 11,520 of 3,857,112 payload bits opaque (0.30%)
+```
+
+A hundred times every other demo, and it is entirely `svc_EntityMessage` — **590 of them, all
+identical: class 1, 8 bits, type 1**. Class 1 in that demo is `CBaseAnimating`.
+
+**The meaning is settled and comes from published source.** `src/game/shared/baseentity_shared.h`
+carries `#define BASEENTITY_MSG_REMOVE_DECALS 1`, and every `ReceiveMessage` in the SDK opens with
+`int messageType = msg.ReadByte()`. So these are 590 instances of *remove all decals from this
+model* — one type byte, no payload. Nothing is unread; the byte is already exposed as
+`EntityMessage.MessageType`.
+
+**What is missing is the name, and the obstacle is real rather than effort.** `1` is
+`BASEENTITY_MSG_REMOVE_DECALS` for most classes and `PLAY_PLAYER_JINGLE` for `C_BasePlayer`. The
+same byte means two things, so naming it is a claim about which handler applies, and that needs
+the **class id resolved to a class name** — which the schema has and neither `EntityMessage` nor
+the trace's message-formatting switch currently sees.
+
+**The fix, scoped:** give the entity-message trace line the class name it already prints for
+entities elsewhere (`CBaseAnimating(1)`), then map (class family, type byte) to a name over the
+SDK's closed set of five handlers — `C_BaseEntity`, `C_BasePlayer`, `C_RopeKeyframe`, `C_Tesla`,
+`C_EnvScreenEffect`. TF2's `game/client/tf/` overrides `ReceiveMessage` **not at all**, so the
+inherited set is the whole set and this closes rather than opens.
+
+**Do not "fix" this by reclassifying the bucket.** `CorpusCodecCoverageTests` counts an entity
+message's whole body as opaque, and subtracting the eight bits it already interprets would take
+the number to zero without anyone learning what the messages say. The instrument's own rule
+applies: content interpreted, not merely consumed at the right length.
