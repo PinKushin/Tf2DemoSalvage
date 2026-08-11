@@ -81,6 +81,10 @@ public static class UserMessageBody
             "MVMResetPlayerStats" => (true, SingleByte(body, bodyBits, "entity")),
             "AchievementEvent" => (true, AchievementEvent(body, bodyBits)),
             "CloseCaption" => (true, CloseCaption(body, bodyBits)),
+            "VoteStart" => (true, VoteStart(body, bodyBits)),
+            "VotePass" => (true, VotePass(body, bodyBits)),
+            "VoteFailed" => (true, VoteFailed(body, bodyBits)),
+            "CallVoteFailed" => (true, CallVoteFailed(body, bodyBits)),
             "VoiceMask" => (true, VoiceMask(body, bodyBits)),
             "PlayerIgnited" => (true, Ignited(body, bodyBits)),
             "PlayerIgnitedInv" => (true, Ignited(body, bodyBits)),
@@ -349,6 +353,125 @@ public static class UserMessageBody
             new("female", (flags & 8) != 0),
         ];
     }
+
+    /// <summary><c>VoteStart</c> — a vote was called: by whom, about what, and on whom.</summary>
+    /// <remarks>
+    /// <c>CVoteController::CreateVote</c> in <c>vote_controller.cpp</c>:
+    ///
+    /// <code>
+    /// WRITE_BYTE( m_iOnlyTeamToVote );
+    /// WRITE_LONG( m_nVoteIdx );
+    /// WRITE_BYTE( m_iEntityHoldingVote );
+    /// WRITE_STRING( pCurrentIssue->GetDisplayString() );
+    /// WRITE_STRING( pCurrentIssue->GetDetailsString() );
+    /// WRITE_BOOL( pCurrentIssue->IsYesNoVote() );
+    /// WRITE_BYTE( target ? target->entindex() : 0 );
+    /// </code>
+    ///
+    /// **The <c>WRITE_BOOL</c> is one bit, not a byte, and it lands between two byte fields.** So
+    /// the message is byte-aligned up to the strings and bit-aligned afterwards, and its total is
+    /// not a multiple of eight — the corpus's only instance is 329 bits. A decoder that treated
+    /// the flag as a byte would be seven bits out for the entity index that follows, and would
+    /// read a plausible player number rather than failing.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? VoteStart(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        // Team, index, caller, then two strings, then a bit and a byte.
+        if (bodyBits < VoteStartFixedBits || body.Length < 7)
+        {
+            return null;
+        }
+
+        int end = body.Length;
+        int offset = VoteHeaderBytes + 1;
+        if (!ReadString(body, end, ref offset, out string display) ||
+            !ReadString(body, end, ref offset, out string details))
+        {
+            return null;
+        }
+
+        // The trailing nine bits start on a byte boundary, so a reader over the remainder lands
+        // in the right place without seeking.
+        if (bodyBits != (offset * 8) + 9 || offset >= end)
+        {
+            return null;
+        }
+
+        BitReader reader = new(body[offset..]);
+        bool yesNo = reader.ReadBit();
+
+        return
+        [
+            new("team", (int)body[0]),
+            new("vote", (int)BinaryPrimitives.ReadUInt32LittleEndian(body[1..])),
+            new("caller", (int)body[5]),
+            new("issue", display),
+            new("details", details),
+            new("yes_no", yesNo),
+            new("target", (int)reader.ReadUInt32(8)),
+        ];
+    }
+
+    /// <summary><c>VotePass</c> — the vote carried, and what it said.</summary>
+    private static List<KeyValuePair<string, object?>>? VotePass(
+        ReadOnlySpan<byte> body, int bodyBits)
+    {
+        if (!IsWholeBytes(bodyBits, body) || ByteLength(bodyBits) < VoteHeaderBytes + 2)
+        {
+            return null;
+        }
+
+        int end = ByteLength(bodyBits);
+        int offset = VoteHeaderBytes;
+        if (!ReadString(body, end, ref offset, out string passed) ||
+            !ReadString(body, end, ref offset, out string details) ||
+            offset != end)
+        {
+            return null;
+        }
+
+        return
+        [
+            new("team", (int)body[0]),
+            new("vote", (int)BinaryPrimitives.ReadUInt32LittleEndian(body[1..])),
+            new("passed", passed),
+            new("details", details),
+        ];
+    }
+
+    /// <summary><c>VoteFailed</c> — the vote did not carry, and why.</summary>
+    /// <remarks>
+    /// Byte, long, byte — 48 bits, which is exactly what the corpus's instances measure and what
+    /// <c>tf_usermessages.cpp</c> registers the message at (6 bytes).
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? VoteFailed(
+        ReadOnlySpan<byte> body, int bodyBits) =>
+        bodyBits != (VoteHeaderBytes + 1) * 8
+            ? null
+            :
+            [
+                new("team", (int)body[0]),
+                new("vote", (int)BinaryPrimitives.ReadUInt32LittleEndian(body[1..])),
+                new("reason", (int)body[5]),
+            ];
+
+    /// <summary><c>CallVoteFailed</c> — this player may not call a vote yet.</summary>
+    private static List<KeyValuePair<string, object?>>? CallVoteFailed(
+        ReadOnlySpan<byte> body, int bodyBits) =>
+        bodyBits != 24
+            ? null
+            :
+            [
+                new("reason", (int)body[0]),
+                new("seconds", (int)BinaryPrimitives.ReadUInt16LittleEndian(body[1..])),
+            ];
+
+    /// <summary>The team byte and the vote index every vote message opens with.</summary>
+    private const int VoteHeaderBytes = 5;
+
+    /// <summary>Team, index, caller, the flag bit and the target byte — the strings aside.</summary>
+    private const int VoteStartFixedBits = ((VoteHeaderBytes + 1) * 8) + 9;
 
     /// <summary><c>VoiceMask</c> — who this client may hear, and who they have muted.</summary>
     /// <remarks>
