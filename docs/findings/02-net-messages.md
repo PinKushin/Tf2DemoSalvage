@@ -187,9 +187,29 @@ repeat: u16 chunk length, u16 sequence, <chunk length> bytes
 *Measured*: **1334 of 1397** blocks consume exactly. Chunk sizes cluster at 78–86 bytes; sequence
 numbers run 0–164.
 
-**63 blocks do not, and that is open rather than explained.** There is a distinct population of
-1-byte chunks — 147 of them — and the obvious story is that those are a marker with a different
-shape. That is a hypothesis, not a finding, and it is written here as one. See `RISKS.md`.
+**All 1397 do, once the terminator is known** — and the route there is worth keeping because the
+hypothesis written down first was wrong.
+
+That hypothesis was that the 147 one-byte chunks were a marker with a different shape. They are
+not: every one carries the payload `0x68`, which is a valid Opus TOC byte and the same one leading
+the 78-86 byte chunks. They are ordinary minimal Opus packets.
+
+Dumping the 63 failing blocks answered it in one pass. **Every one ended with exactly 2 bytes
+remaining, and those two bytes were `FFFF`.** A block may end with a `0xFFFF` sentinel read through
+the chunk-length field — the length field alone, with no sequence number and no data behind it.
+
+```
+repeat: u16 length, u16 sequence, <length> bytes
+        a length of 0xFFFF ends the block instead
+```
+
+Both wrong readings fail badly and differently, which is why guessing was not an option: taking
+`0xFFFF` as a length asks for 65535 bytes that are not there, and taking the block as malformed
+discards audio that is perfectly well formed.
+
+*Measured* with the sentinel handled: **1452 of 1452 payloads and all 3969 chunks consume
+exactly**, and exactly 63 report the terminator — the same 63 that used to fail. 14 distinct
+speakers across the corpus, every speaking client slot mapping to exactly one Steam account.
 
 ### `vaudio_celt` and `vaudio_speex` — no framing at all
 
