@@ -186,8 +186,8 @@ public sealed class NetMessageReaderTests
 
     [Theory]
     [InlineData(4, "SayText2")]
-    [InlineData(18, "Damage")]
-    [InlineData(0, "Geiger")]
+    [InlineData(2, "HudText")]
+    [InlineData(14, "CloseCaption")]
     [InlineData(78, "BuiltObject")]
     public void UserMessage_IsReportedWithItsRegisteredName(int type, string expected)
     {
@@ -198,6 +198,12 @@ public sealed class NetMessageReaderTests
         // The ids come from the registration order in tf_usermessages.cpp, read from the SDK
         // rather than recalled. SayText2 at 4 is the cross-check: it was already proven correct
         // against real chat before the table existed.
+        //
+        // The types here deliberately have no decoded layout. A name is only reported when
+        // nothing contradicts it, so a message whose layout refuses its body is now reported by
+        // number - which means a shared 16-bit dummy body cannot test naming for a type that has
+        // a layout. Those types are anchored in UserMessageNamesTests instead, which checks the
+        // table directly rather than through a synthetic packet.
         BitWriter writer = new();
         writer.Message(NetMessageType.UserMessage)
             .Write((uint)type, 8)
