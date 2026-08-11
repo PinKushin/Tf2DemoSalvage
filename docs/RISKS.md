@@ -1380,10 +1380,22 @@ would not play. So one of these is true:
 2. The entity section before it is 2 bits longer than ours, and our bits match only because the
    difference is absorbed where the two sections meet.
 
-**Two experiments already ruled out:** requiring a whole entry to fit before reading it removed 96
-of the overlong cases and broke 176 that were real, so it is not a bounds problem; and a global
-10-bit index is not it either.
+**Four experiments ruled out, all reverted:**
 
-Next: dump the wire from a fixed offset *before* the entity section ends, not from where ours
-stops, so hypothesis 2 can be tested without assuming our own boundary is right. `bf_write` in
-`src/tier1/bitbuf.cpp` and the engine's `CL_ParseDeletions` are the authorities.
+| Hypothesis | Result |
+|---|---|
+| Bounds problem — require a whole entry to fit before reading one | removed 96 overlong, broke 176 real removals |
+| The index is a constant 10 bits | every content mismatch gone, more snapshots overlong |
+| The index width is `floor(log2(maxEntries))`, derived like every other width here | 13,973 decodable snapshots became 13,772 — it breaks decoding |
+| Valve writes past its own stated length | ruled out by construction: the message is length-prefixed and every message *after* these snapshots decodes cleanly across whole demos, so the stated length is the true extent |
+
+**What the arithmetic still says.** The wire spends 11 bits where we spend 13. The only division of 11
+that carries a flag and the index 110 is flag + 10 bits, with no terminator because the list ends
+at the body end. But a fixed 10 is wrong elsewhere and a capacity-derived 10 breaks decoding, so
+the width is neither constant nor derived from `max_entries`.
+
+**Next: the engine binary, outside the repo.** `bf_write` is public but the deletion loop is not —
+`cl_ents_parse.cpp` and `sv_ents_write.cpp` are engine code and are not in source-sdk-2013. The
+authority is `engine.dll` from a period build, read in Ghidra with its project and output paths
+under a temp directory, never inside a working tree. What comes back should be a sentence in this
+file and a named constant, not pasted code.
