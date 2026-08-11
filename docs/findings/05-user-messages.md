@@ -492,8 +492,19 @@ date* dates a **binary**, and the binary then dates a **demo**. Changelogs were 
 after the protocol search returned one hit; they are in fact the strongest instrument available
 for this particular question, because it is a question about features.
 
-**Caveat, per [06](06-protocol-eras.md).** A patch note dates a response, not always the change.
-For a feature this is much tighter than for a bug fix — a mode ships on the day its map appears,
-and the message must already be registered for the map to work — but the id could have been
-registered in an earlier build than the one that used it. So these are graded **sourced** and
-bound the insertion from *above*: the id exists by that date.
+**Why these dates are firm, unlike the one in [06](06-protocol-eras.md).** Valve publishes TF2's
+notes on the day the build ships, so a note that says *"Added X"* dates X to the day — the build
+going live *is* the event. That is a different kind of claim from the protocol-13 note, which
+describes a *repair* and therefore trails the break it repairs by an unknown margin. Same
+changelog, two evidence strengths, and the distinguishing question is whether the note announces
+something or responds to something.
+
+**The one residual caveat is not about the changelog at all.** A message could be registered in a
+build *before* the feature that uses it goes live — code shipped dark ahead of an announcement is
+ordinary practice. So these bound the id's insertion from **above**: the id exists by that date,
+possibly earlier.
+
+That caveat costs nothing in practice, because **the discriminator does not use the dates**. It
+uses the ids: a demo containing `QuestObjectiveCompleted` can only be explained by the modern
+table, whatever any note says. The dates are for reasoning about a demo that contains none of
+them.

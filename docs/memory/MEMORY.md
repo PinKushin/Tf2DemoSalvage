@@ -27,4 +27,4 @@
 - [Length arithmetic identifies a layout](length-arithmetic-identifies-a-layout.md) — stated bit lengths and the gaps between them rule layouts out before any byte is read; check the length with `==`, never `<=`.
 - [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays files this project generated; dem_synctick is tick zero and the signon dominates size.
 - [Binaries answer what the SDK cannot](binaries-answer-what-the-sdk-cannot.md) — six clients gave every unnamed message id; scan PE bytes for the push pattern, don't trust Ghidra's analysis.
-- [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — a patch note is an upper bound on the event, never the event; Valve documents effects, never mechanisms.
+- [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — Valve notes date their build exactly; only a note describing a REPAIR lags its subject.

@@ -74,12 +74,24 @@ So the row is graded **bounded**, not sourced: `13 ≤ 15 Nov 2007`, with the tr
 an unknown margin. Calling it "dated exactly" would have been the single most confident wrong
 thing in this document.
 
-**The general lesson, and it applies to every changelog date in this project:** a changelog
-records when someone *responded* to something. It is an upper bound on the event, and the lag is
-whatever the report-and-fix cycle was at that company in that year. A dated patch note is not a
-dated change — it is a dated *complaint*. Treat it as a ceiling and say so, because the
-alternative is a date that looks measured, reads as measured, and is off by weeks in a direction
-you never checked.
+**The general lesson, and it needs stating precisely, because the first version of it was too
+broad.** Valve publishes TF2's notes on the day the build ships, so **the note's date is exact for
+the build it describes**. Nothing is lost there. What can lag is the *subject* of the note, and
+only for one kind of note:
+
+| the note says | the date is | because |
+|---|---|---|
+| "Added *X*" | **exact** for when *X* went live | the build shipping is the event |
+| "Fixed *X*" / "Added compatibility for *X*" | an **upper bound** on *X* | the break, the report and the fix are three different days |
+
+This entry is the second kind. A repair cannot precede the thing it repairs, so `13 ≤ 15 Nov 2007`
+and the slack is whatever Valve's report-and-fix cycle was in 2007. A *feature* note carries no
+such slack — which is what makes the message-table dating in [05](05-user-messages.md) much
+stronger evidence than this row, despite both coming from the same changelog.
+
+The trap is not "changelogs are unreliable". It is reading a **repair** as if it were an
+**announcement**, which produces a date that looks measured, reads as measured, and is wrong by
+weeks in a direction nobody checked.
 
 That distinction is exactly why the evidence grades at the top of `TIMELINE.md` exist. **Measured**
 rows come from a client that printed its own build string; this row came from Valve reacting to
