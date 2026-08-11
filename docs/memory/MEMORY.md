@@ -25,3 +25,4 @@
 - [Measure the output, not the capability](measure-the-output-not-the-capability.md) — a report built from a predicate reads clean while every instance quietly falls back.
 - [Valve publishes bitbuf](valve-publishes-bitbuf.md) — bf_write/bf_read are in source-sdk-2013 src/tier1; read it before decompiling anything bit-level.
 - [Length arithmetic identifies a layout](length-arithmetic-identifies-a-layout.md) — stated bit lengths and the gaps between them rule layouts out before any byte is read; check the length with `==`, never `<=`.
+- [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays files this project generated; dem_synctick is tick zero and the signon dominates size.
