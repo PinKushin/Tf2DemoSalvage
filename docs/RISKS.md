@@ -1353,11 +1353,37 @@ after property index widths                     99.95%   (at a 900-command sampl
 after Valve's sign rule + recorded coord choice  1,039,144 of 1,040,124   99.91%
 ```
 
-**980 snapshots (0.09%) still do not re-encode**, and that is where this stands. The approach is
-proven — six kinds of encoding choice now travel with the value rather than being guessed — and
-the residue is small enough that the next step is a bit-level diff of one case rather than another
-sweep.
+**980 snapshots (0.09%) still do not re-encode, and the failure has a precise shape.** Every one
+is a *delta* snapshot with removals, our re-encode is exactly 2 bits longer than the demo's stated
+body, and our bits match the wire up to that stated end. Dumping the tail from where the entity
+section stops:
 
-**What this does and does not affect.** The decode reads every one of these bits off the wire, so
-positions are read correctly and anything built on decoded values is unaffected. Only a re-encode
-was ever guessing.
+```
+wire = 10111011000        11 bits
+ours = 1011101100000      13 bits
+```
+
+Ours is the wire plus two zeros. Both decode to the same removal — flag set, index 110.
+
+**Writing more bits than the wire is a bug, not a format quirk.** It is at the very end of a body
+and the assembly writer truncates to the stated length, so demos still rebuild byte-exactly — but
+producing bits nothing asked for means the model of this section is wrong somewhere upstream.
+
+**The arithmetic constrains the answer.** Our model says one removal costs a flag bit, an 11-bit
+index and a terminator: 13 bits. The wire spends 11. The sender cannot simply have overrun its own
+stated length, because the bits after a body belong to the next message and a demo that did that
+would not play. So one of these is true:
+
+1. The index is not 11 bits here. A width of 10 plus flag, with the terminator omitted because the
+   body ends, is exactly 11 — the only reading that fits without an overrun. Forcing 10 globally
+   removed every content mismatch but made *more* snapshots overlong, so it is not a constant.
+2. The entity section before it is 2 bits longer than ours, and our bits match only because the
+   difference is absorbed where the two sections meet.
+
+**Two experiments already ruled out:** requiring a whole entry to fit before reading it removed 96
+of the overlong cases and broke 176 that were real, so it is not a bounds problem; and a global
+10-bit index is not it either.
+
+Next: dump the wire from a fixed offset *before* the entity section ends, not from where ours
+stops, so hypothesis 2 can be tested without assuming our own boundary is right. `bf_write` in
+`src/tier1/bitbuf.cpp` and the engine's `CL_ParseDeletions` are the authorities.
