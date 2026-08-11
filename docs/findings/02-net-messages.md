@@ -114,3 +114,28 @@ engineer — the work is choosing and vendoring a decoder:
 Three codecs, three dependencies, and the era with the most data is the awkward one. That trade
 belongs to whoever wants the audio; it is recorded here so the choice is made with the counts in
 front of it rather than after picking a library.
+
+### The codec switches are dated, and the changelog gave both ends
+
+The corpus brackets them — Speex measured through March 2013, CELT observed in 2020 — and TF2's
+patch notes close the gap:
+
+| date | change | grade |
+|---|---|---|
+| **18 November 2016** | CELT added as opt-in beta: `sv_voicecodec vaudio_celt` with `sv_use_steam_voice 0` | **Sourced** |
+| **21 December 2016** (Smissmas) | CELT becomes the **default** for all game servers | **Sourced** |
+
+**Both are announcements, not repairs, so the dates are exact rather than ceilings** — see
+[06](06-protocol-eras.md) for why that distinction decides the grade. The build shipping *is* the
+event.
+
+Two things fall out that the corpus alone could not say. The switch was **staged** — a month of
+opt-in before the default moved — so demos recorded between those dates may carry either codec
+depending on the server, and `svc_VoiceInit` is the only thing that says which. And
+`sv_use_steam_voice` **already existed in 2016**, so Steam voice was an alternative years before
+our 2026 demos show it as the default; that later default change is still unbracketed.
+
+**This also settles which era matters.** Speex covers 2007–2016, CELT 2016 to somewhere before
+2026, and `steam` after. A parser that wanted audio from the competitive archive on demos.tf would
+need **CELT**, because that is what the bulk of recorded, downloadable TF2 voice is encoded in —
+which is the awkward answer, since CELT is the one an Opus decoder cannot read.
