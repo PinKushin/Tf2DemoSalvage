@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -85,7 +86,12 @@ public static class NetMessageWriter
             SoundsMessage or TempEntitiesMessage or FixAngleMessage or FileMessage or
             GetCvarValueMessage or SetViewMessage or SignOnStateMessage or
             GameEventListMessage or VoiceInitMessage or VoiceDataMessage or EntityMessage or
-            UserMessage or ChatMessage or ClassInfoMessage => true,
+            UserMessage or ChatMessage or ClassInfoMessage or BspDecalMessage => true,
+
+            // Only when the message came from a demo. A table built in a test has no wire form to
+            // reproduce, and inventing one would be a different message.
+            CreateStringTableMessage { Wire: not null } => true,
+            UpdateStringTableMessage { Wire: not null } => true,
 
             // Its fields are a dictionary, so the definition is what supplies their order. An
             // event that arrived before its own definition has neither.
@@ -224,6 +230,54 @@ public static class NetMessageWriter
                 GameEventCodec.WriteList(writer, list);
                 break;
 
+            case CreateStringTableMessage table:
+                WriteCreateStringTable(writer, table, protocol);
+                break;
+
+            case UpdateStringTableMessage update:
+                writer.Write((uint)update.TableId, 5);
+                if (update.Wire!.EntryCount == 1)
+                {
+                    // A single changed entry is the inferred case: the count field is absent and
+                    // its flag bit says so.
+                    writer.WriteBit(false);
+                }
+                else
+                {
+                    writer.WriteBit(true).Write((uint)update.Wire.EntryCount, 16);
+                }
+
+                writer.Write((uint)update.Wire.BodyBits, 20)
+                    .AppendBits(update.Wire.Body.Span, update.Wire.BodyBits);
+                break;
+
+            case BspDecalMessage decal:
+                // Three presence bits first, then only the axes that were sent. Writing all three
+                // unconditionally would add coordinates the wire does not have.
+                writer.WriteBit(decal.X.HasValue)
+                    .WriteBit(decal.Y.HasValue)
+                    .WriteBit(decal.Z.HasValue);
+
+                foreach (float? axis in new[] { decal.X, decal.Y, decal.Z })
+                {
+                    if (axis is { } coordinate)
+                    {
+                        SendPropEncoder.WriteCoord(writer, coordinate);
+                    }
+                }
+
+                writer.Write((uint)decal.TextureIndex, NetMessageReader.DecalTextureBits)
+                    .WriteBit(decal.OnEntity);
+
+                if (decal.OnEntity)
+                {
+                    writer.Write((uint)decal.EntityIndex, NetMessageReader.EntityIndexBits)
+                        .Write((uint)decal.ModelIndex, NetMessageReader.ModelIndexBits);
+                }
+
+                writer.WriteBit(decal.IsLowPriority);
+                break;
+
             case ClassInfoMessage classes:
                 // The create-on-client flag suppresses the entry list entirely, and the entries
                 // are written at a width derived from the count rather than transmitted.
@@ -292,6 +346,49 @@ public static class NetMessageWriter
                 // Unreachable: CanWrite gates every call, and the two lists are the same list.
                 throw new NotSupportedException(message.Type.ToString());
         }
+    }
+
+    /// <summary>Writes a <c>svc_CreateStringTable</c> back from its wire form.</summary>
+    /// <remarks>
+    /// The payload goes back compressed if it arrived compressed. Recompressing would mean
+    /// reproducing a particular Snappy implementation's output byte for byte, which no parser can
+    /// promise — so the compressed bits are what is kept and what is written.
+    /// </remarks>
+    private static void WriteCreateStringTable(
+        BitWriter writer, CreateStringTableMessage table, int protocol)
+    {
+        CreateStringTableWire wire = table.Wire!;
+
+        writer.WriteString(table.Name)
+            .Write((uint)table.MaxEntries, 16)
+            .Write((uint)wire.EntryCount, WireWidths.StringTableEntryCount(table.MaxEntries));
+
+        if (protocol > StringTableCodec.VarIntLengthProtocol)
+        {
+            VarInt.WriteUInt32(writer, (uint)wire.BodyBits);
+        }
+        else
+        {
+            writer.Write((uint)wire.BodyBits, 20);
+        }
+
+        if (wire.FixedUserDataSizeBytes is { } bytes)
+        {
+            writer.WriteBit(true).Write((uint)bytes, 12).Write((uint)wire.FixedUserDataSizeBits, 4);
+        }
+        else
+        {
+            writer.WriteBit(false);
+        }
+
+        // The compression flag arrived at protocol 15; below that the bit is not on the wire at
+        // all, so writing "not compressed" there would insert one.
+        if (protocol > StringTableCodec.CompressionFlagProtocol)
+        {
+            writer.WriteBit(table.IsCompressed);
+        }
+
+        writer.AppendBits(wire.Body.Span, wire.BodyBits);
     }
 
     private static void WriteServerInfo(BitWriter writer, ServerInfoMessage info)

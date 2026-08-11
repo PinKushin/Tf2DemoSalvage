@@ -116,7 +116,20 @@ public sealed record EntityMessage(
 /// desynchronised. The entity and model indices are present only when the attachment flag is
 /// set, and a world decal carries neither.
 /// </remarks>
-public sealed record BspDecalMessage(bool OnEntity, int EntityIndex, int ModelIndex) : INetMessage
+/// <param name="X">Where the decal was applied, or <c>null</c> when the axis was not sent.</param>
+/// <param name="Y">Where the decal was applied, or <c>null</c> when the axis was not sent.</param>
+/// <param name="Z">Where the decal was applied, or <c>null</c> when the axis was not sent.</param>
+/// <param name="TextureIndex">Which decal texture, by index into the decal precache table.</param>
+/// <param name="IsLowPriority">Whether the decal may be dropped under load.</param>
+public sealed record BspDecalMessage(
+    bool OnEntity,
+    int EntityIndex,
+    int ModelIndex,
+    float? X = null,
+    float? Y = null,
+    float? Z = null,
+    int TextureIndex = 0,
+    bool IsLowPriority = false) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.BspDecal;

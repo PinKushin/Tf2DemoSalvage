@@ -31,7 +31,7 @@ internal static class StringTableCodec
     private const int CreateLengthBits = 20;
 
     /// <summary>Protocol at which the create-message length became a varint.</summary>
-    private const int VarIntLengthProtocol = 23;
+    internal const int VarIntLengthProtocol = 23;
 
     /// <summary>Last protocol that sent no compression flag on a create message.</summary>
     /// <remarks>
@@ -45,7 +45,7 @@ internal static class StringTableCodec
     /// in October 2007, which is pre-15, so TF2's own 2007–2008 demos carry no flag here. Reading
     /// the bit anyway shifts every string table by one, and string tables are load-bearing.
     /// </remarks>
-    private const int CompressionFlagProtocol = 14;
+    internal const int CompressionFlagProtocol = 14;
 
     internal static CreateStringTableMessage ReadCreate(ref BitReader reader, NetDecodeState state)
     {
@@ -60,18 +60,21 @@ internal static class StringTableCodec
 
         bool fixedUserData = reader.ReadBit();
         int userDataSizeBits = 0;
+        int? userDataSizeBytes = null;
         if (fixedUserData)
         {
-            // The byte-count field is on the wire but unused: the bit count that follows is
-            // what actually sizes a payload. Consumed with a discard rather than stored, so it
-            // is clear the skip is deliberate and not a forgotten field.
-            _ = reader.ReadUInt32(12);
+            // The byte-count field is on the wire but the decoder has no use for it: the bit
+            // count that follows is what actually sizes a payload. Kept rather than discarded
+            // because a message cannot be rebuilt without every field it carried.
+            userDataSizeBytes = (int)reader.ReadUInt32(12);
             userDataSizeBits = (int)reader.ReadUInt32(4);
         }
 
         bool compressed = protocol > CompressionFlagProtocol && reader.ReadBit();
 
         byte[] body = NetBitReading.CopyBits(ref reader, lengthBits);
+        CreateStringTableWire wire = new(
+            entryCount, lengthBits, body, userDataSizeBytes, userDataSizeBits);
 
         if (compressed)
         {
@@ -84,7 +87,8 @@ internal static class StringTableCodec
                 // Reported rather than thrown: the outer reader has already stepped past this
                 // table's bits, so one unreadable table does not cost the rest of the stream.
                 return new CreateStringTableMessage(
-                    name, maxEntries, [], true, $"decompression failed: {exception.Message}");
+                    name, maxEntries, [], true, $"decompression failed: {exception.Message}",
+                    wire);
             }
         }
 
@@ -94,14 +98,15 @@ internal static class StringTableCodec
             IReadOnlyList<StringTableEntry> entries = ReadEntries(
                 ref bodyReader, entryCount, maxEntries, fixedUserData, userDataSizeBits);
 
-            return new CreateStringTableMessage(name, maxEntries, entries, compressed, null);
+            return new CreateStringTableMessage(
+                name, maxEntries, entries, compressed, null, wire);
         }
         catch (Exception exception) when (exception is EndOfStreamException or InvalidDataException)
         {
             // The table's own bits ran out or made no sense. Reported rather than thrown,
             // because the outer stream is still intact and worth continuing.
             return new CreateStringTableMessage(
-                name, maxEntries, [], false, $"entry decode failed: {exception.Message}");
+                name, maxEntries, [], false, $"entry decode failed: {exception.Message}", wire);
         }
     }
 
@@ -112,12 +117,13 @@ internal static class StringTableCodec
         int lengthBits = (int)reader.ReadUInt32(UpdateLengthBits);
 
         byte[] body = NetBitReading.CopyBits(ref reader, lengthBits);
+        UpdateStringTableWire wire = new(entryCount, lengthBits, body);
         int maxEntries = state.StringTableCapacity(tableId);
 
         if (maxEntries <= 0)
         {
             return new UpdateStringTableMessage(
-                tableId, [], "the table this updates has not been seen");
+                tableId, [], "the table this updates has not been seen", wire);
         }
 
         try
@@ -126,12 +132,13 @@ internal static class StringTableCodec
             return new UpdateStringTableMessage(
                 tableId,
                 ReadEntries(ref bodyReader, entryCount, maxEntries, false, 0),
-                null);
+                null,
+                wire);
         }
         catch (Exception exception) when (exception is EndOfStreamException or InvalidDataException)
         {
             return new UpdateStringTableMessage(
-                tableId, [], $"entry decode failed: {exception.Message}");
+                tableId, [], $"entry decode failed: {exception.Message}", wire);
         }
     }
 

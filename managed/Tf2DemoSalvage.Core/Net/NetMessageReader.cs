@@ -55,13 +55,13 @@ public static class NetMessageReader
     internal const int VoiceDataLengthBits = 16;
 
     /// <summary>Width of a decal's texture index: the SDK's MAX_DECAL_INDEX_BITS.</summary>
-    private const int DecalTextureBits = 9;
+    internal const int DecalTextureBits = 9;
 
     /// <summary>Width of an entity index in svc_BspDecal: MAX_EDICT_BITS.</summary>
-    private const int EntityIndexBits = 11;
+    internal const int EntityIndexBits = 11;
 
     /// <summary>Width of a model index in svc_BspDecal: SP_MODEL_INDEX_BITS.</summary>
-    private const int ModelIndexBits = 13;
+    internal const int ModelIndexBits = 13;
 
     /// <summary>Width of <c>svc_SetView</c>'s entity index.</summary>
     internal const int SetViewBits = 11;
@@ -358,27 +358,28 @@ public static class NetMessageReader
                         // Written out rather than looped: the reader is a ref struct and cannot
                         // cross a lambda, and all three presence bits are read before any
                         // coordinate is, so the order matters.
-                        if (hasX)
-                        {
-                            _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
-                        }
+                        //
+                        // Kept rather than discarded. This is where a bullet hole or a scorch mark
+                        // is, which is exactly the sort of thing a viewer draws, and it was being
+                        // decoded correctly and then thrown away.
+                        float? decalX = hasX
+                            ? Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty)
+                            : null;
 
-                        if (hasY)
-                        {
-                            _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
-                        }
+                        float? decalY = hasY
+                            ? Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty)
+                            : null;
 
-                        if (hasZ)
-                        {
-                            _ = Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty);
-                        }
+                        float? decalZ = hasZ
+                            ? Schema.SendPropDecoder.ReadFloat(ref reader, CoordProperty)
+                            : null;
 
                         // Nine bits, not sixteen. An earlier version of this read three 16-bit
                         // fields here because the reference parser's *struct* declares them as
                         // u16 - but the struct is its in-memory shape, and its reader uses
                         // explicit widths that are nothing like it. Reading the struct instead
                         // of the reader cost a 14-to-38-bit overread (RISKS B16).
-                        _ = reader.ReadUInt32(DecalTextureBits);
+                        int decalTexture = (int)reader.ReadUInt32(DecalTextureBits);
 
                         // The entity and model indices are present only when this flag is set,
                         // which is most of the difference: a world decal carries neither.
@@ -391,8 +392,10 @@ public static class NetMessageReader
                             decalModel = (int)reader.ReadUInt32(ModelIndexBits);
                         }
 
-                        _ = reader.ReadBit();           // low priority
-                        messages.Add(new BspDecalMessage(onEntity, decalEntity, decalModel));
+                        bool lowPriority = reader.ReadBit();
+                        messages.Add(new BspDecalMessage(
+                            onEntity, decalEntity, decalModel,
+                            decalX, decalY, decalZ, decalTexture, lowPriority));
                         break;
                     }
 

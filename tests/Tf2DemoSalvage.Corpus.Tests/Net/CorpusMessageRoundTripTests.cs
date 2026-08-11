@@ -25,12 +25,21 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// - <see cref="EveryWritableMessage_ReproducesItsOwnBitsExactly"/> is a **gate**. Any message the
 ///   writer claims it can write has to come back identical, on every demo in the corpus. It fails
 ///   naming the demo, the message type and the bit offset.
-/// - <see cref="ReportHowMuchOfThePayloadRoundTrips"/> is an **instrument**, like the codec
-///   coverage report. It says how much of each demo's payload is reproducible today, which is what
-///   turns "the decode is lossless" from an opinion into a number that moves.
+/// - <see cref="ReportHowMuchOfThePayloadRoundTrips"/> reports the share of each demo's payload
+///   that is reproducible, and now that the share is 100% on every demo held here, it also holds
+///   it there.
 ///
-/// The instrument does not assert a threshold, for the reason the codec one does not: a threshold
-/// gets set to today's value and then defended.
+/// It started as a pure instrument, on the principle that a threshold gets set to today's value
+/// and then defended. It became a gate when the value reached the completion criterion rather than
+/// some arbitrary point: "nothing left over" is not a number to negotiate, and a new specimen
+/// carrying a message this cannot rebuild is precisely the news worth failing for.
+///
+/// **What 100% does and does not mean.** Every message is reproduced bit for bit, so no field is
+/// silently dropped anywhere. For sounds, game events, class info and decals that reproduction is
+/// from decoded VALUES, which is evidence about the body decode. For entity snapshots, string
+/// tables, user messages and voice, the body is carried verbatim and replayed - that proves the
+/// framing complete and says nothing about the contents. Those bodies need their own round trips,
+/// and svc_Sounds already has one.
 /// </remarks>
 public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
 {
@@ -121,6 +130,16 @@ public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture, $"    {bits,12:N0}  {type}"));
             }
+
+            // Held at zero now that it has reached zero. This was written as a pure instrument on
+            // the grounds that a threshold gets set to today's value and then defended - but the
+            // completion criterion is not an arbitrary number, it is "nothing left over", and a
+            // demo carrying a message this cannot rebuild is exactly the news worth failing for.
+            //
+            // A new specimen with an unhandled type will break this, and that is the point: it
+            // says the demo contains something the parser cannot reproduce, rather than quietly
+            // moving a percentage.
+            missing.ShouldBeEmpty(Path.GetFileName(path));
         }
 
         Corpus.Files().ShouldNotBeEmpty();
