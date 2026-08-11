@@ -1296,9 +1296,19 @@ What was called "trailing slack" was mostly this same bug wearing a disguise. A 
 produces a *shorter* body, so the first difference appears past the end of our content and reads as
 a padding difference. Fixing the width made those disappear rather than moving them.
 
-**Open: the two instruments disagree.** `CorpusAssemblyRoundTripTests` declines no snapshot at all
-on demos where `CorpusEntityRoundTripTests` reports thousands of mismatches, and both encode
-through the same `EncodeEntities`. A clean rebuild did not change either number, so it is not stale
-binaries. Until that is reconciled, the assembly gate is the number to trust — it compares against
-the demo end to end, and it is a gate rather than a report — and the entity report should be read
-as unexplained rather than as a defect count.
+**The instruments disagreed, and the reason was a measurement bug — mine, not the decoder's.**
+`CorpusEntityRoundTripTests` compared the whole *stated* body length. `EncodeEntities` is given
+entities, not the sender's buffer, so it zero-fills anything past its last field — and the
+comparison was reading that zero-fill against whatever the sender actually left there. Over whole
+demos it reported 96.87%; comparing the **content** it writes, it is **99.59%** (1,035,847 of
+1,040,124). The assembly writer never had the problem because it carries those bits explicitly on
+a `slack` line.
+
+The leftover is a fact about the format and is now reported as one: **32,407 snapshots end before
+their stated length, 3,474,371 bits in total.** A body is measured in bits and built in bytes.
+
+**Still open, and much smaller than it looked: 4,277 snapshots (0.41%) whose content genuinely
+does not re-encode**, all in modern demos, while the assembly gate declines none of them. That
+residue is unexplained. The owner has ILSpy, IDA and Ghidra available, which is the way to settle
+it — the engine's own `bf_write` is the only authority on which bucket a UBitVar takes, and
+guessing has already cost two wrong hypotheses here.
