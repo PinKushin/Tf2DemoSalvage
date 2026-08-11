@@ -168,3 +168,67 @@ reported a perfect 100% while most of it was timeouts.
 
 `additional-timeout` is therefore a knob that moves the score in both directions. Raise it only
 to learn what a set of timeouts resolves to, and lower it again afterwards.
+
+## Coverage capture fails, and it is the reason a run takes 18 hours
+
+Measured 2026-08-11, from the `mutation-box` corpus run and two local runs.
+
+The box run finished in **18 h 07 m** and reported **100.00 %**. That score is an artefact:
+
+| | |
+|---|---|
+| Killed | 183 |
+| Survived | 0 |
+| **Timeout** | **1142** |
+| CompileError | 1081 |
+
+**Stryker counts a timeout as a kill**, so 86 % of the "kills" are mutants that never returned a
+verdict. 1142 x ~57 s is essentially the entire wall clock.
+
+The cause is one line, printed 18 hours before the run ended:
+
+```
+[00:04:17 INF] Coverage capture complete: 0 mutations covered, 0 static mutations
+[00:04:17 ERR] It looks like the test coverage capture failed. Disable coverage based optimisation.
+```
+
+With no coverage data Stryker cannot tell which tests touch a mutant, so it runs **the whole
+suite for every mutant**. Against the corpus project — integration tests over real demo files —
+that exceeds `additional-timeout` constantly.
+
+**It is not unbounded loops in the parser.** That was the first hypothesis and it does not
+survive the report: the largest timeout cluster is 100 mutants in `DemoTextDumper.cs`, and lines
+54-56 there are `ArgumentNullException.ThrowIfNull` calls mutated to `;`. Removing a null check
+cannot hang. A few mutants genuinely can spin — `Snappy.cs` `read++` to `read--` is a real
+infinite loop — but they are a rounding error against 1142.
+
+**Switching `test-runner` to `vstest` does not fix it, and fails worse.** Tried locally: coverage
+capture still fails, and the symptom inverts — instead of running everything and timing out,
+mutants come back `Survived` without a verdict. A scoped run reported `Killed: 0, Survived: 95`
+against 731 passing tests, which is not a result. Reverted; `mtp` is demonstrably less broken
+because it at least produced 183 real kills.
+
+**Open, and the thing to fix before booking any recurring slot.** Until coverage capture works,
+no mutation number from this repo means anything, in either direction.
+
+Two things to try, neither verified:
+
+1. Pin a Stryker version known to capture coverage under .NET 10 (SDK here is 10.0.302).
+   Coverage collection is the part most likely to break on a new SDK.
+2. Mutate against `Tf2DemoSalvage.Core.Tests` rather than the corpus project regardless.
+   731 fast unit tests are a better mutation harness than 78 integration tests over 20 MB of
+   demos, and the corpus project should be a separate, rarer run.
+
+## `string.Create(CultureInfo.InvariantCulture, $"...")` cannot be mutated
+
+The 1081 compile errors are almost all one shape:
+
+```
+CS1620: Argument 2 must be passed with the 'ref' keyword
+```
+
+Stryker rewrites the interpolated string into a conditional, and the interpolated-string handler
+is a `ref struct` passed by ref, so the rewritten form does not compile. This codebase uses that
+idiom for every culture-safe message, so a large fraction of mutants are dead on arrival. Not a
+defect to fix in the source — worth knowing so the created-versus-tested gap is not read as
+something else.
