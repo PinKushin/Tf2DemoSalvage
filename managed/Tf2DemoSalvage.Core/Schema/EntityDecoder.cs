@@ -303,12 +303,20 @@ public sealed class EntityDecoder
 
         if (isDelta)
         {
+            // Mirrors bf_write, including its refusal to write a field that will not fit. A demo
+            // whose sender overflowed here has a set flag bit and nothing behind it, and
+            // reproducing that is the difference between a byte-exact re-encode and one that is
+            // two bits long.
             foreach (int index in removed)
             {
-                writer.WriteBit(true).Write((uint)index, RemovedIndexBits);
+                writer.WriteBit(true);
+                writer.Write((uint)index, RemovedIndexBits);
             }
 
-            writer.WriteBit(false);
+            if (lengthBits <= 0 || writer.BitCount < lengthBits)
+            {
+                writer.WriteBit(false);
+            }
         }
 
         bitCount = writer.BitCount;
@@ -689,10 +697,29 @@ public sealed class EntityDecoder
 
     private void ReadRemovals(ref BitReader reader, int lengthBits)
     {
-        // Bounded by the body length as well as by the flag, so a corrupt stream cannot spin
-        // here reading whatever follows the message.
+        // **The sender's buffer can run out mid-list, and the flag is written before the index.**
+        // bf_write::WriteUBitLong refuses to write when fewer bits remain than the field needs:
+        // it consumes the rest of the buffer, sets an overflow flag and writes nothing. So a body
+        // can legitimately end with a set flag bit and no index behind it - the engine intended a
+        // removal, ran out of room, and gave up.
+        //
+        // Reading an index there invents one out of unwritten buffer. It is silent: the value is
+        // a plausible entity number, nothing overruns, and the only visible trace is that
+        // re-encoding the message comes out two bits longer than the demo. That is how this was
+        // found, and the engine's own guard says the same thing: when the bits remaining are
+        // fewer than the field is wide, the write position jumps to the end of the buffer, an
+        // overflow flag is raised, and no value is stored.
+        //
+        // The order matters and is why an earlier guard here was wrong: refusing to read the flag
+        // unless a whole entry fits also discards the last legitimate removal of a body that ends
+        // exactly after it.
         while (reader.BitsRead < lengthBits && reader.ReadBit())
         {
+            if (lengthBits - reader.BitsRead < RemovedIndexBits)
+            {
+                break;
+            }
+
             _removed.Add((int)reader.ReadUInt32(RemovedIndexBits));
         }
     }

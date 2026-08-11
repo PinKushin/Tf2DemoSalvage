@@ -1380,39 +1380,37 @@ would not play. So one of these is true:
 2. The entity section before it is 2 bits longer than ours, and our bits match only because the
    difference is absorbed where the two sections meet.
 
-**Four experiments ruled out, all reverted:**
+**Answered, by reading the engine.** `engine.dll` from the 2013 build, in Ghidra, contains the
+deletion writer with `bf_write` inlined. Two constants this project had guessed correctly — the
+index is 11 bits, the terminator is one clear bit — and one behaviour it had never modelled:
 
-| Hypothesis | Result |
-|---|---|
-| Bounds problem — require a whole entry to fit before reading one | removed 96 overlong, broke 176 real removals |
-| The index is a constant 10 bits | every content mismatch gone, more snapshots overlong |
-| The index width is `floor(log2(maxEntries))`, derived like every other width here | 13,973 decodable snapshots became 13,772 — it breaks decoding |
-| Valve writes past its own stated length | ruled out by construction: the message is length-prefixed and every message *after* these snapshots decodes cleanly across whole demos, so the stated length is the true extent |
+```c
+if ( bitsAvailable - currentBit < 0xb ) {   // fewer bits left than the field is wide
+    currentBit = bitsAvailable;             // consume the remainder
+    overflowFlag = 1;                       // and write NOTHING
+}
+```
 
-**What the arithmetic still says.** The wire spends 11 bits where we spend 13. The only division of 11
-that carries a flag and the index 110 is flag + 10 bits, with no terminator because the list ends
-at the body end. But a fixed 10 is wrong elsewhere and a capacity-derived 10 breaks decoding, so
-the width is neither constant nor derived from `max_entries`.
+**`bf_write` silently gives up when the buffer fills.** The flag bit is written first, then the
+index is refused for want of room. So a body can legitimately end with a set flag and no index
+behind it: the engine intended a removal, ran out of buffer, and stopped. The terminator is
+refused for the same reason.
 
-**The Rust parser has no answer either.** demostf/parser models this section exactly as we do —
-`while data.read()? { removed_entities.push(data.read_sized::<u32>(11)?) }` on read, and a flag
-plus an 11-bit index plus a terminating zero on write. Its reader is *bounded* to the body
-(`stream.read_bits(length)`), so on these snapshots it would run out mid-index and hard-error
-rather than produce a different answer. Two independent implementations sharing an assumption is
-not corroboration.
+That is the whole of the two bits. Our decoder read an index out of the unwritten remainder —
+inventing a deletion that never happened, with a plausible entity number and no error anywhere —
+and our encoder then wrote flag, index and terminator where the demo had flag and nothing.
 
-**Localised to the removal list, and nothing else.** `EntitySectionLengthTests` compares the two
-halves of this codec on the entity section alone — bits the decoder consumed against bits the
-encoder produces — and they agree on **61,701 of 61,701** snapshots. So entities, properties,
-index deltas and coordinate choices are all exact, and the entire remaining discrepancy is in the
-handful of bits after them. That is now a gate, so it cannot regress unnoticed.
+**Both sides now model it.** The decoder stops when fewer than eleven bits remain *after* reading
+the flag, and the encoder omits a terminator that will not fit. Note the ordering: an earlier
+attempt refused to read the flag unless a whole entry fit, which also discarded the last
+legitimate removal of a body ending exactly after it. The engine writes the flag first, so the
+check belongs after it.
 
-**Blocked on a JDK, not on a decision.** The deletion loop is engine code — `cl_ents_parse.cpp`
-and `sv_ents_write.cpp` are not in source-sdk-2013 — so the remaining authority is a period
-`engine.dll` in Ghidra. Ghidra 12.1.2 is installed and fails to start under JDK 25: its Felix OSGi
-layer aborts with "the data file must be inside the data dir", which is not a stale cache
-(clearing `felixcache` changes nothing). `application.java.min=21` with no declared maximum, and
-JDK 21 is not on this machine. Installing Temurin 21 alongside 25 unblocks it.
+**Result: 366 snapshots that previously failed to decode now decode**, 1,040,124 to 1,040,490
+across whole demos, and 282 of those re-encode exactly. 1,064 still do not, so this was a
+mechanism rather than the last one.
 
-When that runs: project and output paths under a temp directory, never inside a working tree, and
-what comes back belongs here as a sentence and a named constant rather than as pasted code.
+**Four earlier hypotheses, all reverted, all wrong:** a bounds check before the flag, a constant
+10-bit index, a width derived from `max_entries`, and sender truncation of the message itself.
+The last is worth restating precisely: the *message* is never truncated, but a *field inside it*
+can be.
