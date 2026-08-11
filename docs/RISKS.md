@@ -1604,7 +1604,7 @@ recordings. So this is a known gap rather than a known failure.
 **Fix, when done, is a width chosen by era**, which is the same table-selection problem as B29 and
 should land with it rather than as a second one-off protocol conditional.
 
-## B29 — protocol 24 cannot select a user message name table above id 50 — OPEN
+## B29 — protocol 24 cannot select a user message name table above id 50 — NARROWED
 
 The user message id table belongs to the **game DLL**, and the protocol number belongs to the
 **engine**. They move independently, and protocol 24 has now spanned thirteen years.
@@ -1669,3 +1669,32 @@ So the implementation has two tiers, and the cheap one is decisive on its own:
 That reduces B29 from "we cannot know" to "we can usually know, and we degrade to the current
 correct-but-quiet behaviour when we cannot". See `findings/05` for the reasoning and the caveat
 that these dates bound the insertion from *above*.
+
+### B29 narrowed, 2026-08-11 — the era tables are in, and only protocol 24 is still ambiguous
+
+`UserMessageNames` now selects a table per era, with the haptics block appended from 2009 on.
+Measured on the committed corpus, four of the five long-unnamed ids resolve:
+
+| demo | was | now |
+|---|---|---|
+| 2009 POV | `#40`, `#44`×2 | `CheapBreakModel`, `HapSetDrag`×2 |
+| 2011 POV | `#41`, `#52`×2 | `CheapBreakModel`, `HapSetDrag`×2 |
+| 2011 STV | `#41` | `CheapBreakModel` |
+| March 2013 POV | `#69`×3 | **`#69`×3, unchanged** |
+
+**The remaining case is the whole of B29 and nothing else.** Protocols 11–16 are each one measured
+build, so their tables are decided. Protocol 24 is not one era, and `#69` stays a number because
+the current table would call it `PlayerLoadoutUpdated` — a one-byte message — and the body is 32
+bits, so the refusing-layout gate withholds the name. That is the correct answer arrived at
+without the era machinery, and it is also the reason this is low priority: **the failure mode is
+already quiet rather than wrong.**
+
+What remains is the ids in 51–65 that this project has *no* layout for. There the gate cannot fire,
+and an early protocol-24 demo would be named from the modern table silently. None appear in the
+corpus, so this is unexercised rather than known-broken.
+
+**The fix is unchanged and now cheap:** pick between the two tables using the ids the demo actually
+carries — any of `RDTeamPointsChanged`, `BonusDucks`, `EOTLDuckEvent` or `QuestObjectiveCompleted`
+proves the modern table on sight, and the highest id observed bounds it from the other side. That
+is demo-level evidence, so it belongs to whatever assembles the decode, not to a function that sees
+one id and a protocol number.
