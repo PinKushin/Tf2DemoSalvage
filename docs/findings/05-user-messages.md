@@ -448,3 +448,52 @@ byte and no payload, which is `RemoveAllDecals` and nothing else.
 So the honest statement is not "impossible" but "**not generic, and small**". The class id on the
 wire selects the handler, the first byte selects the case, and the set of handlers is enumerable
 from published source.
+
+## The table dates itself: every new id is a shipped feature
+
+Owner's observation, 2026-08-11, and it inverts the problem. The names are not arbitrary — each
+one arrives with a **feature**, and features are the one thing Valve *does* document. So the
+message table stops being a thing that needs dating and becomes an instrument for dating demos.
+
+That matters because of the protocol-24 collision above: the header carries no build number, so
+nothing in a demo says which of the two incompatible tables applies. The messages themselves do.
+
+The thirteen entries separating the March 2013 client from the July 2026 one, with what shipped
+them:
+
+| id | new message | feature | date | grade |
+|---|---|---|---|---|
+| 51 | `RDTeamPointsChanged` | Robot Destruction — `rd_asteroid`, Mann Co. beta maps | **8 July 2014** | **Sourced** |
+| — | `BonusDucks` | Scream Fortress 2014, Carnival of Carnage | 29 Oct 2014 | **Sourced** |
+| — | `EOTLDuckEvent` | End of the Line, Duck Journal | 8 Dec 2014 | **Sourced** |
+| — | `QuestObjectiveCompleted` | Gun Mettle contracts | 2 July 2015 | **Sourced** |
+
+**The id-51 row is the one that closes RISKS B29.** `RDTeamPointsChanged` is the single insertion
+that shifts everything above it, so a protocol-24 demo recorded **before 8 July 2014 uses the
+66-entry table** and one recorded after uses the modern one. That is a date, not a protocol, and
+it is exactly the discriminator the header cannot supply.
+
+The same logic runs backwards through the earlier eras — `PlayerJarated`, `PlayerExtinguished`
+and `PlayerShieldBlocked` are Sniper vs. Spy (May 2009); `HudArenaNotify` is Arena mode (August
+2008); the `MVM*` block is Mann vs. Machine (15 August 2012); the vote family is the 2011 kick
+voting system. Each one bounds the build that registered it.
+
+**Two general points, and the second is the sharper one.**
+
+A **feature** leaves two traces that a *mechanism* does not: a patch note, and a message id. The
+protocol number has neither — [06](06-protocol-eras.md) finds exactly one protocol bump documented
+in nineteen years. So the reliable way to date a Source demo is not to ask what the format version
+means, it is to ask **which features the recording knows about**. The engine hides its version
+history; the game DLL advertises its own.
+
+And the direction of inference is worth stating plainly, because it is the opposite of everything
+else in this document. Everywhere else, a measurement dates a format fact. Here a *published
+date* dates a **binary**, and the binary then dates a **demo**. Changelogs were nearly written off
+after the protocol search returned one hit; they are in fact the strongest instrument available
+for this particular question, because it is a question about features.
+
+**Caveat, per [06](06-protocol-eras.md).** A patch note dates a response, not always the change.
+For a feature this is much tighter than for a bug fix — a mode ships on the day its map appears,
+and the message must already be registered for the map to work — but the id could have been
+registered in an earlier build than the one that used it. So these are graded **sourced** and
+bound the insertion from *above*: the id exists by that date.
