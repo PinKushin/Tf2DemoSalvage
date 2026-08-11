@@ -25,7 +25,7 @@ The corpus's fixed points. Everything else is positioned relative to these.
 | Date | Protocol | Source | Grade |
 |---|---|---|---|
 | **9 October 2007** | **11** | TF2 build 3258 — the launch build. `Exe build: 18:14:51 Oct  9 2007 (3258)`, `PatchVersion=1.0.0.5`. | **Measured** |
-| **15 November 2007** | **13** | TF2 patch notes for that day: *"Added backward compatibility code to allow demos recorded with protocol 12 to continue to be playable under protocol version 13."* Valve naming both numbers in one sentence dates 13 exactly and puts 12 strictly before it. | **Sourced** |
+| **on or before 15 Nov 2007** | **13** | TF2 patch notes for that day: *"Added backward compatibility code to allow demos recorded with protocol 12 to continue to be playable under protocol version 13."* The build shipped that day **is** protocol 13, so 13 exists by then — but the note is a repair, and a repair lags the break that caused it. See below. | **Bounded** |
 | **19 March 2008** | **14** | TF2 build 3420. `Exe build: 20:17:35 Mar 19 2008 (3420)`, `PatchVersion=1.0.2.2`. | **Measured** |
 | **4 June 2009** | 15 | TF2 build 3862. The client's own `version` reports `Exe build: 13:52:56 Jun 4 2009 (3862)`. | **Measured** |
 | **15 June 2011** | **16** | TF2 build 4604. `Exe build: 13:46:52 Jun 15 2011 (4604) (440)`, `Exe version 1.1.5.8`. | **Measured** |
@@ -43,8 +43,7 @@ than a 3–5 GB download when the archive is a ZIP.
 
 | Gap | Window | Width |
 |---|---|---|
-| **12** | 9 Oct 2007 → 15 Nov 2007 | five weeks |
-| **13** | — | dated exactly: 15 Nov 2007 |
+| **12–13** | 9 Oct 2007 → 15 Nov 2007 | five weeks, both inside it |
 | **17–23** | 15 Jun 2011 → 25 Mar 2013 | twenty-one months |
 
 Protocol 11 at launch was a surprise. The March 2008 build reports 14, and the launch build was
@@ -52,15 +51,23 @@ expected to report 14 as well — three protocol versions came and went in TF2's
 which is a faster cadence than anything later in its history.
 
 **The changelog closed most of that window on 2026-08-11.** The 15 November 2007 patch names
-protocols 12 and 13 in the same sentence, so 13 is dated to the day and 12 is squeezed into the
-five weeks after launch — four candidate patches, on 25 and 31 October and 1 and 7 November.
+protocols 12 and 13 in the same sentence, which puts **both** inside the five weeks after launch —
+against four candidate patches, on 25 and 31 October and 1 and 7 November.
 
-Two things about that patch are worth keeping. It also carries **"Fix for broken .dem file
-playback"**, so 15 November 2007 is the earliest date on which Valve is known to have worked on
-the demo system at all. And the compatibility shim is the only one of its kind in TF2's notes:
-**no patch note anywhere documents the 13→14 bump**, or 15→16, or any later one. Valve wrote the
-note because they had shipped a user-visible fix, not because bumping the protocol was
-newsworthy — which is why the changelog route dated one boundary here and none of the others.
+**That patch is a ceiling, not a date, and the first version of this section got it wrong.** The
+note describes *adding backward compatibility code* — a repair. A repair lags the break: 13 had
+to have shipped, players had to have found their protocol-12 recordings unplayable, and that had
+to have been reported, before anyone wrote compatibility code. So 13 was live for some days at
+least before 15 November, and 12 is pushed further back still, toward the 25 October patch.
+
+The same patch carries a *second*, separate demo repair — **"Fix for broken .dem file
+playback"** — which is the corroboration. Two independent demo fixes in one patch describes a
+demo system that had been broken in the field, not one that broke that morning.
+
+The compatibility shim is the only one of its kind in TF2's notes: **no patch note anywhere
+documents the 13→14 bump**, or 15→16, or any later one. Valve wrote this note because they had
+shipped a user-visible fix, not because bumping the protocol was newsworthy — which is exactly
+why the note trails the event it lets us date.
 
 `z1800.dem` carries no date. It was originally guessed at ~2015 from its protocol numbers, which
 was **wrong** — protocol pairs date nothing, since 3/24 spans at least 2015 to 2026. It is now
