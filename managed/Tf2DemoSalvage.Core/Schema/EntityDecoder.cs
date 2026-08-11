@@ -473,6 +473,63 @@ public sealed class EntityDecoder
         return effects;
     }
 
+    /// <summary>Re-encodes decoded temp entities back into a <c>svc_TempEntities</c> body.</summary>
+    /// <param name="effects">The effects, in order.</param>
+    /// <param name="reliable">Whether the message carried a single reliable effect.</param>
+    /// <param name="lengthBits">The body length to pad out to.</param>
+    /// <returns>The body's bits.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="effects"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// One guess here, and it is checked rather than trusted: the class id is written only when it
+    /// differs from the previous effect's, because that is what makes a burst of the same effect
+    /// cheap on the wire. Whether the sender always omits a repeat is not something the decoded
+    /// values can say - a repeated class and an omitted class look identical afterwards - so the
+    /// assembly writer compares the result against the demo and falls back to raw if it differs.
+    /// </remarks>
+    public byte[] EncodeTempEntities(
+        IReadOnlyList<DecodedTempEntity> effects, bool reliable, int lengthBits)
+    {
+        ArgumentNullException.ThrowIfNull(effects);
+
+        BitWriter writer = new();
+        int previousClass = -1;
+
+        foreach (DecodedTempEntity effect in effects)
+        {
+            if (effect.DelaySeconds == 0f)
+            {
+                writer.WriteBit(false);
+            }
+            else
+            {
+                writer.WriteBit(true)
+                    .Write((uint)MathF.Round(effect.DelaySeconds * DelayScale), DelayBits);
+            }
+
+            if (effect.ClassId == previousClass)
+            {
+                writer.WriteBit(false);
+            }
+            else
+            {
+                // Stored one higher than it is, so that a raw zero can mean "no class".
+                writer.WriteBit(true).Write((uint)(effect.ClassId + 1), _classBits);
+                previousClass = effect.ClassId;
+            }
+
+            WriteProperties(writer, effect.Properties);
+        }
+
+        _ = reliable;
+
+        for (int bit = writer.BitCount; bit < lengthBits; bit++)
+        {
+            writer.WriteBit(false);
+        }
+
+        return writer.Build();
+    }
+
     /// <summary>Width of a temp entity's fire delay.</summary>
     private const int DelayBits = 8;
 

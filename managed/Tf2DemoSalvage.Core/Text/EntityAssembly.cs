@@ -95,6 +95,140 @@ public static class EntityAssembly
         return lines;
     }
 
+    /// <summary>Renders a temp entities body, or <c>null</c> when it will not decode.</summary>
+    /// <param name="message">The message.</param>
+    /// <param name="decoder">Decoder holding the schema.</param>
+    /// <returns>The lines, or <c>null</c>.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <c>null</c>.</exception>
+    /// <remarks>
+    /// Temp entities are entities - explosions, tracers, blood, decals - read against the same
+    /// flattened schema an update uses. They are what a 3D viewer draws that no entity in the
+    /// table accounts for, because they are fire-and-forget and never enter it.
+    /// </remarks>
+    public static IReadOnlyList<string>? WriteEffects(
+        TempEntitiesMessage message, EntityDecoder decoder)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(decoder);
+
+        IReadOnlyList<DecodedTempEntity> effects;
+        try
+        {
+            effects = decoder.DecodeTempEntities(
+                message.Body.Span, message.Count, message.BodyBits);
+        }
+        catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
+        {
+            return null;
+        }
+
+        List<string> lines =
+        [
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"svc_tempentities count={message.Count} bits={message.BodyBits} {{"),
+        ];
+
+        foreach (DecodedTempEntity effect in effects)
+        {
+            lines.Add(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  effect class={effect.ClassId} delay={Round(effect.DelaySeconds)} {{"));
+
+            foreach (DecodedProperty property in effect.Properties)
+            {
+                string value = PropertyText.Write(property.Definition, property.Value);
+                lines.Add(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    prop {property.Index} {property.Definition.OwnerTable}." +
+                    $"{property.Definition.Property.Name} {value}"));
+            }
+
+            lines.Add("  " + BlockEnd);
+        }
+
+        lines.Add(BlockEnd);
+        return lines;
+    }
+
+    /// <summary>Reads a temp entities block back into a message.</summary>
+    /// <param name="tokens">The message's first line.</param>
+    /// <param name="nextLine">Supplies the block's lines.</param>
+    /// <param name="decoder">Decoder holding the schema.</param>
+    /// <returns>The message, with its body re-encoded from the text.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <c>null</c>.</exception>
+    public static TempEntitiesMessage BuildEffects(
+        IReadOnlyList<string> tokens, Func<string?> nextLine, EntityDecoder decoder)
+    {
+        ArgumentNullException.ThrowIfNull(tokens);
+        ArgumentNullException.ThrowIfNull(nextLine);
+        ArgumentNullException.ThrowIfNull(decoder);
+
+        Dictionary<string, string> header = Fields(tokens);
+        List<DecodedTempEntity> effects = [];
+
+        while (true)
+        {
+            string line = nextLine()
+                ?? throw new InvalidDataException("An effect block was not closed with '}'.");
+
+            List<string> parts = Tokens(line);
+            if (parts.Count == 0)
+            {
+                continue;
+            }
+
+            if (parts[0] == BlockEnd)
+            {
+                break;
+            }
+
+            effects.Add(ReadEffect(parts, nextLine, decoder));
+        }
+
+        int count = Field(header, "count");
+        int bits = Field(header, "bits");
+
+        return new TempEntitiesMessage(
+            count, bits, decoder.EncodeTempEntities(effects, count == 0, bits));
+    }
+
+    private static DecodedTempEntity ReadEffect(
+        List<string> parts, Func<string?> nextLine, EntityDecoder decoder)
+    {
+        Dictionary<string, string> fields = Fields(parts);
+        int classId = Field(fields, "class");
+        float delay = float.Parse(fields["delay"], CultureInfo.InvariantCulture);
+
+        List<DecodedProperty> properties = [];
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(classId);
+
+        while (true)
+        {
+            string line = nextLine()
+                ?? throw new InvalidDataException("An effect was not closed with '}'.");
+
+            List<string> tokens = Tokens(line);
+            if (tokens.Count == 0)
+            {
+                continue;
+            }
+
+            if (tokens[0] == BlockEnd)
+            {
+                break;
+            }
+
+            int index = int.Parse(tokens[1], CultureInfo.InvariantCulture);
+            properties.Add(new DecodedProperty(
+                index, flat[index], PropertyText.Read(flat[index], tokens, 3)));
+        }
+
+        return new DecodedTempEntity(classId, delay, properties);
+    }
+
+    private static string Round(float value) => value.ToString("R", CultureInfo.InvariantCulture);
+
     /// <summary>Reads a snapshot's lines back into a message.</summary>
     /// <param name="tokens">The <c>svc_packetentities</c> line's tokens.</param>
     /// <param name="nextLine">Supplies the block's remaining lines.</param>

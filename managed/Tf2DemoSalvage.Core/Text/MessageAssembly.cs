@@ -52,7 +52,8 @@ public static class MessageAssembly
             FileMessage or GetCvarValueMessage or PrefetchMessage or ServerInfoMessage or
             ClassInfoMessage or VoiceInitMessage or BspDecalMessage or EntityMessage or
             VoiceDataMessage or UserMessage or ChatMessage or SoundsMessage or
-            PacketEntitiesMessage;
+            PacketEntitiesMessage or GameEventListMessage or GameEventMessage or
+            TempEntitiesMessage;
     }
 
     /// <summary>Renders a message as one or more lines of assembly.</summary>
@@ -79,6 +80,16 @@ public static class MessageAssembly
             // decode. The caller falls back to raw, which is what those bits already were.
             PacketEntitiesMessage snapshot =>
                 entities is null ? null : EntityAssembly.Write(snapshot, entities),
+
+            TempEntitiesMessage effects =>
+                entities is null ? null : EntityAssembly.WriteEffects(effects, entities),
+
+            GameEventListMessage list => EventAssembly.WriteList(list),
+
+            // An event that arrived before its definition decoded to an id and nothing else, so
+            // there is nothing to write down.
+            GameEventMessage gameEvent =>
+                gameEvent.IsDecoded ? EventAssembly.WriteEvent(gameEvent) : null,
 
             NetEmptyMessage => ["net_nop"],
 
@@ -227,6 +238,12 @@ public static class MessageAssembly
         {
             state.ServerInfo = info;
         }
+        else if (message is GameEventListMessage list)
+        {
+            // Every later event is written against these: the field order lives in the
+            // definition, not in the event.
+            state.AddEventDefinitions(list.Definitions);
+        }
     }
 
     private static INetMessage Build(
@@ -235,6 +252,17 @@ public static class MessageAssembly
         NetDecodeState state,
         EntityDecoder? entities) => tokens[0] switch
     {
+        "svc_gameeventlist" => EventAssembly.BuildList(tokens, nextLine),
+
+        "svc_gameevent" => EventAssembly.BuildEvent(tokens, nextLine, state),
+
+        "svc_tempentities" => EntityAssembly.BuildEffects(
+            tokens,
+            nextLine,
+            entities ?? throw new InvalidDataException(
+                "A temp entities block appeared before any dem_datatables command, so there is " +
+                "no schema to read its properties against.")),
+
         "svc_packetentities" => EntityAssembly.Build(
             tokens,
             nextLine,

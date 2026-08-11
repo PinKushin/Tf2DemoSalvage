@@ -148,6 +148,51 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
             }
         }
 
+        long compressed = 0;
+        long compressedBits = 0;
+        long plain = 0;
+        long plainBits = 0;
+
+        foreach (string path in Corpus.Files())
+        {
+            byte[] demo = File.ReadAllBytes(path);
+            NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
+
+            foreach (DemoCommand command in
+                DemoCommandReader.Read(demo.AsMemory(DemoHeader.SizeBytes)).Take(CommandLimit))
+            {
+                if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+                {
+                    continue;
+                }
+
+                foreach (INetMessage message in
+                    NetMessageReader.Read(command.Payload.Span, state).Messages)
+                {
+                    if (message is not CreateStringTableMessage table || table.Wire is null)
+                    {
+                        continue;
+                    }
+
+                    if (table.IsCompressed)
+                    {
+                        compressed++;
+                        compressedBits += table.Wire.BodyBits;
+                    }
+                    else
+                    {
+                        plain++;
+                        plainBits += table.Wire.BodyBits;
+                    }
+                }
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"create string tables: {plain:N0} plain ({plainBits:N0} bits), " +
+            $"{compressed:N0} compressed ({compressedBits:N0} bits)"));
+
         output.WriteLine("still raw, by bits:");
         foreach ((string type, long total) in bits.OrderByDescending(entry => entry.Value))
         {
