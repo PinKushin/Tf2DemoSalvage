@@ -42,6 +42,49 @@ seconds long, which is exactly how this was found ([07](07-writing-demos.md)).
 carry none at all**, so any fallback must count packets rather than scan the file, or the bug
 returns on precisely the files that cannot signal otherwise.
 
+## The two clocks, and how a client stall shows up in the file
+
+A packet carries **two** clocks: the container's command-header tick, which counts from the start
+of the recording, and `net_Tick`, which carries the **server's own absolute tick**. They differ by
+a large constant — around 5,000 in one pub recording, simply because the server had been up a
+while before the client connected.
+
+**The offset is stable to within a tick or two**, which is a much stronger check than it sounds.
+The two numbers are decoded by completely different paths — a 32-bit little-endian field in the
+container versus 32 bits pulled from a bit stream at an arbitrary offset — so any desynchronisation
+in either shows up immediately as the offset wandering.
+
+### A recording gap and a decoder desync look identical until you check the demo clock
+
+Both make the offset spread. They are trivially separable, and the separation is the useful part:
+
+| | demo clock | server clock | offset |
+|---|---|---|---|
+| **recording stall** | gaps, seconds between consecutive packets | gaps too | steps once, stable either side |
+| **decoder desync** | normal, 1–3 ticks per packet | garbage | wanders continuously |
+
+So **a client hitch is visible in the file**: consecutive packets sit seconds apart on *both*
+clocks, and the offset takes a permanent step because server time passed while demo time did not.
+Nothing else produces that signature.
+
+Measured on a 2026 pub demo: rock-stable offset (±1 tick) for the first 800 packets, a step of
+~3,500 ticks across packets 1064–1068 where consecutive packets are 4–5 seconds apart on the demo
+clock and 10–20 seconds apart on the server's, then rock-stable again for the remaining 12,500
+packets. That is a **36-second freeze**, recorded faithfully as a hole.
+
+The cause is worth recording because it is a methodological lesson rather than a format one: this
+repository's own mutation suite was saturating the machine while the demo was being recorded. **The
+measurement instrument perturbed the subject.** Long CPU work does not belong on a machine that is
+simultaneously producing specimens — see `docs/memory/`.
+
+Two consequences beyond specimen hygiene:
+
+- **A viewer must not interpolate across such a gap.** Entity positions either side are real and
+  the seconds between them are not; smoothing them together invents movement that never happened.
+- **It is a specimen quality check.** A demo with a large mid-recording step is a poor choice for
+  anything timing-related, whatever it is fine for otherwise — the pub demo above still settled a
+  user-message id question perfectly well.
+
 ## `democmdinfo` is the camera, and it is authoritative for POV
 
 Each packet carries a 76-byte prologue holding view origin, angles and flags. It is a *separate

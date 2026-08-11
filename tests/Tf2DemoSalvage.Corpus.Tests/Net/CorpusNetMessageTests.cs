@@ -75,21 +75,86 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
 
             // Not exactly constant. The band is small and does not grow, which is jitter
             // rather than desynchronisation - a bit-level misread would yield garbage 32-bit
-            // values, not a wobble of a few ticks. The bound is deliberately loose because
-            // the point is to catch a decoder that has lost the stream, not to pin a
-            // network characteristic that legitimately varies between recordings.
-            int spread = offsets.Max() - offsets.Min();
+            // values, not a wobble of a few ticks.
+            //
+            // **Measured across an unbroken stretch, not across the whole sample**, and the
+            // difference is a real distinction rather than a tolerance. A recording can contain
+            // gaps: the client stalls, records nothing for a while, and resumes. That moves the
+            // offset permanently, because server time passed and demo time did not.
+            //
+            // A stall and a desynchronisation look identical if you only measure min-to-max, and
+            // they are trivially separable if you look at the demo clock as well:
+            //
+            //   stall  - BOTH clocks gap. Consecutive packets sit seconds apart on the demo
+            //            clock too, and the offset is rock stable either side of the step.
+            //   desync - only the server tick misbehaves. The demo clock keeps advancing one to
+            //            three ticks per packet while the decoded value goes wrong.
+            //
+            // So the sample is split at demo-clock gaps and each unbroken run is measured on its
+            // own. Found the hard way: a pub demo recorded while this repo's own mutation suite
+            // was saturating the machine froze the game for about 36 seconds mid-match, stepping
+            // the offset by 3,500 ticks. The old assertion called that "the decoder lost the
+            // stream". It had not - the same file decodes every entity snapshot it is offered.
+            List<List<int>> runs = [[]];
+            int previousTick = int.MinValue;
+
+            foreach ((DemoCommand packet, INetMessage? first) in Sampled(path, protocol))
+            {
+                if (first is not NetTickMessage tick)
+                {
+                    continue;
+                }
+
+                if (previousTick != int.MinValue && packet.Tick - previousTick > GapTicks)
+                {
+                    runs.Add([]);
+                }
+
+                runs[^1].Add(tick.Tick - packet.Tick);
+                previousTick = packet.Tick;
+            }
+
+            List<int> longest = runs.OrderByDescending(run => run.Count).First();
+            int gaps = runs.Count - 1;
+            int spread = longest.Count == 0 ? 0 : longest.Max() - longest.Min();
+
             output.WriteLine(
-                $"{Path.GetFileName(path)}: tick offset {offsets.Min()}..{offsets.Max()} " +
-                $"(spread {spread}) over {offsets.Count} packets");
+                $"{Path.GetFileName(path)}: tick offset {offsets.Min()}..{offsets.Max()} over " +
+                $"{offsets.Count} packets; longest unbroken run {longest.Count} packets, " +
+                $"spread {spread}, recording gaps {gaps}");
+
+            // A garbage 32-bit read lands here whatever the gaps did. Server ticks are bounded by
+            // how long a server has been up, so an offset in the millions is a misread and not a
+            // recording that paused - no stall can manufacture one.
+            offsets.Max(Math.Abs).ShouldBeLessThan(
+                ImplausibleOffset,
+                $"{Path.GetFileName(path)}: offset {offsets.Min()}..{offsets.Max()} is outside " +
+                $"anything a server clock produces, so the field was misread");
 
             spread.ShouldBeLessThanOrEqualTo(
                 64,
-                $"{Path.GetFileName(path)}: server-to-demo tick offset spread {spread} " +
-                $"(min {offsets.Min()}, max {offsets.Max()}) looks like the decoder lost the " +
-                $"stream rather than clock jitter");
+                $"{Path.GetFileName(path)}: within an unbroken run of {longest.Count} packets " +
+                $"the server-to-demo offset still spreads {spread}. Gaps are excluded, so this " +
+                $"is the decoder losing the stream rather than the recording pausing");
         }
     }
+
+    /// <summary>A demo-clock jump this large is a recording gap, not the usual one to three.</summary>
+    /// <remarks>
+    /// Half a second at TF2's tick rate. Normal packet spacing is one to three ticks, and the
+    /// stalls this separates out are hundreds — so the threshold sits in a wide empty band rather
+    /// than near either population, which is what makes it a classification and not a tolerance.
+    /// </remarks>
+    private const int GapTicks = 32;
+
+    /// <summary>Beyond any real server uptime, so only a misread reaches it.</summary>
+    private const int ImplausibleOffset = 100_000_000;
+
+    private static IEnumerable<(DemoCommand Packet, INetMessage? First)> Sampled(
+        string path, ushort protocol) =>
+        ReadPackets(path)
+            .Take(PacketsToSample)
+            .Select(packet => (packet, FirstMessage(packet, protocol)));
 
     [Fact]
     public void ReportHowFarIntoPacketsWeCurrentlyGet()
