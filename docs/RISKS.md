@@ -1330,20 +1330,36 @@ attributes, and the versions of TF2 with no item system fail nothing at all.
 | The in-bounds bit is not "narrow when it fits" | invert the rule | 267 to 80,438, so the rule is right nearly always |
 | The fraction is truncated, not rounded | truncate and mask as `bf_write` does | no change at all |
 
-**The remaining rule is still wrong, and 99.7% is not a defence.** A demo is deterministic; the
-engine picks the in-bounds bit from a condition, and "usually the narrow one" is a description of
-the outputs rather than the condition. The failing values are the shape of the clue:
+**The remaining rule is still wrong, and 99.9% is not a defence.** A demo is deterministic; the
+engine picks from a condition, and "usually the narrow one" describes outputs rather than the
+condition.
 
+**The authority is public, and it is not a decompile.** `bf_write::WriteBitCoordMP` is in Valve's
+own `src/tier1/bitbuf.cpp` in `ValveSoftware/source-sdk-2013`:
+
+```c
+int  signbit = (f <= -( bLowPrecision ? COORD_RESOLUTION_LOWPRECISION : COORD_RESOLUTION ));
+int  intval  = (int)abs(f);
+int  fractval = abs((int)(f*COORD_DENOMINATOR)) & (COORD_DENOMINATOR-1);
+bool bInBounds = intval < (1 << COORD_INTEGER_BITS_MP);
+
+// integer present, float variant:
+bits = intval * 8 + signbit * 4 + 2 + bInBounds;
+bits += bInBounds ? (fractval << (3+COORD_INTEGER_BITS_MP)) : (fractval << (3+COORD_INTEGER_BITS));
 ```
-(-12330.59, 1690.531, -0.781)     (0.438, -6883.969, 0.031)
-(-0.594, 0.781, 10204.16)         (12331.41, -0, -0.438)
-(-0.844, -0.5, 2012.25)           (1117, 1168, 0)
-```
 
-Large magnitudes past the 2048 boundary dominate, and negative zero appears. The next step is a
-bit-level diff of one case — wire against ours at the property's own offset — rather than another
-guess. `bf_write::WriteBitCoordMP` is the authority and the owner has ILSpy, IDA and Ghidra.
+That confirms the field order this project reads — in-bounds, has-integer, sign, integer,
+fraction — and confirms the in-bounds predicate as `intval < 2048`. Both already match.
 
-**What this does and does not affect.** The decode reads the in-bounds bit off the wire, so
-positions are read correctly and a viewer built on the decoded values is unaffected. What is
-guessing is the *re-encode*, and only about which of two valid widths the sender chose.
+**Three more hypotheses died against it:**
+
+| Hypothesis | Result |
+|---|---|
+| Sign is `f <= -COORD_RESOLUTION`, not "is negative" | tried; 13,966 to 13,965, so marginally worse |
+| Fraction is truncated and masked rather than rounded | no change |
+| In-bounds is not "narrow when it fits" | 267 to 80,438 |
+
+Six hypotheses have now been tested and killed on this one field. **The next step is not another
+one** — it is a bit-level diff of a single failing coordinate: the wire's bits at that property's
+own offset against ours, with the decoded value printed beside them. Everything needed for that
+already exists in `CorpusEntityRoundTripTests.Describe`.
