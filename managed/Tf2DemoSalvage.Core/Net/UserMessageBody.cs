@@ -49,9 +49,63 @@ public static class UserMessageBody
     /// </returns>
     public static UserMessage Decode(
         int userMessageType, string? name, ReadOnlySpan<byte> body, int bodyBits,
-        int networkProtocol)
+        int networkProtocol) =>
+        Decode(userMessageType, name, body, bodyBits, networkProtocol, alternate: null);
+
+    /// <summary>Builds a <see cref="UserMessage"/>, falling back to a second candidate name.</summary>
+    /// <param name="userMessageType">The game-defined message id.</param>
+    /// <param name="name">The registered name for the era assumed by default.</param>
+    /// <param name="body">The body bytes, as copied from the stream.</param>
+    /// <param name="bodyBits">The body's stated length in bits.</param>
+    /// <param name="networkProtocol">The demo header's network protocol.</param>
+    /// <param name="alternate">What another era's table calls this id, or <c>null</c>.</param>
+    /// <remarks>
+    /// **Protocol 24 is not one era, and an id above 50 has two candidate meanings** —
+    /// `RDTeamPointsChanged` was inserted at id 51 some time after March 2013, shifting everything
+    /// above it. The header carries no build number, so nothing outside the message itself can say
+    /// which table applies (`RISKS.md` B29).
+    ///
+    /// **The body decides, and only when it is decisive.** The default name is tried first and
+    /// stands whenever its layout accepts, so nothing changes for the modern demos that are the
+    /// overwhelming majority. The alternate is reached *only* when the primary layout refuses —
+    /// which is already this project's evidence that a name is wrong — and it is accepted only
+    /// when it fits in turn. If both refuse, neither is claimed and the id is reported bare.
+    ///
+    /// Measured case: the March 2013 demo's three 32-bit messages at id 69. The modern table calls
+    /// that `PlayerLoadoutUpdated`, a single `WRITE_BYTE`, so it refuses; the March 2013 client
+    /// registers `HapSetDrag` there, one float of haptic drag, which fits.
+    /// </remarks>
+    public static UserMessage Decode(
+        int userMessageType, string? name, ReadOnlySpan<byte> body, int bodyBits,
+        int networkProtocol, string? alternate)
     {
-        (bool Known, List<KeyValuePair<string, object?>>? Fields) decoded = name switch
+        (bool Known, List<KeyValuePair<string, object?>>? Fields) decoded =
+            Layout(name, body, bodyBits, networkProtocol);
+
+        // Only a refusal opens the door. A primary that accepted, or that this project has no
+        // layout for, is left alone - trying an alternate there could only replace an answer
+        // nothing contradicts.
+        if (alternate is not null && decoded is { Known: true, Fields: null })
+        {
+            (bool Known, List<KeyValuePair<string, object?>>? Fields) second =
+                Layout(alternate, body, bodyBits, networkProtocol);
+            if (second is not { Known: true, Fields: null })
+            {
+                return new UserMessage(userMessageType, alternate, bodyBits, second.Fields);
+            }
+        }
+
+        // A name is a claim, and a layout that refuses is evidence against it. Withholding the
+        // name reports the id by number, which is what the older-era gate does for the same reason.
+        string? supported = decoded is { Known: true, Fields: null } ? null : name;
+        return new UserMessage(userMessageType, supported, bodyBits, decoded.Fields);
+    }
+
+    /// <summary>Runs one candidate name's layout, if this project has one.</summary>
+    private static (bool Known, List<KeyValuePair<string, object?>>? Fields) Layout(
+        string? name, ReadOnlySpan<byte> body, int bodyBits, int networkProtocol)
+    {
+        return name switch
         {
             "TextMsg" => (true, TextMsg(body, bodyBits)),
             "SayText" => (true, SayText(body, bodyBits)),
@@ -91,15 +145,27 @@ public static class UserMessageBody
             "PlayerExtinguished" => (true, TwoEntities(body, bodyBits, "healer", "victim")),
             "PlayerJarated" => (true, TwoEntities(body, bodyBits, "thrower", "victim")),
             "PlayerJaratedFade" => (true, TwoEntities(body, bodyBits, "thrower", "victim")),
+
+            // The two haptics messages Valve registers at a fixed size. There is nothing to read
+            // — SPHapWeapEvent's four bytes are a weapon effect id this project does not
+            // interpret, and HapMeleeContact carries no body at all — but the registered *width*
+            // is a layout in its own right, and a decisive one: it is what lets a candidate be
+            // falsified for a message whose contents are never decoded.
+            "SPHapWeapEvent" => (true, FixedWidth(bodyBits, 32)),
+            "HapMeleeContact" => (true, FixedWidth(bodyBits, 0)),
+
             _ => (false, null),
         };
-
-        // A name is a claim, and a layout that refuses is evidence against it. Withholding the
-        // name reports the id by number, which is what the older-era gate does for the same reason.
-        string? supported = decoded is { Known: true, Fields: null } ? null : name;
-
-        return new UserMessage(userMessageType, supported, bodyBits, decoded.Fields);
     }
+
+    /// <summary>Accepts a body of exactly this width, with nothing read out of it.</summary>
+    /// <remarks>
+    /// An empty field list rather than <c>null</c>, because those mean different things here:
+    /// <c>null</c> is "this layout refuses the body" and empty is "the body is the right size and
+    /// holds nothing worth naming". Only the first withholds the message's name.
+    /// </remarks>
+    private static List<KeyValuePair<string, object?>>? FixedWidth(int bodyBits, int expected) =>
+        bodyBits == expected ? [] : null;
 
     /// <summary><c>Damage</c> — how much, and where it came from.</summary>
     /// <remarks>

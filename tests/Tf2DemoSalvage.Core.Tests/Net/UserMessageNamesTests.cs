@@ -118,6 +118,25 @@ public sealed class UserMessageNamesTests
     }
 
     [Fact]
+    public void ProtocolTwentyFourOffersTheMarch2013NameAsAnAlternate()
+    {
+        // Protocol 24 spans thirteen years and two incompatible tables, so an id above 50 has two
+        // candidate meanings. RDTeamPointsChanged was inserted at 51 after March 2013 and shifts
+        // everything above it, which is the entire difference between them.
+        UserMessageNames.Alternate(69, Modern).ShouldBe("HapSetDrag");
+        UserMessageNames.Alternate(51, Modern).ShouldBe("SpawnFlyingBird");
+
+        // Below the insertion the tables agree, so there is no alternate to offer - offering one
+        // would invite a fallback that could only ever produce the same answer.
+        UserMessageNames.Alternate(50, Modern).ShouldBeNull();
+        UserMessageNames.Alternate(28, Modern).ShouldBeNull();
+
+        // And no other protocol is ambiguous: 11-16 are each one measured build.
+        UserMessageNames.Alternate(69, Y2011).ShouldBeNull();
+        UserMessageNames.Alternate(44, Y2009).ShouldBeNull();
+    }
+
+    [Fact]
     public void AnIdPastTheTable_IsUnnamedAtEveryProtocol()
     {
         UserMessageNames.Lookup(500, Modern).ShouldBeNull();

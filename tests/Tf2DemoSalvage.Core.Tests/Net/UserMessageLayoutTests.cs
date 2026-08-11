@@ -468,6 +468,45 @@ public sealed class UserMessageLayoutTests
     }
 
     [Fact]
+    public void WhenTheModernNamesLayoutRefuses_TheMarch2013NameIsTried()
+    {
+        // The B29 case, measured on the corpus: the March 2013 demo carries three messages at id
+        // 69 with 32-bit bodies. The modern table calls that PlayerLoadoutUpdated - a single
+        // WRITE_BYTE - so the layout refuses, and until now the name was withheld and the id
+        // reported bare. The March 2013 client registers HapSetDrag there instead, one float of
+        // haptic drag, which fits.
+        UserMessage message = UserMessageBody.Decode(
+            69, "PlayerLoadoutUpdated", new byte[4], 32, Protocol, "HapSetDrag");
+
+        message.Name.ShouldBe("HapSetDrag");
+    }
+
+    [Fact]
+    public void TheAlternateIsOnlyReachedWhenThePrimaryActuallyRefuses()
+    {
+        // The control, and the reason the fallback is safe. A one-byte body IS a valid
+        // PlayerLoadoutUpdated, so the primary stands and the alternate is never consulted -
+        // otherwise every modern demo's id 69 would be renamed to a haptics message.
+        UserMessage message = UserMessageBody.Decode(
+            69, "PlayerLoadoutUpdated", new byte[1], 8, Protocol, "HapSetDrag");
+
+        message.Name.ShouldBe("PlayerLoadoutUpdated");
+        message.Fields.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void WhenBothCandidatesRefuse_NeitherNameIsClaimed()
+    {
+        // Two wrong answers do not make a right one. PlayerTauntSoundLoopEnd is one byte and
+        // HapMeleeContact is registered at zero, so a 32-bit body is neither, and the honest
+        // report is the number alone.
+        UserMessage message = UserMessageBody.Decode(
+            71, "PlayerTauntSoundLoopEnd", new byte[4], 32, Protocol, "HapMeleeContact");
+
+        message.Name.ShouldBeNull();
+    }
+
+    [Fact]
     public void PlayerIgnited_NamesTheIgniterTheVictimAndTheWeapon()
     {
         UserMessage message = Decode("PlayerIgnited", [3, 9, 21]);

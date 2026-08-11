@@ -233,8 +233,51 @@ internal static class UserMessageNames
     private static readonly string[] Era2011 =
         Compose("PlayerBonusPoints", ["MapStatsUpdate", "BreakModelRocketDud"], haptics: true);
 
+    /// <summary>March 2013, build 1729296: 66 messages, then haptics at 66–71.</summary>
+    /// <remarks>
+    /// **The other half of protocol 24.** `RDTeamPointsChanged` — Robot Destruction, which entered
+    /// TF2 with `rd_asteroid` in the 8 July 2014 patch — is absent from this build entirely, and
+    /// its later insertion at id 51 shifts every id above it by one. That single row is the whole
+    /// difference between this table and <see cref="Current"/>.
+    /// </remarks>
+    private static readonly string[] Era2013 =
+        Compose("MVMLocalPlayerWaveSpendingValue", ["RDTeamPointsChanged"], haptics: true);
+
     /// <summary>July 2026: all 79 messages, then haptics at 79–84.</summary>
     private static readonly string[] Current = Compose("BuiltObject", [], haptics: true);
+
+    /// <summary>What another era's table calls this id, where a protocol spans more than one.</summary>
+    /// <param name="userMessageType">The id read from the wire.</param>
+    /// <param name="networkProtocol">The demo header's network protocol.</param>
+    /// <returns>A second candidate name, or <c>null</c> when the id is unambiguous.</returns>
+    /// <remarks>
+    /// **Only protocol 24 needs this, and only above id 50.** Protocols 11–16 are each one
+    /// measured build. Protocol 24 spans March 2013 to now, and the two tables agree exactly up to
+    /// id 50 — so below the insertion point there is no second candidate to offer, and offering
+    /// one anyway would invite a fallback that could only ever return the same answer.
+    ///
+    /// The caller decides what to do with it: <c>UserMessageBody.Decode</c> tries this only when
+    /// the primary name's layout has already refused the body.
+    /// </remarks>
+    internal static string? Alternate(int userMessageType, int networkProtocol)
+    {
+        if (networkProtocol < AmbiguousProtocol || userMessageType <= LastAgreedId
+            || userMessageType >= Era2013.Length)
+        {
+            return null;
+        }
+
+        string alternate = Era2013[userMessageType];
+        return string.Equals(alternate, Lookup(userMessageType, networkProtocol), StringComparison.Ordinal)
+            ? null
+            : alternate;
+    }
+
+    /// <summary>The only protocol number that spans two incompatible tables.</summary>
+    private const int AmbiguousProtocol = 24;
+
+    /// <summary>Highest id the March 2013 and current tables agree on, one below the insertion.</summary>
+    private const int LastAgreedId = 50;
 
     /// <summary>The registered name for an id in the era that recorded it, or <c>null</c>.</summary>
     /// <param name="userMessageType">The id read from the wire.</param>
