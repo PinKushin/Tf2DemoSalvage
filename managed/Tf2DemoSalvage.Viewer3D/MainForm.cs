@@ -489,10 +489,18 @@ internal class MainForm : Form
         _mapLines = lines;
     }
 
+    /// <summary>
+    /// Frames the map proper, not its full extent.
+    /// </summary>
+    /// <remarks>
+    /// <c>MainBounds</c> rather than <c>Bounds</c>: a TF2 map carries its 3D skybox as ordinary
+    /// world geometry placed far outside the playable space, and fitting to that pushed
+    /// cp_process_final into a third of the viewport with an empty expanse beside it.
+    /// </remarks>
     private TopDownCamera MapCamera() => TopDownCamera.Fit(
         [
-            (_map!.Bounds.MinX, _map.Bounds.MinY),
-            (_map.Bounds.MaxX, _map.Bounds.MaxY),
+            (_map!.MainBounds.MinX, _map.MainBounds.MinY),
+            (_map.MainBounds.MaxX, _map.MainBounds.MaxY),
         ],
         Math.Max(1, _viewport.ClientSize.Width),
         Math.Max(1, _viewport.ClientSize.Height));
@@ -687,7 +695,16 @@ internal class MainForm : Form
         try
         {
             _device = Device3D.Create(_viewport.Handle, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
-            _status.Text = "Direct3D ready.";
+
+            // **Only if there is nothing better to say.** The handle is created after the
+            // constructor runs, so a demo opened from the command line has already reported itself
+            // by now - and announcing the graphics device over the top of it threw that away. The
+            // user saw "Direct3D ready." for a demo that had loaded fine, which reads like the
+            // demo did not load.
+            if (_demo is null)
+            {
+                _status.Text = "Direct3D ready.";
+            }
 
             // Idle-driven rather than a timer: WinForms raises Idle whenever the message queue
             // empties, so the viewport redraws as fast as the UI allows and stops entirely while

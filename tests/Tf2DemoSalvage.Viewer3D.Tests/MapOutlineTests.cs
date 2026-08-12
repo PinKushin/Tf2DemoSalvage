@@ -43,6 +43,78 @@ public sealed class MapOutlineTests
     }
 
     [Test]
+    public void TheMainBoundsIgnoreADistantDetachedRoom()
+    {
+        // **The 3D skybox room.** It is ordinary world geometry placed far from the map at reduced
+        // scale, so from above it lands in a corner of its own and stretches the extent the camera
+        // is fitted to - on cp_process_final it squeezed the real map into a third of the viewport.
+        //
+        // Measured across nine shipped maps, the largest connected cluster of geometry holds
+        // between 91.1% and 99.7% of all points, and the outlying rooms are single-digit
+        // percentages. So the main cluster is what the camera follows.
+        List<BspFace> faces =
+        [
+            // The map: a run of touching quads.
+            Face((0f, 0f, 0f), (500f, 0f, 0f), (500f, 500f, 0f), (0f, 500f, 0f)),
+            Face((500f, 0f, 0f), (1000f, 0f, 0f), (1000f, 500f, 0f), (500f, 500f, 0f)),
+            Face((1000f, 0f, 0f), (1500f, 0f, 0f), (1500f, 500f, 0f), (1000f, 500f, 0f)),
+
+            // The skybox room, far away and small.
+            Face((20000f, 20000f, 0f), (20200f, 20000f, 0f), (20200f, 20200f, 0f)),
+        ];
+
+        MapOutline outline = MapOutline.FromFaces(faces);
+
+        // The full extent still covers everything - nothing is thrown away, it is simply not what
+        // the camera frames.
+        outline.Bounds.MaxX.ShouldBe(20200f);
+
+        outline.MainBounds.MinX.ShouldBe(0f);
+        outline.MainBounds.MinY.ShouldBe(0f);
+        outline.MainBounds.MaxX.ShouldBe(1500f);
+        outline.MainBounds.MaxY.ShouldBe(500f);
+    }
+
+    [Test]
+    public void TheMainBoundsKeepASingleConnectedMap()
+    {
+        // The control, and the one that matters most. A map with no detached room must not be
+        // trimmed at all - a rule that shrinks every map to its densest part would be the vertex
+        // percentile that was tried first and measured cutting a third off real maps.
+        MapOutline outline = MapOutline.FromFaces(
+        [
+            Face((0f, 0f, 0f), (500f, 0f, 0f), (500f, 500f, 0f)),
+            Face((500f, 0f, 0f), (1000f, 0f, 0f), (1000f, 500f, 0f)),
+        ]);
+
+        outline.MainBounds.ShouldBe(outline.Bounds);
+    }
+
+    [Test]
+    public void TheMainBoundsFollowTheLARGERClusterNotTheFirst()
+    {
+        // Order must not decide it. The small cluster is built first, so a rule that kept whichever
+        // component it happened to visit first would pass every other test in this file.
+        MapOutline outline = MapOutline.FromFaces(
+        [
+            Face((30000f, 30000f, 0f), (30100f, 30000f, 0f), (30100f, 30100f, 0f)),
+
+            Face((0f, 0f, 0f), (500f, 0f, 0f), (500f, 500f, 0f), (0f, 500f, 0f)),
+            Face((500f, 0f, 0f), (1000f, 0f, 0f), (1000f, 500f, 0f), (500f, 500f, 0f)),
+        ]);
+
+        outline.MainBounds.MaxX.ShouldBe(1000f);
+    }
+
+    [Test]
+    public void TheMainBoundsOfAnEmptyMapAreTheFullBounds()
+    {
+        MapOutline outline = MapOutline.FromFaces([]);
+
+        outline.MainBounds.ShouldBe(outline.Bounds);
+    }
+
+    [Test]
     public void TheBoundsCoverEveryPoint()
     {
         // The camera fits to these, so a bound that missed a corner would push part of the map
