@@ -37,6 +37,39 @@ public sealed class SpeexVoiceDecoder : IDisposable
 
     /// <summary>Creates a decoder for one speaker's stream.</summary>
     /// <exception cref="InvalidOperationException">libspeex failed to create a decoder state.</exception>
+    /// <summary>Whether the native speex library is present and usable on this machine.</summary>
+    /// <remarks>
+    /// See <see cref="CeltVoiceDecoder.IsAvailable"/> - same reasoning. The library is built by
+    /// <c>tools/native-audio/build.ps1</c> with MSVC and is not committed, so a Linux measurement
+    /// box has none, and a throwing test there costs far more than the test: Stryker bails its
+    /// initial run early, so a few failures read as "more than 50% failing tests" and it declines
+    /// to mutate the project at all.
+    /// </remarks>
+    /// <remarks>
+    /// **Lazy on first access, not a static field initializer, and that is load-bearing.** A
+    /// static field initializer is part of type initialization and runs BEFORE the explicit
+    /// static constructor body - which is where <c>NativeLibraryResolver.EnsureRegistered()</c>
+    /// lives. Probing first therefore resolved the P/Invoke with no resolver registered and took
+    /// the whole test host down with an access violation (exit -1073741819), reported by xUnit as
+    /// "Catastrophic failure" with zero tests discovered.
+    /// </remarks>
+    public static bool IsAvailable => _available ??= Probe();
+
+    private static bool? _available;
+
+    private static bool Probe()
+    {
+        try
+        {
+            using SpeexVoiceDecoder probe = new();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     public unsafe SpeexVoiceDecoder()
     {
         nint mode;

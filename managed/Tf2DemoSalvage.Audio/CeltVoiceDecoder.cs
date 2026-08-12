@@ -63,6 +63,48 @@ public sealed class CeltVoiceDecoder : IDisposable
 
     /// <summary>Creates a decoder for one speaker's stream.</summary>
     /// <exception cref="InvalidOperationException">libcelt failed to create a decoder.</exception>
+    /// <summary>Whether the native celt library is present and usable on this machine.</summary>
+    /// <remarks>
+    /// **This exists because the library is not committed and is not built everywhere.**
+    /// <c>tools/native-audio/build.ps1</c> produces a Windows DLL with the MSVC toolset, so a
+    /// Linux box - the measurement box, for instance - has no celt at all.
+    ///
+    /// Without a way to ask, the corpus voice tests simply throw there, and the consequence is
+    /// out of proportion to the cause: Stryker bails its initial test run early, so a handful of
+    /// executed tests containing four failures reads as "more than 50% failing tests" and it
+    /// refuses to mutate the project at all. Measured on mutation-box 2026-08-12.
+    ///
+    /// Probed once by actually constructing a decoder, rather than by looking for a file: the
+    /// question is whether the P/Invoke resolves, and a file being present does not answer that
+    /// on the wrong architecture.
+    /// </remarks>
+    /// <remarks>
+    /// **Lazy on first access, not a static field initializer, and that is load-bearing.** A
+    /// static field initializer is part of type initialization and runs BEFORE the explicit
+    /// static constructor body - which is where <c>NativeLibraryResolver.EnsureRegistered()</c>
+    /// lives. Probing first therefore resolved the P/Invoke with no resolver registered and took
+    /// the whole test host down with an access violation (exit -1073741819), reported by xUnit as
+    /// "Catastrophic failure" with zero tests discovered.
+    /// </remarks>
+    public static bool IsAvailable => _available ??= Probe();
+
+    private static bool? _available;
+
+    private static bool Probe()
+    {
+        try
+        {
+            using CeltVoiceDecoder probe = new();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            // The constructor already translates DllNotFoundException into this, with a message
+            // pointing at build.ps1. Absence is the answer here, not an error.
+            return false;
+        }
+    }
+
     public CeltVoiceDecoder()
     {
         _decoder = NativeCelt.DecoderCreateCustom(SharedMode, Channels, out int error);
