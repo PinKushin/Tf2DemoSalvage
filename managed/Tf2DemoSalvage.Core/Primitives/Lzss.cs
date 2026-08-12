@@ -73,6 +73,24 @@ public static class Lzss
                 $"{expectedLength}."));
         }
 
+        // BOUND BEFORE ALLOCATING. The header length and the message length agreeing proves
+        // nothing about whether either is honest - whoever wrote the file wrote both, so a
+        // malformed demo simply makes them agree. The only independent fact available is how many
+        // bytes are actually present.
+        //
+        // LZSS's expansion is bounded by its own encoding: a match is two bytes and copies at
+        // most 16, so the ceiling is a factor of eight plus the control bits. 64 is that with
+        // generous margin - a sanity bound on a declared length, not a limit on real data, and
+        // the same shape as Snappy's, which exists because the fuzzer found the equivalent hole
+        // there.
+        if (targetLength < 0 || targetLength > (long)compressed.Length * MaxExpansionRatio)
+        {
+            throw new InvalidDataException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"no LZSS payload of {compressed.Length} bytes can produce {targetLength} bytes " +
+                $"of output."));
+        }
+
         byte[] output = new byte[targetLength];
         int written = 0;
         int read = sizeof(uint);
@@ -142,6 +160,16 @@ public static class Lzss
             }
         }
     }
+
+    /// <summary>
+    /// Largest output this decoder will believe a byte of input can produce.
+    /// </summary>
+    /// <remarks>
+    /// A match is two bytes and copies at most sixteen, so the encoding's own ceiling is about
+    /// eight; 64 leaves generous margin. This is a sanity bound on a DECLARED length, not a limit
+    /// on legitimate data - the point is to refuse an allocation before making it.
+    /// </remarks>
+    private const long MaxExpansionRatio = 64;
 
     private static void Append(byte[] output, ref int written, byte value, int targetLength)
     {
