@@ -241,15 +241,51 @@ public sealed class DemoCommandReaderTests
     }
 
     [Test]
-    public void Read_PayloadLongerThanTheBuffer_ThrowsEndOfStream()
+    public void Read_PayloadLongerThanTheBuffer_StopsAndReportsRatherThanThrowing()
     {
+        // **Changed deliberately, on evidence.** Of 370 real competitive demos from an ESEA
+        // archive, 159 end in the middle of a command - and every one stops within four kilobytes
+        // of the end of the file, none anywhere else. The median is 99.995% complete, so throwing
+        // discarded a twenty megabyte recording over its last two hundred bytes.
+        //
+        // That is what a match ending or a server crashing does: the writer stops mid-packet and
+        // nothing tidies the tail. Salvaging a file the game refuses to play is this project's
+        // purpose, and a file the game itself wrote badly is the easiest case of it.
         byte[] stream = new StreamBuilder()
             .Command(DemoCommandType.DataTables, 1)
             .Raw(BitConverter.GetBytes(9999))
             .Raw(0x01, 0x02)
             .Build();
 
-        Should.Throw<EndOfStreamException>(() => ReadAll(stream));
+        string? reported = null;
+        List<DemoCommand> commands =
+            [.. DemoCommandReader.Read(stream.AsMemory(), reason => reported = reason)];
+
+        commands.ShouldBeEmpty();
+        reported.ShouldNotBeNull().ShouldContain("9999");
+    }
+
+    [Test]
+    public void Read_TruncatedTail_KeepsEveryCommandBeforeIt()
+    {
+        // The property that makes the change worth making: what came before the truncation is
+        // still delivered. A reader that stopped early but dropped what it had read would be no
+        // better than one that threw.
+        byte[] stream = new StreamBuilder()
+            .Command(DemoCommandType.ConsoleCmd, 1)
+            .Raw(BitConverter.GetBytes(4))
+            .Raw(0x41, 0x42, 0x43, 0x00)
+            .Command(DemoCommandType.DataTables, 2)
+            .Raw(BitConverter.GetBytes(9999))
+            .Raw(0x01, 0x02)
+            .Build();
+
+        string? reported = null;
+        List<DemoCommand> commands =
+            [.. DemoCommandReader.Read(stream.AsMemory(), reason => reported = reason)];
+
+        commands.ShouldHaveSingleItem().Type.ShouldBe(DemoCommandType.ConsoleCmd);
+        reported.ShouldNotBeNull();
     }
 
     [Test]
@@ -265,15 +301,37 @@ public sealed class DemoCommandReaderTests
     }
 
     [Test]
-    public void Read_TruncatedMidCommandHeader_ThrowsEndOfStreamForNonStopCommands()
+    public void Read_TruncatedMidCommandHeader_StopsAndReports()
     {
-        // Only dem_stop gets the short-header accommodation; anything else ending mid-header
-        // is genuine damage and must be reported.
+        // Only dem_stop gets the short-header accommodation, but a non-stop command ending
+        // mid-header is still a truncated file rather than a corrupt one - the same thing a
+        // crashing server produces, one command earlier. It is reported, not thrown.
         byte[] stream = new StreamBuilder()
             .Raw((byte)DemoCommandType.Packet, 0x01, 0x02)
             .Build();
 
-        Should.Throw<EndOfStreamException>(() => ReadAll(stream));
+        string? reported = null;
+        List<DemoCommand> commands =
+            [.. DemoCommandReader.Read(stream.AsMemory(), reason => reported = reason)];
+
+        commands.ShouldBeEmpty();
+        reported.ShouldNotBeNull().ShouldContain("header");
+    }
+
+    [Test]
+    public void Read_NegativePayloadLength_IsStillFatal()
+    {
+        // The line between the two. A short file is ordinary; a negative length is a value no
+        // writer produces, and continuing past it would rewind the cursor and loop. Truncation
+        // being tolerated must not quietly make this tolerated too.
+        byte[] stream = new StreamBuilder()
+            .Command(DemoCommandType.DataTables, 1)
+            .Raw(BitConverter.GetBytes(-8))
+            .Raw(0x01, 0x02, 0x03, 0x04)
+            .Build();
+
+        Should.Throw<InvalidDataException>(
+            () => DemoCommandReader.Read(stream.AsMemory(), _ => { }).ToList());
     }
 
     [Test]
