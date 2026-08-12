@@ -1,27 +1,23 @@
-// Parallelism and fixture lifetime are DELIBERATELY not set here, and this file exists to say so
-// rather than leaving the absence looking like an oversight.
+// Parallelism and fixture lifetime are DELIBERATELY not set for this assembly, and this file
+// exists to say so rather than leaving the absence looking like an oversight.
 //
-// The migration off xunit.v3 makes both of these a choice for the first time, because NUnit's
-// defaults differ from xUnit's in two ways:
+// **The rule is per test-KIND, not per repo**, and applying either half everywhere is wrong:
 //
-//   - **Parallelism is opt-in.** xUnit parallelises by collection automatically; NUnit runs
-//     serially unless told otherwise. So a migrated suite goes quiet-slow rather than failing,
-//     which is worth watching for on the big projects.
-//   - **One fixture instance is shared by every test in it.** xUnit constructs the class per
-//     test. `[FixtureLifeCycle(LifeCycle.InstancePerTestCase)]` restores that.
+//   - **Unit and integration assemblies** get `[assembly: Parallelizable]` together with
+//     `[FixtureLifeCycle(LifeCycle.InstancePerTestCase)]`. The isolation is what makes the
+//     parallelism safe, so the two travel together - and per-test construction is the xUnit
+//     behaviour those projects are migrating from, which was right for them.
+//   - **UI assemblies get neither.** A UI fixture holds a launched application and an attached
+//     driver; sharing one instance across its tests is the point, because that setup is the
+//     expensive part. And in-process parallelism there is not slow, it is unsafe: UI tests drive
+//     a single desktop, and a second run stealing focus mid-click delivers it into whatever is
+//     now in front. UI tests parallelise across CI MATRIX LEGS - separate machines, each with its
+//     own desktop - never across threads.
 //
-// **Neither is set assembly-wide, because this assembly is the one that will grow UI tests.**
-// A UI fixture wants the OPPOSITE of both: one application instance shared across its tests,
-// because launching the app and attaching a driver is the expensive part, and strictly no
-// parallelism, because UI tests drive a single desktop and a second one stealing focus mid-run
-// delivers clicks into whatever is now in front.
+// **This assembly is the one that will grow UI tests**, so it takes the UI side of that split.
+// Today's four tests construct forms without showing them, so they are fast and isolated anyway
+// and gain nothing measurable from parallelism; the setting is absent because of what comes next,
+// not because of what is here now.
 //
-// **The shared fixture is the standard here, not a default nobody chose.** Owner's preference,
-// and the UI case is why: a fixture that holds a launched application and an attached driver is
-// the normal shape of an expensive test, and per-test construction would pay that cost again for
-// every test in the class. A fixture that genuinely needs per-test isolation carries the
-// attribute itself, so the exception sits next to the code it affects and has to be justified
-// there.
-//
-// The four tests here construct forms without showing them, so they are fast, isolated, and gain
-// nothing measurable from running in parallel.
+// A fixture that genuinely needs per-test isolation can carry the attribute itself, which keeps
+// the exception beside the code it affects.
