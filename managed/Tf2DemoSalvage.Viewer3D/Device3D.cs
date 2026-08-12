@@ -330,6 +330,9 @@ internal sealed unsafe class Device3D : IDisposable
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;
 
+    /// <summary>How many times a map's textures have been decoded and uploaded.</summary>
+    public int TextureUploads => _world?.TextureUploads ?? 0;
+
     /// <summary>Forgets any uploaded map.</summary>
     public void ClearWorld()
     {

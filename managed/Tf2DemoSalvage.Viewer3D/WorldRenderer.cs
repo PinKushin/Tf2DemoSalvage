@@ -298,6 +298,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ArgumentNullException.ThrowIfNull(assets);
 
         ReleaseTextures();
+        TextureUploads++;
 
         // A one-pixel white texture stands in for a material whose texture could not be found, so
         // the face still takes its lighting and its shape rather than vanishing.
@@ -363,6 +364,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether textures have been uploaded for a map.</summary>
     public bool HasTextures => _lightmap.Handle is not null;
+
+    /// <summary>How many times a map's textures have been decoded and uploaded.</summary>
+    /// <remarks>
+    /// **Counted because the defect it guards against is invisible.** Re-uploading 208 textures on
+    /// every viewport resize is correct in every respect except speed: the same picture comes out,
+    /// and nothing but a clock or a counter says it happened more than once. A clock measures the
+    /// machine; this measures the code.
+    /// </remarks>
+    public int TextureUploads { get; private set; }
 
     /// <summary>Draws the uploaded map.</summary>
     /// <param name="context">Context to issue the draws on.</param>
