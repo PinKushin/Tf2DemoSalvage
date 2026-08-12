@@ -71,12 +71,47 @@ case "$MODE" in
   *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli or fuzz." >&2; exit 2 ;;
 esac
 
-if [ "$PULL" != "--no-pull" ]; then
-  git fetch --quiet origin main
-  git reset --quiet --hard origin/main
+if [ "$PULL" != "--no-pull" ] && [ -z "${RUNNER_REEXECED:-}" ]; then
+  # GIT_LFS_SKIP_SMUDGE on the reset, then an EXPLICIT pull only when the demos are wanted.
+  #
+  # `git reset --hard` is a checkout, so it runs the LFS smudge filter, and the filter DOWNLOADS
+  # any object it does not have cached. That makes every mode pay LFS bandwidth for the corpus,
+  # including `core`, which never opens a demo - directly contradicting the reason `core` was
+  # given NEEDS_CORPUS=0 in the first place.
+  #
+  # It is not costing anything today only because the cache is already warm: `.git/lfs` on the box
+  # is 314 MB across 16 objects, so the reset materialises from disk. The bill arrives the first
+  # time a demo is ADDED - a `core` run would fetch it silently, and the free tier is 1 GiB a
+  # month against a corpus whose history is already 305 MB.
+  #
+  # Skipping the smudge leaves pointer stubs, which is correct for the synthetic modes and
+  # harmless for the others: the explicit `git lfs pull` below restores real content, and the
+  # size check after it is what proves the restore happened.
+  GIT_LFS_SKIP_SMUDGE=1 git fetch --quiet origin main
+  GIT_LFS_SKIP_SMUDGE=1 git reset --quiet --hard origin/main
   # Demos live in Git LFS. Without this the working tree holds ~130-byte pointer stubs and every
   # corpus test degrades to a passing no-op — RISKS B20, as a shell step.
   [ "$NEEDS_CORPUS" = 1 ] && git lfs pull
+
+  # RE-EXEC, because the reset above may have just rewritten THIS FILE while bash is reading it.
+  #
+  # bash does not load a script up front; it reads it lazily and remembers a byte OFFSET. Rewrite
+  # the file underneath a running bash and it carries on reading at the old offset into new
+  # content, so it silently skips or splices lines. Nothing reports an error — the run simply does
+  # not do what the file on disk says.
+  #
+  # Caught 2026-08-12 by the fix that exposed it. A concurrency change had been merged and pushed,
+  # the run reported the right SHA, and both the `concurrency:` echo and the `--concurrency` flag
+  # were absent from the output: one test server, still single threaded, still on pace for 93
+  # minutes. The commit was correct and deployed and the running script was a hybrid of two
+  # versions.
+  #
+  # `exec` replaces the process and re-reads the new file from byte zero, so the second pass runs
+  # exactly what was pulled. RUNNER_REEXECED stops it looping, and the lock survives because exec
+  # keeps the open fd 9 — the same inheritance that makes `9>&-` necessary elsewhere works for us
+  # here.
+  echo "re-exec after pull, so the running script matches the pulled one"
+  exec env RUNNER_REEXECED=1 bash "$REPO/build/run-measurements.sh" "$@"
 fi
 
 if [ "$NEEDS_CORPUS" = 1 ]; then
