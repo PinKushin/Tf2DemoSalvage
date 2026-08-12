@@ -89,13 +89,21 @@ public sealed class ShellUiTests
         // transport bar to the form, and a plain Add appends it - which flipped the docking order
         // against the action row and left the buttons above the play bar for the rest of the
         // session. Asserting only on a freshly launched window would have missed it entirely.
+        // Relative to the window's own starting width, not to pixel constants: these run at CI's
+        // 754x512 as well as on a developer's screen, and a hard-coded 1000 would be wrong on one
+        // of them.
         _viewer.Focus();
+        int beforeFullScreen = _viewer.Find("Viewport").BoundingRectangle.Width;
+
         Keyboard.Type(VirtualKeyShort.F11);
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width > 1000, TimeSpan.FromSeconds(10));
+            () => _viewer.Find("Viewport").BoundingRectangle.Width > beforeFullScreen,
+            TimeSpan.FromSeconds(10));
+
         Keyboard.Type(VirtualKeyShort.ESCAPE);
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width < 1500, TimeSpan.FromSeconds(10));
+            () => _viewer.Find("Viewport").BoundingRectangle.Width == beforeFullScreen,
+            TimeSpan.FromSeconds(10));
 
         int playTop = _viewer.Find("PlayPauseButton").BoundingRectangle.Top;
         int openTop = _viewer.Find("OpenButton").BoundingRectangle.Top;

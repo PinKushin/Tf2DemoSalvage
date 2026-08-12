@@ -100,6 +100,7 @@ internal class MainForm : Form
         AccessibleName = "TF2 Demo Salvage viewer";
         Width = 1280;
         Height = 720;
+        ApplyGeometryOverride();
 
         _viewport = new Panel
         {
@@ -243,6 +244,58 @@ internal class MainForm : Form
         if (initialPaths.Length > 0)
         {
             AddToLibrary(initialPaths);
+        }
+    }
+
+    /// <summary>Environment variable pinning the window size, as WIDTHxHEIGHT.</summary>
+    public const string WindowSizeVariable = "TF2VIEW_WINDOW_SIZE";
+
+    /// <summary>Environment variable pinning the window position, as X,Y.</summary>
+    public const string WindowPositionVariable = "TF2VIEW_WINDOW_POS";
+
+    /// <summary>
+    /// Applies a window geometry override, so a developer can reproduce CI's tiny screen.
+    /// </summary>
+    /// <remarks>
+    /// GitHub's Windows runners do have a desktop, but a small one - PokemonBattleJournal pins its
+    /// UI tests to 754x512 at (85,78) to match. Layout bugs that only appear when the window is
+    /// short are otherwise found by CI and not reproducible locally on a 1080p screen.
+    ///
+    /// **Position matters as much as size, and that is not obvious.** Setting only the size leaves
+    /// the window at (0,0), where screen coordinates and window-relative coordinates are the same
+    /// number - which hides any confusion between the two. PBJ hit exactly that: a coordinate
+    /// space bug invisible locally until CI, whose window sits at an offset, failed on it.
+    /// </remarks>
+    private void ApplyGeometryOverride()
+    {
+        string? size = Environment.GetEnvironmentVariable(WindowSizeVariable);
+        string? position = Environment.GetEnvironmentVariable(WindowPositionVariable);
+
+        if (!string.IsNullOrWhiteSpace(size))
+        {
+            string[] parts = size.Split('x', StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], CultureInfo.InvariantCulture, out int width) &&
+                int.TryParse(parts[1], CultureInfo.InvariantCulture, out int height) &&
+                width > 0 && height > 0)
+            {
+                Width = width;
+                Height = height;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(position))
+        {
+            return;
+        }
+
+        string[] coordinates = position.Split(',', StringSplitOptions.TrimEntries);
+        if (coordinates.Length == 2 &&
+            int.TryParse(coordinates[0], CultureInfo.InvariantCulture, out int x) &&
+            int.TryParse(coordinates[1], CultureInfo.InvariantCulture, out int y))
+        {
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(x, y);
         }
     }
 

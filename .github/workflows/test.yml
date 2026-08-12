@@ -142,10 +142,6 @@ jobs:
               Write-Host "$lib $((Get-Item $path).Length) bytes"
           }
 
-      # The UI tests are deliberately NOT run here. They launch the viewer and drive a real
-      # desktop, which a hosted runner does not reliably provide, and on a developer machine they
-      # must hold the machine-wide lock so two agents cannot drive one desktop. Run them with:
-      #   run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
       - name: Viewer shell
         # Windows-only because WinForms is. These construct the form without showing it, so they
         # need no display and no graphics adapter - the device is only created once the viewport
@@ -158,6 +154,19 @@ jobs:
       - name: Corpus
         run: dotnet test tests/Tf2DemoSalvage.Corpus.Tests -c Release --logger 'trx;LogFileName=corpus.trx'
 
+      - name: Viewer UI
+        # A hosted Windows runner DOES have a desktop - it is just small, so the window geometry
+        # is pinned here to what CI actually provides. Both size and position: with only a size
+        # the window sits at (0,0), where screen and window-relative coordinates coincide and any
+        # confusion between them is invisible.
+        #
+        # No machine-wide lock here, unlike a developer machine: the runner is a fresh VM with
+        # nothing else driving its desktop.
+        env:
+          TF2VIEW_WINDOW_SIZE: 754x512
+          TF2VIEW_WINDOW_POS: 85,78
+        run: dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests -c Release --logger 'trx;LogFileName=viewer-ui.trx'
+
       - name: Check the counts
         shell: bash
         # The corpus floor is the load-bearing one, and it is deliberately NOT the number a local
@@ -168,7 +177,8 @@ jobs:
         # invisible, since a corpus test over zero demos passes.
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 16 Audio
-          ./build/assert-test-count.sh '**/viewer.trx' 4 Viewer
+          ./build/assert-test-count.sh '**/viewer.trx' 34 Viewer
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 5 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 99 Corpus
 
       - uses: actions/upload-artifact@v7

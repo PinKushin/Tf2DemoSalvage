@@ -49,6 +49,20 @@ internal sealed class ViewerApplication : IDisposable
     {
         string executable = LocateExecutable();
 
+        // **Geometry is inherited, never forced.** The viewer honours TF2VIEW_WINDOW_SIZE and
+        // TF2VIEW_WINDOW_POS if they are set, and these tests simply do not set them - so a local
+        // run uses the ordinary window, which is what a user actually sees. Pinning every run to
+        // CI's small window would hide anything that only breaks at a normal size.
+        //
+        // To reproduce a CI-only layout failure, set both before running:
+        //   $env:TF2VIEW_WINDOW_SIZE = "754x512"; $env:TF2VIEW_WINDOW_POS = "85,78"
+        //
+        // Both, not just the size. With only a size the window sits at (0,0), where screen
+        // coordinates and window-relative coordinates are the same number, so any confusion
+        // between the two is invisible - PokemonBattleJournal lost real time to exactly that.
+        Log($"window geometry: size={Environment.GetEnvironmentVariable("TF2VIEW_WINDOW_SIZE") ?? "default"}, " +
+            $"pos={Environment.GetEnvironmentVariable("TF2VIEW_WINDOW_POS") ?? "default"}");
+
         Application application = arguments.Length == 0
             ? Application.Launch(executable)
             : Application.Launch(executable, string.Join(' ', arguments));
