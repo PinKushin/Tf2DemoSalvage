@@ -153,12 +153,36 @@ public static class Snappy
             int extraBytes = length - LiteralLengthInTrailingBytes + 1;
             Need(compressed, read, extraBytes);
 
-            length = 0;
+            // Accumulated as UNSIGNED, which is what the format actually specifies. Done in a
+            // signed int, a fourth byte of 0x80 or above lands in the sign bit and the length
+            // comes out negative — and a negative length is not caught by anything downstream,
+            // because every guard here is written against a length that is too LARGE. Need()
+            // sees read plus a negative as still inside the buffer, and the output-capacity
+            // check is false for any negative. The value reaches Slice and dies in its argument
+            // validation: an ArgumentOutOfRangeException from the framework where this type's
+            // contract promises InvalidDataException.
+            //
+            // Found by the fuzzer on fuzz-box 2026-08-11, in under a minute, on the snappy
+            // target's first run under the scheduled fuzz mode.
+            uint accumulated = 0;
             for (int i = 0; i < extraBytes; i++)
             {
-                length |= compressed[read + i] << (i * 8);
+                accumulated |= (uint)compressed[read + i] << (i * 8);
             }
 
+            // The increment below is part of the encoding — a stored length is one less than the
+            // real one — so the check has to leave room for it. int.MaxValue - 1 is the largest
+            // value that can survive it without wrapping, and anything near that is corrupt data
+            // regardless: Need() would refuse it a line later against a buffer this size.
+            if (accumulated > int.MaxValue - 1)
+            {
+                throw new InvalidDataException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"A Snappy literal declares a length of {accumulated} bytes, which cannot be " +
+                    $"a real length in a {compressed.Length}-byte stream."));
+            }
+
+            length = (int)accumulated;
             read += extraBytes;
         }
 
