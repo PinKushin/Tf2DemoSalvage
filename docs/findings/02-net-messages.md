@@ -378,3 +378,52 @@ something else sharing the stream, flagged by that bit. Continuous and fresh-per
 give identical results, so no decoder state is involved either.
 
 See `RISKS.md` B33 for the full elimination table.
+
+### CELT, resolved: the missing flag was `ENABLE_POSTFILTER` (2026-08-11)
+
+The section above ends by concluding that ~56 % of CELT frames "are something else sharing the
+stream, flagged by that bit". **That conclusion was wrong.** All 1085 frames are ordinary CELT and
+all of them now decode. The cause was a compile-time flag in this project's own libcelt build.
+
+libcelt 0.11.3's decoder reads a postfilter flag near the start of every frame, and when the flag
+is set and the library was built without postfilter support it does not skip the field — it gives
+up:
+
+```c
+if (ec_dec_bit_logp(dec, 1))        /* frame uses the postfilter? */
+{
+#ifdef ENABLE_POSTFILTER
+   ... read octave, pitch, gain, tapset ...
+#else
+   RESTORE_STACK;
+   return CELT_CORRUPTED_DATA;
+#endif
+}
+```
+
+The build had `ENABLE_POSTFILTER` deliberately off, "matching upstream's default" — a decision made
+for good reasons and written up as such. Every frame that used the postfilter therefore returned
+`CELT_CORRUPTED_DATA` before a single band was decoded. Turning it on took the corpus from 43.7 %
+to **100 %**, 1085 of 1085, zero silent.
+
+**What the perfect correlation actually was.** Byte[1]'s high bit predicted decode success with no
+exceptions — 474 of 474 decoded, 0 of 611 decoded. That was read as evidence of two interleaved
+payload types. It was the **postfilter bit's position in the range-coded stream**, and the
+deterministic thing branching on it was the `#else` above.
+
+**A perfect, exceptionless partition of a thousand real samples is not a property of noisy data;
+it is the signature of a deterministic branch.** Real audio does not sort itself into two clean
+buckets by one bit. That should have redirected suspicion from the data to the decoder immediately,
+and it did not — instead it motivated an exhaustive ~31,000-configuration search over sample rate,
+frame size, byte offset and frame length. Every measurement in that search was correct. The search
+space was simply the wrong one: it varied the input in every possible way while treating the
+decoder as fixed ground truth, and the defect was in the decoder.
+
+The intermediate findings that got here are real and stand: the `{ rate, frame size, length }`
+parameter table read out of `vaudio_celt.dll` (entry 3 = `{22050, 512, 64}`), the `CUSTOM_MODES`
+requirement, and `VoiceCodec_Frame::Decompress` being a bare header-less loop. A public CS:GO
+voice-extraction implementation independently uses the same 22050 / 512 / 64-byte headerless
+frames, which is a third-party check on the parameter half.
+
+**All three of TF2's voice codecs now decode real corpus audio**: Opus 3969/3969 chunks, Speex
+272/272 frames, CELT 1085/1085 frames.

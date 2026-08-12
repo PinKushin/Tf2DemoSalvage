@@ -1877,97 +1877,57 @@ With the sentinel handled, **1452 of 1452 payloads and all 3969 chunks consume e
 exactly 63 report the terminator — the same 63. Recorded in
 [findings/02](findings/02-net-messages.md).
 
-## B33 — CELT: parameters recovered and confirmed; ~56% of frames are not CELT at all — OPEN
+## B33 — CELT rejected most frames: the build was missing ENABLE_POSTFILTER — RESOLVED
 
-Found 2026-08-11. Opus and Speex decode all real corpus audio; CELT does not. Full history in
-[findings/02](findings/02-net-messages.md). This entry is what is settled and what is left.
+Opened and closed 2026-08-11. All **1085 of 1085** CELT frames in the corpus now decode, zero
+failures, zero silent. Full history in [findings/02](findings/02-net-messages.md).
 
-### Settled: the parameters, read out of TF2's own binary
+**The cause was one compile-time flag, and it was mine, not the data's.** libcelt 0.11.3's decoder
+contains:
 
-`VoiceEncoder_Celt::Init(quality, &rawFrameSize, &encodedFrameSize)` does not hardcode anything.
-It uses `quality` **directly as an index** (valid 0-4) into a table of
-`{ sample rate, frame size, compressed length }` triples at RVA `0x2f00c`, passes the first two
-to `celt_mode_create`, sets `*rawFrameSize = frame_size * 2` and
-`*encodedFrameSize = table[q].len`. The table, read from `vaudio_celt.dll`:
-
-| idx | rate | frame size | bytes |
-|---|---|---|---|
-| 0 | 44100 | 256 | 120 |
-| 1 | 22050 | 120 | 60 |
-| 2 | 22050 | 256 | 60 |
-| **3** | **22050** | **512** | **64** |
-| 4 | 44100 | 1024 | 128 |
-
-Entry 3's 64-byte length is exactly the frame width the corpus measures. **22050 Hz at 512
-samples is not a static mode**, so a default libcelt build refuses it outright — which is why
-every earlier attempt failed identically no matter which standard rate was tried. The build now
-sets `CUSTOM_MODES` and the mode constructs cleanly.
-
-That configuration is also *verified* to be the right one, not merely plausible: at 22050/512 the
-decoder accepts 474 frames, while 22050/256 and 44100/512 accept **zero**. Only the binary's own
-entry decodes anything at all.
-
-### Settled: the wrapper adds nothing
-
-`VoiceCodec_Frame::Decompress` (vtable slot 4, va `0x100135f0`) is a bare loop — no header, no
-transformation:
-
-```
-if (compressedBytes < encodedFrameSize) return 0;
-loop: DecodeFrame(pCompressed + cur, pUncompressed + out);
-      cur += encodedFrameSize;  out += rawFrameSize;
-      while (compressedBytes - cur >= encodedFrameSize);
-return out / 2;   // samples
+```c
+if (ec_dec_bit_logp(dec, 1))        /* frame uses the postfilter? */
+{
+#ifdef ENABLE_POSTFILTER
+   ... read octave, pitch, gain, tapset ...
+#else
+   RESTORE_STACK;
+   return CELT_CORRUPTED_DATA;      /* <-- bail, immediately */
+#endif
+}
 ```
 
-So the framing this project already implemented — concatenated fixed-width frames, nothing
-between them — matches the engine exactly.
+The build deliberately left `ENABLE_POSTFILTER` off to match upstream's default, so **every frame
+whose postfilter bit was set returned `CELT_CORRUPTED_DATA` before decoding anything.** The frames
+were valid the whole time; the decoder could not parse that branch. Enabling the flag took the
+success rate from 43.7 % to 100 %.
 
-### The remaining anomaly, and it is not a parameter problem
+**Two hard-won intermediate findings were real and still stand**, and were necessary to get here:
 
-**Byte 1 of each 64-byte frame predicts decode success perfectly, across all 1085 frames:**
+- **The parameters.** `VoiceEncoder_Celt::Init` uses `quality` as a direct index into a
+  `{ rate, frame size, compressed length }` table at RVA `0x2f00c`; entry 3 is
+  `{ 22050, 512, 64 }`, matching the corpus frame width. 22050 Hz at 512 samples is not a static
+  mode, so `CUSTOM_MODES` is also required — without it `celt_mode_create` refuses outright.
+  Independently corroborated: a public CS:GO voice-extraction implementation uses exactly
+  22050 / 512 / 64-byte headerless frames for the same codec.
+- **The framing.** `VoiceCodec_Frame::Decompress` is a bare loop over fixed-width frames, no
+  header, no transformation — matching what this project already implemented.
 
-| byte[1] high bit | decodes | fails |
-|---|---|---|
-| clear | **474** | 0 |
-| set | 0 | **611** |
+**The wrong conclusion is kept here deliberately, because how it failed is instructive.** The
+previous version of this entry stated that ~56 % of frames "are not CELT frames" and cited an
+exhaustive ~31,000-configuration brute force over rate, frame size, offset and length as proof.
+Every one of those measurements was accurate. The conclusion was still wrong, because **the entire
+search space was the data, and the defect was in the decoder** — no amount of reparameterising the
+input can reveal a branch the binary refuses to execute.
 
-Not one exception. Byte 0 is `0x18` on every frame at every 64-byte boundary. The hi-bit frames
-are ~56% of the total and are distributed evenly across packet lengths, frame positions and all
-four speaking clients — so this is not one bad client or one bad packet shape.
+The tell was there and was misread: byte[1]'s high bit predicted failure *perfectly*, 474/474
+versus 0/611, with not one exception. A perfect, exceptionless split across a thousand samples is
+not what noisy real-world data looks like — it is the signature of a **deterministic branch**. It
+was recorded as "a flag distinguishing two payload types" when it was the postfilter bit's
+position in the range-coded stream, and the deterministic thing branching on it was libcelt's own
+`#else return CELT_CORRUPTED_DATA`.
 
-Ruled out, each by measurement rather than argument:
-
-- **Sample rate and frame size.** Sweeping all five supported rates with matching frame sizes gave
-  a byte-identical 103-ok/163-fail split before `CUSTOM_MODES`; after it, hi-bit frames fail at
-  frame sizes 128, 256 *and* 512 alike (0 ok, 611 fail each).
-- **Byte alignment.** Offsets 1, 2 and 4 with widths 60-64, re-tested at the *correct* mode, are
-  all worse than baseline (29%, 25%, 21% versus 44%). An earlier note attributed skip=1's poor
-  score to the wrong mode; retested at the right one, it is still worse, so that explanation did
-  not survive.
-- **Decoder state.** Continuous per-client decoding and fresh-per-packet decoding give *identical*
-  results (474/611 both), so frames are genuinely independent and no state is being lost.
-- **Frame width.** 128-byte packets decode no better as one 128-byte frame (114 ok) than as two
-  64-byte frames (234 ok).
-- **Everything at once.** An exhaustive brute force over 9 sample rates x 8 frame sizes x 9 byte
-  offsets x 49 lengths — roughly 31,000 configurations — found **no** combination that decodes
-  three sampled failing frames. They are not CELT frames at any offset under any parameters.
-
-**So the hi-bit frames are not mis-parameterised CELT; they are something else, and byte[1]'s high
-bit is the flag that distinguishes them.** What that something is remains unknown. The obvious
-shapes to test next are a second payload type multiplexed into the same stream, or a
-transformation applied to a subset of frames before transmission.
-
-**Not consulted, deliberately:** the 2012 Source engine leak, where the `VoiceCodec_Frame` and
-`IFrameEncoder` symbols also appear. Unauthorised redistribution of Valve's proprietary source is
-a harder line than reading the published SDK or extracting constants from a binary on a machine
-that owns the game — and as it turned out, the binary answered the parameter question completely
-without it.
-
-**Severity: low.** CELT covers late 2016 to roughly 2018, voice only. Nothing else depends on it.
-`CorpusCeltSpeexVoiceTests.EveryCeltFrame_DecodesToPcm` is `Skip`-annotated with the finding.
-
-**Next steps:** more CELT specimens (ETF2L Season 29, March 2018, currently mirroring) would show
-whether the ~56% split is a property of the codec path or of this one recording; and a 2016-2018
-client to record fresh CELT demos with known-good audio would turn this into a controlled
-experiment.
+**The lesson worth keeping:** when a measurement partitions data perfectly, suspect the
+instrument. This project's own rule about verifying by manipulation applies to the *tool* as well
+as the code under test — the decoder was treated as fixed ground truth for the whole
+investigation, and it was the variable.
