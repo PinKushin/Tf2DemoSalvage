@@ -32,6 +32,21 @@ internal readonly record struct AtlasRect(float U, float V, float Width, float H
 /// </remarks>
 internal sealed class LightmapAtlas
 {
+    /// <summary>
+    /// The texel unlit faces sample, kept white.
+    /// </summary>
+    /// <remarks>
+    /// **A face with no baked light must not come out black.** Its rectangle is empty, so it
+    /// samples the atlas at (0,0) — which is padding, and padding is zeroes. Multiplying a texture
+    /// by black gives black, so every unlit surface in the map drew as a dark blob over otherwise
+    /// correct geometry.
+    ///
+    /// Reserving the first texel and pointing empty rectangles at it means an unlit face is drawn
+    /// at full texture brightness, which is what "no lightmap" should look like, and it needs no
+    /// branch in the shader.
+    /// </remarks>
+    private const int WhiteTexel = 0;
+
     /// <summary>Gap between packed lightmaps, in texels.</summary>
     /// <remarks>
     /// One texel of padding on each side, so a bilinear sample at the edge of a face cannot reach
@@ -77,7 +92,8 @@ internal sealed class LightmapAtlas
         List<AtlasRect> rectangles = new(lightmaps.Count);
         List<(int Face, int X, int Y, int Width, int Height)> placements = [];
 
-        int shelfX = Padding;
+        // The reserved white texel sits at (0,0), so packing starts past it.
+        int shelfX = Padding + 1;
         int shelfY = Padding;
         int shelfHeight = 0;
         int usedWidth = 0;
@@ -88,7 +104,8 @@ internal sealed class LightmapAtlas
 
             if (lightmap.IsEmpty)
             {
-                rectangles.Add(default);
+                // Points at the reserved white texel rather than at nothing: see WhiteTexel.
+                rectangles.Add(new AtlasRect(0f, 0f, 0f, 0f));
                 continue;
             }
 
@@ -111,9 +128,15 @@ internal sealed class LightmapAtlas
             shelfX += width + Padding;
         }
 
-        int atlasWidth = Math.Max(1, usedWidth);
-        int atlasHeight = Math.Max(1, shelfY + shelfHeight + Padding);
+        int atlasWidth = Math.Max(2, usedWidth);
+        int atlasHeight = Math.Max(2, shelfY + shelfHeight + Padding);
         byte[] pixels = new byte[atlasWidth * atlasHeight * 4];
+
+        // The reserved texel, white and opaque, for faces with no baked light.
+        pixels[(WhiteTexel * 4) + 0] = 255;
+        pixels[(WhiteTexel * 4) + 1] = 255;
+        pixels[(WhiteTexel * 4) + 2] = 255;
+        pixels[(WhiteTexel * 4) + 3] = 255;
 
         foreach ((int face, int x, int y, int width, int height) in placements)
         {

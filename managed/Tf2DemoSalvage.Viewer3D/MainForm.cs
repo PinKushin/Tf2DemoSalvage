@@ -733,7 +733,8 @@ internal class MainForm : Form
             try
             {
                 _device.UploadWorld(
-                    MapWorldBuilder.Build(_surfaceList, assets.Lightmaps, camera, _map.MainBounds),
+                    MapWorldBuilder.Build(
+                        _surfaceList, assets.Materials, assets.Lightmaps, camera, _map.MainBounds),
                     assets);
             }
             catch (Exception failure) when (

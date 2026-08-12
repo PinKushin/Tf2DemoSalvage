@@ -2153,3 +2153,43 @@ that maps CRCs to files.
 
 **Not blocking**, and the order is clear: detect and report the mismatch first, fetch the right
 version second.
+
+## B39 — blend materials draw only their first layer, so grass is missing — OPEN
+
+**Found 2026-08-12**, by looking at the rendered map and asking where the grass went.
+
+A displacement painted with a `WorldVertexTransition` material carries two textures and mixes them
+per vertex. On `cp_process_final`:
+
+| material | `$basetexture` | `$basetexture2` |
+|---|---|---|
+| `nature/blendgroundtograss007` | `dirtground009` | `grass_07` |
+| `nature/blendrockgroundwallforest` | `rockwall001forest` | `grass_07` |
+
+This project samples `$basetexture` only, so every blended surface draws as bare dirt or rock and
+the grass never appears. It is not a large number of faces — 60 on process — but a displacement
+covers a lot of ground, so it is most of the map's outdoor surface.
+
+**The mix comes from the displacement's own vertex alpha**, in `DISP_VERTS`, which is the same lump
+B37 needs for the real terrain shape. So the two are one piece of work: read `DISPINFO` and
+`DISP_VERTS`, build the subdivided surface, and carry each vertex's alpha through to a shader that
+lerps between the two textures.
+
+**Not blocking**, and the failure is honest — a dirt-coloured field is visibly wrong rather than
+subtly wrong, which is the right kind of missing feature to leave in place.
+
+## B40 — tool materials are identified by path, not by a flag — OPEN (accepted)
+
+**Found 2026-08-12.** 518 of `cp_process_final`'s 578 displacement faces are painted with
+`tools/toolsinvisibledisplacement`: collision-only terrain the engine never draws. Drawn here it
+covered the map's outdoor areas in black, because its texture is black.
+
+Nothing in the data marks it. Its VMT declares `LightmappedGeneric` like any wall, and its texinfo
+carries no `NoDraw` flag — the surface-flag filter that catches `toolsnodraw` and `toolstrigger`
+passes it straight through.
+
+So it is matched on the material path beginning `tools/`, which is the convention the engine, Hammer
+and every map compiler share. **This is accepted rather than open work**, and recorded because a
+path match looks like a hack until you know the flag route was tried and does not exist. If a
+counter-example turns up — a real surface under `materials/tools`, or a tool material outside it —
+this is where to start.
