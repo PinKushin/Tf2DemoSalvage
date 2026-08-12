@@ -2194,7 +2194,7 @@ path match looks like a hack until you know the flag route was tried and does no
 counter-example turns up — a real surface under `materials/tools`, or a tool material outside it —
 this is where to start.
 
-## B41 — large diffuse black areas over the map, cause not yet isolated — OPEN
+## B41 — large diffuse black areas over the map — RESOLVED, backface culling
 
 **Reported 2026-08-12** from a screenshot with the affected regions highlighted: irregular, soft-edged
 black patches spread across `cp_process_final`, in roughly the places the map has terrain.
@@ -2217,6 +2217,47 @@ lightmap multiply in the world shader so it returns albedo alone.
 - Patches **remain** → the fault is texture resolution for those specific materials, and the next
   step is to report which material each black face uses.
 
-Recorded rather than guessed at further: three hypotheses have already been tried and each was
-plausible, which is exactly the situation where another change without a measurement is how a
-codebase acquires a workaround.
+### Resolved 2026-08-12: the terrain was being culled
+
+Neither candidate. The black was the **absence of geometry**: D3D culls back faces by default, and
+the grid this project builds when it subdivides a displacement winds the opposite way to the quads
+the BSP supplies. Every terrain triangle was discarded and the background showed through — which is
+pixel-for-pixel identical to a black texture, and is why three texture-and-lighting hypotheses all
+failed to explain it.
+
+**The user's observation is what identified it**, and it was one sentence: the black covered *the
+whole ground area of mid and second*. Not patches correlated with a material or a lightmap — the
+ground, exactly and only where displacements are, starting when displacements began to be
+subdivided. A whole-region failure means geometry, not shading.
+
+Culling is now off for the world rather than the winding being corrected, because winding is not
+what this renderer relies on: which faces to draw is decided by their NORMAL, in `BspGeometry` and
+`MapWorldBuilder`, where a downward-facing surface is dropped. Having the rasteriser make the same
+decision from vertex order was a second source of truth that could disagree with the first, and did.
+
+**The lesson worth keeping**: "it looks black" has two entirely different causes — a surface drawn
+dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
+separates them is whether the affected area follows a *material* or follows a *region*.
+
+## B42 — small fuzzy black patches remain where only tool displacements cover the map — OPEN
+
+**Left over from B41**, and measured before that one was solved: a coverage grid over
+`cp_process_final` finds **153 cells — 5.1% of the map — covered only by
+`tools/toolsinvisibledisplacement`**, with no other drawn surface beneath them.
+
+Those faces are collision-only and the engine never draws them, so skipping them is right. What is
+wrong is that nothing else fills the gap, which leaves small soft-edged holes showing the
+background.
+
+**The likely explanation, not yet confirmed:** invisible displacement is normally laid over visual
+geometry to smooth movement, so a real surface should exist underneath — and if it does, this
+project is dropping it somewhere else. The two candidates are the downward-facing filter in
+`BspGeometry` and the `MainBounds` area filter in `MapWorldBuilder`.
+
+**The measurement that would settle it:** for each of those 153 cells, list every face whose
+bounding box covers it, with its material, its normal and whether it survived each filter. If the
+underlying surface is present but filtered, the filter is the bug; if no face covers the cell at
+all, the area genuinely has no visual geometry from above and drawing the tool displacement's own
+terrain — lit, but with a neutral colour rather than its black texture — is the honest fallback.
+
+**Not blocking.** It is 5% of the map in patches, against a view that is now otherwise correct.

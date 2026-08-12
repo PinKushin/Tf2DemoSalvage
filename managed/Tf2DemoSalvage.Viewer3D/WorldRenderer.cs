@@ -113,6 +113,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
+    /// <summary>Rasteriser state that draws both sides of a triangle.</summary>
+    /// <remarks>
+    /// **D3D culls back faces by default, and displacement terrain wound the other way.** The
+    /// quads that come straight out of the BSP wind one way; the grid this project builds when it
+    /// subdivides a displacement winds the other, so every terrain triangle was discarded and the
+    /// ground of mid and second rendered as background. It looked exactly like a black texture.
+    ///
+    /// Culling is turned off rather than the winding corrected, because the winding is not the
+    /// thing being relied on: which faces to draw is already decided by their NORMAL, in
+    /// BspGeometry and MapWorldBuilder, where a downward-facing surface is dropped. Asking the
+    /// rasteriser to make the same decision from vertex order is a second source of truth that can
+    /// disagree with the first - and did.
+    /// </remarks>
+    private ComPtr<ID3D11RasterizerState> _bothSides;
+
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
     private ComPtr<ID3D11ShaderResourceView> _lightmap;
@@ -220,12 +235,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // coordinates run well outside 0..1 and must wrap. A lightmap coordinate never should, and
         // wrapping one would pull in a completely unrelated face's light from the far side of the
         // atlas.
+        RasterizerDesc rasterizer = new()
+        {
+            FillMode = FillMode.Solid,
+            CullMode = CullMode.None,
+        };
+
+        ComPtr<ID3D11RasterizerState> bothSides = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in rasterizer, ref bothSides));
+
         return new WorldRenderer(
             vertexShader,
             pixelShader,
             layout,
             Sampler(device, TextureAddressMode.Wrap),
-            Sampler(device, TextureAddressMode.Clamp));
+            Sampler(device, TextureAddressMode.Clamp))
+        {
+            _bothSides = bothSides,
+        };
     }
 
     /// <summary>Uploads a map's geometry, textures and lighting.</summary>
@@ -277,24 +304,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         // A one-pixel white texture stands in for a material whose texture could not be found, so
         // the face still takes its lighting and its shape rather than vanishing.
-        _white = CreateTexture(device, 1, 1, [255, 255, 255, 255]);
+        _white = CreateTexture(device, context, 1, 1, [255, 255, 255, 255]);
 
         foreach (MapTexture? texture in assets.Textures)
         {
             _textures.Add(texture is { } present
-                ? CreateTexture(device, present.Width, present.Height, present.Pixels.Span)
+                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
                 : default);
         }
 
         foreach (MapTexture? texture in assets.BlendTextures)
         {
             _blendTextures.Add(texture is { } present
-                ? CreateTexture(device, present.Width, present.Height, present.Pixels.Span)
+                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
                 : default);
         }
 
         _lightmap = CreateTexture(
-            device, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
+            device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
 
         _batches = batches;
     }
@@ -315,6 +342,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         uint stride = VertexStride;
         uint offset = 0;
 
+        context.RSSetState(_bothSides);
         context.IASetInputLayout(_layout);
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
         context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
@@ -350,6 +378,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     public void Dispose()
     {
         ReleaseMap();
+        _bothSides.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
         _layout.Dispose();
@@ -407,42 +436,60 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     }
 
-    /// <summary>Creates an immutable texture and a view onto it.</summary>
+    /// <summary>Creates a texture with a full mip chain and a view onto it.</summary>
     /// <remarks>
-    /// Immutable because none of this changes: a map's textures and lighting are fixed for as long
-    /// as the map is open, so the driver is free to put them wherever it likes.
+    /// **The mip chain is the whole point, and its absence was visible.** Uploaded with a single
+    /// level, a 512-pixel texture is sampled at one texel per pixel however small the triangle is —
+    /// and an overhead view of a whole map draws terrain triangles a few pixels across. Each pixel
+    /// then takes an arbitrary texel, which aliases into dark noise rather than into an average.
+    /// It got conspicuously worse the moment displacements were subdivided into real terrain,
+    /// because that turned a handful of large quads into thousands of tiny ones.
+    ///
+    /// Generated by the GPU rather than uploaded from the VTF's own chain. Valve's chain is right
+    /// there in the file and using it would save the generation, but it needs every level uploaded
+    /// separately and the decoder currently returns one; this is the smaller change and the
+    /// difference is a few milliseconds at load.
+    ///
+    /// The cost is that the texture can no longer be immutable — generating mips writes to it — so
+    /// it is Default usage with a render-target bind, which is what GenerateMips requires.
     /// </remarks>
     private static ComPtr<ID3D11ShaderResourceView> CreateTexture(
-        ComPtr<ID3D11Device> device, int width, int height, ReadOnlySpan<byte> pixels)
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        int width,
+        int height,
+        ReadOnlySpan<byte> pixels)
     {
         Texture2DDesc description = new()
         {
             Width = (uint)width,
             Height = (uint)height,
-            MipLevels = 1,
+
+            // Zero means "every level down to 1x1", which the driver fills in.
+            MipLevels = 0,
             ArraySize = 1,
             Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
-            Usage = Usage.Immutable,
-            BindFlags = (uint)BindFlag.ShaderResource,
+            Usage = Usage.Default,
+            BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),
+            MiscFlags = (uint)ResourceMiscFlag.GenerateMips,
         };
 
         ComPtr<ID3D11Texture2D> texture = default;
+        SilkMarshal.ThrowHResult(device.CreateTexture2D(
+            in description, ref Unsafe.NullRef<SubresourceData>(), ref texture));
 
+        // Level zero is uploaded; the rest are generated from it.
         fixed (byte* first = pixels)
         {
-            SubresourceData initial = new()
-            {
-                PSysMem = first,
-                SysMemPitch = (uint)(width * 4),
-            };
-
-            SilkMarshal.ThrowHResult(device.CreateTexture2D(in description, in initial, ref texture));
+            context.UpdateSubresource(texture, 0, (Box*)null, first, (uint)(width * 4), 0u);
         }
 
         ComPtr<ID3D11ShaderResourceView> view = default;
         SilkMarshal.ThrowHResult(device.CreateShaderResourceView(
             texture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref view));
+
+        context.GenerateMips(view);
 
         texture.Dispose();
         return view;
