@@ -108,19 +108,25 @@ public sealed class BspGeometry
     /// <exception cref="InvalidDataException">
     /// The header is invalid, or an index inside it points outside the lump it addresses.
     /// </exception>
-    public static BspGeometry Read(ReadOnlySpan<byte> file)
+    public static BspGeometry Read(ReadOnlyMemory<byte> file)
     {
-        BspHeader header = BspHeader.Parse(file);
+        BspHeader header = BspHeader.Parse(file.Span);
 
-        ReadOnlySpan<byte> planes = Slice(file, header.Lump(LumpPlanes));
-        ReadOnlySpan<byte> vertexes = Slice(file, header.Lump(LumpVertexes));
-        ReadOnlySpan<byte> edges = Slice(file, header.Lump(LumpEdges));
-        ReadOnlySpan<byte> surfedges = Slice(file, header.Lump(LumpSurfedges));
-        ReadOnlySpan<byte> faces = Slice(file, header.Lump(LumpFaces));
-        ReadOnlySpan<byte> texinfo = Slice(file, header.Lump(LumpTexinfo));
+        // Read rather than sliced: a shipped TF2 map stores every one of these lumps LZMA
+        // compressed, and nothing in the lump directory says so. See BspLumpData.
+        ReadOnlySpan<byte> planes = Lump(file, header, LumpPlanes, PlaneStride, "planes");
+        ReadOnlySpan<byte> vertexes = Lump(file, header, LumpVertexes, VertexStride, "vertexes");
+        ReadOnlySpan<byte> edges = Lump(file, header, LumpEdges, EdgeStride, "edges");
+        ReadOnlySpan<byte> surfedges = Lump(file, header, LumpSurfedges, SurfedgeStride, "surfedges");
+        ReadOnlySpan<byte> faces = Lump(file, header, LumpFaces, FaceStride, "faces");
+        ReadOnlySpan<byte> texinfo = Lump(file, header, LumpTexinfo, TexinfoStride, "texinfo");
 
         // Counts come from lump LENGTH, never from a count stored in the data. A length is at
         // least cross-checkable against the file; a declared count is not.
+        //
+        // The division is exact because ReadStructures has already refused a length that is not a
+        // whole number of entries — which is the check that would have caught the compression
+        // immediately, instead of reading compressed bytes as faces and believing the result.
         int planeCount = planes.Length / PlaneStride;
         int vertexCount = vertexes.Length / VertexStride;
         int edgeCount = edges.Length / EdgeStride;
@@ -229,8 +235,10 @@ public sealed class BspGeometry
             texinfo[((index * TexinfoStride) + TexinfoFlagsOffset)..]);
     }
 
-    private static ReadOnlySpan<byte> Slice(ReadOnlySpan<byte> file, BspLump lump) =>
-        lump.Length == 0 ? [] : file.Slice(lump.Offset, lump.Length);
+    /// <summary>Reads one lump, decompressed if needed, and checks it holds whole entries.</summary>
+    private static ReadOnlySpan<byte> Lump(
+        ReadOnlyMemory<byte> file, BspHeader header, int index, int stride, string what) =>
+        BspLumpData.ReadStructures(file, header.Lump(index), stride, what).Span;
 
     private static void Require(bool condition, string message)
     {
