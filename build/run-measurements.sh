@@ -124,26 +124,48 @@ else
   smallest="n/a (synthetic project)"
 fi
 
-# Keep the last 30 of THIS PROJECT'S runs, and only this project's.
+# Keep the last 30 of THIS PROJECT'S runs, identified by a marker FILE, not by a name pattern.
 #
-# The glob is `*-tf2-*`, not `*`. It was `*` — copied from PBJ along with the convention — and
-# that is a per-project script reaching across a shared box, the same failure family as naming a
-# lock after the project instead of the machine. PBJ produces about 15 runs a week here, so an
-# unscoped 30-slot window is roughly two weeks: its nightly cron would eventually have deleted an
-# 18-hour measurement belonging to this project, from a script that has nothing to do with it,
-# and the deletion would have been silent.
+# The glob approach was wrong twice and PBJ caught both, with live examples on the boxes:
 #
-# Nothing was actually lost - there were 14 directories when this was caught.
+#   - `*-tf2-*` misses this project's own older runs. `...-f910e8b-fuzz-container` and
+#     `...-0a2960c-fuzz-bitreader` carry no `-tf2-` infix, so they would never be reaped.
+#   - PBJ's natural own-glob is `*-fuzz/`, and our fuzz runs are named `<stamp>-<sha>-tf2-fuzz`,
+#     which ENDS in `-fuzz`. A glob written to delete only PBJ's runs deletes ours.
+#
+# Worse, the verification suggested alongside that fix - check the scoped glob matches fewer
+# directories than the unscoped one - PASSES in both broken cases. Both globs do match fewer, just
+# not the right fewer, so the check is insensitive to the defect it was written to catch. A name is
+# a guess about a naming convention; a marker is a fact written by the run itself, and it does not
+# drift when either project renames a mode.
+#
+# Unmarked directories are LEFT ALONE deliberately. The conservative failure is an old directory
+# surviving; deleting on absence of a marker re-creates the original bug for any project that has
+# not adopted one yet.
+RUN_OWNER="tf2demosalvage"
+
 prune_own_runs() {
-  ls -1dt "${HOME}/measurements/"*-tf2-*/ 2>/dev/null | tail -n +31 | while read -r old; do
-    rm -rf "$old"
-  done
+  kept=0
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    [ -f "${dir}.owner" ] || continue
+    [ "$(cat "${dir}.owner" 2>/dev/null)" = "$RUN_OWNER" ] || continue
+
+    kept=$((kept + 1))
+    if [ "$kept" -gt 30 ]; then
+      rm -rf "$dir"
+    fi
+  done <<PRUNE_LIST
+$(ls -1dt "${HOME}/measurements/"*/ 2>/dev/null)
+PRUNE_LIST
 }
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 SHA=$(git rev-parse --short HEAD)
 OUT="$HOME/measurements/${STAMP}-${SHA}-tf2-${MODE}"
 mkdir -p "$OUT"
+# Written before any work, so a run killed halfway is still attributable and still prunable.
+echo "$RUN_OWNER" > "${OUT}/.owner"
 
 echo "=== tf2demosalvage ${MODE} @ ${SHA} — $(date -Is)"
 echo "smallest demo: ${smallest}"
