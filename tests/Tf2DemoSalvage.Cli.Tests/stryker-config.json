@@ -20,6 +20,6 @@
       "WriteUsage",
       "WriteLine"
     ],
-    "additional-timeout": 30000
+    "additional-timeout": 10000
   }
 }
