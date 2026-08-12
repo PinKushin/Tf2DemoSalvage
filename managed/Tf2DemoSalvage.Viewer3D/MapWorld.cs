@@ -32,6 +32,7 @@ internal static class MapWorldBuilder
 {
     /// <summary>Builds the drawable world.</summary>
     /// <param name="surfaces">The map's surfaces.</param>
+    /// <param name="materials">The map's texture table, for identifying tool materials.</param>
     /// <param name="atlas">Where each face's lighting sits.</param>
     /// <param name="camera">Projection from world to clip space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
@@ -44,11 +45,13 @@ internal static class MapWorldBuilder
     /// </remarks>
     public static MapWorld Build(
         IReadOnlyList<BspSurface> surfaces,
+        IReadOnlyList<BspMaterial> materials,
         LightmapAtlas atlas,
         TopDownCamera camera,
         MapBounds? area)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(materials);
         ArgumentNullException.ThrowIfNull(atlas);
 
         (float lowest, float highest) = HeightRange(surfaces);
@@ -65,6 +68,17 @@ internal static class MapWorldBuilder
             }
 
             if (area is { } bounds && !Touches(surface, bounds))
+            {
+                continue;
+            }
+
+            // **Tool materials, by name, because the flags do not catch them all.** 518 of
+            // cp_process_final's 578 displacement faces are painted with
+            // tools/toolsinvisibledisplacement - collision-only terrain the engine never draws.
+            // Its VMT is LightmappedGeneric, so no surface flag and no shader check identifies it,
+            // and its texture is black: drawn, it is a black blob over exactly the areas that
+            // should be grass.
+            if (IsToolMaterial(surface.MaterialIndex, materials))
             {
                 continue;
             }
@@ -140,14 +154,33 @@ internal static class MapWorldBuilder
 
         // Clamped before remapping: a corner can sit a fraction outside its own lightmap, and in a
         // shared atlas that fraction is another face's light rather than empty space.
-        float lightU = rectangle.Width > 0f
-            ? rectangle.U + (Math.Clamp(corner.LightU, 0f, 1f) * rectangle.Width)
-            : 0f;
-        float lightV = rectangle.Height > 0f
-            ? rectangle.V + (Math.Clamp(corner.LightV, 0f, 1f) * rectangle.Height)
-            : 0f;
+        // A zero-width rectangle is a face with no baked light, and its U and V are the atlas's
+        // reserved white texel - so the arithmetic below lands exactly there and the surface draws
+        // at full texture brightness rather than black.
+        float lightU = rectangle.U + (Math.Clamp(corner.LightU, 0f, 1f) * rectangle.Width);
+        float lightV = rectangle.V + (Math.Clamp(corner.LightV, 0f, 1f) * rectangle.Height);
 
         vertices.Add(new WorldVertex(x, y, depth, corner.U, corner.V, lightU, lightV));
+    }
+
+    /// <summary>Whether a material is one of the compiler's tools rather than a surface.</summary>
+    /// <remarks>
+    /// Matched on the path, which is the one thing every tool material shares: they all live under
+    /// <c>materials/tools</c>, by a convention the engine and Hammer both rely on. The alternative
+    /// - reading each VMT and guessing from its shader - fails on exactly the case that matters,
+    /// since toolsinvisibledisplacement declares itself LightmappedGeneric like any wall.
+    /// </remarks>
+    private static bool IsToolMaterial(int materialIndex, IReadOnlyList<BspMaterial> materials)
+    {
+        if (materialIndex < 0 || materialIndex >= materials.Count)
+        {
+            return false;
+        }
+
+        string name = materials[materialIndex].Name;
+
+        return name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith("tools\\", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool Touches(BspSurface surface, MapBounds bounds)
