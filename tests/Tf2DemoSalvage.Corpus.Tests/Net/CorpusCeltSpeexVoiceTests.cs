@@ -42,9 +42,15 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
 
         foreach (string path in Corpus.Files())
         {
-            foreach (VoiceDataMessage voice in VoiceOfCodec(path, "vaudio_celt"))
+            Corpus.VoiceSummary demo = Corpus.Voice(path);
+            if (demo.Codec != "vaudio_celt")
             {
-                ReadOnlySpan<byte> body = voice.Body.Span;
+                continue;
+            }
+
+            foreach (Corpus.VoicePacketSummary voice in demo.Packets)
+            {
+                ReadOnlySpan<byte> body = voice.Body;
 
                 (body.Length % CeltFrameBytes).ShouldBe(
                     0, $"{Path.GetFileName(path)}: a {body.Length}-byte CELT payload is not a " +
@@ -91,9 +97,15 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
         {
             foreach (string path in Corpus.Files())
             {
-                foreach (VoiceDataMessage voice in VoiceOfCodec(path, "vaudio_speex"))
+                Corpus.VoiceSummary demo = Corpus.Voice(path);
+                if (demo.Codec != "vaudio_speex")
                 {
-                    ReadOnlySpan<byte> body = voice.Body.Span;
+                    continue;
+                }
+
+                foreach (Corpus.VoicePacketSummary voice in demo.Packets)
+                {
+                    ReadOnlySpan<byte> body = voice.Body;
 
                     (body.Length % SpeexNarrowbandFrameBytes).ShouldBe(
                         0, $"{Path.GetFileName(path)}: a {body.Length}-byte Speex payload is " +
@@ -141,30 +153,4 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
             $"{silentFrames} silent ({silentRate:P1})");
     }
 
-    private static IEnumerable<VoiceDataMessage> VoiceOfCodec(string path, string codec)
-    {
-        byte[] file = File.ReadAllBytes(path);
-        DemoHeader header = DemoHeader.Parse(file);
-        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
-        bool matches = false;
-
-        foreach (DemoCommand command in
-            DemoCommandReader.Read(file.AsMemory(DemoHeader.SizeBytes))
-                .Where(c => c.Type is DemoCommandType.Signon or DemoCommandType.Packet))
-        {
-            foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state)
-                .Messages)
-            {
-                if (message is VoiceInitMessage init)
-                {
-                    matches = string.Equals(init.Codec, codec, StringComparison.Ordinal);
-                }
-
-                if (matches && message is VoiceDataMessage voice && voice.BodyBits > 0)
-                {
-                    yield return voice;
-                }
-            }
-        }
-    }
 }

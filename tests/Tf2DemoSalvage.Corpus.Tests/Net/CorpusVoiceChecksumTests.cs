@@ -35,9 +35,15 @@ public sealed class CorpusVoiceChecksumTests(ITestOutputHelper output)
 
         foreach (string path in Corpus.Files())
         {
-            foreach (VoiceDataMessage voice in SteamVoice(path))
+            Corpus.VoiceSummary demo = Corpus.Voice(path);
+            if (demo.Codec != "steam")
             {
-                ReadOnlySpan<byte> body = voice.Body.Span;
+                continue;
+            }
+
+            foreach (Corpus.VoicePacketSummary voice in demo.Packets)
+            {
+                ReadOnlySpan<byte> body = voice.Body;
 
                 if (body.Length < 12)
                 {
@@ -68,30 +74,4 @@ public sealed class CorpusVoiceChecksumTests(ITestOutputHelper output)
         output.WriteLine($"{matched}/{checked_} voice payload tails are a CRC32 of the body");
     }
 
-    private static IEnumerable<VoiceDataMessage> SteamVoice(string path)
-    {
-        byte[] file = File.ReadAllBytes(path);
-        DemoHeader header = DemoHeader.Parse(file);
-        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
-        bool steam = false;
-
-        foreach (DemoCommand command in
-            DemoCommandReader.Read(file.AsMemory(DemoHeader.SizeBytes))
-                .Where(c => c.Type is DemoCommandType.Signon or DemoCommandType.Packet))
-        {
-            foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state)
-                .Messages)
-            {
-                if (message is VoiceInitMessage init)
-                {
-                    steam = string.Equals(init.Codec, "steam", StringComparison.Ordinal);
-                }
-
-                if (steam && message is VoiceDataMessage voice && voice.BodyBits > 0)
-                {
-                    yield return voice;
-                }
-            }
-        }
-    }
 }
