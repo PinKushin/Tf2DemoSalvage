@@ -1,6 +1,6 @@
 ---
 name: tests-before-codecs
-description: Write unit tests before each decoder, not after — mutation testing caught the same lapse twice, and corpus tests cannot substitute
+description: Write unit tests before each decoder, not after — mutation testing has now caught the same lapse three times, and corpus tests cannot substitute
 metadata:
   type: feedback
 ---
@@ -12,10 +12,23 @@ metadata:
 |---|---|---|
 | `GameEventCodec` | after | 5 survivors, all in one untested helper |
 | `StringTableCodec` | after | **53 survivors** in that file alone |
+| `UserMessageBody` | after | **86 survivors** in that file alone (2026-08-12) |
 
-Both times the code passed its corpus tests and looked finished. Both times mutation
-testing found the gap immediately. The second lapse happened one feature after the first,
-which is why this is written down rather than merely noticed.
+Every time, the code passed its corpus tests and looked finished. Every time, mutation testing
+found the gap immediately. The second lapse happened one feature after the first, which is why
+this was written down rather than merely noticed — and the third happened anyway, which is worth
+sitting with.
+
+**The third one is the clearest case yet, because of how concentrated it is.** The 2026-08-12
+`core` run scored 54.26 % with 242 survivors, and 86 of them — better than a third — are in
+`UserMessageBody.cs` alone. The next two are `MessageAssembly.cs` (32) and `DemoAssembly.cs`
+(31), both written the same way. A score that low reads like a broad quality problem and is not
+one: it is three files that were written before their tests, in a codebase whose other ~40 files
+are fine. **Read the survivors, not the score** — the score averages the lapse away, and the
+per-file count points straight at it.
+
+By mutator the survivors are 57 string, 40 equality, 37 statement and 35 boolean — the shape of
+code whose *outputs* were never asserted precisely, only that it ran.
 
 **Why corpus tests do not cover for it.** A real demo exercises only the paths those three
 files happen to use. `StringTableCodec` has branches for fixed-size versus variable-size
