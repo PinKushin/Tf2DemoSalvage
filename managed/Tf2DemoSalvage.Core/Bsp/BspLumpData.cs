@@ -40,7 +40,7 @@ namespace Tf2DemoSalvage.Core.Bsp;
 /// **A map is hostile input (D32), and both sizes in that header come out of the file.** They are
 /// checked before anything is allocated.
 /// </remarks>
-internal static class BspLumpData
+public static class BspLumpData
 {
     /// <summary>Size of <c>lzma_header_t</c>.</summary>
     private const int CompressionHeaderBytes = 17;
