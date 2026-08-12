@@ -150,12 +150,15 @@ jobs:
 
       - name: Check the counts
         shell: bash
-        # The corpus floor is the load-bearing one. CI sees only the committed corpus (10 demos)
-        # while a developer's run also picks up tools/corpus/local, so the CI count is the lower
-        # of the two and a drop below it means demos went missing rather than tests being removed.
+        # The corpus floor is the load-bearing one, and it is deliberately NOT the number a local
+        # run produces. Several corpus tests are per-demo, so the count tracks how many demos
+        # were found: 99 in CI against the committed corpus, 130 locally where
+        # tools/corpus/local is also picked up. The CI number is the floor precisely because a
+        # drop below it means demos went missing — which is the failure that would otherwise be
+        # invisible, since a corpus test over zero demos passes.
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 16 Audio
-          ./build/assert-test-count.sh '**/corpus.trx' 130 Corpus
+          ./build/assert-test-count.sh '**/corpus.trx' 99 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

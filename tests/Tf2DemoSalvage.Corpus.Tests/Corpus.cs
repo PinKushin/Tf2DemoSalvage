@@ -408,6 +408,27 @@ internal static class Corpus
         path,
         static p => new Lazy<VoiceSummary>(() => WalkVoice(p), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
+    /// <summary>Whether any demo present carries voice in the named codec.</summary>
+    /// <param name="codec">Codec as <c>svc_VoiceInit</c> names it, e.g. <c>"steam"</c>.</param>
+    /// <returns>True if at least one demo carries voice packets in that codec.</returns>
+    /// <remarks>
+    /// **The committed corpus and a developer's corpus do not carry the same codecs, and a test
+    /// cannot tell the two situations apart without asking.** Measured 2026-08-12: the committed
+    /// corpus is <c>vaudio_celt</c> and <c>vaudio_speex</c> only, while every <c>steam</c>-codec
+    /// (Opus) packet in existence here lives in the git-ignored local corpus. So the five Steam
+    /// voice tests had nothing to run against in CI and failed on their own "this proved nothing"
+    /// guards — correctly, on the first CI run there ever was.
+    ///
+    /// Used with <c>Assert.SkipUnless</c> rather than an early <c>return</c>, and the difference
+    /// is the entire point. A test that returns early passes having asserted nothing and is
+    /// indistinguishable in the output from one that did real work; a skip names the missing
+    /// codec in the run summary. The existing guards inside those tests keep their teeth for the
+    /// case that actually matters — demos carrying the codec that nonetheless yield no packets,
+    /// which is a decoder bug and still fails.
+    /// </remarks>
+    public static bool AnyDemoUses(string codec) =>
+        Files().Any(path => string.Equals(Voice(path).Codec, codec, StringComparison.Ordinal));
+
     private static VoiceSummary WalkVoice(string p)
     {
         byte[] bytes = File.ReadAllBytes(p);
