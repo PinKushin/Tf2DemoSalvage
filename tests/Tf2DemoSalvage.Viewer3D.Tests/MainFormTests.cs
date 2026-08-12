@@ -31,6 +31,10 @@ public sealed class MainFormTests
         using MainForm form = new();
 
         Find(form, MainForm.ViewportId).ShouldNotBeNull();
+        Find(form, MainForm.ImportButtonId).ShouldNotBeNull();
+        Find(form, MainForm.ExportButtonId).ShouldNotBeNull();
+        Find(form, MainForm.CompileButtonId).ShouldNotBeNull();
+        Find(form, TransportBar.PlayButtonId).ShouldNotBeNull();
         form.Name.ShouldBe("MainWindow");
 
         ToolStripMenuItem file = FileMenu(form);
