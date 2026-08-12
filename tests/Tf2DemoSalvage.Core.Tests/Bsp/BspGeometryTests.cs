@@ -26,12 +26,21 @@ public sealed class BspGeometryTests
     private const int LumpPlanes = 1;
     private const int LumpVertexes = 3;
     private const int LumpFaces = 7;
+    private const int LumpTexinfo = 6;
     private const int LumpEdges = 12;
     private const int LumpSurfedges = 13;
 
     /// <summary>Assembles a BSP from lump payloads, laid out end to end after the header.</summary>
     private static byte[] BuildBsp(Dictionary<int, byte[]> lumps)
     {
+        // Every real map has a texinfo lump, and a face's texinfo index is bounds-checked against
+        // it - so a fixture without one makes an ordinary face look like corruption. Supplied by
+        // default rather than repeated in each fixture; a test that cares provides its own.
+        if (!lumps.ContainsKey(LumpTexinfo))
+        {
+            lumps[LumpTexinfo] = Texinfo(SurfaceProperties.None);
+        }
+
         int total = HeaderSize;
 
         foreach (byte[] payload in lumps.Values)
@@ -124,6 +133,50 @@ public sealed class BspGeometryTests
             data[at + 2] = faces[i].Side;
             BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(at + 4), faces[i].FirstEdge);
             BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(at + 8), faces[i].EdgeCount);
+        }
+
+        return data;
+    }
+
+    /// <summary>Texinfo records, 72 bytes each; only the flags field at offset 64 is filled.</summary>
+    private static byte[] Texinfo(params SurfaceProperties[] flags)
+    {
+        byte[] data = new byte[flags.Length * 72];
+
+        for (int i = 0; i < flags.Length; i++)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan((i * 72) + 64), (int)flags[i]);
+        }
+
+        return data;
+    }
+
+    /// <summary>A square with the given surface flags, facing up.</summary>
+    private static byte[] SquareWithFlags(SurfaceProperties flags) =>
+        BuildBsp(new Dictionary<int, byte[]>
+        {
+            [LumpPlanes] = Planes((0f, 0f, 1f)),
+            [LumpTexinfo] = Texinfo(flags),
+            [LumpVertexes] = Vertexes((0f, 0f, 0f), (10f, 0f, 0f), (10f, 10f, 0f), (0f, 10f, 0f)),
+            [LumpEdges] = Edges((0, 1), (1, 2), (2, 3), (3, 0)),
+            [LumpSurfedges] = Surfedges(0, 1, 2, 3),
+            [LumpFaces] = Faces((0, 0, 0, 4)),
+        });
+
+    /// <summary>Faces with an explicit texinfo index, which the simpler helper leaves at zero.</summary>
+    private static byte[] FacesWithTexinfo(
+        params (ushort Plane, byte Side, int FirstEdge, short EdgeCount, short Texinfo)[] faces)
+    {
+        byte[] data = new byte[faces.Length * 56];
+
+        for (int i = 0; i < faces.Length; i++)
+        {
+            int at = i * 56;
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(at), faces[i].Plane);
+            data[at + 2] = faces[i].Side;
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(at + 4), faces[i].FirstEdge);
+            BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(at + 8), faces[i].EdgeCount);
+            BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(at + 10), faces[i].Texinfo);
         }
 
         return data;
@@ -275,6 +328,77 @@ public sealed class BspGeometryTests
         BspGeometry walls = BspGeometry.Read(Square(normalZ: 0f));
 
         walls.OverheadFaces.Count.ShouldBe(1);
+    }
+
+    [TestCase(SurfaceProperties.Sky)]
+    [TestCase(SurfaceProperties.Sky2D)]
+    [TestCase(SurfaceProperties.NoDraw)]
+    [TestCase(SurfaceProperties.Trigger)]
+    [TestCase(SurfaceProperties.Hint)]
+    [TestCase(SurfaceProperties.Skip)]
+    public void SkyAndToolSurfacesAreLeftOutOfTheOverheadView(SurfaceProperties flags)
+    {
+        // The skybox would cover the map, and tool surfaces are invisible in game - drawn here,
+        // trigger volumes and nodraw brushes would appear as solid boxes sitting on top of it.
+        BspGeometry geometry = BspGeometry.Read(SquareWithFlags(flags));
+
+        geometry.Faces.ShouldHaveSingleItem();
+        geometry.OverheadFaces.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void AnOrdinarySurfaceIsKept()
+    {
+        // The control. Without it a filter that dropped everything would pass all six cases
+        // above, and an empty map looks exactly like a correctly filtered one.
+        BspGeometry geometry = BspGeometry.Read(SquareWithFlags(SurfaceProperties.None));
+
+        geometry.OverheadFaces.ShouldHaveSingleItem();
+    }
+
+    [Test]
+    public void FlagsThatAreNotAboutVisibilityDoNotHideASurface()
+    {
+        // Translucent glass and bump-lit walls are ordinary visible geometry. A filter written as
+        // "keep only flagless faces" would drop them, and half the map with them.
+        BspGeometry geometry = BspGeometry.Read(
+            SquareWithFlags(SurfaceProperties.Translucent | SurfaceProperties.BumpLight));
+
+        geometry.OverheadFaces.ShouldHaveSingleItem();
+    }
+
+    [Test]
+    public void AFaceWithNoTexinfoIsKeptRatherThanRejected()
+    {
+        // A texinfo index of -1 is legal and means the face has no texture information. It is not
+        // a claim about anything, so rejecting the file over it would lose a map to one odd face.
+        byte[] file = BuildBsp(new Dictionary<int, byte[]>
+        {
+            [LumpPlanes] = Planes((0f, 0f, 1f)),
+            [LumpTexinfo] = Texinfo(SurfaceProperties.None),
+            [LumpVertexes] = Vertexes((0f, 0f, 0f), (10f, 0f, 0f), (10f, 10f, 0f)),
+            [LumpEdges] = Edges((0, 1), (1, 2), (2, 0)),
+            [LumpSurfedges] = Surfedges(0, 1, 2),
+            [LumpFaces] = FacesWithTexinfo((0, 0, 0, 3, -1)),
+        });
+
+        BspGeometry.Read(file).OverheadFaces.ShouldHaveSingleItem();
+    }
+
+    [Test]
+    public void AFaceNamingATexinfoThatDoesNotExistIsRejected()
+    {
+        byte[] file = BuildBsp(new Dictionary<int, byte[]>
+        {
+            [LumpPlanes] = Planes((0f, 0f, 1f)),
+            [LumpTexinfo] = Texinfo(SurfaceProperties.None),
+            [LumpVertexes] = Vertexes((0f, 0f, 0f), (10f, 0f, 0f), (10f, 10f, 0f)),
+            [LumpEdges] = Edges((0, 1), (1, 2), (2, 0)),
+            [LumpSurfedges] = Surfedges(0, 1, 2),
+            [LumpFaces] = FacesWithTexinfo((0, 0, 0, 3, 44)),
+        });
+
+        Should.Throw<InvalidDataException>(() => BspGeometry.Read(file));
     }
 
     [Test]

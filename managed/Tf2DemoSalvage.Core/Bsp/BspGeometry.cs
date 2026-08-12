@@ -10,8 +10,25 @@ namespace Tf2DemoSalvage.Core.Bsp;
 /// <summary>One drawable surface: its outline, in Source world units, and which way it faces.</summary>
 /// <param name="Points">The polygon's vertices, in winding order.</param>
 /// <param name="Normal">Unit normal, already corrected for the face's side.</param>
+/// <param name="Flags">Surface flags from the face's texinfo.</param>
 public sealed record BspFace(
-    IReadOnlyList<(float X, float Y, float Z)> Points, (float X, float Y, float Z) Normal);
+    IReadOnlyList<(float X, float Y, float Z)> Points,
+    (float X, float Y, float Z) Normal,
+    SurfaceProperties Flags)
+{
+    /// <summary>Surfaces that exist for the compiler rather than for the player.</summary>
+    /// <remarks>
+    /// Sky and Sky2D are the skybox, which is irrelevant to a map overview. NoDraw, Hint, Skip and
+    /// Trigger are tool surfaces: invisible in game, and drawn here they would be solid walls and
+    /// trigger boxes sitting on top of the map.
+    /// </remarks>
+    private const SurfaceProperties NotDrawn =
+        SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.NoDraw |
+        SurfaceProperties.Hint | SurfaceProperties.Skip | SurfaceProperties.Trigger;
+
+    /// <summary>Whether this surface is one a player would actually see.</summary>
+    public bool IsVisible => (Flags & NotDrawn) == SurfaceProperties.None;
+}
 
 /// <summary>
 /// The world's visible surfaces, read from a BSP.
@@ -38,6 +55,7 @@ public sealed class BspGeometry
     private const int LumpPlanes = 1;
     private const int LumpVertexes = 3;
     private const int LumpFaces = 7;
+    private const int LumpTexinfo = 6;
     private const int LumpEdges = 12;
     private const int LumpSurfedges = 13;
 
@@ -46,11 +64,21 @@ public sealed class BspGeometry
     private const int EdgeStride = 4;
     private const int SurfedgeStride = 4;
     private const int FaceStride = 56;
+    private const int TexinfoStride = 72;
+
+    /// <summary>Byte offset of the flags field inside a texinfo record.</summary>
+    private const int TexinfoFlagsOffset = 64;
+
+    /// <summary>Byte offset of the texinfo index inside a face record.</summary>
+    private const int FaceTexinfoOffset = 10;
 
     private BspGeometry(IReadOnlyList<BspFace> faces)
     {
         Faces = faces;
 
+        // Tool and sky surfaces go first: they are invisible in game, and drawn here the skybox
+        // would cover the map and trigger volumes would appear as solid boxes on top of it.
+        //
         // A ceiling's normal points down into the room it encloses, so dropping downward-facing
         // surfaces is exactly "freecam looking down, without the roof in the way". Walls are kept:
         // their normals are horizontal, and they are what gives an overhead view its outlines.
@@ -65,7 +93,7 @@ public sealed class BspGeometry
         // It also settles the "roofs players stand on" question by construction: a hut's walkable
         // top faces up and survives, while the ceiling inside that same hut faces down and does
         // not. Solid brushwork has both surfaces, and they are filtered independently.
-        OverheadFaces = [.. faces.Where(face => face.Normal.Z >= 0f)];
+        OverheadFaces = [.. faces.Where(face => face.IsVisible && face.Normal.Z >= 0f)];
     }
 
     /// <summary>Every drawable face in the file.</summary>
@@ -89,6 +117,7 @@ public sealed class BspGeometry
         ReadOnlySpan<byte> edges = Slice(file, header.Lump(LumpEdges));
         ReadOnlySpan<byte> surfedges = Slice(file, header.Lump(LumpSurfedges));
         ReadOnlySpan<byte> faces = Slice(file, header.Lump(LumpFaces));
+        ReadOnlySpan<byte> texinfo = Slice(file, header.Lump(LumpTexinfo));
 
         // Counts come from lump LENGTH, never from a count stored in the data. A length is at
         // least cross-checkable against the file; a declared count is not.
@@ -97,6 +126,7 @@ public sealed class BspGeometry
         int edgeCount = edges.Length / EdgeStride;
         int surfedgeCount = surfedges.Length / SurfedgeStride;
         int faceCount = faces.Length / FaceStride;
+        int texinfoCount = texinfo.Length / TexinfoStride;
 
         List<BspFace> read = new(faceCount);
 
@@ -108,6 +138,7 @@ public sealed class BspGeometry
             bool flipped = face[2] != 0;
             int firstEdge = BinaryPrimitives.ReadInt32LittleEndian(face[4..]);
             int edgesInFace = BinaryPrimitives.ReadInt16LittleEndian(face[8..]);
+            int texinfoIndex = BinaryPrimitives.ReadInt16LittleEndian(face[FaceTexinfoOffset..]);
 
             // Degenerate faces exist in real maps. One should not cost the rest of the map.
             if (edgesInFace <= 0)
@@ -145,7 +176,10 @@ public sealed class BspGeometry
                 points.Add(ReadVertex(vertexes, vertexIndex));
             }
 
-            read.Add(new BspFace(points, ReadNormal(planes, planeIndex, flipped)));
+            read.Add(new BspFace(
+                points,
+                ReadNormal(planes, planeIndex, flipped),
+                ReadFlags(texinfo, texinfoIndex, texinfoCount)));
         }
 
         return new BspGeometry(read);
@@ -174,6 +208,25 @@ public sealed class BspGeometry
         // world's ceilings look like floors, which is the exact distinction the overhead filter
         // depends on.
         return flipped ? (-x, -y, -z) : (x, y, z);
+    }
+
+    /// <summary>Reads a face's surface flags, tolerating a face with no texinfo.</summary>
+    /// <remarks>
+    /// A texinfo index of -1 is legal and means the face has no texture information. Treated as
+    /// "no flags" rather than as corruption: it is not a claim about anything, and rejecting the
+    /// file over it would lose a whole map to one unusual face.
+    /// </remarks>
+    private static SurfaceProperties ReadFlags(ReadOnlySpan<byte> texinfo, int index, int count)
+    {
+        if (index < 0)
+        {
+            return SurfaceProperties.None;
+        }
+
+        Require(index < count, $"A face names texinfo {index} of {count}.");
+
+        return (SurfaceProperties)BinaryPrimitives.ReadInt32LittleEndian(
+            texinfo[((index * TexinfoStride) + TexinfoFlagsOffset)..]);
     }
 
     private static ReadOnlySpan<byte> Slice(ReadOnlySpan<byte> file, BspLump lump) =>
