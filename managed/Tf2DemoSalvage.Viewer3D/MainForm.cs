@@ -72,6 +72,14 @@ internal class MainForm : Form
 
     private LoadedDemo? _demo;
 
+    /// <summary>What the viewport draws: entity positions already projected to clip space.</summary>
+    /// <remarks>
+    /// Held as projected points rather than world positions so the render loop does no work per
+    /// frame beyond handing them over. Re-projection happens when the tick or the viewport size
+    /// changes, which is far rarer than a frame.
+    /// </remarks>
+    private IReadOnlyList<ScenePoint> _scene = [];
+
     private readonly ToolStripMenuItem _fullScreen;
 
     private Device3D? _device;
@@ -318,6 +326,43 @@ internal class MainForm : Form
         LoadDemo((string)_playlist.SelectedItems[0].Tag!);
     }
 
+    /// <summary>Shows a set of world positions in the viewport.</summary>
+    /// <param name="positions">World XY positions, in Source units.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="positions"/> is null.</exception>
+    /// <remarks>
+    /// Fits the camera to whatever is passed rather than to the map's bounds, because the map's
+    /// bounds are not known until BSP reading exists - and fitting to the entities is what a
+    /// viewer wants anyway when a scrub lands on a moment where everyone is in one corner.
+    /// </remarks>
+    public void ShowPositions(IReadOnlyList<(float X, float Y)> positions)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+
+        if (positions.Count == 0)
+        {
+            _scene = [];
+            return;
+        }
+
+        TopDownCamera camera = TopDownCamera.Fit(
+            positions,
+            Math.Max(1, _viewport.ClientSize.Width),
+            Math.Max(1, _viewport.ClientSize.Height));
+
+        List<ScenePoint> points = new(positions.Count);
+
+        foreach ((float worldX, float worldY) in positions)
+        {
+            (float x, float y) = camera.Project(worldX, worldY);
+            points.Add(new ScenePoint(x, y, 1f, 0.85f, 0.3f));
+        }
+
+        _scene = points;
+    }
+
+    /// <summary>The points the viewport is currently drawing.</summary>
+    public IReadOnlyList<ScenePoint> Scene => _scene;
+
     /// <summary>Loads a demo by path and brings the transport up on it.</summary>
     /// <param name="path">Full path to the demo.</param>
     /// <remarks>
@@ -333,6 +378,14 @@ internal class MainForm : Form
             _demo = LoadedDemo.Load(path);
             _transport.SetDemoLength(_demo.LastTick);
             _status.Text = _demo.Describe();
+
+            // A placeholder scene until tick decoding lands: the corners and centre of the map's
+            // nominal extent, so the viewport visibly responds to opening a demo and the whole
+            // path - camera, renderer, swap chain - is exercised by hand as well as by tests.
+            ShowPositions(
+            [
+                (-2000f, -2000f), (2000f, -2000f), (0f, 0f), (-2000f, 2000f), (2000f, 2000f),
+            ]);
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -473,7 +526,7 @@ internal class MainForm : Form
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
-        _device?.ClearAndPresent(0.06f, 0.07f, 0.09f);
+        _device?.DrawAndPresent(0.06f, 0.07f, 0.09f, _scene);
     }
 
     private void OnViewportResize(object? sender, EventArgs e)

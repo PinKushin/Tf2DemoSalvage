@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
@@ -30,6 +32,9 @@ internal sealed unsafe class Device3D : IDisposable
     private ComPtr<ID3D11Device> _device;
     private ComPtr<ID3D11DeviceContext> _context;
     private ComPtr<IDXGISwapChain> _swapChain;
+    private PointRenderer? _points;
+    private int _width;
+    private int _height;
     private ComPtr<ID3D11RenderTargetView> _backBufferView;
     private bool _disposed;
 
@@ -118,7 +123,11 @@ internal sealed unsafe class Device3D : IDisposable
             pFeatureLevel: null,
             ppImmediateContext: ref context));
 
-        Device3D created = new(d3d, device, context, swapChain);
+        Device3D created = new(d3d, device, context, swapChain)
+        {
+            _width = width,
+            _height = height,
+        };
         created.CreateBackBufferView();
         return created;
     }
@@ -127,12 +136,41 @@ internal sealed unsafe class Device3D : IDisposable
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
     /// <param name="blue">Clear colour, blue channel.</param>
-    public void ClearAndPresent(float red, float green, float blue)
+    public void ClearAndPresent(float red, float green, float blue) =>
+        DrawAndPresent(red, green, blue, []);
+
+    /// <summary>Clears, draws a set of points, and presents.</summary>
+    /// <param name="red">Clear colour, red channel.</param>
+    /// <param name="green">Clear colour, green channel.</param>
+    /// <param name="blue">Clear colour, blue channel.</param>
+    /// <param name="points">Points in normalised device coordinates.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// The same <see cref="PointRenderer"/> the offscreen tests drive, given the swap chain's
+    /// render target instead of a texture. That is the point of the renderer not owning a target:
+    /// what the tests measure and what the window shows are the same code, not two copies that
+    /// agree until one is changed.
+    /// </remarks>
+    public void DrawAndPresent(
+        float red, float green, float blue, IReadOnlyList<ScenePoint> points)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(points);
 
         float* colour = stackalloc float[4] { red, green, blue, 1f };
         _context.ClearRenderTargetView(_backBufferView, colour);
+
+        if (points.Count > 0)
+        {
+            _points ??= PointRenderer.Create(_device);
+
+            Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+            _context.RSSetViewports(1, in viewport);
+            _context.OMSetRenderTargets(
+                1, ref _backBufferView, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+
+            _points.Draw(_device, _context, points);
+        }
 
         // No vertical sync yet. A demo viewer scrubbing through ticks wants frames as fast as it
         // can produce them while the camera is being dragged; pacing belongs with playback.
@@ -164,6 +202,12 @@ internal sealed unsafe class Device3D : IDisposable
         SilkMarshal.ThrowHResult(_swapChain.ResizeBuffers(
             BufferCount, (uint)width, (uint)height, Format.FormatB8G8R8A8Unorm, 0u));
 
+        // Kept in step with the swap chain, because the viewport passed to the rasteriser comes
+        // from here. A stale size draws into a rectangle that no longer matches the buffer, which
+        // scales and clips silently rather than failing.
+        _width = width;
+        _height = height;
+
         CreateBackBufferView();
     }
 
@@ -175,6 +219,7 @@ internal sealed unsafe class Device3D : IDisposable
             return;
         }
 
+        _points?.Dispose();
         _backBufferView.Dispose();
         _swapChain.Dispose();
         _context.Dispose();
