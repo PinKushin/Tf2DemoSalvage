@@ -56,8 +56,18 @@ between UI tests is usually treated as a defect in the tests; here it was the te
 detecting residue from an earlier operation, which is a real bug a user would hit by pressing F11
 once.
 
-The corollary for writing them: a test that checks layout or state should where possible run
-against a window that has been USED, not one that has just started. The full-screen round trip is
-now performed inside the layout test itself for that reason.
+**The point is not that a per-test fixture cannot reach it — it is what reaching it would cost.**
+The same bug is findable with a fresh application per test, but only by stuffing the whole
+sequence into one test: enter full screen, leave it, then assert the layout. Do that for every
+interaction that might leave residue and the suite becomes a handful of long tests, each doing
+several things and each naming only one of them when it fails.
+
+A shared fixture buys that sequence coverage **incidentally**. Tests stay one-thing-each, and the
+combinations still get exercised because they run against the same living application.
+
+Both are worth having, for different reasons. Incidental coverage FINDS the unknown case — it is
+what surfaced this one. An explicit sequence inside the test PINS the known case, so it stays
+caught whatever order the tests run in later. The full-screen round trip now appears inside the
+layout test for the second reason, having been discovered by the first.
 
 See also [[tests-before-codecs]].
