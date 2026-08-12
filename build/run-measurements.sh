@@ -71,6 +71,38 @@ case "$MODE" in
   *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli or fuzz." >&2; exit 2 ;;
 esac
 
+# `corpus` mutation is OFF, and refuses rather than warns.
+#
+# Coverage capture cannot succeed for that project: Stryker's Microsoft.Testing.Platform runner
+# talks to its test server over JSON-RPC with a hard 180-second limit, and the instrumented corpus
+# suite takes about 6 m 18 s. The call is cancelled every time, so Stryker falls back to running
+# the whole suite for every mutant - which is the measured 18 h 07 m run, and it produces a 100 %
+# score made of 1142 timeouts rather than kills. See RISKS.md B34.
+#
+# A refusal rather than a note, because the failure is expensive and looks like a result. Someone
+# reading a 100 % score has no way to tell it apart from a real one, and the run costs three
+# quarters of a day of a shared box on the way there.
+#
+# ALLOW_CORPUS_MUTATION=1 overrides it for anyone deliberately re-measuring.
+#
+# Two ways this lifts for real, and the second is the better one:
+#
+#   - Split the corpus project so each capture fits inside 180 s. Fixes the schedule.
+#   - Cover the corpus-only paths with SYNTHETIC tests in Tf2DemoSalvage.Core.Tests, which
+#     captures coverage fine and now mutates in 22 minutes. Fixes the harness instead.
+#
+# The second is worth preferring on its own merits, not just for speed. A corpus test can only
+# exercise the paths its ten demos happen to take, so it is a poor mutation harness at any
+# runtime - which is the same argument docs/memory/tests-before-codecs.md already makes about
+# corpus tests not substituting for unit tests.
+if [ "$MODE" = corpus ] && [ -z "${ALLOW_CORPUS_MUTATION:-}" ]; then
+  echo "ERROR: corpus mutation is disabled - coverage capture cannot succeed (RISKS.md B34)." >&2
+  echo "       The instrumented suite exceeds Stryker's 180s test-server RPC limit, so every" >&2
+  echo "       mutant runs the whole suite: 18h07m for a score that is 1142 timeouts." >&2
+  echo "       Mutate 'core' instead. Set ALLOW_CORPUS_MUTATION=1 to override deliberately." >&2
+  exit 2
+fi
+
 if [ "$PULL" != "--no-pull" ] && [ -z "${RUNNER_REEXECED:-}" ]; then
   # GIT_LFS_SKIP_SMUDGE on the reset, then an EXPLICIT pull only when the demos are wanted.
   #
