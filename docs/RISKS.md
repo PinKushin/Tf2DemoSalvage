@@ -2239,25 +2239,29 @@ decision from vertex order was a second source of truth that could disagree with
 dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
 separates them is whether the affected area follows a *material* or follows a *region*.
 
-## B42 — small fuzzy black patches remain where only tool displacements cover the map — OPEN
+## B42 — small fuzzy black patches where only tool displacements cover the map — CAUSE FOUND, PARTLY FIXED
 
 **Left over from B41**, and measured before that one was solved: a coverage grid over
 `cp_process_final` finds **153 cells — 5.1% of the map — covered only by
 `tools/toolsinvisibledisplacement`**, with no other drawn surface beneath them.
 
 Those faces are collision-only and the engine never draws them, so skipping them is right. What is
-wrong is that nothing else fills the gap, which leaves small soft-edged holes showing the
-background.
+wrong is that nothing else fills the gap.
 
-**The likely explanation, not yet confirmed:** invisible displacement is normally laid over visual
-geometry to smooth movement, so a real surface should exist underneath — and if it does, this
-project is dropping it somewhere else. The two candidates are the downward-facing filter in
-`BspGeometry` and the `MainBounds` area filter in `MapWorldBuilder`.
+**The cause is static props, and the owner named it before the measurement did**: "there is a small
+rock at mid scouts like me liked to sit on and play around". Invisible displacement is laid over
+ground the mapper wants smooth to walk on, and what a player actually SEES standing there is a
+`prop_static` — a rock, a crate, a fence — placed on top of it. So both earlier hypotheses were
+wrong in the same way: the hole is not a surface drawn dark (B41's family) and not a surface
+wrongly filtered (this entry's own first guess). It is a class of geometry this project did not
+read at all.
 
-**The measurement that would settle it:** for each of those 153 cells, list every face whose
-bounding box covers it, with its material, its normal and whether it survived each filter. If the
-underlying surface is present but filtered, the filter is the bug; if no face covers the cell at
-all, the area genuinely has no visual geometry from above and drawing the tool displacement's own
-terrain — lit, but with a neutral colour rather than its black texture — is the honest fallback.
+Worth recording because the wrong guess was cheap to hold and expensive to test: the entry above
+proposed enumerating faces per cell to decide between two filters, and neither filter was
+implicated. **A coverage grid built only from faces cannot report the absence of something that is
+not a face.** The instrument could not see the answer, which is why it kept pointing at the
+candidates it could see.
 
-**Not blocking.** It is 5% of the map in patches, against a view that is now otherwise correct.
+**Half fixed.** `BspStaticProps` now reads the placements — model path, origin, angles, scale —
+from the game lump. Drawing them needs the model chain (`.mdl` / `.vvd` / `.dx90.vtx`), which is
+its own piece of work and is not done. Until it is, the patches remain.

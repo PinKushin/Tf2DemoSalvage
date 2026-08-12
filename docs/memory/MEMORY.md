@@ -35,3 +35,5 @@
 - [A header written last is absent](a-header-written-last-is-absent.md) — 43 % of real demos declare zero ticks, and zero parses cleanly.
 - [BSP lumps are compressed](bsp-lumps-are-compressed.md) — every lump is LZMA packed, the directory never says so, and raw reads give plausible numbers.
 - [Real data hides bugs, small inputs expose them](real-data-hides-bugs-small-inputs-expose.md) — density supplies missing behaviour by accident; test at the smallest distinguishing size.
+- [A hole is not always a drawing fault](a-hole-is-not-always-a-drawing-fault.md) — black patches were static props never read; a face-based instrument cannot report a missing non-face.
+- [Per-item APIs hide quadratic reads](per-item-apis-hide-quadratic-reads.md) — read-one-face plus whole-file re-decompresses the lumps every call; 830 ms per resize.

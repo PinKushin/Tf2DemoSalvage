@@ -274,11 +274,68 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyList<WorldBatch> batches,
         MapAssets assets)
     {
-        ArgumentNullException.ThrowIfNull(vertices);
-        ArgumentNullException.ThrowIfNull(batches);
         ArgumentNullException.ThrowIfNull(assets);
 
-        ReleaseMap();
+        UploadTextures(device, context, assets);
+        UploadGeometry(device, vertices, batches);
+    }
+
+    /// <summary>Uploads a map's textures, replacing anything already there.</summary>
+    /// <param name="device">Device to create the textures on.</param>
+    /// <param name="context">Context to generate their mip chains on.</param>
+    /// <param name="assets">The map's textures and lightmap atlas.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="assets"/> is null.</exception>
+    /// <remarks>
+    /// **Separated from the geometry because only the geometry depends on the camera.** The
+    /// projection is baked into the vertices, so a resize rebuilds them - and it used to rebuild
+    /// these as well: 208 textures decoded, uploaded and mipped, every time the viewport changed
+    /// size. Entering full screen fires several resizes in a row, which is how a map that loads in
+    /// two seconds turned into a viewer redrawing itself once a second.
+    /// </remarks>
+    public void UploadTextures(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapAssets assets)
+    {
+        ArgumentNullException.ThrowIfNull(assets);
+
+        ReleaseTextures();
+        TextureUploads++;
+
+        // A one-pixel white texture stands in for a material whose texture could not be found, so
+        // the face still takes its lighting and its shape rather than vanishing.
+        _white = CreateTexture(device, context, 1, 1, [255, 255, 255, 255]);
+
+        foreach (MapTexture? texture in assets.Textures)
+        {
+            _textures.Add(texture is { } present
+                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
+                : default);
+        }
+
+        foreach (MapTexture? texture in assets.BlendTextures)
+        {
+            _blendTextures.Add(texture is { } present
+                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
+                : default);
+        }
+
+        _lightmap = CreateTexture(
+            device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
+    }
+
+    /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
+    /// <param name="device">Device to create the vertex buffer on.</param>
+    /// <param name="vertices">Every triangle corner, already in clip space.</param>
+    /// <param name="batches">The runs, one per material.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void UploadGeometry(
+        ComPtr<ID3D11Device> device,
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        ReleaseGeometry();
 
         if (vertices.Count == 0)
         {
@@ -302,29 +359,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         CreateVertexBuffer(device, data);
 
-        // A one-pixel white texture stands in for a material whose texture could not be found, so
-        // the face still takes its lighting and its shape rather than vanishing.
-        _white = CreateTexture(device, context, 1, 1, [255, 255, 255, 255]);
-
-        foreach (MapTexture? texture in assets.Textures)
-        {
-            _textures.Add(texture is { } present
-                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
-                : default);
-        }
-
-        foreach (MapTexture? texture in assets.BlendTextures)
-        {
-            _blendTextures.Add(texture is { } present
-                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
-                : default);
-        }
-
-        _lightmap = CreateTexture(
-            device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
-
         _batches = batches;
     }
+
+    /// <summary>Whether textures have been uploaded for a map.</summary>
+    public bool HasTextures => _lightmap.Handle is not null;
+
+    /// <summary>How many times a map's textures have been decoded and uploaded.</summary>
+    /// <remarks>
+    /// **Counted because the defect it guards against is invisible.** Re-uploading 208 textures on
+    /// every viewport resize is correct in every respect except speed: the same picture comes out,
+    /// and nothing but a clock or a counter says it happened more than once. A clock measures the
+    /// machine; this measures the code.
+    /// </remarks>
+    public int TextureUploads { get; private set; }
 
     /// <summary>Draws the uploaded map.</summary>
     /// <param name="context">Context to issue the draws on.</param>
@@ -388,6 +436,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private void ReleaseMap()
     {
+        ReleaseTextures();
+        ReleaseGeometry();
+    }
+
+    private void ReleaseTextures()
+    {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Where(texture => texture.Handle is not null))
         {
@@ -408,7 +462,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _white.Dispose();
             _white = default;
         }
+    }
 
+    private void ReleaseGeometry()
+    {
         if (_vertices.Handle is not null)
         {
             _vertices.Dispose();

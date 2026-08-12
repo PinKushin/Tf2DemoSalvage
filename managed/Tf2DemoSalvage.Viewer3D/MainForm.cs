@@ -126,7 +126,17 @@ internal class MainForm : Form
     private MapAssets? _assets;
 
     /// <summary>The loaded map's bytes, kept for reading displacement terrain on re-projection.</summary>
-    private ReadOnlyMemory<byte> _mapBytes;
+    /// <summary>The map's displacement lumps, read once rather than once per face.</summary>
+    private BspTerrain? _terrain;
+
+    /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
+    private bool _texturesUploaded;
+
+    /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
+    private bool _worldIsStale;
+
+    /// <summary>The viewport size the resident vertices were projected for.</summary>
+    private Size _projectedSize;
 
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
@@ -543,7 +553,9 @@ internal class MainForm : Form
         _mapFill = [];
         _surfaceList = [];
         _assets = null;
-        _mapBytes = default;
+        _terrain = null;
+        _texturesUploaded = false;
+        _projectedSize = Size.Empty;
         _device?.ClearWorld();
 
         string? path = FindMap(mapName);
@@ -634,7 +646,21 @@ internal class MainForm : Form
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
                 }
 
-                _mapBytes = bytes;
+                _texturesUploaded = false;
+
+                // Read once here rather than per face inside the world builder. Every call reads
+                // the header and decompresses both displacement lumps, and the builder asks 578
+                // times on cp_process_final - which was most of an 830 ms rebuild, paid again on
+                // every resize.
+                try
+                {
+                    _terrain = BspTerrain.Create(bytes);
+                }
+                catch (InvalidDataException failure)
+                {
+                    _terrain = null;
+                    ViewerLog.Warn("assets", "reading the map's terrain", failure);
+                }
 
                 using (ViewerLog.Time("assets", "reading surfaces and textures"))
                 {
@@ -776,29 +802,56 @@ internal class MainForm : Form
         {
             try
             {
-                MapWorld built = MapWorldBuilder.Build(
-                    _mapBytes,
-                    _surfaceList,
-                    assets.Materials,
-                    assets.Lightmaps,
-                    camera,
-                    _map.MainBounds);
+                // **Textures first, and only once per map.** They do not depend on the camera, so
+                // a resize needs new vertices and nothing else - see UploadWorldGeometry.
+                if (!_texturesUploaded || !_device.HasWorldTextures)
+                {
+                    using (ViewerLog.Time("render", "uploading textures"))
+                    {
+                        _device.UploadWorldTextures(assets);
+                    }
+
+                    _texturesUploaded = true;
+                }
+
+                if (_projectedSize == _viewport.ClientSize && _device.HasWorld)
+                {
+                    // Nothing about the projection changed, so the resident vertices are already
+                    // the answer. A layout pass that moves a control without resizing the viewport
+                    // still raises Resize, and rebuilding for it is pure cost.
+                    return;
+                }
+
+                _projectedSize = _viewport.ClientSize;
+
+                MapWorld built;
+
+                using (ViewerLog.Time("render", "building the world"))
+                {
+                    built = MapWorldBuilder.Build(
+                        _terrain,
+                        _surfaceList,
+                        assets.Materials,
+                        assets.Lightmaps,
+                        camera,
+                        _map.MainBounds);
+                }
 
                 ViewerLog.Write(
                     "render",
-                    $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material batches");
+                    $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
+                    $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
 
-                _device.UploadWorld(built, assets);
-                ViewerLog.Write("render", "world uploaded");
+                _device.UploadWorldGeometry(built);
             }
             catch (Exception failure) when (
                 failure is InvalidOperationException or InvalidDataException or IOException)
             {
                 _device.ClearWorld();
+                _texturesUploaded = false;
                 _status.Text = "Textures unavailable: " + failure.Message;
                 ViewerLog.Warn("render", "uploading the textured world", failure);
             }
-
         }
     }
 
@@ -1162,16 +1215,38 @@ internal class MainForm : Form
 
     private void OnIdle(object? sender, EventArgs e)
     {
+        // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
+        // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
+        // step of a full-screen transition - or every pixel of a window drag - is collapsed into
+        // the single size that was current when the pump went quiet.
+        if (_worldIsStale)
+        {
+            _worldIsStale = false;
+            ProjectMap();
+        }
+
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
         _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapFill, _mapLines, _scene);
     }
 
+    /// <summary>
+    /// Notes that the viewport changed size, without doing the work yet.
+    /// </summary>
+    /// <remarks>
+    /// **Entering full screen steps through seventeen distinct viewport sizes** - each control
+    /// hidden, the border dropped, the window state changed, the taskbar uncovered - and projecting
+    /// the world at every one of them meant seventeen rebuilds of a quarter of a million vertices
+    /// for sixteen pictures nobody ever saw. Measured on cp_badlands from the viewer's own log.
+    ///
+    /// The swap chain is still resized immediately: it is cheap, and letting it lag the panel
+    /// stretches the last frame across the new rectangle, which is visible.
+    /// </remarks>
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);
-        ProjectMap();
+        _worldIsStale = true;
 
         if (_device is null || _viewport.ClientSize.Width <= 0 || _viewport.ClientSize.Height <= 0)
         {
