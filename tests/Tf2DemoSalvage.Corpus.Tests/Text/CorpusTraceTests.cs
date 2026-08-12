@@ -186,6 +186,42 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         output.WriteLine($"{expanded} demos expanded their user commands");
     }
 
+    [Fact]
+    public void SoundsAreNamedFromTheSoundPrecacheTable()
+    {
+        // A svc_Sounds body carries an index into soundprecache, never a name, and the table is
+        // per-server and per-map - so the number alone is the one part of the sound that does not
+        // travel. This is the check that the resolution actually happens on real demos, where the
+        // table arrives compressed in the signon stream rather than as a fixture.
+        int named = 0;
+
+        foreach (string path in Corpus.Files())
+        {
+            string trace = Trace(path);
+            string name = Path.GetFileName(path);
+
+            if (!trace.Contains("        sound ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Every sound line either carries a quoted path or is one this demo genuinely never
+            // precached. Requiring at least one named sound per demo with sounds is the assertion
+            // that has teeth: a resolver keyed on the wrong table, or on list position instead of
+            // the entry index, resolves nothing at all.
+            bool anyNamed = trace
+                .Split('\n')
+                .Any(line => line.TrimStart().StartsWith("sound ", StringComparison.Ordinal) &&
+                             line.Contains(".wav", StringComparison.OrdinalIgnoreCase));
+
+            anyNamed.ShouldBeTrue($"{name}: no sound resolved to a precached path");
+            named++;
+        }
+
+        named.ShouldBeGreaterThan(0, "no demo in the corpus rendered a sound");
+        output.WriteLine($"{named} demos resolved sound names");
+    }
+
     /// <summary>Whether a trace line is a bare "name bits N", which is how a skip renders.</summary>
     private static bool IsAnonymous(string line)
     {
