@@ -40,14 +40,14 @@ public sealed class ViewerSettingsTests
     public void Load_NoFile_GivesBorderless()
     {
         // Borderless is the default because it always works: exclusive can be refused by DXGI.
-        ViewerSettings.Load(Path.Combine(_folder, "absent.json"))
+        ViewerSettings.Load(Path.Combine(_folder, "absent.cfg"))
             .FullScreenMode.ShouldBe(FullScreenMode.Borderless);
     }
 
     [Test]
     public void SaveThenLoad_KeepsTheChoice()
     {
-        string file = Path.Combine(_folder, "settings.json");
+        string file = Path.Combine(_folder, "settings.cfg");
 
         new ViewerSettings { FullScreenMode = FullScreenMode.Exclusive }.Save(file).ShouldBeNull();
 
@@ -66,10 +66,109 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void SaveThenLoad_KeepsTheTextureQuality()
+    {
+        // Both settings in one file, so a reader that dropped one while keeping the other would
+        // fail here rather than looking fine.
+        string file = Path.Combine(_folder, "settings.cfg");
+
+        new ViewerSettings
+        {
+            FullScreenMode = FullScreenMode.Exclusive,
+            TextureQuality = TextureQuality.Full,
+        }.Save(file).ShouldBeNull();
+
+        ViewerSettings loaded = ViewerSettings.Load(file);
+
+        loaded.TextureQuality.ShouldBe(TextureQuality.Full);
+        loaded.FullScreenMode.ShouldBe(FullScreenMode.Exclusive);
+    }
+
+    [Test]
+    public void TheTextureQualityValuesArePixelCaps()
+    {
+        // The enum's values ARE the sizes, so they can be handed to the decoder directly. A
+        // renumbering that broke that would silently load the wrong mip.
+        ((int)TextureQuality.Low).ShouldBe(256);
+        ((int)TextureQuality.Medium).ShouldBe(512);
+        ((int)TextureQuality.High).ShouldBe(1024);
+        ((int)TextureQuality.Full).ShouldBe(0, "zero means no cap, which is what the decoder expects");
+    }
+
+    [Test]
+    public void Write_LooksLikeASourceConfig()
+    {
+        // The format is TF2's own: one command per line, value after a space, // for comments.
+        // Someone who has edited config.cfg can edit this without being told how.
+        string text = new ViewerSettings
+        {
+            FullScreenMode = FullScreenMode.Exclusive,
+            TextureQuality = TextureQuality.Low,
+        }.Write();
+
+        text.ShouldContain("fullscreen_mode 1");
+        text.ShouldContain("texture_quality 256");
+        text.ShouldContain("//", Case.Sensitive);
+    }
+
+    [Test]
+    public void Parse_ReadsAHandWrittenConfig()
+    {
+        // Written the way a person would: comments, a trailing comment, odd spacing, quotes.
+        ViewerSettings settings = ViewerSettings.Parse(
+            """
+            // my settings
+            fullscreen_mode 1   // exclusive, I have one monitor
+
+            texture_quality "1024"
+            """);
+
+        settings.FullScreenMode.ShouldBe(FullScreenMode.Exclusive);
+        settings.TextureQuality.ShouldBe(TextureQuality.High);
+    }
+
+    [Test]
+    public void Parse_IgnoresACommandItDoesNotKnow()
+    {
+        // A config from a later version must not stop this one starting, which is how Source
+        // treats a cvar it does not have.
+        ViewerSettings settings = ViewerSettings.Parse(
+            """
+            mat_picmip 2
+            some_future_setting 7
+            texture_quality 256
+            """);
+
+        settings.TextureQuality.ShouldBe(TextureQuality.Low);
+    }
+
+    [Test]
+    public void Parse_AValueThatIsNotANumber_KeepsTheDefault()
+    {
+        // One bad line must not cost every other setting in the file.
+        ViewerSettings settings = ViewerSettings.Parse(
+            """
+            fullscreen_mode banana
+            texture_quality 256
+            """);
+
+        settings.FullScreenMode.ShouldBe(FullScreenMode.Borderless);
+        settings.TextureQuality.ShouldBe(TextureQuality.Low);
+    }
+
+    [Test]
+    public void Parse_AValueOutsideTheKnownRange_KeepsTheDefault()
+    {
+        // 999 is not a texture size this program has; taking it would ask the decoder for a mip
+        // that does not exist.
+        ViewerSettings.Parse("texture_quality 999").TextureQuality.ShouldBe(TextureQuality.Medium);
+    }
+
+    [Test]
     public void Load_CorruptFile_GivesDefaultsRatherThanThrowing()
     {
-        string file = Path.Combine(_folder, "broken.json");
-        File.WriteAllText(file, "{not json");
+        string file = Path.Combine(_folder, "broken.cfg");
+        File.WriteAllText(file, "this is not a config at all");
 
         ViewerSettings.Load(file).FullScreenMode.ShouldBe(FullScreenMode.Borderless);
     }
@@ -79,7 +178,7 @@ public sealed class ViewerSettingsTests
     {
         // Distinct from corrupt: a zero-length file is what a crash mid-write leaves behind, and
         // System.Text.Json treats it as an error rather than as an empty object.
-        string file = Path.Combine(_folder, "empty.json");
+        string file = Path.Combine(_folder, "empty.cfg");
         File.WriteAllText(file, string.Empty);
 
         ViewerSettings.Load(file).FullScreenMode.ShouldBe(FullScreenMode.Borderless);
