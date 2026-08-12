@@ -1334,3 +1334,29 @@ published against it, and a BSP is a fat target by construction:
 alongside `container` and `snappy` the day it can parse a header. That harness already exists, it
 already found a real bug in `Snappy` within sixty seconds of first running, and a format this
 shape is exactly what it is good at.
+
+### D33 — FlaUI for the UI tests, not WinAppDriver and not WindowsDriverCore
+
+The owner is writing WindowsDriverCore, a WinAppDriver-compatible server on raw `IUIAutomation`.
+It is not used here, and the reason is not readiness — it is that this project does not want what
+it provides.
+
+**A driver server exists to serve clients that speak WebDriver or Appium.** That protocol is what
+lets an existing Python or Java suite drive a Windows application unchanged. This project is
+Windows-only, its tests are C#, and nothing here speaks WebDriver — so the protocol layer would be
+cost with no corresponding benefit.
+
+**FlaUI is in-process, and that makes it the floor.** Every call a driver server handles is
+marshalled over HTTP to another process and back; a library calling the same COM interfaces
+directly cannot be beaten on latency by something doing strictly more work. For a suite that
+launches a real application and then makes hundreds of element queries against it, that difference
+compounds into minutes.
+
+**Reversible cheaply, and only on one side.** Nothing in the viewer knows how it is being driven —
+the application exposes automation ids and accessible names, which is what *any* UIA-based tool
+consumes. Changing driver later is a migration of the test suite, and some tests would need
+rewriting, but it touches no application code.
+
+Practical consequence for anyone reading this later: **`ViewerApplication` is the only file that
+references FlaUI types.** Tests speak to it, not to the library, so the blast radius of that
+migration is one file plus whatever assertions genuinely depend on driver behaviour.
