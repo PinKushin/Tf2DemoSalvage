@@ -30,6 +30,11 @@ public sealed class CorpusVoiceChecksumTests(ITestOutputHelper output)
     [Fact]
     public void TheTrailingFourBytesAreACrc32OverEverythingBeforeThem()
     {
+        Assert.SkipUnless(
+            Corpus.AnyDemoUses("steam"),
+            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+            + "committed corpus and lives only in tools/corpus/local");
+
         int checked_ = 0;
         int matched = 0;
 

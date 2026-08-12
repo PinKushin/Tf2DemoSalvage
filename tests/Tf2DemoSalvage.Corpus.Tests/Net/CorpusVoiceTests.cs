@@ -23,6 +23,11 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
     [Fact]
     public void EverySteamVoicePacket_ConsumesExactly()
     {
+        Assert.SkipUnless(
+            Corpus.AnyDemoUses("steam"),
+            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+            + "committed corpus and lives only in tools/corpus/local");
+
         int packets = 0;
         int chunks = 0;
         int terminated = 0;
@@ -77,6 +82,11 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
     [Fact]
     public void TheSteamIdIdentifiesSpeakersTheClientSlotCannot()
     {
+        Assert.SkipUnless(
+            Corpus.AnyDemoUses("steam"),
+            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+            + "committed corpus and lives only in tools/corpus/local");
+
         // Why this framing was worth decoding rather than carrying whole. svc_VoiceData gives a
         // client slot; a slot is an index into the roster at that instant and is recycled when
         // players leave. If the two always agreed one-to-one there would be nothing gained here,

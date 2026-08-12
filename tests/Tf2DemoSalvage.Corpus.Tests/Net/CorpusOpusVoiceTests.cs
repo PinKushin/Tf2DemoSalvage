@@ -30,6 +30,11 @@ public sealed class CorpusOpusVoiceTests(ITestOutputHelper output)
     [Fact]
     public void EveryChunk_DecodesToNonSilentPcm()
     {
+        Assert.SkipUnless(
+            Corpus.AnyDemoUses("steam"),
+            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+            + "committed corpus and lives only in tools/corpus/local");
+
         int chunks = 0;
         int totalSamples = 0;
         int silentChunks = 0;
@@ -99,6 +104,11 @@ public sealed class CorpusOpusVoiceTests(ITestOutputHelper output)
     [Fact]
     public void OneDecoderPerSpeaker_KeepsInterleavedStreamsInSync()
     {
+        Assert.SkipUnless(
+            Corpus.AnyDemoUses("steam"),
+            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+            + "committed corpus and lives only in tools/corpus/local");
+
         // The property that justifies keying decoders by steamID rather than sharing one. If
         // packets from two speakers were fed through a single decoder, Opus's own delta state
         // would desynchronise the moment they interleaved - and the corpus already measured
