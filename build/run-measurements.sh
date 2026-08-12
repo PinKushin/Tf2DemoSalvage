@@ -250,13 +250,29 @@ dotnet tool restore 9>&-
 #
 # SIGINT rather than SIGTERM: Stryker writes its report on interrupt, so a bounded run still says
 # how far it got. `--kill-after` covers it ignoring that.
+# CONCURRENCY: use the whole box. Stryker defaults to cores/2, which on a 3-core machine is
+# integer-divided down to 1 - so every mutation run this box has ever done was SINGLE THREADED,
+# and nothing in the output says so. Measured 2026-08-12: the core run spent 22:49:14 to 00:23:23
+# testing 1879 mutants, a flat 3.01 s each, while build, discovery, coverage capture and every
+# compile-rollback cycle together took 88 seconds. The wall clock is per-mutant execution and
+# nothing else, so it divides by concurrency almost exactly.
+#
+# The default is conservative because Stryker assumes a developer's machine that has to stay
+# usable while it runs. This box is dedicated and serialised by the lock, so halving it buys
+# nothing and costs 3x.
+#
+# Not put in stryker-config.json on purpose: that file is shared with local runs, where leaving
+# the default is right for exactly the reason above.
+STRYKER_CONCURRENCY="${STRYKER_CONCURRENCY:-$(nproc)}"
+echo "concurrency: ${STRYKER_CONCURRENCY} of $(nproc) cores"
+
 set +e
 if [ -n "${MEASURE_TIMEOUT:-}" ]; then
   echo "hard limit: ${MEASURE_TIMEOUT}"
-  timeout --signal=INT --kill-after=120 "$MEASURE_TIMEOUT" dotnet stryker 2>&1 9>&- \
+  timeout --signal=INT --kill-after=120 "$MEASURE_TIMEOUT" dotnet stryker --concurrency "$STRYKER_CONCURRENCY" 2>&1 9>&- \
     | tee "${OUT}/stryker.log"
 else
-  dotnet stryker 2>&1 9>&- | tee "${OUT}/stryker.log"
+  dotnet stryker --concurrency "$STRYKER_CONCURRENCY" 2>&1 9>&- | tee "${OUT}/stryker.log"
 fi
 STATUS=${PIPESTATUS[0]}
 set -e
