@@ -126,7 +126,11 @@ internal class MainForm : Form
     private MapAssets? _assets;
 
     /// <summary>The loaded map's bytes, kept for reading displacement terrain on re-projection.</summary>
-    private ReadOnlyMemory<byte> _mapBytes;
+    /// <summary>The map's displacement lumps, read once rather than once per face.</summary>
+    private BspTerrain? _terrain;
+
+    /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
+    private bool _texturesUploaded;
 
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
@@ -543,7 +547,8 @@ internal class MainForm : Form
         _mapFill = [];
         _surfaceList = [];
         _assets = null;
-        _mapBytes = default;
+        _terrain = null;
+        _texturesUploaded = false;
         _device?.ClearWorld();
 
         string? path = FindMap(mapName);
@@ -634,7 +639,21 @@ internal class MainForm : Form
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
                 }
 
-                _mapBytes = bytes;
+                _texturesUploaded = false;
+
+                // Read once here rather than per face inside the world builder. Every call reads
+                // the header and decompresses both displacement lumps, and the builder asks 578
+                // times on cp_process_final - which was most of an 830 ms rebuild, paid again on
+                // every resize.
+                try
+                {
+                    _terrain = BspTerrain.Create(bytes);
+                }
+                catch (InvalidDataException failure)
+                {
+                    _terrain = null;
+                    ViewerLog.Warn("assets", "reading the map's terrain", failure);
+                }
 
                 using (ViewerLog.Time("assets", "reading surfaces and textures"))
                 {
@@ -776,29 +795,45 @@ internal class MainForm : Form
         {
             try
             {
-                MapWorld built = MapWorldBuilder.Build(
-                    _mapBytes,
-                    _surfaceList,
-                    assets.Materials,
-                    assets.Lightmaps,
-                    camera,
-                    _map.MainBounds);
+                // **Textures first, and only once per map.** They do not depend on the camera, so
+                // a resize needs new vertices and nothing else - see UploadWorldGeometry.
+                if (!_texturesUploaded || !_device.HasWorldTextures)
+                {
+                    using (ViewerLog.Time("render", "uploading textures"))
+                    {
+                        _device.UploadWorldTextures(assets);
+                    }
+
+                    _texturesUploaded = true;
+                }
+
+                MapWorld built;
+
+                using (ViewerLog.Time("render", "building the world"))
+                {
+                    built = MapWorldBuilder.Build(
+                        _terrain,
+                        _surfaceList,
+                        assets.Materials,
+                        assets.Lightmaps,
+                        camera,
+                        _map.MainBounds);
+                }
 
                 ViewerLog.Write(
                     "render",
                     $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material batches");
 
-                _device.UploadWorld(built, assets);
-                ViewerLog.Write("render", "world uploaded");
+                _device.UploadWorldGeometry(built);
             }
             catch (Exception failure) when (
                 failure is InvalidOperationException or InvalidDataException or IOException)
             {
                 _device.ClearWorld();
+                _texturesUploaded = false;
                 _status.Text = "Textures unavailable: " + failure.Message;
                 ViewerLog.Warn("render", "uploading the textured world", failure);
             }
-
         }
     }
 

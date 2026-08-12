@@ -300,6 +300,36 @@ internal sealed unsafe class Device3D : IDisposable
         _world.UploadMap(_device, _context, world.Vertices, world.Batches, assets);
     }
 
+    /// <summary>Uploads a map's textures, without touching its geometry.</summary>
+    /// <param name="assets">The map's textures and lightmap atlas.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    public void UploadWorldTextures(MapAssets assets)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.UploadTextures(_device, _context, assets);
+    }
+
+    /// <summary>Uploads a map's projected geometry, keeping the textures already resident.</summary>
+    /// <param name="world">The triangles and their material batches.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **This is the resize path.** The projection is baked into the vertices, so a viewport that
+    /// changes size needs new vertices - and nothing else. Re-uploading the textures alongside them
+    /// cost 208 texture creations and mip chains per resize.
+    /// </remarks>
+    public void UploadWorldGeometry(MapWorld world)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.UploadGeometry(_device, world.Vertices, world.Batches);
+    }
+
+    /// <summary>Whether a map's textures are resident.</summary>
+    public bool HasWorldTextures => _world?.HasTextures ?? false;
+
     /// <summary>Forgets any uploaded map.</summary>
     public void ClearWorld()
     {

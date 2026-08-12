@@ -22,8 +22,8 @@ public sealed class MapWorldTests
         [.. Enumerable.Range(0, 10).Select(index =>
             new BspMaterial($"concrete/wall{index}", (0.5f, 0.5f, 0.5f), 512, 512))];
 
-    /// <summary>No map bytes: these fixtures have no displacements to read terrain for.</summary>
-    private static readonly ReadOnlyMemory<byte> Map = ReadOnlyMemory<byte>.Empty;
+    /// <summary>No terrain reader: these fixtures have no displacements to read terrain for.</summary>
+    private static BspTerrain? Map => null;
 
     private static readonly TopDownCamera Camera =
         TopDownCamera.Fit([(0f, 0f), (1000f, 1000f)], 800, 600);

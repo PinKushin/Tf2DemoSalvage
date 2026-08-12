@@ -31,7 +31,7 @@ internal readonly record struct MapWorld(
 internal static class MapWorldBuilder
 {
     /// <summary>Builds the drawable world.</summary>
-    /// <param name="map">The map's bytes, for reading displacement terrain.</param>
+    /// <param name="terrain">The map's displacement lumps, or null when it has none.</param>
     /// <param name="surfaces">The map's surfaces.</param>
     /// <param name="materials">The map's texture table, for identifying tool materials.</param>
     /// <param name="atlas">Where each face's lighting sits.</param>
@@ -45,7 +45,7 @@ internal static class MapWorldBuilder
     /// disappears and the roof a soldier stands on does not.
     /// </remarks>
     public static MapWorld Build(
-        ReadOnlyMemory<byte> map,
+        BspTerrain? terrain,
         IReadOnlyList<BspSurface> surfaces,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas atlas,
@@ -100,14 +100,14 @@ internal static class MapWorldBuilder
             // material's two textures - a dirt field where a grassy hillside belongs.
             if (surface.IsDisplacement)
             {
-                IReadOnlyList<SurfaceVertex> terrain = ReadTerrain(map, surface);
+                IReadOnlyList<SurfaceVertex> subdivided = ReadTerrain(terrain, surface);
 
-                foreach (SurfaceVertex corner in terrain)
+                foreach (SurfaceVertex corner in subdivided)
                 {
                     Append(vertices, corner, rectangle, camera, lowest, highest);
                 }
 
-                if (terrain.Count > 0)
+                if (subdivided.Count > 0)
                 {
                     continue;
                 }
@@ -147,11 +147,16 @@ internal static class MapWorldBuilder
     /// base quad, which is where it was before this existed.
     /// </remarks>
     private static IReadOnlyList<SurfaceVertex> ReadTerrain(
-        ReadOnlyMemory<byte> map, BspSurface surface)
+        BspTerrain? terrain, BspSurface surface)
     {
+        if (terrain is null)
+        {
+            return [];
+        }
+
         try
         {
-            return BspDisplacements.ReadTriangles(map, surface);
+            return terrain.ReadTriangles(surface);
         }
         catch (System.IO.InvalidDataException)
         {
