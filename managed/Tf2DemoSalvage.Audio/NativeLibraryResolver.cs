@@ -28,22 +28,58 @@ internal static class NativeLibraryResolver
 {
     private const string OpusLibrary = "opus";
 
-    /// <summary>Registers the resolver. Idempotent; safe to call more than once.</summary>
+    /// <summary>
+    /// Native libraries built by <c>tools/native-audio/build.ps1</c> and copied flat into the
+    /// output directory by this project's own <c>.csproj</c> — no NuGet RID-fanout involved, so
+    /// resolution here is simpler than the Opus case: the file just needs to be next to the
+    /// assembly.
+    /// </summary>
+    private static readonly string[] BuiltLibraries = ["speex", "celt"];
+
+    /// <summary>
+    /// Registers the resolver. Every decoder class calls this from its own static constructor.
+    /// </summary>
+    /// <remarks>
+    /// **The registration itself lives in this type's own static constructor, not here, and that
+    /// is load-bearing.** <c>NativeLibrary.SetDllImportResolver</c> *throws*
+    /// <see cref="InvalidOperationException"/> on a second call for the same assembly rather than
+    /// replacing the resolver or no-op'ing, and xUnit v3 parallelises test classes across threads
+    /// by default. A `bool _registered` guard checked-then-set in an ordinary method is a race
+    /// under that concurrency: two decoder classes' static constructors can both observe
+    /// "not yet registered" before either sets the flag, and the second call throws. A static
+    /// constructor is different — the CLR runs a type's own type initializer exactly once and
+    /// blocks any other thread that touches the type until it completes, so merely referencing
+    /// this type from <see cref="EnsureRegistered"/> is what actually deduplicates the call,
+    /// not a flag. Found by the race firing in practice: three decoder classes' tests in one
+    /// process, only whichever class's static constructor happened to run first passing.
+    /// </remarks>
     internal static void EnsureRegistered()
     {
-        NativeLibrary.SetDllImportResolver(typeof(NativeLibraryResolver).Assembly, Resolve);
+        // The call itself does nothing; touching the type is what matters; see remarks.
     }
+
+    static NativeLibraryResolver() =>
+        NativeLibrary.SetDllImportResolver(typeof(NativeLibraryResolver).Assembly, Resolve);
 
     private static nint Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        if (!string.Equals(libraryName, OpusLibrary, StringComparison.Ordinal))
+        if (string.Equals(libraryName, OpusLibrary, StringComparison.Ordinal))
         {
-            // Not ours to resolve; returning zero tells the runtime to fall back to its own
-            // search, which is correct for every other native import this assembly might ever
-            // gain.
-            return 0;
+            return ResolveOpus(libraryName);
         }
 
+        if (Array.Exists(BuiltLibraries, name => string.Equals(name, libraryName, StringComparison.Ordinal)))
+        {
+            return ResolveBuilt(libraryName);
+        }
+
+        // Not ours to resolve; returning zero tells the runtime to fall back to its own search,
+        // which is correct for every other native import this assembly might ever gain.
+        return 0;
+    }
+
+    private static nint ResolveOpus(string libraryName)
+    {
         string? rid = CurrentWindowsRid();
 
         if (rid is null)
@@ -57,6 +93,22 @@ internal static class NativeLibraryResolver
         return File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out nint handle)
             ? handle
             : 0;
+    }
+
+    private static nint ResolveBuilt(string libraryName)
+    {
+        string candidate = Path.Combine(AppContext.BaseDirectory, libraryName + ".dll");
+
+        if (!File.Exists(candidate))
+        {
+            // Deliberately not thrown here: returning zero lets the runtime raise its own
+            // DllNotFoundException, and the caller-facing wrapper (SpeexVoiceDecoder,
+            // CeltVoiceDecoder) is where a message pointing at build.ps1 belongs, not this
+            // low-level resolver which every native import in this assembly shares.
+            return 0;
+        }
+
+        return NativeLibrary.TryLoad(candidate, out nint handle) ? handle : 0;
     }
 
     /// <summary>

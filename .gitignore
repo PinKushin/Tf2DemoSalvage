@@ -37,3 +37,7 @@ Thumbs.db
 # Self-recorded demos used for correctness ground truth (D5): kept local so the
 # owner's screen name and SteamID never enter a public repo.
 tools/corpus/local/
+
+# Native audio codec binaries — built by tools/native-audio/build.ps1, not committed.
+# See tools/native-audio/README.md.
+tools/native-audio/*.dll
