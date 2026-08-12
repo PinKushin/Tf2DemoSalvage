@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace Tf2DemoSalvage.Viewer3D;
@@ -40,8 +43,14 @@ internal class MainForm : Form
     /// <summary>Automation id of the File &gt; Exit item.</summary>
     public const string ExitItemId = "ExitMenuItem";
 
-    /// <summary>Automation id of the import button.</summary>
-    public const string ImportButtonId = "ImportButton";
+    /// <summary>Automation id of the open button.</summary>
+    public const string OpenButtonId = "OpenButton";
+
+    /// <summary>Automation id of the open-folder button.</summary>
+    public const string OpenFolderButtonId = "OpenFolderButton";
+
+    /// <summary>Automation id of the playlist.</summary>
+    public const string PlaylistId = "Playlist";
 
     /// <summary>Automation id of the export button.</summary>
     public const string ExportButtonId = "ExportButton";
@@ -56,6 +65,8 @@ internal class MainForm : Form
     private readonly ToolStripStatusLabel _status;
     private readonly FlowLayoutPanel _actions;
     private readonly TransportBar _transport;
+    private readonly ListView _playlist;
+    private readonly DemoLibrary _library = new();
 
     private readonly ToolStripMenuItem _fullScreen;
 
@@ -66,7 +77,17 @@ internal class MainForm : Form
     private FormWindowState _stateBeforeFullScreen;
 
     /// <summary>Builds the shell. No device is created here; see the remarks on the type.</summary>
-    public MainForm()
+    /// <param name="initialPaths">
+    /// Files or folders to open at startup, as passed on the command line by a file association.
+    /// </param>
+    /// <remarks>
+    /// **The command line goes through the same code as the Open buttons**, deliberately. A file
+    /// association that had its own loading path would drift from the in-application one - the
+    /// two would disagree about folders, about multi-select, about what counts as a demo - and
+    /// the difference would only show up for whichever one is used less. There is one entry
+    /// point, <see cref="AddToLibrary"/>, and both callers use it.
+    /// </remarks>
+    public MainForm(params string[] initialPaths)
     {
         Text = "TF2 Demo Salvage";
         Name = "MainWindow";
@@ -106,11 +127,32 @@ internal class MainForm : Form
         };
 
         _actions.Controls.Add(ActionButton(
-            ImportButtonId, "Import", "Import demos from a folder.", (_, _) => ImportDemos()));
+            OpenButtonId, "Open", "Open one or more demo files.", (_, _) => OpenDemo()));
+        _actions.Controls.Add(ActionButton(
+            OpenFolderButtonId, "Open folder", "Open a folder of demos as a playlist.",
+            (_, _) => OpenFolder()));
         _actions.Controls.Add(ActionButton(
             ExportButtonId, "Export", "Export the demo as JSON or assembly script.", (_, _) => ExportDemo()));
         _actions.Controls.Add(ActionButton(
             CompileButtonId, "Compile", "Rebuild a demo from an assembly script.", (_, _) => CompileDemo()));
+
+        // The playlist replaces the entity list that used to sit here. It lists demos and the
+        // folder each came from - navigation, not parser internals - and allows multi-select so
+        // several can be opened at once the way a file browser does.
+        _playlist = new ListView
+        {
+            Name = PlaylistId,
+            AccessibleName = "Playlist",
+            AccessibleDescription = "Demos available to play, grouped by folder.",
+            Dock = DockStyle.Right,
+            Width = 280,
+            View = View.Details,
+            FullRowSelect = true,
+            HideSelection = false,
+            MultiSelect = true,
+            ShowGroups = true,
+        };
+        _playlist.Columns.Add("Demo", 260);
 
         _transport = new TransportBar();
 
@@ -171,11 +213,17 @@ internal class MainForm : Form
         // as transport, actions, status from the middle outward - the action row under the play
         // bar, which is what it is about.
         Controls.Add(_viewport);
+        Controls.Add(_playlist);
         Controls.Add(_transport);
         Controls.Add(_actions);
         Controls.Add(statusStrip);
         Controls.Add(menu);
         MainMenuStrip = menu;
+
+        if (initialPaths.Length > 0)
+        {
+            AddToLibrary(initialPaths);
+        }
     }
 
     /// <summary>The playback controls, exposed for the tests that address them.</summary>
@@ -215,6 +263,7 @@ internal class MainForm : Form
 
             MainMenuStrip!.Visible = false;
             _actions.Visible = false;
+            _playlist.Visible = false;
             Controls.Remove(_transport);
 
             FormBorderStyle = FormBorderStyle.None;
@@ -249,6 +298,7 @@ internal class MainForm : Form
         Controls.Add(_transport);
         MainMenuStrip!.Visible = true;
         _actions.Visible = true;
+        _playlist.Visible = true;
         FormBorderStyle = _borderBeforeFullScreen;
         WindowState = _stateBeforeFullScreen;
     }
@@ -344,18 +394,59 @@ internal class MainForm : Form
         return button;
     }
 
-    private void ImportDemos()
+    private void OpenFolder()
     {
         using FolderBrowserDialog dialog = new()
         {
-            Description = "Choose a folder of demos to import.",
+            Description = "Choose a folder of demos. Subfolders are included.",
             UseDescriptionForTitle = true,
         };
 
         if (dialog.ShowDialog(this) == DialogResult.OK)
         {
-            _status.Text = "Import from " + dialog.SelectedPath;
+            AddToLibrary(dialog.SelectedPath);
         }
+    }
+
+    /// <summary>Adds paths to the library and refreshes the playlist.</summary>
+    private void AddToLibrary(params string[] paths)
+    {
+        foreach (string path in paths)
+        {
+            _library.Open(path);
+        }
+
+        RefreshPlaylist();
+
+        _status.Text = _library.Entries.Count switch
+        {
+            0 => "No demos found.",
+            1 => "1 demo.",
+            int count => string.Create(CultureInfo.InvariantCulture, $"{count} demos."),
+        };
+    }
+
+    /// <summary>Rebuilds the playlist, one group per folder.</summary>
+    private void RefreshPlaylist()
+    {
+        _playlist.BeginUpdate();
+        _playlist.Items.Clear();
+        _playlist.Groups.Clear();
+
+        foreach (IGrouping<string, DemoEntry> folder in _library.Entries.GroupBy(e => e.Folder))
+        {
+            ListViewGroup group = new(folder.Key) { Name = folder.Key };
+            _playlist.Groups.Add(group);
+
+            foreach (DemoEntry entry in folder)
+            {
+                // The full path rides along in Tag: the list shows a file name, and two demos in
+                // different folders routinely share one.
+                _playlist.Items.Add(new ListViewItem(entry.Name, group) { Tag = entry.Path });
+            }
+        }
+
+        _playlist.EndUpdate();
     }
 
     private void ExportDemo() => _status.Text = "Export is not wired up yet.";
@@ -367,18 +458,16 @@ internal class MainForm : Form
         using OpenFileDialog dialog = new()
         {
             Filter = "Source demos (*.dem)|*.dem|All files (*.*)|*.*",
-            Title = "Open demo",
+            Title = "Open demos",
+
+            // Several at once, the way a file browser and every video player does it.
+            Multiselect = true,
         };
 
-        if (dialog.ShowDialog(this) != DialogResult.OK)
+        if (dialog.ShowDialog(this) == DialogResult.OK)
         {
-            return;
+            AddToLibrary(dialog.FileNames);
         }
-
-        // Nothing is decoded yet - this is the wiring, not the loader. The transport is given a
-        // length so the controls come alive and the layout can be judged with them enabled.
-        _status.Text = "Loaded " + dialog.FileName;
-        _transport.SetDemoLength(0);
     }
 
     /// <inheritdoc />
@@ -403,6 +492,7 @@ internal class MainForm : Form
             _status.Dispose();
             _actions.Dispose();
             _transport.Dispose();
+            _playlist.Dispose();
             _overlay?.Dispose();
             _fullScreen.Dispose();
         }

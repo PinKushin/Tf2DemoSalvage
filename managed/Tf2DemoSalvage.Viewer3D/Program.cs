@@ -25,13 +25,19 @@ namespace Tf2DemoSalvage.Viewer3D;
 internal static class Program
 {
     /// <summary>Opens the viewer window.</summary>
+    /// <param name="args">
+    /// Files or folders to open, as a file association or a shortcut supplies them.
+    /// </param>
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         // STAThread and this initialisation order are both required by WinForms itself: COM
         // apartment first, then visual styles, before any control exists.
         ApplicationConfiguration.Initialize();
-        using MainForm shell = new();
+        // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
+        // or dropping a folder on the executable all arrive here as paths, and all go through the
+        // same library code the Open buttons use.
+        using MainForm shell = new(args);
         Application.Run(shell);
     }
 }

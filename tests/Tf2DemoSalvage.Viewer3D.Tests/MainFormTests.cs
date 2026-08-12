@@ -31,7 +31,9 @@ public sealed class MainFormTests
         using MainForm form = new();
 
         Find(form, MainForm.ViewportId).ShouldNotBeNull();
-        Find(form, MainForm.ImportButtonId).ShouldNotBeNull();
+        Find(form, MainForm.OpenButtonId).ShouldNotBeNull();
+        Find(form, MainForm.OpenFolderButtonId).ShouldNotBeNull();
+        Find(form, MainForm.PlaylistId).ShouldNotBeNull();
         Find(form, MainForm.ExportButtonId).ShouldNotBeNull();
         Find(form, MainForm.CompileButtonId).ShouldNotBeNull();
         Find(form, TransportBar.PlayButtonId).ShouldNotBeNull();
@@ -84,6 +86,41 @@ public sealed class MainFormTests
 
         form.HasDevice.ShouldBeFalse();
         form.StatusText.ShouldBe("No demo loaded.");
+    }
+
+    [Test]
+    public void PathsOnTheCommandLineLandInThePlaylist()
+    {
+        // The file-association path. It goes through the same AddToLibrary the Open buttons use,
+        // so this also pins that the two cannot drift: if the command line grew its own loader,
+        // this test would still pass while the behaviours diverged - so what it actually checks
+        // is that the shell is constructible from paths at all, and the SHARED entry point is
+        // what makes the guarantee.
+        string folder = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), "tf2salvage-tests", System.IO.Path.GetRandomFileName());
+        System.IO.Directory.CreateDirectory(folder);
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, "fromargv.dem"), new byte[16]);
+
+        try
+        {
+            using MainForm form = new(folder);
+
+            ListView playlist = (ListView)Find(form, MainForm.PlaylistId)!;
+            playlist.Items.Count.ShouldBe(1);
+            playlist.Items[0].Text.ShouldBe("fromargv.dem");
+        }
+        finally
+        {
+            System.IO.Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void AnEmptyCommandLineOpensNothing()
+    {
+        using MainForm form = new();
+
+        ((ListView)Find(form, MainForm.PlaylistId)!).Items.Count.ShouldBe(0);
     }
 
     private static Control? Find(Control root, string name) =>
