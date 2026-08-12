@@ -228,3 +228,96 @@ A 28-byte Speex frame is 224 bits, which is Speex narrowband quality 5 (220 bits
 and `svc_VoiceInit` independently reports quality 5 for every pre-2016 demo in the corpus. Two
 unrelated routes to the same parameter, in the sense of
 [01](01-container.md)'s view-angle cross-check.
+
+## Wiring the three voice codecs: what worked, and what CELT still refuses (2026-08-11)
+
+The framing above says where each codec's bytes are. This section is what happened when actual
+decoders were pointed at them — two clean successes and one honest failure, kept here because the
+failure's history is the more useful half.
+
+### Opus (`steam`) — decodes completely
+
+`libopus` from NuGet (MIT, prebuilt per-RID; no build step). All **3969** Opus chunks the corpus
+carries decode without a single error: 14 distinct speakers, 85 real speaker interleavings,
+1,905,120 samples — about 79 seconds of recovered speech, the first audio this project ever
+produced from a demo.
+
+**One decoder per speaker, keyed on the steamID**, not one shared and not one per packet. Opus is
+delta-coded against its own running state, so a shared decoder desynchronises the moment two
+speakers' packets interleave — which the corpus measurably does.
+
+**A trap worth recording, found on the wrapper's first test run rather than by reasoning.** `fixed`
+over an *empty* `ReadOnlySpan<byte>` yields a **null pointer**, and `opus_decode` reads a null data
+pointer as *"this packet was lost, conceal it"* — `lost_flag = data == NULL`, not `len == 0`, per
+libopus's own `opus_decoder.c`. So `Decode([])` would have silently returned plausible-sounding
+concealment audio instead of rejecting a malformed frame. That is a worse failure than a crash: it
+looks like real decoded speech. The wrapper now refuses an empty frame and points callers at its
+explicit `ConcealLoss` entry point.
+
+### Speex (`vaudio_speex`) — decodes completely
+
+Built from Xiph source (Speex 1.2.1) by `tools/native-audio/build.ps1`. Speex ships a real Windows
+build path — `win32/config.h` and `win32/libspeex.def`, used verbatim — so nothing here was
+hand-derived. All **272** narrowband frames in the 2007 SourceTV demo decode, zero errors, zero
+silence.
+
+**The latest release is correct here, unlike CELT**: Speex's bitstream has been stable across the
+whole 1.2.x line, so 1.2.1 decodes 2007-era frames without needing a period-matched version.
+
+### CELT (`vaudio_celt`) — builds, initialises, and rejects most real frames
+
+This one is unresolved, and the trail matters more than the conclusion.
+
+**Getting a library at all took an exact version.** CELT's bitstream was never guaranteed stable
+between releases — which is *why* it was folded into Opus rather than maintained standalone — so
+"the latest CELT" does not exist as a thing to fetch and would not decode TF2's frames if it did.
+The pin is **0.11.3**, the last of the 0.11.x line, from `Distrotech/celt`, confirmed via the
+GitHub API to be a mirror of the now-gone `git://git.xiph.org/celt.git` rather than a fork.
+
+**A genuine upstream gap.** CELT 0.11.3's checked-in `libcelt/static_modes_float.c` references two
+tables — `eband5ms` and `band_allocation` — that it never defines; they exist `static` and private
+in `modes.c` instead. `static_modes_fixed.c` has the same gap. A plain `cl` over the official tree
+fails with `C2065: 'eband5ms': undeclared identifier`. The build script supplies both verbatim from
+`modes.c` as a separate translation unit rather than editing vendored source.
+
+**A stale docstring that inverted the success check.** `celt_decode`'s header comment says
+`@return Error code`. That is true only for failure — `celt.c` returns the decoded sample count on
+success, the same contract as `opus_decode`. Checking `!= CELT_OK` treated every *successful*
+decode as an error. Caught by the corpus test immediately, which a hand-built fixture might have
+silently agreed with.
+
+**What was measured, and what each measurement killed:**
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Wrong sample rate / frame size | All 5 supported rates (8000–48000) with matching 20 ms frame sizes, 200 real packets | **Byte-identical every time**: 103 accepted, 163 rejected. Rate is not the variable. |
+| Leading byte is a marker | Skip 1 byte; 63-byte slices; ignore trailing byte — 4 offset variants | No variant beats baseline. |
+| Cross-speaker desync | All sampled frames came from one client slot | Not applicable — nothing to interleave. |
+| Cross-packet desync | Fresh decoder per packet, intra-packet framing only | Failure rate unchanged. |
+| Multi-frame concatenation | Break down by packet length and frame position | **Isolated single-frame 64 B packets still fail 58%** with a fresh decoder at position 0. Not a frame-boundary problem. |
+
+Position 1 within a packet degrades further (71% vs 58%), so there *is* some additional state
+effect layered on top — but the 58% base rate on isolated first frames is what rules out every
+framing explanation tried.
+
+**The community-documented "22 kHz, 22 kbps" for `vaudio_celt` is consistent with
+`svc_VoiceInit`'s measured `22050`** — but 22050 is not among the five rates `resampling_factor`
+accepts, and the sweep above proves rate does not affect success anyway, so that number does not
+explain the failure either. It remains unexplained what `22050` denotes in this path.
+
+**Two integers were recovered from TF2's own shipped `vaudio_celt.dll`** by scanning for call sites
+and reading the immediate `push` values — the same technique that recovered the user-message
+registration order from six shipped clients. All seven calls to `celt_mode_create` push
+`(48000, 960, NULL)`, and the single `celt_decoder_create_custom` call passes `channels = 1`. Those
+values are what the decoder now uses. Note they do *not* imply TF2 decodes voice at 48 kHz:
+`celt_decoder_create` builds that same internal mode regardless of the caller's requested rate, so
+the constants describe CELT's own default mode, not TF2's voice rate.
+
+**Not consulted, deliberately:** the 2012 Source engine leak, which surfaces in searches for the
+`VoiceCodec_Frame` / `IFrameEncoder` symbol names visible in the binary. That is Valve's
+proprietary source redistributed without authorisation — a different and harder line than either
+reading the published SDK or extracting a constant from a binary on a machine that owns the game.
+The engine-side `VoiceCodec_Frame` wrapper remains the most likely place the answer lives, and it
+has never been published.
+
+See `RISKS.md` B33.

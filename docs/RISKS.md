@@ -1877,53 +1877,57 @@ With the sentinel handled, **1452 of 1452 payloads and all 3969 chunks consume e
 exactly 63 report the terminator — the same 63. Recorded in
 [findings/02](findings/02-net-messages.md).
 
-## B33 — CELT decode mode confirmed from the binary, but `celt_decode` still rejects most real frames — OPEN
+## B33 — CELT rejects most real frames, and every framing explanation is ruled out — OPEN
 
-Found 2026-08-11 while wiring `CeltVoiceDecoder` against `libcelt` 0.11.3
-(`tools/native-audio/`). Both Opus and Speex decode all real corpus audio cleanly on the first
-pass; CELT does not, and the investigation stopped at a genuine unknown rather than a guess.
+Found 2026-08-11 wiring `CeltVoiceDecoder` against `libcelt` 0.11.3. Opus and Speex both decode
+all real corpus audio cleanly; CELT does not. Full history in
+[findings/02](findings/02-net-messages.md); this entry is what is settled and what is left.
 
-**What is confirmed, from TF2's own shipped `vaudio_celt.dll`, not assumed.** Scanning the binary
-for calls to `celt_mode_create` found all seven call sites pushing the identical constants —
-`celt_mode_create(48000, 960, NULL)` — and a separate scan of the one call to
-`celt_decoder_create_custom` confirmed `channels = 1`. Both calls succeed against this project's
-own build with those exact values: `celt_mode_create` and `celt_decoder_create_custom` both
-return `CELT_OK`. This is CELT's own built-in default mode (the only one compiled without
-`CUSTOM_MODES`), so no custom-mode parameters were ever needed — the earlier concern that
-`svc_VoiceInit`'s measured `22050` might be an unreachable custom sample rate turned out not to
-apply; `22050` denotes something else, still unidentified.
+**Ruled out by measurement, not by argument:**
 
-**What still fails.** `celt_decode` returns `CELT_CORRUPTED_DATA` (-4) on the majority of real
-64-byte frames extracted from `z1800.dem`. Measured with a fresh decoder created per
-`svc_VoiceData` packet and decoding only within that packet's own bytes — which should be the
-most forgiving case, since intra-packet concatenation is unframed by construction and needs no
-cross-packet continuity assumption — only **4 of 20** sampled packets decoded every sub-frame
-without error.
+| Hypothesis | How it died |
+|---|---|
+| Wrong sample rate / frame size | All 5 supported rates with matching frame sizes over 200 real packets give a **byte-identical** 103-ok / 163-fail split. Rate does not affect the outcome at all. |
+| Leading `0x18` byte is a marker | Four offset/width variants (skip 1, 63-byte slices, ignore trailing byte). None beats baseline. |
+| Cross-speaker state desync | All sampled frames are one client slot. Nothing to interleave. |
+| Cross-packet state desync | Fresh decoder per packet, intra-packet framing only. Unchanged. |
+| Multi-frame concatenation | **Isolated single-frame 64-byte packets, fresh decoder, position 0, still fail 58%.** |
 
-Two hypotheses were tested and both ruled out:
+That last row is the important one: it is not a frame-boundary problem, because the failure
+persists with no boundaries involved. Frame position 1 degrades further (71% vs 58%), so some
+state effect exists on top — but it cannot be the cause.
 
-1. **Cross-speaker state desync.** All 20 sampled frames came from the same client slot (20), so
-   there was no interleaving to desync against.
-2. **Cross-packet state desync** (a real gap between two separate network packets corrupting a
-   decoder carried across them). Ruled out by decoding fresh, per-packet, intra-packet-only —
-   the failure rate was unchanged.
+**What is confirmed.** Two integers recovered from TF2's shipped `vaudio_celt.dll` by scanning
+call sites for immediate `push` values: all seven `celt_mode_create` calls pass `(48000, 960,
+NULL)`, and the one `celt_decoder_create_custom` call passes `channels = 1`. Decoder creation and
+mode creation both succeed. These are the values in use — but note they describe CELT's own
+default mode, which `celt_decoder_create` builds regardless of the requested rate, so they are
+*not* evidence of TF2's voice sample rate.
 
-**One real bug was found and fixed along the way**, and stays fixed regardless of B33's outcome:
-`celt_decode`'s header comment says `@return Error code`, which is true only for failure. On
-success it returns `frame_size / st->downsample` — the samples decoded, the same contract as
-`opus_decode` — confirmed by reading `celt.c` directly rather than trusting the stale docstring.
-The wrapper originally checked `result != CELT_OK` and treated every successful decode as an
-error; it now checks `result < 0`.
+**Still unexplained:** what `svc_VoiceInit`'s measured `22050` denotes. Community documentation
+describes `vaudio_celt` as "22 kHz, 22 kbps", which matches — but 22050 is not among the five
+rates `resampling_factor` accepts, and rate has been proven not to affect decode success anyway.
 
-**What was not tried, and is where this should resume:** the leading byte of every corpus CELT
-payload is constant (`0x18`) across all 806 packets measured in `findings/02`, at the time flagged
-as consistent with a fixed codec mode rather than a header. That reading was not re-tested against
-the specific hypothesis that it is instead a one-byte marker consumed before the first CELT frame
-proper — a shifted-by-one read would produce exactly this failure signature (most frames wrong,
-some right by chance alignment). A partial test of this (`offset1/63B` slicing) did not clearly
-resolve it either way in the small sample taken, and was not pursued to a conclusion.
+**Where the answer probably is, and why it is not reachable yet.** The binary's own debug symbols
+name an engine-side wrapper — `VoiceCodec_Frame`, `IFrameEncoder`, `VoiceEncoder_Celt` — sitting
+between `IVoiceCodec` and the raw `celt_encode`/`celt_decode` calls. That wrapper is the obvious
+place for whatever transformation is being missed. It lives in `engine/`, which Valve has never
+published; `source-sdk-2013` does not contain it (checked). It *does* appear in the 2012 Source
+engine leak, which is deliberately not being used — unauthorised redistribution of Valve's
+proprietary source is a harder line than reading the published SDK or extracting a constant from a
+binary on a machine that owns the game.
 
-**Severity:** low. CELT covers a narrow window (late 2016 to roughly 2018) and voice generally,
-not container or entity decoding — nothing else in the project depends on it. Marked `Skip` rather
-than deleted: `CorpusCeltSpeexVoiceTests.EveryCeltFrame_DecodesToPcm` in
-`tests/Tf2DemoSalvage.Corpus.Tests/Net/CorpusCeltSpeexVoiceTests.cs`.
+**Viable next steps**, roughly in order of cost:
+
+1. **More CELT specimens.** The corpus has exactly one CELT demo (`z1800.dem`). The ESEA/ETF2L
+   archive being mirrored includes ETF2L Season 29 (March 2018), squarely in the CELT window — if
+   those demos carry `vaudio_celt` voice, a second independent source would show whether the 58%
+   failure rate is a property of the codec path or of that one recording.
+2. **Analyse `VoiceCodec_Frame` in the owned binary directly** — trace what it does to the buffer
+   between the network payload and `celt_decode`, the same way the mode constants were recovered.
+3. **A period client** (2016–2018) to record fresh CELT demos with known-good audio, which would
+   turn this from archaeology into a controlled experiment.
+
+**Severity: low.** CELT covers late 2016 to roughly 2018 and only voice — no container, entity, or
+event decoding depends on it. `CorpusCeltSpeexVoiceTests.EveryCeltFrame_DecodesToPcm` is
+`Skip`-annotated with the finding rather than deleted or left red.
