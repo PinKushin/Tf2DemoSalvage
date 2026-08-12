@@ -244,3 +244,69 @@ horizon.
 - `docs/DECISIONS.md` D32 — treating a downloaded map as hostile input
 - `docs/findings/08-method.md` — length arithmetic, and controls that fail on small inputs
 - `docs/RENDERING_NOTES.md` §7 — why the overhead view keeps upward-facing surfaces only
+
+## The holes were props, not shading and not culling
+
+*Evidence class: measured on the corpus, and named by the map's owner before the measurement got
+there.*
+
+Small fuzzy black patches survived the terrain fix. Four explanations were tried and measured away
+in turn — unlit faces sampling atlas padding, holes from skipped tool displacements, dark
+lightmaps, and finally an over-aggressive filter dropping the surface underneath. The last one had
+a coverage grid behind it: 153 cells, 5.1% of `cp_process_final`, covered only by
+`tools/toolsinvisibledisplacement` and nothing else.
+
+None of them was it. The answer is `prop_static`.
+
+Invisible displacement is collision-only geometry laid over ground the mapper wants smooth to walk
+on; the engine never draws it, so skipping it is right. What a player actually sees standing there
+is a **model placed on top of it**. Skip the tool material, never read the props, and the hole is
+exactly prop-shaped.
+
+**The instrument is the part worth keeping.** The coverage grid was built from faces, so it could
+say "no drawn face covers this cell" and could rank the filters that might have dropped one. It
+could not say that the missing thing was never a face at all. Every hypothesis it generated was
+about the candidates it could see, which is why four of them were wrong in the same direction.
+
+### What the game lump turned out to be
+
+Static props live in lump 35, which is not a structure array but a directory of its own:
+
+```
+int              lumpCount
+dgamelump_t[]    { int id; ushort flags; ushort version; int fileofs; int filelen; }
+```
+
+Two things about it that the published descriptions understate:
+
+**`filelen` is the DECOMPRESSED size when the compression flag is set.** The packed bytes run from
+this entry's offset to the *next* entry's, so the directory has to be read whole before any payload
+can be. A reader that takes `filelen` bytes from `fileofs` and hands them to an LZMA decoder gets a
+truncated stream, and the failure surfaces as a decode error far from its cause.
+
+**The placement structure has no reliable size table.** Valve grew `StaticPropLump_t` at versions
+5, 6, 7, 10 and 11, and third-party compilers ship their own variants. Rather than enumerate them,
+the stride is measured: the bytes remaining divided by the declared count, required to divide
+exactly. That is the same arithmetic that identified the compressed lumps, and it has now settled
+two format questions that looked like they needed new evidence.
+
+Every field this project reads — origin, angles, model index — sits in the first 56 bytes, which
+every version shares. Only the trailing uniform scale is version-dependent.
+
+### A range check cannot find an angle field
+
+Worth recording as a measurement failure. The first test asserted pitch, yaw and roll were within
+±360°, which is true of the real data. Moving `AnglesOffset` four bytes to sabotage it **passed
+identically**: at the wrong offset it read two genuine angle components and then the model index
+reinterpreted as a float, which is a denormal and comfortably inside the bound.
+
+The condition was wrong, not the assertion. What separates a correct read from a shifted one is the
+*shape* of the data: a mapper turns a prop about the vertical axis and almost never tilts one, so
+pitch and roll are exactly zero for the large majority while yaw is spread across the circle. Read
+one field along, the old yaw becomes the pitch and that majority collapses. That assertion, and
+only that one, goes red under the sabotage.
+
+### Still missing
+
+Reading the placements is not drawing them. The model chain — `.mdl`, `.vvd`, `.dx90.vtx` — is
+unimplemented, so the patches remain until it lands.
