@@ -95,8 +95,14 @@ internal class MainForm : Form
     /// <summary>The loaded map's outline, already projected to clip space.</summary>
     private IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> _mapLines = [];
 
+    /// <summary>The loaded map's filled surfaces, already projected to clip space.</summary>
+    private IReadOnlyList<(float X, float Y, float Shade)> _mapFill = [];
+
     /// <summary>The loaded map in world units, kept so it can be re-projected on resize.</summary>
     private MapOutline? _map;
+
+    /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
+    private MapSurfaces? _surfaces;
 
     private readonly ToolStripMenuItem _fullScreen;
 
@@ -416,7 +422,9 @@ internal class MainForm : Form
     public bool LoadMap(string mapName)
     {
         _map = null;
+        _surfaces = null;
         _mapLines = [];
+        _mapFill = [];
 
         string? path = FindMap(mapName);
 
@@ -429,6 +437,11 @@ internal class MainForm : Form
         {
             BspGeometry geometry = BspGeometry.Read(File.ReadAllBytes(path));
             _map = MapOutline.FromFaces(geometry.OverheadFaces);
+
+            // Filled from the main cluster only. Outside it is the 3D skybox room, which is
+            // already outside the view - but leaving it in the height range flattens the shading
+            // of everything that is inside.
+            _surfaces = MapSurfaces.FromFaces(geometry.OverheadFaces, _map.MainBounds);
             ProjectMap();
             return !_map.IsEmpty;
         }
@@ -475,6 +488,7 @@ internal class MainForm : Form
         if (_map is null || _map.IsEmpty)
         {
             _mapLines = [];
+            _mapFill = [];
             return;
         }
 
@@ -487,6 +501,24 @@ internal class MainForm : Form
         }
 
         _mapLines = lines;
+
+        if (_surfaces is null || _surfaces.IsEmpty)
+        {
+            _mapFill = [];
+            return;
+        }
+
+        // Through the SAME camera as the outlines. Two cameras fitted separately would drift apart
+        // by a pixel and leave every edge sitting beside its own surface rather than on it.
+        List<(float X, float Y, float Shade)> fill = new(_surfaces.Triangles.Count);
+
+        foreach (MapTriangle corner in _surfaces.Triangles)
+        {
+            (float x, float y) = camera.Project(corner.X, corner.Y);
+            fill.Add((x, y, corner.Shade));
+        }
+
+        _mapFill = fill;
     }
 
     /// <summary>
@@ -723,7 +755,7 @@ internal class MainForm : Form
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
-        _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapLines, _scene);
+        _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapFill, _mapLines, _scene);
     }
 
     private void OnViewportResize(object? sender, EventArgs e)
