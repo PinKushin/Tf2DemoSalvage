@@ -4,22 +4,39 @@
     Tests for the viewer shell. Windows-targeted because WinForms is, and because the automation
     ids these assert are the surface the UI tests will drive.
 
-    xunit.v3 to match every other test project here. The house rule prefers NUnit for a NEW
-    project, but this repo is standardised on xunit.v3 and a second framework in one solution
-    costs more than the preference gains.
+    **NUnit, as the pilot for migrating this repo off xunit.v3.** Package set mirrors
+    PokemonBattleJournal's, which has run NUnit under Stryker nightly for months - the VSTest
+    path, with no EnableNUnitRunner and no Microsoft.Testing.Platform involved.
+
+    A detour worth recording: the first attempt set EnableNUnitRunner to keep using Stryker's
+    `mtp` test-runner setting, on the assumption that our stryker-config.json needed it. That
+    combination is a hard error on the .NET 10 SDK ("Testing with VSTest target is no longer
+    supported by Microsoft.Testing.Platform"), and switching `dotnet test` to the platform runner
+    is a repo-wide opt-in rather than a per-project property. It was also unnecessary: `mtp` was
+    our choice, not NUnit's requirement.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>Tf2DemoSalvage.Viewer3D.Tests</RootNamespace>
     <IsTestProject>true</IsTestProject>
-    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
     <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- CA1515 wants an application's types internal. NUnit discovers public fixtures, so the
+         rule is inapplicable here rather than being ignored. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+    <!-- Catches what NUnit otherwise accepts silently: a [Test] on a non-public method, an async
+         void test, a [TestCase] whose arguments do not match the signature. -->
+    <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Shouldly" Version="4.3.0" />
   </ItemGroup>
 
