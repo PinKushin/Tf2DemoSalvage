@@ -1877,57 +1877,97 @@ With the sentinel handled, **1452 of 1452 payloads and all 3969 chunks consume e
 exactly 63 report the terminator — the same 63. Recorded in
 [findings/02](findings/02-net-messages.md).
 
-## B33 — CELT rejects most real frames, and every framing explanation is ruled out — OPEN
+## B33 — CELT: parameters recovered and confirmed; ~56% of frames are not CELT at all — OPEN
 
-Found 2026-08-11 wiring `CeltVoiceDecoder` against `libcelt` 0.11.3. Opus and Speex both decode
-all real corpus audio cleanly; CELT does not. Full history in
-[findings/02](findings/02-net-messages.md); this entry is what is settled and what is left.
+Found 2026-08-11. Opus and Speex decode all real corpus audio; CELT does not. Full history in
+[findings/02](findings/02-net-messages.md). This entry is what is settled and what is left.
 
-**Ruled out by measurement, not by argument:**
+### Settled: the parameters, read out of TF2's own binary
 
-| Hypothesis | How it died |
-|---|---|
-| Wrong sample rate / frame size | All 5 supported rates with matching frame sizes over 200 real packets give a **byte-identical** 103-ok / 163-fail split. Rate does not affect the outcome at all. |
-| Leading `0x18` byte is a marker | Four offset/width variants (skip 1, 63-byte slices, ignore trailing byte). None beats baseline. |
-| Cross-speaker state desync | All sampled frames are one client slot. Nothing to interleave. |
-| Cross-packet state desync | Fresh decoder per packet, intra-packet framing only. Unchanged. |
-| Multi-frame concatenation | **Isolated single-frame 64-byte packets, fresh decoder, position 0, still fail 58%.** |
+`VoiceEncoder_Celt::Init(quality, &rawFrameSize, &encodedFrameSize)` does not hardcode anything.
+It uses `quality` **directly as an index** (valid 0-4) into a table of
+`{ sample rate, frame size, compressed length }` triples at RVA `0x2f00c`, passes the first two
+to `celt_mode_create`, sets `*rawFrameSize = frame_size * 2` and
+`*encodedFrameSize = table[q].len`. The table, read from `vaudio_celt.dll`:
 
-That last row is the important one: it is not a frame-boundary problem, because the failure
-persists with no boundaries involved. Frame position 1 degrades further (71% vs 58%), so some
-state effect exists on top — but it cannot be the cause.
+| idx | rate | frame size | bytes |
+|---|---|---|---|
+| 0 | 44100 | 256 | 120 |
+| 1 | 22050 | 120 | 60 |
+| 2 | 22050 | 256 | 60 |
+| **3** | **22050** | **512** | **64** |
+| 4 | 44100 | 1024 | 128 |
 
-**What is confirmed.** Two integers recovered from TF2's shipped `vaudio_celt.dll` by scanning
-call sites for immediate `push` values: all seven `celt_mode_create` calls pass `(48000, 960,
-NULL)`, and the one `celt_decoder_create_custom` call passes `channels = 1`. Decoder creation and
-mode creation both succeed. These are the values in use — but note they describe CELT's own
-default mode, which `celt_decoder_create` builds regardless of the requested rate, so they are
-*not* evidence of TF2's voice sample rate.
+Entry 3's 64-byte length is exactly the frame width the corpus measures. **22050 Hz at 512
+samples is not a static mode**, so a default libcelt build refuses it outright — which is why
+every earlier attempt failed identically no matter which standard rate was tried. The build now
+sets `CUSTOM_MODES` and the mode constructs cleanly.
 
-**Still unexplained:** what `svc_VoiceInit`'s measured `22050` denotes. Community documentation
-describes `vaudio_celt` as "22 kHz, 22 kbps", which matches — but 22050 is not among the five
-rates `resampling_factor` accepts, and rate has been proven not to affect decode success anyway.
+That configuration is also *verified* to be the right one, not merely plausible: at 22050/512 the
+decoder accepts 474 frames, while 22050/256 and 44100/512 accept **zero**. Only the binary's own
+entry decodes anything at all.
 
-**Where the answer probably is, and why it is not reachable yet.** The binary's own debug symbols
-name an engine-side wrapper — `VoiceCodec_Frame`, `IFrameEncoder`, `VoiceEncoder_Celt` — sitting
-between `IVoiceCodec` and the raw `celt_encode`/`celt_decode` calls. That wrapper is the obvious
-place for whatever transformation is being missed. It lives in `engine/`, which Valve has never
-published; `source-sdk-2013` does not contain it (checked). It *does* appear in the 2012 Source
-engine leak, which is deliberately not being used — unauthorised redistribution of Valve's
-proprietary source is a harder line than reading the published SDK or extracting a constant from a
-binary on a machine that owns the game.
+### Settled: the wrapper adds nothing
 
-**Viable next steps**, roughly in order of cost:
+`VoiceCodec_Frame::Decompress` (vtable slot 4, va `0x100135f0`) is a bare loop — no header, no
+transformation:
 
-1. **More CELT specimens.** The corpus has exactly one CELT demo (`z1800.dem`). The ESEA/ETF2L
-   archive being mirrored includes ETF2L Season 29 (March 2018), squarely in the CELT window — if
-   those demos carry `vaudio_celt` voice, a second independent source would show whether the 58%
-   failure rate is a property of the codec path or of that one recording.
-2. **Analyse `VoiceCodec_Frame` in the owned binary directly** — trace what it does to the buffer
-   between the network payload and `celt_decode`, the same way the mode constants were recovered.
-3. **A period client** (2016–2018) to record fresh CELT demos with known-good audio, which would
-   turn this from archaeology into a controlled experiment.
+```
+if (compressedBytes < encodedFrameSize) return 0;
+loop: DecodeFrame(pCompressed + cur, pUncompressed + out);
+      cur += encodedFrameSize;  out += rawFrameSize;
+      while (compressedBytes - cur >= encodedFrameSize);
+return out / 2;   // samples
+```
 
-**Severity: low.** CELT covers late 2016 to roughly 2018 and only voice — no container, entity, or
-event decoding depends on it. `CorpusCeltSpeexVoiceTests.EveryCeltFrame_DecodesToPcm` is
-`Skip`-annotated with the finding rather than deleted or left red.
+So the framing this project already implemented — concatenated fixed-width frames, nothing
+between them — matches the engine exactly.
+
+### The remaining anomaly, and it is not a parameter problem
+
+**Byte 1 of each 64-byte frame predicts decode success perfectly, across all 1085 frames:**
+
+| byte[1] high bit | decodes | fails |
+|---|---|---|
+| clear | **474** | 0 |
+| set | 0 | **611** |
+
+Not one exception. Byte 0 is `0x18` on every frame at every 64-byte boundary. The hi-bit frames
+are ~56% of the total and are distributed evenly across packet lengths, frame positions and all
+four speaking clients — so this is not one bad client or one bad packet shape.
+
+Ruled out, each by measurement rather than argument:
+
+- **Sample rate and frame size.** Sweeping all five supported rates with matching frame sizes gave
+  a byte-identical 103-ok/163-fail split before `CUSTOM_MODES`; after it, hi-bit frames fail at
+  frame sizes 128, 256 *and* 512 alike (0 ok, 611 fail each).
+- **Byte alignment.** Offsets 1, 2 and 4 with widths 60-64, re-tested at the *correct* mode, are
+  all worse than baseline (29%, 25%, 21% versus 44%). An earlier note attributed skip=1's poor
+  score to the wrong mode; retested at the right one, it is still worse, so that explanation did
+  not survive.
+- **Decoder state.** Continuous per-client decoding and fresh-per-packet decoding give *identical*
+  results (474/611 both), so frames are genuinely independent and no state is being lost.
+- **Frame width.** 128-byte packets decode no better as one 128-byte frame (114 ok) than as two
+  64-byte frames (234 ok).
+- **Everything at once.** An exhaustive brute force over 9 sample rates x 8 frame sizes x 9 byte
+  offsets x 49 lengths — roughly 31,000 configurations — found **no** combination that decodes
+  three sampled failing frames. They are not CELT frames at any offset under any parameters.
+
+**So the hi-bit frames are not mis-parameterised CELT; they are something else, and byte[1]'s high
+bit is the flag that distinguishes them.** What that something is remains unknown. The obvious
+shapes to test next are a second payload type multiplexed into the same stream, or a
+transformation applied to a subset of frames before transmission.
+
+**Not consulted, deliberately:** the 2012 Source engine leak, where the `VoiceCodec_Frame` and
+`IFrameEncoder` symbols also appear. Unauthorised redistribution of Valve's proprietary source is
+a harder line than reading the published SDK or extracting constants from a binary on a machine
+that owns the game — and as it turned out, the binary answered the parameter question completely
+without it.
+
+**Severity: low.** CELT covers late 2016 to roughly 2018, voice only. Nothing else depends on it.
+`CorpusCeltSpeexVoiceTests.EveryCeltFrame_DecodesToPcm` is `Skip`-annotated with the finding.
+
+**Next steps:** more CELT specimens (ETF2L Season 29, March 2018, currently mirroring) would show
+whether the ~56% split is a property of the codec path or of this one recording; and a 2016-2018
+client to record fresh CELT demos with known-good audio would turn this into a controlled
+experiment.

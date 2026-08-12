@@ -157,9 +157,9 @@ u64  steamID64                      the speaker, independent of the client slot
 repeat until 4 bytes remain:
   u8 type
     0x0B  u16 sample rate           always 24000 across the corpus
-    0x00  u16                       55 occurrences, all in 18-byte packets
+    0x00  u16 silence samples       55 occurrences, all in 18-byte packets
     0x06  u16 length, then <length> bytes of Opus
-u32  tail
+u32  crc32                          over the steamID and every sub-packet
 ```
 
 *Measured*: **1452 of 1452 packets consume exactly.** The route there is worth keeping, because the
@@ -177,6 +177,16 @@ first two attempts scored **0**:
 **The steamID is the interesting field.** `svc_VoiceData` already gives a client slot; this gives
 the account. A slot is only meaningful against the roster at that moment, and it is reused when
 players leave — the steamID is not.
+
+**The tail was identified later, and the route is worth keeping.** It was derived *positionally*
+— four bytes left over, every time, in the arithmetic above — and carried uninterpreted rather
+than guessed at. `demostf/steam-audio-codec`, an unrelated open-source implementation, reads a
+byte-identical structure and names it a CRC32 (`crc32b`, polynomial `0xEDB88320`) over everything
+preceding it, and also names type `0x00`'s payload as a silence-sample count. Two independent
+derivations agreeing is worth more than either alone — but it was still checked against this
+project's own data before being written down as fact: **1452 of 1452 payloads match**
+(`CorpusVoiceChecksumTests`). It is carried rather than validated in `Core`, because a demo is a
+recording of what arrived and dropping a packet on a CRC mismatch would discard evidence.
 
 ### Inside type `0x06`
 
@@ -321,3 +331,50 @@ The engine-side `VoiceCodec_Frame` wrapper remains the most likely place the ans
 has never been published.
 
 See `RISKS.md` B33.
+
+### CELT, continued: the parameters were in the binary all along (2026-08-11)
+
+The section above left CELT failing for reasons that were "neither framing nor mode parameters".
+Half of that was wrong, and the correction came from reading TF2's own `vaudio_celt.dll` rather
+than guessing at libcelt.
+
+**`VoiceEncoder_Celt` does not hardcode its parameters.** `Init(quality, &rawFrameSize,
+&encodedFrameSize)` treats `quality` as a **direct index** (0-4) into a table of
+`{ sample rate, frame size, compressed length }` triples at RVA `0x2f00c`, hands the first two to
+`celt_mode_create`, and reports `frame_size * 2` and `len` back to its caller:
+
+| idx | rate | frame size | bytes |
+|---|---|---|---|
+| 0 | 44100 | 256 | 120 |
+| 1 | 22050 | 120 | 60 |
+| 2 | 22050 | 256 | 60 |
+| **3** | **22050** | **512** | **64** |
+| 4 | 44100 | 1024 | 128 |
+
+Entry 3's 64 bytes is exactly the frame width measured on the wire, so that is the entry these
+recordings used — and **22050 Hz at 512 samples is not a static mode**. A default libcelt build
+compiles in 48000 Hz modes only and rejects it at `celt_mode_create`, before a single frame is
+touched. That is why every rate tried earlier failed *identically*: the failure happened upstream
+of the data. Rebuilt with `CUSTOM_MODES`, the mode constructs, and the choice is confirmed rather
+than assumed — 22050/512 accepts 474 frames where 22050/256 and 44100/512 each accept **zero**.
+
+Two smaller corrections fall out of the same read. The earlier claim that the seven
+`celt_mode_create(48000, 960)` call sites revealed TF2's voice rate was wrong: those are
+*libcelt's own* internals, since `celt_decoder_create` always builds that mode regardless of the
+rate asked for. And `svc_VoiceInit`'s "22050" — previously filed as unexplained — is simply
+correct, matching both the table and the community "22 kHz" documentation.
+
+**`VoiceCodec_Frame::Decompress` adds nothing**, settling the framing question from the engine
+side. Located through its RTTI (vtable slot 4, va `0x100135f0`), it is a bare loop over
+fixed-width frames with no header and no transformation, returning `outputBytes / 2` samples —
+exactly the shape this project had already implemented.
+
+**What is still unexplained is sharper than before, and is not a parameter.** Byte 1 of each frame
+predicts decode success *perfectly* across all 1085 frames: high bit clear decodes (474 of 474),
+high bit set never does (0 of 611). Byte 0 is `0x18` on every frame. An exhaustive brute force —
+9 rates x 8 frame sizes x 9 offsets x 49 lengths, ~31,000 configurations — decodes none of the
+failing frames at any setting, so they are not CELT frames that are being read wrongly. They are
+something else sharing the stream, flagged by that bit. Continuous and fresh-per-packet decoding
+give identical results, so no decoder state is involved either.
+
+See `RISKS.md` B33 for the full elimination table.

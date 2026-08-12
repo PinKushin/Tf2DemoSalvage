@@ -18,7 +18,9 @@ public readonly record struct VoiceChunk(int Sequence, ReadOnlyMemory<byte> Data
 /// <param name="SampleRate">Sample rate the frames decode at.</param>
 /// <param name="Chunks">Audio frames, in the order sent.</param>
 /// <param name="IsTerminated">Whether the audio block ended with the <c>0xFFFF</c> sentinel.</param>
-/// <param name="Tail">The four trailing bytes, carried rather than interpreted.</param>
+/// <param name="Tail">
+/// CRC32 of the steamID and every sub-packet — everything preceding these four bytes.
+/// </param>
 public sealed record VoicePacket(
     ulong SteamId,
     int SampleRate,
@@ -75,6 +77,21 @@ public static class SteamVoicePayload
     private const int BlockTerminator = 0xFFFF;
 
     private const int SteamIdBytes = 8;
+    /// <summary>
+    /// Width of the trailing CRC32.
+    /// </summary>
+    /// <remarks>
+    /// Derived positionally first: three packets' declared type-0x06 lengths came up four bytes
+    /// short of the payload every time, so four bytes had to be a tail. What they *are* was
+    /// settled later, and by agreement rather than assertion — <c>demostf/steam-audio-codec</c>,
+    /// an unrelated implementation, reads the same structure and calls them a CRC32 over
+    /// everything before them. Checked against this project's own corpus rather than adopted:
+    /// 1452 of 1452 payloads match (<c>CorpusVoiceChecksumTests</c>).
+    ///
+    /// Carried rather than validated here. A demo is a recording of what arrived, and rejecting a
+    /// packet whose CRC disagrees would discard evidence this project exists to preserve — the
+    /// value is checked by the test, so a systematic mismatch would surface there.
+    /// </remarks>
     private const int TailBytes = 4;
     private const int ChunkHeaderBytes = 4;
     private const int FieldBytes = 2;

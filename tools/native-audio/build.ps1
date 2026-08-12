@@ -50,13 +50,20 @@ $celtLib = Join-Path $celtSrc 'libcelt'
 $celtBuild = Join-Path $work 'celt-build'
 New-Item -ItemType Directory -Path $celtBuild | Out-Null
 
-# Default (non-custom-modes, non-experimental-postfilter) floating-point build, matching
-# configure.ac's defaults for a Win32 target - autotools does not run under MSVC, so this is
-# hand-written per README.Win32's own instructions rather than generated.
+# Floating-point build with CUSTOM_MODES, for a Win32 target. Autotools does not run under
+# MSVC, so this is hand-written per README.Win32's own instructions rather than generated.
+#
+# CUSTOM_MODES is NOT configure.ac's default and is required here, which B33 established the
+# hard way. TF2's vaudio_celt.dll picks its parameters from a { Fs, frame_size, len } table and
+# uses entry 3 - 22050 Hz, 512 samples, 64-byte frames. That is not one of the static modes a
+# default build compiles in (those are 48000 Hz only), so celt_mode_create returns
+# CELT_BAD_ARG for it and every frame then fails as CELT_CORRUPTED_DATA. The experimental
+# postfilter stays off, matching upstream's default.
 @'
 #define CELT_BUILD
 #define FLOATING_POINT
 #define USE_ALLOCA
+#define CUSTOM_MODES
 '@ | Set-Content (Join-Path $celtBuild 'config.h')
 
 # The upstream gap - see README.md "The CELT 0.11.3 upstream gap". Values transcribed verbatim

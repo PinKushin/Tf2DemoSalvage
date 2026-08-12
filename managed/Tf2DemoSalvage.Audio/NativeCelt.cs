@@ -32,29 +32,42 @@ namespace Tf2DemoSalvage.Audio;
 internal static partial class NativeCelt
 {
     /// <summary>
-    /// CELT's native rate, and the one TF2's own <c>vaudio_celt.dll</c> builds its mode at.
+    /// Sample rate, from TF2's own parameter table — see <see cref="FrameSize"/>.
     /// </summary>
-    /// <remarks>
-    /// **Measured irrelevant to decode success, which is itself the finding.** B33 swept all five
-    /// rates this build supports (8000/12000/16000/24000/48000, each with its matching 20 ms
-    /// frame size) across 200 real corpus packets and got a byte-identical outcome every time —
-    /// 103 frames accepted, 163 rejected. So whatever is wrong with CELT decoding here, the
-    /// sample rate is not it, and picking a rate on the strength of decode success would be
-    /// reading signal into a constant. This is set to the value TF2's binary actually uses,
-    /// which is the only defensible basis available.
-    /// </remarks>
-    internal const int SampleRate = 48000;
+    internal const int SampleRate = 22050;
 
     /// <summary>
-    /// Frame size in output-rate samples, matching <see cref="SampleRate"/>'s 20 ms frame.
+    /// Frame size in samples, from TF2's own parameter table.
     /// </summary>
     /// <remarks>
-    /// The argument is in <em>output</em>-rate samples: <c>celt.c</c> multiplies it by the
-    /// decoder's downsample factor internally (<c>frame_size *= st-&gt;downsample</c>) to reach
-    /// the mode's native 960, and returns the output-rate count. At the native 48000 the
-    /// downsample factor is 1, so the two coincide here.
+    /// **Read out of <c>vaudio_celt.dll</c>, and this is what B33 was missing.**
+    /// <c>VoiceEncoder_Celt</c> does not hardcode its parameters: it indexes a table of
+    /// <c>{ sample rate, frame size, compressed length }</c> triples at RVA <c>0x2f00c</c> by a
+    /// quality field, and passes the first two straight to <c>celt_mode_create</c> and the third
+    /// to <c>celt_decode</c> as the frame length. The table, read from the binary:
+    ///
+    /// | idx | rate | frame size | bytes |
+    /// |---|---|---|---|
+    /// | 0 | 44100 | 256 | 120 |
+    /// | 1 | 22050 | 120 | 60 |
+    /// | 2 | 22050 | 256 | 60 |
+    /// | **3** | **22050** | **512** | **64** |
+    /// | 4 | 44100 | 1024 | 128 |
+    ///
+    /// Entry 3's 64-byte length is exactly the frame width the corpus measures, so that is the
+    /// entry TF2 used for these recordings. **22050 Hz at 512 samples is not one of the static
+    /// modes** a default libcelt build compiles in — those are 48000 Hz only — which is why
+    /// every earlier attempt failed identically regardless of which standard rate was tried:
+    /// <c>celt_mode_create</c> was rejecting the mode before a single frame was ever decoded.
+    /// The build now enables <c>CUSTOM_MODES</c> so this mode can actually be constructed.
+    ///
+    /// This also explains the "22 kHz" in community documentation and the <c>22050</c> the
+    /// project had been carrying: both are real, and neither was ever the problem.
     /// </remarks>
-    internal const int FrameSize = 960;
+    internal const int FrameSize = 512;
+
+    /// <summary>Compressed bytes per frame, from the same table entry.</summary>
+    internal const int CompressedFrameBytes = 64;
 
     /// <summary>libcelt's <c>CELT_OK</c>.</summary>
     internal const int Ok = 0;
@@ -63,13 +76,29 @@ internal static partial class NativeCelt
     private const DllImportSearchPath SearchPath = DllImportSearchPath.AssemblyDirectory;
 
     /// <summary>
-    /// The plain (non-custom) entry point — required rather than
-    /// <c>celt_decoder_create_custom</c> because only this path sets a downsample factor.
-    /// <c>_create_custom</c> always assumes the mode's native rate and leaves downsample at 1.
+    /// Builds a mode from an explicit rate and frame size. Requires a <c>CUSTOM_MODES</c> build
+    /// for anything but the compiled-in static modes — see <see cref="FrameSize"/>.
     /// </summary>
-    [LibraryImport(Library, EntryPoint = "celt_decoder_create")]
+    [LibraryImport(Library, EntryPoint = "celt_mode_create")]
     [DefaultDllImportSearchPaths(SearchPath)]
-    internal static partial nint DecoderCreate(int samplingRate, int channels, out int error);
+    internal static partial nint ModeCreate(int samplingRate, int frameSize, out int error);
+
+    /// <summary>Frees a mode built by <see cref="ModeCreate"/>.</summary>
+    [LibraryImport(Library, EntryPoint = "celt_mode_destroy")]
+    [DefaultDllImportSearchPaths(SearchPath)]
+    internal static partial void ModeDestroy(nint mode);
+
+    /// <summary>
+    /// The custom-mode decoder constructor, matching what <c>VoiceEncoder_Celt</c> itself calls.
+    /// </summary>
+    /// <remarks>
+    /// The plain <c>celt_decoder_create(rate, ...)</c> cannot express this configuration: it
+    /// always builds the internal 48000/960 mode and only varies a downsample factor drawn from
+    /// a fixed five-entry table that does not contain 22050.
+    /// </remarks>
+    [LibraryImport(Library, EntryPoint = "celt_decoder_create_custom")]
+    [DefaultDllImportSearchPaths(SearchPath)]
+    internal static partial nint DecoderCreateCustom(nint mode, int channels, out int error);
 
     [LibraryImport(Library, EntryPoint = "celt_decoder_destroy")]
     [DefaultDllImportSearchPaths(SearchPath)]
