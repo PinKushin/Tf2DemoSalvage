@@ -2193,3 +2193,30 @@ and every map compiler share. **This is accepted rather than open work**, and re
 path match looks like a hack until you know the flag route was tried and does not exist. If a
 counter-example turns up — a real surface under `materials/tools`, or a tool material outside it —
 this is where to start.
+
+## B41 — large diffuse black areas over the map, cause not yet isolated — OPEN
+
+**Reported 2026-08-12** from a screenshot with the affected regions highlighted: irregular, soft-edged
+black patches spread across `cp_process_final`, in roughly the places the map has terrain.
+
+**What has been ruled out by measurement, not by argument:**
+
+- **Not unlit faces.** A face with no lightmap sampled the atlas at (0,0), which is padding and
+  therefore black. Fixed by reserving a white texel — and the patches did not change.
+- **Not holes from skipped tool displacements.** 518 of the map's 578 displacement faces use
+  `tools/toolsinvisibledisplacement` and are correctly not drawn, but a coverage grid puts the area
+  covered *only* by those at **5.1%** of the map. The patches are far larger.
+- **Not dark lighting.** The lightmaps on displacement materials average 103 to 240 out of 255.
+
+**The next measurement, which separates the two remaining candidates in one run:** disable the
+lightmap multiply in the world shader so it returns albedo alone.
+
+- Patches **gone** → the fault is in lightmap sampling: the atlas rectangle, or the coordinates,
+  most likely for displacements whose base-quad coordinates run far outside 0..1 (values to 25.9
+  were measured) and are clamped.
+- Patches **remain** → the fault is texture resolution for those specific materials, and the next
+  step is to report which material each black face uses.
+
+Recorded rather than guessed at further: three hypotheses have already been tried and each was
+plausible, which is exactly the situation where another change without a measurement is how a
+codebase acquires a workaround.
