@@ -40,6 +40,38 @@ public sealed class ShellUiTests
     [OneTimeTearDown]
     public void CloseViewer() => _viewer?.Dispose();
 
+    [TearDown]
+    public void ReturnToWindowed()
+    {
+        // **A shared fixture needs its state put back, and full screen is the state that leaks.**
+        // One application instance serves every test here, so a test that ends full screen hands
+        // the next one a window already the size of the screen. That test then reads 1920 as its
+        // "windowed" width, presses F11, waits for the viewport to GROW, and times out after ten
+        // seconds - a failure attributed to the wrong test and looking exactly like flake.
+        //
+        // Observed for real: the suite failed once and passed on the next run with no change.
+        // Retrying would have buried it.
+        if (_viewer is null)
+        {
+            return;
+        }
+
+        System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+
+        if (_viewer.Window.BoundingRectangle.Width < screen.Width)
+        {
+            return;
+        }
+
+        ViewerApplication.Log("still full screen after the test; pressing Escape");
+        _viewer.Focus();
+        Keyboard.Type(VirtualKeyShort.ESCAPE);
+
+        Retry.WhileTrue(
+            () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
+            TimeSpan.FromSeconds(10));
+    }
+
     [Test]
     public void TheShellExposesEveryControlAutomationCanDrive()
     {
@@ -164,4 +196,48 @@ public sealed class ShellUiTests
         _viewer.Find("Viewport").BoundingRectangle.Width
             .ShouldBe(windowedWidth, "Escape did not restore the original window size");
     }
+
+    [Test]
+    public void FullScreen_CoversTheWholeScreenAndDropsTheSidebar()
+    {
+        // Two defects found by looking at it, neither visible without a real window.
+        //
+        // **The taskbar stayed on top.** Full screen was a borderless MAXIMISED window, and a
+        // maximised window is sized to the work area - the screen minus the taskbar - so it was a
+        // big window rather than a full screen one.
+        //
+        // **The playlist's panel stayed docked.** The code hid the playlist and the search box
+        // after those two moved inside a container, so 280 pixels of empty panel kept its place
+        // and the viewport came out that much narrower.
+        _viewer.Focus();
+
+        System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        int windowedWidth = _viewer.Find("Viewport").BoundingRectangle.Width;
+
+        Keyboard.Type(VirtualKeyShort.F11);
+        Retry.WhileFalse(
+            () => _viewer.Find("Viewport").BoundingRectangle.Width > windowedWidth,
+            TimeSpan.FromSeconds(10));
+
+        System.Drawing.Rectangle window = _viewer.Window.BoundingRectangle;
+        System.Drawing.Rectangle viewport = _viewer.Find("Viewport").BoundingRectangle;
+
+        ViewerApplication.Log(
+            $"screen={screen.Width}x{screen.Height} window={window.Width}x{window.Height} " +
+            $"viewport={viewport.Width}x{viewport.Height}");
+
+        window.Width.ShouldBe(screen.Width, "the window does not span the screen");
+        window.Height.ShouldBe(screen.Height, "the window does not cover the taskbar");
+
+        // The viewport takes the full width, which is the observable form of "no empty panel is
+        // still docked". Asserting the panel's Visible would prove nothing - see the unit tests.
+        viewport.Width.ShouldBe(screen.Width, "something is still docked beside the viewport");
+        viewport.Height.ShouldBe(screen.Height, "something is still docked above or below the viewport");
+
+        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        Retry.WhileFalse(
+            () => Math.Abs(_viewer.Find("Viewport").BoundingRectangle.Width - windowedWidth) < 2,
+            TimeSpan.FromSeconds(10));
+    }
 }
+
