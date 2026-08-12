@@ -194,6 +194,56 @@ internal sealed unsafe class PointRenderer : IDisposable
         context.Draw((uint)(segments.Count * 2), 0);
     }
 
+    /// <summary>Draws filled triangles into the bound render target.</summary>
+    /// <param name="device">Device, for growing the vertex buffer.</param>
+    /// <param name="context">Context to issue the draw on.</param>
+    /// <param name="corners">Triangle corners in clip space, three per triangle, in draw order.</param>
+    /// <param name="tint">Colour the shade is applied to, as red, green and blue.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="corners"/> is null.</exception>
+    /// <remarks>
+    /// **Draw order is the depth test.** There is no depth buffer, deliberately: a flat overhead
+    /// view has one axis that does not participate, so the caller sorts by height and the later
+    /// triangle wins. A depth buffer would be a resource to resize on every window change for a
+    /// comparison the ordering already makes.
+    ///
+    /// Each corner carries its own shade rather than the whole call sharing one, so an entire map
+    /// is a single draw. Per-surface colours would be one draw per face, which on
+    /// <c>cp_process_final</c> is 13,821 of them.
+    /// </remarks>
+    public void DrawTriangles(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        IReadOnlyList<(float X, float Y, float Shade)> corners,
+        (float Red, float Green, float Blue) tint)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+
+        if (corners.Count < 3)
+        {
+            return;
+        }
+
+        // Whole triangles only. A trailing pair of corners would be read by the rasteriser as the
+        // start of one that has no third vertex.
+        int usable = corners.Count - (corners.Count % 3);
+
+        float[] vertices = new float[usable * 5];
+        int at = 0;
+
+        for (int index = 0; index < usable; index++)
+        {
+            (float x, float y, float shade) = corners[index];
+
+            Append(vertices, ref at, x, y, tint.Red * shade, tint.Green * shade, tint.Blue * shade);
+        }
+
+        EnsureCapacity(device, (usable + VerticesPerPoint - 1) / VerticesPerPoint);
+        Upload(context, vertices);
+
+        Bind(context, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.Draw((uint)usable, 0);
+    }
+
     /// <summary>Draws the points into the bound render target.</summary>
     /// <param name="device">Device, for growing the vertex buffer.</param>
     /// <param name="context">Context to issue the draw on.</param>

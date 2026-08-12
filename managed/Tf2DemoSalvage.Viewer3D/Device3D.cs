@@ -153,12 +153,13 @@ internal sealed unsafe class Device3D : IDisposable
     /// </remarks>
     public void DrawAndPresent(
         float red, float green, float blue, IReadOnlyList<ScenePoint> points) =>
-        DrawFrame(red, green, blue, [], points);
+        DrawFrame(red, green, blue, [], [], points);
 
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
     /// <param name="blue">Clear colour, blue channel.</param>
+    /// <param name="mapFill">Filled map surfaces in clip space, three corners per triangle.</param>
     /// <param name="mapLines">Map outline in clip space.</param>
     /// <param name="points">Player positions in clip space.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
@@ -171,17 +172,19 @@ internal sealed unsafe class Device3D : IDisposable
         float red,
         float green,
         float blue,
+        IReadOnlyList<(float X, float Y, float Shade)> mapFill,
         IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> mapLines,
         IReadOnlyList<ScenePoint> points)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(mapLines);
+        ArgumentNullException.ThrowIfNull(mapFill);
 
         float* colour = stackalloc float[4] { red, green, blue, 1f };
         _context.ClearRenderTargetView(_backBufferView, colour);
 
-        if (mapLines.Count > 0 || points.Count > 0)
+        if (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0)
         {
             _points ??= PointRenderer.Create(_device);
 
@@ -190,8 +193,11 @@ internal sealed unsafe class Device3D : IDisposable
             _context.OMSetRenderTargets(
                 1, ref _backBufferView, ref Unsafe.NullRef<ID3D11DepthStencilView>());
 
-            // Map first, players over it.
-            _points.DrawLines(_device, _context, mapLines, 0.35f, 0.40f, 0.48f);
+            // Solid surfaces, then the edges that bound them, then the players. This is the
+            // order the engine's own wireframe view implies: mat_wireframe draws these same edges
+            // over the filled world, from the same lumps.
+            _points.DrawTriangles(_device, _context, mapFill, (0.30f, 0.34f, 0.42f));
+            _points.DrawLines(_device, _context, mapLines, 0.55f, 0.62f, 0.74f);
             _points.Draw(_device, _context, points);
         }
 
