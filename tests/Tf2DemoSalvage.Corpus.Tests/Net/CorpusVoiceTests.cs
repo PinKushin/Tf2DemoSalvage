@@ -33,10 +33,16 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
         {
             string name = Path.GetFileName(path);
 
-            foreach (VoiceDataMessage voice in SteamVoice(path))
+            Corpus.VoiceSummary demo = Corpus.Voice(path);
+            if (demo.Codec != "steam")
+            {
+                continue;
+            }
+
+            foreach (Corpus.VoicePacketSummary voice in demo.Packets)
             {
                 // Throws rather than returns a flag, so a failure names the demo and the offset.
-                VoicePacket packet = SteamVoicePayload.Decode(voice.Body.Span);
+                VoicePacket packet = SteamVoicePayload.Decode(voice.Body);
 
                 packets++;
                 chunks += packet.Chunks.Count;
@@ -81,9 +87,15 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
         {
             Dictionary<int, HashSet<ulong>> bySlot = [];
 
-            foreach (VoiceDataMessage voice in SteamVoice(path))
+            Corpus.VoiceSummary demo = Corpus.Voice(path);
+            if (demo.Codec != "steam")
             {
-                VoicePacket packet = SteamVoicePayload.Decode(voice.Body.Span);
+                continue;
+            }
+
+            foreach (Corpus.VoicePacketSummary voice in demo.Packets)
+            {
+                VoicePacket packet = SteamVoicePayload.Decode(voice.Body);
 
                 if (!bySlot.TryGetValue(voice.Client, out HashSet<ulong>? seen))
                 {
@@ -118,31 +130,4 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
         demosCompared.ShouldBeGreaterThan(0);
     }
 
-    /// <summary>Voice packets from a demo whose session codec is <c>steam</c>.</summary>
-    private static IEnumerable<VoiceDataMessage> SteamVoice(string path)
-    {
-        byte[] file = File.ReadAllBytes(path);
-        DemoHeader header = DemoHeader.Parse(file);
-        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
-        bool steam = false;
-
-        foreach (DemoCommand command in
-            DemoCommandReader.Read(file.AsMemory(DemoHeader.SizeBytes))
-                .Where(c => c.Type is DemoCommandType.Signon or DemoCommandType.Packet))
-        {
-            foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state)
-                .Messages)
-            {
-                if (message is VoiceInitMessage init)
-                {
-                    steam = string.Equals(init.Codec, "steam", StringComparison.Ordinal);
-                }
-
-                if (steam && message is VoiceDataMessage voice && voice.BodyBits > 0)
-                {
-                    yield return voice;
-                }
-            }
-        }
-    }
 }

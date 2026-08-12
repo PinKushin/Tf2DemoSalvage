@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
@@ -357,5 +358,90 @@ internal static class Corpus
         });
 
         return count >= all.Count ? all : [.. all.Take(count)];
+    }
+
+    /// <summary>One voice packet, with its body copied out of the demo.</summary>
+    /// <param name="Client">Speaking client slot, as <c>svc_VoiceData</c> carries it.</param>
+    /// <param name="Body">The codec payload, owned rather than a view over the demo.</param>
+    internal sealed record VoicePacketSummary(int Client, byte[] Body);
+
+    /// <summary>Every voice packet in a demo, and the codec the session declared.</summary>
+    /// <param name="Codec">From <c>svc_VoiceInit</c>: <c>steam</c>, <c>vaudio_celt</c>, …</param>
+    /// <param name="Packets">The packets, in stream order.</param>
+    internal sealed record VoiceSummary(string? Codec, IReadOnlyList<VoicePacketSummary> Packets);
+
+    /// <summary>
+    /// Held as <see cref="Lazy{T}"/> rather than the value itself, which is the difference
+    /// between caching and actually parsing once.
+    /// </summary>
+    /// <remarks>
+    /// <c>ConcurrentDictionary.GetOrAdd</c> does not promise the factory runs a single time — it
+    /// promises a single value is *published*. xUnit runs test classes in parallel, so four voice
+    /// classes starting together all miss, all walk the same demo, and three of those walks are
+    /// thrown away. Measured exactly that way: per-test times showed one class at 9 ms and three
+    /// still at 39 s. <see cref="LazyThreadSafetyMode.ExecutionAndPublication"/> makes the losers
+    /// block on the winner instead of duplicating it.
+    /// </remarks>
+    private static readonly ConcurrentDictionary<string, Lazy<VoiceSummary>> VoiceCache =
+        new(StringComparer.Ordinal);
+
+    /// <summary>The demo's voice packets, walked once per process.</summary>
+    /// <param name="path">Path to a corpus demo.</param>
+    /// <returns>The codec and every voice packet.</returns>
+    /// <remarks>
+    /// **Four test classes each walked every demo for this**, at roughly 40 seconds apiece
+    /// against a local corpus — the Steam framing check, the Opus decode, the CELT/Speex decode
+    /// and the CRC32 check all needed the same packets and each rebuilt them from scratch. A
+    /// walk is a walk whether one test wants the result or four do.
+    ///
+    /// **Bodies are copied, unlike the demo bytes elsewhere in this file.** A
+    /// <c>VoiceDataMessage.Body</c> is a <see cref="ReadOnlyMemory{T}"/> over the file, so
+    /// holding the messages would pin the whole corpus — 1.4 GB locally — for the life of the
+    /// process, which is the trade this file's other caches deliberately refuse. Voice payloads
+    /// are small enough that copying them out escapes that: about a megabyte across the corpus,
+    /// against gigabytes pinned.
+    ///
+    /// The codec is captured rather than assumed, because it decides which decoder the packets
+    /// belong to and it is per-recording.
+    /// </remarks>
+    public static VoiceSummary Voice(string path) => VoiceCache.GetOrAdd(
+        path,
+        static p => new Lazy<VoiceSummary>(() => WalkVoice(p), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    private static VoiceSummary WalkVoice(string p)
+    {
+        byte[] bytes = File.ReadAllBytes(p);
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
+        };
+
+        string? codec = null;
+        List<VoicePacketSummary> packets = [];
+
+        foreach (DemoCommand command in
+            DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
+        {
+            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+            {
+                continue;
+            }
+
+            foreach (INetMessage message in
+                NetMessageReader.Read(command.Payload.Span, state).Messages)
+            {
+                if (message is VoiceInitMessage init)
+                {
+                    codec = init.Codec;
+                }
+
+                if (message is VoiceDataMessage voice && voice.BodyBits > 0)
+                {
+                    packets.Add(new VoicePacketSummary(voice.Client, voice.Body.ToArray()));
+                }
+            }
+        }
+
+        return new VoiceSummary(codec, packets);
     }
 }
