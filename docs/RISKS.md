@@ -2072,3 +2072,30 @@ code passed its corpus tests and looked finished, because a real demo exercises 
 it happens to use.
 
 **Where to start:** `UserMessageBody.cs` alone is 36 % of the survivors and the best return.
+
+## B36 — the overhead camera frames brushwork, not the play area — OPEN
+
+**Found 2026-08-12**, while fixing the map not filling the viewport.
+
+The camera fits the largest connected cluster of map geometry, which was measured at 91.1 % to
+99.7 % of all points across nine shipped maps and reliably excludes the detached 3D skybox room.
+See `docs/findings/10-maps.md` for the two rules rejected before it — a vertex percentile, which
+cut real maps to about half their size, and the `sky_camera` entity, which is an exact marker for
+the wrong thing.
+
+**What is still wrong:** connectivity finds the map's body, not its interior. Geometry a player
+can never see or reach is attached to the map and therefore inside the main cluster — the padding
+behind the last-point spawn on `cp_process_final` is visible in the overview and invisible in the
+game. A Source map has to be sealed against the void for `vvis` to compute visibility at all, so every
+map has some of this.
+
+Not all of it is unwanted: the boundary cliff at the back of second **is** seen, from the air, by a
+soldier or demo mid-jump. The criterion is "what a player can see from anywhere they can reach",
+and the jumping classes set that horizon well above the floor.
+
+**The fix depends on work not done yet.** The demo states where players actually went, so once
+tick-accurate playback lands the play area should come from the recording and the geometry cluster
+becomes the fallback for the first frame, before any position is known.
+
+**Not blocking.** The current framing is correct enough to read the map by, and the failure mode is
+cosmetic — a margin of unreachable geometry around the edge, not a wrong picture.

@@ -32,3 +32,6 @@
 - [Two recordings of one value](two-recordings-of-one-value.md) — a value stored twice by unrelated routes tests the decode against the engine, not against your own reading.
 - [Fixture lifetime is per test-kind](nunit-shared-fixture-is-the-standard.md) — isolation plus parallelism for unit/integration; shared fixture and CI matrices for UI.
 - [Branch granularity is fine here](branch-granularity-is-fine-here.md) — a branch per coherent piece, sub-branch anything larger; the name drifting is the signal it grew too big.
+- [A header written last is absent](a-header-written-last-is-absent.md) — 43 % of real demos declare zero ticks, and zero parses cleanly.
+- [BSP lumps are compressed](bsp-lumps-are-compressed.md) — every lump is LZMA packed, the directory never says so, and raw reads give plausible numbers.
+- [Real data hides bugs, small inputs expose them](real-data-hides-bugs-small-inputs-expose.md) — density supplies missing behaviour by accident; test at the smallest distinguishing size.

@@ -31,6 +31,7 @@ it, because a second copy is a copy that goes stale.
 | [07-writing-demos.md](07-writing-demos.md) | Re-encoding, byte-identical round trips, and generating demos the engine plays |
 | [08-method.md](08-method.md) | The techniques that actually worked, and the ones that misled |
 | [09-valve-implementation.md](09-valve-implementation.md) | What Valve's own engine and game code say — behaviours, not format |
+| [10-maps.md](10-maps.md) | Reading a BSP: compressed lumps, and what counts as "the map" |
 
 ## Which of this is original
 
