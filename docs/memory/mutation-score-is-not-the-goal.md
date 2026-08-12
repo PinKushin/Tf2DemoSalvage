@@ -105,3 +105,26 @@ rule as reading a runner's `Total:` instead of its `Passed!`, and the reason a s
 disagrees is evidence about the FIRST one, not noise to average.
 
 See [[tests-before-codecs]] — writing tests after the code is what produces the survivors.
+
+## This project specifically: expect a lower score than a normal codebase
+
+Owner's read, 2026-08-12, and it is a calibration rather than an excuse - worth having before
+anyone reacts to a number here.
+
+`core` scored **53-54 %** across its first two full runs and that is roughly what this codebase
+should score, because of what it is:
+
+- **Much of it is renderers.** The trace writer, the JSON lines writer, the text dumper and the
+  five assembly files exist to turn decoded structures into text. A mutant that changes a rendered
+  string is often killable only by a change-detector test, which this project deliberately does
+  not write.
+- **A large part is exercised only by real demos.** Those tests live in the corpus project, which
+  cannot be mutation tested at all (B34), so that code shows as `NoCoverage` rather than as
+  survivors - 1136 mutants on the 2026-08-12 run.
+- **Safe mode removes whole methods from scoring.** One string-interpolation mutant that fails to
+  compile takes every mutant in its method with it: 1827 CompileError mutants on that run,
+  concentrated in exactly those renderer files.
+
+**So read the survivors by FILE, never the percentage.** On that run 149 of 242 survivors sat in
+three files while everything else was in single digits - a specific, actionable finding that the
+53 % completely hides. See RISKS.md B35.
