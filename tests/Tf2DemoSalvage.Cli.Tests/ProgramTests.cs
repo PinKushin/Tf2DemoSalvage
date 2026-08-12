@@ -25,6 +25,19 @@ namespace Tf2DemoSalvage.Cli.Tests;
     Justification = "_originalOut and _originalError are the process's real console streams, " +
                     "captured so they can be restored. Disposing them would close standard " +
                     "output for the rest of the test run.")]
+// **Not parallelisable, because Console redirection is process-global.** These tests capture
+// output by pointing Console.SetOut at their own writer, and there is exactly one Console per
+// process - so two of them running at once redirect it out from under each other and both read an
+// empty buffer.
+//
+// It surfaced the moment this project moved to NUnit with assembly-wide parallelism: six tests
+// failed with "should contain ... but was empty". Under xUnit the same code passed, because xUnit
+// parallelises by collection and runs one class's tests serially within it - the hazard was
+// always there and the old default hid it.
+//
+// Scoped to this fixture rather than the assembly: the rest of the CLI tests touch no global state
+// and there is no reason to serialise them too.
+[NonParallelizable]
 public sealed class ProgramTests : IDisposable
 {
     private readonly TextWriter _originalOut = Console.Out;
@@ -79,7 +92,7 @@ public sealed class ProgramTests : IDisposable
         return null;
     }
 
-    [Fact]
+    [Test]
     public void NoArguments_ExitsWithAUsageCodeAndSaysWhy()
     {
         Program.Main([]).ShouldBe(2);
@@ -89,7 +102,7 @@ public sealed class ProgramTests : IDisposable
         _out.ToString().ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Help_GoesToStandardOutputAndSucceeds()
     {
         // Which stream matters: help was asked for, so it is output, not a diagnostic. A user
@@ -100,7 +113,7 @@ public sealed class ProgramTests : IDisposable
         _error.ToString().ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void UnrecognisedOption_ExitsWithAUsageCode()
     {
         Program.Main(["a.dem", "--nonsense"]).ShouldBe(2);
@@ -108,7 +121,7 @@ public sealed class ProgramTests : IDisposable
         _error.ToString().ShouldContain("unrecognised option '--nonsense'");
     }
 
-    [Fact]
+    [Test]
     public void MissingFile_ExitsWithAFailureCodeNotAUsageCode()
     {
         // Distinct from a usage error on purpose: the command line was well formed, the file
@@ -118,7 +131,7 @@ public sealed class ProgramTests : IDisposable
         _error.ToString().ShouldContain("no such file");
     }
 
-    [Fact]
+    [Test]
     public void NotADemo_IsReportedRatherThanThrown()
     {
         string junk = Path.Combine(_scratch, "junk.dem");
@@ -132,7 +145,7 @@ public sealed class ProgramTests : IDisposable
         _error.ToString().Trim().Length.ShouldBeGreaterThan("error: ".Length);
     }
 
-    [Fact]
+    [Test]
     public void Trace_WritesTheTraceFormatToTheGivenFile()
     {
         string? demo = Demo();
@@ -155,7 +168,7 @@ public sealed class ProgramTests : IDisposable
         _error.ToString().ShouldContain("wrote");
     }
 
-    [Fact]
+    [Test]
     public void Summary_WritesTheDumpFormatInstead()
     {
         // The control for the test above. Without a second format asserted to be *different*,
@@ -175,7 +188,7 @@ public sealed class ProgramTests : IDisposable
         written.ShouldNotContain("block dem_");
     }
 
-    [Fact]
+    [Test]
     public void Summary_SuppressesThePerCommandListingThatTheDumpIncludes()
     {
         // What -s actually does, measured as the difference it makes rather than as a string.
@@ -206,7 +219,7 @@ public sealed class ProgramTests : IDisposable
         File.ReadAllText(dump).ShouldContain("Command summary");
     }
 
-    [Fact]
+    [Test]
     public void JsonLines_WritesOneObjectPerLine()
     {
         string? demo = Demo();
@@ -224,7 +237,7 @@ public sealed class ProgramTests : IDisposable
         lines.ShouldAllBe(line => line.StartsWith('{') && line.EndsWith('}'));
     }
 
-    [Fact]
+    [Test]
     public void WithNoOutputPath_ItWritesToStandardOutput()
     {
         string? demo = Demo();
@@ -238,7 +251,7 @@ public sealed class ProgramTests : IDisposable
         _out.ToString().ShouldContain("Command summary");
     }
 
-    [Fact]
+    [Test]
     public void Entities_AppearOnlyWhenAskedFor()
     {
         string? demo = Demo();
@@ -259,7 +272,7 @@ public sealed class ProgramTests : IDisposable
         File.ReadAllText(with).ShouldContain("entity ");
     }
 
-    [Fact]
+    [Test]
     public void NullArguments_Throws()
     {
         Should.Throw<ArgumentNullException>(() => Program.Main(null!));

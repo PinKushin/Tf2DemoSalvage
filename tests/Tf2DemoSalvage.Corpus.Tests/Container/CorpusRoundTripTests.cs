@@ -26,9 +26,9 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 /// numbers had been read and discarded since the reader was written, which made a byte-exact
 /// rewrite impossible.
 /// </remarks>
-public sealed class CorpusRoundTripTests(ITestOutputHelper output)
+public sealed class CorpusRoundTripTests
 {
-    [Fact]
+    [Test]
     public void EveryDemo_ReadsAndWritesBackToTheSameBytes()
     {
         foreach (string path in Corpus.Files())
@@ -56,11 +56,11 @@ public sealed class CorpusRoundTripTests(ITestOutputHelper output)
                     $"(rewrote {after.Length}). {Describe(commands, at)}");
             }
 
-            output.WriteLine($"{name}: {before.Length} bytes, {commands.Count} commands, exact");
+            TestContext.Out.WriteLine($"{name}: {before.Length} bytes, {commands.Count} commands, exact");
         }
     }
 
-    [Fact]
+    [Test]
     public void EveryDemo_RewritesEveryHeaderField()
     {
         // The header's padding is not reproducible, but its fields are - and a header written

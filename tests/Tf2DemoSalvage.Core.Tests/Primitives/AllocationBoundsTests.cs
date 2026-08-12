@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
 /// </remarks>
 public sealed class AllocationBoundsTests
 {
-    [Fact]
+    [Test]
     public void Lzss_CannotDeclareAnOutputNoInputThatSizeCouldProduce()
     {
         // The LZSS header's length and the message's expected length agreed - which is exactly
@@ -43,7 +43,7 @@ public sealed class AllocationBoundsTests
         error.Message.ShouldContain("no LZSS payload");
     }
 
-    [Fact]
+    [Test]
     public void Lzss_AcceptsARealBackReference()
     {
         // The control, and it matters more than the rejection: the bound has to leave genuine
@@ -67,7 +67,7 @@ public sealed class AllocationBoundsTests
         return [(byte)(stored >> 4), (byte)(((stored & 0x0F) << 4) | (count - 1))];
     }
 
-    [Fact]
+    [Test]
     public void CopyBits_CannotAllocateForMoreBitsThanTheReaderHolds()
     {
         // svc_GameEventList and friends declare a body length in bits and the body is copied out
@@ -101,7 +101,7 @@ public sealed class AllocationBoundsTests
             $"CopyBits accepted {bitCount} bits against a reader holding 64.");
     }
 
-    [Fact]
+    [Test]
     public void CopyBits_StillCopiesWhatIsActuallyThere()
     {
         // The control: a length the reader can satisfy must behave exactly as before.
@@ -110,7 +110,7 @@ public sealed class AllocationBoundsTests
         NetBitReading.CopyBits(ref reader, 16).ShouldBe(new byte[] { 0xAB, 0xCD });
     }
 
-    [Fact]
+    [Test]
     public void CopyBits_RejectsANegativeLength()
     {
         // A bit count read from the wire into an int arrives negative above int.MaxValue.

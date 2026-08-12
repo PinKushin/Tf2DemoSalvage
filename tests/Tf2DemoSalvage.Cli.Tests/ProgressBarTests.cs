@@ -18,7 +18,7 @@ public sealed class ProgressBarTests
 {
     private static DumpProgress At(int completed) => new("Scanning", completed, 100);
 
-    [Fact]
+    [Test]
     public void Report_DrawsTheBarWithItsStage()
     {
         StringWriter output = new();
@@ -30,7 +30,7 @@ public sealed class ProgressBarTests
         output.ToString().ShouldContain("50%");
     }
 
-    [Fact]
+    [Test]
     public void RepeatedIdenticalProgress_IsDrawnOnce()
     {
         // The throttle. A 120,000-command demo reports hundreds of times per visible percentage
@@ -46,7 +46,7 @@ public sealed class ProgressBarTests
         output.ToString().Length.ShouldBe(afterFirst);
     }
 
-    [Fact]
+    [Test]
     public void ProgressThatChangesTheBar_IsDrawnAgain()
     {
         // The control for the test above. Without it, "drawn once" and "never drawn again"
@@ -62,7 +62,7 @@ public sealed class ProgressBarTests
         output.ToString().ShouldContain("90%");
     }
 
-    [Fact]
+    [Test]
     public void EachDraw_StartsWithACarriageReturn()
     {
         // What makes it overwrite itself rather than scroll. A bar drawn with newlines would
@@ -76,7 +76,7 @@ public sealed class ProgressBarTests
         output.ToString().Split('\r').Length.ShouldBe(3);   // "", first draw, second draw
     }
 
-    [Fact]
+    [Test]
     public void Disabled_DrawsNothing()
     {
         StringWriter output = new();
@@ -88,7 +88,7 @@ public sealed class ProgressBarTests
         output.ToString().ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Finish_EndsTheLineOnlyIfSomethingWasDrawn()
     {
         // A run that drew nothing must not leave a stray blank line behind - standard error is
@@ -105,7 +105,7 @@ public sealed class ProgressBarTests
         silent.ToString().ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Finish_IsIdempotent()
     {
         // Dispose calls Finish, and Run calls it explicitly before printing its summary line,
@@ -121,13 +121,13 @@ public sealed class ProgressBarTests
         output.ToString().ShouldBe(afterFirst);
     }
 
-    [Fact]
+    [Test]
     public void NullWriter_Throws()
     {
         Should.Throw<ArgumentNullException>(() => new ProgressBar(null!, enabled: true));
     }
 
-    [Fact]
+    [Test]
     public void TheSingleArgumentConstructor_StaysSilentWhenErrorIsRedirected()
     {
         // The convenience constructor decides for itself from Console.IsErrorRedirected, and

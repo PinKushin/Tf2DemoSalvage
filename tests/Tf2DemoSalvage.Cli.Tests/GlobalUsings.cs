@@ -5,4 +5,4 @@
 // `using System;`, which collides with a global using of the same namespace and fails the build
 // under Zero Warnings as CS8933. Test files declare `using System;` explicitly instead.
 global using Shouldly;
-global using Xunit;
+global using NUnit.Framework;

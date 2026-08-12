@@ -39,7 +39,7 @@ public sealed class PlayerInfoTests
         return data;
     }
 
-    [Fact]
+    [Test]
     public void Parse_ReadsNameUserIdAndSteamId()
     {
         PlayerInfo info = PlayerInfo.Parse(Record(), entityIndex: 3);
@@ -50,7 +50,7 @@ public sealed class PlayerInfoTests
         info.EntityIndex.ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void Parse_EmptyNameField_IsAnEmptyStringNotThePadding()
     {
         // A terminator at offset zero. Every other case here puts at least one character before
@@ -70,7 +70,7 @@ public sealed class PlayerInfoTests
         info.SteamId.ShouldBe("[U:1:1234567]");
     }
 
-    [Fact]
+    [Test]
     public void Parse_TrimsTheNulPaddingRatherThanKeepingIt()
     {
         // The name field is 32 bytes whatever the name's length. Keeping the padding gives a
@@ -81,7 +81,7 @@ public sealed class PlayerInfoTests
         info.Name.ShouldBe("ab");
     }
 
-    [Fact]
+    [Test]
     public void Parse_NameFillingTheWholeField_IsNotTruncated()
     {
         // Exactly 32 characters, so there is no terminator inside the field at all. A reader
@@ -91,7 +91,7 @@ public sealed class PlayerInfoTests
         PlayerInfo.Parse(Record(name: full), entityIndex: 1).Name.ShouldBe(full);
     }
 
-    [Fact]
+    [Test]
     public void Parse_UserIdIsLittleEndian()
     {
         // Source byte-swaps some fields and not this one, which is worth pinning: read the
@@ -100,7 +100,7 @@ public sealed class PlayerInfoTests
         PlayerInfo.Parse(Record(userId: 258), entityIndex: 1).UserId.ShouldBe(258);
     }
 
-    [Fact]
+    [Test]
     public void Parse_DistinguishesBotsAndSourceTv()
     {
         // A SourceTV demo always contains an HLTV slot that is not a player. Counting it as one
@@ -110,7 +110,7 @@ public sealed class PlayerInfoTests
         PlayerInfo.Parse(Record(hltv: true), entityIndex: 1).IsSourceTv.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void Parse_EntityIndexComesFromTheCaller_NotTheRecord()
     {
         // The entity index is the string table entry's name, not a field in the payload. It has
@@ -118,14 +118,14 @@ public sealed class PlayerInfoTests
         PlayerInfo.Parse(Record(), entityIndex: 7).EntityIndex.ShouldBe(7);
     }
 
-    [Fact]
+    [Test]
     public void Parse_ShortRecord_IsRejected()
     {
         // A truncated record would otherwise read whatever follows it as a steam id.
         Should.Throw<InvalidDataException>(() => PlayerInfo.Parse(new byte[64], entityIndex: 1));
     }
 
-    [Fact]
+    [Test]
     public void Parse_NonAsciiName_SurvivesAsUtf8()
     {
         // Names are arbitrary bytes from the client. TF2 players use them.

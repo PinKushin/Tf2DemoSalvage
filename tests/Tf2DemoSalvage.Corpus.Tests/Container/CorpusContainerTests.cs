@@ -24,21 +24,28 @@ public sealed class CorpusContainerTests
     /// <summary>Anything this small is an LFS pointer, not a demo.</summary>
     private const int SmallestPlausibleDemo = 4096;
 
-    public static TheoryData<string> CorpusFiles()
+    /// <summary>Every corpus demo's file name, as NUnit test cases.</summary>
+    /// <returns>One case per demo, or a single placeholder when the corpus is absent.</returns>
+    /// <remarks>
+    /// A string parameter needs no wrapping - unlike an array, it is not mistaken for an argument
+    /// list. The empty case still matters though: a source yielding nothing leaves the test
+    /// showing as not-run rather than failing, which is the same silent pass an absent corpus
+    /// produced under xUnit.
+    /// </remarks>
+    public static IEnumerable<string> CorpusFiles()
     {
-        TheoryData<string> data = new();
+        List<string> names = [];
         foreach (string path in EnumerateCorpus())
         {
-            data.Add(Path.GetFileName(path));
+            names.Add(Path.GetFileName(path));
         }
 
-        // TheoryData may not be empty or xUnit fails the discovery rather than skipping.
-        if (data.Count == 0)
+        if (names.Count == 0)
         {
-            data.Add("(no corpus present)");
+            names.Add("(no corpus present)");
         }
 
-        return data;
+        return names;
     }
 
     /// <summary>
@@ -46,7 +53,7 @@ public sealed class CorpusContainerTests
     /// skipped `git lfs install` would leave every corpus test passing vacuously over pointer
     /// stubs — green, and proving nothing.
     /// </summary>
-    [Fact]
+    [Test]
     public void Corpus_IsPresent_AndNotLfsPointerStubs()
     {
         string? directory = FindCorpusDirectory();
@@ -68,9 +75,7 @@ public sealed class CorpusContainerTests
             $"{SmallestPlausibleDemo} bytes, which means Git LFS content was never fetched. " +
             "Run `git lfs install && git lfs checkout`.");
     }
-
-    [Theory]
-    [MemberData(nameof(CorpusFiles))]
+    [TestCaseSource(nameof(CorpusFiles))]
     public void Container_EveryCorpusDemo_WalksCleanlyAndAgreesWithItsHeader(string fileName)
     {
         string? path = EnumerateCorpus().FirstOrDefault(p => Path.GetFileName(p) == fileName);
@@ -123,7 +128,7 @@ public sealed class CorpusContainerTests
         commands.ShouldContain(c => c.Type == DemoCommandType.Signon);
     }
 
-    [Fact]
+    [Test]
     public void Container_PointOfViewDemo_CarriesUserCommands()
     {
         string? path = EnumerateCorpus()
@@ -143,7 +148,7 @@ public sealed class CorpusContainerTests
         commands.ShouldContain(c => c.Type == DemoCommandType.ConsoleCmd);
     }
 
-    [Fact]
+    [Test]
     public void Container_SourceTvDemo_ContainsNoUserCommands()
     {
         string? path = EnumerateCorpus()

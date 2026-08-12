@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
                     "delegate is the assertion. Sonar does not know the library.")]
 public sealed class VarIntWriteTests
 {
-    [Fact]
+    [Test]
     public void AnyValue_SurvivesARoundTrip()
     {
         Gen.UInt.Sample(value =>
@@ -32,7 +32,7 @@ public sealed class VarIntWriteTests
         });
     }
 
-    [Fact]
+    [Test]
     public void EveryValue_EncodesInTheFewestGroupsThatHoldIt()
     {
         // A decoder accepts a padded encoding, so a writer that emitted five bytes for the value

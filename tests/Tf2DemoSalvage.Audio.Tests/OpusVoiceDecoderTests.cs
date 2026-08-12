@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// </remarks>
 public sealed class OpusVoiceDecoderTests
 {
-    [Fact]
+    [Test]
     public void Construction_LoadsTheNativeLibraryAndSucceeds()
     {
         // The cheapest possible proof that the libopus native asset actually resolved for this
@@ -24,7 +24,7 @@ public sealed class OpusVoiceDecoderTests
         decoder.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Dispose_IsIdempotent()
     {
         OpusVoiceDecoder decoder = new();
@@ -32,7 +32,7 @@ public sealed class OpusVoiceDecoderTests
         Should.NotThrow(decoder.Dispose);
     }
 
-    [Fact]
+    [Test]
     public void Decode_AfterDispose_Throws()
     {
         OpusVoiceDecoder decoder = new();
@@ -41,7 +41,7 @@ public sealed class OpusVoiceDecoderTests
         Should.Throw<ObjectDisposedException>(() => decoder.Decode([0x68, 0x01, 0x02]));
     }
 
-    [Fact]
+    [Test]
     public void ConcealLoss_AfterDispose_Throws()
     {
         OpusVoiceDecoder decoder = new();
@@ -50,7 +50,7 @@ public sealed class OpusVoiceDecoderTests
         Should.Throw<ObjectDisposedException>(() => decoder.ConcealLoss(120));
     }
 
-    [Fact]
+    [Test]
     public void Decode_GarbageBytes_ThrowsRatherThanCrashing()
     {
         // Not a real Opus frame - the point is that libopus's own validation rejects it through
@@ -64,7 +64,7 @@ public sealed class OpusVoiceDecoderTests
         Should.Throw<InvalidOperationException>(() => decoder.Decode(garbage));
     }
 
-    [Fact]
+    [Test]
     public void Decode_EmptyFrame_ThrowsRatherThanSilentlyConcealing()
     {
         // The bug this test caught the first time it ran: `fixed` over an empty span yields a
@@ -79,7 +79,7 @@ public sealed class OpusVoiceDecoderTests
         Should.Throw<ArgumentException>(() => decoder.Decode([]));
     }
 
-    [Fact]
+    [Test]
     public void ConcealLoss_ProducesAudioFromNothing()
     {
         // The property that makes this worth having at all: concealment does not need a frame,

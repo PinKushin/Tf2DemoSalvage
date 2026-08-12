@@ -21,9 +21,9 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 /// command has no terminator and no checksum: a field read one bit too narrow shifts everything
 /// after it into plausible-looking values, and the only thing that ever notices is the length.
 /// </remarks>
-public sealed class CorpusUserCommandTests(ITestOutputHelper output)
+public sealed class CorpusUserCommandTests
 {
-    [Fact]
+    [Test]
     public void EveryUserCommand_DecodesAndReEncodesExactly()
     {
         int total = 0;
@@ -59,7 +59,7 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
 
             demosWithInput++;
             total += inDemo;
-            output.WriteLine($"{name}: {inDemo} user commands, all exact");
+            TestContext.Out.WriteLine($"{name}: {inDemo} user commands, all exact");
         }
 
         // SourceTV demos contain none of these - there is no player behind the camera - so this
@@ -67,10 +67,10 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
         // fails loudly if the corpus ever loses its point-of-view recordings.
         demosWithInput.ShouldBeGreaterThan(0, "no demo in the corpus carried player input");
         total.ShouldBeGreaterThan(0);
-        output.WriteLine($"{total} user commands across {demosWithInput} demos");
+        TestContext.Out.WriteLine($"{total} user commands across {demosWithInput} demos");
     }
 
-    [Fact]
+    [Test]
     public void ViewAnglesAgreeWithTheCameraTrackTheEngineWroteSeparately()
     {
         // **The one check here that does not depend on this project's reading of Valve's source.**
@@ -124,11 +124,11 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
         // point-of-view demos. The floor is set well below that and still nowhere near what an
         // incorrect decode could reach.
         double rate = (double)matched / compared;
-        output.WriteLine($"{matched} of {compared} packets matched the last command ({rate:P1})");
+        TestContext.Out.WriteLine($"{matched} of {compared} packets matched the last command ({rate:P1})");
         rate.ShouldBeGreaterThan(0.95);
     }
 
-    [Fact]
+    [Test]
     public void ThePaddingBitsAreThePreviousCommandsRatherThanForeignMemory()
     {
         // This test exists because the first account of the padding was wrong. It was written up
@@ -179,7 +179,7 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
         // three-bit field that is known to be non-zero. The floor here is set well below the
         // measurement and still far above anything foreign memory could reach.
         double rate = (double)predicted / testable;
-        output.WriteLine($"{predicted} of {testable} non-zero pads matched the previous " +
+        TestContext.Out.WriteLine($"{predicted} of {testable} non-zero pads matched the previous " +
                          $"command's bits at the same offsets ({rate:P1})");
         rate.ShouldBeGreaterThan(0.5);
     }
@@ -208,7 +208,7 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
     private static bool SameBits(float left, float right) =>
         BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
-    [Fact]
+    [Test]
     public void PlayerInputVariesRatherThanSittingAtItsDefaults()
     {
         // The control for the test above. Re-encoding a payload whose every presence bit is zero
@@ -243,7 +243,7 @@ public sealed class CorpusUserCommandTests(ITestOutputHelper output)
 
         anyWeaponSwitch.ShouldBeTrue("no weapon switch appeared in any recorded input");
 
-        output.WriteLine(
+        TestContext.Out.WriteLine(
             $"{yaws.Count} distinct yaws, buttons union {UserCommandButtons.Describe(buttonsSeen)}");
     }
 }

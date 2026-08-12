@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// floor rather than the ceiling, so they keep passing as coverage improves rather than
 /// needing an edit every time.
 /// </remarks>
-public sealed class CorpusNetMessageTests(ITestOutputHelper output)
+public sealed class CorpusNetMessageTests
 {
     private const int PacketsToSample = 200;
 
@@ -25,7 +25,7 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
     // GameEvent was implemented they decoded, and some packets genuinely do lead with an
     // event rather than a tick. MostPacketsBeginWithNetTick below carries the real claim.
 
-    [Fact]
+    [Test]
     public void MostPacketsBeginWithNetTick()
     {
         // A floor, not an equality: it guards against a regression that stops decoding
@@ -46,7 +46,7 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock()
     {
         // This began as "the two ticks are equal". They are not, and the difference is the
@@ -118,7 +118,7 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
             int gaps = runs.Count - 1;
             int spread = longest.Count == 0 ? 0 : longest.Max() - longest.Min();
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: tick offset {offsets.Min()}..{offsets.Max()} over " +
                 $"{offsets.Count} packets; longest unbroken run {longest.Count} packets, " +
                 $"spread {spread}, recording gaps {gaps}");
@@ -156,7 +156,7 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
             .Take(PacketsToSample)
             .Select(packet => (packet, FirstMessage(packet, protocol)));
 
-    [Fact]
+    [Test]
     public void ReportHowFarIntoPacketsWeCurrentlyGet()
     {
         foreach (string path in Corpus.Files())
@@ -196,16 +196,16 @@ public sealed class CorpusNetMessageTests(ITestOutputHelper output)
                 }
             }
 
-            output.WriteLine($"{Path.GetFileName(path)} - {packets.Length} packets sampled");
-            output.WriteLine($"  fully read : {complete}");
-            output.WriteLine($"  bits read  : {bitsRead} of {bitsTotal} " +
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)} - {packets.Length} packets sampled");
+            TestContext.Out.WriteLine($"  fully read : {complete}");
+            TestContext.Out.WriteLine($"  bits read  : {bitsRead} of {bitsTotal} " +
                              $"({100.0 * bitsRead / bitsTotal:F2}%)");
             foreach ((string key, int count) in stoppedAt.OrderByDescending(kv => kv.Value))
             {
-                output.WriteLine($"  stopped at {key}: {count}");
+                TestContext.Out.WriteLine($"  stopped at {key}: {count}");
             }
 
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         // No assertion on the numbers themselves: they are a progress report, and pinning them

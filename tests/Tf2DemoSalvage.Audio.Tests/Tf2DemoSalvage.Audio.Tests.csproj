@@ -5,14 +5,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tf2DemoSalvage.Audio.Tests</RootNamespace>
     <IsTestProject>true</IsTestProject>
-    <!-- xunit.v3 test projects are self-executing; they build as an exe. -->
-    <OutputType>Exe</OutputType>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal.
+         Inapplicable here rather than ignored. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+    <!-- Catches what NUnit otherwise accepts silently: a [Test] on a non-public method, an async
+         void test, a [TestCase] whose arguments do not match the signature. -->
+    <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="coverlet.collector" Version="10.0.1" />
     <PackageReference Include="Shouldly" Version="4.3.0" />
   </ItemGroup>

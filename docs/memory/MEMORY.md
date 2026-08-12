@@ -30,3 +30,4 @@
 - [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — Valve notes date their build exactly; only a note describing a REPAIR lags its subject.
 - [Padding is not zero](padding-is-not-zero.md) — bit padding carries stale bits of the previous write; read it, never recompute it, and test the mechanism before naming it.
 - [Two recordings of one value](two-recordings-of-one-value.md) — a value stored twice by unrelated routes tests the decode against the engine, not against your own reading.
+- [Fixture lifetime is per test-kind](nunit-shared-fixture-is-the-standard.md) — isolation plus parallelism for unit/integration; shared fixture and CI matrices for UI.

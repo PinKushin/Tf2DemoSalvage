@@ -39,7 +39,7 @@ public class RosterBuilderTests
         return players;
     }
 
-    [Fact]
+    [Test]
     public void Apply_EntryWithNoText_IsAccepted()
     {
         // The update path. `svc_UpdateStringTable` entries carry user data and no text at all, so
@@ -55,7 +55,7 @@ public class RosterBuilderTests
         players.Count.ShouldBe(2);
     }
 
-    [Fact]
+    [Test]
     public void Apply_TextDisagreeingWithIndex_IsSkipped()
     {
         // Text says 9, the entry sits at 3. One of the two readings is wrong and the entry is
@@ -68,7 +68,7 @@ public class RosterBuilderTests
         players.ShouldContainKey(BystanderIndex);
     }
 
-    [Fact]
+    [Test]
     public void Apply_UnparseableTextAtIndexZero_IsSkipped()
     {
         // Index zero deliberately. `int.TryParse` writes 0 on failure, so at any other index a
@@ -83,7 +83,7 @@ public class RosterBuilderTests
         players.ShouldContainKey(BystanderIndex);
     }
 
-    [Fact]
+    [Test]
     public void Apply_RecordShorterThanWireFormat_IsSkipped()
     {
         // A short record must not reach PlayerInfo.Parse, which throws on one. The bystander is
@@ -96,7 +96,7 @@ public class RosterBuilderTests
         players.ShouldContainKey(BystanderIndex);
     }
 
-    [Fact]
+    [Test]
     public void Apply_RecordLongerThanWireFormat_IsAccepted()
     {
         // The complement of the test above, and the reason the guard is `<` rather than `>`:
@@ -109,7 +109,7 @@ public class RosterBuilderTests
         players[3].UserId.ShouldBe(42);
     }
 
-    [Fact]
+    [Test]
     public void Apply_EmptyUserData_IsSkippedNotRemoved()
     {
         // A vacated slot. The question the roster answers is "who played in this match", so a
@@ -121,7 +121,7 @@ public class RosterBuilderTests
         players[3].Name.ShouldBe("was_here");
     }
 
-    [Fact]
+    [Test]
     public void Apply_ReusedSlot_TakesTheLaterRecord()
     {
         // A slot freed and refilled. Later wins, which is what makes the create-plus-updates
@@ -134,7 +134,7 @@ public class RosterBuilderTests
         players[3].UserId.ShouldBe(2);
     }
 
-    [Fact]
+    [Test]
     public void Apply_NullEntries_DoesNothing()
     {
         Dictionary<int, PlayerInfo> players = [];
@@ -147,7 +147,7 @@ public class RosterBuilderTests
         players[BystanderIndex].Name.ShouldBe("already_there");
     }
 
-    [Fact]
+    [Test]
     public void Apply_NullPlayers_DoesNothing()
     {
         // Separate from the entries case on purpose: one guard covering both with `&&` instead of

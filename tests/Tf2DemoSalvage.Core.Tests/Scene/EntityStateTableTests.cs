@@ -17,7 +17,7 @@ public sealed class EntityStateTableTests
 {
     private const string PlayerClass = "CTFPlayer";
 
-    [Fact]
+    [Test]
     public void ADeltaKeepsPropertiesEarlierSnapshotsSet()
     {
         // The whole point of the accumulator. A player who stops moving stops sending an origin,
@@ -41,7 +41,7 @@ public sealed class EntityStateTableTests
         state.Integer("DT_BaseEntity.m_iTeamNum").ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void LeavingTheVisibleSetIsNotBeingDestroyed()
     {
         // `Leave` and `Delete` are different messages and mean different things: an entity that
@@ -72,7 +72,7 @@ public sealed class EntityStateTableTests
         returned.Integer("DT_BasePlayer.m_iHealth").ShouldBe(125);
     }
 
-    [Fact]
+    [Test]
     public void ADeletedEntityIsGone()
     {
         EntityStateTable table = new();
@@ -84,7 +84,7 @@ public sealed class EntityStateTableTests
         table.TryGet(5, out _).ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void AReusedSlotDoesNotInheritTheLastOccupantsProperties()
     {
         // Entity indices are recycled when a player disconnects, and the serial number is what
@@ -109,7 +109,7 @@ public sealed class EntityStateTableTests
         state.Integer("DT_BaseEntity.m_iTeamNum").ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void OriginResolvesFromWhicheverExclusiveTableCarriedIt()
     {
         // The trap this class exists for. TF2 sends a player's position through
@@ -140,7 +140,7 @@ public sealed class EntityStateTableTests
         teammate.Origin().ShouldBe((128f, 256f, 64f));
     }
 
-    [Fact]
+    [Test]
     public void TheLaunchEraSendsOriginAsOneVectorRatherThanSplitInTwo()
     {
         // An era change, found by this accumulator producing zero positioned players on the 2007
@@ -160,7 +160,7 @@ public sealed class EntityStateTableTests
         state.Origin().ShouldBe((-1343.862f, -6527.691f, -287.969f));
     }
 
-    [Fact]
+    [Test]
     public void ANonPlayerEntityPositionsFromTheBaseEntityTable()
     {
         // Players are the special case, not the rule. Everything else - projectiles, buildings,
@@ -175,7 +175,7 @@ public sealed class EntityStateTableTests
         state.Origin().ShouldBe((-992f, -5537.5f, -358.438f));
     }
 
-    [Fact]
+    [Test]
     public void AnEntityWithNoOriginHasNoPositionRatherThanTheWorldOrigin()
     {
         // Absence has to be representable. (0,0,0) is a real place on every map, so returning it
@@ -189,7 +189,7 @@ public sealed class EntityStateTableTests
         state.Origin().ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void TheClassNameIsCarriedSoCallersNeedNotHoldTheSchema()
     {
         EntityStateTable table = new();

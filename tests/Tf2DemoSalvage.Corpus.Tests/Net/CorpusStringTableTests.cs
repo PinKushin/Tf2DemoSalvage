@@ -15,9 +15,9 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// names are recognisable, and recognisable strings are how a bit-level decoder proves it is
 /// still aligned.
 /// </remarks>
-public sealed class CorpusStringTableTests(ITestOutputHelper output)
+public sealed class CorpusStringTableTests
 {
-    [Fact]
+    [Test]
     public void ReportStringTables()
     {
         foreach (string path in Corpus.Files())
@@ -26,7 +26,7 @@ public sealed class CorpusStringTableTests(ITestOutputHelper output)
             int decoded = 0;
             int undecoded = 0;
 
-            output.WriteLine($"--- {Path.GetFileName(path)} ---");
+            TestContext.Out.WriteLine($"--- {Path.GetFileName(path)} ---");
 
             foreach (DemoCommand command in SignonAndPackets(path).Take(400))
             {
@@ -42,19 +42,19 @@ public sealed class CorpusStringTableTests(ITestOutputHelper output)
                             .Where(e => e.Text is not null)
                             .Take(3)
                             .Select(e => e.Text));
-                        output.WriteLine(
+                        TestContext.Out.WriteLine(
                             $"  {table.Name,-24} {table.Entries.Count,5} entries  cap {table.MaxEntries,-6} {sample}");
                     }
                     else
                     {
                         undecoded++;
-                        output.WriteLine($"  {table.Name,-24} NOT DECODED: {table.UndecodedReason}");
+                        TestContext.Out.WriteLine($"  {table.Name,-24} NOT DECODED: {table.UndecodedReason}");
                     }
                 }
             }
 
-            output.WriteLine($"  => {decoded} decoded, {undecoded} not");
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine($"  => {decoded} decoded, {undecoded} not");
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();

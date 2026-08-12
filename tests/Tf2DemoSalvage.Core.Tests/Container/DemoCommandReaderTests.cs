@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 /// </summary>
 public sealed class DemoCommandReaderTests
 {
-    [Fact]
+    [Test]
     public void PacketCommand_CarriesTheCameraItWasRecordedFrom()
     {
         // democmdinfo_t was read and discarded on every packet - 76 bytes per command, skipped
@@ -51,7 +51,7 @@ public sealed class DemoCommandReaderTests
         view.Roll.ShouldBe(0f);
     }
 
-    [Fact]
+    [Test]
     public void CommandsWithoutCameraInformation_ReportNone()
     {
         // Only dem_signon and dem_packet carry democmdinfo_t. Reporting a zeroed camera for the
@@ -117,7 +117,7 @@ public sealed class DemoCommandReaderTests
     private static List<DemoCommand> ReadAll(byte[] stream) =>
         [.. DemoCommandReader.Read(stream)];
 
-    [Fact]
+    [Test]
     public void Read_PacketThenStop_YieldsBothWithTicksAndPayload()
     {
         byte[] stream = new StreamBuilder()
@@ -136,7 +136,7 @@ public sealed class DemoCommandReaderTests
         commands[1].Payload.Length.ShouldBe(0);
     }
 
-    [Fact]
+    [Test]
     public void Read_ShortStopTerminator_EndsCleanlyAndRecoversTheTick()
     {
         // The case that matters most: every real TF2 demo ends with dem_stop followed by three
@@ -153,7 +153,7 @@ public sealed class DemoCommandReaderTests
         commands[1].Tick.ShouldBe(57551);
     }
 
-    [Fact]
+    [Test]
     public void Read_StopWithNoTickBytesAtAll_StillEndsCleanly()
     {
         byte[] stream = new StreamBuilder()
@@ -166,7 +166,7 @@ public sealed class DemoCommandReaderTests
         commands[^1].Type.ShouldBe(DemoCommandType.Stop);
     }
 
-    [Fact]
+    [Test]
     public void Read_StopsAtStopEvenWhenBytesFollow()
     {
         byte[] stream = new StreamBuilder()
@@ -177,7 +177,7 @@ public sealed class DemoCommandReaderTests
         ReadAll(stream).Count.ShouldBe(1);
     }
 
-    [Fact]
+    [Test]
     public void Read_SyncTick_HasNoPayload()
     {
         byte[] stream = new StreamBuilder()
@@ -191,7 +191,7 @@ public sealed class DemoCommandReaderTests
         commands[0].Payload.Length.ShouldBe(0);
     }
 
-    [Fact]
+    [Test]
     public void Read_UserCmd_SkipsTheOutgoingSequenceBeforeThePayload()
     {
         byte[] stream = new StreamBuilder()
@@ -206,11 +206,9 @@ public sealed class DemoCommandReaderTests
         commands[0].Type.ShouldBe(DemoCommandType.UserCmd);
         commands[0].Payload.ToArray().ShouldBe([0xDE, 0xAD]);
     }
-
-    [Theory]
-    [InlineData(DemoCommandType.ConsoleCmd)]
-    [InlineData(DemoCommandType.DataTables)]
-    [InlineData(DemoCommandType.StringTables)]
+    [TestCase(DemoCommandType.ConsoleCmd)]
+    [TestCase(DemoCommandType.DataTables)]
+    [TestCase(DemoCommandType.StringTables)]
     public void Read_LengthPrefixedCommands_ExposeTheirPayload(DemoCommandType type)
     {
         byte[] stream = new StreamBuilder()
@@ -221,7 +219,7 @@ public sealed class DemoCommandReaderTests
         ReadAll(stream)[0].Payload.ToArray().ShouldBe([0x11, 0x22]);
     }
 
-    [Fact]
+    [Test]
     public void Read_SignonCarriesCommandInfoLikePacket()
     {
         byte[] stream = new StreamBuilder()
@@ -232,7 +230,7 @@ public sealed class DemoCommandReaderTests
         ReadAll(stream)[0].Payload.ToArray().ShouldBe([0x5A]);
     }
 
-    [Fact]
+    [Test]
     public void Read_UnknownCommandByte_ThrowsInvalidData()
     {
         byte[] stream = new StreamBuilder().Raw(0x63).Raw(BitConverter.GetBytes(0)).Build();
@@ -242,7 +240,7 @@ public sealed class DemoCommandReaderTests
         exception.Message.ShouldContain("99");
     }
 
-    [Fact]
+    [Test]
     public void Read_PayloadLongerThanTheBuffer_ThrowsEndOfStream()
     {
         byte[] stream = new StreamBuilder()
@@ -254,7 +252,7 @@ public sealed class DemoCommandReaderTests
         Should.Throw<EndOfStreamException>(() => ReadAll(stream));
     }
 
-    [Fact]
+    [Test]
     public void Read_NegativePayloadLength_ThrowsInvalidData()
     {
         // A negative length would otherwise rewind the cursor and loop forever.
@@ -266,7 +264,7 @@ public sealed class DemoCommandReaderTests
         Should.Throw<InvalidDataException>(() => ReadAll(stream));
     }
 
-    [Fact]
+    [Test]
     public void Read_TruncatedMidCommandHeader_ThrowsEndOfStreamForNonStopCommands()
     {
         // Only dem_stop gets the short-header accommodation; anything else ending mid-header
@@ -278,13 +276,13 @@ public sealed class DemoCommandReaderTests
         Should.Throw<EndOfStreamException>(() => ReadAll(stream));
     }
 
-    [Fact]
+    [Test]
     public void Read_EmptyStream_YieldsNothing()
     {
         ReadAll([]).ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Read_IsLazy_AndDoesNotThrowUntilEnumerated()
     {
         byte[] stream = new StreamBuilder().Raw(0x63).Build();

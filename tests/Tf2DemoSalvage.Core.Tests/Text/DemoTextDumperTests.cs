@@ -60,7 +60,7 @@ public sealed class DemoTextDumperTests
         return writer.ToString();
     }
 
-    [Fact]
+    [Test]
     public void Write_RealGameEvents_AreCountedAndListed()
     {
         // Every earlier test here passed commands with zeroed payloads, so nothing decoded and
@@ -75,7 +75,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("tick 99");                 // the timeline
     }
 
-    [Fact]
+    [Test]
     public void Write_EventSection_RendersExactly()
     {
         // The dump exists to be diffed - against a previous run, and eventually against another
@@ -110,7 +110,7 @@ public sealed class DemoTextDumperTests
             """.ReplaceLineEndings("\n") + "\n\n");
     }
 
-    [Fact]
+    [Test]
     public void Write_EventWithSeveralFields_SeparatesThemWithASingleSpace()
     {
         // Every other event fixture here carries one field, so the separator between fields was
@@ -139,7 +139,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("userid=7 health=85");
     }
 
-    [Fact]
+    [Test]
     public void Write_EventFieldsNamingPlayers_ResolveToNames()
     {
         // The point of reading userinfo: a kill should read as a name, not an integer. userid 7
@@ -149,7 +149,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("userid=Sassy(7)");
     }
 
-    [Fact]
+    [Test]
     public void Write_NonAsciiPlayerName_ReachesTheOutputIntact()
     {
         // End to end, because that is where this broke. Every layer decoded UTF-8 correctly on
@@ -172,7 +172,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain($"userid={awkward}(7)");
     }
 
-    [Fact]
+    [Test]
     public void Write_UnknownPlayerReference_StaysARawNumber()
     {
         // Resolution falls back rather than guessing. A field this parser wrongly believes
@@ -184,7 +184,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldNotContain("userid=Sassy");
     }
 
-    [Fact]
+    [Test]
     public void Write_FieldsThatAreNotPlayerReferences_StayNumeric()
     {
         // Found on a real demo, not in a fixture. Resolving every numeric field produced
@@ -200,7 +200,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldNotContain("damageamount=Sassy");
     }
 
-    [Fact]
+    [Test]
     public void Write_AbsentAssister_ReadsAsNone()
     {
         // TF2 sends a large sentinel rather than a null for an unassisted kill, so the raw
@@ -210,7 +210,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("assister=none");
     }
 
-    [Fact]
+    [Test]
     public void Write_EventsSortedByFrequency_MostCommonFirst()
     {
         string dump = Dump(commands: EventPackets());
@@ -225,7 +225,7 @@ public sealed class DemoTextDumperTests
         hurt.ShouldBeLessThan(death);
     }
 
-    [Fact]
+    [Test]
     public void Write_EventSample_IsCappedAtTheConfiguredSize()
     {
         string dump = Dump(
@@ -237,7 +237,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("3 across 2 types");
     }
 
-    [Fact]
+    [Test]
     public void Write_NoDecodableMessages_SaysSoRatherThanOmittingTheSection()
     {
         // The sample commands carry zeroed payloads, so nothing decodes. A section that simply
@@ -247,14 +247,14 @@ public sealed class DemoTextDumperTests
         Dump().ShouldContain("none decoded");
     }
 
-    [Fact]
+    [Test]
     public void Write_EventsOff_OmitsTheSectionEntirely()
     {
         Dump(options: new DemoDumpOptions { IncludeGameEvents = false })
             .ShouldNotContain("Game events");
     }
 
-    [Fact]
+    [Test]
     public void Write_ReportsProgressThroughTheEventScan()
     {
         // The event scan walks every packet, which on a full match is tens of thousands of
@@ -268,7 +268,7 @@ public sealed class DemoTextDumperTests
         reports.ShouldAllBe(r => r.Completed <= r.Total);
     }
 
-    [Fact]
+    [Test]
     public void Write_ProgressRises_AndEndsAtTheTotal()
     {
         // Monotonic and finishing at 100% are the two properties a caller draws a bar from.
@@ -284,17 +284,15 @@ public sealed class DemoTextDumperTests
 
         reports[^1].Fraction.ShouldBe(1d);
     }
-
-    [Theory]
-    [InlineData(0, 10, 0d)]
-    [InlineData(5, 10, 0.5d)]
-    [InlineData(10, 10, 1d)]
+    [TestCase(0, 10, 0d)]
+    [TestCase(5, 10, 0.5d)]
+    [TestCase(10, 10, 1d)]
     public void Fraction_HandlesItsRange(int completed, int total, double expected)
     {
         new DumpProgress("s", completed, total).Fraction.ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void Fraction_WithNothingToDo_IsOneRatherThanDividingByZero()
     {
         // A stage with no work is finished, not undefined. Reporting 0 would render as a bar
@@ -302,24 +300,22 @@ public sealed class DemoTextDumperTests
         new DumpProgress("s", 0, 0).Fraction.ShouldBe(1d);
         new DumpProgress("s", 0, -1).Fraction.ShouldBe(1d);
     }
-
-    [Theory]
-    [InlineData(0, 4, "Scan [----]   0%")]
-    [InlineData(2, 4, "Scan [##--]  50%")]
-    [InlineData(4, 4, "Scan [####] 100%")]
+    [TestCase(0, 4, "Scan [----]   0%")]
+    [TestCase(2, 4, "Scan [##--]  50%")]
+    [TestCase(4, 4, "Scan [####] 100%")]
     public void ToBar_DrawsProportionally(int completed, int width, string expected)
     {
         new DumpProgress("Scan", completed, 4).ToBar(width).ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void ToBar_NonPositiveWidth_IsRejected()
     {
         Should.Throw<ArgumentOutOfRangeException>(() => new DumpProgress("s", 1, 2).ToBar(0));
         Should.Throw<ArgumentOutOfRangeException>(() => new DumpProgress("s", 1, 2).ToBar(-1));
     }
 
-    [Fact]
+    [Test]
     public void Write_ProgressReportsAtTheIntervalAndAtTheEnd()
     {
         // 512 commands per report plus a final one. With 600 commands that is exactly two:
@@ -334,7 +330,7 @@ public sealed class DemoTextDumperTests
         reports[1].Completed.ShouldBe(600);
     }
 
-    [Fact]
+    [Test]
     public void Write_SkippedCommandsStillAdvanceProgress()
     {
         // Console commands are not scanned for events, but they must still count - otherwise a
@@ -352,7 +348,7 @@ public sealed class DemoTextDumperTests
         reports[^1].Fraction.ShouldBe(1d);
     }
 
-    [Fact]
+    [Test]
     public void Write_NoProgressListener_StillWorks()
     {
         // Progress is optional; every existing caller passes nothing.
@@ -407,7 +403,7 @@ public sealed class DemoTextDumperTests
             .Select(i => new DemoCommand(DemoCommandType.Packet, i, new byte[8])),
     ];
 
-    [Fact]
+    [Test]
     public void Write_IncludesEveryHeaderField()
     {
         string dump = Dump();
@@ -421,7 +417,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("850953");
     }
 
-    [Fact]
+    [Test]
     public void Write_SummarisesCommandCountsByType()
     {
         string dump = Dump();
@@ -434,7 +430,7 @@ public sealed class DemoTextDumperTests
         summaryLine.ShouldContain("2");
     }
 
-    [Fact]
+    [Test]
     public void Write_ListsEveryCommandWithTickAndPayloadSize()
     {
         string dump = Dump();
@@ -446,7 +442,7 @@ public sealed class DemoTextDumperTests
             .ShouldBeGreaterThanOrEqualTo(3);  // 1 summary + 2 listing rows
     }
 
-    [Fact]
+    [Test]
     public void Write_SummaryOnly_OmitsThePerCommandListing()
     {
         string[] lines = Dump(options: new DemoDumpOptions { IncludeCommandListing = false })
@@ -459,13 +455,13 @@ public sealed class DemoTextDumperTests
         lines.ShouldNotContain("Commands");
     }
 
-    [Fact]
+    [Test]
     public void Write_IsDeterministic_ForTheSameInput()
     {
         Dump().ShouldBe(Dump());
     }
 
-    [Fact]
+    [Test]
     public void Write_UsesInvariantFormatting_RegardlessOfCurrentCulture()
     {
         CultureInfo original = CultureInfo.CurrentCulture;
@@ -489,7 +485,7 @@ public sealed class DemoTextDumperTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Write_UsesLineFeedEndings_SoOutputDiffsCleanlyAcrossPlatforms()
     {
         string dump = Dump();
@@ -497,7 +493,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldNotContain("\r");
     }
 
-    [Fact]
+    [Test]
     public void Write_NoCommands_StillEmitsTheHeaderAndAnEmptySummary()
     {
         string dump = Dump(commands: []);
@@ -506,7 +502,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldNotBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Write_ReportsWhenTheCommandCountDisagreesWithTheHeader()
     {
         // The header declares 120,913 frames but the sample holds two packets. A dump that
@@ -516,7 +512,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldContain("MISMATCH", Case.Insensitive);
     }
 
-    [Fact]
+    [Test]
     public void Write_ReportsAgreementWhenCountsMatch()
     {
         DemoHeader header = SampleHeader() with { PlaybackFrames = 2, PlaybackTicks = 120935 };
@@ -525,20 +521,18 @@ public sealed class DemoTextDumperTests
 
         dump.ShouldNotContain("MISMATCH", Case.Insensitive);
     }
-
-    [Theory]
-    [InlineData("Demo protocol")]
-    [InlineData("Network protocol")]
-    [InlineData("Server")]
-    [InlineData("Client")]
-    [InlineData("Map")]
-    [InlineData("Game directory")]
-    [InlineData("Playback time")]
-    [InlineData("Playback ticks")]
-    [InlineData("Playback frames")]
-    [InlineData("Signon length")]
-    [InlineData("Command summary")]
-    [InlineData("Frame check")]
+    [TestCase("Demo protocol")]
+    [TestCase("Network protocol")]
+    [TestCase("Server")]
+    [TestCase("Client")]
+    [TestCase("Map")]
+    [TestCase("Game directory")]
+    [TestCase("Playback time")]
+    [TestCase("Playback ticks")]
+    [TestCase("Playback frames")]
+    [TestCase("Signon length")]
+    [TestCase("Command summary")]
+    [TestCase("Frame check")]
     public void Write_EmitsEveryLabel(string label)
     {
         // Values alone are not the contract - an unlabelled column of numbers is not a
@@ -546,16 +540,14 @@ public sealed class DemoTextDumperTests
         // a single test noticing.
         Dump().ShouldContain(label);
     }
-
-    [Theory]
-    [InlineData(DemoCommandType.Signon, "dem_signon")]
-    [InlineData(DemoCommandType.Packet, "dem_packet")]
-    [InlineData(DemoCommandType.SyncTick, "dem_synctick")]
-    [InlineData(DemoCommandType.ConsoleCmd, "dem_consolecmd")]
-    [InlineData(DemoCommandType.UserCmd, "dem_usercmd")]
-    [InlineData(DemoCommandType.DataTables, "dem_datatables")]
-    [InlineData(DemoCommandType.Stop, "dem_stop")]
-    [InlineData(DemoCommandType.StringTables, "dem_stringtables")]
+    [TestCase(DemoCommandType.Signon, "dem_signon")]
+    [TestCase(DemoCommandType.Packet, "dem_packet")]
+    [TestCase(DemoCommandType.SyncTick, "dem_synctick")]
+    [TestCase(DemoCommandType.ConsoleCmd, "dem_consolecmd")]
+    [TestCase(DemoCommandType.UserCmd, "dem_usercmd")]
+    [TestCase(DemoCommandType.DataTables, "dem_datatables")]
+    [TestCase(DemoCommandType.Stop, "dem_stop")]
+    [TestCase(DemoCommandType.StringTables, "dem_stringtables")]
     public void Write_UsesValveWireNames_NotEnumMemberNames(
         DemoCommandType type, string expected)
     {
@@ -567,7 +559,7 @@ public sealed class DemoTextDumperTests
         dump.ShouldNotContain($" {type} ");
     }
 
-    [Fact]
+    [Test]
     public void Write_HasTheExpectedSectionStructure()
     {
         string[] lines = Dump().Split('\n');
@@ -589,7 +581,7 @@ public sealed class DemoTextDumperTests
         lines[Array.IndexOf(lines, "Commands") - 1].ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Write_NullOptions_DefaultsToIncludingTheListing()
     {
         // Guards the `options ??= new(...)` coalesce: replacing it with a plain assignment
@@ -597,7 +589,7 @@ public sealed class DemoTextDumperTests
         Dump(options: null).ShouldContain("Commands");
     }
 
-    [Fact]
+    [Test]
     public void Write_NullHeader_Throws()
     {
         StringWriter writer = new();
@@ -606,7 +598,7 @@ public sealed class DemoTextDumperTests
             () => DemoTextDumper.Write(writer, "x.dem", null!, SampleCommands(), null));
     }
 
-    [Fact]
+    [Test]
     public void Write_NullCommands_Throws()
     {
         StringWriter writer = new();
@@ -615,7 +607,7 @@ public sealed class DemoTextDumperTests
             () => DemoTextDumper.Write(writer, "x.dem", SampleHeader(), null!, null));
     }
 
-    [Fact]
+    [Test]
     public void Write_NullWriter_Throws()
     {
         Should.Throw<ArgumentNullException>(

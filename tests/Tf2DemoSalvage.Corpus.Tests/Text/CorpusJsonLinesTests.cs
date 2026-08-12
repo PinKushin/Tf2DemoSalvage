@@ -24,7 +24,7 @@ public sealed class CorpusJsonLinesTests
         .. output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => JsonDocument.Parse(line)),
     ];
 
-    [Fact]
+    [Test]
     public void EveryLineKind_IsProducedFromARealDemo()
     {
         // The other half of the 19.5%: 47 mutants with no coverage at all, because the player,

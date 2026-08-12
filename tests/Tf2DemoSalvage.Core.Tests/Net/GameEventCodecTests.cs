@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class GameEventCodecTests
 {
-    [Fact]
+    [Test]
     public void GameEventList_DecodesDefinitionsFieldsAndTypes()
     {
         byte[] packet = EventList(
@@ -45,7 +45,7 @@ public sealed class GameEventCodecTests
         list.Definitions[1].Fields[0].Type.ShouldBe(GameEventValueType.Bool);
     }
 
-    [Fact]
+    [Test]
     public void GameEventList_LeavesTheReaderPositionedForTheNextMessage()
     {
         // The whole point of the length prefix: whatever follows must still decode. If the
@@ -65,7 +65,7 @@ public sealed class GameEventCodecTests
         ((NetTickMessage)messages[1]).Tick.ShouldBe(4242);
     }
 
-    [Fact]
+    [Test]
     public void GameEvent_DecodesAgainstADefinitionSeenEarlier()
     {
         NetDecodeState state = new();
@@ -103,7 +103,7 @@ public sealed class GameEventCodecTests
         fired.Values["crit"].ShouldBe(true);
     }
 
-    [Fact]
+    [Test]
     public void GameEvent_WithoutItsDefinition_IsReportedUndecodedButDoesNotStopTheWalk()
     {
         // The length prefix means one unknown event costs that event, not the packet.
@@ -128,7 +128,7 @@ public sealed class GameEventCodecTests
         ((NetTickMessage)Significant(result)[1]).Tick.ShouldBe(11);
     }
 
-    [Fact]
+    [Test]
     public void GameEvent_DecodesEveryValueType()
     {
         NetDecodeState state = new();
@@ -164,7 +164,7 @@ public sealed class GameEventCodecTests
         fired.Values["bo"].ShouldBe(false);
     }
 
-    [Fact]
+    [Test]
     public void LocalField_OccupiesNoBits_SoTheFieldBehindItStillDecodes()
     {
         // RISKS B14. Type 7 was read as a 64-bit integer here, on the assumption that the wire
@@ -220,7 +220,7 @@ public sealed class GameEventCodecTests
         control.Values["only"].ShouldBe((short)777);
     }
 
-    [Fact]
+    [Test]
     public void GameEvent_FieldTypeOutsideTheWireRange_Throws()
     {
         // The 3-bit type field covers exactly the eight handled values, so this guard is
@@ -239,28 +239,26 @@ public sealed class GameEventCodecTests
         exception.Message.ShouldBe("Unhandled game event value type 9.");
     }
 
-    [Fact]
+    [Test]
     public void AddEventDefinitions_NullDefinitions_Throws()
     {
         Should.Throw<System.ArgumentNullException>(
             () => new NetDecodeState().AddEventDefinitions(null!));
     }
 
-    [Fact]
+    [Test]
     public void GameEventList_WithNoEvents_DecodesToAnEmptyList()
     {
         NetMessageReadResult result = NetMessageReader.Read(EventList());
 
         result.Messages[0].ShouldBeOfType<GameEventListMessage>().Definitions.ShouldBeEmpty();
     }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(7)]
-    [InlineData(8)]
-    [InlineData(9)]
-    [InlineData(15)]
-    [InlineData(16)]
+    [TestCase(1)]
+    [TestCase(7)]
+    [TestCase(8)]
+    [TestCase(9)]
+    [TestCase(15)]
+    [TestCase(16)]
     public void BodyLengthsThatAreNotWholeBytes_StillLeaveTheReaderAligned(int extraBits)
     {
         // CopyBits handles the partial trailing byte, and every survivor from the first

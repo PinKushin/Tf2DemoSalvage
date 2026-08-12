@@ -67,7 +67,7 @@ public sealed class ServerInfoTests
         return writer.Build();
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_DecodesEveryField()
     {
         NetMessageReadResult result = NetMessageReader.Read(Build());
@@ -89,7 +89,7 @@ public sealed class ServerInfoTests
         info.IsReplay.ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void NonAsciiStrings_SurviveAsUtf8()
     {
         // These four go through the message layer's NUL-terminated string reader, which every
@@ -111,7 +111,7 @@ public sealed class ServerInfoTests
         info.Skybox.ShouldBe("sky_upward_01");
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_ExposesTickRateDerivedFromTheInterval()
     {
         // TF2's 66.67 tick rate is 1 / 0.015. The interval is what is transmitted; the rate
@@ -122,7 +122,7 @@ public sealed class ServerInfoTests
         info.TickRate.ShouldBe(66.67f, 0.01f);
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_ZeroInterval_ReportsZeroTickRateRatherThanInfinity()
     {
         NetMessageReadResult result = NetMessageReader.Read(Build(intervalPerTick: 0f));
@@ -130,7 +130,7 @@ public sealed class ServerInfoTests
         result.Messages[0].ShouldBeOfType<ServerInfoMessage>().TickRate.ShouldBe(0f);
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_LeavesTheReaderPositionedForTheNextMessage()
     {
         // ServerInfo has no length prefix, so every field width must be exactly right or
@@ -146,7 +146,7 @@ public sealed class ServerInfoTests
         tick.Tick.ShouldBe(4242);
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_ReplayFlagSet_IsReported()
     {
         NetMessageReadResult result = NetMessageReader.Read(Build(replay: true));
@@ -154,7 +154,7 @@ public sealed class ServerInfoTests
         result.Messages[0].ShouldBeOfType<ServerInfoMessage>().IsReplay.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_ListenServer_ReportsNotDedicated()
     {
         NetMessageReadResult result = NetMessageReader.Read(Build(dedicated: false, sourceTv: false));
@@ -163,12 +163,10 @@ public sealed class ServerInfoTests
         info.IsDedicated.ShouldBeFalse();
         info.IsSourceTv.ShouldBeFalse();
     }
-
-    [Theory]
-    [InlineData(24, 16)]
-    [InlineData(18, 16)]
-    [InlineData(17, 4)]
-    [InlineData(14, 4)]
+    [TestCase((ushort)24, 16)]
+    [TestCase((ushort)18, 16)]
+    [TestCase((ushort)17, 4)]
+    [TestCase((ushort)14, 4)]
     public void MapHashWidth_FollowsTheProtocolVersion(ushort protocol, int expectedBytes)
     {
         // Protocol 18 replaced a 4-byte CRC with a 16-byte hash. Our corpus is entirely
@@ -184,12 +182,10 @@ public sealed class ServerInfoTests
         info.Map.ShouldBe("cp_process_final");
         info.ServerName.ShouldBe("serveme.tf");
     }
-
-    [Theory]
-    [InlineData(24, true)]
-    [InlineData(16, true)]
-    [InlineData(15, false)]
-    [InlineData(14, false)]
+    [TestCase((ushort)24, true)]
+    [TestCase((ushort)16, true)]
+    [TestCase((ushort)15, false)]
+    [TestCase((ushort)14, false)]
     public void ReplayFlag_IsOnlyReadFromProtocolSixteenOnward(ushort protocol, bool present)
     {
         // Same caveat: only protocol 24 is corpus-verified. Reading a bit that is not there

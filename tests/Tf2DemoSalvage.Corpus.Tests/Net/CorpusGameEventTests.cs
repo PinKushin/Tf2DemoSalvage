@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// is what verifies that assumption: wrong widths desynchronise the definition list
 /// immediately and produce garbage names, so recognisable TF2 event names are the proof.
 /// </remarks>
-public sealed class CorpusGameEventTests(ITestOutputHelper output)
+public sealed class CorpusGameEventTests
 {
     /// <summary>Events every TF2 demo should describe, whether or not they fire.</summary>
     private static readonly string[] ExpectedEvents =
@@ -28,7 +28,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
         "teamplay_round_win",
     ];
 
-    [Fact]
+    [Test]
     public void GameEventList_DecodesToRecognisableTf2Events()
     {
         foreach (string path in Corpus.Files())
@@ -40,7 +40,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
                 // Not yet reachable: signon opens with svc_ServerInfo, which is not decoded
                 // yet, and messages carry no length prefix. This flips to a real assertion
                 // the moment ServerInfo lands - see ReportWhereSignonStops.
-                output.WriteLine($"{Path.GetFileName(path)}: event list not yet reachable");
+                TestContext.Out.WriteLine($"{Path.GetFileName(path)}: event list not yet reachable");
                 continue;
             }
 
@@ -57,7 +57,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void GameEventDefinitions_HaveSaneNamesAndFields()
     {
         foreach (string path in Corpus.Files())
@@ -87,7 +87,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void PlayerDeath_HasTheFieldsItShould()
     {
         foreach (string path in Corpus.Files())
@@ -104,12 +104,12 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
             fields.ShouldContain("userid");
             fields.ShouldContain("attacker");
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: player_death({string.Join(", ", death.Fields.Select(f => $"{f.Type} {f.Name}"))})");
         }
     }
 
-    [Fact]
+    [Test]
     public void ReportWhatTheDemosDefineAndFire()
     {
         foreach (string path in Corpus.Files())
@@ -146,20 +146,20 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
                 }
             }
 
-            output.WriteLine($"{Path.GetFileName(path)}: {definitions} events defined, " +
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: {definitions} events defined, " +
                              $"{fired.Values.Sum()} fired, {undecoded} undecodable");
             foreach ((string name, int count) in fired.OrderByDescending(kv => kv.Value).Take(12))
             {
-                output.WriteLine($"    {count,5}  {name}");
+                TestContext.Out.WriteLine($"    {count,5}  {name}");
             }
 
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void ReportWhereSignonStops()
     {
         // The signon stream carries everything a joining client needs: the entity schema, the
@@ -173,7 +173,7 @@ public sealed class CorpusGameEventTests(ITestOutputHelper output)
                 .Where(c => c.Type == DemoCommandType.Signon))
             {
                 NetMessageReadResult result = NetMessageReader.Read(signon.Payload.Span, state);
-                output.WriteLine(
+                TestContext.Out.WriteLine(
                     $"{Path.GetFileName(path)}: signon {signon.Payload.Length,8} bytes - " +
                     $"read {result.Messages.Count} message(s), stopped at " +
                     $"{result.StoppedAt?.ToString() ?? "end"}");

@@ -22,11 +22,11 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// class whose flattened property list contains every property index the body names — a wrong
 /// layout produces indices that miss.
 /// </remarks>
-public sealed class CorpusTempEntityTests(ITestOutputHelper output)
+public sealed class CorpusTempEntityTests
 {
     private sealed record Totals(int Bodies, int EffectCount, int ValueCount, int Failed);
 
-    [Fact]
+    [Test]
     public void TempEntities_DecodeAgainstEveryDemoThatCarriesThem()
     {
         int demosWithEffects = 0;
@@ -44,7 +44,7 @@ public sealed class CorpusTempEntityTests(ITestOutputHelper output)
             }
 
             demosWithEffects++;
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: {totals.Bodies} messages, {totals.EffectCount} effects, " +
                 $"{totals.ValueCount} properties, {totals.Failed} failed");
 
@@ -57,7 +57,7 @@ public sealed class CorpusTempEntityTests(ITestOutputHelper output)
         demosWithEffects.ShouldBeGreaterThan(0, "no demo carried svc_TempEntities");
     }
 
-    [Fact]
+    [Test]
     public void EveryTempEntityProperty_BelongsToTheClassItWasReadFor()
     {
         // The same check the entity tests make, and the reason it is strong: class names come from
@@ -87,7 +87,7 @@ public sealed class CorpusTempEntityTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ReportWhatTheEffectsAre()
     {
         // What a viewer would draw. Explosions, tracers and impacts all arrive as temp entities,
@@ -111,10 +111,10 @@ public sealed class CorpusTempEntityTests(ITestOutputHelper output)
                 continue;
             }
 
-            output.WriteLine($"{Path.GetFileName(path)}:");
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)}:");
             foreach ((string className, int count) in byClass.OrderByDescending(e => e.Value).Take(8))
             {
-                output.WriteLine($"    {count,6}  {className}");
+                TestContext.Out.WriteLine($"    {count,6}  {className}");
             }
         }
 

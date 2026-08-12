@@ -44,7 +44,7 @@ public sealed class DemoAssemblyTests
         return DemoAssembly.Parse(reader);
     }
 
-    [Fact]
+    [Test]
     public void AServerNameWithSpaces_SurvivesTheRoundTrip()
     {
         // Unquoted, the parser would take "Uncle" as the value and drop the rest. Real server
@@ -54,7 +54,7 @@ public sealed class DemoAssemblyTests
         RoundTrip(header).Header.ServerName.ShouldBe("Uncle Dane's Dispenser Emporium");
     }
 
-    [Fact]
+    [Test]
     public void APlaybackTimeThatIsNotExactInDecimal_SurvivesExactly()
     {
         // 1814.0249 has no exact float representation, so a writer rounding to a few places
@@ -66,7 +66,7 @@ public sealed class DemoAssemblyTests
             .ShouldBe(BitConverter.SingleToInt32Bits(1814.0249f));
     }
 
-    [Fact]
+    [Test]
     public void PayloadAndPrologue_ComeBackAsTheSameBytes()
     {
         byte[] prologue = [0xDE, 0xAD, 0xBE, 0xEF];
@@ -83,7 +83,7 @@ public sealed class DemoAssemblyTests
         command.Payload.ToArray().ShouldBe(payload);
     }
 
-    [Fact]
+    [Test]
     public void ACommandWithNoPayload_StaysThatWayRatherThanGainingAnEmptyOne()
     {
         // dem_synctick carries nothing at all, and it is not length-prefixed either - a writer
@@ -96,7 +96,7 @@ public sealed class DemoAssemblyTests
         command.Prologue.IsEmpty.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void CommentsAndBlankLines_AreIgnored()
     {
         const string source = """
@@ -125,7 +125,7 @@ public sealed class DemoAssemblyTests
         commands.ShouldHaveSingleItem().Payload.ToArray().ShouldBe(new byte[] { 0x00, 0xFF });
     }
 
-    [Fact]
+    [Test]
     public void APacketBlock_AssemblesItsMessageLinesBackIntoThePayload()
     {
         // Packets are the one command whose payload is expanded rather than hex, so this is the
@@ -170,7 +170,7 @@ public sealed class DemoAssemblyTests
         tick.HostFrameTimeRaw.ShouldBe((ushort)7);
     }
 
-    [Fact]
+    [Test]
     public void AnUnclosedPacketBlock_IsRefused()
     {
         // Silently accepting it would compile a demo whose last packet is short by however many
@@ -197,7 +197,7 @@ public sealed class DemoAssemblyTests
         Should.Throw<InvalidDataException>(() => DemoAssembly.Parse(reader));
     }
 
-    [Fact]
+    [Test]
     public void AHashInsideAQuotedName_IsNotAComment()
     {
         // The control for the test above. Stripping comments without minding quotes would turn
@@ -207,7 +207,7 @@ public sealed class DemoAssemblyTests
         RoundTrip(header).Header.ServerName.ShouldBe("clan #1 pug server");
     }
 
-    [Fact]
+    [Test]
     public void TextWithNoHeaderBlock_IsRefused()
     {
         using StringReader reader = new("packet 1 data 00\n");
@@ -215,7 +215,7 @@ public sealed class DemoAssemblyTests
         Should.Throw<InvalidDataException>(() => DemoAssembly.Parse(reader));
     }
 
-    [Fact]
+    [Test]
     public void AnUnknownCommandKeyword_IsRefusedRatherThanSkipped()
     {
         // Skipping it would compile a demo missing a command, which is a file that plays wrongly

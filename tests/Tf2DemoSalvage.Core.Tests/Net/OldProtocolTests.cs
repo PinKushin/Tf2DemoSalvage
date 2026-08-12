@@ -70,12 +70,10 @@ public sealed class OldProtocolTests
         writer.NetTick(4242, 0, 0);
         return writer.Build();
     }
-
-    [Theory]
-    [InlineData(15)]                           // Source 2009: 4-byte CRC, no replay flag
-    [InlineData(16)]                           // replay flag appears
-    [InlineData(18)]                           // 16-byte hash appears
-    [InlineData(24)]                           // current
+    [TestCase((ushort)15)]    // Source 2009: 4-byte CRC, no replay flag
+    [TestCase((ushort)16)]    // replay flag appears
+    [TestCase((ushort)18)]    // 16-byte hash appears
+    [TestCase((ushort)24)]    // current
     public void ServerInfo_LeavesTheReaderAlignedAtEveryProtocol(ushort protocol)
     {
         NetMessageReadResult result = NetMessageReader.Read(ServerInfo(protocol));
@@ -85,11 +83,9 @@ public sealed class OldProtocolTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
         result.StopReason.ShouldBeNull();
     }
-
-    [Theory]
-    [InlineData(15)]
-    [InlineData(18)]
-    [InlineData(24)]
+    [TestCase((ushort)15)]
+    [TestCase((ushort)18)]
+    [TestCase((ushort)24)]
     public void ServerInfo_ReadsItsFieldsAtEveryProtocol(ushort protocol)
     {
         ServerInfoMessage info = NetMessageReader.Read(ServerInfo(protocol))
@@ -100,12 +96,10 @@ public sealed class OldProtocolTests
         info.Map.ShouldBe("cp_dustbowl");
         info.GameDirectory.ShouldBe("tf");
     }
-
-    [Theory]
-    [InlineData(15, 13)]                       // pre-23: a 13-bit index
-    [InlineData(22, 13)]
-    [InlineData(23, 14)]                       // widened
-    [InlineData(24, 14)]
+    [TestCase((ushort)15, 13)]    // pre-23: a 13-bit index
+    [TestCase((ushort)22, 13)]
+    [TestCase((ushort)23, 14)]    // widened
+    [TestCase((ushort)24, 14)]
     public void Prefetch_UsesTheWidthItsProtocolDefines(ushort protocol, int indexBits)
     {
         BitWriter writer = new();
@@ -116,10 +110,8 @@ public sealed class OldProtocolTests
 
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(777);
     }
-
-    [Theory]
-    [InlineData(15)]                           // pre-24: a fixed 17-bit length
-    [InlineData(23)]
+    [TestCase((ushort)15)]    // pre-24: a fixed 17-bit length
+    [TestCase((ushort)23)]
     public void TempEntities_UsesAFixedLengthBeforeProtocol24(ushort protocol)
     {
         BitWriter writer = new();
@@ -131,10 +123,8 @@ public sealed class OldProtocolTests
 
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(888);
     }
-
-    [Theory]
-    [InlineData(15, 5)]                            // 2009: highest id is svc_GetCvarValue at 31
-    [InlineData(24, 6)]                            // current: svc_PaintmapData at 33 needs six
+    [TestCase((ushort)15, 5)]    // 2009: highest id is svc_GetCvarValue at 31
+    [TestCase((ushort)24, 6)]    // current: svc_PaintmapData at 33 needs six
     public void MessageTypeField_UsesTheWidthItsProtocolDefines(ushort protocol, int typeBits)
     {
         // The single largest era difference found so far, and the one that is *not* in Valve's

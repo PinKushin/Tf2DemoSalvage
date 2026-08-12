@@ -13,14 +13,14 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// </remarks>
 public sealed class CeltVoiceDecoderTests
 {
-    [Fact]
+    [Test]
     public void Construction_LoadsTheNativeLibraryAndSucceeds()
     {
         using CeltVoiceDecoder decoder = new();
         decoder.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Dispose_IsIdempotent()
     {
         CeltVoiceDecoder decoder = new();
@@ -28,7 +28,7 @@ public sealed class CeltVoiceDecoderTests
         Should.NotThrow(decoder.Dispose);
     }
 
-    [Fact]
+    [Test]
     public void Decode_AfterDispose_Throws()
     {
         CeltVoiceDecoder decoder = new();
@@ -37,7 +37,7 @@ public sealed class CeltVoiceDecoderTests
         Should.Throw<ObjectDisposedException>(() => decoder.Decode([0x18, 0x01, 0x02]));
     }
 
-    [Fact]
+    [Test]
     public void Decode_EmptyFrame_Throws()
     {
         using CeltVoiceDecoder decoder = new();
@@ -45,7 +45,7 @@ public sealed class CeltVoiceDecoderTests
         Should.Throw<ArgumentException>(() => decoder.Decode([]));
     }
 
-    [Fact]
+    [Test]
     public void Decode_GarbageBytes_ThrowsRatherThanCrashing()
     {
         using CeltVoiceDecoder decoder = new();

@@ -6,14 +6,14 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// <summary>Tests <see cref="SpeexVoiceDecoder"/>'s lifecycle and error handling.</summary>
 public sealed class SpeexVoiceDecoderTests
 {
-    [Fact]
+    [Test]
     public void Construction_LoadsTheNativeLibraryAndSucceeds()
     {
         using SpeexVoiceDecoder decoder = new();
         decoder.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Dispose_IsIdempotent()
     {
         SpeexVoiceDecoder decoder = new();
@@ -21,7 +21,7 @@ public sealed class SpeexVoiceDecoderTests
         Should.NotThrow(decoder.Dispose);
     }
 
-    [Fact]
+    [Test]
     public void Decode_AfterDispose_Throws()
     {
         SpeexVoiceDecoder decoder = new();
@@ -31,7 +31,7 @@ public sealed class SpeexVoiceDecoderTests
             () => decoder.Decode(new byte[28]));
     }
 
-    [Fact]
+    [Test]
     public void Decode_EmptyFrame_Throws()
     {
         using SpeexVoiceDecoder decoder = new();

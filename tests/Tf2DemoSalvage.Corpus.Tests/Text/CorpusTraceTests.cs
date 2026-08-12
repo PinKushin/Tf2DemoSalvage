@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 /// nothing rather than a test that failed usefully. A real demo is both cheaper and stronger
 /// evidence here.
 /// </remarks>
-public sealed class CorpusTraceTests(ITestOutputHelper output)
+public sealed class CorpusTraceTests
 {
     /// <summary>Traces the opening of a demo, which is enough to exercise every shape.</summary>
     private static string Trace(string path, DemoTraceOptions? options = null)
@@ -34,7 +34,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         return writer.ToString();
     }
 
-    [Fact]
+    [Test]
     public void EveryDemo_TracesWithoutAnUnreadableBlock()
     {
         // The trace reports what it cannot read rather than throwing, so a failure shows up
@@ -53,7 +53,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void EntitiesAreOff_UnlessAskedFor()
     {
         // The default has to stay cheap: expanding entities turns a 39 MB demo into gigabytes
@@ -61,7 +61,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         Trace(Corpus.Files()[0]).ShouldNotContain("        entity ");
     }
 
-    [Fact]
+    [Test]
     public void WithEntities_PropertiesAreNamedAndValued()
     {
         // The whole claim of the project in one assertion: the demo carries its own schema, so
@@ -75,7 +75,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         trace.ShouldContain("m_flSimulationTime");
     }
 
-    [Fact]
+    [Test]
     public void WithoutProperties_EntitiesStillAppearWithACount()
     {
         // The middle setting: which entities a snapshot touched, without the values that make
@@ -93,7 +93,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         trace.ShouldNotContain("m_flSimulationTime");
     }
 
-    [Fact]
+    [Test]
     public void SnapshotLimit_StopsExpandingAfterTheStatedCount()
     {
         string limited = Trace(
@@ -108,7 +108,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         limited.ShouldContain("svc_packetentities");
     }
 
-    [Fact]
+    [Test]
     public void ReportTraceShape()
     {
         foreach (string path in Corpus.Files())
@@ -116,7 +116,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
             string trace = Trace(path);
             string[] lines = trace.Split('\n');
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: {lines.Length} lines from 400 commands, " +
                 $"{lines.Count(l => l.StartsWith("block", StringComparison.Ordinal))} blocks");
         }
@@ -124,7 +124,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void NoMessageIsAnonymous()
     {
         // Phase 1's finish line for the message layer. Every message type the corpus contains is
@@ -150,7 +150,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void UserCommandsAndConsoleCommandsAreExpandedRatherThanCounted()
     {
         // Both were bare one-line blocks until the payload behind them was decoded, which is a
@@ -183,10 +183,10 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         }
 
         expanded.ShouldBeGreaterThan(0, "no point-of-view demo reached the trace");
-        output.WriteLine($"{expanded} demos expanded their user commands");
+        TestContext.Out.WriteLine($"{expanded} demos expanded their user commands");
     }
 
-    [Fact]
+    [Test]
     public void SoundsAreNamedFromTheSoundPrecacheTable()
     {
         // A svc_Sounds body carries an index into soundprecache, never a name, and the table is
@@ -219,7 +219,7 @@ public sealed class CorpusTraceTests(ITestOutputHelper output)
         }
 
         named.ShouldBeGreaterThan(0, "no demo in the corpus rendered a sound");
-        output.WriteLine($"{named} demos resolved sound names");
+        TestContext.Out.WriteLine($"{named} demos resolved sound names");
     }
 
     /// <summary>Whether a trace line is a bare "name bits N", which is how a skip renders.</summary>

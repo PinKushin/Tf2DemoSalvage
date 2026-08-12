@@ -105,7 +105,7 @@ public sealed class StringTableCodecTests
         internal static int BitsFor(int capacity) => WireWidths.StringTableIndex(capacity);
     }
 
-    [Fact]
+    [Test]
     public void CapacityThatIsNotAPowerOfTwo_SizesIndexAndCountByFloorLogTwo()
     {
         // Two derived widths come off a table's capacity: the entry count is
@@ -240,12 +240,10 @@ public sealed class StringTableCodecTests
     /// <summary>Reads with a ServerInfo already in state, so the protocol branch is taken.</summary>
     private static NetMessageReadResult ReadWithProtocol(byte[] packet, ushort protocol = 24) =>
         NetMessageReader.Read(packet, StateWithProtocol(protocol));
-
-    [Theory]
-    [InlineData(12)]
-    [InlineData(14)]                               // last build without the flag
-    [InlineData(15)]                               // flag appears
-    [InlineData(24)]
+    [TestCase((ushort)12)]
+    [TestCase((ushort)14)]    // last build without the flag
+    [TestCase((ushort)15)]    // flag appears
+    [TestCase((ushort)24)]
     public void CompressionFlag_IsOnTheWireOnlyAbove14(ushort protocol)
     {
         // Found in Valve's own proto_version.h, which is still shipped in the current TF2 SDK
@@ -275,7 +273,7 @@ public sealed class StringTableCodecTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
-    [Fact]
+    [Test]
     public void Create_DecodesNameCapacityAndPlainEntries()
     {
         TableBuilder table = new TableBuilder(256).Next("alpha").Next("beta").Next("gamma");
@@ -291,7 +289,7 @@ public sealed class StringTableCodecTests
         message.Entries.Select(e => e.Index).ShouldBe([0, 1, 2]);
     }
 
-    [Fact]
+    [Test]
     public void Create_ExplicitIndex_IsHonouredAndResetsTheRunningIndex()
     {
         TableBuilder table = new TableBuilder(256).Next("a").At(40, "b").Next("c");
@@ -302,7 +300,7 @@ public sealed class StringTableCodecTests
         message.Entries.Select(e => e.Index).ShouldBe([0, 40, 41]);
     }
 
-    [Fact]
+    [Test]
     public void Create_SubstringEntry_ReusesThePrefixFromHistory()
     {
         // The compression that makes this decoder stateful: "decals/concrete/shot2" is sent as
@@ -317,7 +315,7 @@ public sealed class StringTableCodecTests
         message.Entries[1].Text.ShouldBe("decals/concrete/shot2");
     }
 
-    [Fact]
+    [Test]
     public void Create_SubstringCopyLongerThanTheSource_UsesTheWholeSource()
     {
         // Malformed rather than impossible. Clamping keeps the table readable instead of
@@ -332,7 +330,7 @@ public sealed class StringTableCodecTests
         message.Entries[1].Text.ShouldBe("abc");
     }
 
-    [Fact]
+    [Test]
     public void Create_SubstringReferencingAnAbsentHistoryEntry_YieldsTheTailAlone()
     {
         TableBuilder table = new TableBuilder(512).Substring(historyIndex: 9, copy: 4, tail: "x");
@@ -343,7 +341,7 @@ public sealed class StringTableCodecTests
         message.Entries[0].Text.ShouldBe("x");
     }
 
-    [Fact]
+    [Test]
     public void Create_EntryWithoutText_HasNullTextRatherThanEmpty()
     {
         // An update can carry user data for an existing entry without resending its name.
@@ -357,7 +355,7 @@ public sealed class StringTableCodecTests
         message.Entries[0].UserData.ShouldBe([(byte)1, (byte)2, (byte)3]);
     }
 
-    [Fact]
+    [Test]
     public void Create_EntryWithoutUserData_HasEmptyUserData()
     {
         TableBuilder table = new TableBuilder(64).Next("only-text");
@@ -368,7 +366,7 @@ public sealed class StringTableCodecTests
         message.Entries[0].UserData.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Create_CompressedPayload_IsDecompressedAndDecoded()
     {
         // Five of the twenty tables arrive compressed, instancebaseline among them, so this is
@@ -384,7 +382,7 @@ public sealed class StringTableCodecTests
         message.Entries.Select(e => e.Text).ShouldBe(["alpha", "beta"]);
     }
 
-    [Fact]
+    [Test]
     public void Create_SnappyCompression_IsNamedRatherThanGuessedAt()
     {
         // Decompressing with the wrong scheme still produces bytes, and those bytes still
@@ -399,7 +397,7 @@ public sealed class StringTableCodecTests
         message.UndecodedReason.ShouldNotBeNull().ShouldContain("Snappy");
     }
 
-    [Fact]
+    [Test]
     public void Create_UnknownCompressionMagic_IsReportedWithItsBytes()
     {
         TableBuilder table = new TableBuilder(64).Next("alpha");
@@ -412,7 +410,7 @@ public sealed class StringTableCodecTests
         message.UndecodedReason.ShouldNotBeNull().ShouldContain("DEADBEEF");
     }
 
-    [Fact]
+    [Test]
     public void Create_CorruptCompressedPayload_CostsOnlyItsOwnTable()
     {
         // The length prefix is what makes this survivable: the outer reader has already moved
@@ -506,7 +504,7 @@ public sealed class StringTableCodecTests
         return [.. output];
     }
 
-    [Fact]
+    [Test]
     public void Create_LeavesTheReaderPositionedForTheNextMessage()
     {
         // The length prefix is what makes an undecodable table survivable, so it has to be
@@ -522,7 +520,7 @@ public sealed class StringTableCodecTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1234);
     }
 
-    [Fact]
+    [Test]
     public void Create_TwentyBitLengthAtOlderProtocols()
     {
         // Protocol 23 and below use a fixed 20-bit length rather than a varint. No specimen
@@ -537,7 +535,7 @@ public sealed class StringTableCodecTests
         message.Entries.Select(e => e.Text).ShouldBe(["alpha"]);
     }
 
-    [Fact]
+    [Test]
     public void Create_UncompressedTable_ReportsItselfAsSuch()
     {
         TableBuilder table = new TableBuilder(64).Next("alpha");
@@ -549,7 +547,7 @@ public sealed class StringTableCodecTests
         message.UndecodedReason.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Create_FixedUserDataSize_ReadsPayloadsInBitsNotBytes()
     {
         // A fixed-size table states its payload width in bits. Reading a 14-bit byte count
@@ -575,7 +573,7 @@ public sealed class StringTableCodecTests
         message.Entries[1].UserData.ShouldBe([(byte)0b0110]);
     }
 
-    [Fact]
+    [Test]
     public void Create_SubstringCopyExactlyTheSourceLength_TakesAllOfIt()
     {
         // Boundary: copy length equal to the source length must take the whole string, not
@@ -590,7 +588,7 @@ public sealed class StringTableCodecTests
         message.Entries[1].Text.ShouldBe("abcde");
     }
 
-    [Fact]
+    [Test]
     public void Create_SubstringIndexEqualToHistoryLength_IsTreatedAsAbsent()
     {
         // Boundary the other side: history has one entry, so index 1 is one past the end.
@@ -604,7 +602,7 @@ public sealed class StringTableCodecTests
         message.Entries[1].Text.ShouldBe("z");
     }
 
-    [Fact]
+    [Test]
     public void Create_HistoryEvictsOldestBeyondThirtyTwoEntries()
     {
         // The history window is 32. After 33 strings the first has been evicted, so index 0
@@ -623,7 +621,7 @@ public sealed class StringTableCodecTests
         message.Entries[^1].Text.ShouldBe("entry01X");
     }
 
-    [Fact]
+    [Test]
     public void Create_WithABodyTooShortForItsEntries_ReportsWhyRatherThanThrowing()
     {
         // Create's twin of the update-side truncation test: one declared entry, zero body
@@ -651,7 +649,7 @@ public sealed class StringTableCodecTests
             "entry decode failed: Requested 1 bits at bit offset 0, but only 0 bits remain.");
     }
 
-    [Fact]
+    [Test]
     public void Update_CarriesUserDataUsingTheVariableLengthEncoding()
     {
         TableBuilder table = new TableBuilder(256).Next("who", userData: [9, 8]);
@@ -671,7 +669,7 @@ public sealed class StringTableCodecTests
         message.Entries[0].UserData.ShouldBe([(byte)9, (byte)8]);
     }
 
-    [Fact]
+    [Test]
     public void Update_WithABodyTooShortForItsEntries_ReportsWhyRatherThanThrowing()
     {
         // The body claims more entries than its bits can hold. The outer stream is still
@@ -693,7 +691,7 @@ public sealed class StringTableCodecTests
         message.UndecodedReason.ShouldNotBeNull().ShouldContain("entry decode failed");
     }
 
-    [Fact]
+    [Test]
     public void Update_WithoutItsTable_IsReportedRatherThanGuessed()
     {
         BitWriter writer = new BitWriter().Message(NetMessageType.UpdateStringTable);
@@ -711,7 +709,7 @@ public sealed class StringTableCodecTests
         message.UndecodedReason.ShouldNotBeNull().ShouldContain("not been seen");
     }
 
-    [Fact]
+    [Test]
     public void StringTableCapacity_IsRememberedPerTableAndZeroForUnknownIds()
     {
         NetDecodeState state = new();

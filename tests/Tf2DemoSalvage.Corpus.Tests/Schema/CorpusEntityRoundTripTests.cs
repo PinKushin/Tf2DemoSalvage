@@ -38,12 +38,12 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// cannot reproduce those - it is given entities, not the sender's buffer - which is exactly why
 /// the assembly writer carries them on a <c>slack</c> line instead.
 /// </remarks>
-public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
+public sealed class CorpusEntityRoundTripTests
 {
     /// <summary>Commands read per demo, so a full run stays inside a normal test cycle.</summary>
     private const int CommandLimit = 900;
 
-    [Fact]
+    [Test]
     public void ReportHowManyEntitySnapshotsReEncodeExactly()
     {
         long snapshots = 0;
@@ -71,7 +71,7 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
                 continue;
             }
 
-            output.WriteLine(string.Create(
+            TestContext.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{name}: {matched:N0} of {total:N0} snapshots re-encode exactly " +
                 $"({100.0 * matched / total:F2}%)"));
@@ -79,13 +79,13 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
 
         foreach (string failure in firstFailures)
         {
-            output.WriteLine($"    first mismatch - {failure}");
+            TestContext.Out.WriteLine($"    first mismatch - {failure}");
         }
 
         // Guards against the two ways this could report a clean run while measuring nothing: a
         // corpus that stopped being read, and a decoder that started failing every snapshot.
         snapshots.ShouldBeGreaterThan(1000);
-        output.WriteLine(string.Create(
+        TestContext.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"total: {exact:N0} of {snapshots:N0} ({100.0 * exact / snapshots:F2}%) " +
             $"re-encode their content exactly"));
@@ -93,7 +93,7 @@ public sealed class CorpusEntityRoundTripTests(ITestOutputHelper output)
         // Reported rather than folded into the failure count, because it is a fact about the
         // format rather than about this decoder: a body is stated in bits and built in bytes, so
         // it can end before its stated end, and what sits in the gap is not reliably zero.
-        output.WriteLine(string.Create(
+        TestContext.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{slackBearing:N0} snapshots end before their stated length, {slackBits:N0} bits " +
             $"in total - carried by the assembly writer on a slack line"));

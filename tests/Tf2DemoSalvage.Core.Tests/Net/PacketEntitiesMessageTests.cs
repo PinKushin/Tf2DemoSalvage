@@ -20,7 +20,7 @@ public sealed class PacketEntitiesMessageTests
         UpdateBaseline: false,
         Body: ReadOnlyMemory<byte>.Empty);
 
-    [Fact]
+    [Test]
     public void IsFullSnapshot_IsTheInverseOfIsDelta()
     {
         // Both polarities, so neither a dropped negation nor a constant survives.

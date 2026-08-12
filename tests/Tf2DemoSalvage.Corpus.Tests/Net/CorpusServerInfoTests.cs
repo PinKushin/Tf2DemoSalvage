@@ -16,9 +16,9 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// string at an arbitrary bit offset. If any field width in ServerInfo were wrong, the map
 /// name would be garbage rather than an exact match.
 /// </remarks>
-public sealed class CorpusServerInfoTests(ITestOutputHelper output)
+public sealed class CorpusServerInfoTests
 {
-    [Fact]
+    [Test]
     public void ServerInfo_AgreesWithTheDemoHeader()
     {
         foreach (string path in Corpus.Files())
@@ -32,7 +32,7 @@ public sealed class CorpusServerInfoTests(ITestOutputHelper output)
             info.Map.ShouldBe(header.MapName);
             info.GameDirectory.ShouldBe(header.GameDirectory);
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: protocol {info.NetworkProtocol}, map {info.Map}, " +
                 $"{info.MaxPlayers} slots, {info.MaxClasses} classes, " +
                 $"{info.TickRate:F2} tick, platform {info.Platform}, " +
@@ -40,7 +40,7 @@ public sealed class CorpusServerInfoTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_ReportsPlausibleServerSettings()
     {
         foreach (string path in Corpus.Files())
@@ -56,7 +56,7 @@ public sealed class CorpusServerInfoTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ServerInfo_SourceTvFlagMatchesTheDemoKind()
     {
         // A SourceTV demo is recorded by an STV relay, so the flag should say so. The POV

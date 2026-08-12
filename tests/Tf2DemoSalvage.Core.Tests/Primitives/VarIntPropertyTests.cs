@@ -39,7 +39,7 @@ public sealed class VarIntPropertyTests
     private static void WriteZigZag(BitWriter writer, long value) =>
         WriteVarInt(writer, (ulong)((value << 1) ^ (value >> 63)));
 
-    [Fact]
+    [Test]
     public void AnyUInt32_SurvivesARoundTrip()
     {
         Gen.UInt.Sample(value =>
@@ -52,7 +52,7 @@ public sealed class VarIntPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void AnyUInt64_SurvivesARoundTrip()
     {
         Gen.ULong.Sample(value =>
@@ -65,7 +65,7 @@ public sealed class VarIntPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void AnyInt32_SurvivesAZigZagRoundTrip()
     {
         Gen.Int.Sample(value =>
@@ -78,7 +78,7 @@ public sealed class VarIntPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void AnyInt64_SurvivesAZigZagRoundTrip()
     {
         Gen.Long.Sample(value =>
@@ -91,7 +91,7 @@ public sealed class VarIntPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ASequenceOfVarInts_ReadsBackInOrder()
     {
         // Varints are self-delimiting, so a wrong continuation-bit test would misread the
@@ -117,7 +117,7 @@ public sealed class VarIntPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void VarIntsStartingAtAnyBitOffset_StillDecode()
     {
         // Varints are byte-oriented but not byte-aligned: Source reads them through the same
@@ -144,7 +144,7 @@ public sealed class VarIntPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ZigZagKeepsSmallMagnitudesShort()
     {
         // The reason zig-zag exists: -1 must cost one byte, not five. Without it every

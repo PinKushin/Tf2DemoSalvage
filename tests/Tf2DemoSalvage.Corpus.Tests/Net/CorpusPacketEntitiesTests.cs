@@ -15,12 +15,12 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// elsewhere: entity counts against the engine's edict limit, and the snapshot pattern against
 /// how delta compression has to work — one full snapshot, then deltas referencing earlier ticks.
 /// </remarks>
-public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
+public sealed class CorpusPacketEntitiesTests
 {
     /// <summary>MAX_EDICTS. A server cannot describe more entities than this.</summary>
     private const int MaxEdicts = 2048;
 
-    [Fact]
+    [Test]
     public void EntityCountsStayWithinEngineLimits()
     {
         foreach (string path in Corpus.Files())
@@ -41,7 +41,7 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void AlmostEverySnapshotIsADelta()
     {
         // Delta compression has to start from a full snapshot somewhere, but we cannot yet
@@ -60,7 +60,7 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void DeltasReferenceTicksThatHaveAlreadyHappened()
     {
         // A delta against a future tick would mean the header is being misread.
@@ -84,7 +84,7 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ReportSnapshotShape()
     {
         foreach (string path in Corpus.Files())
@@ -92,13 +92,13 @@ public sealed class CorpusPacketEntitiesTests(ITestOutputHelper output)
             IReadOnlyList<Corpus.SnapshotSummary> snapshots = Corpus.FirstSnapshots(path, 200);
             snapshots.ShouldNotBeEmpty(Path.GetFileName(path));
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: first snapshot updates {snapshots[0].UpdatedEntries} " +
                 $"of {snapshots[0].MaxEntries} entities in {snapshots[0].LengthBits} bits");
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"  later snapshots average {snapshots.Skip(1).Average(s => s.UpdatedEntries):F1} " +
                 $"entities and {snapshots.Skip(1).Average(s => s.LengthBits):F0} bits");
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();

@@ -25,7 +25,7 @@ public sealed class ContainerFuzzPropertyTests
     private const int RandomCaseCount = 600;
     private const int MaxTailLength = 256;
 
-    [Fact]
+    [Test]
     public void Container_SeededRandomBytes_NeverViolatesTheProperty()
     {
         Random random = new(Seed);
@@ -39,7 +39,7 @@ public sealed class ContainerFuzzPropertyTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Container_ValidHeaderWithCorruptCommands_NeverViolatesTheProperty()
     {
         // The condition that matters. Random bytes die at the magic; these get past it and reach
@@ -66,7 +66,7 @@ public sealed class ContainerFuzzPropertyTests
             0, "no corrupted demo ever reached the command reader");
     }
 
-    [Fact]
+    [Test]
     public void Snappy_SeededRandomBytes_NeverViolatesTheProperty()
     {
         Random random = new(Seed);
@@ -80,7 +80,7 @@ public sealed class ContainerFuzzPropertyTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Snappy_AHugeDeclaredOutputIsRefusedRatherThanAllocated()
     {
         // A Snappy stream opens with a varint of the decompressed size. Believing it is how a

@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Cli.Tests;
 /// </remarks>
 public sealed class CommandLineTests
 {
-    [Fact]
+    [Test]
     public void DemoPath_IsTheFirstArgument()
     {
         CommandLine line = CommandLine.Parse(["a.dem"]);
@@ -23,20 +23,18 @@ public sealed class CommandLineTests
         line.Error.ShouldBeNull();
         line.Format.ShouldBe(OutputFormat.Dump);
     }
-
-    [Theory]
-    [InlineData("-s", OutputFormat.Summary)]
-    [InlineData("--summary", OutputFormat.Summary)]
-    [InlineData("-t", OutputFormat.Trace)]
-    [InlineData("--trace", OutputFormat.Trace)]
-    [InlineData("-j", OutputFormat.JsonLines)]
-    [InlineData("--jsonl", OutputFormat.JsonLines)]
+    [TestCase("-s", OutputFormat.Summary)]
+    [TestCase("--summary", OutputFormat.Summary)]
+    [TestCase("-t", OutputFormat.Trace)]
+    [TestCase("--trace", OutputFormat.Trace)]
+    [TestCase("-j", OutputFormat.JsonLines)]
+    [TestCase("--jsonl", OutputFormat.JsonLines)]
     public void FormatFlags_SelectTheirFormat(string flag, OutputFormat expected)
     {
         CommandLine.Parse(["a.dem", flag]).Format.ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void OutputPath_ConsumesTheFollowingArgument()
     {
         // The measurement is the flag *after* the path, not the path itself. An option that
@@ -49,7 +47,7 @@ public sealed class CommandLineTests
         line.Error.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void OutputPathThatLooksLikeAFlag_IsStillTakenAsThePath()
     {
         // A value is a value. Treating "-s" here as a format flag would silently write the
@@ -57,7 +55,7 @@ public sealed class CommandLineTests
         CommandLine.Parse(["a.dem", "-o", "-s"]).OutputPath.ShouldBe("-s");
     }
 
-    [Fact]
+    [Test]
     public void EntityLimit_ImpliesEntities()
     {
         // Asking for a limit without asking for entities describes a run that would do nothing
@@ -69,7 +67,7 @@ public sealed class CommandLineTests
         line.IncludeEntities.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void Entities_CanBeAskedForWithoutALimit()
     {
         CommandLine line = CommandLine.Parse(["a.dem", "-t", "-e"]);
@@ -77,19 +75,15 @@ public sealed class CommandLineTests
         line.IncludeEntities.ShouldBeTrue();
         line.EntitySnapshotLimit.ShouldBe(0);
     }
-
-    [Theory]
-    [InlineData(new[] { "a.dem", "-o" }, "-o requires a path")]
-    [InlineData(new[] { "a.dem", "--entity-limit" }, "--entity-limit requires a count")]
-    [InlineData(new[] { "a.dem", "-x" }, "unrecognised option '-x'")]
+    [TestCase(new[] { "a.dem", "-o" }, "-o requires a path")]
+    [TestCase(new[] { "a.dem", "--entity-limit" }, "--entity-limit requires a count")]
+    [TestCase(new[] { "a.dem", "-x" }, "unrecognised option '-x'")]
     public void MalformedArguments_AreReportedRatherThanIgnored(string[] args, string expected)
     {
         CommandLine.Parse(args).Error.ShouldBe(expected);
     }
-
-    [Theory]
-    [InlineData("nonsense")]
-    [InlineData("-3")]
+    [TestCase("nonsense")]
+    [TestCase("-3")]
     public void EntityLimit_RejectsWhatIsNotACount(string value)
     {
         // Negative and non-numeric both, because a limit is used as a comparison bound - a
@@ -97,16 +91,14 @@ public sealed class CommandLineTests
         CommandLine.Parse(["a.dem", "--entity-limit", value]).Error.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Test]
     public void NoArguments_IsAnError()
     {
         CommandLine.Parse([]).Error.ShouldNotBeNull();
     }
-
-    [Theory]
-    [InlineData("-h")]
-    [InlineData("--help")]
-    [InlineData("/?")]
+    [TestCase("-h")]
+    [TestCase("--help")]
+    [TestCase("/?")]
     public void HelpFlags_AreRecognisedAndAreNotErrors(string flag)
     {
         CommandLine line = CommandLine.Parse([flag]);
@@ -115,7 +107,7 @@ public sealed class CommandLineTests
         line.Error.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void LastFormatFlagWins()
     {
         // Documenting the rule rather than leaving it to whichever branch happens to run last.
@@ -123,7 +115,7 @@ public sealed class CommandLineTests
         CommandLine.Parse(["a.dem", "-s", "-t"]).Format.ShouldBe(OutputFormat.Trace);
     }
 
-    [Fact]
+    [Test]
     public void WithNoFlags_EntitiesAreOffAndUnlimited()
     {
         // The defaults, asserted rather than assumed. Mutation testing found this: flipping
@@ -137,7 +129,7 @@ public sealed class CommandLineTests
         line.HelpRequested.ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void EntityLimitOfZero_IsValidAndMeansAll()
     {
         // Zero is the documented "no limit" value, so rejecting it is a bug rather than
@@ -149,24 +141,20 @@ public sealed class CommandLineTests
         line.EntitySnapshotLimit.ShouldBe(0);
         line.IncludeEntities.ShouldBeTrue();
     }
-
-    [Theory]
-    [InlineData("--output")]
-    [InlineData("-o")]
+    [TestCase("--output")]
+    [TestCase("-o")]
     public void BothOutputSpellings_Work(string flag)
     {
         CommandLine.Parse(["a.dem", flag, "out.txt"]).OutputPath.ShouldBe("out.txt");
     }
-
-    [Theory]
-    [InlineData("--entities")]
-    [InlineData("-e")]
+    [TestCase("--entities")]
+    [TestCase("-e")]
     public void BothEntitySpellings_Work(string flag)
     {
         CommandLine.Parse(["a.dem", flag]).IncludeEntities.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void ErrorText_NamesWhatWasWrong()
     {
         // The messages are the only thing a user sees when a command line is rejected, so they
@@ -176,7 +164,7 @@ public sealed class CommandLineTests
             .ShouldBe("--entity-limit needs a non-negative number, not 'nope'");
     }
 
-    [Fact]
+    [Test]
     public void AnInvalidCommandLine_HasNoDemoPathToActOn()
     {
         // Error and DemoPath are checked together deliberately: a caller that tested only for
@@ -187,22 +175,19 @@ public sealed class CommandLineTests
         line.DemoPath.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void HelpDoesNotCarryADemoPath()
     {
         CommandLine.Parse(["--help"]).DemoPath.ShouldBeEmpty();
     }
-
-
-    [Theory]
-    [InlineData("-a")]
-    [InlineData("--asm")]
+    [TestCase("-a")]
+    [TestCase("--asm")]
     public void AsmFlag_SelectsTheAssemblyFormat(string flag)
     {
         CommandLine.Parse(["demo.dem", flag]).Format.ShouldBe(OutputFormat.Assembly);
     }
 
-    [Fact]
+    [Test]
     public void Compile_WithoutAnOutputPath_IsRefused()
     {
         // A demo is binary and standard output is text. Allowing it would write a file that looks
@@ -214,7 +199,7 @@ public sealed class CommandLineTests
         line.Error.ShouldContain("-o");
     }
 
-    [Fact]
+    [Test]
     public void Compile_WithAnOutputPath_IsAccepted()
     {
         CommandLine line = CommandLine.Parse(["demo.dasm", "--compile", "-o", "out.dem"]);

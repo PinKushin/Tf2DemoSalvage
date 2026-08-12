@@ -38,7 +38,7 @@ public sealed class SendPropDecoderTests
         float high = 1f) =>
         new(type, "p", flags, string.Empty, low, high, bits, 0);
 
-    [Fact]
+    [Test]
     public void UnsignedInt_RoundTripsAtAnyWidth()
     {
         Gen.Select(Gen.UInt, Gen.Int[1, 31]).Sample(t =>
@@ -55,7 +55,7 @@ public sealed class SendPropDecoderTests
         });
     }
 
-    [Fact]
+    [Test]
     public void SignedInt_IsSignExtendedFromItsOwnWidth()
     {
         // The failure this guards: a negative value read at 11 bits comes back as a large
@@ -72,7 +72,7 @@ public sealed class SendPropDecoderTests
         });
     }
 
-    [Fact]
+    [Test]
     public void UnsignedThirtyTwoBitInteger_DoesNotWrapNegative()
     {
         // The whole range of a uint cannot fit in an int, so a 32-bit unsigned property read
@@ -88,11 +88,9 @@ public sealed class SendPropDecoderTests
         SendPropDecoder.ReadInt(ref reader, Property(flags: Unsigned, bits: 32))
             .ShouldBe(4294967295L);
     }
-
-    [Theory]
-    [InlineData(2147483648L)]
-    [InlineData(3000000000L)]
-    [InlineData(4294967294L)]
+    [TestCase(2147483648L)]
+    [TestCase(3000000000L)]
+    [TestCase(4294967294L)]
     public void UnsignedValuesAboveIntMaxValue_SurviveIntact(long expected)
     {
         BitWriter writer = new();
@@ -103,7 +101,7 @@ public sealed class SendPropDecoderTests
             .ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void SignedThirtyTwoBitInteger_IsStillNegativeWhereItShouldBe()
     {
         // The control. Widening the return type must not turn signed -1 into 4294967295.
@@ -113,12 +111,10 @@ public sealed class SendPropDecoderTests
 
         SendPropDecoder.ReadInt(ref reader, Property(bits: 32)).ShouldBe(-1L);
     }
-
-    [Theory]
-    [InlineData(-1, 11)]
-    [InlineData(-2048, 12)]
-    [InlineData(2047, 12)]
-    [InlineData(-1, 32)]
+    [TestCase(-1, 11)]
+    [TestCase(-2048, 12)]
+    [TestCase(2047, 12)]
+    [TestCase(-1, 32)]
     public void SignedInt_KnownBoundaries(int value, int bits)
     {
         BitWriter writer = new();
@@ -132,7 +128,7 @@ public sealed class SendPropDecoderTests
         Justification = "Exactness is the entire point of SPROP_NOSCALE - the flag exists so " +
                         "the value survives untouched. A tolerance here would pass even if " +
                         "the encoding quietly became lossy.")]
-    [Fact]
+    [Test]
     public void NoScaleFloat_IsExactlyTheOriginal()
     {
         // SPROP_NOSCALE exists precisely so a value survives untouched, so this is the one
@@ -147,7 +143,7 @@ public sealed class SendPropDecoderTests
         });
     }
 
-    [Fact]
+    [Test]
     public void RangeEncodedFloat_LandsWithinItsQuantisationStep()
     {
         // Range encoding is lossy by design: the value is a fraction of the way from low to
@@ -168,10 +164,8 @@ public sealed class SendPropDecoderTests
             return MathF.Abs(decoded - value) <= step;
         });
     }
-
-    [Theory]
-    [InlineData(0u, 0f)]
-    [InlineData(255u, 100f)]
+    [TestCase(0u, 0f)]
+    [TestCase(255u, 100f)]
     public void RangeEncodedFloat_HitsItsEndpointsExactly(uint raw, float expected)
     {
         BitWriter writer = new();
@@ -182,7 +176,7 @@ public sealed class SendPropDecoderTests
             .ShouldBe(expected, 0.001f);
     }
 
-    [Fact]
+    [Test]
     public void Normal_DecodesSignAndMagnitudeWithinRange()
     {
         Gen.Select(Gen.Bool, Gen.UInt[0, 2047]).Sample(t =>
@@ -199,7 +193,7 @@ public sealed class SendPropDecoderTests
         });
     }
 
-    [Fact]
+    [Test]
     public void Vector_ReadsThreeComponents()
     {
         BitWriter writer = new();
@@ -214,7 +208,7 @@ public sealed class SendPropDecoderTests
             .ShouldBe((1f, 2f, 3f));
     }
 
-    [Fact]
+    [Test]
     public void NormalVector_DerivesTheThirdComponentFromTheFirstTwo()
     {
         // A unit normal only transmits a sign bit for z. Reading a whole float instead would
@@ -233,7 +227,7 @@ public sealed class SendPropDecoderTests
         z.ShouldBe(-1f, 0.0001f);
     }
 
-    [Fact]
+    [Test]
     public void VectorXY_ReadsTwoComponentsAndStopsThere()
     {
         BitWriter writer = new();
@@ -247,7 +241,7 @@ public sealed class SendPropDecoderTests
         reader.ReadUInt32(16).ShouldBe(0xABCDu);
     }
 
-    [Fact]
+    [Test]
     public void String_IsLengthPrefixedNotNulTerminated()
     {
         // The message layer uses NUL-terminated strings; entity properties use a nine-bit
@@ -266,7 +260,7 @@ public sealed class SendPropDecoderTests
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
 
-    [Fact]
+    [Test]
     public void String_WithMultiByteCharacters_IsReadAsUtf8()
     {
         // The nine-bit prefix counts BYTES, not characters, and this is another place player
@@ -295,7 +289,7 @@ public sealed class SendPropDecoderTests
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
 
-    [Fact]
+    [Test]
     public void EmptyString_ReadsAsEmptyAndConsumesOnlyItsLength()
     {
         BitWriter writer = new();
@@ -305,11 +299,9 @@ public sealed class SendPropDecoderTests
         SendPropDecoder.ReadString(ref reader).ShouldBeEmpty();
         reader.BitsRead.ShouldBe(9);
     }
-
-    [Theory]
-    [InlineData(0.6f, 0.8f, false)]
-    [InlineData(0.6f, 0.8f, true)]
-    [InlineData(1f, 0f, false)]
+    [TestCase(0.6f, 0.8f, false)]
+    [TestCase(0.6f, 0.8f, true)]
+    [TestCase(1f, 0f, false)]
     public void NormalVector_ReconstructsAUnitLengthZ(float x, float y, bool negative)
     {
         // z is derived so the vector is unit length. Getting the arithmetic wrong yields a
@@ -326,10 +318,8 @@ public sealed class SendPropDecoderTests
         MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)).ShouldBe(1f, 0.01f);
         (dz < 0).ShouldBe(negative && MathF.Abs(dz) > 0.0001f);
     }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [TestCase(false)]
+    [TestCase(true)]
     public void NormalVector_WithASlackComponentSum_HasANonZeroZ(bool negative)
     {
         // Every other normal-vector test here happens to produce z = 0, which makes the sign
@@ -348,7 +338,7 @@ public sealed class SendPropDecoderTests
         (z < 0).ShouldBe(negative);
     }
 
-    [Fact]
+    [Test]
     public void NormalVector_ComponentsBeyondUnitLength_ClampZToZeroRatherThanNaN()
     {
         // x and y can exceed unit length in malformed data. Without the guard the square root
@@ -367,7 +357,7 @@ public sealed class SendPropDecoderTests
         z.ShouldBe(0f);
     }
 
-    [Fact]
+    [Test]
     public void NormalFloat_UsesTheFullElevenBitRange()
     {
         BitWriter writer = new();
@@ -377,11 +367,9 @@ public sealed class SendPropDecoderTests
         // 2047 of 2047 is exactly 1.0; a wrong divisor shows up here rather than in the middle.
         SendPropDecoder.ReadFloat(ref reader, Property(flags: Normal)).ShouldBe(1f, 0.0001f);
     }
-
-    [Theory]
-    [InlineData(0u, -50f)]
-    [InlineData(255u, 50f)]
-    [InlineData(128u, 0.2f)]
+    [TestCase(0u, -50f)]
+    [TestCase(255u, 50f)]
+    [TestCase(128u, 0.2f)]
     public void RangeEncodedFloat_SpansANegativeToPositiveRange(uint raw, float expected)
     {
         // Both endpoints and the middle. The lower endpoint alone is not enough: at raw 0 the
@@ -394,12 +382,10 @@ public sealed class SendPropDecoderTests
         SendPropDecoder.ReadFloat(ref reader, Property(bits: 8, low: -50f, high: 50f))
             .ShouldBe(expected, 0.5f);
     }
-
-    [Theory]
-    [InlineData(0u, 0)]
-    [InlineData(1u, 1)]
-    [InlineData(300u, 300)]
-    [InlineData(70000u, 70000)]
+    [TestCase(0u, 0)]
+    [TestCase(1u, 1)]
+    [TestCase(300u, 300)]
+    [TestCase(70000u, 70000)]
     public void UnsignedVarIntInteger_IsReadAsAVarIntNotAFixedWidthField(uint value, int expected)
     {
         // Flag 32 is SPROP_NORMAL on a float and SPROP_VARINT on an integer. Reading a varint
@@ -414,13 +400,11 @@ public sealed class SendPropDecoderTests
             .ShouldBe(expected);
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(1)]
-    [InlineData(-300)]
-    [InlineData(300)]
+    [TestCase(0)]
+    [TestCase(-1)]
+    [TestCase(1)]
+    [TestCase(-300)]
+    [TestCase(300)]
     public void SignedVarIntInteger_IsZigZagDecoded(int value)
     {
         // Signed varints are zig-zag encoded, so -1 is one byte rather than five. Decoding a
@@ -433,7 +417,7 @@ public sealed class SendPropDecoderTests
         SendPropDecoder.ReadInt(ref reader, Property(flags: VarInt, bits: 8)).ShouldBe(value);
     }
 
-    [Fact]
+    [Test]
     public void VarIntFlagOnAFloat_StillMeansNormalNotVarInt()
     {
         // The same bit, the other meaning. If ReadFloat took the varint path the sentinel
@@ -447,7 +431,7 @@ public sealed class SendPropDecoderTests
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
 
-    [Fact]
+    [Test]
     public void DataTableProperties_AreTheOnlyUnsupportedKind()
     {
         // DataTable is structure rather than a value and never reaches a flattened list.
@@ -536,7 +520,7 @@ public sealed class SendPropDecoderTests
         return writer.Write((uint)frac, lowPrecision ? 3 : 5);
     }
 
-    [Fact]
+    [Test]
     public void Coord_WithNeitherPartPresent_IsZeroAfterExactlyTwoBits()
     {
         BitWriter writer = new();
@@ -547,13 +531,11 @@ public sealed class SendPropDecoderTests
         reader.BitsRead.ShouldBe(2);
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
-
-    [Theory]
-    [InlineData(5, 0, false, 5f)]
-    [InlineData(0, 16, false, 0.5f)]
-    [InlineData(3, 16, false, 3.5f)]
-    [InlineData(3, 16, true, -3.5f)]
-    [InlineData(16384, 31, false, 16384.96875f)]
+    [TestCase(5, 0, false, 5f)]
+    [TestCase(0, 16, false, 0.5f)]
+    [TestCase(3, 16, false, 3.5f)]
+    [TestCase(3, 16, true, -3.5f)]
+    [TestCase(16384, 31, false, 16384.96875f)]
     public void Coord_KnownValues(int intPart, int frac, bool negative, float expected)
     {
         BitWriter writer = new();
@@ -568,7 +550,7 @@ public sealed class SendPropDecoderTests
         Justification = "Coordinates quantise to multiples of 1/32, every one of which is " +
                         "exactly representable in a float. A tolerance would accept a decoder " +
                         "that landed on the wrong grid point, which is the failure being tested.")]
-    [Fact]
+    [Test]
     public void Coord_RoundTripsAcrossItsWholeGrid()
     {
         // Every representable coordinate is a multiple of 1/32, which is exact in a float, so
@@ -588,12 +570,10 @@ public sealed class SendPropDecoderTests
                 return SendPropDecoder.ReadFloat(ref reader, Property(flags: Coord)) == expected;
             });
     }
-
-    [Theory]
-    [InlineData(true, 0, 16, false, 0.5f)]
-    [InlineData(true, 100, 8, false, 100.25f)]
-    [InlineData(false, 5000, 0, false, 5000f)]
-    [InlineData(true, 0, 16, true, -0.5f)]
+    [TestCase(true, 0, 16, false, 0.5f)]
+    [TestCase(true, 100, 8, false, 100.25f)]
+    [TestCase(false, 5000, 0, false, 5000f)]
+    [TestCase(true, 0, 16, true, -0.5f)]
     public void CoordMp_KnownValues(bool inBounds, int intPart, int frac, bool negative, float expected)
     {
         // The in-bounds bit narrows the integer to 11 bits; out of bounds keeps the full 14.
@@ -610,7 +590,7 @@ public sealed class SendPropDecoderTests
     [SuppressMessage("Major Code Smell", "S1244:Do not check floating point equality",
         Justification = "As above - the 1/32 grid is exact in a float, and a tolerance would " +
                         "hide a decoder landing on an adjacent grid point.")]
-    [Fact]
+    [Test]
     public void CoordMp_RoundTripsAcrossTheGrid()
     {
         Gen.Select(Gen.Bool, Gen.Int[0, 2048], Gen.Int[0, 31], Gen.Bool).Sample(t =>
@@ -625,12 +605,10 @@ public sealed class SendPropDecoderTests
             return SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMp)) == expected;
         });
     }
-
-    [Theory]
-    [InlineData(true, 0, false, 0f)]
-    [InlineData(true, 7, false, 7f)]
-    [InlineData(false, 10000, false, 10000f)]
-    [InlineData(true, 7, true, -7f)]
+    [TestCase(true, 0, false, 0f)]
+    [TestCase(true, 7, false, 7f)]
+    [TestCase(false, 10000, false, 10000f)]
+    [TestCase(true, 7, true, -7f)]
     public void CoordMpIntegral_KnownValues(bool inBounds, int intPart, bool negative, float expected)
     {
         // Integral coords have no fraction bits at all, and read the sign only when an
@@ -643,7 +621,7 @@ public sealed class SendPropDecoderTests
             .ShouldBe(expected, 0.0001f);
     }
 
-    [Fact]
+    [Test]
     public void CoordMpIntegral_Zero_ConsumesExactlyTwoBits()
     {
         BitWriter writer = new();
@@ -655,10 +633,8 @@ public sealed class SendPropDecoderTests
         reader.BitsRead.ShouldBe(2);
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
-
-    [Theory]
-    [InlineData(0, 4, 0.5f)]
-    [InlineData(3, 2, 3.25f)]
+    [TestCase(0, 4, 0.5f)]
+    [TestCase(3, 2, 3.25f)]
     public void CoordMpLowPrecision_UsesThreeFractionBitsAtOneEighthResolution(
         int intPart, int frac, float expected)
     {
@@ -669,11 +645,9 @@ public sealed class SendPropDecoderTests
         SendPropDecoder.ReadFloat(ref reader, Property(flags: CoordMpLowPrecision))
             .ShouldBe(expected, 0.0001f);
     }
-
-    [Theory]
-    [InlineData(CoordMp | CoordMpLowPrecision)]
-    [InlineData(CoordMp | CoordMpIntegral)]
-    [InlineData(CoordMp | CoordMpLowPrecision | CoordMpIntegral)]
+    [TestCase(CoordMp | CoordMpLowPrecision)]
+    [TestCase(CoordMp | CoordMpIntegral)]
+    [TestCase(CoordMp | CoordMpLowPrecision | CoordMpIntegral)]
     public void CoordFlags_AreFirstMatchNotIndependentModifiers(int flags)
     {
         // The engine tests these in order and takes the first: COORD, COORD_MP, LOWPRECISION,
@@ -692,7 +666,7 @@ public sealed class SendPropDecoderTests
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
 
-    [Fact]
+    [Test]
     public void CoordVector_ReadsThreeCoordComponents()
     {
         // m_vecOrigin is exactly this: a vector whose components are coordinate-encoded.
@@ -709,7 +683,7 @@ public sealed class SendPropDecoderTests
         reader.ReadUInt32(7).ShouldBe(0x7Fu);
     }
 
-    [Fact]
+    [Test]
     public void Coord_TakesPrecedenceOverNoScale_MatchingTheEngine()
     {
         // The engine checks coordinate flags before SPROP_NOSCALE, so a property carrying

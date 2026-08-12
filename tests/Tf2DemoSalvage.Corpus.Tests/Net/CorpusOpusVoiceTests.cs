@@ -25,15 +25,16 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// <c>TheSteamIdIdentifiesSpeakersTheClientSlotCannot</c>), which is exactly the condition a
 /// shared decoder would desynchronise under.
 /// </remarks>
-public sealed class CorpusOpusVoiceTests(ITestOutputHelper output)
+public sealed class CorpusOpusVoiceTests
 {
-    [Fact]
+    [Test]
     public void EveryChunk_DecodesToNonSilentPcm()
     {
-        Assert.SkipUnless(
-            Corpus.AnyDemoUses("steam"),
-            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+        if (!Corpus.AnyDemoUses("steam"))
+        {
+            Assert.Ignore("no demo present carries steam-codec (Opus) voice - it is absent from the "
             + "committed corpus and lives only in tools/corpus/local");
+        }
 
         int chunks = 0;
         int totalSamples = 0;
@@ -96,18 +97,19 @@ public sealed class CorpusOpusVoiceTests(ITestOutputHelper output)
         double silentRate = (double)silentChunks / chunks;
         silentRate.ShouldBeLessThan(0.5, $"{silentChunks} of {chunks} chunks decoded to silence");
 
-        output.WriteLine(
+        TestContext.Out.WriteLine(
             $"{chunks} chunks decoded across {decoders.Count} speakers, " +
             $"{totalSamples} total samples, {silentChunks} silent ({silentRate:P1})");
     }
 
-    [Fact]
+    [Test]
     public void OneDecoderPerSpeaker_KeepsInterleavedStreamsInSync()
     {
-        Assert.SkipUnless(
-            Corpus.AnyDemoUses("steam"),
-            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+        if (!Corpus.AnyDemoUses("steam"))
+        {
+            Assert.Ignore("no demo present carries steam-codec (Opus) voice - it is absent from the "
             + "committed corpus and lives only in tools/corpus/local");
+        }
 
         // The property that justifies keying decoders by steamID rather than sharing one. If
         // packets from two speakers were fed through a single decoder, Opus's own delta state
@@ -162,7 +164,7 @@ public sealed class CorpusOpusVoiceTests(ITestOutputHelper output)
         }
 
         speakerSwitches.ShouldBeGreaterThan(0, "no interleaving occurred, so this test proved nothing");
-        output.WriteLine($"{speakerSwitches} speaker switches, all decoded without error");
+        TestContext.Out.WriteLine($"{speakerSwitches} speaker switches, all decoded without error");
     }
 
 }

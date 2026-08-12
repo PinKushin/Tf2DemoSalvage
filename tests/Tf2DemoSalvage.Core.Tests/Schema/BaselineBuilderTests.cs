@@ -44,7 +44,7 @@ public sealed class BaselineBuilderTests
         return writer.Build();
     }
 
-    [Fact]
+    [Test]
     public void ClassId_ComesFromTheEntryText_NotItsIndex()
     {
         // The whole point. Entry at index 0 declares class 7, so a builder reading the index
@@ -61,7 +61,7 @@ public sealed class BaselineBuilderTests
         decoder.Baseline(0).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void EntriesWithoutUsableText_AreSkipped()
     {
         // An entry whose text is missing or not a class id cannot be placed. Skipping is the
@@ -79,7 +79,7 @@ public sealed class BaselineBuilderTests
         decoder.Baseline(7).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void EntriesWithoutUserData_AreSkipped()
     {
         // A cleared entry carries no payload. Recording an empty baseline would mean an entity
@@ -91,7 +91,7 @@ public sealed class BaselineBuilderTests
         decoder.Baseline(7).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void ALaterEntryForTheSameClass_Replaces()
     {
         // Baselines are rewritten mid-match through svc_UpdateStringTable - up to 101 times in

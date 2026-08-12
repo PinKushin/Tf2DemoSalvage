@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class NetMessageReaderTests
 {
-    [Fact]
+    [Test]
     public void Read_SingleNetTick_DecodesEveryField()
     {
         byte[] packet = new BitWriter().NetTick(120935, 1500, 42).Build();
@@ -31,7 +31,7 @@ public sealed class NetMessageReaderTests
         tick.HostFrameTimeStdDevRaw.ShouldBe((ushort)42);
     }
 
-    [Fact]
+    [Test]
     public void Read_NetTick_ConvertsFrameTimeUsingTheSourceScale()
     {
         byte[] packet = new BitWriter().NetTick(1, 1500, 250).Build();
@@ -45,7 +45,7 @@ public sealed class NetMessageReaderTests
         tick.HostFrameTimeSeconds.ShouldBe(0.015f, 0.0000001f);
     }
 
-    [Fact]
+    [Test]
     public void Read_ConsumesExactlySixtyFourBitsPerNetTick()
     {
         byte[] packet = new BitWriter().NetTick(5, 1, 2).NetTick(9, 3, 4).Build();
@@ -59,7 +59,7 @@ public sealed class NetMessageReaderTests
         ((NetTickMessage)result.Messages[1]).Tick.ShouldBe(9);
     }
 
-    [Fact]
+    [Test]
     public void Read_EmptyMessage_HasNoBodyAndDoesNotStopTheStream()
     {
         // net_NOP is pure padding: the six type bits and nothing else.
@@ -75,7 +75,7 @@ public sealed class NetMessageReaderTests
         ((NetTickMessage)result.Messages[1]).Tick.ShouldBe(7);
     }
 
-    [Fact]
+    [Test]
     public void Read_EveryDefinedMessageType_IsImplemented()
     {
         // This test was rehomed four times - PacketEntities, TempEntities, SetView, Menu - as
@@ -98,7 +98,7 @@ public sealed class NetMessageReaderTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Read_StoppingReportsHowFarItGot()
     {
         // The behaviour the test above used to cover, kept against an undefined id since no
@@ -114,7 +114,7 @@ public sealed class NetMessageReaderTests
         result.StopReason.ShouldNotBeNullOrEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Read_UndefinedMessageId_StopsRatherThanGuessing()
     {
         // Id 22 is unused at this protocol.
@@ -127,7 +127,7 @@ public sealed class NetMessageReaderTests
         result.StopReason.ShouldNotBeNull().ShouldContain("22");
     }
 
-    [Fact]
+    [Test]
     public void Read_TrailingZeroPadding_ReadsAsNopsAndEndsCleanly()
     {
         // Packets are padded to a byte boundary. net_NOP is message id 0, so trailing zero
@@ -143,7 +143,7 @@ public sealed class NetMessageReaderTests
         result.Messages.Skip(1).ShouldAllBe(m => m.Type == NetMessageType.Empty);
     }
 
-    [Fact]
+    [Test]
     public void Read_MessageBodyRunningPastTheEnd_ReportsTruncation()
     {
         // A net_Tick type followed by only half its body.
@@ -158,7 +158,7 @@ public sealed class NetMessageReaderTests
         result.StopReason.ShouldNotBeNull().ShouldContain("truncat", Case.Insensitive);
     }
 
-    [Fact]
+    [Test]
     public void IsComplete_IsTrueOnlyWhenTheWholePacketWasRead()
     {
         // Callers branch on this to decide whether a packet's contents can be trusted as
@@ -174,7 +174,7 @@ public sealed class NetMessageReaderTests
         NetMessageReader.Read([]).IsComplete.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void Read_EmptyPacket_YieldsNothingAndNoComplaint()
     {
         NetMessageReadResult result = NetMessageReader.Read([]);
@@ -183,13 +183,11 @@ public sealed class NetMessageReaderTests
         result.StopReason.ShouldBeNull();
         result.BitsConsumed.ShouldBe(0);
     }
-
-    [Theory]
-    [InlineData(4, "SayText2")]
-    [InlineData(2, "HudText")]
-    [InlineData(9, "ShowMenu")]
-    [InlineData(78, "BuiltObject")]
-    [InlineData(82, "HapSetDrag")]
+    [TestCase(4, "SayText2")]
+    [TestCase(2, "HudText")]
+    [TestCase(9, "ShowMenu")]
+    [TestCase(78, "BuiltObject")]
+    [TestCase(82, "HapSetDrag")]
     public void UserMessage_IsReportedWithItsRegisteredName(int type, string expected)
     {
         // A user message is where TF2 puts most of what a reader wants - damage numbers,
@@ -227,10 +225,8 @@ public sealed class NetMessageReaderTests
         // The tick behind it: naming a message must not change how many bits it consumes.
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
-
-    [Theory]
-    [InlineData(85)]    // exactly one past the last entry
-    [InlineData(200)]   // far past it
+    [TestCase(85)]    // exactly one past the last entry
+    [TestCase(200)]   // far past it
     public void UnknownUserMessageType_IsReportedWithoutAName(int type)
     {
         // The table is TF2's registration order at one point in its history, so an id past the
@@ -259,7 +255,7 @@ public sealed class NetMessageReaderTests
         user.Name.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void TheLastId_IsNamedOnlyWithTheEmptyBodyItsRegistrationDeclares()
     {
         // Id 84 is HapMeleeContact, the last entry in the modern id space, and Valve registers it
@@ -277,7 +273,7 @@ public sealed class NetMessageReaderTests
         user.BodyBits.ShouldBe(0);
     }
 
-    [Fact]
+    [Test]
     public void ChatUserMessages_AreStillDecodedAsChat()
     {
         // The control. SayText2 was decoded before this change and must not regress into a
@@ -308,7 +304,7 @@ public sealed class NetMessageReaderTests
     }
 
 
-    [Fact]
+    [Test]
     public void UnreliableSounds_ReportCountAndLength()
     {
         // svc_Sounds was the single most common skipped message in the corpus - 231 in one 2009
@@ -333,7 +329,7 @@ public sealed class NetMessageReaderTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(77);
     }
 
-    [Fact]
+    [Test]
     public void ReliableSounds_ImplyOneSoundAndAShorterLengthField()
     {
         // The trap in this message: the reliable flag changes *two* fields at once. A reliable

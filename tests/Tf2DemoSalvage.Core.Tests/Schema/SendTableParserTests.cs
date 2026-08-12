@@ -78,7 +78,7 @@ public sealed class SendTableParserTests
         return writer.Build();
     }
 
-    [Fact]
+    [Test]
     public void Parse_SingleTableWithNumericProp_ReadsEveryField()
     {
         BitWriter writer = new();
@@ -103,7 +103,7 @@ public sealed class SendTableParserTests
         property.BitCount.ShouldBe(11);
     }
 
-    [Fact]
+    [Test]
     public void Parse_DataTableProp_CarriesTheReferencedTableName()
     {
         BitWriter writer = new();
@@ -118,7 +118,7 @@ public sealed class SendTableParserTests
         property.BitCount.ShouldBe(0);
     }
 
-    [Fact]
+    [Test]
     public void Parse_ExcludeProp_CarriesTheTableItExcludesFrom()
     {
         // An exclusion removes an inherited property. It reads a table name rather than
@@ -134,7 +134,7 @@ public sealed class SendTableParserTests
         property.ReferencedTable.ShouldBe("DT_BasePlayer");
     }
 
-    [Fact]
+    [Test]
     public void Parse_ArrayProp_CarriesItsElementCount()
     {
         BitWriter writer = new();
@@ -148,7 +148,7 @@ public sealed class SendTableParserTests
         property.ElementCount.ShouldBe(24);
     }
 
-    [Fact]
+    [Test]
     public void Parse_NumericProp_HasNoReferencedTable()
     {
         // Only datatable and exclude properties name a table. Leaving stale text here would
@@ -164,12 +164,10 @@ public sealed class SendTableParserTests
         table.Properties[0].ReferencedTable.ShouldBeEmpty();
         table.Properties[1].ReferencedTable.ShouldBeEmpty();
     }
-
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(ExcludeFlag, true)]
-    [InlineData(ExcludeFlag | 1, true)]
-    [InlineData(1 << 5, false)]
+    [TestCase(0, false)]
+    [TestCase(ExcludeFlag, true)]
+    [TestCase(ExcludeFlag | 1, true)]
+    [TestCase(1 << 5, false)]
     public void IsExcluded_ReadsOnlyItsOwnFlag(int flags, bool expected)
     {
         BitWriter writer = new();
@@ -179,12 +177,10 @@ public sealed class SendTableParserTests
 
         SendTableParser.Parse(payload).Tables[0].Properties[0].IsExcluded.ShouldBe(expected);
     }
-
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(1 << 10, true)]
-    [InlineData((1 << 10) | 1, true)]
-    [InlineData(1 << 9, false)]
+    [TestCase(0, false)]
+    [TestCase(1 << 10, true)]
+    [TestCase((1 << 10) | 1, true)]
+    [TestCase(1 << 9, false)]
     public void ChangesOften_ReadsOnlyItsOwnFlag(int flags, bool expected)
     {
         // This flag reorders the flattened property list, and entity deltas index into that
@@ -197,7 +193,7 @@ public sealed class SendTableParserTests
         SendTableParser.Parse(payload).Tables[0].Properties[0].ChangesOften.ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void Parse_MultipleTablesAndProps_KeepsWireOrder()
     {
         // Order is the contract: entity deltas index into the flattened property list, so a
@@ -217,7 +213,7 @@ public sealed class SendTableParserTests
         schema.Tables[1].Properties[0].Type.ShouldBe(SendPropType.String);
     }
 
-    [Fact]
+    [Test]
     public void Parse_ServerClasses_LinkClassIdsToTables()
     {
         BitWriter writer = new();
@@ -235,7 +231,7 @@ public sealed class SendTableParserTests
         schema.ServerClasses[1].TableName.ShouldBe("DT_ObjectSentrygun");
     }
 
-    [Fact]
+    [Test]
     public void Parse_LooksUpTablesByName()
     {
         BitWriter writer = new();
@@ -249,7 +245,7 @@ public sealed class SendTableParserTests
         schema.FindTable("DT_MISSING").ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Parse_NoTablesAtAll_YieldsAnEmptySchema()
     {
         DemoSchema schema = SendTableParser.Parse(Finish(new BitWriter()));
@@ -258,7 +254,7 @@ public sealed class SendTableParserTests
         schema.ServerClasses.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Parse_FlagsUseSixteenBitsNotSeventeen()
     {
         // The trap this whole file exists to guard. Flags are transmitted with
@@ -280,11 +276,9 @@ public sealed class SendTableParserTests
         schema.Tables[1].Properties[0].Name.ShouldBe("still_here");
         schema.Tables[1].Properties[0].BitCount.ShouldBe(6);
     }
-
-    [Theory]
-    [InlineData(24, 7)]
-    [InlineData(15, 7)]
-    [InlineData(14, 6)]
+    [TestCase((ushort)24, 7)]
+    [TestCase((ushort)15, 7)]
+    [TestCase((ushort)14, 6)]
     public void BitCountField_NarrowsBelowProtocol15(ushort protocol, int expectedWidth)
     {
         // Measured, not read from a header. Valve's proto_version.h does not mention this - the
@@ -320,17 +314,15 @@ public sealed class SendTableParserTests
         schema.Tables.ShouldHaveSingleItem().Properties.ShouldHaveSingleItem()
             .BitCount.ShouldBe(33);
     }
-
-    [Theory]
-    [InlineData(24, 6, SendPropType.DataTable)]    // current: VectorXY occupies 3
-    [InlineData(24, 5, SendPropType.Array)]
-    [InlineData(24, 4, SendPropType.String)]
-    [InlineData(15, 5, SendPropType.DataTable)]    // 2009: no VectorXY, everything shifts down
-    [InlineData(15, 4, SendPropType.Array)]
-    [InlineData(15, 3, SendPropType.String)]
-    [InlineData(15, 2, SendPropType.Vector)]       // 2009, below the insertion point: unshifted
-    [InlineData(15, 1, SendPropType.Float)]
-    [InlineData(15, 0, SendPropType.Int)]
+    [TestCase((ushort)24, (uint)6, SendPropType.DataTable)]    // current: VectorXY occupies 3
+    [TestCase((ushort)24, (uint)5, SendPropType.Array)]
+    [TestCase((ushort)24, (uint)4, SendPropType.String)]
+    [TestCase((ushort)15, (uint)5, SendPropType.DataTable)]    // 2009: no VectorXY, everything shifts down
+    [TestCase((ushort)15, (uint)4, SendPropType.Array)]
+    [TestCase((ushort)15, (uint)3, SendPropType.String)]
+    [TestCase((ushort)15, (uint)2, SendPropType.Vector)]    // 2009, below the insertion point: unshifted
+    [TestCase((ushort)15, (uint)1, SendPropType.Float)]
+    [TestCase((ushort)15, (uint)0, SendPropType.Int)]
     public void PropertyType_IsNumberedByEra(ushort protocol, uint wireType, SendPropType expected)
     {
         // Valve's dt_common.h, compared between the orangebox branch (2009) and the tf2 branch:

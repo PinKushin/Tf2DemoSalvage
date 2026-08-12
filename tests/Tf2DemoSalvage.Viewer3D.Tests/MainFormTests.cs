@@ -20,9 +20,10 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// control breaks an automation script silently — the script simply fails to find it and reports
 /// a missing element, which reads like an application bug rather than a rename.
 /// </remarks>
+[TestFixture]
 public sealed class MainFormTests
 {
-    [Fact]
+    [Test]
     public void EveryAddressableControlHasItsAutomationId()
     {
         // Asserted against the constants the shell exposes rather than against literals, so a
@@ -39,7 +40,7 @@ public sealed class MainFormTests
             .ShouldBe([MainForm.OpenDemoItemId, MainForm.ExitItemId]);
     }
 
-    [Fact]
+    [Test]
     public void EveryAddressableControlHasAnAccessibleName()
     {
         // Separate from the id and not interchangeable with it: the id is a stable identifier
@@ -52,7 +53,7 @@ public sealed class MainFormTests
         FileMenu(form).AccessibleName.ShouldBe("File menu");
     }
 
-    [Fact]
+    [Test]
     public void TheViewportFillsTheWindowBeneathTheMenu()
     {
         // Docking order is easy to get wrong in a way that looks fine until the window is
@@ -69,7 +70,7 @@ public sealed class MainFormTests
             .ShouldBeLessThan(form.Controls.IndexOf(form.MainMenuStrip!));
     }
 
-    [Fact]
+    [Test]
     public void ConstructingTheShellCreatesNoDevice()
     {
         // The property this whole test class depends on. If the constructor built a swap chain,

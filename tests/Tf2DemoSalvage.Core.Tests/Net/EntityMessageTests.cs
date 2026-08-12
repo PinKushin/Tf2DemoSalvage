@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class EntityMessageTests
 {
-    [Fact]
+    [Test]
     public void TheLeadingByteIsReportedAsTheMessageType()
     {
         // Every svc_EntityMessage in the corpus is exactly this: 8 bits, class 1, type 1 - one
@@ -31,7 +31,7 @@ public sealed class EntityMessageTests
         message.MessageType.ShouldBe(1);
     }
 
-    [Fact]
+    [Test]
     public void ABodyLongerThanOneByte_StillReportsOnlyTheLeadingByte()
     {
         // The type byte is the dispatch, and whatever follows belongs to the case it selects.
@@ -41,7 +41,7 @@ public sealed class EntityMessageTests
         message.MessageType.ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void AnEmptyBody_ReportsNoMessageType()
     {
         // A zero-length body has no byte to dispatch on. Reporting 0 would invent a message type,
@@ -51,7 +51,7 @@ public sealed class EntityMessageTests
         new EntityMessage(1, 1, 0).MessageType.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void ABodyShorterThanAByte_ReportsNoMessageType()
     {
         // A stated length below 8 bits cannot contain the dispatch byte. The buffer may still

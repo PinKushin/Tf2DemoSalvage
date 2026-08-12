@@ -24,9 +24,9 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// encoder has to make the same choice the sender made. Every one of those choices is a claim
 /// about the engine, and a wrong claim shows up as a mismatch rather than as a nicer number.
 /// </remarks>
-public sealed class CorpusSoundRoundTripTests(ITestOutputHelper output)
+public sealed class CorpusSoundRoundTripTests
 {
-    [Fact]
+    [Test]
     public void EverySoundBody_ReEncodesToTheBitsItCameFrom()
     {
         int bodies = 0;
@@ -65,7 +65,7 @@ public sealed class CorpusSoundRoundTripTests(ITestOutputHelper output)
             }
         }
 
-        output.WriteLine($"{bodies:N0} bodies, {sounds:N0} sounds re-encoded");
+        TestContext.Out.WriteLine($"{bodies:N0} bodies, {sounds:N0} sounds re-encoded");
 
         // Both guards matter. A corpus that stopped being read would otherwise report a clean run,
         // and so would a decoder that started failing every body - the catch above skips those.

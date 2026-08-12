@@ -16,23 +16,22 @@ namespace Tf2DemoSalvage.Cli.Tests;
 /// </remarks>
 public sealed class LoggingTests
 {
-    [Theory]
-    [InlineData("-v", Verbosity.Verbose)]
-    [InlineData("--verbose", Verbosity.Verbose)]
-    [InlineData("-q", Verbosity.Quiet)]
-    [InlineData("--quiet", Verbosity.Quiet)]
+    [TestCase("-v", Verbosity.Verbose)]
+    [TestCase("--verbose", Verbosity.Verbose)]
+    [TestCase("-q", Verbosity.Quiet)]
+    [TestCase("--quiet", Verbosity.Quiet)]
     public void VerbosityFlags_AreParsed(string flag, Verbosity expected)
     {
         CommandLine.Parse(["demo.dem", flag]).Verbosity.ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void WithoutAFlag_VerbosityIsNormal()
     {
         CommandLine.Parse(["demo.dem"]).Verbosity.ShouldBe(Verbosity.Normal);
     }
 
-    [Fact]
+    [Test]
     public void TheLastVerbosityFlagWins()
     {
         // Both directions, because "last wins" is only demonstrated by a pair that disagree - a
@@ -41,7 +40,7 @@ public sealed class LoggingTests
         CommandLine.Parse(["demo.dem", "-v", "-q"]).Verbosity.ShouldBe(Verbosity.Quiet);
     }
 
-    [Fact]
+    [Test]
     public void VerbosityDoesNotDisturbTheOtherOptions()
     {
         CommandLine line = CommandLine.Parse(["demo.dem", "-v", "-t", "-o", "out.txt"]);
@@ -52,7 +51,7 @@ public sealed class LoggingTests
         line.Verbosity.ShouldBe(Verbosity.Verbose);
     }
 
-    [Fact]
+    [Test]
     public void QuietStopsAtWarnings_NotAtErrors()
     {
         // Deliberate. A demo that decodes only in part is the most important thing this tool can

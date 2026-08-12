@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
 /// </remarks>
 public sealed class DecodeProgressTests
 {
-    [Fact]
+    [Test]
     public void AnAdvancingPositionIsAccepted()
     {
         DecodeProgress progress = new("test", 0);
@@ -32,7 +32,7 @@ public sealed class DecodeProgressTests
         });
     }
 
-    [Fact]
+    [Test]
     public void APositionThatDidNotMove_IsRejected()
     {
         DecodeProgress progress = new("test", 5);
@@ -40,7 +40,7 @@ public sealed class DecodeProgressTests
         Should.Throw<InvalidDataException>(() => progress.Advanced(5));
     }
 
-    [Fact]
+    [Test]
     public void APositionThatWentBackwards_IsRejected()
     {
         // Backwards is the mutation-testing case specifically, where an increment operator is
@@ -51,7 +51,7 @@ public sealed class DecodeProgressTests
         Should.Throw<InvalidDataException>(() => progress.Advanced(4));
     }
 
-    [Fact]
+    [Test]
     public void TheErrorNamesWhatStalled()
     {
         // A decoder that stalls without saying which loop it was leaves the reader to guess
@@ -65,7 +65,7 @@ public sealed class DecodeProgressTests
         error.Message.ShouldContain("12");
     }
 
-    [Fact]
+    [Test]
     public void EachAcceptedPositionBecomesTheNewFloor()
     {
         // The check is against the previous iteration, not against the start. Comparing to the

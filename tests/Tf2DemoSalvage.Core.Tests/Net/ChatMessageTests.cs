@@ -31,7 +31,7 @@ public sealed class ChatMessageTests
         return [.. body];
     }
 
-    [Fact]
+    [Test]
     public void Parse_FullForm_ReadsKindSenderAndText()
     {
         ChatMessage chat = ChatMessage.Parse(
@@ -43,7 +43,7 @@ public sealed class ChatMessageTests
         chat.Text.ShouldBe("gg");
     }
 
-    [Fact]
+    [Test]
     public void Parse_SimplifiedForm_HasNoSenderAndKeepsTheText()
     {
         // A body whose first string starts with a colour code carries only text. Reading it as
@@ -56,7 +56,7 @@ public sealed class ChatMessageTests
         chat.Text.ShouldBe("server says hello");
     }
 
-    [Fact]
+    [Test]
     public void Parse_StripsInlineControlCharacters()
     {
         // Codes 1-6 select colours and are not part of the message.
@@ -67,7 +67,7 @@ public sealed class ChatMessageTests
         ChatMessage.Parse(body).ShouldNotBeNull().Text.ShouldBe("nice shot");
     }
 
-    [Fact]
+    [Test]
     public void Parse_StripsHexColourCodesAndTheirSixDigits()
     {
         // 0x07 introduces a six-character hex colour. Removing only the marker leaves six
@@ -79,7 +79,7 @@ public sealed class ChatMessageTests
         ChatMessage.Parse(body).ShouldNotBeNull().Text.ShouldBe("I won");
     }
 
-    [Fact]
+    [Test]
     public void Parse_TextWithNoColourCodes_IsUnchanged()
     {
         // The control. Stripping must not eat ordinary characters.
@@ -87,14 +87,14 @@ public sealed class ChatMessageTests
             .ShouldNotBeNull().Text.ShouldBe("hello world");
     }
 
-    [Fact]
+    [Test]
     public void Parse_BodyTooShort_IsRejectedRatherThanGuessed()
     {
         ChatMessage.Parse([1]).ShouldBeNull();
         ChatMessage.Parse([]).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Parse_MissingText_IsRejected()
     {
         // Kind and sender but no message. Returning a chat line with empty text would put a
@@ -102,7 +102,7 @@ public sealed class ChatMessageTests
         ChatMessage.Parse(Body(3, 1, "TF_Chat_All", "Sassy")).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Parse_NonAsciiSenderAndText_SurviveAsUtf8()
     {
         // Chat is the worst place to get this wrong: the sender field is a player name, and TF2
@@ -123,7 +123,7 @@ public sealed class ChatMessageTests
         chat.Text.ShouldBe("gg 🎉 wp");
     }
 
-    [Fact]
+    [Test]
     public void Parse_EmptyKind_IsTheFullFormWithAnEmptyString()
     {
         // Zero is not a colour code. The deciding test is `> 0 && <= 8`, and every other case
@@ -140,7 +140,7 @@ public sealed class ChatMessageTests
         chat.Text.ShouldBe("gg");
     }
 
-    [Fact]
+    [Test]
     public void Parse_HighestColourCode_IsStillTheSimplifiedForm()
     {
         // 8 is the last code, and the existing simplified-form case uses 1 — which cannot tell
@@ -155,7 +155,7 @@ public sealed class ChatMessageTests
         chat.Text.ShouldBe("headshot");
     }
 
-    [Fact]
+    [Test]
     public void Parse_SimplifiedFormWithNoTerminator_IsRejected()
     {
         // The simplified path has its own unterminated-string case, separate from the full form's.
@@ -165,7 +165,7 @@ public sealed class ChatMessageTests
         ChatMessage.Parse(body).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Parse_StripsTheHighestColourCode()
     {
         // Code 8 is inside the stripped range, and the strip test uses 1 and 3 — neither of which
