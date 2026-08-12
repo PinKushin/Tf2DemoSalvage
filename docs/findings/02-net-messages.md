@@ -157,9 +157,9 @@ u64  steamID64                      the speaker, independent of the client slot
 repeat until 4 bytes remain:
   u8 type
     0x0B  u16 sample rate           always 24000 across the corpus
-    0x00  u16                       55 occurrences, all in 18-byte packets
+    0x00  u16 silence samples       55 occurrences, all in 18-byte packets
     0x06  u16 length, then <length> bytes of Opus
-u32  tail
+u32  crc32                          over the steamID and every sub-packet
 ```
 
 *Measured*: **1452 of 1452 packets consume exactly.** The route there is worth keeping, because the
@@ -177,6 +177,16 @@ first two attempts scored **0**:
 **The steamID is the interesting field.** `svc_VoiceData` already gives a client slot; this gives
 the account. A slot is only meaningful against the roster at that moment, and it is reused when
 players leave — the steamID is not.
+
+**The tail was identified later, and the route is worth keeping.** It was derived *positionally*
+— four bytes left over, every time, in the arithmetic above — and carried uninterpreted rather
+than guessed at. `demostf/steam-audio-codec`, an unrelated open-source implementation, reads a
+byte-identical structure and names it a CRC32 (`crc32b`, polynomial `0xEDB88320`) over everything
+preceding it, and also names type `0x00`'s payload as a silence-sample count. Two independent
+derivations agreeing is worth more than either alone — but it was still checked against this
+project's own data before being written down as fact: **1452 of 1452 payloads match**
+(`CorpusVoiceChecksumTests`). It is carried rather than validated in `Core`, because a demo is a
+recording of what arrived and dropping a packet on a CRC mismatch would discard evidence.
 
 ### Inside type `0x06`
 

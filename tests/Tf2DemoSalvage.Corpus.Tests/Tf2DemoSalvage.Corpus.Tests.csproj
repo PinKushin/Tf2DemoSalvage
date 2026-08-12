@@ -30,6 +30,9 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageReference Include="coverlet.collector" Version="10.0.1" />
     <PackageReference Include="Shouldly" Version="4.3.0" />
+    <!-- CRC32, to identify the four trailing bytes of a steam-codec voice payload. Test-only:
+         Core carries those bytes rather than validating them, so nothing ships this. -->
+    <PackageReference Include="System.IO.Hashing" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>
