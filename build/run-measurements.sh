@@ -151,8 +151,12 @@ if [ "$MODE" = fuzz ]; then
     before_count=$(find "$corpus_dir" -type f | wc -l)
     echo "=== ${target}: ${budget}s, corpus ${before_count} entries — $(date -Is)"
 
+    # TF2FUZZ_CRASH_DIR is what actually preserves a reproducer here; libFuzzer's own
+    # -artifact_prefix writes nothing in this setup (see the harness's Preserving()).
+    # -artifact_prefix stays set anyway so that if a future toolchain does start writing
+    # artifacts, they land beside ours rather than in the working directory.
     set +e
-    TF2FUZZ_TARGET="$target" "$HOME/libfuzzer-dotnet" \
+    TF2FUZZ_TARGET="$target" TF2FUZZ_CRASH_DIR="$findings_dir" "$HOME/libfuzzer-dotnet" \
       --target_path="${FUZZ_OUT}/Tf2DemoSalvage.Fuzz" \
       -max_total_time="$budget" \
       -artifact_prefix="${findings_dir}/" \
@@ -171,38 +175,22 @@ if [ "$MODE" = fuzz ]; then
       echo "note: ${target} found no new input this run (expected once a target saturates)."
     fi
 
-    # ISOLATE THE REPRODUCER OURSELVES. libFuzzer's -artifact_prefix writes nothing in this
-    # setup, and that is measured, not assumed: on a managed exception SharpFuzz aborts the .NET
-    # child, the libfuzzer-dotnet bridge dies with it ("Trace/breakpoint trap (core dumped)"),
-    # and libFuzzer's own crash handler never runs — no crash-<sha1> file, no "Test unit written
-    # to" line. Verified by pointing a crashing run at an empty artifact directory and watching
-    # it stay empty while the exception printed in full.
+    # A crash MUST leave a reproducer behind. If it did not, the run found a defect and lost the
+    # only thing that makes it actionable, and that has to be visible in the log rather than
+    # inferred later from an empty directory.
     #
-    # That failure is quiet in the worst way: the log still REPORTS the defect, so the run looks
-    # healthy, and the only thing missing is the input that makes it reproducible.
-    #
-    # The input is not lost — libFuzzer wrote it into the corpus before dying — so replaying the
-    # corpus one file at a time finds it. Only on a non-zero exit, and bounded, because this is
-    # one process launch per entry.
+    # An earlier version of this block tried to recover the input by replaying the corpus one
+    # entry at a time. That does not work and the reason is worth keeping: libFuzzer adds only
+    # coverage-increasing inputs, so an input that crashes is never added. Measured directly —
+    # replaying all 26 corpus entries against a target that had just crashed isolated nothing,
+    # because the crash arrived on the first mutated input after `#27 INITED`. The harness writes
+    # the bytes itself now, which is the only place they provably exist.
     if [ "$status" != 0 ]; then
-      echo "${target}: exit ${status} — replaying corpus to isolate the input"
-      isolated=0
-      for entry in "$corpus_dir"/*; do
-        [ -f "$entry" ] || continue
-        if ! TF2FUZZ_TARGET="$target" "$HOME/libfuzzer-dotnet" \
-             --target_path="${FUZZ_OUT}/Tf2DemoSalvage.Fuzz" \
-             -runs=1 "$entry" > /dev/null 2>&1 9>&-; then
-          cp "$entry" "${findings_dir}/crash-$(basename "$entry")"
-          echo "  reproducer: $(basename "$entry") ($(stat -c%s "$entry") bytes)"
-          isolated=$((isolated + 1))
-          [ "$isolated" -ge 5 ] && break
-        fi
-      done
-      if [ "$isolated" = 0 ]; then
-        # Worth saying rather than passing over: it means the crash needed state built up across
-        # inputs, so no single entry reproduces it and the whole corpus is the reproducer.
-        echo "  no single corpus entry reproduces it - keeping the corpus as the record" >&2
-        cp -r "$corpus_dir" "${OUT}/corpus-${target}-at-crash" 2>/dev/null || true
+      saved=$(find "$findings_dir" -name 'crash-*.bin' | wc -l)
+      echo "${target}: exit ${status}, ${saved} reproducer(s) saved"
+      if [ "$saved" = 0 ]; then
+        echo "WARNING: ${target} exited ${status} but saved no reproducer." \
+             "The finding is in the log only - check TF2FUZZ_CRASH_DIR is reaching the harness." >&2
       fi
     fi
 
