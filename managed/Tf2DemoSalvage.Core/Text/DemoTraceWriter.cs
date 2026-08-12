@@ -70,6 +70,11 @@ public static class DemoTraceWriter
         // introduced by that point rather than everyone who ever appears.
         Dictionary<int, PlayerInfo> roster = [];
 
+        // Sound indices resolve against the soundprecache table, which arrives in the signon
+        // stream. Built as the walk proceeds, for the same reason the roster is: a trace is a
+        // stream-order account, and a name that had not arrived yet is not a name.
+        SoundNames soundNames = new();
+
         foreach (DemoCommand command in commands)
         {
             scanned++;
@@ -78,7 +83,8 @@ public static class DemoTraceWriter
                 progress.Report(new DumpProgress("Tracing", scanned, commands.Count));
             }
 
-            WriteBlock(writer, command, state, options, entities, roster, ref snapshots);
+            WriteBlock(
+                writer, command, state, options, entities, roster, soundNames, ref snapshots);
         }
     }
 
@@ -140,6 +146,7 @@ public static class DemoTraceWriter
         DemoTraceOptions options,
         EntityDecoder? entities,
         Dictionary<int, PlayerInfo> roster,
+        SoundNames soundNames,
         ref int snapshots)
     {
         string kind = WireName(command.Type);
@@ -185,6 +192,17 @@ public static class DemoTraceWriter
 
         foreach (INetMessage message in result.Messages)
         {
+            // Captured before rendering, so a sound in the same packet as the table that names
+            // it still resolves. Both message kinds are still printed by the switch below.
+            if (message is CreateStringTableMessage createdTable)
+            {
+                soundNames.Add(createdTable);
+            }
+            else if (message is UpdateStringTableMessage updatedTable)
+            {
+                soundNames.Add(updatedTable, state.StringTableName(updatedTable.TableId));
+            }
+
             if (message is PacketEntitiesMessage snapshot && entities is not null &&
                 WithinLimit(options, snapshots))
             {
@@ -199,7 +217,7 @@ public static class DemoTraceWriter
             // flag, and they are the two things a reader most often wants position for.
             if (message is SoundsMessage sound && sound.BodyBits > 0)
             {
-                WriteSounds(writer, sound, state);
+                WriteSounds(writer, sound, state, soundNames);
                 continue;
             }
 
@@ -251,7 +269,8 @@ public static class DemoTraceWriter
     /// A sound that fails to decode is reported in place rather than dropped, for the reason the
     /// whole trace exists: where a stream stops making sense is the information.
     /// </remarks>
-    private static void WriteSounds(TextWriter writer, SoundsMessage message, NetDecodeState state)
+    private static void WriteSounds(
+        TextWriter writer, SoundsMessage message, NetDecodeState state, SoundNames soundNames)
     {
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
@@ -263,9 +282,15 @@ public static class DemoTraceWriter
             foreach (DecodedSound sound in SoundDecoder.Decode(
                 message.Body.Span, message.Count, message.BodyBits, state.NetworkProtocol))
             {
+                // The name where the soundprecache table resolved it, the number always. A
+                // sound index means nothing outside its own demo, and the number stays so a
+                // reader can still cross-reference the raw stream.
+                string? name = soundNames.Resolve(sound.SoundNumber);
+                string named = name is null ? string.Empty : $" {Quote(name)}";
+
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"        sound {sound.SoundNumber} entity {sound.EntityIndex} " +
+                    $"        sound {sound.SoundNumber}{named} entity {sound.EntityIndex} " +
                     $"origin {sound.OriginX:F1} {sound.OriginY:F1} {sound.OriginZ:F1} " +
                     $"volume {sound.Volume:F2} pitch {sound.Pitch} " +
                     $"channel {sound.Channel} flags {sound.Flags};"));
