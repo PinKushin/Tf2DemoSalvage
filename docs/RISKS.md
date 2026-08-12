@@ -1932,7 +1932,62 @@ instrument. This project's own rule about verifying by manipulation applies to t
 as the code under test — the decoder was treated as fixed ground truth for the whole
 investigation, and it was the variable.
 
-## B34 — mutation coverage capture records nothing for the corpus project — OPEN
+## B34 — coverage capture is cancelled by a 180-second RPC timeout — CAUSE FOUND, FIX OPEN
+
+**The cause, measured 2026-08-12.** Stryker's Microsoft.Testing.Platform runner talks to its test
+server over JSON-RPC, and that call has a **hard three-minute timeout**. The instrumented corpus
+suite takes about 6 m 18 s, so the call is always cancelled, the server is discarded as crashed,
+one retry fails the same way, and the run reports zero coverage:
+
+```
+[12:01:10 DBG] MtpRunner-2: Coverage mode enabled
+[12:01:10 DBG] MtpRunner-2: Test server started successfully
+[12:04:10 DBG] MtpRunner-2: Test run failed on attempt 1/2; discarding crashed server
+System.Threading.Tasks.TaskCanceledException: A task was canceled.
+   at StreamJsonRpc.JsonRpc.InvokeCoreAsync(...)
+   at Stryker.TestRunner.MicrosoftTestPlatform.TestingPlatformClient.RunTestsAsync(...)
+```
+
+12:01:10 to 12:04:10 is 180 seconds exactly. **That is the whole explanation for the split**: the
+synthetic project's instrumented suite finishes inside three minutes and captures 2169 mutations;
+the corpus project's does not and captures 0, every single time.
+
+**Two hypotheses died on the way, and both looked reasonable.** `additional-timeout` was raised
+from 30 s to 900 s and changed nothing — it is a different timeout, applied per mutant test run,
+and no value of it can help. And capture was not "collecting nothing": it collects normally right
+up until the RPC is cancelled, which is why the failure is total rather than partial.
+
+**Why it costs 18 hours downstream.** Without coverage Stryker cannot tell which tests touch a
+mutant, so it runs the whole suite for every one. A killed mutant short-circuits on its first
+failing assertion, which is why 183 were killed quickly — but a mutant that would SURVIVE must
+complete the entire suite, so it always exceeds the per-mutant timeout instead. That is exactly
+why the run reported `Survived: 0` alongside `Timeout: 1142`, a combination that looks like mass
+hanging and is not.
+
+**Not hangs.** Verified separately: `BitReader` throws `EndOfStreamException` when exhausted, so
+every loop that reads bits terminates at the buffer end. The mutant the report blamed most
+directly — `i++` to `i--` in `ReadClassInfo` — does not even compile here, because SonarAnalyzer
+S2251 rejects it.
+
+### The fix, which is not yet chosen
+
+The instrumented suite has to finish inside 180 s, or not go through that path at all:
+
+1. **Split the corpus test project** so each project's capture fits. This matches what D25 already
+   did once, and is the only option that needs no cooperation from Stryker.
+2. **Mutate in slices** with `--mutate`, so fewer instrumented sites means a cheaper capture. Two
+   attempts to scope a run produced the full mutant set both times, so the glob syntax needs
+   establishing first — Stryker resolves those patterns against the *source* project, and a
+   pattern that matches nothing reports a clean run rather than an error.
+3. **Mutate Core against the synthetic project only**, and treat the corpus suite as integration
+   coverage rather than a mutation harness. 78 integration tests over real demos are a poor
+   mutation harness at any speed, and this is what the PokemonBattleJournal agent independently
+   suggested.
+
+`test-case-filter` was tried as a way to shrink the capture and is **not honoured** by the MTP
+runner: the run still reported all 99 tests found.
+
+## B34 (original entry) — mutation coverage capture records nothing for the corpus project
 
 **Symptom.** Stryker's coverage capture reports `0 mutations covered, 0 static mutations` for
 `Tf2DemoSalvage.Corpus.Tests`, followed by `It looks like the test coverage capture failed.
