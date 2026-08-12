@@ -2086,7 +2086,8 @@ the wrong thing.
 **What is still wrong:** connectivity finds the map's body, not its interior. Geometry a player
 can never see or reach is attached to the map and therefore inside the main cluster — the padding
 behind the last-point spawn on `cp_process_final` is visible in the overview and invisible in the
-game. A Source map must be sealed against the void to compile, so every map has some of this.
+game. A Source map has to be sealed against the void for `vvis` to compute visibility at all, so every
+map has some of this.
 
 Not all of it is unwanted: the boundary cliff at the back of second **is** seen, from the air, by a
 soldier or demo mid-jump. The criterion is "what a player can see from anywhere they can reach",

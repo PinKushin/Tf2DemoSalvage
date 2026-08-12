@@ -218,8 +218,14 @@ frame.
 `cp_process_final`, the geometry behind the last-point spawn is visible in the outline and is not
 visible in the game — a player cannot reach it or see it. It is nevertheless *attached* to the
 map, so it is in the main cluster and no connectivity rule will ever exclude it. Two things put it
-there: a Source map must be sealed against the void to compile at all, and mappers pad behind
-spawn so the skybox meets the ground cleanly. The same applies to the back faces of boundary
+there: a Source map has to be sealed against the void for `vvis` to compute visibility, and mappers
+pad behind spawn so the skybox meets the ground cleanly.
+
+(The sealing requirement is about the visibility precompute, not about keeping players in. `vvis`
+floods outward from a point entity to work out which leaves can see which, and that flood assumes
+a closed world; a hole lets it escape into the void, which is the `leaked!` error, and `vrad` then
+leaks light through the same gap. It is not a hard failure — visibility degrades toward drawing
+everything always — so a leaked map runs badly rather than refusing to run.) The same applies to the back faces of boundary
 cliffs.
 
 The two cases are not equally wrong, and the difference sharpens the rule. The padding behind
