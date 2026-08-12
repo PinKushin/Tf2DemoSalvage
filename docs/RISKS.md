@@ -1985,3 +1985,35 @@ reports a clean run rather than an error.
 both the capture cost and the mutant count fall; or stop mutating against the corpus tests
 entirely and rely on the synthetic project, which captures coverage correctly — the D25 split
 already treats corpus as the slow cadence, and this would make that split absolute.
+
+## B35 — 242 surviving mutants, a third of them in one file — OPEN
+
+The first full `core` mutation run since the decoder grew: **54.26 %**, Killed 1631, Survived
+242, Timeout 4, 1877 of 1879 mutants accounted for (the gap of 2 is RuntimeError mutants, which
+the cleartext reporter names nowhere else). Coverage capture worked here — 2169 mutations
+covered — which is why there are 4 timeouts rather than 1142; contrast B34.
+
+**The score is the wrong number to react to.** The survivors are concentrated, not spread:
+
+| Survivors | File |
+|---|---|
+| 86 | `Net/UserMessageBody.cs` |
+| 32 | `Text/MessageAssembly.cs` |
+| 31 | `Text/DemoAssembly.cs` |
+| 15 | `Schema/SendPropDecoder.cs` |
+| 11 | `Text/DemoTraceWriter.cs` |
+
+Three files hold 149 of 242. Everything else in the project is in single digits. A 54 % score
+reads like a broad quality problem and is not one.
+
+By mutator: 57 string, 40 equality, 37 statement, 35 boolean. That is the signature of code
+whose **outputs were never asserted precisely** — tests that prove the path ran without pinning
+what it produced. A string mutant surviving means some message this parser renders could render
+differently and no test would notice.
+
+This is the third instance of the same lapse, after `GameEventCodec` (5 survivors) and
+`StringTableCodec` (53) on 2026-08-07 — see `docs/memory/tests-before-codecs.md`. Each time the
+code passed its corpus tests and looked finished, because a real demo exercises only the paths
+it happens to use.
+
+**Where to start:** `UserMessageBody.cs` alone is 36 % of the survivors and the best return.
