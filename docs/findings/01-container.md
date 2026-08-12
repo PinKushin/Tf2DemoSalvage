@@ -140,6 +140,46 @@ the reader simply runs out at the end.
 Worth knowing before treating a short read as corruption — for this format it usually means the
 recording stopped, not that the file is damaged.
 
+### It is 43% of a real archive, not an oddity (2026-08-12)
+
+**Evidence class: measured**, on 370 competitive demos from an ESEA archive.
+
+**159 of them — 43% — end in the middle of a command.** Every one stops within four kilobytes of
+the end of the file and none fails anywhere else; the median demo is 99.995% complete. So refusing
+a truncated file meant discarding a twenty-megabyte recording over its final two hundred bytes,
+and the "usually" above is an understatement: for competitive demos this is the normal ending.
+
+That is what a match ending looks like. The server stops writing mid-packet when the map changes
+or the process goes away, and nothing returns to tidy up the tail.
+
+### A truncated demo also lies about its own length, and that one is silent
+
+**Evidence class: measured**, and it is the more dangerous half.
+
+`PlaybackTicks`, `PlaybackFrames` and `PlaybackTimeSeconds` sit in the header, which is written at
+the *start* of recording — with zeroes. The engine fills them in by seeking back to offset zero
+when recording **stops**. A recording that ends because the server died never reaches that write.
+
+So the file claims to be empty while holding a full match:
+
+```
+warning: esea_match_13977649.dem has no dem_stop: the recording was truncated, not ended
+warning: esea_match_13977649.dem declares 0 frames but holds 110,238
+Map                cp_process_final
+Playback time      0.00 s
+Playback ticks     0
+```
+
+Unlike the truncated tail, nothing about this reads as damage. Zero is a number, the header parses
+cleanly, and every field is in range. A viewer that believes it shows a demo with no timeline and
+a dead play button — which is how this was found.
+
+The count exists twice by unrelated routes: once as a number the engine wrote, and once as a
+consequence of the commands themselves. When the cheap copy is missing the expensive one is still
+there, so the walk that recovers it is the same "two recordings of one value" technique used
+against the string tables. It costs a pass over the file, and it is only paid when the header
+states nothing — a complete demo is taken at its word.
+
 ## The engine's own header reader, read out of `engine.dll` (2026-08-11)
 
 Everything above was worked out from the bytes. The 2008 engine (build 3420, protocol 14) was then
