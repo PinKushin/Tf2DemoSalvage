@@ -2123,3 +2123,33 @@ makes those areas look *flatter* than they are rather than inventing geometry th
 self-describing once `power` is read. Both lumps are LZMA compressed like every other.
 
 Depends on nothing else; it is bounded work in `BspGeometry`.
+
+## B38 — a downloaded map may not be the version the demo was recorded on — OPEN
+
+**Raised 2026-08-12**, while wiring up map downloading.
+
+The mirror serves whatever version of a map it currently carries. A demo from 2014 was recorded
+against whatever `cp_gullywash_final1` was *then* — and community maps are revised constantly, often
+keeping the same file name. Geometry moves, doorways change, a point gets rebuilt. Drawing 2014
+player positions over a 2026 map produces a picture that is wrong in a way nobody can see: players
+walk through walls that did not exist, or stand inside brushwork that has since been added.
+
+**This is not a cosmetic problem for this project specifically.** Salvaging old demos is the entire
+point, and old demos are exactly the ones whose maps have moved on.
+
+**It is detectable, and that is the part worth doing first.** Two independent version markers exist:
+
+- A BSP header carries `MapRevision`, which `BspHeader` already reads.
+- Source's `ServerInfo` message carries the map's CRC, which the demo's signon data contains.
+
+So the viewer can compare what the demo says the map was against what it just loaded, and *say* when
+they disagree — which is far better than silently drawing the wrong world, and is worth having even
+before any older version can be fetched.
+
+**Fetching the right version is the harder half**, and belongs with the GCF/old-content branch.
+Fast-download mirrors sometimes keep older revisions, and archives of competitive map versions
+exist, but a mirror keyed only by map name cannot answer "the one with this CRC" without an index
+that maps CRCs to files.
+
+**Not blocking**, and the order is clear: detect and report the mismatch first, fetch the right
+version second.

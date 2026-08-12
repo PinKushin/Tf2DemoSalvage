@@ -87,9 +87,18 @@ public static class BspLightmaps
     /// <returns>One entry per face, empty where the face is unlit.</returns>
     /// <exception cref="InvalidDataException">A face's samples fall outside the lighting lump.</exception>
     /// <remarks>
-    /// **HDR lighting is preferred when the map has it**, because that is what the game shows: TF2
-    /// runs in HDR by default, and a map compiled for both carries two lumps. Falling back to the
-    /// LDR lump matters for older maps, which have only that one.
+    /// **The LDR lump is used when the map has one, and that is a deliberate reversal.** A map
+    /// compiled for both carries LDR in lump 8 and HDR in lump 53, and preferring HDR seemed
+    /// obviously right — TF2 runs in HDR by default.
+    ///
+    /// It produced a map washed out to white. The two forms are scaled differently: an LDR sample
+    /// is meant to be multiplied by two on the way out, which is what Source's own shaders do and
+    /// what this project's shader does, while an HDR sample already carries that range in its
+    /// exponent. Applying the LDR convention to HDR data doubles something that was not halved.
+    ///
+    /// So LDR is the lump that matches the renderer, and HDR is the fallback for a map that has
+    /// only that one. Rendering HDR properly needs a tone map rather than a multiply, and that is
+    /// worth doing when there is a reason to — not before.
     /// </remarks>
     public static IReadOnlyList<BspLightmap> Read(ReadOnlyMemory<byte> file)
     {
@@ -98,10 +107,10 @@ public static class BspLightmaps
         ReadOnlySpan<byte> faces = BspLumpData
             .ReadStructures(file, header.Lump(LumpFaces), FaceStride, "faces").Span;
 
-        ReadOnlyMemory<byte> hdr = BspLumpData.Read(file, header.Lump(LumpLightingHdr));
-        ReadOnlySpan<byte> lighting = hdr.Length > 0
-            ? hdr.Span
-            : BspLumpData.Read(file, header.Lump(LumpLighting)).Span;
+        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(LumpLighting));
+        ReadOnlySpan<byte> lighting = ldr.Length > 0
+            ? ldr.Span
+            : BspLumpData.Read(file, header.Lump(LumpLightingHdr)).Span;
 
         int count = faces.Length / FaceStride;
         List<BspLightmap> lightmaps = new(count);
