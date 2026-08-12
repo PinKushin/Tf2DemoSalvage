@@ -37,6 +37,10 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
     [Fact]
     public void EveryCeltFrame_DecodesToPcm()
     {
+        Assert.SkipUnless(
+            CeltVoiceDecoder.IsAvailable,
+            "celt is not built on this machine - run tools/native-audio/build.ps1");
+
         int frames = 0;
         int silentFrames = 0;
 
@@ -89,6 +93,10 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
     [Fact]
     public void EverySpeexFrame_DecodesToPcm()
     {
+        Assert.SkipUnless(
+            SpeexVoiceDecoder.IsAvailable,
+            "speex is not built on this machine - run tools/native-audio/build.ps1");
+
         int frames = 0;
         int silentFrames = 0;
         Dictionary<string, SpeexVoiceDecoder> decoders = [];
