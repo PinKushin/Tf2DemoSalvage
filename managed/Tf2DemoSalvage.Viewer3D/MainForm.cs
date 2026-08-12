@@ -80,6 +80,7 @@ internal class MainForm : Form
     private FormBorderStyle _borderBeforeFullScreen;
     private FormWindowState _stateBeforeFullScreen;
     private Rectangle _boundsBeforeFullScreen;
+    private int _transportIndexBeforeFullScreen;
 
     /// <summary>Builds the shell. No device is created here; see the remarks on the type.</summary>
     /// <param name="initialPaths">
@@ -223,10 +224,14 @@ internal class MainForm : Form
 
         // Added in reverse z-order: WinForms docks the LAST control added first, so Fill must go
         // in before every docked edge or the viewport ends up underneath them.
-        // Docking is applied in REVERSE add order, so the last bottom control added claims the
-        // outermost edge. Adding transport then actions then the status strip puts them on screen
-        // as transport, actions, status from the middle outward - the action row under the play
-        // bar, which is what it is about.
+        // Docking order, established by MEASURING rather than by reasoning about it. A LATER
+        // added bottom control ends up LOWER on screen, so transport before actions puts the
+        // action row beneath the play bar - operations on the demo as a whole below the controls
+        // for the moment being watched, which is what was asked for.
+        //
+        // Written this way round because both plausible theories were tried and only the numbers
+        // settled it: play button top=666, open button top=709. A UI test now pins it, since a
+        // form that was never shown has no layout for a unit test to inspect.
         Controls.Add(_viewport);
         Controls.Add(_playlist);
         Controls.Add(_transport);
@@ -325,6 +330,13 @@ internal class MainForm : Form
             // 984 pixels wide before, 968 after, and it loses another 16 on every toggle.
             _boundsBeforeFullScreen = Bounds;
 
+            // **Where the transport sat in the control collection, not just that it was there.**
+            // Docking order is collection order, so putting it back with a plain Add appends it
+            // and silently swaps it with the action row - the buttons end up above the play bar
+            // and stay there. Only reproducible after using full screen once, which is why the
+            // action-row test passed alone and failed in a full run.
+            _transportIndexBeforeFullScreen = Controls.GetChildIndex(_transport);
+
             MainMenuStrip!.Visible = false;
             _actions.Visible = false;
             _playlist.Visible = false;
@@ -360,6 +372,7 @@ internal class MainForm : Form
 
         _transport.Dock = DockStyle.Bottom;
         Controls.Add(_transport);
+        Controls.SetChildIndex(_transport, _transportIndexBeforeFullScreen);
         MainMenuStrip!.Visible = true;
         _actions.Visible = true;
         _playlist.Visible = true;

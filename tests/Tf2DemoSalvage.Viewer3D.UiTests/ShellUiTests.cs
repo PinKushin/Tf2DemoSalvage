@@ -77,6 +77,36 @@ public sealed class ShellUiTests
     }
 
     [Test]
+    public void TheActionRowSitsBelowThePlaybackControls()
+    {
+        // Asked for explicitly: the action buttons are operations on the demo as a whole, the
+        // transport is about the moment being watched, so the actions belong underneath.
+        //
+        // Only checkable on a real window. WinForms docking order is decided at layout time, and
+        // a form that was never shown has no layout - so this cannot be a unit test, and the
+        // first attempt at the ordering shipped upside down for exactly that reason.
+        // Checked AFTER a full-screen round trip, deliberately. Leaving full screen re-adds the
+        // transport bar to the form, and a plain Add appends it - which flipped the docking order
+        // against the action row and left the buttons above the play bar for the rest of the
+        // session. Asserting only on a freshly launched window would have missed it entirely.
+        _viewer.Focus();
+        Keyboard.Type(VirtualKeyShort.F11);
+        Retry.WhileFalse(
+            () => _viewer.Find("Viewport").BoundingRectangle.Width > 1000, TimeSpan.FromSeconds(10));
+        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        Retry.WhileFalse(
+            () => _viewer.Find("Viewport").BoundingRectangle.Width < 1500, TimeSpan.FromSeconds(10));
+
+        int playTop = _viewer.Find("PlayPauseButton").BoundingRectangle.Top;
+        int openTop = _viewer.Find("OpenButton").BoundingRectangle.Top;
+
+        ViewerApplication.Log($"play button top={playTop}, open button top={openTop}");
+
+        openTop.ShouldBeGreaterThan(
+            playTop, "the action row should sit below the playback controls");
+    }
+
+    [Test]
     public void FullScreenHidesTheChromeAndEscapeBringsItBack()
     {
         // The full-screen transition is the one piece of this shell that unit tests can only
