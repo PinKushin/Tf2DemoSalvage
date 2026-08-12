@@ -38,4 +38,26 @@ everything, plus perhaps an options dialog - so its UI suite should stay small e
 serially on one desktop. Do not build matrix scaffolding here before there is something to split;
 the rule above is about what NOT to do in-process, not an instruction to shard.
 
+## The shared fixture is also what FINDS a class of bug
+
+Stronger than the cost argument, and measured 2026-08-12.
+
+The viewer's action row ended up above the play bar, and the cause was that leaving full screen
+re-added the transport bar with `Controls.Add` — which appends, and docking order is collection
+order, so it swapped with the action row and stayed swapped for the rest of the session.
+
+**The layout test passed alone and failed in a full run.** With a per-test application it would
+have passed always: a freshly launched window has never been full screen, so the state that caused
+the bug would never exist when the assertion ran.
+
+So for UI suites the shared fixture is not merely cheaper — **per-test isolation actively hides
+state-leak defects**, and a long-lived UI is made of exactly that kind of state. Order dependence
+between UI tests is usually treated as a defect in the tests; here it was the tests correctly
+detecting residue from an earlier operation, which is a real bug a user would hit by pressing F11
+once.
+
+The corollary for writing them: a test that checks layout or state should where possible run
+against a window that has been USED, not one that has just started. The full-screen round trip is
+now performed inside the layout test itself for that reason.
+
 See also [[tests-before-codecs]].
