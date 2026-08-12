@@ -160,9 +160,30 @@ own maps directory.
 A BSP obtained that way is **hostile input** — supplied by whoever runs the server, reviewed by
 nobody — and `docs/DECISIONS.md` D32 has the rules the reader must follow before it exists.
 
+### One viewport, and what that buys (owner-stated, 2026-08-12)
+
+The overhead view and the eventual 3D camera live in the **same viewport**, not in separate modes.
+That is not only tidiness — it is what makes the interesting features possible:
+
+- **Click a player, get their point of view.** The overhead view becomes a picker: the thing you
+  click is an entity whose position and angles the demo already carries, so the camera can move to
+  their eyes. **This works for SourceTV demos too**, where the recording belongs to nobody in
+  particular — every player's position is in the stream, so every player's POV is reconstructable.
+  The live game cannot do this with an STV demo.
+- **Several players at once, like a security feed.** Six views on one screen, possibly twelve, each
+  following a player; click one to take it full size. A 6v6 match is twelve feeds, which is the
+  whole server.
+
+Neither needs anything the parser does not already produce. They need the camera to be a value
+rather than a mode, which is why the split is being avoided now rather than undone later.
+
 ### Options, eventually
 
-Full screen, viewer resolution, and export format (JSON or the Quake-style assembly script). No
+Full screen **mode is done** — borderless or exclusive, chosen in View > Full screen mode and
+remembered in `settings.json` under LocalApplicationData. Borderless is the default because DXGI is
+allowed to refuse exclusive; exclusive is the lower-latency path and the owner's preference.
+
+Still wanted: viewer resolution, and export format (JSON or the Quake-style assembly script). No
 options dialog yet; the list is here so the shell keeps room for one.
 
 ## 4. Repo scaffold (once we lock the plan)
