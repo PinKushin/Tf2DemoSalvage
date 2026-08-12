@@ -127,6 +127,26 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points.Draw(_device, _context, points);
     }
 
+    /// <summary>Draws line segments into the target.</summary>
+    /// <param name="segments">Segments in normalised device coordinates.</param>
+    /// <param name="red">Line colour, red channel.</param>
+    /// <param name="green">Line colour, green channel.</param>
+    /// <param name="blue">Line colour, blue channel.</param>
+    public void DrawLines(
+        IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> segments,
+        float red = 1f,
+        float green = 1f,
+        float blue = 1f)
+    {
+        _points ??= PointRenderer.Create(_device);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1, ref _view, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+
+        _points.DrawLines(_device, _context, segments, red, green, blue);
+    }
+
     /// <summary>Reads one pixel back from the GPU.</summary>
     /// <param name="x">Column, from the left.</param>
     /// <param name="y">Row, from the TOP — image order, not clip space.</param>

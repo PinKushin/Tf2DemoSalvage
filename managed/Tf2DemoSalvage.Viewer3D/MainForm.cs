@@ -6,6 +6,8 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Core.Bsp;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -79,6 +81,12 @@ internal class MainForm : Form
     /// changes, which is far rarer than a frame.
     /// </remarks>
     private IReadOnlyList<ScenePoint> _scene = [];
+
+    /// <summary>The loaded map's outline, already projected to clip space.</summary>
+    private IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> _mapLines = [];
+
+    /// <summary>The loaded map in world units, kept so it can be re-projected on resize.</summary>
+    private MapOutline? _map;
 
     private readonly ToolStripMenuItem _fullScreen;
 
@@ -326,6 +334,98 @@ internal class MainForm : Form
         LoadDemo((string)_playlist.SelectedItems[0].Tag!);
     }
 
+    /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>
+    /// <param name="mapName">Map name from the demo header.</param>
+    /// <returns>Whether a map was found and read.</returns>
+    /// <remarks>
+    /// **A missing or unreadable map is not an error.** A demo of a community map nobody has still
+    /// plays; the viewport shows the players without a world behind them. Reporting it and
+    /// carrying on is the behaviour this whole project is built around.
+    /// </remarks>
+    public bool LoadMap(string mapName)
+    {
+        _map = null;
+        _mapLines = [];
+
+        string? path = FindMap(mapName);
+
+        if (path is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            BspGeometry geometry = BspGeometry.Read(File.ReadAllBytes(path));
+            _map = MapOutline.FromFaces(geometry.OverheadFaces);
+            ProjectMap();
+            return !_map.IsEmpty;
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            _status.Text = "Map " + mapName + " could not be read: " + failure.Message;
+            return false;
+        }
+    }
+
+    /// <summary>The map outline the viewport is drawing, in clip space.</summary>
+    public IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> MapLines => _mapLines;
+
+    private static string? FindMap(string mapName)
+    {
+        try
+        {
+            string steam = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Steam", "steamapps", "libraryfolders.vdf");
+
+            string ours = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Tf2DemoSalvage", "maps");
+
+            return new MapLocator(steam, ours).Find(mapName);
+        }
+        catch (ArgumentException)
+        {
+            // A demo header naming something that is not a map name. The locator refuses it, and
+            // it is not worth failing the whole load over.
+            return null;
+        }
+    }
+
+    /// <summary>Projects the map through a camera fitted to its own bounds.</summary>
+    /// <remarks>
+    /// Fitted to the MAP rather than to the players. A camera that reframes itself around wherever
+    /// the players happen to be turns every scrub into a jump - the world should sit still while
+    /// the players move within it.
+    /// </remarks>
+    private void ProjectMap()
+    {
+        if (_map is null || _map.IsEmpty)
+        {
+            _mapLines = [];
+            return;
+        }
+
+        TopDownCamera camera = MapCamera();
+        List<((float X, float Y) From, (float X, float Y) To)> lines = new(_map.Segments.Count);
+
+        foreach (((float X, float Y) from, (float X, float Y) to) in _map.Segments)
+        {
+            lines.Add((camera.Project(from.X, from.Y), camera.Project(to.X, to.Y)));
+        }
+
+        _mapLines = lines;
+    }
+
+    private TopDownCamera MapCamera() => TopDownCamera.Fit(
+        [
+            (_map!.Bounds.MinX, _map.Bounds.MinY),
+            (_map.Bounds.MaxX, _map.Bounds.MaxY),
+        ],
+        Math.Max(1, _viewport.ClientSize.Width),
+        Math.Max(1, _viewport.ClientSize.Height));
+
     /// <summary>Shows a set of world positions in the viewport.</summary>
     /// <param name="positions">World XY positions, in Source units.</param>
     /// <exception cref="ArgumentNullException"><paramref name="positions"/> is null.</exception>
@@ -344,10 +444,15 @@ internal class MainForm : Form
             return;
         }
 
-        TopDownCamera camera = TopDownCamera.Fit(
-            positions,
-            Math.Max(1, _viewport.ClientSize.Width),
-            Math.Max(1, _viewport.ClientSize.Height));
+        // With a map loaded the players are projected through the MAP's camera, so they land where
+        // they actually are in the world. Fitting to the players instead would place them
+        // correctly relative to each other and wrongly relative to everything around them.
+        TopDownCamera camera = _map is not null && !_map.IsEmpty
+            ? MapCamera()
+            : TopDownCamera.Fit(
+                positions,
+                Math.Max(1, _viewport.ClientSize.Width),
+                Math.Max(1, _viewport.ClientSize.Height));
 
         List<ScenePoint> points = new(positions.Count);
 
@@ -377,7 +482,9 @@ internal class MainForm : Form
         {
             _demo = LoadedDemo.Load(path);
             _transport.SetDemoLength(_demo.LastTick);
-            _status.Text = _demo.Describe();
+
+            bool haveMap = LoadMap(_demo.MapName);
+            _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
 
             // A placeholder scene until tick decoding lands: the corners and centre of the map's
             // nominal extent, so the viewport visibly responds to opening a demo and the whole
@@ -526,12 +633,13 @@ internal class MainForm : Form
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
-        _device?.DrawAndPresent(0.06f, 0.07f, 0.09f, _scene);
+        _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapLines, _scene);
     }
 
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);
+        ProjectMap();
 
         if (_device is null || _viewport.ClientSize.Width <= 0 || _viewport.ClientSize.Height <= 0)
         {

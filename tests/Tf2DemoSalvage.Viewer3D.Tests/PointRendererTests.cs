@@ -109,6 +109,62 @@ public sealed class PointRendererTests
         _target.PixelAt(Size / 2, Size / 2).ShouldBe((0, 0, 255));
     }
 
+    /// <summary>The clip-space Y that lands on the centre of a given pixel row.</summary>
+    /// <remarks>
+    /// **A line aimed at y = 0 is aimed at a pixel BOUNDARY**, not a pixel. With 64 rows the
+    /// centre of the image falls between rows 31 and 32, and which one a rasteriser fills there is
+    /// a matter of fill rules rather than of the code under test. Aiming at a row's centre makes
+    /// the expected pixel unambiguous - the first version of these tests failed for exactly this
+    /// reason and the code was correct.
+    /// </remarks>
+    private static float NdcYForRow(int row) => 1f - (2f * (row + 0.5f) / Size);
+
+    [Test]
+    public void AHorizontalLineIsDrawnAcrossTheTarget()
+    {
+        // The map is drawn as edges, so this is the primitive the whole overhead view rests on.
+        // Measured at three points along it rather than one, because a line that rendered as a
+        // single stray pixel would satisfy a single-pixel check.
+        const int row = 20;
+
+        _target.Clear(0f, 0f, 0f);
+        _target.DrawLines([((-0.9f, NdcYForRow(row)), (0.9f, NdcYForRow(row)))], 1f, 1f, 1f);
+
+        _target.PixelAt(Size / 4, row).ShouldBe((255, 255, 255));
+        _target.PixelAt(Size / 2, row).ShouldBe((255, 255, 255));
+        _target.PixelAt(Size * 3 / 4, row).ShouldBe((255, 255, 255));
+    }
+
+    [Test]
+    public void ALineDoesNotFillTheTarget()
+    {
+        // The control: without it, a renderer that drew a filled quad instead of a line would
+        // pass every point sampled along the line itself.
+        const int row = 20;
+
+        _target.Clear(0f, 0f, 0f);
+        _target.DrawLines([((-0.9f, NdcYForRow(row)), (0.9f, NdcYForRow(row)))], 1f, 1f, 1f);
+
+        _target.PixelAt(Size / 2, row + 8).ShouldBe((0, 0, 0));
+        _target.PixelAt(Size / 2, row - 8).ShouldBe((0, 0, 0));
+    }
+
+    [Test]
+    public void SegmentsAreIndependentRatherThanOnePolyline()
+    {
+        // A line STRIP would join the end of one segment to the start of the next, drawing edges
+        // that do not exist - across a map that means a web of lines between unrelated walls.
+        _target.Clear(0f, 0f, 0f);
+        _target.DrawLines(
+        [
+            ((-0.9f, NdcYForRow(16)), (-0.1f, NdcYForRow(16))),
+            ((0.1f, NdcYForRow(48)), (0.9f, NdcYForRow(48))),
+        ], 1f, 1f, 1f);
+
+        // The join a strip would draw runs diagonally through the middle of the target.
+        _target.PixelAt(Size / 2, Size / 2).ShouldBe((0, 0, 0));
+    }
+
     [Test]
     public void ManyPointsGrowTheBufferWithoutLosingAny()
     {
