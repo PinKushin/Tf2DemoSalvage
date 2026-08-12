@@ -36,7 +36,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// watched moving rather than gated — and because a gate would be set to today's value and then
 /// defended.
 /// </remarks>
-public sealed class CorpusCodecCoverageTests(ITestOutputHelper output)
+public sealed class CorpusCodecCoverageTests
 {
     /// <summary>Message types whose body is consumed without being understood.</summary>
     /// <remarks>
@@ -65,7 +65,7 @@ public sealed class CorpusCodecCoverageTests(ITestOutputHelper output)
         _ => 0,
     };
 
-    [Fact]
+    [Test]
     public void ReportHowMuchOfTheCodecIsDeciphered()
     {
         foreach (string path in Corpus.Files())
@@ -106,14 +106,14 @@ public sealed class CorpusCodecCoverageTests(ITestOutputHelper output)
             }
 
             double share = payloadBits == 0 ? 0 : 100.0 * opaque / payloadBits;
-            output.WriteLine(string.Create(
+            TestContext.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{Path.GetFileName(path)}: {opaque:N0} of {payloadBits:N0} payload bits opaque " +
                 $"({share:F2}%)"));
 
             foreach ((string type, long bits) in byType.OrderByDescending(e => e.Value).Take(6))
             {
-                output.WriteLine(string.Create(
+                TestContext.Out.WriteLine(string.Create(
                     CultureInfo.InvariantCulture, $"    {bits,12:N0}  {type}"));
             }
         }

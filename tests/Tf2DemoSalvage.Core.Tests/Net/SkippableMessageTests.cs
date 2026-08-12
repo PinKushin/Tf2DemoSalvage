@@ -21,7 +21,7 @@ public sealed class SkippableMessageTests
     /// <summary>Protocol 24, where TempEntities uses a varint length and Prefetch is 14 bits.</summary>
     private const ushort Protocol = 24;
 
-    [Fact]
+    [Test]
     public void Prefetch_IsFourteenBitsAtProtocol24_AndTheNextMessageSurvives()
     {
         BitWriter writer = new();
@@ -31,7 +31,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(555);
     }
 
-    [Fact]
+    [Test]
     public void Sounds_Unreliable_ReadsAnEightBitCountAndSixteenBitLength()
     {
         // Unreliable: a count byte, then a 16-bit length, then that many bits of payload.
@@ -46,7 +46,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(777);
     }
 
-    [Fact]
+    [Test]
     public void Sounds_Reliable_TakesTheOtherShapeEntirely()
     {
         // Reliable inverts two fields at once: the count is implied rather than sent, and the
@@ -62,7 +62,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(888);
     }
 
-    [Fact]
+    [Test]
     public void TempEntities_UsesAVarIntLengthAtProtocol24_AndTheNextMessageSurvives()
     {
         BitWriter writer = new();
@@ -74,7 +74,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(999);
     }
 
-    [Fact]
+    [Test]
     public void AllThreeInOnePacket_StillReachTheMessageBehindThem()
     {
         // The real shape of the problem: a gameplay packet carries several of these before its
@@ -94,7 +94,7 @@ public sealed class SkippableMessageTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
-    [Fact]
+    [Test]
     public void SetView_IsElevenBits()
     {
         BitWriter writer = new();
@@ -104,7 +104,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(111);
     }
 
-    [Fact]
+    [Test]
     public void SignOnState_IsAByteAndAThirtyTwoBitCount()
     {
         BitWriter writer = new();
@@ -114,7 +114,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(222);
     }
 
-    [Fact]
+    [Test]
     public void VoiceData_ReportsWhoSpoke()
     {
         // The client index was already being read and then discarded, so a trace said
@@ -147,7 +147,7 @@ public sealed class SkippableMessageTests
         messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2020);
     }
 
-    [Fact]
+    [Test]
     public void VoiceInit_OmitsTheSampleRateUnlessQualityIs255()
     {
         // The rate is only on the wire for quality 255; older messages imply it from the codec
@@ -159,7 +159,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(333);
     }
 
-    [Fact]
+    [Test]
     public void VoiceInit_ReadsTheSampleRateWhenQualityIs255()
     {
         // The other half of the same branch. Skipping the rate here would leave sixteen bits
@@ -172,7 +172,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(444);
     }
 
-    [Fact]
+    [Test]
     public void UserMessage_IsTypeThenAnElevenBitLength()
     {
         // The message that was costing both SourceTV demos their run: it appears at packet 336
@@ -187,7 +187,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1212);
     }
 
-    [Fact]
+    [Test]
     public void EntityMessage_CarriesAnIndexAndClassBeforeItsLength()
     {
         // Index and class id come first, so a reader that went straight for the length would
@@ -203,7 +203,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1313);
     }
 
-    [Fact]
+    [Test]
     public void VoiceData_IsTwoBytesThenASixteenBitLength()
     {
         // 420 of these appear in z1800, which is a Mumble-era demo carrying voice comms. Each
@@ -219,7 +219,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1414);
     }
 
-    [Fact]
+    [Test]
     public void SetPause_IsASingleBit()
     {
         BitWriter writer = new();
@@ -229,7 +229,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1515);
     }
 
-    [Fact]
+    [Test]
     public void FixAngle_IsAFlagAndThreeSixteenBitAngles()
     {
         // Angles travel as a fraction of a full turn in 16 bits, so degrees are raw x 360 / 65536:
@@ -257,7 +257,7 @@ public sealed class SkippableMessageTests
         messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1616);
     }
 
-    [Fact]
+    [Test]
     public void File_IsAnIdAThenNameAndAFlag()
     {
         BitWriter writer = new();
@@ -267,7 +267,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1717);
     }
 
-    [Fact]
+    [Test]
     public void GetCvarValue_IsACookieAndAName()
     {
         BitWriter writer = new();
@@ -277,7 +277,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1818);
     }
 
-    [Fact]
+    [Test]
     public void Menu_LengthIsInBytesNotBits()
     {
         // The one trap in this group: Menu and CmdKeyValues state their payload length in
@@ -291,7 +291,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(1919);
     }
 
-    [Fact]
+    [Test]
     public void CmdKeyValues_LengthIsAlsoInBytes()
     {
         BitWriter writer = new();
@@ -302,7 +302,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2020);
     }
 
-    [Fact]
+    [Test]
     public void BspDecal_ReadsOnlyThePresentCoordinateAxes()
     {
         // The only variable-width message in this group. Three presence bits choose which axes
@@ -322,7 +322,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2121);
     }
 
-    [Fact]
+    [Test]
     public void BspDecal_WithoutAnEntity_OmitsBothIndices()
     {
         // The flag that cost a day. Entity and model indices are present only when a bit says
@@ -340,7 +340,7 @@ public sealed class SkippableMessageTests
         Read(writer).OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2323);
     }
 
-    [Fact]
+    [Test]
     public void BspDecal_WithNoAxesPresent_ReadsNoCoordinatesAtAll()
     {
         BitWriter writer = new();

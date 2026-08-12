@@ -35,7 +35,7 @@ public sealed class UserMessageLayoutTests
     private static object? Value(UserMessage message, string field) =>
         message.Fields!.First(pair => pair.Key == field).Value;
 
-    [Fact]
+    [Test]
     public void Fade_ReadsThreeShortsAndAColour()
     {
         byte[] body = new byte[10];
@@ -59,7 +59,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "a").ShouldBe(200);
     }
 
-    [Fact]
+    [Test]
     public void Fade_OfTheWrongWidth_IsRefused()
     {
         // 80 bits is the whole layout, so anything else is a different message being read as this
@@ -69,7 +69,7 @@ public sealed class UserMessageLayoutTests
         Decode("Fade", new byte[11]).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Shake_ReadsACommandByteAndThreeFloats()
     {
         byte[] body = new byte[13];
@@ -87,7 +87,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "duration").ShouldBe(0.75f);
     }
 
-    [Fact]
+    [Test]
     public void Rumble_ReadsThreeBytes()
     {
         UserMessage message = Decode("Rumble", [7, 200, 3]);
@@ -98,7 +98,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "flags").ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void ResetHUD_ReadsThePlaceholderByte()
     {
         // The client's reader takes nothing at all, but the server writes WRITE_BYTE(0), so the
@@ -110,7 +110,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "unused").ShouldBe(0);
     }
 
-    [Fact]
+    [Test]
     public void VguiMenu_ReadsThePanelAndItsKeyValues()
     {
         List<byte> body = [.. Encoding.UTF8.GetBytes("MOTD"), 0, 1, 2];
@@ -132,7 +132,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "msg").ShouldBe("gg");
     }
 
-    [Fact]
+    [Test]
     public void VguiMenu_WithFewerPairsThanItClaims_IsRefused()
     {
         // The count drives the read, so a count larger than the pairs present runs off the end.
@@ -146,7 +146,7 @@ public sealed class UserMessageLayoutTests
         Decode("VGUIMenu", [.. body]).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void VguiMenu_WithTrailingBytes_IsRefused()
     {
         List<byte> body = [.. Encoding.UTF8.GetBytes("info"), 0, 0, 0, 0xFF];
@@ -170,7 +170,7 @@ public sealed class UserMessageLayoutTests
         return body;
     }
 
-    [Fact]
+    [Test]
     public void PlayerStatsUpdate_NamesTheStatsItsBitFieldSelects()
     {
         // Bits 0 and 2 of the field, counting from stat 1: shots_hit and kills.
@@ -185,7 +185,7 @@ public sealed class UserMessageLayoutTests
         message.Fields!.Any(field => field.Key == "shots_fired").ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void PlayerStatsUpdate_WidthIsTheHeaderPlusOneValuePerSetBit()
     {
         // The claim the corpus widths confirmed - 48 bits plus 32 each - stated directly. A body
@@ -195,7 +195,7 @@ public sealed class UserMessageLayoutTests
         Decode("PlayerStatsUpdate", StatsBody([3, 1], 0b11u, 1)).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void OnlyTheFirstThirtyTwoStats_CanEverBeSent()
     {
         // Found by writing the opposite test and having it fail. The intent was to check that a
@@ -213,7 +213,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "damage_assist").ShouldBe(4242);
     }
 
-    [Fact]
+    [Test]
     public void MapStatsUpdate_ReadsTheMapIdAndItsOneStat()
     {
         byte[] identifier = new byte[4];
@@ -243,7 +243,7 @@ public sealed class UserMessageLayoutTests
         return whole;
     }
 
-    [Fact]
+    [Test]
     public void CheapBreakModel_IsAModelAndAPositionInEightyFiveBits()
     {
         // The width that exposed the era shift in the id table. A short and a full coordinate
@@ -264,7 +264,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "z").ShouldBe(-455.875f);
     }
 
-    [Fact]
+    [Test]
     public void BreakModel_CarriesAnOrientationEncodedAsAPosition()
     {
         // WRITE_ANGLES is WRITE_VEC3COORD - bf_write::WriteBitAngles copies the angle triple into
@@ -288,7 +288,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "skin").ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void SpawnFlyingBird_IsAPositionAndFiveFloats()
     {
         // Fractional coordinates deliberately. An axis is 22 bits with a fraction and 17 without,
@@ -315,7 +315,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "glide_time").ShouldBe(6.25f);
     }
 
-    [Fact]
+    [Test]
     public void AchievementEvent_AcceptsBothTheOldAndTheNewLength()
     {
         // The message grew at a fixed id: the modern writer sends two shorts, the 2009 demo's is
@@ -334,7 +334,7 @@ public sealed class UserMessageLayoutTests
         Decode("AchievementEvent", [1, 2, 3]).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void PlayerTauntSoundLoopStart_IsAnEntityAndASoundName()
     {
         List<byte> body = [12, .. Encoding.UTF8.GetBytes("Taunt.MedicHeroic"), 0];
@@ -346,7 +346,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "sound").ShouldBe("Taunt.MedicHeroic");
     }
 
-    [Fact]
+    [Test]
     public void PlayerShieldBlocked_IsTwoEntityIndices()
     {
         UserMessage message = Decode("PlayerShieldBlocked", [5, 9]);
@@ -357,7 +357,7 @@ public sealed class UserMessageLayoutTests
         Decode("PlayerShieldBlocked", [5, 9, 1]).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void CloseCaption_ReadsATokenADurationAndItsFlags()
     {
         // The most numerous user message in the game by a wide margin - 616 in one seven-minute
@@ -379,7 +379,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "female").ShouldBe(false);
     }
 
-    [Fact]
+    [Test]
     public void CloseCaption_WithTrailingBytes_IsRefused()
     {
         List<byte> body = [.. Encoding.UTF8.GetBytes("x"), 0, 10, 0, 1, 0xFF];
@@ -387,7 +387,7 @@ public sealed class UserMessageLayoutTests
         Decode("CloseCaption", [.. body]).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void VoiceMask_ReadsTwoInterleavedDwordArrays()
     {
         // The interleaving is the part worth asserting. voice_gamemgr.cpp writes a dword of the
@@ -413,7 +413,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "mod_enable").ShouldBe(true);
     }
 
-    [Fact]
+    [Test]
     public void VoiceMask_WidthComesFromMaxPlayers()
     {
         // VOICE_MAX_PLAYERS_DW*4*2 + 1 where VOICE_MAX_PLAYERS is MAX_PLAYERS = 101, so four
@@ -423,13 +423,11 @@ public sealed class UserMessageLayoutTests
         Decode("VoiceMask", new byte[32]).Fields.ShouldBeNull();
         Decode("VoiceMask", new byte[34]).Fields.ShouldBeNull();
     }
-
-    [Theory]
-    [InlineData(11, 9)]
-    [InlineData(14, 9)]
-    [InlineData(15, 17)]
-    [InlineData(16, 33)]
-    [InlineData(24, 33)]
+    [TestCase(11, 9)]
+    [TestCase(14, 9)]
+    [TestCase(15, 17)]
+    [TestCase(16, 33)]
+    [TestCase(24, 33)]
     public void VoiceMask_WidthFollowsTheErasMaxPlayers(int networkProtocol, int bytes)
     {
         // Read from the registered sizes in the shipped clients, not inferred: VoiceMask is
@@ -448,7 +446,7 @@ public sealed class UserMessageLayoutTests
         }
     }
 
-    [Fact]
+    [Test]
     public void VoiceMask_AtLaunchCarriesOneDwordPair()
     {
         // The width is only half of it - the field COUNT has to follow too, or a 9-byte body
@@ -467,7 +465,7 @@ public sealed class UserMessageLayoutTests
         message.Fields!.ShouldNotContain(pair => pair.Key == "can_hear1");
     }
 
-    [Fact]
+    [Test]
     public void WhenTheModernNamesLayoutRefuses_TheMarch2013NameIsTried()
     {
         // The B29 case, measured on the corpus: the March 2013 demo carries three messages at id
@@ -481,7 +479,7 @@ public sealed class UserMessageLayoutTests
         message.Name.ShouldBe("HapSetDrag");
     }
 
-    [Fact]
+    [Test]
     public void TheAlternateIsOnlyReachedWhenThePrimaryActuallyRefuses()
     {
         // The control, and the reason the fallback is safe. A one-byte body IS a valid
@@ -494,7 +492,7 @@ public sealed class UserMessageLayoutTests
         message.Fields.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Test]
     public void WhenBothCandidatesRefuse_NeitherNameIsClaimed()
     {
         // Two wrong answers do not make a right one. PlayerTauntSoundLoopEnd is one byte and
@@ -506,7 +504,7 @@ public sealed class UserMessageLayoutTests
         message.Name.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void PlayerIgnited_NamesTheIgniterTheVictimAndTheWeapon()
     {
         UserMessage message = Decode("PlayerIgnited", [3, 9, 21]);
@@ -517,7 +515,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "weapon").ShouldBe(21);
     }
 
-    [Fact]
+    [Test]
     public void TheTwoEntityMessages_NameTheirOwnRoles()
     {
         // Same two bytes, different meanings, and the names are the whole value of decoding them.
@@ -538,7 +536,7 @@ public sealed class UserMessageLayoutTests
         return [.. head];
     }
 
-    [Fact]
+    [Test]
     public void VoteStart_HasAOneBitFlagBetweenTwoByteFields()
     {
         // The reason this layout is worth a test of its own: WRITE_BOOL is a single bit, and it
@@ -574,7 +572,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "target").ShouldBe(12);
     }
 
-    [Fact]
+    [Test]
     public void VotePass_IsTheHeaderAndTwoStrings()
     {
         List<byte> body = VoteHeader(2, 17);
@@ -591,7 +589,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "details").ShouldBe("cwed2k5");
     }
 
-    [Fact]
+    [Test]
     public void VoteFailed_IsExactlyFortyEightBits()
     {
         // Byte, long, byte - and tf_usermessages.cpp registers the message at 6 bytes, so the
@@ -609,7 +607,7 @@ public sealed class UserMessageLayoutTests
         Decode("VoteFailed", [.. VoteHeader(2, 6)]).Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void CallVoteFailed_IsAReasonAndACooldown()
     {
         UserMessage message = Decode("CallVoteFailed", [4, 0x1E, 0x00]);
@@ -619,7 +617,7 @@ public sealed class UserMessageLayoutTests
         Value(message, "seconds").ShouldBe(30);
     }
 
-    [Fact]
+    [Test]
     public void AKnownLayoutThatRefuses_WithholdsTheNameToo()
     {
         // A name is a claim, and a layout that refuses is evidence against it. Reporting
@@ -637,7 +635,7 @@ public sealed class UserMessageLayoutTests
         refused.BodyBits.ShouldBe(32);
     }
 
-    [Fact]
+    [Test]
     public void AKnownLayoutThatFits_KeepsItsName()
     {
         // The control. Withholding every name would satisfy the test above while destroying the
@@ -645,7 +643,7 @@ public sealed class UserMessageLayoutTests
         Decode("PlayerLoadoutUpdated", [7]).Name.ShouldBe("PlayerLoadoutUpdated");
     }
 
-    [Fact]
+    [Test]
     public void AMessageWithNoLayoutAtAll_KeepsItsName()
     {
         // The other control, and the more important one. Withholding is evidence-driven: it fires
@@ -658,7 +656,7 @@ public sealed class UserMessageLayoutTests
         message.Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void AnUnknownClassNumber_IsReportedAsItsNumber()
     {
         // Nine classes have existed since 2007 and no tenth is expected, but a number outside the

@@ -15,7 +15,7 @@ public sealed class VarIntFuzzPropertyTests
     private const int MaxRandomLength = 96;
     private const int ModeCount = 4;
 
-    [Fact]
+    [Test]
     public void Consume_SeededRandomBuffers_NeverViolatesTheProperty()
     {
         Random random = new(Seed);
@@ -29,7 +29,7 @@ public sealed class VarIntFuzzPropertyTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Consume_AllContinuationBytes_TerminatesInsteadOfReadingForever()
     {
         // The shape that would hang an unbounded decoder: every byte asks for another one.
@@ -43,7 +43,7 @@ public sealed class VarIntFuzzPropertyTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Consume_EveryTruncationOfABuffer_NeverViolatesTheProperty()
     {
         byte[] full = new byte[64];
@@ -57,7 +57,7 @@ public sealed class VarIntFuzzPropertyTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Consume_EverySingleBitFlipOfABuffer_NeverViolatesTheProperty()
     {
         byte[] original = new byte[16];
@@ -79,7 +79,7 @@ public sealed class VarIntFuzzPropertyTests
     /// The decoder is chosen from the input, so the corpus decides which of the four are reached
     /// at all. Measured, not assumed - same trap as the bit reader's field widths.
     /// </summary>
-    [Fact]
+    [Test]
     public void SeededCorpus_ReachesEveryDecoder()
     {
         HashSet<int> modes = new();
@@ -102,7 +102,7 @@ public sealed class VarIntFuzzPropertyTests
     /// <summary>
     /// Proves the measurement above can fail, rather than passing for free.
     /// </summary>
-    [Fact]
+    [Test]
     public void ModeRecording_ClusteredCorpus_ReportsOnlyTheDecodersItReaches()
     {
         HashSet<int> modes = new();
@@ -116,7 +116,7 @@ public sealed class VarIntFuzzPropertyTests
         modes.ShouldBe([0]);
     }
 
-    [Fact]
+    [Test]
     public void ConsumeAndCountReads_ActuallyDecodes()
     {
         // 16 zero bytes: mode 0 every time, one byte consumed per decode.

@@ -18,15 +18,16 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// output is handed to an Opus decoder, and bytes that are not a frame boundary produce audible
 /// noise rather than an error.
 /// </remarks>
-public sealed class CorpusVoiceTests(ITestOutputHelper output)
+public sealed class CorpusVoiceTests
 {
-    [Fact]
+    [Test]
     public void EverySteamVoicePacket_ConsumesExactly()
     {
-        Assert.SkipUnless(
-            Corpus.AnyDemoUses("steam"),
-            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+        if (!Corpus.AnyDemoUses("steam"))
+        {
+            Assert.Ignore("no demo present carries steam-codec (Opus) voice - it is absent from the "
             + "committed corpus and lives only in tools/corpus/local");
+        }
 
         int packets = 0;
         int chunks = 0;
@@ -74,18 +75,19 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
         // from it.
         rates.ShouldBe([24000]);
 
-        output.WriteLine(
+        TestContext.Out.WriteLine(
             $"{packets} packets, {chunks} chunks, {terminated} terminated, " +
             $"{speakers.Count} distinct speakers, rates {string.Join("/", rates)}");
     }
 
-    [Fact]
+    [Test]
     public void TheSteamIdIdentifiesSpeakersTheClientSlotCannot()
     {
-        Assert.SkipUnless(
-            Corpus.AnyDemoUses("steam"),
-            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+        if (!Corpus.AnyDemoUses("steam"))
+        {
+            Assert.Ignore("no demo present carries steam-codec (Opus) voice - it is absent from the "
             + "committed corpus and lives only in tools/corpus/local");
+        }
 
         // Why this framing was worth decoding rather than carrying whole. svc_VoiceData gives a
         // client slot; a slot is an index into the roster at that instant and is recycled when
@@ -132,7 +134,7 @@ public sealed class CorpusVoiceTests(ITestOutputHelper output)
                     1, $"{Path.GetFileName(path)}: slot {slot} carried {accounts.Count} accounts");
             }
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: {bySlot.Count} speaking slots, " +
                 $"each one account");
         }

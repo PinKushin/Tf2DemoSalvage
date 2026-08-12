@@ -46,7 +46,7 @@ public sealed class DemoTraceWriterTests
         return writer.ToString();
     }
 
-    [Fact]
+    [Test]
     public void GameEventPlayerFields_ResolveToNames()
     {
         // The trace printed `player_hurt userid 18 ... attacker 18` while the summary of the same
@@ -69,7 +69,7 @@ public sealed class DemoTraceWriterTests
         control.ShouldNotContain("Sassy");
     }
 
-    [Fact]
+    [Test]
     public void Entities_AreNamedByTheirClass_NotByItsNumber()
     {
         // The trace is the deliverable a person reads, so it should not be the least readable
@@ -105,7 +105,7 @@ public sealed class DemoTraceWriterTests
         return writer.Build();
     }
 
-    [Fact]
+    [Test]
     public void EachCommand_BecomesABlockInStreamOrder()
     {
         string trace = Trace(
@@ -124,7 +124,7 @@ public sealed class DemoTraceWriterTests
         blocks[1].ShouldContain("tick 2");
     }
 
-    [Fact]
+    [Test]
     public void EachMessage_IsAKeywordWithFieldsEndingInASemicolon()
     {
         // The lmpc shape: a keyword, its fields, a terminator. Machine-readable enough to
@@ -135,7 +135,7 @@ public sealed class DemoTraceWriterTests
         trace.ShouldContain(";");
     }
 
-    [Fact]
+    [Test]
     public void Blocks_AreBraceDelimited()
     {
         string trace = Trace([new(DemoCommandType.Packet, 1, TickPacket(1))]);
@@ -144,7 +144,7 @@ public sealed class DemoTraceWriterTests
         trace.ShouldContain("{");
     }
 
-    [Fact]
+    [Test]
     public void NonPacketCommands_AppearToo_SoTheStreamIsComplete()
     {
         // A trace that silently dropped dem_synctick or dem_stop would not describe the file.
@@ -160,7 +160,7 @@ public sealed class DemoTraceWriterTests
         trace.ShouldContain("dem_stop");
     }
 
-    [Fact]
+    [Test]
     public void UndecodableTail_IsReportedInPlace_NotOmitted()
     {
         // A packet the reader cannot finish is exactly what this format exists to show. Saying
@@ -171,7 +171,7 @@ public sealed class DemoTraceWriterTests
         trace.ShouldContain("stopped");
     }
 
-    [Fact]
+    [Test]
     public void Header_IsWrittenBeforeAnyBlock()
     {
         string trace = Trace([new(DemoCommandType.Packet, 1, TickPacket(1))]);
@@ -180,7 +180,7 @@ public sealed class DemoTraceWriterTests
             .ShouldBeLessThan(trace.IndexOf("block", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Test]
     public void LocalField_IsNamedInTheTraceRatherThanRenderedAsNothing()
     {
         // A `local` field is declared by the server and deliberately not transmitted, so it has
@@ -207,7 +207,7 @@ public sealed class DemoTraceWriterTests
         trace.ShouldContain("svc_gameevent arena_win_panel winning_team 3 player_1 local");
     }
 
-    [Fact]
+    [Test]
     public void Output_IsDeterministicAndLineFeedOnly()
     {
         IReadOnlyList<DemoCommand> commands = [new(DemoCommandType.Packet, 1, TickPacket(7))];
@@ -216,7 +216,7 @@ public sealed class DemoTraceWriterTests
         Trace(commands).ShouldNotContain("\r");
     }
 
-    [Fact]
+    [Test]
     public void AWholeSmallTrace_MatchesItsExpectedText()
     {
         // A golden output, added because mutation testing scored this file at 48.8% - the
@@ -285,13 +285,11 @@ public sealed class DemoTraceWriterTests
 
             """.ReplaceLineEndings("\n"));
     }
-
-    [Theory]
-    [InlineData("plain", "\"plain\"")]
-    [InlineData("say \"hi\"", "\"say \\\"hi\\\"\"")]
-    [InlineData("back\\slash", "\"back\\\\slash\"")]
-    [InlineData("two\nlines", "\"two\\nlines\"")]
-    [InlineData("carriage\rreturn", "\"carriage\\rreturn\"")]
+    [TestCase("plain", "\"plain\"")]
+    [TestCase("say \"hi\"", "\"say \\\"hi\\\"\"")]
+    [TestCase("back\\slash", "\"back\\\\slash\"")]
+    [TestCase("two\nlines", "\"two\\nlines\"")]
+    [TestCase("carriage\rreturn", "\"carriage\\rreturn\"")]
     public void StringsAreEscapedSoTheTraceCanBeReadBack(string raw, string expected)
     {
         // Each escape case survived mutation individually. They are not cosmetic: an unescaped

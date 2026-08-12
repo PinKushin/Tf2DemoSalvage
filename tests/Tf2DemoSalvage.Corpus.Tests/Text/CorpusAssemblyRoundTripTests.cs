@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 /// It is a gate rather than a report, because a partial answer here is not interesting. A demo
 /// that compiles back to all but one byte is a demo that cannot be played.
 /// </remarks>
-public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
+public sealed class CorpusAssemblyRoundTripTests
 {
     /// <summary>
     /// Commands per demo. A prefix, because this suite runs once per mutant on the measurement
@@ -44,7 +44,7 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
     /// </remarks>
     private const int CommandLimit = 600;
 
-    [Fact]
+    [Test]
     public void EveryDemo_CompilesBackToItsOwnBytes()
     {
         int demos = 0;
@@ -93,7 +93,7 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
 
         // A corpus that stopped being found would otherwise pass this without comparing anything.
         demos.ShouldBeGreaterThan(5);
-        output.WriteLine(string.Create(
+        TestContext.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{demos} demos, {bytes:N0} bytes decompiled to text and compiled back byte for byte"));
 
@@ -105,12 +105,12 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
         // after the last message - bits rather than a message, and never anything else - and a
         // compressed string table keeps its payload because reproducing a Snappy stream byte for
         // byte is not something a parser can promise.
-        output.WriteLine(string.Create(
+        TestContext.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{structured:N0} of {structured + raw:N0} message lines are structured " +
             $"({100.0 * structured / (structured + raw):F1}%)"));
 
-        ReportWhatIsStillRaw(output, everything.ToString());
+        ReportWhatIsStillRaw(everything.ToString());
     }
 
     /// <summary>
@@ -126,7 +126,7 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
     /// The writer labels each raw line with what it stands for and whether the type had a text
     /// form that declined, so counting the output cannot disagree with the output.
     /// </remarks>
-    private static void ReportWhatIsStillRaw(ITestOutputHelper output, string assembly)
+    private static void ReportWhatIsStillRaw(string assembly)
     {
         Dictionary<string, long> bits = new(StringComparer.Ordinal);
         Dictionary<string, long> counts = new(StringComparer.Ordinal);
@@ -148,10 +148,10 @@ public sealed class CorpusAssemblyRoundTripTests(ITestOutputHelper output)
             counts[label] = counts.GetValueOrDefault(label) + 1;
         }
 
-        output.WriteLine("still bits, by what they are:");
+        TestContext.Out.WriteLine("still bits, by what they are:");
         foreach ((string label, long total) in bits.OrderByDescending(entry => entry.Value))
         {
-            output.WriteLine(string.Create(
+            TestContext.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"    {total,14:N0}  {counts[label],9:N0}  {label}"));
         }
     }

@@ -17,7 +17,7 @@ public sealed class SteamVoicePayloadTests
     private const ulong SteamId = 76561198000000001UL;
     private const int SampleRate = 24000;
 
-    [Fact]
+    [Test]
     public void TheSpeakerIsTheSteamAccountRatherThanTheClientSlot()
     {
         // The reason this decoding is worth having at all. svc_VoiceData already gives a client
@@ -34,7 +34,7 @@ public sealed class SteamVoicePayloadTests
         packet.Chunks[0].Data.ToArray().ShouldBe(new byte[] { 0x68, 0x11, 0x22 });
     }
 
-    [Fact]
+    [Test]
     public void AnFfffSizeTerminatesTheBlockRatherThanDeclaringAChunk()
     {
         // The finding that closed B31. Sixty-three of 1397 corpus blocks ended two bytes short of
@@ -51,7 +51,7 @@ public sealed class SteamVoicePayloadTests
         packet.IsTerminated.ShouldBeTrue();
     }
 
-    [Fact]
+    [Test]
     public void ABlockWithoutATerminatorIsStillComplete()
     {
         // The control for the case above. Most blocks - 1334 of 1397 - simply run to the end of
@@ -65,7 +65,7 @@ public sealed class SteamVoicePayloadTests
         packet.IsTerminated.ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void SeveralChunksArriveInOneBlockAndKeepTheirSequence()
     {
         // A voice packet carries a burst of frames, and the sequence numbers are what order them
@@ -84,7 +84,7 @@ public sealed class SteamVoicePayloadTests
         packet.Chunks[2].Data.Length.ShouldBe(1);
     }
 
-    [Fact]
+    [Test]
     public void ASilencePacketCarriesNoAudioAtAll()
     {
         // The 18-byte packets: a sample rate, a type 0x00 with a 16-bit payload, and the tail.
@@ -99,7 +99,7 @@ public sealed class SteamVoicePayloadTests
         packet.SteamId.ShouldBe(SteamId);
     }
 
-    [Fact]
+    [Test]
     public void APayloadThatDoesNotConsumeExactlyIsRejected()
     {
         // A voice body has no checksum over its framing, so a wrong field width shows up only as

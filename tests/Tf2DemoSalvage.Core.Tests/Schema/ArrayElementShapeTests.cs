@@ -73,7 +73,7 @@ public sealed class ArrayElementShapeTests
             ]);
     }
 
-    [Fact]
+    [Test]
     public void EachElementsShapeSurvivesTheRoundTrip()
     {
         // Shapes deliberately differ between elements. Equal shapes would make a decoder that
@@ -92,7 +92,7 @@ public sealed class ArrayElementShapeTests
         property.ElementShapes.ShouldBe(shapes);
     }
 
-    [Fact]
+    [Test]
     public void AnArrayReEncodesToTheExactBytesItDecodedFrom()
     {
         // **This checks decode/encode SYMMETRY, not encoder correctness, and the difference is
@@ -120,7 +120,7 @@ public sealed class ArrayElementShapeTests
         again.ShouldBe(body);
     }
 
-    [Fact]
+    [Test]
     public void EntityEndBits_ReportsWhereEachEntityFinished()
     {
         // The diagnostic that made B27 findable. A snapshot-wide difference says nothing about

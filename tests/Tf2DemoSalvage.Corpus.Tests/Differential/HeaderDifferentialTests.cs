@@ -23,9 +23,9 @@ namespace Tf2DemoSalvage.Core.Tests.Differential;
 /// binary — see <c>docs/DIFFERENTIAL.md</c>. Without it these tests report that they skipped
 /// rather than passing silently.
 /// </remarks>
-public sealed class HeaderDifferentialTests(ITestOutputHelper output)
+public sealed class HeaderDifferentialTests
 {
-    [Fact]
+    [Test]
     public void HeaderFields_MatchAnIndependentParser()
     {
         string? oracle = ReferenceParser.Locate();
@@ -33,7 +33,7 @@ public sealed class HeaderDifferentialTests(ITestOutputHelper output)
         {
             // Reported, not silent: a skipped differential test is the one case where green
             // means nothing was actually compared.
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 "SKIPPED: no reference parser. Set TF2DEMOSALVAGE_ORACLE to a parse_demo " +
                 "binary (see docs/DIFFERENTIAL.md). No cross-parser comparison was made.");
             return;
@@ -61,18 +61,18 @@ public sealed class HeaderDifferentialTests(ITestOutputHelper output)
                 .ShouldBe(ours.PlaybackTimeSeconds, 0.001f, path);
 
             compared++;
-            output.WriteLine($"{Path.GetFileName(path)}: header agrees on 10 fields");
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: header agrees on 10 fields");
         }
 
         compared.ShouldBeGreaterThan(0, "no demos were compared");
     }
 
-    [Fact]
+    [Test]
     public void OracleAvailability_IsReportedSoASkipIsNeverMistakenForAPass()
     {
         string? oracle = ReferenceParser.Locate();
 
-        output.WriteLine(oracle is null
+        TestContext.Out.WriteLine(oracle is null
             ? "Reference parser NOT configured - differential tests are skipping."
             : $"Reference parser: {oracle}");
 

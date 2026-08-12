@@ -66,7 +66,7 @@ public sealed class LzssTests
         return [.. output];
     }
 
-    [Fact]
+    [Test]
     public void LiteralOnlyStream_RoundTripsAnyInput()
     {
         Gen.Byte.Array[1, 200].Sample(data =>
@@ -76,7 +76,7 @@ public sealed class LzssTests
         });
     }
 
-    [Fact]
+    [Test]
     public void BackReference_CopiesFromWhatHasAlreadyBeenProduced()
     {
         // "abc" then a back-reference three bytes back for three bytes, giving "abcabc".
@@ -93,7 +93,7 @@ public sealed class LzssTests
         Encoding.ASCII.GetString(Lzss.Decompress(compressed, 6)).ShouldBe("abcabc");
     }
 
-    [Fact]
+    [Test]
     public void OverlappingBackReference_ReadsBytesAsItWritesThem()
     {
         // The case that separates a correct decoder from one copying via a snapshot: a single
@@ -111,7 +111,7 @@ public sealed class LzssTests
         Encoding.ASCII.GetString(Lzss.Decompress(compressed, 9)).ShouldBe("aaaaaaaaa");
     }
 
-    [Fact]
+    [Test]
     public void ControlByte_IsReadLowBitFirst()
     {
         // Item order follows the control byte's low bit upward. Reading it from the top would
@@ -129,7 +129,7 @@ public sealed class LzssTests
         Encoding.ASCII.GetString(Lzss.Decompress(compressed, 5)).ShouldBe("abcab");
     }
 
-    [Fact]
+    [Test]
     public void MatchOfCountOne_TerminatesTheStream()
     {
         // The terminator is a match whose encoded count is zero, meaning one. Nothing after it
@@ -146,7 +146,7 @@ public sealed class LzssTests
         Encoding.ASCII.GetString(Lzss.Decompress(compressed, 2)).ShouldBe("hi");
     }
 
-    [Fact]
+    [Test]
     public void OutputStopsAtTheDeclaredLength()
     {
         // The declared length is the contract. Producing more than it says means the stream
@@ -162,7 +162,7 @@ public sealed class LzssTests
         Should.Throw<InvalidDataException>(() => Lzss.Decompress(compressed, 2));
     }
 
-    [Fact]
+    [Test]
     public void TruncatedStream_IsRejectedRatherThanReturningWhatItGot()
     {
         // A partial table decoded as though complete would be read as real entries.
@@ -171,7 +171,7 @@ public sealed class LzssTests
         Should.Throw<InvalidDataException>(() => Lzss.Decompress(compressed, 100));
     }
 
-    [Fact]
+    [Test]
     public void BackReferenceBeforeTheStartOfOutput_IsRejected()
     {
         // Reaching behind the first byte produced. Without the check this reads whatever
@@ -187,13 +187,13 @@ public sealed class LzssTests
         Should.Throw<InvalidDataException>(() => Lzss.Decompress(compressed, 4));
     }
 
-    [Fact]
+    [Test]
     public void HeaderTooShortToHoldItsOwnLength_IsRejected()
     {
         Should.Throw<InvalidDataException>(() => Lzss.Decompress([1, 2], 4));
     }
 
-    [Fact]
+    [Test]
     public void DeclaredLengthDisagreeingWithTheHeader_IsRejected()
     {
         // Two independent statements of the same size - the string table message's field and

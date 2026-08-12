@@ -91,7 +91,7 @@ public sealed class EntityAssemblyTests
         return EntityAssembly.Build(head, () => next < lines.Count ? lines[next++] : null, Decoder());
     }
 
-    [Fact]
+    [Test]
     public void AnEnteringEntity_RoundTripsToTheSameBits()
     {
         // The whole claim in one assertion: text carrying named properties is enough to rebuild
@@ -104,7 +104,7 @@ public sealed class EntityAssemblyTests
         rebuilt.Body.ToArray().ShouldBe(payload);
     }
 
-    [Fact]
+    [Test]
     public void TheRenderedTextNamesTheProperties()
     {
         // A viewer's reason for this format existing. Asserted on the exact values, not on
@@ -126,7 +126,7 @@ public sealed class EntityAssemblyTests
         props[2].Trim().ShouldBe("prop 2/4/0 DT_Test.m_iAmmo i 33");
     }
 
-    [Fact]
+    [Test]
     public void ASnapshotThatCannotBeDecoded_RendersAsNullRatherThanThrowing()
     {
         // Deliberately truncated: the class id runs off the end. Returning null is what lets the
@@ -141,7 +141,7 @@ public sealed class EntityAssemblyTests
         EntityAssembly.Write(Header(1, writer.BitCount, payload), Decoder()).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Build_RefusesTextWhoseEntityBlockIsNeverClosed()
     {
         // A truncated file must fail as bad input rather than reading past the end of the list.
@@ -155,7 +155,7 @@ public sealed class EntityAssemblyTests
     }
 
 
-    [Fact]
+    [Test]
     public void LeaveAndDelete_SurviveAsDistinctUpdateTypes()
     {
         // Leave and Delete are different events - one stops updating an entity, the other removes
@@ -183,7 +183,7 @@ public sealed class EntityAssemblyTests
         entities[1].ShouldContain("DELETE");
     }
 
-    [Fact]
+    [Test]
     public void ADeltaSnapshot_RoundTripsToTheSameBits()
     {
         // A delta carries no class id - the decoder supplies it from when the entity entered - so
@@ -227,7 +227,7 @@ public sealed class EntityAssemblyTests
         rebuilt.Body.ToArray().ShouldBe(payload);
     }
 
-    [Fact]
+    [Test]
     public void Write_RejectsANullMessageOrDecoder()
     {
         Should.Throw<ArgumentNullException>(() => EntityAssembly.Write(null!, Decoder()));

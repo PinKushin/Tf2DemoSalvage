@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
                     "for ordinary tests.")]
 public sealed class BitReaderPropertyTests
 {
-    [Fact]
+    [Test]
     public void AnyValueAtAnyWidth_SurvivesARoundTrip()
     {
         Gen.Select(Gen.UInt, Gen.Int[1, 32]).Sample(t =>
@@ -42,7 +42,7 @@ public sealed class BitReaderPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ASequenceOfWidths_ReadsBackInOrder()
     {
         // The case fixtures kept getting wrong: values packed at arbitrary, unaligned offsets
@@ -68,7 +68,7 @@ public sealed class BitReaderPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ReadingAdvancesByExactlyTheWidthRequested()
     {
         Gen.Select(Gen.UInt, Gen.Int[1, 32]).Sample(t =>
@@ -86,7 +86,7 @@ public sealed class BitReaderPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ValuesAreAlwaysZeroExtended()
     {
         // No read may return bits above its requested width, whatever surrounds it.
@@ -106,7 +106,7 @@ public sealed class BitReaderPropertyTests
         });
     }
 
-    [Fact]
+    [Test]
     public void BitsReadAndBitsRemainingAlwaysSumToTheBufferSize()
     {
         Gen.Byte.Array[1, 64].Select(Gen.Int[0, 200]).Sample(t =>

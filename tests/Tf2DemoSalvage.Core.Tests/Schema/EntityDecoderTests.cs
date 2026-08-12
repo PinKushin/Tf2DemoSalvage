@@ -52,14 +52,12 @@ public sealed class EntityDecoderTests
 
     private static PacketEntitiesMessage Header(int updated, bool delta = false) =>
         new(2048, delta, delta ? 100 : null, false, updated, 0, false, System.ReadOnlyMemory<byte>.Empty);
-
-    [Theory]
-    [InlineData(2, 2)]
-    [InlineData(3, 2)]
-    [InlineData(4, 3)]
-    [InlineData(362, 9)]
-    [InlineData(363, 9)]
-    [InlineData(512, 10)]
+    [TestCase(2, 2)]
+    [TestCase(3, 2)]
+    [TestCase(4, 3)]
+    [TestCase(362, 9)]
+    [TestCase(363, 9)]
+    [TestCase(512, 10)]
     public void ClassIdWidth_IsFloorLogTwoPlusOne(int classCount, int expected)
     {
         // floor, not ceil. The two agree on exact powers of two and on two classes, which is
@@ -69,7 +67,7 @@ public sealed class EntityDecoderTests
         EntityDecoder.ClassIdBits(classCount).ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void TempEntities_DecodeTheirDelayClassAndProperties()
     {
         // svc_TempEntities is the largest undeciphered part of the codec - 761,828 of z1800's
@@ -109,10 +107,8 @@ public sealed class EntityDecoderTests
         effects[1].DelaySeconds.ShouldBe(0f);
         effects[1].Properties.ShouldBeEmpty();
     }
-
-    [Theory]
-    [InlineData(0, true)]
-    [InlineData(1, false)]
+    [TestCase(0, true)]
+    [TestCase(1, false)]
     public void TempEntities_CountOfZeroMeansOneReliableEffect(int wireCount, bool expected)
     {
         // A count byte of zero does not mean an empty message - it means exactly one effect, sent
@@ -138,7 +134,7 @@ public sealed class EntityDecoderTests
         effect.IsReliable.ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void TempEntities_WithABodyThatDoesNotFit_AreRefusedRatherThanGuessed()
     {
         // The self-check that makes a researched layout safe: the message states its body length,
@@ -151,7 +147,7 @@ public sealed class EntityDecoderTests
             () => Decoder().DecodeTempEntities(writer.Build(), 40, writer.BitCount));
     }
 
-    [Fact]
+    [Test]
     public void TempEntities_WithNoClassOnTheFirstEffect_AreRefused()
     {
         // The class is optional per effect and repeats the previous one, so the FIRST effect
@@ -164,7 +160,7 @@ public sealed class EntityDecoderTests
             () => Decoder().DecodeTempEntities(writer.Build(), 1, writer.BitCount));
     }
 
-    [Fact]
+    [Test]
     public void EnteringEntity_CarriesItsClassAndSerialNumber()
     {
         BitWriter writer = new();
@@ -185,7 +181,7 @@ public sealed class EntityDecoderTests
         entity.Properties.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void ConsecutiveEntities_AreOneApartNotZero()
     {
         // The +1 in "index = previous + delta + 1". With a single entity a decoder missing it
@@ -207,7 +203,7 @@ public sealed class EntityDecoderTests
         entities.Select(e => e.EntityIndex).ShouldBe([0, 1, 2]);
     }
 
-    [Fact]
+    [Test]
     public void EntityIndexDelta_SkipsTheStatedNumberOfSlots()
     {
         BitWriter writer = new();
@@ -230,7 +226,7 @@ public sealed class EntityDecoderTests
         entities.Select(e => e.EntityIndex).ShouldBe([5, 306]);
     }
 
-    [Fact]
+    [Test]
     public void PropertyIndices_AddressTheFlattenedList()
     {
         BitWriter writer = new();
@@ -255,7 +251,7 @@ public sealed class EntityDecoderTests
         entity.Properties.Select(p => p.Value.AsInt).ShouldBe([125, 3, 9]);
     }
 
-    [Fact]
+    [Test]
     public void PropertyValues_DecodeAccordingToTheirOwnDefinition()
     {
         // Each property has a different width, so a decoder using one width for all of them
@@ -277,7 +273,7 @@ public sealed class EntityDecoderTests
         entity.Properties[0].Value.AsInt.ShouldBe(4095);
     }
 
-    [Fact]
+    [Test]
     public void DeltaUpdate_ReusesTheClassLearnedWhenTheEntityEntered()
     {
         // A delta carries no class id. The decoder has to remember it from the enter, which is
@@ -308,7 +304,7 @@ public sealed class EntityDecoderTests
         entity.Properties.ShouldHaveSingleItem().Value.AsInt.ShouldBe(66);
     }
 
-    [Fact]
+    [Test]
     public void LeaveAndDelete_CarryNoPropertiesAndConsumeNoFurtherBits()
     {
         BitWriter writer = new();
@@ -326,7 +322,7 @@ public sealed class EntityDecoderTests
         entities.ShouldAllBe(e => e.Properties.Count == 0);
     }
 
-    [Fact]
+    [Test]
     public void RemovedEntities_AreListedAfterTheUpdatesOnADelta()
     {
         // A trailing flag-and-index list, present only on delta snapshots. Reading it on a full
@@ -344,7 +340,7 @@ public sealed class EntityDecoderTests
         decoder.RemovedEntities.ShouldBe([11, 1500]);
     }
 
-    [Fact]
+    [Test]
     public void FullSnapshot_DoesNotReadARemovedEntityList()
     {
         // The mirror of the test above. If the decoder read the list unconditionally it would
@@ -360,7 +356,7 @@ public sealed class EntityDecoderTests
         decoder.RemovedEntities.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void EntityIndexBeyondTheEntityLimit_IsRejected()
     {
         // MAX_EDICTS is 2048. An index past it means the stream desynchronised, and continuing
@@ -373,7 +369,7 @@ public sealed class EntityDecoderTests
             Decoder().Decode(writer.Build(), Header(1), writer.BitCount));
     }
 
-    [Fact]
+    [Test]
     public void PropertyIndexPastTheEndOfTheClass_IsRejected()
     {
         // The schema above flattens to six properties. Index 20 cannot be addressed, and
@@ -389,7 +385,7 @@ public sealed class EntityDecoderTests
             Decoder().Decode(writer.Build(), Header(1), writer.BitCount));
     }
 
-    [Fact]
+    [Test]
     public void DeltaForAnEntityNeverSeenEntering_IsRejected()
     {
         // Without a prior enter there is no class, so there is no flattened list to index and
@@ -403,7 +399,7 @@ public sealed class EntityDecoderTests
             Decoder().Decode(writer.Build(), Header(1, delta: true), writer.BitCount));
     }
 
-    [Fact]
+    [Test]
     public void PropertyIndices_FollowFlattenedOrderNotDeclaredOrder()
     {
         // RISKS B4 made concrete. m_iScore is declared fifth but marked changes-often, so
@@ -435,7 +431,7 @@ public sealed class EntityDecoderTests
         entity.Properties[0].Value.AsInt.ShouldBe(4000);
     }
 
-    [Fact]
+    [Test]
     public void NullSchema_IsRejectedAtConstruction()
     {
         // The decoder holds the schema for its whole life, so a null one would surface much
@@ -444,7 +440,7 @@ public sealed class EntityDecoderTests
             .ParamName.ShouldBe("schema");
     }
 
-    [Fact]
+    [Test]
     public void NullHeader_IsRejected()
     {
         Should.Throw<System.ArgumentNullException>(() =>
@@ -452,7 +448,7 @@ public sealed class EntityDecoderTests
             .ParamName.ShouldBe("header");
     }
 
-    [Fact]
+    [Test]
     public void RemovalList_StopsAtTheDeclaredBodyLengthEvenWithoutATerminator()
     {
         // The loop is bounded by the body length as well as by the terminator flag. Here the
@@ -472,7 +468,7 @@ public sealed class EntityDecoderTests
         decoder.RemovedEntities.ShouldBe([11]);
     }
 
-    [Fact]
+    [Test]
     public void RemovedEntities_AreClearedBetweenSnapshots()
     {
         // The list is reused across calls, so a stale entry would be reported as a removal in
@@ -496,7 +492,7 @@ public sealed class EntityDecoderTests
         decoder.RemovedEntities.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void StringProperty_ReadsThroughTheSameFlattenedList()
     {
         BitWriter writer = new();
@@ -519,7 +515,7 @@ public sealed class EntityDecoderTests
         entity.Properties.ShouldHaveSingleItem().Value.AsString.ShouldBe("abc");
     }
 
-    [Fact]
+    [Test]
     public void Baseline_DecodesAsAnOrdinaryPropertyList()
     {
         // A class baseline is encoded exactly like an entity delta - the same continuation-flag
@@ -542,7 +538,7 @@ public sealed class EntityDecoderTests
         baseline[1].Value.AsInt.ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void Baseline_ForAnUnknownClass_IsNull()
     {
         // Distinguishable from "a class with an empty baseline", which is why this returns null
@@ -551,7 +547,7 @@ public sealed class EntityDecoderTests
         Decoder().Baseline(0).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void RewritingABaseline_ReplacesTheDecodedOne()
     {
         // Baselines are rewritten mid-match through svc_UpdateStringTable, so a decoded copy

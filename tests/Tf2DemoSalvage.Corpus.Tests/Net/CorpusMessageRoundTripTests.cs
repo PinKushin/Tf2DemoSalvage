@@ -41,12 +41,12 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// framing complete and says nothing about the contents. Those bodies need their own round trips,
 /// and svc_Sounds already has one.
 /// </remarks>
-public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
+public sealed class CorpusMessageRoundTripTests
 {
     /// <summary>Commands read per demo, so the suite stays inside a normal test run.</summary>
     private const int CommandLimit = 1500;
 
-    [Fact]
+    [Test]
     public void EveryWritableMessage_ReproducesItsOwnBitsExactly()
     {
         int checkedMessages = 0;
@@ -89,10 +89,10 @@ public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
         // A filter that matches nothing passes silently, and so does a corpus that stopped being
         // read. The count is the guard against both.
         checkedMessages.ShouldBeGreaterThan(10000);
-        output.WriteLine($"{checkedMessages:N0} messages re-encoded bit for bit");
+        TestContext.Out.WriteLine($"{checkedMessages:N0} messages re-encoded bit for bit");
     }
 
-    [Fact]
+    [Test]
     public void ReportHowMuchOfThePayloadRoundTrips()
     {
         foreach (string path in Corpus.Files())
@@ -120,14 +120,14 @@ public sealed class CorpusMessageRoundTripTests(ITestOutputHelper output)
             }
 
             double share = total == 0 ? 0 : 100.0 * written / total;
-            output.WriteLine(string.Create(
+            TestContext.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{Path.GetFileName(path)}: {written:N0} of {total:N0} message bits round-trip " +
                 $"({share:F2}%)"));
 
             foreach ((string type, long bits) in missing.OrderByDescending(e => e.Value).Take(5))
             {
-                output.WriteLine(string.Create(
+                TestContext.Out.WriteLine(string.Create(
                     CultureInfo.InvariantCulture, $"    {bits,12:N0}  {type}"));
             }
 

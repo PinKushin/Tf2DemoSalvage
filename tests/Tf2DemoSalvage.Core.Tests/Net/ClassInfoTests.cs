@@ -45,12 +45,10 @@ public sealed class ClassInfoTests
         WriteInto(writer, classes);
         return writer.Build();
     }
-
-    [Theory]
-    [InlineData(3, 2)]
-    [InlineData(4, 3)]
-    [InlineData(256, 9)]
-    [InlineData(362, 9)]
+    [TestCase(3, 2)]
+    [TestCase(4, 3)]
+    [TestCase(256, 9)]
+    [TestCase(362, 9)]
     public void ClassInfo_ReadsEntryIdsAtFloorLogTwoPlusOne(int count, int idBits)
     {
         // Same width the entity decoder already uses - floor(log2(n)) + 1, the engine's
@@ -87,7 +85,7 @@ public sealed class ClassInfoTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(4242);
     }
 
-    [Fact]
+    [Test]
     public void ClassInfo_DecodesEveryClass()
     {
         byte[] packet = Build(
@@ -106,7 +104,7 @@ public sealed class ClassInfoTests
         info.Classes[2].ClassName.ShouldBe("CTFProjectile_Rocket");
     }
 
-    [Fact]
+    [Test]
     public void ClassInfo_ReportsTheClassIdBitWidthEntitiesWillUse()
     {
         // The entity decoder reads class ids at this width. It is derived, not transmitted,
@@ -121,7 +119,7 @@ public sealed class ClassInfoTests
         info.ClassIdBits.ShouldBe(3);
     }
 
-    [Fact]
+    [Test]
     public void ClassInfo_CreateOnClientFlag_CarriesNoEntries()
     {
         // When the server says the client should build the list itself, nothing follows the
@@ -143,7 +141,7 @@ public sealed class ClassInfoTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(99);
     }
 
-    [Fact]
+    [Test]
     public void ClassInfo_LeavesTheReaderPositionedForTheNextMessage()
     {
         BitWriter writer = new();
@@ -156,7 +154,7 @@ public sealed class ClassInfoTests
         result.Messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(7);
     }
 
-    [Fact]
+    [Test]
     public void ClassInfo_NoClasses_DecodesToAnEmptyList()
     {
         ClassInfoMessage info = NetMessageReader.Read(Build())
@@ -166,7 +164,7 @@ public sealed class ClassInfoTests
         info.ClassCount.ShouldBe(0);
     }
 
-    [Fact]
+    [Test]
     public void ClassInfo_IsRememberedInDecodeState()
     {
         // Entity decoding needs the class list and its bit width, so it has to outlive the

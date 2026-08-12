@@ -24,7 +24,7 @@ public sealed class UserMessageNamesTests
     private const int Y2011 = 16;
     private const int Modern = 24;
 
-    [Fact]
+    [Test]
     public void TheStableHeadIsNamedAtEveryProtocol()
     {
         // Confirmed at protocols 11, 14, 15, 16 and 24 with matching body widths, and then
@@ -35,7 +35,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(28, Y2009).ShouldBe("PlayerStatsUpdate");
     }
 
-    [Fact]
+    [Test]
     public void TheLaunchTableEndsAtPlayerStatsUpdate()
     {
         // The 2007 server and client both register exactly 29 messages, ending here. That the
@@ -50,7 +50,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(32, Launch).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void TheTailIsNamedFromTheEraThatRecordedIt()
     {
         // The four ids that were unnamed until the binaries were read. CheapBreakModel moves
@@ -61,7 +61,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(42, Modern).ShouldBe("CheapBreakModel");
     }
 
-    [Fact]
+    [Test]
     public void TheHapticsBlockFollowsTheGameTable()
     {
         // The finding that resolved three ids at once. Each sits exactly four past the end of
@@ -78,7 +78,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(47, Y2009).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void EachEraOmitsWhatItsBuildHadNotShippedYet()
     {
         // MapStatsUpdate is absent from the 2009 and 2011 clients, so id 29 is PlayerIgnited in
@@ -93,7 +93,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(34, Y2009).ShouldBe("DamageDodged");
     }
 
-    [Fact]
+    [Test]
     public void TheEraTablesEndWhereTheirBuildsDo()
     {
         // Lengths are the era fingerprint: 29 / 41 / 49 / 79 game messages, each plus six
@@ -107,7 +107,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(85, Modern).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void AnUnspecimenedProtocolIsNamedOnlyWhereEveryEraAgrees()
     {
         // Protocols 17-23 have no surviving client and no demo, so the only defensible table is
@@ -117,7 +117,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Lookup(40, 20).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void ProtocolTwentyFourOffersTheMarch2013NameAsAnAlternate()
     {
         // Protocol 24 spans thirteen years and two incompatible tables, so an id above 50 has two
@@ -136,7 +136,7 @@ public sealed class UserMessageNamesTests
         UserMessageNames.Alternate(44, Y2009).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void AnIdPastTheTable_IsUnnamedAtEveryProtocol()
     {
         UserMessageNames.Lookup(500, Modern).ShouldBeNull();

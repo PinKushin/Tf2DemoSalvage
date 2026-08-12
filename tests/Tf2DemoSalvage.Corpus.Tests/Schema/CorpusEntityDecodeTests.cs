@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// stream cannot stay plausible. Hundreds of entities that each name properties their own class
 /// declares, at positions inside the world bounds, is not something a wrong reader produces.
 /// </remarks>
-public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
+public sealed class CorpusEntityDecodeTests
 {
     /// <summary><c>MAX_EDICTS</c>.</summary>
     private const int EntityLimit = 2048;
@@ -36,7 +36,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
     /// <summary>Half Source's world extent, in units, per axis.</summary>
     private const float WorldHalfExtent = 16384f;
 
-    [Fact]
+    [Test]
     public void OpeningSnapshot_DecodesEveryEntityItNames()
     {
         foreach (string path in SourceTvDemos())
@@ -65,7 +65,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void EntityIndices_AscendAndStayInsideTheEntityLimit()
     {
         foreach (string path in SourceTvDemos())
@@ -83,7 +83,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void EveryPropertyBelongsToTheClassItWasReadFor()
     {
         // Class names arrive from dem_datatables and entity data from the bit stream -
@@ -110,7 +110,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void PlayerPositions_LandInsideTheWorldBounds()
     {
         // m_vecOrigin is SPROP_COORD_MP. A wrong coordinate decoder yields a plausible number
@@ -140,7 +140,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void PlayerPositions_AreSpreadAcrossTheMap()
     {
         // Without this, a decoder returning a constant passes the bounds check above.
@@ -154,7 +154,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots()
     {
         // Every corpus demo now decodes end to end - 14,385 snapshots for z1800, 73,182 for
@@ -166,7 +166,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         foreach (string path in SourceTvDemos())
         {
             DecodeRun run = DecodeContinuously(path, 500);
-            output.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
                              $"stopped: {run.Stopped ?? "not at all"}");
             run.Stopped.ShouldBeNull(Path.GetFileName(path));
             run.Decoded.ShouldBe(500);
@@ -217,7 +217,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         return new DecodeRun(decoded, available, null);
     }
 
-    [Fact]
+    [Test]
     public void PointOfViewDemos_DecodeToo()
     {
         // This test used to assert the opposite - that a POV demo carries no full snapshot at
@@ -245,7 +245,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         {
             DecodeRun run = DecodeContinuously(pov, SnapshotCap);
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(pov)}: {run.Decoded} of {run.Available} snapshots, " +
                 $"stopped: {run.Stopped ?? "not at all"}");
 
@@ -279,18 +279,18 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         offered.ShouldBeGreaterThan(1000, "the POV corpus offered almost no snapshots");
     }
 
-    [Fact]
+    [Test]
     public void ReportWhatTheEntitiesSay()
     {
         foreach (string path in SourceTvDemos())
         {
             (IReadOnlyList<DecodedEntity> entities, PacketEntitiesMessage header) = FirstFull(path);
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: opening snapshot {entities.Count} entities, " +
                 $"{entities.Sum(e => e.Properties.Count)} values, {header.LengthBits} bits");
 
-            output.WriteLine("  classes: " + string.Join(", ", entities
+            TestContext.Out.WriteLine("  classes: " + string.Join(", ", entities
                 .GroupBy(e => e.ClassId)
                 .OrderByDescending(g => g.Count())
                 .Take(4)
@@ -299,12 +299,12 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
             List<(float X, float Y, float Z)> origins = Origins(entities);
             if (origins.Count > 0)
             {
-                output.WriteLine(
+                TestContext.Out.WriteLine(
                     $"  {origins.Count} origins, x {origins.Min(o => o.X):F0}..{origins.Max(o => o.X):F0}, " +
                     $"z {origins.Min(o => o.Z):F0}..{origins.Max(o => o.Z):F0}");
             }
 
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         SourceTvDemos().ShouldNotBeEmpty();
@@ -385,7 +385,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void Tracker_HoldsMorePropertiesThanAnySingleUpdateCarried()
     {
         // The claim merging makes, stated as a comparison so no threshold has to be invented:
@@ -463,7 +463,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void Tracker_HoldsPlayerPositionsInsideTheMap()
     {
         // Accumulated state has to be usable, not merely present - this is the query a 2D
@@ -524,7 +524,7 @@ public sealed class CorpusEntityDecodeTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void Baselines_SupplyMostOfWhatAnEntityKnows()
     {
         // A snapshot sends an entering entity as a delta against its class baseline, so every

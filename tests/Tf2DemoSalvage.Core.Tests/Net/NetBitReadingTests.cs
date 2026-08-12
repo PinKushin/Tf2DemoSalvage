@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </summary>
 public sealed class NetBitReadingTests
 {
-    [Fact]
+    [Test]
     public void ReadString_StopsAtTheTerminator()
     {
         BitReader reader = new([(byte)'h', (byte)'i', 0, (byte)'X']);
@@ -22,7 +22,7 @@ public sealed class NetBitReadingTests
         reader.ReadByte().ShouldBe((byte)'X');
     }
 
-    [Fact]
+    [Test]
     public void ReadString_ThatNeverTerminates_ThrowsRatherThanReadingForever()
     {
         // The property this class exists to pin. ReadString's loop has no bound of its own -
@@ -45,7 +45,7 @@ public sealed class NetBitReadingTests
         thrown.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Test]
     public void ReadString_EmptyBuffer_ThrowsImmediately()
     {
         BitReader reader = new([]);

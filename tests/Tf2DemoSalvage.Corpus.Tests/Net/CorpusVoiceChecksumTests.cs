@@ -25,15 +25,16 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// every Steam-codec voice packet the corpus holds. A wrong guess about *which* bytes are covered
 /// would pass no packets at all; being right passes all of them.
 /// </remarks>
-public sealed class CorpusVoiceChecksumTests(ITestOutputHelper output)
+public sealed class CorpusVoiceChecksumTests
 {
-    [Fact]
+    [Test]
     public void TheTrailingFourBytesAreACrc32OverEverythingBeforeThem()
     {
-        Assert.SkipUnless(
-            Corpus.AnyDemoUses("steam"),
-            "no demo present carries steam-codec (Opus) voice - it is absent from the "
+        if (!Corpus.AnyDemoUses("steam"))
+        {
+            Assert.Ignore("no demo present carries steam-codec (Opus) voice - it is absent from the "
             + "committed corpus and lives only in tools/corpus/local");
+        }
 
         int checked_ = 0;
         int matched = 0;
@@ -76,7 +77,7 @@ public sealed class CorpusVoiceChecksumTests(ITestOutputHelper output)
             checked_,
             $"{matched} of {checked_} payload tails matched a CRC32 of the preceding bytes");
 
-        output.WriteLine($"{matched}/{checked_} voice payload tails are a CRC32 of the body");
+        TestContext.Out.WriteLine($"{matched}/{checked_} voice payload tails are a CRC32 of the body");
     }
 
 }

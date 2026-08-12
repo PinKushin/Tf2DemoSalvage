@@ -29,17 +29,18 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// <c>RISKS.md</c> B33. <see cref="EveryCeltFrame_DecodesToPcm"/> is <c>Skip</c>ped rather than
 /// deleted so the moment this is resolved, removing the skip is the whole fix.
 /// </remarks>
-public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
+public sealed class CorpusCeltSpeexVoiceTests
 {
     private const int CeltFrameBytes = 64;
     private const int SpeexNarrowbandFrameBytes = 28;
 
-    [Fact]
+    [Test]
     public void EveryCeltFrame_DecodesToPcm()
     {
-        Assert.SkipUnless(
-            CeltVoiceDecoder.IsAvailable,
-            "celt is not built on this machine - run tools/native-audio/build.ps1");
+        if (!CeltVoiceDecoder.IsAvailable)
+        {
+            Assert.Ignore("celt is not built on this machine - run tools/native-audio/build.ps1");
+        }
 
         int frames = 0;
         int silentFrames = 0;
@@ -87,15 +88,16 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
         double silentRate = (double)silentFrames / frames;
         silentRate.ShouldBeLessThan(0.5, $"{silentFrames} of {frames} CELT frames were silent");
 
-        output.WriteLine($"{frames} CELT frames decoded, {silentFrames} silent ({silentRate:P1})");
+        TestContext.Out.WriteLine($"{frames} CELT frames decoded, {silentFrames} silent ({silentRate:P1})");
     }
 
-    [Fact]
+    [Test]
     public void EverySpeexFrame_DecodesToPcm()
     {
-        Assert.SkipUnless(
-            SpeexVoiceDecoder.IsAvailable,
-            "speex is not built on this machine - run tools/native-audio/build.ps1");
+        if (!SpeexVoiceDecoder.IsAvailable)
+        {
+            Assert.Ignore("speex is not built on this machine - run tools/native-audio/build.ps1");
+        }
 
         int frames = 0;
         int silentFrames = 0;
@@ -156,7 +158,7 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
         double silentRate = (double)silentFrames / frames;
         silentRate.ShouldBeLessThan(0.5, $"{silentFrames} of {frames} Speex frames were silent");
 
-        output.WriteLine(
+        TestContext.Out.WriteLine(
             $"{frames} Speex frames decoded across {decoders.Count} demos, " +
             $"{silentFrames} silent ({silentRate:P1})");
     }

@@ -60,7 +60,7 @@ public sealed class DemoJsonLinesWriterTests
             .Select(line => JsonDocument.Parse(line)),
     ];
 
-    [Fact]
+    [Test]
     public void EveryLine_IsOneCompleteJsonObject()
     {
         // The defining property. If any record were pretty-printed, splitting on newlines would
@@ -71,7 +71,7 @@ public sealed class DemoJsonLinesWriterTests
         lines.ShouldAllBe(l => l.RootElement.ValueKind == JsonValueKind.Object);
     }
 
-    [Fact]
+    [Test]
     public void EveryLine_CarriesATypeDiscriminator()
     {
         // A consumer filters by this before knowing anything else about a line, so a record
@@ -83,7 +83,7 @@ public sealed class DemoJsonLinesWriterTests
         }
     }
 
-    [Fact]
+    [Test]
     public void FirstLine_IsTheHeader()
     {
         // Position matters: a streaming consumer reads the header to learn the map and tick
@@ -96,7 +96,7 @@ public sealed class DemoJsonLinesWriterTests
         header.GetProperty("playbackFrames").GetInt32().ShouldBe(120913);
     }
 
-    [Fact]
+    [Test]
     public void EntityLifecycle_IsReportedAsItsOwnLineType()
     {
         // Phase 1 asks for a normalized event stream covering "entity spawn/update/delete", and
@@ -133,7 +133,7 @@ public sealed class DemoJsonLinesWriterTests
         entities[1].TryGetProperty("serial", out _).ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void DecodedUserMessages_AreEmittedWithTheirFields()
     {
         // These carry the announcements a reader wants - who connected, what config the server
@@ -151,7 +151,7 @@ public sealed class DemoJsonLinesWriterTests
         message.GetProperty("fields").GetProperty("param1").GetString().ShouldBe("Sassy");
     }
 
-    [Fact]
+    [Test]
     public void UndecodedUserMessages_AreNotEmitted()
     {
         // Only messages with a decoded body. A line saying "CheapBreakModel, 40 bits" carries
@@ -167,7 +167,7 @@ public sealed class DemoJsonLinesWriterTests
             .ShouldBe(1);
     }
 
-    [Fact]
+    [Test]
     public void NonAsciiText_RoundTripsThroughTheJson()
     {
         // Asserted by parsing the line back rather than by searching the raw text, because
@@ -188,7 +188,7 @@ public sealed class DemoJsonLinesWriterTests
         first.RootElement.GetProperty("client").GetString().ShouldBe("Пётр🚀");
     }
 
-    [Fact]
+    [Test]
     public void Numbers_AreInvariant_RegardlessOfCulture()
     {
         // A comma decimal separator would produce "1814,02" - which is either invalid JSON or,
@@ -208,7 +208,7 @@ public sealed class DemoJsonLinesWriterTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Output_UsesLineFeedEndings()
     {
         // Carriage returns would make each line's trailing character part of the JSON on
@@ -216,13 +216,13 @@ public sealed class DemoJsonLinesWriterTests
         Write().ShouldNotContain("\r");
     }
 
-    [Fact]
+    [Test]
     public void Output_IsDeterministic()
     {
         Write().ShouldBe(Write());
     }
 
-    [Fact]
+    [Test]
     public void NoDecodableContent_StillWritesTheHeader()
     {
         // A demo whose packets decode to nothing is still a demo. Emitting no lines at all
@@ -233,7 +233,7 @@ public sealed class DemoJsonLinesWriterTests
         lines[0].RootElement.GetProperty("type").GetString().ShouldBe("header");
     }
 
-    [Fact]
+    [Test]
     public void TheHeaderLine_MatchesItsExpectedJson()
     {
         // A golden line, added because mutation testing scored this file at 19.5% - the lowest
@@ -267,11 +267,8 @@ public sealed class DemoJsonLinesWriterTests
             {"type":"header","file":"sample.dem","demoProtocol":3,"networkProtocol":24,"server":"serveme.tf","client":"SourceTV Demo","map":"cp_process_final","gameDirectory":"tf","playbackTimeSeconds":1.5,"playbackTicks":100,"playbackFrames":2,"signonLengthBytes":0}
             """);
     }
-
-
-    [Theory]
-    [InlineData("userid", true)]
-    [InlineData("damageamount", false)]
+    [TestCase("userid", true)]
+    [TestCase("damageamount", false)]
     public void EventFields_CarryAPlayerNameOnlyWhereTheFieldNamesAPlayer(
         string fieldName, bool named)
     {

@@ -27,14 +27,14 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// writer-side cap proved by its paired POV demo — not of this parser, and it is asserted
 /// directly in <c>CorpusSchemaTests</c> rather than worked around here.
 /// </remarks>
-public sealed class CorpusSceneTests(ITestOutputHelper output)
+public sealed class CorpusSceneTests
 {
     private const string PlayerClass = "CTFPlayer";
 
     /// <summary>Source units. Any real TF2 map fits well inside this; nothing legitimate exceeds it.</summary>
     private const float WorldLimit = 33000f;
 
-    [Fact]
+    [Test]
     public void EveryDemo_AccumulatesIntoPositionedPlayers()
     {
         int demosWithPlayers = 0;
@@ -86,7 +86,7 @@ public sealed class CorpusSceneTests(ITestOutputHelper output)
                 Math.Abs(z).ShouldBeLessThan(WorldLimit, name);
             }
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{name}: {players.Length} players, all positioned, " +
                 $"{table.All.Count()} entities from {snapshots} snapshots");
         }
@@ -94,7 +94,7 @@ public sealed class CorpusSceneTests(ITestOutputHelper output)
         demosWithPlayers.ShouldBeGreaterThan(0, "no demo produced a player");
     }
 
-    [Fact]
+    [Test]
     public void BothExclusiveTablesAreExercisedSomewhereInTheCorpus()
     {
         // This test began as an assertion that a point-of-view demo resolves through the local
@@ -133,7 +133,7 @@ public sealed class CorpusSceneTests(ITestOutputHelper output)
             viaLocal += local;
             viaNonLocal += players.Length - local;
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{name}: {(HasUserCommands(path) ? "POV" : "STV")} " +
                 $"{players.Length} positioned ({local} local, {players.Length - local} non-local)");
         }
@@ -146,7 +146,7 @@ public sealed class CorpusSceneTests(ITestOutputHelper output)
         viaNonLocal.ShouldBeGreaterThan(
             0, "no player in the corpus resolved through the non-local table");
 
-        output.WriteLine($"{viaLocal} players via the local table, {viaNonLocal} via non-local");
+        TestContext.Out.WriteLine($"{viaLocal} players via the local table, {viaNonLocal} via non-local");
     }
 
     /// <summary>Whether any of the three tables sent this entity an origin at all.</summary>

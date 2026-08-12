@@ -29,7 +29,7 @@ public sealed class SendPropEncoderTests
     private static readonly SendProperty Coord =
         new(SendPropType.Float, "coord", CoordFlag, string.Empty, 0f, 0f, 0, 0);
 
-    [Fact]
+    [Test]
     public void AnyCoordinate_ComesBackSnappedToTheNearestThirtySecond()
     {
         Gen.Float[-8192f, 8192f].Sample(value =>
@@ -52,12 +52,10 @@ public sealed class SendPropEncoderTests
                 == BitConverter.SingleToInt32Bits(expected);
         });
     }
-
-    [Theory]
-    [InlineData(0f, 2)]
-    [InlineData(1f, 2 + 1 + 14)]
-    [InlineData(0.5f, 2 + 1 + 5)]
-    [InlineData(-1.5f, 2 + 1 + 14 + 5)]
+    [TestCase(0f, 2)]
+    [TestCase(1f, 2 + 1 + 14)]
+    [TestCase(0.5f, 2 + 1 + 5)]
+    [TestCase(-1.5f, 2 + 1 + 14 + 5)]
     public void APresentPartCostsItsOwnField(float value, int expectedBits)
     {
         // The widths, pinned as literals. Zero is the case worth stating: two clear bits and no
@@ -68,7 +66,7 @@ public sealed class SendPropEncoderTests
         writer.BitCount.ShouldBe(expectedBits);
     }
 
-    [Fact]
+    [Test]
     public void AFractionThatRoundsToAWholeUnit_CarriesIntoTheIntegerPart()
     {
         // 0.9999 is 31.997 thirty-seconds. Rounding gives 32, which is not a fraction at all -

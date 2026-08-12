@@ -25,7 +25,7 @@ public sealed class UserCommandTests
     /// <summary>Presence bits when no weapon is selected: the nested subtype bit is absent.</summary>
     private const int BitsWhenEmpty = 13;
 
-    [Fact]
+    [Test]
     public void AnAllZeroPayloadMeansCommandOneNotCommandZero()
     {
         // Thirteen zero presence bits, which is the smallest legal command and the one the engine
@@ -49,7 +49,7 @@ public sealed class UserCommandTests
         command.MouseDx.ShouldBe((short)0);
     }
 
-    [Fact]
+    [Test]
     public void EveryFieldIsReadInValvesOrderAtValvesWidth()
     {
         // One decisive fixture with every presence bit set, each field carrying a value that
@@ -92,7 +92,7 @@ public sealed class UserCommandTests
         command.MouseDy.ShouldBe((short)4321);
     }
 
-    [Fact]
+    [Test]
     public void TheWeaponSubtypeBitExistsOnlyInsideTheWeaponSelectBranch()
     {
         // The one nested field, and the only place in the layout where a presence bit is
@@ -134,7 +134,7 @@ public sealed class UserCommandTests
         noWeapon.MouseDx.ShouldBe((short)0x0101);
     }
 
-    [Fact]
+    [Test]
     public void APayloadThatDoesNotEndWhereTheFieldsDoIsRejected()
     {
         // The stated length is the only check available: the command carries no count, no
@@ -147,7 +147,7 @@ public sealed class UserCommandTests
         Should.Throw<InvalidDataException>(() => UserCommand.Decode(good.AsSpan(0, 1).ToArray()));
     }
 
-    [Fact]
+    [Test]
     public void ACommandSurvivesReEncoding()
     {
         // Byte-exact, not field-exact. The presence bits are recoverable from the values because
@@ -176,7 +176,7 @@ public sealed class UserCommandTests
         UserCommand.Decode(empty).Encode().ShouldBe(empty);
     }
 
-    [Fact]
+    [Test]
     public void ATickCountOfOneIsIndistinguishableFromAnAbsentOneOnTheWire()
     {
         // Not a defect, and worth pinning: the writer's condition is value-based, so the encoder
@@ -191,7 +191,7 @@ public sealed class UserCommandTests
         steady.Encode().ShouldBe(new BitWriter().Write(0, BitsWhenEmpty).Build());
     }
 
-    [Fact]
+    [Test]
     public void TheBitsAfterTheLastFieldAreCarriedRatherThanZeroed()
     {
         // The regression fixture for the finding this test file was written to catch. The engine

@@ -26,14 +26,14 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// largest single hit is around 450 and the writer clamps to 32000, so 2048 is loose enough never
 /// to fire on a real value and tight enough to catch a misread short.
 /// </remarks>
-public sealed class CorpusDamageTests(ITestOutputHelper output)
+public sealed class CorpusDamageTests
 {
     /// <summary>Well past any real hit, well below what a misread short produces.</summary>
     private const int ImplausibleDamage = 2048;
 
     private const float WorldHalfExtent = 16384f;
 
-    [Fact]
+    [Test]
     public void EveryDamageMessage_DecodesAtEveryProtocol()
     {
         // The regression this exists for is silent: before the protocol-14 layout existed, this
@@ -56,7 +56,7 @@ public sealed class CorpusDamageTests(ITestOutputHelper output)
 
             demos++;
             int undecoded = damages.Count(message => message.Fields is null);
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{name} (protocol {protocol}): {damages.Count} damage messages, " +
                 $"{undecoded} undecoded");
 
@@ -66,7 +66,7 @@ public sealed class CorpusDamageTests(ITestOutputHelper output)
         demos.ShouldBeGreaterThan(0, "no demo carried a Damage user message");
     }
 
-    [Fact]
+    [Test]
     public void EveryDamageValueAndOrigin_IsPlausible()
     {
         foreach (string path in Corpus.Files())
@@ -97,7 +97,7 @@ public sealed class CorpusDamageTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ProtocolFourteenAndBelow_SendNoDamageTypeField()
     {
         // The two layouts differ in what they carry, not only in how wide it is, and this is the
@@ -137,7 +137,7 @@ public sealed class CorpusDamageTests(ITestOutputHelper output)
             }
         }
 
-        output.WriteLine($"{old} messages on the old layout, {modern} on the modern one");
+        TestContext.Out.WriteLine($"{old} messages on the old layout, {modern} on the modern one");
 
         // Both sides have to be exercised or this asserts nothing: a run containing only modern
         // demos would pass with the old branch never taken.

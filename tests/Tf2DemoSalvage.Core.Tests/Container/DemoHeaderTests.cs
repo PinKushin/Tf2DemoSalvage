@@ -66,7 +66,7 @@ public sealed class DemoHeaderTests
         return buffer;
     }
 
-    [Fact]
+    [Test]
     public void Parse_WellFormedHeader_ReadsEveryField()
     {
         DemoHeader header = DemoHeader.Parse(BuildHeader());
@@ -83,7 +83,7 @@ public sealed class DemoHeaderTests
         header.SignonLengthBytes.ShouldBe(850953);
     }
 
-    [Fact]
+    [Test]
     public void Parse_TextFieldsWithGarbageAfterTerminator_TruncatesAtTheNul()
     {
         // The fixture writes 0xCC after every NUL. A reader that decodes the whole 260 bytes
@@ -94,7 +94,7 @@ public sealed class DemoHeaderTests
         header.GameDirectory.ShouldBe("tf");
     }
 
-    [Fact]
+    [Test]
     public void Parse_TextFieldFillingItsEntireWidth_DoesNotOverrun()
     {
         string longMap = new('m', 259);
@@ -104,7 +104,7 @@ public sealed class DemoHeaderTests
         header.MapName.ShouldBe(longMap);
     }
 
-    [Fact]
+    [Test]
     public void Parse_EmptyTextField_ReturnsEmptyNotTrailingGarbage()
     {
         // A NUL at index 0 means an empty field. Found by a surviving mutant: with the
@@ -115,7 +115,7 @@ public sealed class DemoHeaderTests
         header.GameDirectory.ShouldBe(string.Empty);
     }
 
-    [Fact]
+    [Test]
     public void Parse_NonAsciiText_SurvivesAsUtf8()
     {
         // Found by running a real demo, not by a mutant. A demo recorded on 2026-08-10 with a
@@ -136,7 +136,7 @@ public sealed class DemoHeaderTests
         header.MapName.ShouldBe("cp_köln");
     }
 
-    [Fact]
+    [Test]
     public void Parse_WrongStamp_ThrowsInvalidData()
     {
         InvalidDataException exception = Should.Throw<InvalidDataException>(
@@ -145,7 +145,7 @@ public sealed class DemoHeaderTests
         exception.Message.ShouldContain("HL2DEMO");
     }
 
-    [Fact]
+    [Test]
     public void Parse_BufferShorterThanTheHeader_ThrowsEndOfStream()
     {
         byte[] truncated = BuildHeader();
@@ -153,15 +153,13 @@ public sealed class DemoHeaderTests
         Should.Throw<EndOfStreamException>(() => DemoHeader.Parse(truncated.AsSpan(0, 1071)));
     }
 
-    [Fact]
+    [Test]
     public void HeaderSizeBytes_MatchesTheDocumentedLayout()
     {
         DemoHeader.SizeBytes.ShouldBe(1072);
     }
-
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(0)]
+    [TestCase(-1)]
+    [TestCase(0)]
     public void Parse_NonPositiveSignonLength_IsAcceptedAndReported(int signonLength)
     {
         // Not rejected: a malformed value is the parser's caller's problem to judge, and a

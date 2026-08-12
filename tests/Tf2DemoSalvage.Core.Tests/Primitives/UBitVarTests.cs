@@ -31,16 +31,14 @@ public sealed class UBitVarTests
 
         writer.Write((uint)selector, UBitVar.SelectorBits).Write(value, bits);
     }
-
-    [Theory]
-    [InlineData(0u, 0, 4)]
-    [InlineData(15u, 0, 4)]
-    [InlineData(16u, 1, 8)]
-    [InlineData(255u, 1, 8)]
-    [InlineData(256u, 2, 12)]
-    [InlineData(4095u, 2, 12)]
-    [InlineData(4096u, 3, 32)]
-    [InlineData(uint.MaxValue, 3, 32)]
+    [TestCase(0u, 0, 4)]
+    [TestCase(15u, 0, 4)]
+    [TestCase(16u, 1, 8)]
+    [TestCase(255u, 1, 8)]
+    [TestCase(256u, 2, 12)]
+    [TestCase(4095u, 2, 12)]
+    [TestCase(4096u, 3, 32)]
+    [TestCase(uint.MaxValue, 3, 32)]
     public void EachSelector_DecodesItsWidth(uint value, int selector, int bits)
     {
         BitWriter writer = new();
@@ -50,7 +48,7 @@ public sealed class UBitVarTests
         UBitVar.Read(ref reader).ShouldBe(value);
     }
 
-    [Fact]
+    [Test]
     public void AnyValue_SurvivesARoundTrip()
     {
         Gen.UInt.Sample(value =>
@@ -63,7 +61,7 @@ public sealed class UBitVarTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ASequence_ReadsBackInOrderAtUnalignedOffsets()
     {
         // Entity index deltas arrive in long runs at arbitrary bit offsets, so consuming one
@@ -92,7 +90,7 @@ public sealed class UBitVarTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ConsumesExactlyTheWidthItReports()
     {
         Gen.UInt.Sample(value =>
@@ -108,7 +106,7 @@ public sealed class UBitVarTests
         });
     }
 
-    [Fact]
+    [Test]
     public void SmallValuesAreCheaperThanAVarint()
     {
         // The reason this encoding exists: an entity index delta of 3 costs six bits here

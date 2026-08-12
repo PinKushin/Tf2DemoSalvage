@@ -39,7 +39,7 @@ public sealed class SchemaFlattenerTests
     private static IReadOnlyList<string> Names(IEnumerable<FlatProperty> flat) =>
         [.. flat.Select(f => f.Property.Name)];
 
-    [Fact]
+    [Test]
     public void Flatten_PlainTable_KeepsPropertiesInOrder()
     {
         DemoSchema schema = Schema(Table("DT_A", Prop("a"), Prop("b"), Prop("c")));
@@ -49,7 +49,7 @@ public sealed class SchemaFlattenerTests
         Names(flat).ShouldBe(["a", "b", "c"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_CollapsibleChild_IsInlinedWhereItAppears()
     {
         // A collapsible table contributes its properties at the point of reference, as though
@@ -63,7 +63,7 @@ public sealed class SchemaFlattenerTests
         Names(flat).ShouldBe(["a", "b1", "b2", "c"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_NonCollapsibleChild_IsAppendedAfterTheParentsOwnProperties()
     {
         // The rule most easily got backwards. A non-collapsible child does *not* appear where
@@ -77,7 +77,7 @@ public sealed class SchemaFlattenerTests
         Names(flat).ShouldBe(["b1", "b2", "a", "c"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ExcludedProperty_IsRemovedFromTheChild()
     {
         // An exclusion in a derived table removes an inherited property by (table, name).
@@ -92,7 +92,7 @@ public sealed class SchemaFlattenerTests
         Names(flat).ShouldBe(["m_iAmmo"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ExclusionMarkers_AreNeverEmittedThemselves()
     {
         DemoSchema schema = Schema(
@@ -102,7 +102,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["keep"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ArrayElementTemplate_IsAttachedNotEmitted()
     {
         // The element template carries SPROP_INSIDEARRAY and describes how each element is
@@ -118,7 +118,7 @@ public sealed class SchemaFlattenerTests
         flat[0].Property.ElementCount.ShouldBe(32);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ChangesOftenProperties_MoveToTheFront()
     {
         DemoSchema schema = Schema(Table("DT_A",
@@ -134,7 +134,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["fast1", "fast2", "slow2", "slow1"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ChangesOftenPartition_ScramblesTheTailExactlyAsTheEngineDoes()
     {
         // This test asserted a stable partition until the differential harness disproved it.
@@ -161,7 +161,7 @@ public sealed class SchemaFlattenerTests
             .ShouldBe(["f1", "f2", "f3", "s1", "s3", "s2"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_RecordsWhichTableEachPropertyCameFrom()
     {
         // Needed for diagnostics: a flattened list of 300 properties is unreadable without
@@ -176,7 +176,7 @@ public sealed class SchemaFlattenerTests
         flat.Single(f => f.Property.Name == "b").OwnerTable.ShouldBe("DT_B");
     }
 
-    [Fact]
+    [Test]
     public void Flatten_CircularReference_TerminatesRatherThanRecursingForever()
     {
         // Malformed rather than impossible, and the failure mode without a guard is a hang -
@@ -191,7 +191,7 @@ public sealed class SchemaFlattenerTests
         Names(flat).ShouldContain("b");
     }
 
-    [Fact]
+    [Test]
     public void Flatten_NonCollapsibleCircularReference_TerminatesAndKeepsBothTables()
     {
         // The collapsible cycle test above exercises the guard inside Iterate; this one
@@ -204,7 +204,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["b", "a"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_MissingReferencedTable_IsSkippedRatherThanThrowing()
     {
         DemoSchema schema = Schema(Table("DT_A", Prop("a"), Nested("sub", "DT_MISSING")));
@@ -212,7 +212,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["a"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ExclusionNestedTwoLevelsDeep_IsStillFound()
     {
         // Exclusions are gathered by walking the whole hierarchy before anything is emitted.
@@ -228,7 +228,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["m_iAmmo"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_SameChildReferencedTwice_ContributesTwice()
     {
         // A diamond. The cycle guard must be scoped to the current path, not permanent -
@@ -243,7 +243,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["s", "mid", "s"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_SameNonCollapsibleChildReferencedTwice_ContributesTwice()
     {
         // The same diamond as above but through the non-collapsible path, which appends the
@@ -260,7 +260,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, "DT_A")).ShouldBe(["s", "s", "mid"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ArrayAsFirstProperty_HasNoElementAndDoesNotCrash()
     {
         // An array with nothing before it. Looking back unconditionally would index past the
@@ -275,7 +275,7 @@ public sealed class SchemaFlattenerTests
         flat[0].ArrayElement.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ArrayPrecededByAnOrdinaryProperty_DoesNotAdoptItAsAnElement()
     {
         // Only a property carrying SPROP_INSIDEARRAY is an element template. Treating any
@@ -290,7 +290,7 @@ public sealed class SchemaFlattenerTests
         flat[1].ArrayElement.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Flatten_NonArrayPrecededByAnElementTemplate_TakesNoElement()
     {
         DemoSchema schema = Schema(Table("DT_A",
@@ -303,7 +303,7 @@ public sealed class SchemaFlattenerTests
         flat[0].ArrayElement.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Flatten_NullSchema_Throws()
     {
         Should.Throw<System.ArgumentNullException>(
@@ -312,7 +312,7 @@ public sealed class SchemaFlattenerTests
             () => SchemaFlattener.Flatten(null!, new ServerClass(0, "C", "DT_A")));
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ByServerClass_UsesItsTable()
     {
         DemoSchema schema = Schema(Table("DT_A", Prop("a")), Table("DT_B", Prop("b")));
@@ -320,7 +320,7 @@ public sealed class SchemaFlattenerTests
         Names(SchemaFlattener.Flatten(schema, new ServerClass(1, "CB", "DT_B"))).ShouldBe(["b"]);
     }
 
-    [Fact]
+    [Test]
     public void Flatten_UnknownTable_YieldsNothing()
     {
         DemoSchema schema = Schema(Table("DT_A", Prop("a")));

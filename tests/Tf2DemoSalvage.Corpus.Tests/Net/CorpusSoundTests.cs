@@ -27,13 +27,13 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// wrong bits produces coordinates in the tens of thousands and entity indices in the thousands,
 /// which is the characteristic failure of this format rather than a crash.
 /// </remarks>
-public sealed class CorpusSoundTests(ITestOutputHelper output)
+public sealed class CorpusSoundTests
 {
     private const int MaxEdicts = 2048;
     private const int MaxSounds = 1 << 14;
     private const float WorldHalfExtent = 16384f;
 
-    [Fact]
+    [Test]
     public void Sounds_DecodeWithoutOverrunningTheirStatedLength()
     {
         int demos = 0;
@@ -65,7 +65,7 @@ public sealed class CorpusSoundTests(ITestOutputHelper output)
             }
 
             demos++;
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)} (protocol {protocol}): {bodies} messages, " +
                 $"{sounds} sounds, {failed} failed");
 
@@ -76,7 +76,7 @@ public sealed class CorpusSoundTests(ITestOutputHelper output)
         demos.ShouldBeGreaterThan(0, "no demo carried svc_Sounds");
     }
 
-    [Fact]
+    [Test]
     public void EverySoundIsPlausible()
     {
         foreach (string path in Corpus.Files())
@@ -99,7 +99,7 @@ public sealed class CorpusSoundTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void SoundNumbers_AddressTheSoundPrecacheTable()
     {
         // The sharpest available check, and the one closest to a differential: sound indices come
@@ -127,7 +127,7 @@ public sealed class CorpusSoundTests(ITestOutputHelper output)
 
             if (checked_ > 0)
             {
-                output.WriteLine($"{name}: {checked_} sounds inside a {precacheSize}-entry table");
+                TestContext.Out.WriteLine($"{name}: {checked_} sounds inside a {precacheSize}-entry table");
             }
         }
     }

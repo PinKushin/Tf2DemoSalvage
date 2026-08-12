@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 /// </remarks>
 public sealed class UserCommandButtonsTests
 {
-    [Fact]
+    [Test]
     public void KnownBitsAreNamedInTheirDeclaredOrder()
     {
         // Lowest bit first, which is the order the header declares and the order a reader scanning
@@ -23,7 +23,7 @@ public sealed class UserCommandButtonsTests
         UserCommandButtons.Describe(1u << 24).ShouldBe("IN_GRENADE2");
     }
 
-    [Fact]
+    [Test]
     public void NoButtonsIsNamedRatherThanBlank()
     {
         // Zero is the common case - a player standing still still sends commands - and an empty
@@ -31,7 +31,7 @@ public sealed class UserCommandButtonsTests
         UserCommandButtons.Describe(0).ShouldBe("none");
     }
 
-    [Fact]
+    [Test]
     public void AnUnnamedBitIsReportedAsItsValueRatherThanDropped()
     {
         // Bit 25 is IN_ATTACK3 in the live game and is absent from the published header, so it is

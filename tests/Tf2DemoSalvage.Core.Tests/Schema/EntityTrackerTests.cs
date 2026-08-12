@@ -33,7 +33,7 @@ public sealed class EntityTrackerTests
         int index, int serial, params DecodedProperty[] properties) =>
         new(index, ClassId: 7, serial, EntityUpdateType.Enter, properties);
 
-    [Fact]
+    [Test]
     public void EnteringEntity_HasItsProperties()
     {
         EntityTracker tracker = new();
@@ -43,7 +43,7 @@ public sealed class EntityTrackerTests
         tracker.State(3).ShouldNotBeNull()["DT_A.health"].AsInt.ShouldBe(125);
     }
 
-    [Fact]
+    [Test]
     public void DeltaUpdate_CarriesForwardWhatItDidNotMention()
     {
         // The whole point. A delta names only what changed, so a tracker that replaced state
@@ -66,7 +66,7 @@ public sealed class EntityTrackerTests
         state["DT_A.ammo"].AsInt.ShouldBe(32);
     }
 
-    [Fact]
+    [Test]
     public void UpdatingOneEntity_LeavesOthersAlone()
     {
         // The bystander entity. With one entity in the table, "changed the target" and
@@ -84,7 +84,7 @@ public sealed class EntityTrackerTests
         tracker.State(4).ShouldNotBeNull()["DT_A.health"].AsInt.ShouldBe(200);
     }
 
-    [Fact]
+    [Test]
     public void DeletedEntity_IsForgotten()
     {
         EntityTracker tracker = new();
@@ -101,7 +101,7 @@ public sealed class EntityTrackerTests
         tracker.ActiveEntities.ShouldBe([4]);
     }
 
-    [Fact]
+    [Test]
     public void LeavingEntity_KeepsItsStateBecauseItMayReturn()
     {
         // Leave means "no longer in the PVS", not "destroyed" - the entity is still alive on
@@ -118,7 +118,7 @@ public sealed class EntityTrackerTests
         tracker.ActiveEntities.ShouldNotContain(3);
     }
 
-    [Fact]
+    [Test]
     public void ReEnteringAfterLeaving_BecomesVisibleAgain()
     {
         EntityTracker tracker = new();
@@ -131,7 +131,7 @@ public sealed class EntityTrackerTests
         tracker.State(3).ShouldNotBeNull()["DT_A.health"].AsInt.ShouldBe(90);
     }
 
-    [Fact]
+    [Test]
     public void SameNameInDifferentTables_AreSeparateProperties()
     {
         // DT_TFLocalPlayerExclusive.m_vecOrigin and DT_TFNonLocalPlayerExclusive.m_vecOrigin
@@ -151,19 +151,19 @@ public sealed class EntityTrackerTests
         state["DT_NonLocal.m_vecOrigin"].AsInt.ShouldBe(20);
     }
 
-    [Fact]
+    [Test]
     public void UnknownEntity_HasNoState()
     {
         new EntityTracker().State(99).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Apply_NullEntities_Throws()
     {
         Should.Throw<System.ArgumentNullException>(() => new EntityTracker().Apply(null!));
     }
 
-    [Fact]
+    [Test]
     public void SlotReusedByADifferentEntity_DoesNotInheritTheOldOne()
     {
         // Entity slots are recycled, and the serial number is the only thing distinguishing the
@@ -183,7 +183,7 @@ public sealed class EntityTrackerTests
         state.ContainsKey("DT_A.ammo").ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void SameSlotAndSerialEnteringAgain_KeepsWhatItHad()
     {
         // The control for the test above: without it, "cleared on a serial change" and
@@ -202,7 +202,7 @@ public sealed class EntityTrackerTests
     }
 
 
-    [Fact]
+    [Test]
     public void EnteringEntity_StartsFromItsClassBaseline()
     {
         // A snapshot sends an entering entity as a delta against its class's *baseline*, not
@@ -237,7 +237,7 @@ public sealed class EntityTrackerTests
         state["DT_A.team"].AsInt.ShouldBe(2);
     }
 
-    [Fact]
+    [Test]
     public void DeltaUpdate_DoesNotReapplyTheBaseline()
     {
         // A baseline seeds an entity when it enters, not on every update. Re-applying it on a
@@ -259,7 +259,7 @@ public sealed class EntityTrackerTests
         state["DT_A.ammo"].AsInt.ShouldBe(7);
     }
 
-    [Fact]
+    [Test]
     public void WithoutABaselineSource_BehaviourIsUnchanged()
     {
         // The control. Baselines are optional, and a caller that has none must get exactly the

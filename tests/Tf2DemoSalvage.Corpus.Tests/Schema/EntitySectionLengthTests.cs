@@ -24,9 +24,9 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// which is how the last discrepancy was pinned to the removal list rather than to entities or
 /// properties (RISKS B25).
 /// </remarks>
-public sealed class EntitySectionLengthTests(ITestOutputHelper output)
+public sealed class EntitySectionLengthTests
 {
-    [Fact]
+    [Test]
     public void TheEntitySectionEncodesToExactlyWhatItDecodedFrom()
     {
         Dictionary<int, int> deltas = [];
@@ -114,19 +114,19 @@ public sealed class EntitySectionLengthTests(ITestOutputHelper output)
             }
         }
 
-        output.WriteLine(string.Create(
+        TestContext.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"{snapshots:N0} snapshots compared"));
 
-        output.WriteLine("produced minus consumed, for the entity section alone:");
+        TestContext.Out.WriteLine("produced minus consumed, for the entity section alone:");
         foreach ((int difference, int count) in deltas.OrderByDescending(entry => entry.Value))
         {
-            output.WriteLine(string.Create(
+            TestContext.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"    {count,8:N0}  {difference:+#;-#;0} bits"));
         }
 
         foreach (string example in examples)
         {
-            output.WriteLine("    " + example);
+            TestContext.Out.WriteLine("    " + example);
         }
 
         // A corpus that stopped being read would otherwise pass without comparing anything.

@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class SoundNamesTests
 {
-    [Fact]
+    [Test]
     public void AnIndexResolvesToThePrecachedPath()
     {
         SoundNames names = new();
@@ -27,7 +27,7 @@ public sealed class SoundNamesTests
         names.Resolve(2).ShouldBe("weapons/shotgun_shoot.wav");
     }
 
-    [Fact]
+    [Test]
     public void TheIndexIsThePositionInTheTable_NotTheEntrysOwnIndexField()
     {
         // String table entries carry an explicit index, and it is the one the sound message
@@ -52,7 +52,7 @@ public sealed class SoundNamesTests
         names.Resolve(0).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void OnlyTheSoundTableIsUsed()
     {
         // Every string table flows past the same reader. Taking entries from the wrong one would
@@ -68,7 +68,7 @@ public sealed class SoundNamesTests
         names.Resolve(1).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void AnUnknownIndexIsUnresolvedRatherThanGuessed()
     {
         SoundNames names = new();
@@ -78,7 +78,7 @@ public sealed class SoundNamesTests
         names.Resolve(-1).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void AnEmptyOrUndecodedTableResolvesNothing()
     {
         // A compressed table this project cannot read yields no entries and a reason. That must
@@ -95,7 +95,7 @@ public sealed class SoundNamesTests
         names.Resolve(1).ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void AnEntryWithNoTextIsNotAName()
     {
         // Table entries may carry user data and no string at all. Those are real entries and

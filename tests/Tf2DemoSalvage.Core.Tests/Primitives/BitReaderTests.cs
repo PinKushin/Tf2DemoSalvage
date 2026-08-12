@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
 /// </summary>
 public sealed class BitReaderTests
 {
-    [Fact]
+    [Test]
     public void ReadBit_SingleByte_YieldsBitsLeastSignificantFirst()
     {
         BitReader reader = new([0xAC]);
@@ -30,7 +30,7 @@ public sealed class BitReaderTests
         actual.ShouldBe([false, false, true, true, false, true, false, true]);
     }
 
-    [Fact]
+    [Test]
     public void ReadUInt32_FourBitsTwice_ReadsLowNibbleThenHighNibble()
     {
         BitReader reader = new([0xAC]);
@@ -39,7 +39,7 @@ public sealed class BitReaderTests
         reader.ReadUInt32(4).ShouldBe(0xAu);
     }
 
-    [Fact]
+    [Test]
     public void ReadUInt32_SpanningByteBoundary_StitchesLowBitsFromNextByte()
     {
         BitReader reader = new([0xAC, 0x3F]);
@@ -49,7 +49,7 @@ public sealed class BitReaderTests
         reader.ReadUInt32(8).ShouldBe(0xFAu);
     }
 
-    [Fact]
+    [Test]
     public void ReadUInt32_ThirtyTwoBits_ReadsLittleEndianWord()
     {
         BitReader reader = new([0x01, 0x02, 0x03, 0x04]);
@@ -57,7 +57,7 @@ public sealed class BitReaderTests
         reader.ReadUInt32(32).ShouldBe(0x04030201u);
     }
 
-    [Fact]
+    [Test]
     public void ReadUInt32_ZeroBits_ReturnsZeroAndConsumesNothing()
     {
         BitReader reader = new([0xAC]);
@@ -65,10 +65,8 @@ public sealed class BitReaderTests
         reader.ReadUInt32(0).ShouldBe(0u);
         reader.BitsRead.ShouldBe(0);
     }
-
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(33)]
+    [TestCase(-1)]
+    [TestCase(33)]
     public void ReadUInt32_BitCountOutOfRange_Throws(int bitCount)
     {
         Should.Throw<ArgumentOutOfRangeException>(() =>
@@ -78,7 +76,7 @@ public sealed class BitReaderTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ReadBit_PastEndOfBuffer_Throws()
     {
         Should.Throw<EndOfStreamException>(() =>
@@ -89,7 +87,7 @@ public sealed class BitReaderTests
         });
     }
 
-    [Fact]
+    [Test]
     public void ReadUInt32_RequestExceedsRemainingBits_ThrowsWithoutPartialRead()
     {
         EndOfStreamException exception = Should.Throw<EndOfStreamException>(() =>
@@ -105,7 +103,7 @@ public sealed class BitReaderTests
         exception.Message.ShouldContain("8 bits remain");
     }
 
-    [Fact]
+    [Test]
     public void ReadUInt32_ExhaustedMidStream_ReportsCurrentOffsetInMessage()
     {
         EndOfStreamException exception = Should.Throw<EndOfStreamException>(() =>
@@ -119,7 +117,7 @@ public sealed class BitReaderTests
         exception.Message.ShouldContain("4 bits remain");
     }
 
-    [Fact]
+    [Test]
     public void Constructor_BufferOverAddressableLimit_ThrowsNamingTheParameter()
     {
         // Exercised through the internal predicate rather than an actual 256 MB span.
@@ -128,7 +126,7 @@ public sealed class BitReaderTests
         BitReader.ExceedsAddressableLength(0).ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void Constructor_SpanOverTheAddressableLimit_ThrowsBeforeTouchingTheBuffer()
     {
         // A span whose Length is fabricated with MemoryMarshal over a single byte: the
@@ -146,14 +144,14 @@ public sealed class BitReaderTests
             "Buffer of 2147483647 bytes exceeds the bit-addressable limit of 268435455 bytes.");
     }
 
-    [Fact]
+    [Test]
     public void MaxByteLength_IsTheLargestLengthWhoseBitCountFitsInInt32()
     {
         ((long)BitReader.MaxByteLength * 8).ShouldBeLessThanOrEqualTo(int.MaxValue);
         ((long)(BitReader.MaxByteLength + 1) * 8).ShouldBeGreaterThan(int.MaxValue);
     }
 
-    [Fact]
+    [Test]
     public void BitsRead_AndBitsRemaining_TrackPositionAcrossReads()
     {
         BitReader reader = new([0xAC, 0x3F]);
@@ -165,7 +163,7 @@ public sealed class BitReaderTests
         reader.BitsRemaining.ShouldBe(11);
     }
 
-    [Fact]
+    [Test]
     public void ReadByte_Unaligned_ReadsEightBitsFromCurrentPosition()
     {
         BitReader reader = new([0xAC, 0x3F]);
@@ -175,7 +173,7 @@ public sealed class BitReaderTests
         reader.ReadByte().ShouldBe((byte)0xD6);
     }
 
-    [Fact]
+    [Test]
     public void Constructor_EmptyBuffer_HasNoBitsRemaining()
     {
         BitReader reader = new([]);

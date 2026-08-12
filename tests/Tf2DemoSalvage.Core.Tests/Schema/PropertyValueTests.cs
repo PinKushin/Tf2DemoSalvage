@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// </remarks>
 public sealed class PropertyValueTests
 {
-    [Fact]
+    [Test]
     public void EachKind_RoundTripsThroughItsOwnAccessor()
     {
         PropertyValue.FromInt(-42).AsInt.ShouldBe(-42);
@@ -27,7 +27,7 @@ public sealed class PropertyValueTests
             .AsInt.ShouldBe(7);
     }
 
-    [Fact]
+    [Test]
     public void EachKind_ReportsItself()
     {
         PropertyValue.FromInt(0).Kind.ShouldBe(PropertyValueKind.Int);
@@ -38,7 +38,7 @@ public sealed class PropertyValueTests
         PropertyValue.FromArray([]).Kind.ShouldBe(PropertyValueKind.Array);
     }
 
-    [Fact]
+    [Test]
     public void ReadingAsTheWrongKind_ThrowsAndNamesBothKinds()
     {
         // A float read as an int is the dangerous case - both are numbers, so without the tag
@@ -49,7 +49,7 @@ public sealed class PropertyValueTests
         error.Message.ShouldBe("Property value is Float, not Int.");
     }
 
-    [Fact]
+    [Test]
     public void EveryAccessor_RejectsEveryOtherKind()
     {
         // One wrong-kind read per accessor. Without this each accessor's guard is only ever
@@ -64,7 +64,7 @@ public sealed class PropertyValueTests
         Should.Throw<InvalidOperationException>(() => PropertyValue.FromFloat(1f).AsInt);
     }
 
-    [Fact]
+    [Test]
     public void DefaultValue_IsAnIntAndNotAStringOrArray()
     {
         // A default struct has Kind Int with null string and array fields. The accessors must
@@ -78,7 +78,7 @@ public sealed class PropertyValueTests
         Should.Throw<InvalidOperationException>(() => uninitialised.AsArray);
     }
 
-    [Fact]
+    [Test]
     public void NullPayloads_AreNormalisedToEmptyRatherThanStored()
     {
         // The constructor coerces null to empty so the fields are never null whatever the
@@ -88,14 +88,12 @@ public sealed class PropertyValueTests
         PropertyValue.FromString(null!).AsString.ShouldBeEmpty();
         PropertyValue.FromArray(null!).AsArray.ShouldBeEmpty();
     }
-
-    [Theory]
-    [InlineData(PropertyValueKind.Int, "-42")]
-    [InlineData(PropertyValueKind.Float, "1.5")]
-    [InlineData(PropertyValueKind.Vector, "(1, 2, 3)")]
-    [InlineData(PropertyValueKind.VectorXY, "(4, 5)")]
-    [InlineData(PropertyValueKind.String, "hello")]
-    [InlineData(PropertyValueKind.Array, "[2]")]
+    [TestCase(PropertyValueKind.Int, "-42")]
+    [TestCase(PropertyValueKind.Float, "1.5")]
+    [TestCase(PropertyValueKind.Vector, "(1, 2, 3)")]
+    [TestCase(PropertyValueKind.VectorXY, "(4, 5)")]
+    [TestCase(PropertyValueKind.String, "hello")]
+    [TestCase(PropertyValueKind.Array, "[2]")]
     public void ToString_DescribesEachKind(PropertyValueKind kind, string expected)
     {
         // Exact strings, not "contains a digit". This is what a text dump prints, so a format
@@ -114,7 +112,7 @@ public sealed class PropertyValueTests
         value.ToString().ShouldBe(expected);
     }
 
-    [Fact]
+    [Test]
     public void ToString_RoundsFloatsToThreeDecimalsAndUsesInvariantCulture()
     {
         // A decimal point, never a comma - the dump has to read the same on any machine.
@@ -122,7 +120,7 @@ public sealed class PropertyValueTests
         PropertyValue.FromVector(-0.5f, 0f, 1234.5f).ToString().ShouldBe("(-0.5, 0, 1234.5)");
     }
 
-    [Fact]
+    [Test]
     public void Equality_ComparesKindAndPayload()
     {
         // A record struct, so this is generated - but an int 1 and a float 1 must not compare
@@ -132,7 +130,7 @@ public sealed class PropertyValueTests
         PropertyValue.FromVector(1f, 2f, 3f).ShouldNotBe(PropertyValue.FromVector(1f, 2f, 4f));
     }
 
-    [Fact]
+    [Test]
     public void NestedArrays_AreCarriedIntact()
     {
         IReadOnlyList<PropertyValue> inner =

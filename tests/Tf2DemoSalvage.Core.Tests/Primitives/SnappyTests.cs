@@ -71,7 +71,7 @@ public sealed class SnappyTests
         output.Add((byte)value);
     }
 
-    [Fact]
+    [Test]
     public void LiteralRun_RoundTripsAnyInput()
     {
         // Spans both literal encodings: up to 60 bytes inline, beyond that in a trailing byte.
@@ -79,7 +79,7 @@ public sealed class SnappyTests
             Snappy.Decompress(EncodeLiterals(data)).AsSpan().SequenceEqual(data));
     }
 
-    [Fact]
+    [Test]
     public void ShortLiteral_StoresItsLengthMinusOne()
     {
         // A single byte is length 0 in the tag. Reading it as a literal length rather than
@@ -89,7 +89,7 @@ public sealed class SnappyTests
         Encoding.ASCII.GetString(Snappy.Decompress(compressed)).ShouldBe("x");
     }
 
-    [Fact]
+    [Test]
     public void CopyWithOneByteOffset_TakesItsLengthFromTheTag()
     {
         // "abc" then a copy of 4 bytes from 3 back, giving "abcabca" - the copy runs one byte
@@ -108,7 +108,7 @@ public sealed class SnappyTests
         Encoding.ASCII.GetString(Snappy.Decompress(compressed)).ShouldBe("abcabca");
     }
 
-    [Fact]
+    [Test]
     public void OverlappingCopy_ReadsBytesAsItWritesThem()
     {
         // The case that separates a correct decoder from one copying via a snapshot: one byte
@@ -118,7 +118,7 @@ public sealed class SnappyTests
         Encoding.ASCII.GetString(Snappy.Decompress(compressed)).ShouldBe("aaaaaaaaaaa");
     }
 
-    [Fact]
+    [Test]
     public void CopyWithTwoByteOffset_ReadsTheOffsetLittleEndian()
     {
         // A two-byte offset reaches further back than a one-byte copy can. Reading it
@@ -147,7 +147,7 @@ public sealed class SnappyTests
         result.AsSpan(300, 4).ToArray().ShouldBe(literal.AsSpan(0, 4).ToArray());
     }
 
-    [Fact]
+    [Test]
     public void CopyWithFourByteOffset_ReadsAllFourBytesLittleEndian()
     {
         // Tag 11. Never exercised until the mutation gate pointed at it - the earlier tests
@@ -176,7 +176,7 @@ public sealed class SnappyTests
         result.AsSpan(300, 5).ToArray().ShouldBe(literal.AsSpan(0, 5).ToArray());
     }
 
-    [Fact]
+    [Test]
     public void CopyRunningPastTheDeclaredLength_IsRejected()
     {
         // A copy, rather than a literal, overrunning the declared output. The literal path had
@@ -186,7 +186,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void TruncatedFourByteOffset_IsRejected()
     {
         byte[] compressed = [8, 0 << 2, (byte)'a', (byte)(((5 - 1) << 2) | 3), 0x01];
@@ -194,7 +194,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void StreamEndingInsideItsLengthPreamble_SaysSo()
     {
         // A varint whose continuation bit promises another byte that never arrives.
@@ -204,7 +204,7 @@ public sealed class SnappyTests
         error.Message.ShouldContain("preamble");
     }
 
-    [Fact]
+    [Test]
     public void DeclaredLength_IsTheContract()
     {
         // The varint preamble says how long the output is. A stream that produces less has
@@ -214,7 +214,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void OutputLongerThanDeclared_IsRejected()
     {
         byte[] compressed = [2, 4 << 2, (byte)'a', (byte)'b', (byte)'c', (byte)'d', (byte)'e'];
@@ -222,7 +222,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void CopyReachingBeforeTheStart_IsRejected()
     {
         // Without the check this reads whatever precedes the buffer - a silent wrong answer.
@@ -231,7 +231,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void ZeroOffsetCopy_IsRejectedRatherThanLooping()
     {
         // An offset of zero names the byte about to be written. Left unchecked it either
@@ -241,13 +241,13 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void EmptyInput_IsRejected()
     {
         Should.Throw<InvalidDataException>(() => Snappy.Decompress([]));
     }
 
-    [Fact]
+    [Test]
     public void TruncatedLiteral_IsRejected()
     {
         byte[] compressed = [10, 9 << 2, (byte)'a', (byte)'b'];
@@ -255,7 +255,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void ALiteralLengthWithItsTopBitSet_IsRejectedRatherThanGoingNegative()
     {
         // Found by the fuzzer on fuzz-box, 2026-08-11, in under sixty seconds of the snappy
@@ -278,7 +278,7 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
-    [Fact]
+    [Test]
     public void ALiteralLongerThanTheStream_IsRejected()
     {
         // The control: a length that is genuinely positive and merely too long. This already

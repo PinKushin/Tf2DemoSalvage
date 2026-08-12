@@ -17,9 +17,9 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// the proof, and a trailing server class list that matches the count <c>svc_ServerInfo</c>
 /// independently reported is the strongest single check available.
 /// </remarks>
-public sealed class CorpusSchemaTests(ITestOutputHelper output)
+public sealed class CorpusSchemaTests
 {
-    [Fact]
+    [Test]
     public void LaunchBuildSourceTv_TruncatesItsSchemaAtSixtyFourKilobytes()
     {
         // Pinned rather than skipped. FilesWithSchema() excludes this demo from every test that
@@ -53,7 +53,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         Corpus.TrySchema(pov).ShouldNotBeNull().ServerClasses.Count.ShouldBeGreaterThan(200);
     }
 
-    [Fact]
+    [Test]
     public void Schema_ParsesAndNamesAreRecognisable()
     {
         foreach (string path in Corpus.FilesWithSchema())
@@ -86,7 +86,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void Schema_ServerClassCountMatchesWhatServerInfoReported()
     {
         // Two completely separate paths: a 16-bit count at the end of the datatables command,
@@ -103,7 +103,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void Schema_PropertiesLookLikeSourceEngineFields()
     {
         foreach (string path in Corpus.FilesWithSchema())
@@ -123,7 +123,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ReportSchemaShape()
     {
         foreach (string path in Corpus.FilesWithSchema())
@@ -131,24 +131,24 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
             DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
             SendTable player = schema.FindTable("DT_TFPlayer")!;
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: {schema.Tables.Count} tables, " +
                 $"{schema.ServerClasses.Count} classes, " +
                 $"{schema.Tables.Sum(t => t.Properties.Count)} properties");
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"  DT_TFPlayer: {player.Properties.Count} props - " +
                 string.Join(", ", player.Properties.Take(4).Select(p => $"{p.Type} {p.Name}")));
 
             int changesOften = schema.Tables.SelectMany(t => t.Properties).Count(p => p.ChangesOften);
             int excluded = schema.Tables.SelectMany(t => t.Properties).Count(p => p.IsExcluded);
-            output.WriteLine($"  {changesOften} changes-often, {excluded} exclusions");
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine($"  {changesOften} changes-often, {excluded} exclusions");
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void Flatten_ProducesPlausibleListsForEveryClass()
     {
         foreach (string path in Corpus.FilesWithSchema())
@@ -183,7 +183,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void Flatten_PlayerClassContainsTheFieldsAViewerNeeds()
     {
         // The properties Phase 2 and 3 exist to draw. If flattening dropped a table or applied
@@ -202,7 +202,7 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ReportFlattenedShape()
     {
         foreach (string path in Corpus.FilesWithSchema())
@@ -211,21 +211,21 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
             ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
             IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, player);
 
-            output.WriteLine($"{Path.GetFileName(path)}: CTFPlayer flattens to {flat.Count} props, " +
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: CTFPlayer flattens to {flat.Count} props, " +
                              $"{flat.Count(f => f.Property.ChangesOften)} changes-often, " +
                              $"from {flat.Select(f => f.OwnerTable).Distinct().Count()} tables");
-            output.WriteLine("  first 6: " + string.Join(", ", flat.Take(6)
+            TestContext.Out.WriteLine("  first 6: " + string.Join(", ", flat.Take(6)
                 .Select(f => $"{f.OwnerTable}.{f.Property.Name}")));
 
             int biggest = schema.ServerClasses.Max(c => SchemaFlattener.Flatten(schema, c).Count);
-            output.WriteLine($"  largest class flattens to {biggest} props");
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine($"  largest class flattens to {biggest} props");
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();
     }
 
-    [Fact]
+    [Test]
     public void ReportHowMuchOfTheSchemaIsDecodable()
     {
         // Quantifies what the coordinate encodings actually cost. SPROP_COORD_MP is
@@ -244,16 +244,16 @@ public sealed class CorpusSchemaTests(ITestOutputHelper output)
                 .Distinct()
                 .Take(6)];
 
-            output.WriteLine(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: CTFPlayer {decodable}/{flat.Count} properties " +
                 $"decodable ({100.0 * decodable / flat.Count:F1}%)");
-            output.WriteLine($"  blocked examples: {string.Join(", ", blocked)}");
+            TestContext.Out.WriteLine($"  blocked examples: {string.Join(", ", blocked)}");
 
             int allProps = schema.ServerClasses.Sum(c => SchemaFlattener.Flatten(schema, c).Count);
             int allOk = schema.ServerClasses.Sum(c =>
                 SchemaFlattener.Flatten(schema, c).Count(f => SendPropDecoder.IsSupported(f.Property)));
-            output.WriteLine($"  across all classes: {allOk}/{allProps} ({100.0 * allOk / allProps:F1}%)");
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine($"  across all classes: {allOk}/{allProps} ({100.0 * allOk / allProps:F1}%)");
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();

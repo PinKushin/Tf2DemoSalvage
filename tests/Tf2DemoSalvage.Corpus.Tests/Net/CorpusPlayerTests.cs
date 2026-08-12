@@ -15,9 +15,9 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// is right. The check here is that the names look like names — a field read at the wrong offset
 /// still produces text, but it produces text that fails these assertions.
 /// </remarks>
-public sealed class CorpusPlayerTests(ITestOutputHelper output)
+public sealed class CorpusPlayerTests
 {
-    [Fact]
+    [Test]
     public void EveryDemo_YieldsAPlausibleRoster()
     {
         foreach (string path in Corpus.Files())
@@ -60,7 +60,7 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void SteamIds_AreInTheRenderedTextFormat()
     {
         // The field holds a *rendered* id, and which rendering depends on the era:
@@ -91,7 +91,7 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void UserIdsAndEntityIndices_AreDistinctIdentifiers()
     {
         // The join that makes events attributable. If these were the same number the
@@ -106,30 +106,28 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Test]
     public void ReportRosters()
     {
         foreach (string path in Corpus.Files())
         {
             IReadOnlyList<PlayerInfo> players = Players(path);
-            output.WriteLine($"{Path.GetFileName(path)}: {players.Count} slots");
+            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: {players.Count} slots");
 
             foreach (PlayerInfo player in players.Take(8))
             {
-                output.WriteLine(
+                TestContext.Out.WriteLine(
                     $"  entity {player.EntityIndex,-4} userid {player.UserId,-4} " +
                     $"{player.Name,-24} {player.SteamId}");
             }
 
-            output.WriteLine(string.Empty);
+            TestContext.Out.WriteLine(string.Empty);
         }
 
         Corpus.Files().ShouldNotBeEmpty();
     }
-
-    [Theory]
-    [InlineData("demostf-koth_product_final-2026-08-07.dem", 19)]
-    [InlineData("z1800.dem", 26)]
+    [TestCase("demostf-koth_product_final-2026-08-07.dem", 19)]
+    [TestCase("z1800.dem", 26)]
     public void MidGameJoins_AreInTheRoster(string fileName, int expected)
     {
         // RISKS B22. `userinfo` is created once during signon, so anyone who connects later
@@ -154,7 +152,7 @@ public sealed class CorpusPlayerTests(ITestOutputHelper output)
         Players(path).Count.ShouldBe(expected, fileName);
     }
 
-    [Fact]
+    [Test]
     public void AnUpdatedSlot_CarriesTheLaterRecord()
     {
         // The other half of B22, and the half a count cannot see: an update may *replace* an

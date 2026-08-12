@@ -19,20 +19,20 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
 /// </remarks>
 public sealed class WireBoundsTests
 {
-    [Fact]
+    [Test]
     public void ACountThatFitsIsAccepted()
     {
         Should.NotThrow(() => WireBounds.EnsureCountFits("test", count: 10, minBitsPerItem: 8, bitsRemaining: 80));
     }
 
-    [Fact]
+    [Test]
     public void ACountNeedingMoreBitsThanRemain_IsRejected()
     {
         Should.Throw<InvalidDataException>(
             () => WireBounds.EnsureCountFits("test", count: 11, minBitsPerItem: 8, bitsRemaining: 80));
     }
 
-    [Fact]
+    [Test]
     public void TheWireMaximumAgainstAnEmptyRemainder_IsRejected()
     {
         // The case that actually occurs: a 16-bit count field reading 65535 with almost nothing
@@ -41,7 +41,7 @@ public sealed class WireBoundsTests
             () => WireBounds.EnsureCountFits("svc_classinfo", count: 65535, minBitsPerItem: 1, bitsRemaining: 200));
     }
 
-    [Fact]
+    [Test]
     public void ANegativeCountIsRejected()
     {
         // A 32-bit count read into an int arrives negative above int.MaxValue. Left unchecked it
@@ -50,14 +50,14 @@ public sealed class WireBoundsTests
             () => WireBounds.EnsureCountFits("test", count: -1, minBitsPerItem: 8, bitsRemaining: 800));
     }
 
-    [Fact]
+    [Test]
     public void ZeroItemsAreLegal()
     {
         // Empty is a real message, not a malformed one.
         Should.NotThrow(() => WireBounds.EnsureCountFits("test", count: 0, minBitsPerItem: 8, bitsRemaining: 0));
     }
 
-    [Fact]
+    [Test]
     public void TheProductIsComputedWithoutOverflowing()
     {
         // count x minBitsPerItem overflows int for large counts, and an overflowed product can
@@ -67,7 +67,7 @@ public sealed class WireBoundsTests
             () => WireBounds.EnsureCountFits("test", count: 200_000_000, minBitsPerItem: 32, bitsRemaining: 1000));
     }
 
-    [Fact]
+    [Test]
     public void TheErrorNamesTheMessageAndTheNumbers()
     {
         InvalidDataException error = Should.Throw<InvalidDataException>(

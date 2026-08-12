@@ -44,7 +44,7 @@ public sealed class UserMessageBodyTests
     private static object? Value(UserMessage message, string name) =>
         message.Fields!.First(field => field.Key == name).Value;
 
-    [Fact]
+    [Test]
     public void TextMsg_ReportsItsDestinationAndStrings()
     {
         // The most-read non-chat user message: announcements, connection notices, round results.
@@ -60,7 +60,7 @@ public sealed class UserMessageBodyTests
         Field(message, "param2").ShouldBe("b4nny");
     }
 
-    [Fact]
+    [Test]
     public void EmptySubstitutionSlots_AreNotListed()
     {
         // TextMsg always sends four substitution slots and real messages leave most of them
@@ -76,7 +76,7 @@ public sealed class UserMessageBodyTests
         message.Fields.Select(f => f.Key).ShouldBe(["destination", "text", "param1"]);
     }
 
-    [Fact]
+    [Test]
     public void EmptyKeyText_IsStillReported()
     {
         // The complement, and the reason the rule is not "drop empty strings": an empty key is a
@@ -90,7 +90,7 @@ public sealed class UserMessageBodyTests
         message.Fields.Select(f => f.Key).ShouldBe(["destination", "text"]);
     }
 
-    [Fact]
+    [Test]
     public void SayText_ReportsTheClientAndTheLine()
     {
         List<byte> body = [7];
@@ -104,7 +104,7 @@ public sealed class UserMessageBodyTests
         Field(message, "text").ShouldBe("gg wp");
     }
 
-    [Fact]
+    [Test]
     public void NonAsciiText_SurvivesTheBody()
     {
         // Same requirement as everywhere else in this parser: names are arbitrary client bytes.
@@ -115,7 +115,7 @@ public sealed class UserMessageBodyTests
         Field(message, "param1").ShouldBe("Пётр");
     }
 
-    [Fact]
+    [Test]
     public void BodyThatDoesNotConsumeExactly_IsLeftUndecoded()
     {
         // The guard that makes a guessed layout safe. Here the stated length is longer than the
@@ -134,7 +134,7 @@ public sealed class UserMessageBodyTests
         message.Name.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void UnknownMessage_KeepsItsNameAndLength()
     {
         // Types with no decoder must stay reported by name. Withholding a name is evidence-driven
@@ -152,7 +152,7 @@ public sealed class UserMessageBodyTests
         message.BodyBits.ShouldBe(24);
     }
 
-    [Fact]
+    [Test]
     public void UnterminatedString_IsLeftUndecoded()
     {
         // A body claiming a string that never terminates. Reading to the end and calling it a
@@ -165,7 +165,7 @@ public sealed class UserMessageBodyTests
     /// <summary>SPROP_COORD, the flag the coordinate encoder selects the plain form with.</summary>
     private const int CoordFlag = 1 << 1;
 
-    [Fact]
+    [Test]
     public void Damage_CarriesTheAmountAndWhereItCameFrom()
     {
         // The message behind a POV demo's damage numbers, and the layout is Valve's own client
@@ -196,7 +196,7 @@ public sealed class UserMessageBodyTests
         Value(message, "z").ShouldBe(64.25f);
     }
 
-    [Fact]
+    [Test]
     public void Damage_WithNoPosition_StopsAfterTheFlag()
     {
         // The game returns early when the bit is clear, so nothing follows it. Reading a vector
@@ -212,7 +212,7 @@ public sealed class UserMessageBodyTests
         message.Fields!.Any(field => field.Key == "x").ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void Damage_WhenTheLayoutStopsShortOfTheStatedLength_ReportsNothing()
     {
         // The stated length is exact, not padded: the 77-bit bodies in the protocol-14 corpus
@@ -231,7 +231,7 @@ public sealed class UserMessageBodyTests
         message.Fields.ShouldBeNull();
     }
 
-    [Fact]
+    [Test]
     public void Damage_BeforeProtocolFifteen_IsOneByteAndAVector()
     {
         // A different message, not a variant of the same one: no damage-type long, no bit saying
@@ -261,7 +261,7 @@ public sealed class UserMessageBodyTests
         message.Fields!.Any(field => field.Key == "bits").ShouldBeFalse();
     }
 
-    [Fact]
+    [Test]
     public void Damage_FromTheProtocolFourteenDemo_RefusesTheModernLayout()
     {
         // Captured from tf2-2008-build3420-pov-cp_granary.dem, where the modern layout read it as

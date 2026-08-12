@@ -26,7 +26,7 @@ public sealed class BitReaderFuzzPropertyTests
     private const int RandomCaseCount = 2000;
     private const int MaxRandomLength = 96;
 
-    [Fact]
+    [Test]
     public void Consume_SeededRandomBuffers_NeverViolatesTheProperty()
     {
         Random random = new(Seed);
@@ -39,15 +39,13 @@ public sealed class BitReaderFuzzPropertyTests
             Should.NotThrow(() => BitReaderFuzzTarget.Consume(data));
         }
     }
-
-    [Theory]
-    [MemberData(nameof(StructuredBuffers))]
+    [TestCaseSource(nameof(StructuredBuffers))]
     public void Consume_StructuredEdgeCaseBuffers_NeverViolatesTheProperty(byte[] data)
     {
         Should.NotThrow(() => BitReaderFuzzTarget.Consume(data));
     }
 
-    [Fact]
+    [Test]
     public void Consume_EveryTruncationOfABuffer_NeverViolatesTheProperty()
     {
         // Truncation is the failure mode a salvage tool actually meets: a demo that stops
@@ -63,7 +61,7 @@ public sealed class BitReaderFuzzPropertyTests
         }
     }
 
-    [Fact]
+    [Test]
     public void Consume_EverySingleBitFlipOfABuffer_NeverViolatesTheProperty()
     {
         // The buffer's own bytes choose the field widths, so flipping one bit changes the whole
@@ -89,16 +87,20 @@ public sealed class BitReaderFuzzPropertyTests
     /// </summary>
     internal static IReadOnlyList<byte[]> StructuredCases { get; } = BuildStructuredCases();
 
-    public static TheoryData<byte[]> StructuredBuffers()
+    /// <summary>The structured buffers, as NUnit test cases.</summary>
+    /// <returns>One case per buffer.</returns>
+    /// <remarks>
+    /// **Each buffer is wrapped and cast to object deliberately.** A source that yields a bare
+    /// <c>byte[]</c> is read by NUnit as an ARGUMENT LIST, so a 4-byte buffer would arrive as a
+    /// call with four arguments and fail to match the one-parameter signature. Casting to object
+    /// tells it the array is the single argument.
+    /// </remarks>
+    public static IEnumerable<TestCaseData> StructuredBuffers()
     {
-        TheoryData<byte[]> data = new();
-
         foreach (byte[] buffer in StructuredCases)
         {
-            data.Add(buffer);
+            yield return new TestCaseData((object)buffer);
         }
-
-        return data;
     }
 
     private static List<byte[]> BuildStructuredCases()
@@ -136,7 +138,7 @@ public sealed class BitReaderFuzzPropertyTests
     /// test above would pass vacuously - the same failure mode as a fuzz run that executes
     /// nothing and still reports green.
     /// </summary>
-    [Fact]
+    [Test]
     public void ConsumeAndCountReads_ActuallyExercisesTheReader()
     {
         // All-zero bytes select width 1 on every read, so a 4-byte buffer is read 32 times -
@@ -163,7 +165,7 @@ public sealed class BitReaderFuzzPropertyTests
     /// narrow set of widths and silently stop exercising the rest. That is invisible from
     /// outside: the run still looks healthy.
     /// </remarks>
-    [Fact]
+    [Test]
     public void SeededCorpus_ReachesEveryFieldWidth()
     {
         HashSet<int> widths = new();
@@ -189,7 +191,7 @@ public sealed class BitReaderFuzzPropertyTests
     /// branch must be reported as reaching one width - otherwise
     /// <see cref="SeededCorpus_ReachesEveryFieldWidth"/> passes for free and guards nothing.
     /// </summary>
-    [Fact]
+    [Test]
     public void WidthRecording_ClusteredCorpus_ReportsOnlyTheWidthsItReaches()
     {
         HashSet<int> widths = new();
@@ -203,7 +205,7 @@ public sealed class BitReaderFuzzPropertyTests
         widths.ShouldBe([1]);
     }
 
-    [Fact]
+    [Test]
     public void ConsumeAndCountReads_EveryStructuredBuffer_PerformsAtLeastOneReadPerByte()
     {
         foreach (byte[] data in StructuredCases)
