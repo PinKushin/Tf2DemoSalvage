@@ -992,9 +992,17 @@ decode them — which was a fact about that parser's priorities, not about the f
 decoded: temp entities off demostf's own `tempentities.rs`, sounds off Valve's
 `public/soundinfo.h`, since no second implementation of that one exists to check against.
 
-What is left in the tier cannot be moved by effort. A `svc_EntityMessage` body is laid out by the
-receiving entity's class and there is no generic reading of it; voice data is a codec payload and
-decoding it is a different project.
+**`svc_VoiceData` has since moved too, and the tier table above understates it.** "Voice data is a
+codec payload and decoding it is a different project" was true when written and is no longer.
+Its *framing* is fully decoded — the Steam-codec wrapper resolves to a steamID plus typed
+sub-packets at 1452 of 1452 payloads exactly, and CELT/Speex turn out to carry no framing at all —
+and the codec payloads behind it now decode to real PCM for two of the three codecs: every Opus
+chunk (3969 of 3969) and every Speex frame (272 of 272). CELT alone still refuses most frames, for
+reasons that are neither framing nor mode parameters; see `RISKS.md` B33 and
+`findings/02-net-messages.md`.
+
+What genuinely cannot be moved by effort is `svc_EntityMessage`: its body is laid out by the
+receiving entity's class, and there is no generic reading of it.
 
 `CorpusCodecCoverageTests` measures the split in bits rather than asserting this table is true,
 and it is deliberately not a gate: a gate would be set to today's number and then defended.

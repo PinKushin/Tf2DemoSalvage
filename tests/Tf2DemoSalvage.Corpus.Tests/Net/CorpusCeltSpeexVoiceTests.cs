@@ -34,17 +34,16 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
     private const int CeltFrameBytes = 64;
     private const int SpeexNarrowbandFrameBytes = 28;
 
-    [Fact(Skip = "B33 open: correct mode (48000/960/mono, confirmed from the game binary) but " +
-        "celt_decode still rejects most real frames with CELT_CORRUPTED_DATA, even with a fresh " +
-        "decoder per packet and pure intra-packet framing (ruling out cross-speaker and " +
-        "cross-packet state desync as the cause). Only 4 of 20 sampled packets decoded cleanly. " +
-        "Remove this Skip once the remaining framing detail is found.")]
+    [Fact(Skip = "B33 open. Rate/frame_size ruled out (all 5 supported rates give a byte-" +
+        "identical 103-ok/163-fail split over 200 real packets), byte-offset framing ruled out " +
+        "(no variant beats baseline), cross-packet and cross-speaker state ruled out. Even " +
+        "isolated single-frame 64B packets with a fresh decoder fail 58% of the time, so this " +
+        "is not a frame-boundary problem. See docs/findings/02-net-messages.md for the full " +
+        "history and docs/RISKS.md B33 for what remains untested.")]
     public void EveryCeltFrame_DecodesToPcm()
     {
         int frames = 0;
         int silentFrames = 0;
-
-        using CeltVoiceDecoder decoder = new();
 
         foreach (string path in Corpus.Files())
         {
@@ -55,6 +54,12 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
                 (body.Length % CeltFrameBytes).ShouldBe(
                     0, $"{Path.GetFileName(path)}: a {body.Length}-byte CELT payload is not a " +
                        $"whole number of {CeltFrameBytes}-byte frames");
+
+                // Fresh decoder per packet, matching what B33's investigation established as the
+                // most forgiving condition: intra-packet concatenation is guaranteed contiguous
+                // by construction, so this cannot fail from cross-packet state carried over a
+                // real network gap.
+                using CeltVoiceDecoder decoder = new();
 
                 for (int at = 0; at < body.Length; at += CeltFrameBytes)
                 {
