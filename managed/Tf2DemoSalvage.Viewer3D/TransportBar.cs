@@ -76,7 +76,10 @@ internal sealed class TransportBar : UserControl
         _tick = new Label
         {
             Name = TickLabelId,
-            AccessibleName = "Current tick",
+
+            // Same reason as the status label: a fixed AccessibleName here would hide the tick
+            // it exists to report. UpdateTickLabel keeps the two in step.
+            AccessibleName = "tick 0 / 0",
             Text = "tick 0 / 0",
             AutoSize = true,
             Top = 12,
@@ -175,8 +178,12 @@ internal sealed class TransportBar : UserControl
         }
     }
 
-    private void UpdateTickLabel() => _tick.Text = string.Create(
-        CultureInfo.InvariantCulture, $"tick {_scrub.Value} / {_scrub.Maximum}");
+    private void UpdateTickLabel()
+    {
+        _tick.Text = string.Create(
+            CultureInfo.InvariantCulture, $"tick {_scrub.Value} / {_scrub.Maximum}");
+        _tick.AccessibleName = _tick.Text;
+    }
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

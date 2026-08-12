@@ -40,8 +40,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Referenced so the viewer is built before these run: a UI test against a stale binary is
-         the same failure as `dotnet test --no-build`, and it looks like a passing suite. -->
+    <!-- Referenced so the viewer is built before these run. A UI test against a stale binary is
+         the same failure as skipping the build step: it drives code that no longer exists, and it
+         presents as a passing suite. (Written without the flag's name because an XML comment
+         cannot contain a doubled hyphen.) -->
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Viewer3D\Tf2DemoSalvage.Viewer3D.csproj" />
   </ItemGroup>
 

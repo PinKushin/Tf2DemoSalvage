@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Forms;
@@ -75,6 +76,7 @@ internal class MainForm : Form
     private OverlayWindow? _overlay;
     private FormBorderStyle _borderBeforeFullScreen;
     private FormWindowState _stateBeforeFullScreen;
+    private Rectangle _boundsBeforeFullScreen;
 
     /// <summary>Builds the shell. No device is created here; see the remarks on the type.</summary>
     /// <param name="initialPaths">
@@ -159,9 +161,15 @@ internal class MainForm : Form
         _status = new ToolStripStatusLabel
         {
             Name = StatusId,
-            AccessibleName = "Status",
             Text = "No demo loaded.",
         };
+
+        // **No static AccessibleName on a live readout.** UIA reports Name, and Name comes from
+        // AccessibleName whenever it is set - so labelling this "Status" made every status
+        // message invisible to automation and to a screen reader alike, which both then read the
+        // word "Status" forever. Caught by the first UI test that asked what the status said.
+        _status.TextChanged += (_, _) => _status.AccessibleName = _status.Text;
+        _status.AccessibleName = _status.Text;
 
         StatusStrip statusStrip = new() { Name = "StatusStrip", AccessibleName = "Status bar" };
         statusStrip.Items.Add(_status);
@@ -261,6 +269,12 @@ internal class MainForm : Form
             _borderBeforeFullScreen = FormBorderStyle;
             _stateBeforeFullScreen = WindowState;
 
+            // **Bounds too, not just border and state.** Removing the border and putting it back
+            // recalculates the client area from the same outer size, so the client - and the
+            // viewport filling it - comes back NARROWER than it went. Measured by the UI test:
+            // 984 pixels wide before, 968 after, and it loses another 16 on every toggle.
+            _boundsBeforeFullScreen = Bounds;
+
             MainMenuStrip!.Visible = false;
             _actions.Visible = false;
             _playlist.Visible = false;
@@ -301,6 +315,12 @@ internal class MainForm : Form
         _playlist.Visible = true;
         FormBorderStyle = _borderBeforeFullScreen;
         WindowState = _stateBeforeFullScreen;
+
+        // Only meaningful for a normal window: a maximised one owns its own geometry.
+        if (_stateBeforeFullScreen == FormWindowState.Normal)
+        {
+            Bounds = _boundsBeforeFullScreen;
+        }
     }
 
     /// <summary>The status line's current text.</summary>

@@ -4,6 +4,7 @@ using System.IO;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Tools;
 using FlaUI.UIA3;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
@@ -56,7 +57,9 @@ internal sealed class ViewerApplication : IDisposable
 
         // GetMainWindow polls until the window exists rather than assuming it is up, which
         // matters most on the first run after a build when the process starts cold.
-        Window window = application.GetMainWindow(automation, FindTimeout);
+        Window window = application.GetMainWindow(automation, FindTimeout)
+            ?? throw new InvalidOperationException(
+                $"The viewer's main window did not appear within {FindTimeout}.");
 
         return new ViewerApplication(application, automation, window);
     }
@@ -87,7 +90,55 @@ internal sealed class ViewerApplication : IDisposable
         return appeared
             ? Window.FindFirstDescendant(search => search.ByAutomationId(automationId))!
             : throw new InvalidOperationException(
-                $"No element with automation id '{automationId}' appeared within {FindTimeout}.");
+                $"No element with automation id '{automationId}' appeared within {FindTimeout}. " +
+                $"The live tree was:{Environment.NewLine}{DescribeTree()}");
+    }
+
+    /// <summary>Brings the viewer to the foreground so keystrokes reach it.</summary>
+    /// <remarks>
+    /// Synthesized keyboard input goes to whatever window has focus, not to the process that was
+    /// launched - so a test that presses a key without doing this types into whatever happens to
+    /// be in front. That is the same hazard that makes UI tests take the machine-wide lock.
+    ///
+    /// **SetForegroundWindow is not enough, and fails silently.** Windows refuses a foreground
+    /// steal from a process that does not already own the foreground or the input queue, and
+    /// returns without error - measured here as `hasFocus=False` while every key press vanished.
+    /// A real mouse click is granted focus legitimately, because that is a user action, so the
+    /// fallback clicks the window and re-checks rather than trusting the first attempt.
+    /// </remarks>
+    public void Focus()
+    {
+        Window.SetForeground();
+
+        if (HasFocus())
+        {
+            return;
+        }
+
+        Log("SetForeground did not take; clicking the title bar to acquire focus");
+
+        // The title bar rather than the client area: a click inside the viewport would land on
+        // whatever control is being tested and could press it.
+        Window.Click();
+
+        Retry.WhileFalse(() => HasFocus(), TimeSpan.FromSeconds(5));
+        Log($"focus acquired: {HasFocus()}");
+    }
+
+    /// <summary>Whether the viewer currently holds keyboard focus.</summary>
+    public bool HasFocus() => Window.Properties.HasKeyboardFocus.ValueOrDefault;
+
+    /// <summary>Writes a diagnostic line, flushed so a CI log keeps it on a crash.</summary>
+    /// <param name="message">What happened.</param>
+    /// <remarks>
+    /// Prefixed and flushed, mirroring PokemonBattleJournal's UI tests - diagnosing a UI failure
+    /// from a CI log without this is guesswork, and an unflushed line is exactly the one lost
+    /// when a test host dies.
+    /// </remarks>
+    public static void Log(string message)
+    {
+        Console.WriteLine($"[viewer-ui] {message}");
+        Console.Out.Flush();
     }
 
     /// <summary>Whether a control with the given automation id is present.</summary>
@@ -104,6 +155,41 @@ internal sealed class ViewerApplication : IDisposable
             search => search.ByControlType(ControlType.StatusBar));
 
         return status?.FindFirstChild()?.Name ?? string.Empty;
+    }
+
+    /// <summary>Describes the live automation tree, for when a find fails.</summary>
+    /// <returns>One line per element: control type, automation id and name.</returns>
+    /// <remarks>
+    /// **Worth logging on any failure.** "No element with automation id X" says nothing about what
+    /// WAS there - whether the id is wrong, the control never got a handle, or the window found
+    /// was a dialog rather than the shell. The tree answers all three at once.
+    /// </remarks>
+    public string DescribeTree()
+    {
+        System.Text.StringBuilder description = new();
+        Describe(Window, 0, description);
+        return description.ToString();
+    }
+
+    private static void Describe(AutomationElement element, int depth, System.Text.StringBuilder into)
+    {
+        into.Append(' ', depth * 2)
+            .Append(element.ControlType)
+            .Append(" id='").Append(element.AutomationId)
+            .Append("' name='").Append(element.Name)
+            .AppendLine("'");
+
+        // Depth-capped: a WinForms tree is shallow, and an unbounded walk on a failure path is a
+        // second failure waiting to happen.
+        if (depth >= 6)
+        {
+            return;
+        }
+
+        foreach (AutomationElement child in element.FindAllChildren())
+        {
+            Describe(child, depth + 1, into);
+        }
     }
 
     /// <inheritdoc />
