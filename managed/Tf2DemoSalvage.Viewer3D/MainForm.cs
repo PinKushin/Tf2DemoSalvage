@@ -68,6 +68,12 @@ internal class MainForm : Form
     /// <summary>Automation id of the View &gt; Full screen item.</summary>
     public const string FullScreenItemId = "FullScreenMenuItem";
 
+    /// <summary>Automation id of the borderless full-screen mode item.</summary>
+    public const string BorderlessItemId = "BorderlessModeMenuItem";
+
+    /// <summary>Automation id of the exclusive full-screen mode item.</summary>
+    public const string ExclusiveItemId = "ExclusiveModeMenuItem";
+
     private readonly Panel _viewport;
     private readonly ToolStripStatusLabel _status;
     private readonly FlowLayoutPanel _actions;
@@ -105,6 +111,22 @@ internal class MainForm : Form
     private MapSurfaces? _surfaces;
 
     private readonly ToolStripMenuItem _fullScreen;
+    private readonly ToolStripMenuItem _borderlessMode;
+    private readonly ToolStripMenuItem _exclusiveMode;
+
+    /// <summary>Preferences remembered between runs.</summary>
+    private ViewerSettings _settings = ViewerSettings.Load();
+
+    /// <summary>Controls hidden while full screen, all of them direct children of the form.</summary>
+    /// <remarks>
+    /// **Direct children, and that is the whole invariant.** Hiding a control does not give its
+    /// space back unless the hidden control is the one that is docked. When the playlist gained a
+    /// search box the two moved into a panel, and the code kept hiding the playlist and the search
+    /// box - so full screen left a 280-pixel empty panel docked to the right and the viewport came
+    /// out the wrong width. Nothing about that is visible in a unit test through Control.Visible,
+    /// which reports effective visibility and reads false for everything on a form never shown.
+    /// </remarks>
+    private readonly List<Control> _hiddenInFullScreen = [];
 
     private Device3D? _device;
     private bool _rendering;
@@ -285,8 +307,35 @@ internal class MainForm : Form
         };
         _fullScreen.CheckedChanged += (_, _) => SetFullScreen(_fullScreen.Checked);
 
+        // **Both modes offered, because neither is right for everyone.** Borderless always works
+        // and alt-tabs instantly; exclusive is the lower-latency path and can be refused by DXGI.
+        _borderlessMode = new ToolStripMenuItem("&Borderless")
+        {
+            Name = BorderlessItemId,
+            AccessibleName = "Borderless full screen",
+            Checked = _settings.FullScreenMode == FullScreenMode.Borderless,
+        };
+        _borderlessMode.Click += (_, _) => SetFullScreenMode(FullScreenMode.Borderless);
+
+        _exclusiveMode = new ToolStripMenuItem("&Exclusive")
+        {
+            Name = ExclusiveItemId,
+            AccessibleName = "Exclusive full screen",
+            Checked = _settings.FullScreenMode == FullScreenMode.Exclusive,
+        };
+        _exclusiveMode.Click += (_, _) => SetFullScreenMode(FullScreenMode.Exclusive);
+
+        ToolStripMenuItem fullScreenMode = new("Full screen &mode")
+        {
+            Name = "FullScreenModeMenu",
+            AccessibleName = "Full screen mode",
+        };
+        fullScreenMode.DropDownItems.Add(_borderlessMode);
+        fullScreenMode.DropDownItems.Add(_exclusiveMode);
+
         ToolStripMenuItem view = new("&View") { Name = "ViewMenu", AccessibleName = "View menu" };
         view.DropDownItems.Add(_fullScreen);
+        view.DropDownItems.Add(fullScreenMode);
 
         file.DropDownItems.Add(open);
         file.DropDownItems.Add(new ToolStripSeparator());
@@ -311,6 +360,16 @@ internal class MainForm : Form
         Controls.Add(statusStrip);
         Controls.Add(menu);
         MainMenuStrip = menu;
+
+        // The docked controls that give their space to the viewport in full screen. The menu is
+        // handled separately because a MenuStrip is not hidden the same way.
+        _hiddenInFullScreen.Add(_actions);
+        _hiddenInFullScreen.Add(playlistPanel);
+
+        // The status strip too: 22 pixels measured on a 1080-line display, and full screen means
+        // the map gets the display. What the status line says is not worth a band across it, and
+        // the transport moves to a transparent overlay for the same reason.
+        _hiddenInFullScreen.Add(statusStrip);
 
         if (initialPaths.Length > 0)
         {
@@ -617,6 +676,44 @@ internal class MainForm : Form
     public TransportBar Transport => _transport;
 
     /// <summary>Whether the viewport is filling the screen.</summary>
+    /// <summary>How full screen is entered.</summary>
+    public FullScreenMode FullScreenMode => _settings.FullScreenMode;
+
+    /// <summary>Chooses how full screen is entered, and remembers it.</summary>
+    /// <param name="mode">The mode to use.</param>
+    /// <remarks>
+    /// Applied immediately when already full screen, so the choice can be judged by making it
+    /// rather than by restarting.
+    /// </remarks>
+    public void SetFullScreenMode(FullScreenMode mode)
+    {
+        _settings = _settings with { FullScreenMode = mode };
+        _borderlessMode.Checked = mode == FullScreenMode.Borderless;
+        _exclusiveMode.Checked = mode == FullScreenMode.Exclusive;
+
+        if (IsFullScreen && _device is not null)
+        {
+            bool wanted = mode == FullScreenMode.Exclusive;
+
+            if (!_device.SetExclusiveFullScreen(wanted) && wanted)
+            {
+                _status.Text = "Exclusive full screen was refused; using borderless.";
+            }
+        }
+
+        string? failure = _settings.Save();
+
+        if (failure is not null)
+        {
+            // Reported rather than swallowed: a preference that silently does not stick is worse
+            // than one that says so.
+            _status.Text = "Setting saved for this session only: " + failure;
+        }
+    }
+
+    /// <summary>The controls hidden while full screen, for tests to check what they are.</summary>
+    public IReadOnlyList<Control> HiddenInFullScreen => _hiddenInFullScreen;
+
     public bool IsFullScreen { get; private set; }
 
     /// <summary>
@@ -662,19 +759,49 @@ internal class MainForm : Form
             _transportIndexBeforeFullScreen = Controls.GetChildIndex(_transport);
 
             MainMenuStrip!.Visible = false;
-            _actions.Visible = false;
-            _playlist.Visible = false;
-            _search.Visible = false;
+
+            foreach (Control hidden in _hiddenInFullScreen)
+            {
+                hidden.Visible = false;
+            }
+
             Controls.Remove(_transport);
 
             FormBorderStyle = FormBorderStyle.None;
 
-            // Normal first: a maximised window ignores a border-style change until it is
-            // restored, so going straight to maximised leaves the old frame on screen.
+            // **Not Maximized, and this is the difference between full screen and a big window.**
+            // A maximised window - borderless or not - is sized to the WORK AREA, which is the
+            // screen minus the taskbar, so the taskbar stays on top of it. Setting the bounds to
+            // the screen rectangle is what actually covers the whole display.
+            //
+            // Normal first, because a maximised window ignores a border-style change until it is
+            // restored, and would otherwise keep the old frame on screen.
             WindowState = FormWindowState.Normal;
-            WindowState = FormWindowState.Maximized;
+            Bounds = Screen.FromControl(this).Bounds;
 
-            _overlay = new OverlayWindow(_transport) { Height = _transport.Height + 8 };
+            // **Bounds alone do not hide the taskbar.** The shell keeps the taskbar above a window
+            // that merely happens to be screen-sized; it stands down for a window that is TOPMOST
+            // and covers the display. Measured by screenshot: without this the map filled 1920x1080
+            // and the taskbar was still drawn across the bottom of it, while every assertion about
+            // the window rectangle passed.
+            //
+            // Restored on the way out, because a viewer that stays above every other window after
+            // leaving full screen is a viewer people close in irritation.
+            TopMost = true;
+
+            // **The window is sized first, then the display is taken.** DXGI wants the window
+            // already covering the output it is about to own; asking for exclusive from a small
+            // window is the case it most often refuses.
+            if (_settings.FullScreenMode == FullScreenMode.Exclusive &&
+                _device is not null &&
+                !_device.SetExclusiveFullScreen(true))
+            {
+                // Refused - another application holds the output, or this is a WARP device.
+                // Borderless is already in effect, so this is a note rather than a failure.
+                _status.Text = "Exclusive full screen was refused; using borderless.";
+            }
+
+            _overlay = new OverlayWindow(_transport);
             _overlay.Show(this);
 
             // Positioned AFTER the layout settles, not now. At this point the form has changed
@@ -682,8 +809,21 @@ internal class MainForm : Form
             // its windowed rectangle - and the overlay lands wherever the bottom of the small
             // viewport used to be, which on a maximised window is the middle of the screen.
             BeginInvoke(() => _overlay?.PositionOver(_viewport));
+
+            // **And again on every layout while full screen.** One shot is not enough: the form is
+            // still settling after this - border style, bounds and topmost each re-lay-out the
+            // viewport - so the overlay ends up over wherever the viewport was mid-transition. It
+            // was landing three quarters of the way up the map.
+            Layout += KeepOverlayOnTheViewport;
             return;
         }
+
+        // Released BEFORE the window is put back, and unconditionally rather than only when the
+        // setting says exclusive: the setting can be changed while full screen, and what has to be
+        // undone is what was done, not what is currently preferred.
+        Layout -= KeepOverlayOnTheViewport;
+        TopMost = false;
+        _device?.SetExclusiveFullScreen(false);
 
         if (_overlay is not null)
         {
@@ -699,9 +839,12 @@ internal class MainForm : Form
         Controls.Add(_transport);
         Controls.SetChildIndex(_transport, _transportIndexBeforeFullScreen);
         MainMenuStrip!.Visible = true;
-        _actions.Visible = true;
-        _playlist.Visible = true;
-        _search.Visible = true;
+
+        foreach (Control hidden in _hiddenInFullScreen)
+        {
+            hidden.Visible = true;
+        }
+
         FormBorderStyle = _borderBeforeFullScreen;
         WindowState = _stateBeforeFullScreen;
 
@@ -749,6 +892,9 @@ internal class MainForm : Form
             _status.Text = "Direct3D unavailable: " + failure.Message;
         }
     }
+
+    private void KeepOverlayOnTheViewport(object? sender, LayoutEventArgs e) =>
+        _overlay?.PositionOver(_viewport);
 
     private void OnIdle(object? sender, EventArgs e)
     {
@@ -931,6 +1077,8 @@ internal class MainForm : Form
             _actions.Dispose();
             _transport.Dispose();
             _playlist.Dispose();
+            _borderlessMode.Dispose();
+            _exclusiveMode.Dispose();
             _search.Dispose();
             _overlay?.Dispose();
             _fullScreen.Dispose();

@@ -39,6 +39,41 @@ public sealed class FullScreenTests
     }
 
     [Test]
+    public void EverythingHiddenForFullScreen_IsADirectChildOfTheForm()
+    {
+        // **The invariant a real bug broke.** Hiding a control only gives its space back if the
+        // hidden control is the one that is docked. When the playlist gained a search box the two
+        // moved inside a panel, and the code went on hiding the playlist and the search box - so
+        // full screen left a 280-pixel empty panel docked to the right and the viewport came out
+        // the wrong width.
+        //
+        // Control.Visible cannot catch this: it reports EFFECTIVE visibility, so on a form that
+        // was never shown every child reads false whatever the code did. The parent relationship
+        // is the property that actually decides the layout, and it is observable without a window.
+        using MainForm form = new();
+
+        form.HiddenInFullScreen.ShouldNotBeEmpty();
+
+        foreach (Control hidden in form.HiddenInFullScreen)
+        {
+            hidden.Parent.ShouldBe(form, $"{hidden.Name} is hidden for full screen but is not docked on the form");
+        }
+    }
+
+    [Test]
+    public void ThePlaylistsContainerIsWhatGetsHidden()
+    {
+        // The specific case, named. The panel is what occupies the width, so the panel is what has
+        // to go - checking only the invariant above would pass on a form that hid nothing at all
+        // if the list happened to be empty, which is why the count is asserted too.
+        using MainForm form = new();
+
+        Control playlist = form.Controls.Find(MainForm.PlaylistId, searchAllChildren: true).Single();
+
+        form.HiddenInFullScreen.ShouldContain(playlist.Parent!);
+    }
+
+    [Test]
     public void LeavingFullScreen_PutsEverythingBack()
     {
         using MainForm form = new();

@@ -103,6 +103,12 @@ internal sealed unsafe class Device3D : IDisposable
             OutputWindow = handle,
             Windowed = true,
             SwapEffect = SwapEffect.FlipDiscard,
+
+            // **Required for exclusive full screen, and it has to be set at creation.** Without
+            // it DXGI refuses a mode change, so the swap chain can only ever be a window. The same
+            // value must then be passed to every ResizeBuffers call or the buffers come back
+            // without the capability.
+            Flags = (uint)SwapChainFlag.AllowModeSwitch,
         };
 
         ComPtr<ID3D11Device> device = default;
@@ -229,7 +235,11 @@ internal sealed unsafe class Device3D : IDisposable
         _backBufferView = default;
 
         SilkMarshal.ThrowHResult(_swapChain.ResizeBuffers(
-            BufferCount, (uint)width, (uint)height, Format.FormatB8G8R8A8Unorm, 0u));
+            BufferCount,
+            (uint)width,
+            (uint)height,
+            Format.FormatB8G8R8A8Unorm,
+            (uint)SwapChainFlag.AllowModeSwitch));
 
         // Kept in step with the swap chain, because the viewport passed to the rasteriser comes
         // from here. A stale size draws into a rectangle that no longer matches the buffer, which
@@ -240,12 +250,75 @@ internal sealed unsafe class Device3D : IDisposable
         CreateBackBufferView();
     }
 
+    /// <summary>Whether the swap chain currently owns the display exclusively.</summary>
+    public bool IsExclusiveFullScreen { get; private set; }
+
+    /// <summary>Takes or releases exclusive control of the display.</summary>
+    /// <param name="enabled">Whether to take the display.</param>
+    /// <returns>Whether the request succeeded.</returns>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **Exclusive full screen is a real mode change, unlike a borderless window that merely
+    /// covers the screen.** The swap chain owns the output, the display may switch mode, and
+    /// presentation skips the desktop compositor.
+    ///
+    /// **It is allowed to fail, and failure is not an error here.** DXGI returns
+    /// DXGI_ERROR_NOT_CURRENTLY_AVAILABLE when another application already holds the output, when
+    /// the device is WARP, or when the window is not in a state it will accept — none of which is
+    /// a defect in this program. The caller falls back to borderless and says so, because a viewer
+    /// that refuses to go full screen at all is worse than one that goes full screen differently.
+    /// </remarks>
+    public bool SetExclusiveFullScreen(bool enabled)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (IsExclusiveFullScreen == enabled)
+        {
+            return true;
+        }
+
+        // Silk exposes SetFullscreenState on IDXGISwapChain1 rather than on the base interface,
+        // so the swap chain is queried for it. Every swap chain created through
+        // CreateDeviceAndSwapChain on a DXGI 1.2 runtime supports it; a machine old enough not to
+        // is a machine that gets borderless.
+        if (_swapChain.QueryInterface(out ComPtr<IDXGISwapChain1> queried) < 0)
+        {
+            return false;
+        }
+
+        // Null output: let DXGI pick the output the window is on, rather than naming one.
+        int result = queried.SetFullscreenState(new Silk.NET.Core.Bool32(enabled), (IDXGIOutput*)null);
+        queried.Dispose();
+
+        if (result < 0)
+        {
+            return false;
+        }
+
+        IsExclusiveFullScreen = enabled;
+        return true;
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed)
         {
             return;
+        }
+
+        // **Mandatory, and not merely tidy.** Releasing a swap chain while it holds the display
+        // exclusively is undefined: DXGI documents that the swap chain must be returned to windowed
+        // mode first, and in practice it hangs or leaves the display in the switched mode.
+        if (IsExclusiveFullScreen)
+        {
+            if (_swapChain.QueryInterface(out ComPtr<IDXGISwapChain1> windowed) >= 0)
+            {
+                windowed.SetFullscreenState(new Silk.NET.Core.Bool32(false), (IDXGIOutput*)null);
+                windowed.Dispose();
+            }
+
+            IsExclusiveFullScreen = false;
         }
 
         _points?.Dispose();

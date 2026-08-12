@@ -45,6 +45,20 @@ internal sealed class OverlayWindow : Form
         // on something legible without the cost of layered-window compositing over a swap chain.
         BackColor = Color.FromArgb(16, 18, 23);
 
+        // **Mostly transparent, because in full screen this sits ON the map.** The controls are
+        // the point of the overlay and the map is the point of full screen, so the bar has to be
+        // readable without taking a strip of the world away. Form.Opacity applies to the whole
+        // layered window, controls included, which is what is wanted here - a transparency key
+        // would punch the background through to the desktop rather than to the viewport beneath.
+        Opacity = 0.55;
+
+        // **Measured BEFORE docking, and that ordering is the whole point.** Docking the content
+        // Fill makes it adopt this form's size, so anything that reads the content's height
+        // afterwards reads the form's default 300 pixels instead of the bar's 44. The overlay was
+        // built ~308 pixels tall that way, with the transport stretched down it and its controls
+        // sitting a quarter of the way up the map.
+        ClientSize = new Size(ClientSize.Width, content.Height + (Padding.Vertical / 2) + 8);
+
         content.Dock = DockStyle.Fill;
         Controls.Add(content);
     }
