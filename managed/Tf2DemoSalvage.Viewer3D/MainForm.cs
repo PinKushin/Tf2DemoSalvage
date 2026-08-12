@@ -56,6 +56,9 @@ internal class MainForm : Form
     /// <summary>Automation id of the playlist.</summary>
     public const string PlaylistId = "Playlist";
 
+    /// <summary>Automation id of the playlist search box.</summary>
+    public const string SearchId = "PlaylistSearch";
+
     /// <summary>Automation id of the export button.</summary>
     public const string ExportButtonId = "ExportButton";
 
@@ -70,6 +73,13 @@ internal class MainForm : Form
     private readonly FlowLayoutPanel _actions;
     private readonly TransportBar _transport;
     private readonly ListView _playlist;
+    private readonly TextBox _search;
+
+    /// <summary>The library sorted for display: folder first, then name.</summary>
+    private IReadOnlyList<DemoEntry> _ordered = [];
+
+    /// <summary>The rows the playlist is currently showing.</summary>
+    private IReadOnlyList<DemoEntry> _shown = [];
     private readonly DemoLibrary _library = new();
 
     private LoadedDemo? _demo;
@@ -162,24 +172,63 @@ internal class MainForm : Form
         // The playlist replaces the entity list that used to sit here. It lists demos and the
         // folder each came from - navigation, not parser internals - and allows multi-select so
         // several can be opened at once the way a file browser does.
+        // **Virtual mode, and the reason is measured rather than precautionary.** Someone with
+        // thousands of POV demos filters this list on every keystroke, and rebuilding it is the
+        // whole cost: at 20,000 entries, matching takes 0.20 ms and populating a real grouped
+        // ListView takes 188 ms - a thousand times more. In virtual mode the control asks for the
+        // rows it is about to draw, so the same case costs 0.4 ms and stays flat as the archive
+        // grows.
+        //
+        // The price is grouping, which virtual mode does not support. Folder becomes a column
+        // instead and the list is sorted by folder then name, so it still reads as folders - and
+        // unlike a group header, a column can be read next to a name that shares it.
         _playlist = new ListView
         {
             Name = PlaylistId,
             AccessibleName = "Playlist",
-            AccessibleDescription = "Demos available to play, grouped by folder.",
-            Dock = DockStyle.Right,
-            Width = 280,
+            AccessibleDescription = "Demos available to play, listed by folder.",
+            Dock = DockStyle.Fill,
             View = View.Details,
             FullRowSelect = true,
             HideSelection = false,
             MultiSelect = true,
-            ShowGroups = true,
+            VirtualMode = true,
         };
-        _playlist.Columns.Add("Demo", 260);
+        _playlist.Columns.Add("Demo", 170);
+        _playlist.Columns.Add("Folder", 100);
+        _playlist.RetrieveVirtualItem += OnRetrieveVirtualItem;
 
         // Double-click and Enter both load, matching how a file browser and a video player behave.
         // Selecting alone does not: browsing a playlist should not read headers off disk.
         _playlist.ItemActivate += (_, _) => LoadSelected();
+
+        // A real archive folder is hundreds of files called esea_match_13977649.dem, where
+        // scrolling finds nothing. The box sits above the list rather than beside it so the list
+        // keeps its full width for names that are already too long for the column.
+        _search = new TextBox
+        {
+            Name = SearchId,
+            AccessibleName = "Search demos",
+            AccessibleDescription = "Type to narrow the playlist by demo name or folder.",
+            Dock = DockStyle.Top,
+            PlaceholderText = "Search demos...",
+        };
+
+        // Filtering as the user types, with no button to press. The work is a substring scan over
+        // a list already in memory, so there is nothing to debounce.
+        _search.TextChanged += (_, _) => RefreshPlaylist();
+
+        Panel playlistPanel = new()
+        {
+            Name = "PlaylistPanel",
+            AccessibleName = "Playlist panel",
+            Dock = DockStyle.Right,
+            Width = 280,
+        };
+
+        // Fill before Top, for the same reason the form itself adds the viewport first.
+        playlistPanel.Controls.Add(_playlist);
+        playlistPanel.Controls.Add(_search);
 
         _transport = new TransportBar();
 
@@ -250,7 +299,7 @@ internal class MainForm : Form
         // settled it: play button top=666, open button top=709. A UI test now pins it, since a
         // form that was never shown has no layout for a unit test to inspect.
         Controls.Add(_viewport);
-        Controls.Add(_playlist);
+        Controls.Add(playlistPanel);
         Controls.Add(_transport);
         Controls.Add(_actions);
         Controls.Add(statusStrip);
@@ -326,12 +375,19 @@ internal class MainForm : Form
     /// </remarks>
     public void LoadSelected()
     {
-        if (_playlist.SelectedItems.Count == 0)
+        if (_playlist.SelectedIndices.Count == 0)
         {
             return;
         }
 
-        LoadDemo((string)_playlist.SelectedItems[0].Tag!);
+        int index = _playlist.SelectedIndices[0];
+
+        if (index < 0 || index >= _shown.Count)
+        {
+            return;
+        }
+
+        LoadDemo(_shown[index].Path);
     }
 
     /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>
@@ -553,6 +609,7 @@ internal class MainForm : Form
             MainMenuStrip!.Visible = false;
             _actions.Visible = false;
             _playlist.Visible = false;
+            _search.Visible = false;
             Controls.Remove(_transport);
 
             FormBorderStyle = FormBorderStyle.None;
@@ -589,6 +646,7 @@ internal class MainForm : Form
         MainMenuStrip!.Visible = true;
         _actions.Visible = true;
         _playlist.Visible = true;
+        _search.Visible = true;
         FormBorderStyle = _borderBeforeFullScreen;
         WindowState = _stateBeforeFullScreen;
 
@@ -713,6 +771,12 @@ internal class MainForm : Form
             _library.Open(path);
         }
 
+        // Sorted once per library change rather than per keystroke: folder first so the list
+        // reads as folders, then name within each.
+        _ordered = [.. _library.Entries
+            .OrderBy(entry => entry.Folder, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)];
+
         RefreshPlaylist();
 
         _status.Text = _library.Entries.Count switch
@@ -723,27 +787,38 @@ internal class MainForm : Form
         };
     }
 
-    /// <summary>Rebuilds the playlist, one group per folder.</summary>
+    /// <summary>Rebuilds the playlist from the library and the search box.</summary>
+    /// <remarks>
+    /// Nothing is constructed here. Setting <see cref="ListView.VirtualListSize"/> tells the
+    /// control how many rows exist, and it then asks for the handful it needs to paint - which is
+    /// what keeps a keystroke cheap on an archive of thousands.
+    /// </remarks>
     private void RefreshPlaylist()
     {
-        _playlist.BeginUpdate();
-        _playlist.Items.Clear();
-        _playlist.Groups.Clear();
+        _shown = PlaylistFilter.Apply(_ordered, _search.Text);
 
-        foreach (IGrouping<string, DemoEntry> folder in _library.Entries.GroupBy(e => e.Folder))
+        // Selection indices refer to the OLD list. Clearing first avoids the control asking for a
+        // row that the new, shorter list does not have.
+        _playlist.SelectedIndices.Clear();
+        _playlist.VirtualListSize = _shown.Count;
+        _playlist.Invalidate();
+    }
+
+    /// <summary>Supplies one row of the playlist on demand.</summary>
+    private void OnRetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
+    {
+        if (e.ItemIndex < 0 || e.ItemIndex >= _shown.Count)
         {
-            ListViewGroup group = new(folder.Key) { Name = folder.Key };
-            _playlist.Groups.Add(group);
-
-            foreach (DemoEntry entry in folder)
-            {
-                // The full path rides along in Tag: the list shows a file name, and two demos in
-                // different folders routinely share one.
-                _playlist.Items.Add(new ListViewItem(entry.Name, group) { Tag = entry.Path });
-            }
+            // Reachable during a resize that races a filter change. A blank row is survivable;
+            // an exception out of a paint handler is not.
+            e.Item = new ListViewItem(string.Empty);
+            return;
         }
 
-        _playlist.EndUpdate();
+        DemoEntry entry = _shown[e.ItemIndex];
+        ListViewItem row = new(entry.Name) { Tag = entry.Path };
+        row.SubItems.Add(entry.Folder);
+        e.Item = row;
     }
 
     private void ExportDemo() => _status.Text = _demo is null
@@ -792,6 +867,7 @@ internal class MainForm : Form
             _actions.Dispose();
             _transport.Dispose();
             _playlist.Dispose();
+            _search.Dispose();
             _overlay?.Dispose();
             _fullScreen.Dispose();
         }

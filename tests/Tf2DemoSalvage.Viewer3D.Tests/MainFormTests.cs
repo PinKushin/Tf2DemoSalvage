@@ -123,6 +123,68 @@ public sealed class MainFormTests
         ((ListView)Find(form, MainForm.PlaylistId)!).Items.Count.ShouldBe(0);
     }
 
+    [Test]
+    public void TypingInTheSearchBoxNarrowsThePlaylist()
+    {
+        // Three demos, one query, one survivor - with two bystanders that must disappear. A single
+        // demo in the folder could not tell "filtered correctly" from "filtered to everything".
+        string folder = NewFolder();
+
+        try
+        {
+            foreach (string name in new[] { "process_ace.dem", "gullywash_1.dem", "gullywash_2.dem" })
+            {
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, name), new byte[16]);
+            }
+
+            using MainForm form = new(folder);
+
+            ListView playlist = (ListView)Find(form, MainForm.PlaylistId)!;
+            TextBox search = (TextBox)Find(form, MainForm.SearchId)!;
+
+            playlist.Items.Count.ShouldBe(3);
+
+            search.Text = "gullywash";
+            playlist.Items.Count.ShouldBe(2);
+
+            search.Text = "process";
+            playlist.Items.Count.ShouldBe(1);
+            playlist.Items[0].Text.ShouldBe("process_ace.dem");
+
+            // Clearing restores everything: a filter must not be a one-way door.
+            search.Text = string.Empty;
+            playlist.Items.Count.ShouldBe(3);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void TheSearchBoxSitsAboveThePlaylist()
+    {
+        // Layout, pinned because it was got wrong for the transport bar by reasoning about docking
+        // instead of measuring it. Both controls share a panel, so their order is a property of
+        // the order they were added in and nothing in the type system protects it.
+        using MainForm form = new();
+
+        Control search = Find(form, MainForm.SearchId)!;
+        Control playlist = Find(form, MainForm.PlaylistId)!;
+
+        search.Parent.ShouldBe(playlist.Parent);
+        search.Dock.ShouldBe(DockStyle.Top);
+        playlist.Dock.ShouldBe(DockStyle.Fill);
+    }
+
+    private static string NewFolder()
+    {
+        string folder = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), "tf2salvage-tests", System.IO.Path.GetRandomFileName());
+        System.IO.Directory.CreateDirectory(folder);
+        return folder;
+    }
+
     private static Control? Find(Control root, string name) =>
         root.Controls.Find(name, searchAllChildren: true).FirstOrDefault();
 
