@@ -1931,3 +1931,57 @@ position in the range-coded stream, and the deterministic thing branching on it 
 instrument. This project's own rule about verifying by manipulation applies to the *tool* as well
 as the code under test — the decoder was treated as fixed ground truth for the whole
 investigation, and it was the variable.
+
+## B34 — mutation coverage capture records nothing for the corpus project — OPEN
+
+**Symptom.** Stryker's coverage capture reports `0 mutations covered, 0 static mutations` for
+`Tf2DemoSalvage.Corpus.Tests`, followed by `It looks like the test coverage capture failed.
+Disable coverage based optimisation.` The synthetic project does not do this.
+
+**Deterministic, not flaky** — measured across every run either project has ever had on the box:
+
+| Run | Covered |
+|---|---|
+| 3 × `tf2-corpus` | **0** each |
+| 3 × `tf2-core` | 1121, 1121, 2169 |
+
+**Why it matters, in hours.** With no coverage data Stryker cannot tell which tests touch a
+mutant, so it runs the whole suite for every one. That is the entire cost of the 18-hour run:
+the initial test run took ~25 s and `additional-timeout` was 30000, allowing ~55 s per mutant,
+and 1142 timeouts × ~55 s is 17.4 h against a measured `Time Elapsed 18:07:00`. The timeout has
+since been lowered to 10000, which shortens the symptom without addressing this.
+
+**What the timeouts were NOT.** The first reading of that run blamed unbounded loops in the
+parser. The report says otherwise: the timing-out mutants are overwhelmingly ones that cannot
+loop at all — 268 statement removals, 232 equality flips, 114 string mutations, and decisively
+`OrderByDescending()` → `OrderBy()` and `Take()` → `Skip()`. A sort order cannot hang.
+`Survived: 0` beside `Timeout: 1142` is the signature of a threshold effect, not of runaway
+code. (Roughly 30 genuine unbounded-loop mutants do exist, and `DecodeProgress` now handles
+those; it is not what made the run 18 hours.)
+
+**What is measured about the cause.** Capture is catastrophically slower on this project.
+Reproduced locally 2026-08-12: capture began at 23:38:03 and had not finished 27 minutes later,
+with a single test-server process holding **3663 CPU-seconds** — against a suite that completes
+normally in about 3 minutes. On the box, capture "completed" in 6 m 18 s and reported zero, which
+is consistent with being abandoned rather than succeeding.
+
+The plausible mechanism, **not yet confirmed**: capture instruments all 5516 mutants and records
+every hit, and these tests drive the decoder across real demos, so the number of instrumented
+hits per test is orders of magnitude above anything the synthetic project produces. That is the
+one structural difference that tracks the split — the two test projects are otherwise near
+identical (same SDK, same `xunit.v3` 3.2.2, both `Exe`, same runner, same config shape).
+
+**Ruled out.** The `Tf2DemoSalvage.Audio` project reference — the failing runs predate it.
+Missing LFS demos — the runner asserts the corpus is present before starting. Mutants not
+reaching the tests — 183 were killed, so the mutated assembly was loaded and effective.
+
+**Not yet established.** Whether capture terminates at all on this project given unlimited time,
+and whether scoping the mutant set fixes it. Two attempts to narrow the run with `--mutate` both
+produced the full 5516 mutants, so the scoping itself is unverified — Stryker's `mutate` globs
+resolve against the *source* project rather than the test project, and a non-matching glob
+reports a clean run rather than an error.
+
+**Options, in the order worth trying.** Scope corpus mutation to a handful of files per run so
+both the capture cost and the mutant count fall; or stop mutating against the corpus tests
+entirely and rely on the synthetic project, which captures coverage correctly — the D25 split
+already treats corpus as the slow cadence, and this would make that split absolute.
