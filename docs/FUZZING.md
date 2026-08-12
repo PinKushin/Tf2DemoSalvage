@@ -218,3 +218,39 @@ A fuzz target project, a workflow, and a deterministic mutation suite in
 `tests/`. Roughly the size of one focused session. The `BitReader` target alone
 is small enough to be worth doing the moment that class has its unit tests, and
 it does not need the rest of the plan to be settled first.
+
+## Findings
+
+Kept here because a fuzz finding without the input that produced it is an anecdote. Every one
+becomes a permanent regression fixture in the deterministic suite, which is what stops it from
+being re-found rather than re-fixed.
+
+| Date | Target | Defect | Fixture |
+|---|---|---|---|
+| 2026-08-11 | `container` | `dem_stop` tick truncation | `ContainerFuzzPropertyTests` |
+| 2026-08-11 | `snappy` | Declared length overflow in the stream header | `SnappyTests` |
+| 2026-08-11 | `snappy` | **Literal length accumulated signed, so a fourth byte ≥ 0x80 goes negative** | `SnappyTests.ALiteralLengthWithItsTopBitSet_IsRejectedRatherThanGoingNegative` |
+
+The third one is the most instructive, and it was found in under sixty seconds on `fuzz-box`.
+A negative length is not a large length: every guard around it was written against a value that
+is too big, and a negative satisfies all of them — the bounds check sees a *smaller* index, and
+the output-capacity check is false for anything below zero. It survived to `Slice`, which threw
+`ArgumentOutOfRangeException` from the framework where this type's contract promises
+`InvalidDataException`. Guards written in one direction do not constrain the other.
+
+### libFuzzer does not preserve the reproducer here — the corpus does
+
+**`-artifact_prefix` writes nothing in this setup, and that was measured rather than assumed.**
+On a managed exception SharpFuzz aborts the .NET child, the `libfuzzer-dotnet` bridge dies with
+it (`Trace/breakpoint trap (core dumped)`), and libFuzzer's own crash handler never runs — so no
+`crash-<sha1>` file appears and no "Test unit written to" line is printed. Verified by running
+the crashing target directly with an empty artifact directory: the exception was printed in full
+and the directory stayed empty.
+
+This matters more than it looks. The run still *reports* the defect in its log, so the setup
+looks healthy; what is silently missing is the one artifact that makes the finding reproducible.
+
+The input is not actually lost — libFuzzer had already written it into the corpus directory
+before the crash, so `~/corpus-<target>/` holds it. Recovering *which* entry it is means
+replaying the corpus one file at a time, which is what `build/run-measurements.sh` does after a
+non-zero target exit. Do not rely on `~/findings-<target>/` being populated by libFuzzer itself.
