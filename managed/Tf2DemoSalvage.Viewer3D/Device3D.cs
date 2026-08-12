@@ -33,9 +33,25 @@ internal sealed unsafe class Device3D : IDisposable
     private ComPtr<ID3D11DeviceContext> _context;
     private ComPtr<IDXGISwapChain> _swapChain;
     private PointRenderer? _points;
+    private WorldRenderer? _world;
     private int _width;
     private int _height;
     private ComPtr<ID3D11RenderTargetView> _backBufferView;
+
+    /// <summary>Depth buffer, so a roof covers the floor beneath it rather than the draw order.</summary>
+    /// <remarks>
+    /// **Batching by material destroyed the ordering the flat fill relied on.** That version sorted
+    /// faces by height and let the later draw win, which works only while every face is in one
+    /// stream. Grouping by texture reorders them by definition, so ground-level terrain painted
+    /// over buildings - on cp_process_final the result was a dirt field swallowing the map.
+    ///
+    /// A depth buffer is the honest fix rather than a sort: the height is already on every vertex,
+    /// and the comparison belongs to the hardware.
+    /// </remarks>
+    private ComPtr<ID3D11DepthStencilView> _depthView;
+    private ComPtr<ID3D11Texture2D> _depthBuffer;
+    private ComPtr<ID3D11DepthStencilState> _depthOn;
+    private ComPtr<ID3D11DepthStencilState> _depthOff;
     private bool _disposed;
 
     private Device3D(
@@ -190,19 +206,35 @@ internal sealed unsafe class Device3D : IDisposable
         float* colour = stackalloc float[4] { red, green, blue, 1f };
         _context.ClearRenderTargetView(_backBufferView, colour);
 
-        if (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0)
+        if (_depthView.Handle is not null)
+        {
+            _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        }
+
+        if (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0 ||
+            _world is { HasMap: true })
         {
             _points ??= PointRenderer.Create(_device);
 
             Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in viewport);
-            _context.OMSetRenderTargets(
-                1, ref _backBufferView, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
 
-            // Solid surfaces, then the edges that bound them, then the players. This is the
-            // order the engine's own wireframe view implies: mat_wireframe draws these same edges
-            // over the filled world, from the same lumps.
-            _points.DrawTriangles(_device, _context, mapFill, (0.30f, 0.34f, 0.42f));
+            // **The textured world replaces the flat fill when it is available.** Drawing both
+            // would put a shaded grey slab over the map's own textures.
+            if (_world is { HasMap: true })
+            {
+                _context.OMSetDepthStencilState(_depthOn, 0);
+                _world.Draw(_context);
+            }
+            else
+            {
+                _points.DrawTriangles(_device, _context, mapFill, (0.30f, 0.34f, 0.42f));
+            }
+
+            // Outlines and players are annotations on the world, so they ignore its depth.
+            _context.OMSetDepthStencilState(_depthOff, 0);
+
             _points.DrawLines(_device, _context, mapLines, 0.55f, 0.62f, 0.74f);
             _points.Draw(_device, _context, points);
         }
@@ -233,6 +265,7 @@ internal sealed unsafe class Device3D : IDisposable
 
         _backBufferView.Dispose();
         _backBufferView = default;
+        ReleaseDepth();
 
         SilkMarshal.ThrowHResult(_swapChain.ResizeBuffers(
             BufferCount,
@@ -249,6 +282,35 @@ internal sealed unsafe class Device3D : IDisposable
 
         CreateBackBufferView();
     }
+
+    /// <summary>Uploads a map's textured geometry, replacing anything already there.</summary>
+    /// <param name="world">The triangles and their material batches.</param>
+    /// <param name="assets">The map's textures and lightmap atlas.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// Once per map. The geometry does not move, the lighting is baked and the textures do not
+    /// change, so a frame afterwards is a couple of hundred draw calls over resident resources.
+    /// </remarks>
+    public void UploadWorld(MapWorld world, MapAssets assets)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(assets);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.UploadMap(_device, _context, world.Vertices, world.Batches, assets);
+    }
+
+    /// <summary>Forgets any uploaded map.</summary>
+    public void ClearWorld()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world?.Dispose();
+        _world = null;
+    }
+
+    /// <summary>Whether a textured map is loaded.</summary>
+    public bool HasWorld => _world?.HasMap ?? false;
 
     /// <summary>Whether the swap chain currently owns the display exclusively.</summary>
     public bool IsExclusiveFullScreen { get; private set; }
@@ -321,13 +383,32 @@ internal sealed unsafe class Device3D : IDisposable
             IsExclusiveFullScreen = false;
         }
 
+        _world?.Dispose();
         _points?.Dispose();
+        ReleaseDepth();
+        _depthOn.Dispose();
+        _depthOff.Dispose();
         _backBufferView.Dispose();
         _swapChain.Dispose();
         _context.Dispose();
         _device.Dispose();
         _d3d.Dispose();
         _disposed = true;
+    }
+
+    private void ReleaseDepth()
+    {
+        if (_depthView.Handle is not null)
+        {
+            _depthView.Dispose();
+            _depthView = default;
+        }
+
+        if (_depthBuffer.Handle is not null)
+        {
+            _depthBuffer.Dispose();
+            _depthBuffer = default;
+        }
     }
 
     private void CreateBackBufferView()
@@ -340,7 +421,64 @@ internal sealed unsafe class Device3D : IDisposable
 
         buffer.Dispose();
         _backBufferView = view;
+
+        CreateDepthView();
+
         _context.OMSetRenderTargets(
-            1u, _backBufferView.GetAddressOf(), (ID3D11DepthStencilView*)null);
+            1u, _backBufferView.GetAddressOf(), _depthView);
+    }
+
+    /// <summary>Creates a depth buffer matching the back buffer.</summary>
+    private void CreateDepthView()
+    {
+        Texture2DDesc description = new()
+        {
+            Width = (uint)_width,
+            Height = (uint)_height,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = Format.FormatD32Float,
+            SampleDesc = new SampleDesc(1, 0),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.DepthStencil,
+        };
+
+        ComPtr<ID3D11Texture2D> buffer = default;
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(
+            in description, ref Unsafe.NullRef<SubresourceData>(), ref buffer));
+
+        ComPtr<ID3D11DepthStencilView> view = default;
+        SilkMarshal.ThrowHResult(_device.CreateDepthStencilView(
+            buffer, ref Unsafe.NullRef<DepthStencilViewDesc>(), ref view));
+
+        _depthBuffer = buffer;
+        _depthView = view;
+
+        if (_depthOn.Handle is null)
+        {
+            _depthOn = DepthState(enabled: true);
+            _depthOff = DepthState(enabled: false);
+        }
+    }
+
+    /// <summary>Builds a depth-stencil state.</summary>
+    /// <remarks>
+    /// The world draws with depth testing so a roof hides the floor under it. The map outline and
+    /// the players draw with it OFF, because they are annotations on the world rather than part of
+    /// it - a player marker must not disappear behind the roof they are standing on.
+    /// </remarks>
+    private ComPtr<ID3D11DepthStencilState> DepthState(bool enabled)
+    {
+        DepthStencilDesc description = new()
+        {
+            DepthEnable = new Silk.NET.Core.Bool32(enabled),
+            DepthWriteMask = enabled ? DepthWriteMask.All : DepthWriteMask.Zero,
+            DepthFunc = ComparisonFunc.Less,
+        };
+
+        ComPtr<ID3D11DepthStencilState> state = default;
+        SilkMarshal.ThrowHResult(_device.CreateDepthStencilState(in description, ref state));
+
+        return state;
     }
 }

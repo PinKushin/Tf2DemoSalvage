@@ -125,6 +125,32 @@ internal sealed partial class MapLocator
     /// Any failure to read yields an empty list rather than throwing: Steam may not be installed,
     /// and this application is a demo viewer rather than a game launcher.
     /// </remarks>
+    /// <summary>Finds the game's <c>tf</c> folder, where its content archives live.</summary>
+    /// <returns>The folder, or null when the game is not installed.</returns>
+    /// <remarks>
+    /// The same Steam library search that finds a map, stopping one level higher: a map lives in
+    /// <c>tf/maps</c>, and the materials, textures and the <c>custom</c> folder live in <c>tf</c>.
+    ///
+    /// Null is a normal answer. Without the game a demo still opens, the map's own content still
+    /// resolves, and the surfaces the game would have textured fall back to their recorded colour.
+    /// </remarks>
+    public string? FindGameFolder()
+    {
+        foreach (string library in ReadLibrariesWithTf2())
+        {
+            // MapsUnderLibrary ends in "maps"; the folder wanted here is its parent.
+            string maps = Path.Combine(library, Path.Combine(MapsUnderLibrary));
+            string? game = Path.GetDirectoryName(maps);
+
+            if (game is not null && Directory.Exists(game))
+            {
+                return game;
+            }
+        }
+
+        return null;
+    }
+
     private List<string> ReadLibrariesWithTf2()
     {
         List<string> libraries = [];

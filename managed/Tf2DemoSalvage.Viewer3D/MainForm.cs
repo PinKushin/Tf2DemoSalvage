@@ -116,6 +116,15 @@ internal class MainForm : Form
     /// <summary>Fetches maps that are not installed; created on first need.</summary>
     private MapDownloader? _downloader;
 
+    /// <summary>The game's content, opened once and reused for every map.</summary>
+    private GameArchives? _archives;
+
+    /// <summary>The loaded map's surfaces, kept so the world can be rebuilt on resize.</summary>
+    private IReadOnlyList<BspSurface> _surfaceList = [];
+
+    /// <summary>The loaded map's textures and lighting.</summary>
+    private MapAssets? _assets;
+
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
 
@@ -529,6 +538,9 @@ internal class MainForm : Form
         _surfaces = null;
         _mapLines = [];
         _mapFill = [];
+        _surfaceList = [];
+        _assets = null;
+        _device?.ClearWorld();
 
         string? path = FindMap(mapName);
 
@@ -589,8 +601,24 @@ internal class MainForm : Form
     {
         try
         {
-            BspGeometry geometry = BspGeometry.Read(File.ReadAllBytes(path));
+            byte[] bytes = File.ReadAllBytes(path);
+            BspGeometry geometry = BspGeometry.Read(bytes);
             _map = MapOutline.FromFaces(geometry.OverheadFaces);
+
+            // The textured world: the game's own materials and the map's baked lighting. Failing
+            // here costs the textures, not the map - the outline still draws.
+            try
+            {
+                _archives ??= GameArchives.Open(FindGameFolder());
+                _surfaceList = BspSurfaces.Read(bytes);
+                _assets = MapAssets.Load(bytes, _archives, (int)_settings.TextureQuality);
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            {
+                _surfaceList = [];
+                _assets = null;
+                _status.Text = "Map content unavailable: " + failure.Message;
+            }
 
             // Filled from the main cluster only. Outside it is the 3D skybox room, which is
             // already outside the view - but leaving it in the height range flattens the shading
@@ -608,6 +636,29 @@ internal class MainForm : Form
 
     /// <summary>The map outline the viewport is drawing, in clip space.</summary>
     public IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> MapLines => _mapLines;
+
+    /// <summary>Finds the game's <c>tf</c> folder, for its materials and textures.</summary>
+    /// <remarks>
+    /// The same Steam library search the map locator uses, stopping one level higher: the locator
+    /// wants <c>tf/maps</c> and this wants <c>tf</c> itself, where the archives and the custom
+    /// folder live. Null when the game is not installed, which costs the stock textures and
+    /// nothing else.
+    /// </remarks>
+    private static string? FindGameFolder()
+    {
+        try
+        {
+            string steam = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Steam", "steamapps", "libraryfolders.vdf");
+
+            return new MapLocator(steam, MapDownloader.DefaultFolder).FindGameFolder();
+        }
+        catch (Exception failure) when (failure is IOException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     private static string? FindMap(string mapName)
     {
@@ -673,6 +724,28 @@ internal class MainForm : Form
         }
 
         _mapFill = fill;
+
+        // The textured world is projected through the SAME camera, then uploaded. It is rebuilt on
+        // a resize because the projection is baked into the vertices - which is what keeps the
+        // shader a sample and a multiply.
+        if (_assets is { } assets && _surfaceList.Count > 0 && _device is not null)
+        {
+            try
+            {
+                _device.UploadWorld(
+                    MapWorldBuilder.Build(_surfaceList, assets.Lightmaps, camera, _map.MainBounds),
+                    assets);
+            }
+            catch (Exception failure) when (
+                failure is InvalidOperationException or InvalidDataException or IOException)
+            {
+                // **Reported, not swallowed.** A device that cannot take the world still draws the
+                // outline - but a silent fallback is indistinguishable from a renderer that was
+                // never wired up, which cost an hour of looking at a wireframe and wondering.
+                _device.ClearWorld();
+                _status.Text = "Textures unavailable: " + failure.Message;
+            }
+        }
     }
 
     /// <summary>
@@ -1001,6 +1074,13 @@ internal class MainForm : Form
             {
                 _status.Text = "Direct3D ready.";
             }
+
+            // **And project again, because a map may already be loaded.** The same ordering that
+            // made the status line wrong: a demo opened from the command line loads its map in the
+            // constructor, before this handle exists, so the upload of the textured world was
+            // skipped for want of a device and nothing re-ran it. The map drew as an outline and
+            // looked exactly like a renderer that had not been wired up.
+            ProjectMap();
 
             // Idle-driven rather than a timer: WinForms raises Idle whenever the message queue
             // empties, so the viewport redraws as fast as the UI allows and stops entirely while

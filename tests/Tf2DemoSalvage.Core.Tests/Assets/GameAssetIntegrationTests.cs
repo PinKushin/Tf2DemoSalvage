@@ -153,6 +153,82 @@ public sealed class GameAssetIntegrationTests
         linear.ShouldBe(concrete.Reflectivity.Red, tolerance: 0.05);
     }
 
+    [TestCase("cp_process_final")]
+    [TestCase("cp_badlands")]
+    [TestCase("koth_viaduct")]
+    public void EveryBrushworkCornerLandsInsideItsOwnLightmap(string map)
+    {
+        // **The check that says the lightmap coordinates are RIGHT rather than merely present.**
+        // Lightmap vectors are shared by every face using a texinfo, and produce coordinates in a
+        // grid covering all of them; the face's own LightmapTextureMinsInLuxels is what places
+        // this face inside its own lightmap. Forget it and every face still samples somewhere -
+        // the map looks lit, with the wrong patch of light on every surface.
+        //
+        // So the measurement is a range: with the mins subtracted, a corner must land in 0..1.
+        //
+        // **Displacements are excluded, and that is not a fudge.** A displacement's entry in FACES
+        // is the base quad the terrain was built on, while its lightmap covers the subdivided
+        // surface - so its corners fall outside by construction. Measured: 25% to 40% of
+        // displacements do, and ZERO brushwork faces do, across four maps.
+        string path = Path.Combine(_tf, "maps", map + ".bsp");
+
+        if (!File.Exists(path))
+        {
+            Assert.Ignore($"{map} is not installed.");
+            return;
+        }
+
+        IReadOnlyList<BspSurface> surfaces = BspSurfaces.Read(File.ReadAllBytes(path));
+
+        int checkedCorners = 0;
+        int outside = 0;
+
+        foreach (BspSurface surface in surfaces)
+        {
+            if (surface.Lightmap.IsEmpty || surface.IsDisplacement)
+            {
+                continue;
+            }
+
+            foreach (SurfaceVertex vertex in surface.Vertices)
+            {
+                checkedCorners++;
+
+                if (vertex.LightU is < -0.01f or > 1.01f || vertex.LightV is < -0.01f or > 1.01f)
+                {
+                    outside++;
+                }
+            }
+        }
+
+        // The guard: a map that contributed no corners would pass the assertion below vacuously.
+        checkedCorners.ShouldBeGreaterThan(10_000, "no brushwork corners were checked");
+        outside.ShouldBe(0, $"{outside} of {checkedCorners} brushwork corners miss their lightmap");
+    }
+
+    [Test]
+    public void DisplacementsAreIdentifiedRatherThanSilentlyWrong()
+    {
+        // The control for the exclusion above. If nothing were identified as a displacement, the
+        // previous test would be excluding nothing and passing for the wrong reason.
+        string path = Path.Combine(_tf, "maps", "cp_badlands.bsp");
+
+        if (!File.Exists(path))
+        {
+            Assert.Ignore("cp_badlands is not installed.");
+            return;
+        }
+
+        int displacements = 0;
+
+        foreach (BspSurface surface in BspSurfaces.Read(File.ReadAllBytes(path)))
+        {
+            displacements += surface.IsDisplacement ? 1 : 0;
+        }
+
+        displacements.ShouldBeGreaterThan(100, "an outdoor map has displacement terrain");
+    }
+
     [Test]
     public void ACommunityMapsPakfileReadsItsLzmaEntries()
     {
