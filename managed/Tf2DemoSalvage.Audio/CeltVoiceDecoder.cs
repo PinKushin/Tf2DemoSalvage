@@ -58,72 +58,60 @@ public sealed class CeltVoiceDecoder : IDisposable
     static CeltVoiceDecoder()
     {
         NativeLibraryResolver.EnsureRegistered();
-        SharedMode = CreateMode();
+
+        // **Type initialization must not throw**, which is a stronger requirement than it looks.
+        // The CLR wraps whatever a static constructor throws in TypeInitializationException and
+        // raises it at whatever first TOUCHED the type - so a caller merely asking
+        // `IsAvailable` got an exception instead of an answer, and no catch inside this class
+        // could help because the class was never usable.
+        //
+        // Seen on mutation-box: Speex skipped correctly and CELT failed, and the only difference
+        // between them is that CELT builds its mode during type initialization. The consequence
+        // was out of all proportion - two erroring tests made Stryker abandon the whole project
+        // with "more than 50% failing tests".
+        //
+        // So the failure is CAPTURED rather than thrown, and re-raised from the constructor,
+        // which is the operation that genuinely cannot proceed without a mode. Asking whether
+        // the library exists is not that operation.
+        try
+        {
+            SharedMode = CreateMode();
+        }
+        catch (InvalidOperationException failure)
+        {
+            ModeFailure = failure;
+            SharedMode = 0;
+        }
     }
+
+    /// <summary>Why the shared mode could not be built, or <c>null</c> if it was.</summary>
+    private static readonly InvalidOperationException? ModeFailure;
 
     /// <summary>Creates a decoder for one speaker's stream.</summary>
     /// <exception cref="InvalidOperationException">libcelt failed to create a decoder.</exception>
     /// <summary>Whether the native celt library is present and usable on this machine.</summary>
     /// <remarks>
-    /// **This exists because the library is not committed and is not built everywhere.**
-    /// <c>tools/native-audio/build.ps1</c> produces a Windows DLL with the MSVC toolset, so a
-    /// Linux box - the measurement box, for instance - has no celt at all.
+    /// **This must be answerable without throwing.** celt is built by
+    /// <c>tools/native-audio/build.ps1</c> with MSVC and is not committed, so a Linux box has
+    /// none - and a caller asking whether it exists should get <c>false</c>, not an exception.
     ///
-    /// Without a way to ask, the corpus voice tests simply throw there, and the consequence is
-    /// out of proportion to the cause: Stryker bails its initial test run early, so a handful of
-    /// executed tests containing four failures reads as "more than 50% failing tests" and it
-    /// refuses to mutate the project at all. Measured on mutation-box 2026-08-12.
-    ///
-    /// Probed once by actually constructing a decoder, rather than by looking for a file: the
-    /// question is whether the P/Invoke resolves, and a file being present does not answer that
-    /// on the wrong architecture.
+    /// The stakes are higher than one test: two erroring tests were enough for Stryker to abandon
+    /// mutation of the entire corpus project with "Initial testrun has more than 50% failing
+    /// tests", because it bails its initial run early and a handful of executed tests then
+    /// contains a majority of failures.
     /// </remarks>
-    /// <remarks>
-    /// **Lazy on first access, not a static field initializer, and that is load-bearing.** A
-    /// static field initializer is part of type initialization and runs BEFORE the explicit
-    /// static constructor body - which is where <c>NativeLibraryResolver.EnsureRegistered()</c>
-    /// lives. Probing first therefore resolved the P/Invoke with no resolver registered and took
-    /// the whole test host down with an access violation (exit -1073741819), reported by xUnit as
-    /// "Catastrophic failure" with zero tests discovered.
-    /// </remarks>
-    public static bool IsAvailable => _available ??= Probe();
-
-    private static bool? _available;
-
-    private static bool Probe()
-    {
-        try
-        {
-            using CeltVoiceDecoder probe = new();
-            return true;
-        }
-        catch (TypeInitializationException)
-        {
-            // The CLR wraps whatever a type initializer threw. The mode handle is built in a
-            // static initializer, so the InvalidOperationException raised below never arrives in
-            // that form here - it arrives wrapped, and catching only the inner type let the
-            // failure escape and fail the test rather than skip it. Measured on mutation-box:
-            // Speex skipped correctly while CELT still errored, because only CELT builds its mode
-            // during type initialization.
-            return false;
-        }
-        catch (DllNotFoundException)
-        {
-            // Belt and braces: the translation to InvalidOperationException happens at the call
-            // sites that were known about, and a future P/Invoke added elsewhere would throw this
-            // raw. Absence of a library is the answer to this question, however it is reported.
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            // The constructor already translates DllNotFoundException into this, with a message
-            // pointing at build.ps1. Absence is the answer here, not an error.
-            return false;
-        }
-    }
+    public static bool IsAvailable => ModeFailure is null && SharedMode != 0;
 
     public CeltVoiceDecoder()
     {
+        // Re-raised here rather than from the type initializer. Constructing a decoder is the
+        // operation that genuinely cannot proceed without a mode, so this is where the informative
+        // message about build.ps1 belongs - and it stays exactly as informative as before.
+        if (ModeFailure is not null)
+        {
+            throw new InvalidOperationException(ModeFailure.Message, ModeFailure);
+        }
+
         _decoder = NativeCelt.DecoderCreateCustom(SharedMode, Channels, out int error);
 
         if (error != NativeCelt.Ok || _decoder == 0)
