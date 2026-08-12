@@ -120,6 +120,51 @@ One important correction to flag: Source SDK 2013 does **not** actually contain 
 
 Given you're fine with C++ *if* it's genuinely needed: recommend staying clean-room C/C# for Phase 1/2 (SDK has nothing to offer there — it doesn't contain demo parsing at all), and treating SDK-vs-clean-room as a per-format decision *within* Phase 3, made only if a specific format (most likely MDL/VVD/VTX skeletal animation, which is the gnarliest one) proves too error-prone to reverse-engineer cleanly. If we do reach for it, the same ABI-boundary pattern as the C core applies: wrap the SDK-dependent piece behind a narrow C-callable interface so it's an isolated, swappable native component rather than something that spreads C++ through the rest of the codebase.
 
+## 3b. Viewer requirements (owner-stated, 2026-08-12)
+
+The shape of the application, decided while building the shell. Recorded here because most of it
+is not derivable from the code and was settled in conversation.
+
+**WinForms owns the user interface; Direct3D owns one rectangle.** The viewport is the centrepiece
+and everything around it is ordinary controls. The reason is testability: anything drawn inside
+the D3D surface is invisible to UIA, so a UI built there would be hard to test and in places
+impossible. Accessibility metadata exists for the same reason — automation ids are what the UI
+tests address — rather than for screen-reader support, which this application is unlikely to need.
+
+**Opening, never importing.** Nothing is copied and nothing is written into the user's folders. A
+demo stays where it is and the library remembers where to find it.
+
+| Requirement | Notes |
+|---|---|
+| Open a **file or a folder** | A folder is a playlist |
+| Folders walk **subfolders** | Except the game's asset directories, matched by name |
+| **Several roots open at once** | Choose what to play across all of them |
+| **Multi-select like a file browser** | Ctrl/shift click, not checkboxes |
+| **File association** | Double-click a `.dem` in Explorer and it opens here — something TF2 itself cannot do |
+| Playlist side panel | Lists demos and their folders. **Not** entities or classes: that is parser working state, and anyone who wants it can export the assembly script |
+| Video-style transport | Play/pause, scrub, current tick |
+| **Full screen** | F11 or Escape to leave; the transport moves onto a floating overlay |
+| Import/export/compile row | Sits **under** the play bar — operations on the demo as a whole, where the transport is about the moment being watched |
+
+**The file association and the in-application browser must be the same code path.** Two loaders
+would drift — disagreeing about folders, multi-select, or what counts as a demo — and the
+divergence would only surface for whichever is used less.
+
+### Maps
+
+Use the user's own TF2 maps when the map is installed; **read their game folder, never write to
+it.** When a map is missing, fetch it the way the game does: from fastdl, the HTTP mirror a server
+hands a joining client, which serves `maps/<name>.bsp.bz2`. Downloads land in this application's
+own maps directory.
+
+A BSP obtained that way is **hostile input** — supplied by whoever runs the server, reviewed by
+nobody — and `docs/DECISIONS.md` D32 has the rules the reader must follow before it exists.
+
+### Options, eventually
+
+Full screen, viewer resolution, and export format (JSON or the Quake-style assembly script). No
+options dialog yet; the list is here so the shell keeps room for one.
+
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
