@@ -214,6 +214,45 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    public void OneFileOnTheCommandLineIsOpenedNotJustListed()
+    {
+        // The file-association case. Double-clicking a .dem in Explorer has to end with the demo
+        // on screen: listing it in a playlist and waiting is not what opening a file means
+        // anywhere else, and it is what the viewer used to do.
+        string path = WriteDemo("cp_snakewater_final1", ticks: 22000, seconds: 330f);
+
+        using MainForm form = new(path);
+
+        form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_snakewater_final1");
+        form.Transport.LastTick.ShouldBe(22000);
+    }
+
+    [Test]
+    public void AFolderOnTheCommandLineIsListedNotOpened()
+    {
+        // The control, and the reason the check is on file-ness rather than on count. A folder
+        // means "here is a playlist"; picking one of its demos to start would be guessing which.
+        WriteDemo("cp_badlands", ticks: 100, seconds: 2f);
+
+        using MainForm form = new(_folder);
+
+        form.Demo.ShouldBeNull();
+        form.Transport.LastTick.ShouldBe(0);
+    }
+
+    [Test]
+    public void SeveralFilesOnTheCommandLineAreListedNotOpened()
+    {
+        // Multi-select from Explorer. Same reasoning as a folder: several files are a playlist.
+        string first = WriteDemo("cp_process_final", ticks: 100, seconds: 2f);
+        string second = WriteDemo("koth_product", ticks: 200, seconds: 4f);
+
+        using MainForm form = new(first, second);
+
+        form.Demo.ShouldBeNull();
+    }
+
+    [Test]
     public void AMissingFileSaysWhichFile()
     {
         Should.Throw<FileNotFoundException>(
