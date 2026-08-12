@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI tests: they launch the real viewer and drive it through UI Automation.
+
+    **Not part of the ordinary test run.** These take over a desktop, so they are excluded from
+    `dotnet test` on the solution and from the CI test workflow, and they must be run through
+    run-exclusive.ps1 so two agents cannot drive the same desktop at once.
+
+    **FlaUI, deliberately and not as a stopgap.** WindowsDriverCore exists to serve suites that
+    speak WebDriver or Appium; this project is Windows-only and speaks neither, so the protocol
+    layer would be pure cost. FlaUI is an in-process library rather than a server, which makes it
+    the speed floor for UIA work - a driver that marshals every call over HTTP cannot beat it, and
+    for a suite that launches a real application repeatedly that difference compounds.
+
+    If that is ever revisited it is a test-suite migration, not an application change: nothing in
+    the viewer knows how it is being driven.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Viewer3D.UiTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+    <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Shouldly" Version="4.3.0" />
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Referenced so the viewer is built before these run: a UI test against a stale binary is
+         the same failure as `dotnet test --no-build`, and it looks like a passing suite. -->
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Viewer3D\Tf2DemoSalvage.Viewer3D.csproj" />
+  </ItemGroup>
+
+</Project>
