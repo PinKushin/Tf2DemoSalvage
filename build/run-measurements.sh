@@ -171,6 +171,41 @@ if [ "$MODE" = fuzz ]; then
       echo "note: ${target} found no new input this run (expected once a target saturates)."
     fi
 
+    # ISOLATE THE REPRODUCER OURSELVES. libFuzzer's -artifact_prefix writes nothing in this
+    # setup, and that is measured, not assumed: on a managed exception SharpFuzz aborts the .NET
+    # child, the libfuzzer-dotnet bridge dies with it ("Trace/breakpoint trap (core dumped)"),
+    # and libFuzzer's own crash handler never runs — no crash-<sha1> file, no "Test unit written
+    # to" line. Verified by pointing a crashing run at an empty artifact directory and watching
+    # it stay empty while the exception printed in full.
+    #
+    # That failure is quiet in the worst way: the log still REPORTS the defect, so the run looks
+    # healthy, and the only thing missing is the input that makes it reproducible.
+    #
+    # The input is not lost — libFuzzer wrote it into the corpus before dying — so replaying the
+    # corpus one file at a time finds it. Only on a non-zero exit, and bounded, because this is
+    # one process launch per entry.
+    if [ "$status" != 0 ]; then
+      echo "${target}: exit ${status} — replaying corpus to isolate the input"
+      isolated=0
+      for entry in "$corpus_dir"/*; do
+        [ -f "$entry" ] || continue
+        if ! TF2FUZZ_TARGET="$target" "$HOME/libfuzzer-dotnet" \
+             --target_path="${FUZZ_OUT}/Tf2DemoSalvage.Fuzz" \
+             -runs=1 "$entry" > /dev/null 2>&1 9>&-; then
+          cp "$entry" "${findings_dir}/crash-$(basename "$entry")"
+          echo "  reproducer: $(basename "$entry") ($(stat -c%s "$entry") bytes)"
+          isolated=$((isolated + 1))
+          [ "$isolated" -ge 5 ] && break
+        fi
+      done
+      if [ "$isolated" = 0 ]; then
+        # Worth saying rather than passing over: it means the crash needed state built up across
+        # inputs, so no single entry reproduces it and the whole corpus is the reproducer.
+        echo "  no single corpus entry reproduces it - keeping the corpus as the record" >&2
+        cp -r "$corpus_dir" "${OUT}/corpus-${target}-at-crash" 2>/dev/null || true
+      fi
+    fi
+
     [ "$status" != 0 ] && FUZZ_STATUS="$status"
   done
 
