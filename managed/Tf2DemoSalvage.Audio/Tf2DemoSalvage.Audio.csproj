@@ -22,4 +22,21 @@
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
   </ItemGroup>
 
+  <!-- celt.dll and speex.dll are not committed (tools/native-audio/README.md) - built once by
+       tools/native-audio/build.ps1 from upstream Xiph source and copied flat into the output
+       directory here, the same place NativeLibraryResolver looks for them. Condition="Exists"
+       means a build without them present simply omits the Content item rather than failing;
+       CeltVoiceDecoder/SpeexVoiceDecoder throw a message pointing at build.ps1 if actually used
+       without it having been run. -->
+  <ItemGroup>
+    <Content Include="..\..\tools\native-audio\celt.dll" Condition="Exists('..\..\tools\native-audio\celt.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>celt.dll</Link>
+    </Content>
+    <Content Include="..\..\tools\native-audio\speex.dll" Condition="Exists('..\..\tools\native-audio\speex.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>speex.dll</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>
