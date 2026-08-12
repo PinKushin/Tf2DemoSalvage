@@ -32,4 +32,10 @@ applied uniformly, and either uniform choice is wrong for half the suite. The fi
 entry made exactly that mistake in the safe-looking direction, banning per-test isolation
 everywhere, which would have quietly serialised a 770-test suite.
 
+**This project is not expected to need the matrix.** That mechanism is PBJ's, where there are
+pages to split across legs. Tf2DemoSalvage is a one-page application - a main window holding
+everything, plus perhaps an options dialog - so its UI suite should stay small enough to run
+serially on one desktop. Do not build matrix scaffolding here before there is something to split;
+the rule above is about what NOT to do in-process, not an instruction to shard.
+
 See also [[tests-before-codecs]].

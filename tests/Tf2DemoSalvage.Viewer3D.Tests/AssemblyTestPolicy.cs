@@ -12,7 +12,9 @@
 //     expensive part. And in-process parallelism there is not slow, it is unsafe: UI tests drive
 //     a single desktop, and a second run stealing focus mid-click delivers it into whatever is
 //     now in front. UI tests parallelise across CI MATRIX LEGS - separate machines, each with its
-//     own desktop - never across threads.
+//     own desktop - never across threads. That mechanism belongs to projects with something to
+//     shard; this one is a single-page application and its UI suite is expected to run serially
+//     on one desktop, so do not build matrix scaffolding here speculatively.
 //
 // **This assembly is the one that will grow UI tests**, so it takes the UI side of that split.
 // Today's four tests construct forms without showing them, so they are fast and isolated anyway
