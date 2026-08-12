@@ -142,6 +142,10 @@ jobs:
               Write-Host "$lib $((Get-Item $path).Length) bytes"
           }
 
+      # The UI tests are deliberately NOT run here. They launch the viewer and drive a real
+      # desktop, which a hosted runner does not reliably provide, and on a developer machine they
+      # must hold the machine-wide lock so two agents cannot drive one desktop. Run them with:
+      #   run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
       - name: Viewer shell
         # Windows-only because WinForms is. These construct the form without showing it, so they
         # need no display and no graphics adapter - the device is only created once the viewport
