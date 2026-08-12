@@ -10,6 +10,10 @@
          alternative to unsafe here is a copy per frame. This is the boundary the project's
          "unsafe before native" rule exists for. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- WinForms hosts the chrome. The viewport is a Panel whose handle the swap chain binds to,
+         so Direct3D owns one rectangle and ordinary controls own everything around it. -->
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,7 +21,12 @@
     <PackageReference Include="Silk.NET.Direct3D.Compilers" Version="2.23.0" />
     <PackageReference Include="Silk.NET.DXGI" Version="2.23.0" />
     <PackageReference Include="Silk.NET.Maths" Version="2.23.0" />
-    <PackageReference Include="Silk.NET.Windowing" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The shell is internal (CA1515: an application's types are not an API), so the tests that
+         assert its automation ids need to see inside. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
   </ItemGroup>
 
   <ItemGroup>

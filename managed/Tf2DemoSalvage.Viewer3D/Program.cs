@@ -1,6 +1,5 @@
 using System;
-using Silk.NET.Maths;
-using Silk.NET.Windowing;
+using System.Windows.Forms;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -15,34 +14,24 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// would be a codebase thrown away at the point it started being interesting. The empty
 /// `Viewer2D` project was removed for that reason.
 ///
-/// At this stage the window exists and the device works; nothing is drawn into it yet.
+/// **The shell is WinForms and the viewport is Direct3D**, which is the split the owner asked
+/// for: menus, a timeline and an entity list are ordinary controls, and drawing them in D3D would
+/// mean writing a UI toolkit to avoid using one. It also gives the UI tests a surface to address,
+/// since WinForms controls expose AutomationId and accessible names to UIA.
+///
+/// At this stage the window and menu exist and the device is created against the viewport panel;
+/// nothing is drawn into it yet.
 /// </remarks>
 internal static class Program
 {
-    private const int DefaultWidth = 1280;
-    private const int DefaultHeight = 720;
-
     /// <summary>Opens the viewer window.</summary>
+    [STAThread]
     private static void Main()
     {
-        WindowOptions options = WindowOptions.Default with
-        {
-            Size = new Vector2D<int>(DefaultWidth, DefaultHeight),
-            Title = "tf2demoview",
-
-            // Silk must not create an OpenGL context: the device is Direct3D and binds to the
-            // window's Win32 handle directly.
-            API = GraphicsAPI.None,
-        };
-
-        using IWindow window = Window.Create(options);
-        window.Initialize();
-
-        using Device3D device = Device3D.Create(window);
-
-        window.Resize += size => device.Resize(size.X, size.Y);
-        window.Render += _ => device.ClearAndPresent(0.06f, 0.07f, 0.09f);
-
-        window.Run();
+        // STAThread and this initialisation order are both required by WinForms itself: COM
+        // apartment first, then visual styles, before any control exists.
+        ApplicationConfiguration.Initialize();
+        using MainForm shell = new();
+        Application.Run(shell);
     }
 }
