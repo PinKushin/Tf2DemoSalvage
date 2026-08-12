@@ -131,6 +131,89 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    public void ATruncatedDemoGetsItsLengthMeasuredRatherThanBelieved()
+    {
+        // The reported bug, reduced. `esea_match_13977649.dem` holds 110,238 frames of
+        // cp_process_final and declares zero, because the engine writes the header's counts by
+        // seeking back at the END of recording and that recording was cut short. Believing it left
+        // the transport disabled, the timeline empty, and the demo looking unopened.
+        string path = WriteTruncatedDemo("cp_process_final", lastTick: 8400);
+
+        LoadedDemo demo = LoadedDemo.Load(path);
+
+        demo.LastTick.ShouldBe(8400);
+        demo.LengthWasMeasured.ShouldBeTrue();
+    }
+
+    [Test]
+    public void AMeasuredLengthAlsoGivesADuration()
+    {
+        // A dead scrub bar and a 00:00 duration are the same bug seen from two places. TF2 runs at
+        // 66.667 ticks per second, so 8400 ticks is a little over two minutes.
+        LoadedDemo demo = LoadedDemo.Load(WriteTruncatedDemo("cp_badlands", lastTick: 8400));
+
+        demo.Duration.TotalSeconds.ShouldBe(126.0, tolerance: 0.5);
+    }
+
+    [Test]
+    public void ACompleteDemoIsNotMeasured()
+    {
+        // The control. Measuring means walking the whole file, and doing that to confirm a number
+        // the header already states would make opening a large demo feel broken.
+        LoadedDemo demo = LoadedDemo.Load(WriteDemo("koth_product", ticks: 6600, seconds: 100f));
+
+        demo.LengthWasMeasured.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ATruncatedDemoEnablesTheTransport()
+    {
+        // What the user actually saw: play unavailable, no timeline, after double-clicking a demo
+        // that is 110,000 frames long. The transport is right to refuse a zero-length demo, so the
+        // fix has to arrive before it, as a real length.
+        string path = WriteTruncatedDemo("cp_process_final", lastTick: 8400);
+
+        using MainForm form = new(path);
+        form.LoadDemo(path);
+
+        form.Transport.LastTick.ShouldBe(8400);
+    }
+
+    /// <summary>Writes a demo that never had its header counts filled in.</summary>
+    /// <remarks>
+    /// Zero ticks and zero frames over a stream that reaches <paramref name="lastTick"/> — the
+    /// exact shape of a recording the server died in the middle of, which is forty-three percent
+    /// of the measured ESEA archive.
+    /// </remarks>
+    private string WriteTruncatedDemo(string map, int lastTick)
+    {
+        DemoHeader header = new()
+        {
+            DemoProtocol = 3,
+            NetworkProtocol = 24,
+            ServerName = "test server",
+            ClientName = "tester",
+            MapName = map,
+            GameDirectory = "tf",
+            PlaybackTimeSeconds = 0f,
+            PlaybackTicks = 0,
+            PlaybackFrames = 0,
+            SignonLengthBytes = 0,
+        };
+
+        // No dem_stop, because that is what "truncated" means: the writer never got there.
+        DemoCommand[] commands =
+        [
+            new(DemoCommandType.SyncTick, 0, default),
+            new(DemoCommandType.ConsoleCmd, lastTick, new byte[] { 0x68, 0x69, 0x00 }),
+        ];
+
+        string path = Path.Combine(_folder, map + "-truncated.dem");
+        File.WriteAllBytes(path, DemoWriter.Write(header, commands));
+        return path;
+    }
+
+    [Test]
     public void AMissingFileSaysWhichFile()
     {
         Should.Throw<FileNotFoundException>(
