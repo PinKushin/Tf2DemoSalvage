@@ -2099,3 +2099,27 @@ becomes the fallback for the first frame, before any position is known.
 
 **Not blocking.** The current framing is correct enough to read the map by, and the failure mode is
 cosmetic — a margin of unreachable geometry around the edge, not a wrong picture.
+
+## B37 — displacement terrain draws as its flat base quad — OPEN
+
+**Seen 2026-08-12**, on the first render of a downloaded `pl_vigil_rc9`: large flat slabs cover the
+west and south of the map where the terrain should be.
+
+A displacement in Source is a quad from the FACES lump subdivided into a heightfield, and the real
+geometry lives in two other lumps — `DISPINFO` (26) and `DISP_VERTS` (33). `dface_t` carries a
+`dispinfo` index; when it is not -1, the polygon in FACES is only the **base** the terrain is built
+on.
+
+So this reader draws the base. On an indoor map like `cp_process_final` that is invisible — there
+are no displacements in the play area — and on an outdoor map it is a plain covering the detail
+beneath it.
+
+**Why it is not urgent:** for an overhead view a displacement's base quad is roughly where the
+terrain is, so positions read correctly; it is the shading and the outline that are wrong. It also
+makes those areas look *flatter* than they are rather than inventing geometry that is not there.
+
+**The fix:** read `dispinfo` per face, and for a displacement expand the base quad through
+`DISP_VERTS` instead of emitting it. The vertex count is `(2^power + 1)^2`, so the lump is
+self-describing once `power` is read. Both lumps are LZMA compressed like every other.
+
+Depends on nothing else; it is bounded work in `BspGeometry`.
