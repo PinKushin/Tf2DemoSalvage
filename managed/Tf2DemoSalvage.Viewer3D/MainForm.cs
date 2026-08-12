@@ -309,6 +309,21 @@ internal class MainForm : Form
         if (initialPaths.Length > 0)
         {
             AddToLibrary(initialPaths);
+
+            // **One file named on the command line is an instruction to open THAT demo.** This is
+            // the file-association case: double-clicking a .dem in Explorer has to end with the
+            // demo on screen, because listing it in a playlist and waiting is not what opening a
+            // file means anywhere else.
+            //
+            // It stays the same code path - AddToLibrary then LoadDemo, exactly what a
+            // double-click in the playlist does - so the two cannot drift apart.
+            //
+            // A folder is deliberately excluded. Opening a folder means "here is a playlist", and
+            // picking one of its demos to start playing would be guessing which.
+            if (initialPaths.Length == 1 && File.Exists(initialPaths[0]))
+            {
+                LoadDemo(initialPaths[0]);
+            }
         }
     }
 
