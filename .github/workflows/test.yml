@@ -142,6 +142,12 @@ jobs:
               Write-Host "$lib $((Get-Item $path).Length) bytes"
           }
 
+      - name: Viewer shell
+        # Windows-only because WinForms is. These construct the form without showing it, so they
+        # need no display and no graphics adapter - the device is only created once the viewport
+        # panel gets a window handle.
+        run: dotnet test tests/Tf2DemoSalvage.Viewer3D.Tests -c Release --logger 'trx;LogFileName=viewer.trx'
+
       - name: Audio
         run: dotnet test tests/Tf2DemoSalvage.Audio.Tests -c Release --logger 'trx;LogFileName=audio.trx'
 
@@ -158,6 +164,7 @@ jobs:
         # invisible, since a corpus test over zero demos passes.
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 16 Audio
+          ./build/assert-test-count.sh '**/viewer.trx' 4 Viewer
           ./build/assert-test-count.sh '**/corpus.trx' 99 Corpus
 
       - uses: actions/upload-artifact@v7
