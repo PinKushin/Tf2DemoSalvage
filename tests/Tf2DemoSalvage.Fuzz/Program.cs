@@ -67,12 +67,24 @@ internal static class Program
                 Fuzzer.LibFuzzer.Run(Preserving(SnappyFuzzTarget.Consume));
                 break;
 
+            case "selftest":
+                // Deliberately always throws, and exists so the crash-preservation pipeline can
+                // be proved end to end without waiting for a real defect to turn up. The same
+                // reasoning as the sharpfuzz size check in build/run-measurements.sh: a
+                // mechanism that only runs when something goes wrong is a mechanism nobody has
+                // ever seen work. Verified in WSL 2026-08-11 - it produced the first
+                // crash-<hash>.bin this project has ever saved.
+                Fuzzer.LibFuzzer.Run(Preserving(static data =>
+                    throw new FuzzPropertyViolationException(
+                        $"selftest target: refusing {data.Length} bytes on purpose.")));
+                break;
+
             default:
                 // Not ArgumentException: this is environment configuration, not a parameter, and
                 // S3928 rightly objects to naming something that is not in the argument list.
                 throw new InvalidOperationException(
                     $"Unknown {TargetVariable} '{target}'. Expected one of: bitreader, " +
-                    $"varint, container, snappy.");
+                    $"varint, container, snappy, selftest.");
         }
     }
 

@@ -250,7 +250,22 @@ and the directory stayed empty.
 This matters more than it looks. The run still *reports* the defect in its log, so the setup
 looks healthy; what is silently missing is the one artifact that makes the finding reproducible.
 
-The input is not actually lost — libFuzzer had already written it into the corpus directory
-before the crash, so `~/corpus-<target>/` holds it. Recovering *which* entry it is means
-replaying the corpus one file at a time, which is what `build/run-measurements.sh` does after a
-non-zero target exit. Do not rely on `~/findings-<target>/` being populated by libFuzzer itself.
+**The corpus does not hold it either, and believing it did cost a wrong fix.** The first attempt
+assumed libFuzzer had written the crashing input into the corpus before dying, and replayed the
+corpus one entry at a time to find it. That recovered nothing: replaying all 26 entries against a
+target that had just crashed isolated zero of them, because libFuzzer adds only
+*coverage-increasing* inputs and an input that crashes is never added. The crash arrived on the
+first mutated input after `#27 INITED` — an input that was never a corpus file and never became
+one.
+
+So the harness writes the bytes itself. `Preserving()` in `Program.cs` wraps every target, copies
+the span before the call (the buffer is reused, so reading it after the throw reads whatever came
+next), and writes it from an exception *filter* rather than a catch block — the filter always
+returns false, so the input is saved without changing how the exception propagates. Enabled by
+`TF2FUZZ_CRASH_DIR`; files are named by content hash, matching libFuzzer's convention.
+
+There is a `selftest` target that always throws, for the same reason the instrumentation size
+check exists: **a mechanism that only runs when something goes wrong is a mechanism nobody has
+ever seen work.** Verified in WSL 2026-08-11 — a ten-byte input went in and
+`crash-6b9951ada61a592e.bin` came out containing exactly those ten bytes, the first reproducer
+this project has ever saved.
