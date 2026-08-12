@@ -519,6 +519,23 @@ public static class NetMessageReader
                 CultureInfo.InvariantCulture,
                 $"A message body ran past the end of the packet: {exception.Message}"));
         }
+        catch (InvalidDataException exception)
+        {
+            // An impossible count is the same kind of event as running off the end - this packet
+            // cannot be read from here - and so it gets the same treatment: report where the walk
+            // stopped rather than throwing at the caller. The trace's whole contract is that it
+            // says what it could not read.
+            //
+            // Worth being precise about what this catch changed, because it is not a loosening.
+            // Before the bounds check existed, a misaligned stream reaching svc_ClassInfo read a
+            // garbage count and built thousands of nonsense classes in silence; the corpus tests
+            // that now report a stop here were previously consuming that garbage without
+            // complaint. Two of them were reading counts of 32876 and 18961 classes against a
+            // game that has a few hundred.
+            return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
+                CultureInfo.InvariantCulture,
+                $"A message declared more than the packet can hold: {exception.Message}"));
+        }
 
         return new NetMessageReadResult
         {
@@ -643,6 +660,12 @@ public static class NetMessageReader
         }
 
         int idBits = WireWidths.ClassId(count);
+
+        // Before the List is sized, not after: `new List<ServerClass>(count)` allocates for the
+        // declared count, so a garbage count is an allocation as well as a loop. Each class is an
+        // id plus two null-terminated strings, and an empty string still costs its terminator.
+        Primitives.WireBounds.EnsureCountFits(
+            "svc_classinfo", count, idBits + 16, reader.BitsRemaining);
 
         List<ServerClass> classes = new(count);
         for (int i = 0; i < count; i++)

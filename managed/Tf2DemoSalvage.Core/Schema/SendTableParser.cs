@@ -100,6 +100,10 @@ public static class SendTableParser
         }
 
         int classCount = (int)reader.ReadUInt32(ClassCountBits);
+
+        Primitives.WireBounds.EnsureCountFits(
+            "dem_datatables class list", classCount, ClassIdBits + 16, reader.BitsRemaining);
+
         List<ServerClass> classes = new(classCount);
         for (int i = 0; i < classCount; i++)
         {

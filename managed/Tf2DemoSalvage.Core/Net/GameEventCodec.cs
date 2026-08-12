@@ -32,6 +32,12 @@ internal static class GameEventCodec
         byte[] body = NetBitReading.CopyBits(ref reader, lengthBits);
         BitReader bodyReader = new(body);
 
+        // Checked against the BODY, which is the stream the definitions actually come from -
+        // the outer reader has already skipped past the whole list. A definition is an id, a
+        // name (at minimum its terminator) and the None marker that ends its field list.
+        Primitives.WireBounds.EnsureCountFits(
+            "svc_gameeventlist", count, EventIdBits + 8 + ValueTypeBits, bodyReader.BitsRemaining);
+
         List<GameEventDefinition> definitions = new(count);
         for (int i = 0; i < count; i++)
         {
