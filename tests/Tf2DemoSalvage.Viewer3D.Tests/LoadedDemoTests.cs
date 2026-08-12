@@ -95,6 +95,42 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    public void LoadingFromThePlaylistFillsTheTransport()
+    {
+        // The end-to-end wiring: a demo in the library, selected, loaded, and the scrub bar comes
+        // alive with the right length. Without the last part the controls stay disabled and the
+        // demo looks unopened.
+        string path = WriteDemo("cp_gullywash_final1", ticks: 12345, seconds: 187f);
+
+        using MainForm form = new(path);
+
+        // LoadDemo rather than LoadSelected: ListView selection needs a created window handle, so
+        // on a form that was never shown SelectedItems is always empty. The double-click path
+        // that resolves a selection is covered by the UI tests, against a real window.
+        form.LoadDemo(path);
+
+        form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_gullywash_final1");
+        form.Transport.LastTick.ShouldBe(12345);
+    }
+
+    [Test]
+    public void ADemoThatWillNotParseLeavesTheApplicationUsable()
+    {
+        // Expected, not exceptional: opening files other software rejects is the point of this
+        // project, so a bad one reports itself and the user picks another from the same playlist.
+        string path = System.IO.Path.Combine(_folder, "broken.dem");
+        File.WriteAllBytes(path, new byte[64]);
+
+        using MainForm form = new(path);
+
+        Should.NotThrow(() => form.LoadDemo(path));
+
+        form.Demo.ShouldBeNull();
+        form.StatusText.ShouldContain("Could not open");
+        form.Transport.LastTick.ShouldBe(0);
+    }
+
+    [Test]
     public void AMissingFileSaysWhichFile()
     {
         Should.Throw<FileNotFoundException>(

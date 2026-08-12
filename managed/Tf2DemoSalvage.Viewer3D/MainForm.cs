@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -68,6 +69,8 @@ internal class MainForm : Form
     private readonly TransportBar _transport;
     private readonly ListView _playlist;
     private readonly DemoLibrary _library = new();
+
+    private LoadedDemo? _demo;
 
     private readonly ToolStripMenuItem _fullScreen;
 
@@ -156,6 +159,10 @@ internal class MainForm : Form
         };
         _playlist.Columns.Add("Demo", 260);
 
+        // Double-click and Enter both load, matching how a file browser and a video player behave.
+        // Selecting alone does not: browsing a playlist should not read headers off disk.
+        _playlist.ItemActivate += (_, _) => LoadSelected();
+
         _transport = new TransportBar();
 
         _status = new ToolStripStatusLabel
@@ -231,6 +238,49 @@ internal class MainForm : Form
         if (initialPaths.Length > 0)
         {
             AddToLibrary(initialPaths);
+        }
+    }
+
+    /// <summary>The demo currently loaded, or <c>null</c> if none is.</summary>
+    public LoadedDemo? Demo => _demo;
+
+    /// <summary>Loads the demo selected in the playlist, if any.</summary>
+    /// <remarks>
+    /// **A failure to load is reported, never thrown.** Half the point of this project is opening
+    /// demos other software rejects, so a file that will not parse is an expected outcome and has
+    /// to leave the application usable - the user picks another one from the same playlist.
+    /// </remarks>
+    public void LoadSelected()
+    {
+        if (_playlist.SelectedItems.Count == 0)
+        {
+            return;
+        }
+
+        LoadDemo((string)_playlist.SelectedItems[0].Tag!);
+    }
+
+    /// <summary>Loads a demo by path and brings the transport up on it.</summary>
+    /// <param name="path">Full path to the demo.</param>
+    /// <remarks>
+    /// Split from <see cref="LoadSelected"/> so loading can be exercised without a live ListView:
+    /// selection state needs a created window handle, so a form that was never shown reports no
+    /// selection at all — which made the first version of this test fail for a reason that had
+    /// nothing to do with loading.
+    /// </remarks>
+    public void LoadDemo(string path)
+    {
+        try
+        {
+            _demo = LoadedDemo.Load(path);
+            _transport.SetDemoLength(_demo.LastTick);
+            _status.Text = _demo.Describe();
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            _demo = null;
+            _transport.SetDemoLength(0);
+            _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
         }
     }
 
@@ -469,7 +519,9 @@ internal class MainForm : Form
         _playlist.EndUpdate();
     }
 
-    private void ExportDemo() => _status.Text = "Export is not wired up yet.";
+    private void ExportDemo() => _status.Text = _demo is null
+        ? "Open a demo first."
+        : "Export is not wired up yet.";
 
     private void CompileDemo() => _status.Text = "Compile is not wired up yet.";
 
