@@ -31,3 +31,4 @@
 - [Padding is not zero](padding-is-not-zero.md) — bit padding carries stale bits of the previous write; read it, never recompute it, and test the mechanism before naming it.
 - [Two recordings of one value](two-recordings-of-one-value.md) — a value stored twice by unrelated routes tests the decode against the engine, not against your own reading.
 - [Fixture lifetime is per test-kind](nunit-shared-fixture-is-the-standard.md) — isolation plus parallelism for unit/integration; shared fixture and CI matrices for UI.
+- [Branch granularity is fine here](branch-granularity-is-fine-here.md) — a branch per coherent piece, sub-branch anything larger; the name drifting is the signal it grew too big.
