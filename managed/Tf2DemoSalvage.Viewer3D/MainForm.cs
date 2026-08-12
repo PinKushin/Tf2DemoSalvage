@@ -77,6 +77,9 @@ internal class MainForm : Form
     /// <summary>Automation id of the exclusive full-screen mode item.</summary>
     public const string ExclusiveItemId = "ExclusiveModeMenuItem";
 
+    /// <summary>Automation id of the texture quality menu.</summary>
+    public const string TextureQualityMenuId = "TextureQualityMenu";
+
     private readonly Panel _viewport;
     private readonly ToolStripStatusLabel _status;
     private readonly FlowLayoutPanel _actions;
@@ -119,6 +122,9 @@ internal class MainForm : Form
     private readonly ToolStripMenuItem _fullScreen;
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
+
+    /// <summary>The texture quality items, so the tick can be moved between them.</summary>
+    private readonly Dictionary<TextureQuality, ToolStripMenuItem> _textureQualityItems = [];
 
     /// <summary>Preferences remembered between runs.</summary>
     private ViewerSettings _settings = ViewerSettings.Load();
@@ -339,9 +345,42 @@ internal class MainForm : Form
         fullScreenMode.DropDownItems.Add(_borderlessMode);
         fullScreenMode.DropDownItems.Add(_exclusiveMode);
 
+        // **Texture detail, chosen from the game's own mip chain.** Not a quality slider over
+        // something resampled here: each level is an image Valve generated when the texture was
+        // made, so a lower setting is a smaller read and a smaller upload rather than extra work.
+        ToolStripMenuItem textureQuality = new("&Texture quality")
+        {
+            Name = TextureQualityMenuId,
+            AccessibleName = "Texture quality",
+        };
+
+        foreach (TextureQuality quality in new[]
+        {
+            TextureQuality.Full, TextureQuality.High, TextureQuality.Medium, TextureQuality.Low,
+        })
+        {
+            TextureQuality chosen = quality;
+            int pixels = (int)quality;
+
+            ToolStripMenuItem item = new(
+                pixels == 0
+                    ? "&Full"
+                    : string.Create(CultureInfo.InvariantCulture, $"{quality} ({pixels} px)"))
+            {
+                Name = "TextureQuality" + quality,
+                AccessibleName = "Texture quality " + quality,
+                Checked = _settings.TextureQuality == quality,
+            };
+
+            item.Click += (_, _) => SetTextureQuality(chosen);
+            _textureQualityItems.Add(quality, item);
+            textureQuality.DropDownItems.Add(item);
+        }
+
         ToolStripMenuItem view = new("&View") { Name = "ViewMenu", AccessibleName = "View menu" };
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
+        view.DropDownItems.Add(textureQuality);
 
         file.DropDownItems.Add(open);
         file.DropDownItems.Add(new ToolStripSeparator());
@@ -767,6 +806,32 @@ internal class MainForm : Form
         }
     }
 
+    /// <summary>How much texture detail is loaded.</summary>
+    public TextureQuality TextureQuality => _settings.TextureQuality;
+
+    /// <summary>Chooses how much texture detail to load, and remembers it.</summary>
+    /// <param name="quality">The detail level.</param>
+    /// <remarks>
+    /// The map is not reloaded here. Textures are decoded when a map is opened, so the change
+    /// applies to the next one — which is honest about what it costs rather than pretending a
+    /// setting is free.
+    /// </remarks>
+    public void SetTextureQuality(TextureQuality quality)
+    {
+        _settings = _settings with { TextureQuality = quality };
+
+        foreach (KeyValuePair<TextureQuality, ToolStripMenuItem> item in _textureQualityItems)
+        {
+            item.Value.Checked = item.Key == quality;
+        }
+
+        string? failure = _settings.Save();
+
+        _status.Text = failure is null
+            ? "Texture quality: " + quality + ". Applies to the next map opened."
+            : "Setting saved for this session only: " + failure;
+    }
+
     /// <summary>The controls hidden while full screen, for tests to check what they are.</summary>
     public IReadOnlyList<Control> HiddenInFullScreen => _hiddenInFullScreen;
 
@@ -1135,6 +1200,11 @@ internal class MainForm : Form
             _playlist.Dispose();
             _borderlessMode.Dispose();
             _exclusiveMode.Dispose();
+
+            foreach (ToolStripMenuItem item in _textureQualityItems.Values)
+            {
+                item.Dispose();
+            }
             _search.Dispose();
             _downloader?.Dispose();
             _overlay?.Dispose();

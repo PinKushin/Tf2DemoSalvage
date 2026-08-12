@@ -177,6 +177,25 @@ That is not only tidiness — it is what makes the interesting features possible
 Neither needs anything the parser does not already produce. They need the camera to be a value
 rather than a mode, which is why the split is being avoided now rather than undone later.
 
+### Settings policy (owner-stated, 2026-08-12)
+
+**If TF2 lets the user change it, this should too** — with two deliberate exceptions:
+
+| | |
+|---|---|
+| **DirectX level** | Excluded. We are on D3D11 against a DX9-era asset set; there is nothing to trade. |
+| **Interpolation and network rates** | Excluded, and this one is a *category* error rather than a preference. `cl_interp` and the rate cvars shape what a client **records**; a demo already contains the interpolated result. There is nothing left for them to act on at playback, and TF2 itself looks jittery with interp set too low — that jitter is baked into any demo recorded that way. |
+
+Settings live in a Source-style `.cfg`, not JSON: one command per line, value after a space, `//`
+for comments, unknown commands ignored. Anyone who has edited `config.cfg` can edit ours.
+
+Reading the user's **actual TF2 cfg** for camera controls is wanted eventually, but the return is
+small: apart from sensitivity, little transfers — a personal cfg is mostly movement scripts, which
+a viewer has no use for. Copying TF2's default camera bindings gets almost all of the benefit.
+
+**Done:** full screen mode (borderless/exclusive), texture detail.
+**Wanted:** viewer resolution, export format, camera bindings and sensitivity.
+
 ### Options, eventually
 
 Full screen **mode is done** — borderless or exclusive, chosen in View > Full screen mode and
