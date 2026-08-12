@@ -136,3 +136,41 @@ lighting entirely.
 - **Phase 2 (2D top-down)** needs item 1's transform and item 2's geometry, and
   should also read FACES rather than brushes. `ROADMAP.md` should be corrected on
   that point.
+
+## 7. The overhead view is backface culling, not a filter we invented — **CONFIRMED**
+
+The top-down view drops downward-facing faces, keeping floors, walls and the tops of anything
+players stand on. That is not a stylistic rule: **it is what the engine already does**, evaluated
+for one fixed camera direction instead of per frame.
+
+The confirming observation is one anybody can make in game: noclip beneath a TF2 map and the world
+goes transparent, leaving only some walls. Source draws a face from its front side only, so from
+below, every floor's back is culled — and walls survive because their normals are horizontal, so
+one side always faces the viewer whatever height they are at.
+
+Two consequences worth having written down:
+
+- **The result should look like the game**, not like an interpretation of it. The same faces
+  survive that survive in a freecam looking straight down.
+- **"Roofs players jump on" are handled by construction.** A hut is solid brushwork with a top
+  face pointing up and an underside pointing down; the walkable top survives and the interior
+  ceiling does not, because they are separate faces filtered independently. No special case, and
+  nothing to tune.
+
+**And it is an optimisation, not only a correctness rule.** A mid-sized TF2 map is around 9,000
+faces and roughly half of them point away from an overhead camera. Culling once at load halves
+the vertex buffer and means the GPU never transforms the hidden half — work that a fixed camera
+would otherwise repeat every frame for a result that is thrown away every frame.
+
+The general form, worth applying at whichever point knows the camera direction:
+
+| View | Where the cull happens | Why |
+|---|---|---|
+| Top-down (fixed) | **CPU, once at load** | The camera direction never changes, so the answer never changes |
+| Free 3D camera (later) | **GPU rasteriser state**, per frame | The direction changes constantly; precomputing would be wrong the moment it moves |
+
+Doing it in both places for the same view is the trap `section 1` already warns about in a
+different guise: two corrections that cancel, and geometry that looks right until something
+asymmetric appears.
+
+Implemented as `BspGeometry.OverheadFaces`.
