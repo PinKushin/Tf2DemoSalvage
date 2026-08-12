@@ -86,8 +86,14 @@ public static class Snappy
         byte[] output = new byte[targetLength];
         int written = 0;
 
+        // Checked at the TOP of the loop rather than the bottom, comparing each entry against
+        // the last, so a `continue` or an early branch inside the body cannot skip the check.
+        DecodeProgress progress = new("a Snappy stream", read - 1);
+
         while (read < compressed.Length)
         {
+            progress.Advanced(read);
+
             int tag = compressed[read++];
 
             switch (tag & 0x03)

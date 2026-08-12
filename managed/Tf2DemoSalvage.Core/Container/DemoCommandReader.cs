@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Container;
 
@@ -45,9 +46,12 @@ public static class DemoCommandReader
     public static IEnumerable<DemoCommand> Read(ReadOnlyMemory<byte> data)
     {
         int position = 0;
+        DecodeProgress progress = new("the demo command stream", -1);
 
         while (position < data.Length)
         {
+            progress.Advanced(position);
+
             DemoCommandType type = (DemoCommandType)data.Span[position];
             if (!Enum.IsDefined(type))
             {

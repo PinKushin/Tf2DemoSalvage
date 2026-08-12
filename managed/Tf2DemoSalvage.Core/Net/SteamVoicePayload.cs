@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -120,8 +121,12 @@ public static class SteamVoicePayload
         bool terminated = false;
         List<VoiceChunk> chunks = [];
 
+        DecodeProgress progress = new("a Steam voice payload", at - 1);
+
         while (at < end)
         {
+            progress.Advanced(at);
+
             byte type = body[at++];
 
             switch (type)
