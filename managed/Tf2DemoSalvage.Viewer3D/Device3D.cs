@@ -152,15 +152,36 @@ internal sealed unsafe class Device3D : IDisposable
     /// agree until one is changed.
     /// </remarks>
     public void DrawAndPresent(
-        float red, float green, float blue, IReadOnlyList<ScenePoint> points)
+        float red, float green, float blue, IReadOnlyList<ScenePoint> points) =>
+        DrawFrame(red, green, blue, [], points);
+
+    /// <summary>Clears, draws the map and the players, and presents.</summary>
+    /// <param name="red">Clear colour, red channel.</param>
+    /// <param name="green">Clear colour, green channel.</param>
+    /// <param name="blue">Clear colour, blue channel.</param>
+    /// <param name="mapLines">Map outline in clip space.</param>
+    /// <param name="points">Player positions in clip space.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// The map goes down first so the players draw over it. There is no depth buffer and none is
+    /// wanted: for a flat overhead view the draw order IS the layering, and it is one fewer
+    /// resource to resize when the window changes.
+    /// </remarks>
+    public void DrawFrame(
+        float red,
+        float green,
+        float blue,
+        IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> mapLines,
+        IReadOnlyList<ScenePoint> points)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
+        ArgumentNullException.ThrowIfNull(mapLines);
 
         float* colour = stackalloc float[4] { red, green, blue, 1f };
         _context.ClearRenderTargetView(_backBufferView, colour);
 
-        if (points.Count > 0)
+        if (mapLines.Count > 0 || points.Count > 0)
         {
             _points ??= PointRenderer.Create(_device);
 
@@ -169,6 +190,8 @@ internal sealed unsafe class Device3D : IDisposable
             _context.OMSetRenderTargets(
                 1, ref _backBufferView, ref Unsafe.NullRef<ID3D11DepthStencilView>());
 
+            // Map first, players over it.
+            _points.DrawLines(_device, _context, mapLines, 0.35f, 0.40f, 0.48f);
             _points.Draw(_device, _context, points);
         }
 

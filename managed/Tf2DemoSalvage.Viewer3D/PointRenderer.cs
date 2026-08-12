@@ -148,6 +148,52 @@ internal sealed unsafe class PointRenderer : IDisposable
         return new PointRenderer(vertexShader, pixelShader, layout);
     }
 
+    /// <summary>Draws line segments into the bound render target.</summary>
+    /// <param name="device">Device, for growing the vertex buffer.</param>
+    /// <param name="context">Context to issue the draw on.</param>
+    /// <param name="segments">Segments in normalised device coordinates.</param>
+    /// <param name="red">Line colour, red channel.</param>
+    /// <param name="green">Line colour, green channel.</param>
+    /// <param name="blue">Line colour, blue channel.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="segments"/> is null.</exception>
+    /// <remarks>
+    /// The same shaders and vertex format as the points; only the topology and the vertex
+    /// building differ. A line list is exactly two vertices per segment, with no closing or
+    /// sharing between them - a strip would join unrelated edges of the map into one polyline.
+    /// </remarks>
+    public void DrawLines(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> segments,
+        float red,
+        float green,
+        float blue)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+
+        if (segments.Count == 0)
+        {
+            return;
+        }
+
+        float[] vertices = new float[segments.Count * 2 * 5];
+        int at = 0;
+
+        foreach (((float X, float Y) from, (float X, float Y) to) in segments)
+        {
+            Append(vertices, ref at, from.X, from.Y, red, green, blue);
+            Append(vertices, ref at, to.X, to.Y, red, green, blue);
+        }
+
+        // Two vertices per segment against six per point, so the capacity is expressed in the
+        // same unit the buffer is sized in.
+        EnsureCapacity(device, ((segments.Count * 2) + VerticesPerPoint - 1) / VerticesPerPoint);
+        Upload(context, vertices);
+
+        Bind(context, D3DPrimitiveTopology.D3DPrimitiveTopologyLinelist);
+        context.Draw((uint)(segments.Count * 2), 0);
+    }
+
     /// <summary>Draws the points into the bound render target.</summary>
     /// <param name="device">Device, for growing the vertex buffer.</param>
     /// <param name="context">Context to issue the draw on.</param>
@@ -172,10 +218,19 @@ internal sealed unsafe class PointRenderer : IDisposable
 
         float[] vertices = BuildVertices(points, halfSize);
         EnsureCapacity(device, points.Count);
+        Upload(context, vertices);
 
-        // Discard rather than a partial update: the whole set is rebuilt every frame, and
-        // NoOverwrite would promise the GPU that earlier contents are still in use when they are
-        // not.
+        Bind(context, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.Draw((uint)(points.Count * VerticesPerPoint), 0);
+    }
+
+    /// <summary>Copies vertices into the dynamic buffer.</summary>
+    /// <remarks>
+    /// Discard rather than a partial update: the whole set is rebuilt every frame, and
+    /// NoOverwrite would promise the GPU that earlier contents are still in use when they are not.
+    /// </remarks>
+    private void Upload(ComPtr<ID3D11DeviceContext> context, float[] vertices)
+    {
         MappedSubresource mapped = default;
         SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
@@ -186,16 +241,18 @@ internal sealed unsafe class PointRenderer : IDisposable
         }
 
         context.Unmap(_vertices, 0);
+    }
 
+    private void Bind(ComPtr<ID3D11DeviceContext> context, D3DPrimitiveTopology topology)
+    {
         uint stride = VertexStride;
         uint offset = 0;
 
         context.IASetInputLayout(_layout);
-        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.IASetPrimitiveTopology(topology);
         context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.Draw((uint)(points.Count * VerticesPerPoint), 0);
     }
 
     /// <inheritdoc />
@@ -232,13 +289,17 @@ internal sealed unsafe class PointRenderer : IDisposable
         return data;
     }
 
-    private static void Append(float[] data, ref int at, float x, float y, ScenePoint point)
+    private static void Append(float[] data, ref int at, float x, float y, ScenePoint point) =>
+        Append(data, ref at, x, y, point.Red, point.Green, point.Blue);
+
+    private static void Append(
+        float[] data, ref int at, float x, float y, float red, float green, float blue)
     {
         data[at++] = x;
         data[at++] = y;
-        data[at++] = point.Red;
-        data[at++] = point.Green;
-        data[at++] = point.Blue;
+        data[at++] = red;
+        data[at++] = green;
+        data[at++] = blue;
     }
 
     private void EnsureCapacity(ComPtr<ID3D11Device> device, int pointCount)
