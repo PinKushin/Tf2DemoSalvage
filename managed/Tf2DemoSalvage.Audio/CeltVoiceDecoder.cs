@@ -97,6 +97,23 @@ public sealed class CeltVoiceDecoder : IDisposable
             using CeltVoiceDecoder probe = new();
             return true;
         }
+        catch (TypeInitializationException)
+        {
+            // The CLR wraps whatever a type initializer threw. The mode handle is built in a
+            // static initializer, so the InvalidOperationException raised below never arrives in
+            // that form here - it arrives wrapped, and catching only the inner type let the
+            // failure escape and fail the test rather than skip it. Measured on mutation-box:
+            // Speex skipped correctly while CELT still errored, because only CELT builds its mode
+            // during type initialization.
+            return false;
+        }
+        catch (DllNotFoundException)
+        {
+            // Belt and braces: the translation to InvalidOperationException happens at the call
+            // sites that were known about, and a future P/Invoke added elsewhere would throw this
+            // raw. Absence of a library is the answer to this question, however it is reported.
+            return false;
+        }
         catch (InvalidOperationException)
         {
             // The constructor already translates DllNotFoundException into this, with a message
