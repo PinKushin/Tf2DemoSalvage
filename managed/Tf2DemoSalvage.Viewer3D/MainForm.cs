@@ -4,6 +4,9 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Core.Bsp;
@@ -106,6 +109,9 @@ internal class MainForm : Form
 
     /// <summary>The loaded map in world units, kept so it can be re-projected on resize.</summary>
     private MapOutline? _map;
+
+    /// <summary>Fetches maps that are not installed; created on first need.</summary>
+    private MapDownloader? _downloader;
 
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
@@ -489,9 +495,59 @@ internal class MainForm : Form
 
         if (path is null)
         {
+            // Not on this machine. Fetch it the way joining a server would - in the background,
+            // because a 40 MB download must not freeze the window, and the demo is watchable
+            // without a map anyway.
+            _ = DownloadMapAsync(mapName);
             return false;
         }
 
+        return ReadMap(mapName, path);
+    }
+
+    /// <summary>Fetches a map that is not installed, then loads it.</summary>
+    /// <remarks>
+    /// **Downloading is a background operation with a visible outcome and no modal wait.** The
+    /// viewer is already usable - players draw without a world behind them - so the map arriving
+    /// is an improvement to a working view rather than something to block on.
+    ///
+    /// Failures are reported and nothing else happens. Most maps in a real archive are community
+    /// maps no mirror carries, so "not found" is the ordinary answer.
+    /// </remarks>
+    private async Task DownloadMapAsync(string mapName)
+    {
+        _status.Text = "Downloading map " + mapName + "...";
+
+        try
+        {
+            _downloader ??= new MapDownloader(new HttpClient(), MapDownloader.DefaultFolder);
+
+            string? downloaded = await _downloader
+                .TryDownloadAsync(mapName, CancellationToken.None)
+                .ConfigureAwait(true);
+
+            if (downloaded is null)
+            {
+                _status.Text = _downloader.DescribeFailure(mapName);
+                return;
+            }
+
+            if (ReadMap(mapName, downloaded))
+            {
+                _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
+            }
+        }
+        catch (ArgumentException failure)
+        {
+            // A demo header naming something that is not a map name. The downloader refuses it,
+            // and it is not worth failing the load over.
+            _status.Text = "Map " + mapName + " could not be fetched: " + failure.Message;
+        }
+    }
+
+    /// <summary>Reads a map file into the viewport's geometry.</summary>
+    private bool ReadMap(string mapName, string path)
+    {
         try
         {
             BspGeometry geometry = BspGeometry.Read(File.ReadAllBytes(path));
@@ -1080,6 +1136,7 @@ internal class MainForm : Form
             _borderlessMode.Dispose();
             _exclusiveMode.Dispose();
             _search.Dispose();
+            _downloader?.Dispose();
             _overlay?.Dispose();
             _fullScreen.Dispose();
         }
