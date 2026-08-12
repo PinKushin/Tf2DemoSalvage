@@ -89,6 +89,22 @@ else
   smallest="n/a (synthetic project)"
 fi
 
+# Keep the last 30 of THIS PROJECT'S runs, and only this project's.
+#
+# The glob is `*-tf2-*`, not `*`. It was `*` — copied from PBJ along with the convention — and
+# that is a per-project script reaching across a shared box, the same failure family as naming a
+# lock after the project instead of the machine. PBJ produces about 15 runs a week here, so an
+# unscoped 30-slot window is roughly two weeks: its nightly cron would eventually have deleted an
+# 18-hour measurement belonging to this project, from a script that has nothing to do with it,
+# and the deletion would have been silent.
+#
+# Nothing was actually lost - there were 14 directories when this was caught.
+prune_own_runs() {
+  ls -1dt "${HOME}/measurements/"*-tf2-*/ 2>/dev/null | tail -n +31 | while read -r old; do
+    rm -rf "$old"
+  done
+}
+
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 SHA=$(git rev-parse --short HEAD)
 OUT="$HOME/measurements/${STAMP}-${SHA}-tf2-${MODE}"
@@ -207,9 +223,7 @@ if [ "$MODE" = fuzz ]; then
     cp -r "$HOME/findings-${target}" "${OUT}/" 2>/dev/null || true
   done
 
-  ls -1dt "${HOME}/measurements/"*/ 2>/dev/null | tail -n +31 | while read -r old; do
-    rm -rf "$old"
-  done
+  prune_own_runs
 
   echo "=== done — $(date -Is), results in ${OUT}, fuzz exit ${FUZZ_STATUS}"
   exit "$FUZZ_STATUS"
@@ -297,10 +311,7 @@ if [ -d "${PROJECT}/StrykerOutput" ]; then
   [ -n "$latest" ] && cp -r "${latest}reports" "${OUT}/" 2>/dev/null || true
 fi
 
-# Keep the last 30 runs, matching PBJ so one box does not accumulate two conventions.
-ls -1dt "${HOME}/measurements/"*/ 2>/dev/null | tail -n +31 | while read -r old; do
-  rm -rf "$old"
-done
+prune_own_runs
 
 echo "=== done — $(date -Is), results in ${OUT}, stryker exit ${STATUS}"
 exit "$STATUS"
