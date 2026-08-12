@@ -553,9 +553,12 @@ internal class MainForm : Form
             // Not on this machine. Fetch it the way joining a server would - in the background,
             // because a 40 MB download must not freeze the window, and the demo is watchable
             // without a map anyway.
+            ViewerLog.Write("map", $"{mapName} is not installed; fetching it");
             _ = DownloadMapAsync(mapName);
             return false;
         }
+
+        ViewerLog.Write("map", $"found {path}");
 
         return ReadMap(mapName, path);
     }
@@ -606,23 +609,59 @@ internal class MainForm : Form
         try
         {
             byte[] bytes = File.ReadAllBytes(path);
+
+            ViewerLog.Write("map", $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
+
             BspGeometry geometry = BspGeometry.Read(bytes);
             _map = MapOutline.FromFaces(geometry.OverheadFaces);
+
+            ViewerLog.Write(
+                "map",
+                $"{geometry.Faces.Count} faces, {geometry.OverheadFaces.Count} overhead, " +
+                $"{_map.Segments.Count} outline segments");
 
             // The textured world: the game's own materials and the map's baked lighting. Failing
             // here costs the textures, not the map - the outline still draws.
             try
             {
-                _archives ??= GameArchives.Open(FindGameFolder());
+                if (_archives is null)
+                {
+                    string? game = FindGameFolder();
+                    ViewerLog.Write("assets", $"game folder: {game ?? "not found"}");
+                    _archives = GameArchives.Open(game);
+                    ViewerLog.Write(
+                        "assets",
+                        $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
+                }
+
                 _mapBytes = bytes;
-                _surfaceList = BspSurfaces.Read(bytes);
-                _assets = MapAssets.Load(bytes, _archives, (int)_settings.TextureQuality);
+
+                using (ViewerLog.Time("assets", "reading surfaces and textures"))
+                {
+                    _surfaceList = BspSurfaces.Read(bytes);
+                    _assets = MapAssets.Load(bytes, _archives, (int)_settings.TextureQuality);
+                }
+
+                int displacements = 0;
+
+                foreach (BspSurface surface in _surfaceList)
+                {
+                    displacements += surface.IsDisplacement ? 1 : 0;
+                }
+
+                ViewerLog.Write(
+                    "assets",
+                    $"{_surfaceList.Count} surfaces ({displacements} displacements), " +
+                    $"{_assets.Resolved} materials resolved, {_assets.Missing} missing, " +
+                    $"lightmap atlas {_assets.Lightmaps.Width}x{_assets.Lightmaps.Height}, " +
+                    $"texture quality {_settings.TextureQuality}");
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
                 _surfaceList = [];
                 _assets = null;
                 _status.Text = "Map content unavailable: " + failure.Message;
+                ViewerLog.Warn("assets", "reading the map's content", failure);
             }
 
             // Filled from the main cluster only. Outside it is the 3D skybox room, which is
@@ -737,25 +776,29 @@ internal class MainForm : Form
         {
             try
             {
-                _device.UploadWorld(
-                    MapWorldBuilder.Build(
-                        _mapBytes,
-                        _surfaceList,
-                        assets.Materials,
-                        assets.Lightmaps,
-                        camera,
-                        _map.MainBounds),
-                    assets);
+                MapWorld built = MapWorldBuilder.Build(
+                    _mapBytes,
+                    _surfaceList,
+                    assets.Materials,
+                    assets.Lightmaps,
+                    camera,
+                    _map.MainBounds);
+
+                ViewerLog.Write(
+                    "render",
+                    $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material batches");
+
+                _device.UploadWorld(built, assets);
+                ViewerLog.Write("render", "world uploaded");
             }
             catch (Exception failure) when (
                 failure is InvalidOperationException or InvalidDataException or IOException)
             {
-                // **Reported, not swallowed.** A device that cannot take the world still draws the
-                // outline - but a silent fallback is indistinguishable from a renderer that was
-                // never wired up, which cost an hour of looking at a wireframe and wondering.
                 _device.ClearWorld();
                 _status.Text = "Textures unavailable: " + failure.Message;
+                ViewerLog.Warn("render", "uploading the textured world", failure);
             }
+
         }
     }
 
@@ -829,7 +872,12 @@ internal class MainForm : Form
     {
         try
         {
+            ViewerLog.Write("demo", $"opening {Path.GetFileName(path)}");
             _demo = LoadedDemo.Load(path);
+            ViewerLog.Write(
+                "demo",
+                $"{_demo.MapName}, {_demo.LastTick} ticks, protocol {_demo.NetworkProtocol}" +
+                (_demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
             _transport.SetDemoLength(_demo.LastTick);
 
             bool haveMap = LoadMap(_demo.MapName);
@@ -1075,6 +1123,9 @@ internal class MainForm : Form
         try
         {
             _device = Device3D.Create(_viewport.Handle, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
+            ViewerLog.Write(
+                "render",
+                $"device created for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
 
             // **Only if there is nothing better to say.** The handle is created after the
             // constructor runs, so a demo opened from the command line has already reported itself
@@ -1102,6 +1153,7 @@ internal class MainForm : Form
         catch (Exception failure) when (failure is InvalidOperationException or ArgumentException)
         {
             _status.Text = "Direct3D unavailable: " + failure.Message;
+            ViewerLog.Warn("render", "creating the Direct3D device", failure);
         }
     }
 

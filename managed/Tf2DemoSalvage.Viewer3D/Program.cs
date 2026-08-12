@@ -33,6 +33,7 @@ internal static class Program
     {
         // STAThread and this initialisation order are both required by WinForms itself: COM
         // apartment first, then visual styles, before any control exists.
+        ViewerLog.Begin("viewer");
         ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the
