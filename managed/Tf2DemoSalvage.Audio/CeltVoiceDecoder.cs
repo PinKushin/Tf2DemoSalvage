@@ -14,12 +14,15 @@ namespace Tf2DemoSalvage.Audio;
 /// — matching every frame width the corpus measures — is <c>22050 Hz, 512 samples</c>. See
 /// <see cref="NativeCelt.FrameSize"/> for the table and how it was read.
 ///
-/// **That mode has to be built, not selected.** 22050/512 is not among the static modes a default
-/// libcelt build compiles in, so this needs a <c>CUSTOM_MODES</c> build
-/// (<c>tools/native-audio/build.ps1</c>) and <c>celt_decoder_create_custom</c>. Without it,
-/// <c>celt_mode_create</c> refuses the mode and every subsequent frame fails as
-/// <c>CELT_CORRUPTED_DATA</c> — which is precisely what B33 spent its whole investigation chasing
-/// through the framing layer, where the cause was never located.
+/// **The library needs two non-default build flags, and B33 cost a long investigation to find
+/// the second.** 22050/512 is not among the static modes a default libcelt build compiles in, so
+/// this needs <c>CUSTOM_MODES</c> and <c>celt_decoder_create_custom</c>. It also needs
+/// <c>ENABLE_POSTFILTER</c>: without it, <c>celt.c</c> does not skip the postfilter fields, it
+/// returns <c>CELT_CORRUPTED_DATA</c> outright the moment a frame's postfilter bit is set. That
+/// made 56% of perfectly valid corpus frames look corrupt, and looked convincingly like a data
+/// problem — byte[1]'s high bit predicted failure with zero exceptions across 1085 frames, which
+/// was the postfilter bit's position in the range-coded stream, not a payload-type flag. Both
+/// flags are set by <c>tools/native-audio/build.ps1</c>.
 ///
 /// The mode is created once and shared: it is read-only configuration, it is what
 /// <c>celt_decoder_create_custom</c> expects to receive by reference, and rebuilding it per

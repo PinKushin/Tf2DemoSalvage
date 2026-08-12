@@ -34,13 +34,7 @@ public sealed class CorpusCeltSpeexVoiceTests(ITestOutputHelper output)
     private const int CeltFrameBytes = 64;
     private const int SpeexNarrowbandFrameBytes = 28;
 
-    [Fact(Skip = "B33 open. Parameters are now CONFIRMED from TF2's own binary (22050 Hz, 512 " +
-        "samples, 64-byte frames, needing a CUSTOM_MODES build) and verified - only that entry " +
-        "decodes anything at all. What remains is not a parameter problem: byte[1]'s high bit " +
-        "predicts decode success perfectly across all 1085 frames (clear: 474/474 decode, set: " +
-        "0/611), and an exhaustive ~31,000-configuration brute force decodes none of the failing " +
-        "frames at any rate, frame size, offset or length. They are not CELT frames. See " +
-        "docs/RISKS.md B33.")]
+    [Fact]
     public void EveryCeltFrame_DecodesToPcm()
     {
         int frames = 0;
