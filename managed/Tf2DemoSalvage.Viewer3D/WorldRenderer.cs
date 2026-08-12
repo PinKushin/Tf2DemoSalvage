@@ -17,8 +17,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="V">Texture coordinate down.</param>
 /// <param name="LightU">Lightmap atlas coordinate across.</param>
 /// <param name="LightV">Lightmap atlas coordinate down.</param>
+/// <param name="Alpha">Blend between the material's two textures; 0 draws only the first.</param>
 internal readonly record struct WorldVertex(
-    float X, float Y, float Depth, float U, float V, float LightU, float LightV);
+    float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -50,8 +51,8 @@ internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, i
 /// </remarks>
 internal sealed unsafe class WorldRenderer : IDisposable
 {
-    /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap.</summary>
-    private const int VertexStride = sizeof(float) * 7;
+    /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap, one blend.</summary>
+    private const int VertexStride = sizeof(float) * 8;
 
     private const string ShaderSource = """
         struct VsIn
@@ -59,6 +60,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float3 pos : POSITION;
             float2 uv  : TEXCOORD0;
             float2 luv : TEXCOORD1;
+            float  a   : TEXCOORD2;
         };
 
         struct VsOut
@@ -66,10 +68,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float4 pos : SV_POSITION;
             float2 uv  : TEXCOORD0;
             float2 luv : TEXCOORD1;
+            float  a   : TEXCOORD2;
         };
 
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
+        Texture2D    blendMap    : register(t2);
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -79,12 +83,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.pos = float4(input.pos, 1.0f);
             output.uv = input.uv;
             output.luv = input.luv;
+            output.a = input.a;
             return output;
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
         {
-            float4 albedo = albedoMap.Sample(wrapSampler, input.uv);
+            // **Two textures mixed by the vertex's alpha, which is what terrain is.** A
+            // WorldVertexTransition material carries dirt and grass, and a displacement's vertices
+            // say how much of each. Where a material has only one texture the second is bound to
+            // the same image, so the mix is an identity and costs a sample.
+            float4 first = albedoMap.Sample(wrapSampler, input.uv);
+            float4 second = blendMap.Sample(wrapSampler, input.uv);
+            float4 albedo = lerp(first, second, saturate(input.a));
             float3 light = lightMap.Sample(clampSampler, input.luv).rgb;
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
@@ -103,6 +114,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
     private ComPtr<ID3D11ShaderResourceView> _lightmap;
     private ComPtr<ID3D11ShaderResourceView> _white;
 
@@ -177,6 +189,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 AlignedByteOffset = sizeof(float) * 5,
                 InputSlotClass = InputClassification.PerVertexData,
             },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 2,
+                Format = Silk.NET.DXGI.Format.FormatR32Float,
+                AlignedByteOffset = sizeof(float) * 7,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
         ];
 
         ComPtr<ID3D11InputLayout> layout = default;
@@ -238,7 +258,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 7];
+        float[] data = new float[vertices.Count * 8];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -250,6 +270,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.V;
             data[at++] = vertex.LightU;
             data[at++] = vertex.LightV;
+            data[at++] = vertex.Alpha;
         }
 
         CreateVertexBuffer(device, data);
@@ -261,6 +282,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         foreach (MapTexture? texture in assets.Textures)
         {
             _textures.Add(texture is { } present
+                ? CreateTexture(device, present.Width, present.Height, present.Pixels.Span)
+                : default);
+        }
+
+        foreach (MapTexture? texture in assets.BlendTextures)
+        {
+            _blendTextures.Add(texture is { } present
                 ? CreateTexture(device, present.Width, present.Height, present.Pixels.Span)
                 : default);
         }
@@ -304,7 +332,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _textures[batch.MaterialIndex]
                     : _white;
 
+            // The second layer, or the first again where a material has only one - so the
+            // shader's mix becomes an identity rather than needing a branch.
+            ComPtr<ID3D11ShaderResourceView> blend =
+                batch.MaterialIndex >= 0 && batch.MaterialIndex < _blendTextures.Count &&
+                _blendTextures[batch.MaterialIndex].Handle is not null
+                    ? _blendTextures[batch.MaterialIndex]
+                    : texture;
+
             context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref blend);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
     }
@@ -323,12 +360,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void ReleaseMap()
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
-                 _textures.Where(texture => texture.Handle is not null))
+                 _textures.Concat(_blendTextures).Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
         }
 
         _textures.Clear();
+        _blendTextures.Clear();
 
         if (_lightmap.Handle is not null)
         {

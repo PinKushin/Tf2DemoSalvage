@@ -125,6 +125,9 @@ internal class MainForm : Form
     /// <summary>The loaded map's textures and lighting.</summary>
     private MapAssets? _assets;
 
+    /// <summary>The loaded map's bytes, kept for reading displacement terrain on re-projection.</summary>
+    private ReadOnlyMemory<byte> _mapBytes;
+
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
 
@@ -540,6 +543,7 @@ internal class MainForm : Form
         _mapFill = [];
         _surfaceList = [];
         _assets = null;
+        _mapBytes = default;
         _device?.ClearWorld();
 
         string? path = FindMap(mapName);
@@ -610,6 +614,7 @@ internal class MainForm : Form
             try
             {
                 _archives ??= GameArchives.Open(FindGameFolder());
+                _mapBytes = bytes;
                 _surfaceList = BspSurfaces.Read(bytes);
                 _assets = MapAssets.Load(bytes, _archives, (int)_settings.TextureQuality);
             }
@@ -734,7 +739,12 @@ internal class MainForm : Form
             {
                 _device.UploadWorld(
                     MapWorldBuilder.Build(
-                        _surfaceList, assets.Materials, assets.Lightmaps, camera, _map.MainBounds),
+                        _mapBytes,
+                        _surfaceList,
+                        assets.Materials,
+                        assets.Lightmaps,
+                        camera,
+                        _map.MainBounds),
                     assets);
             }
             catch (Exception failure) when (

@@ -31,6 +31,7 @@ internal readonly record struct MapWorld(
 internal static class MapWorldBuilder
 {
     /// <summary>Builds the drawable world.</summary>
+    /// <param name="map">The map's bytes, for reading displacement terrain.</param>
     /// <param name="surfaces">The map's surfaces.</param>
     /// <param name="materials">The map's texture table, for identifying tool materials.</param>
     /// <param name="atlas">Where each face's lighting sits.</param>
@@ -44,6 +45,7 @@ internal static class MapWorldBuilder
     /// disappears and the roof a soldier stands on does not.
     /// </remarks>
     public static MapWorld Build(
+        ReadOnlyMemory<byte> map,
         IReadOnlyList<BspSurface> surfaces,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas atlas,
@@ -93,6 +95,24 @@ internal static class MapWorldBuilder
                 byMaterial[surface.MaterialIndex] = vertices;
             }
 
+            // **A displacement is not its face.** Its real surface is a heightfield subdividing
+            // the quad, and drawing the quad gives a flat slab painted with only the first of the
+            // material's two textures - a dirt field where a grassy hillside belongs.
+            if (surface.IsDisplacement)
+            {
+                IReadOnlyList<SurfaceVertex> terrain = ReadTerrain(map, surface);
+
+                foreach (SurfaceVertex corner in terrain)
+                {
+                    Append(vertices, corner, rectangle, camera, lowest, highest);
+                }
+
+                if (terrain.Count > 0)
+                {
+                    continue;
+                }
+            }
+
             // A fan from the first corner: faces out of a BSP are convex by construction.
             IReadOnlyList<SurfaceVertex> corners = surface.Vertices;
 
@@ -119,6 +139,24 @@ internal static class MapWorldBuilder
         }
 
         return new MapWorld(all, batches);
+    }
+
+    /// <summary>Reads a displacement's terrain, or nothing if it cannot be read.</summary>
+    /// <remarks>
+    /// A malformed displacement costs its own terrain and nothing else: the face falls back to its
+    /// base quad, which is where it was before this existed.
+    /// </remarks>
+    private static IReadOnlyList<SurfaceVertex> ReadTerrain(
+        ReadOnlyMemory<byte> map, BspSurface surface)
+    {
+        try
+        {
+            return BspDisplacements.ReadTriangles(map, surface);
+        }
+        catch (System.IO.InvalidDataException)
+        {
+            return [];
+        }
     }
 
     /// <summary>Finds the map's vertical extent, which is what depth is measured against.</summary>
@@ -160,7 +198,7 @@ internal static class MapWorldBuilder
         float lightU = rectangle.U + (Math.Clamp(corner.LightU, 0f, 1f) * rectangle.Width);
         float lightV = rectangle.V + (Math.Clamp(corner.LightV, 0f, 1f) * rectangle.Height);
 
-        vertices.Add(new WorldVertex(x, y, depth, corner.U, corner.V, lightU, lightV));
+        vertices.Add(new WorldVertex(x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha));
     }
 
     /// <summary>Whether a material is one of the compiler's tools rather than a surface.</summary>

@@ -186,12 +186,14 @@ internal sealed class MapAssets
 {
     private MapAssets(
         IReadOnlyList<MapTexture?> textures,
+        IReadOnlyList<MapTexture?> blendTextures,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
         int resolved,
         int missing)
     {
         Textures = textures;
+        BlendTextures = blendTextures;
         Materials = materials;
         Lightmaps = lightmaps;
         Resolved = resolved;
@@ -200,6 +202,15 @@ internal sealed class MapAssets
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
+
+    /// <summary>The second layer of a blend material, null for the great majority that have none.</summary>
+    /// <remarks>
+    /// **This is where grass comes from.** A <c>WorldVertexTransition</c> material names two
+    /// textures — on cp_process_final, <c>dirtground009</c> and <c>grass_07</c> — and a
+    /// displacement's per-vertex alpha mixes them. Sampling only the first draws every outdoor
+    /// surface as bare dirt, which is exactly how the map looked.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> BlendTextures { get; }
 
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
@@ -229,13 +240,17 @@ internal sealed class MapAssets
         IReadOnlyList<BspMaterial> materials = BspMaterials.Read(map);
 
         List<MapTexture?> textures = new(materials.Count);
+        List<MapTexture?> blendTextures = new(materials.Count);
         int resolved = 0;
         int missing = 0;
 
         foreach (BspMaterial material in materials)
         {
-            MapTexture? texture = Resolve(material.Name, pak, archives, maximumTextureSize);
+            (MapTexture? texture, MapTexture? blend) =
+                Resolve(material.Name, pak, archives, maximumTextureSize);
+
             textures.Add(texture);
+            blendTextures.Add(blend);
 
             if (texture is null)
             {
@@ -249,6 +264,7 @@ internal sealed class MapAssets
 
         return new MapAssets(
             textures,
+            blendTextures,
             materials,
             LightmapAtlas.Pack(BspLightmaps.Read(map)),
             resolved,
@@ -260,7 +276,7 @@ internal sealed class MapAssets
     /// The chain is VMT, then a patch's included VMT if there is one, then the VTF. Any step
     /// failing yields null, because a half-resolved material has nothing to draw.
     /// </remarks>
-    private static MapTexture? Resolve(
+    private static (MapTexture? Texture, MapTexture? Blend) Resolve(
         string materialName, PakFile pak, GameArchives archives, int maximumTextureSize)
     {
         byte[]? Find(string path)
@@ -277,7 +293,7 @@ internal sealed class MapAssets
 
         if (Find("materials/" + materialName + ".vmt") is not { } vmt)
         {
-            return null;
+            return (null, null);
         }
 
         VmtMaterial material;
@@ -293,27 +309,33 @@ internal sealed class MapAssets
         }
         catch (InvalidDataException)
         {
-            return null;
+            return (null, null);
         }
 
-        if (material.BaseTexture is not { } name ||
-            Find("materials/" + name + ".vtf") is not { } vtf)
-        {
-            return null;
-        }
+        MapTexture? first = Decode(material.BaseTexture, material.IsTransparent);
+        MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent);
 
-        try
-        {
-            VtfTexture decoded = VtfTexture.Decode(vtf, maximumTextureSize);
+        return (first, second);
 
-            return new MapTexture(
-                decoded.Width, decoded.Height, decoded.Pixels, material.IsTransparent);
-        }
-        catch (InvalidDataException)
+        MapTexture? Decode(string? name, bool transparent)
         {
-            // A format this project does not read, or a truncated file. The face falls back to the
-            // material's reflectivity.
-            return null;
+            if (name is null || Find("materials/" + name + ".vtf") is not { } vtf)
+            {
+                return null;
+            }
+
+            try
+            {
+                VtfTexture decoded = VtfTexture.Decode(vtf, maximumTextureSize);
+
+                return new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, transparent);
+            }
+            catch (InvalidDataException)
+            {
+                // A format this project does not read, or a truncated file. The face falls back to
+                // the material's reflectivity.
+                return null;
+            }
         }
     }
 }

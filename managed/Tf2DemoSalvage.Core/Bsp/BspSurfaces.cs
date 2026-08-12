@@ -13,8 +13,12 @@ namespace Tf2DemoSalvage.Core.Bsp;
 /// <param name="V">Texture coordinate down.</param>
 /// <param name="LightU">Lightmap coordinate across, in this face's own lightmap.</param>
 /// <param name="LightV">Lightmap coordinate down.</param>
+/// <param name="Alpha">
+/// Blend between a two-layer material's textures, 0 for the first and 1 for the second. Only
+/// displacements carry one; every other surface is zero, which is its own first texture.
+/// </param>
 public readonly record struct SurfaceVertex(
-    float X, float Y, float Z, float U, float V, float LightU, float LightV);
+    float X, float Y, float Z, float U, float V, float LightU, float LightV, float Alpha = 0f);
 
 /// <summary>A face ready to draw: its corners, its material and its baked lighting.</summary>
 /// <param name="FaceIndex">Position in the faces lump, so other lumps can be reached.</param>
