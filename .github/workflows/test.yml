@@ -1,0 +1,164 @@
+# The test suite. Nothing ran `dotnet test` on push or pull request before this workflow; the
+# repository had only Fuzz and Mutation, both nightly, so a broken commit reached main and was
+# found by whichever nightly job happened to run next.
+#
+# Split into two jobs because the suite is not uniform in what it needs:
+#
+#   unit   - Core and Cli. Pure managed, no demos, no native libraries. Runs on Linux, starts
+#            immediately, and is the gate that catches most breakage.
+#   corpus - Corpus and Audio. Needs the Git LFS demo blobs AND celt.dll/speex.dll, so it runs
+#            on Windows, where tools/native-audio/build.ps1 works as written against the MSVC
+#            toolset the runner image already carries. Porting that build to Linux is possible
+#            but is a separate piece of work, and doing it badly would mean testing a codec
+#            built with different flags from the one a developer runs locally - which for CELT
+#            is exactly the class of mistake RISKS B33 was (ENABLE_POSTFILTER).
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede an in-flight run for the same ref. Not politeness: the corpus job pulls Git LFS
+  # blobs, and the free tier is 1 GiB of bandwidth a month, so a superseded run that keeps going
+  # spends budget on a commit nobody is waiting for.
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit (Core, Cli)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # No demo blobs are read by either project here, so this job costs no LFS bandwidth.
+          lfs: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # Never --no-build: a compile error must fail the run rather than leaving the previous
+      # binary in place to be tested. `dotnet test` builds by default, so this is simply the
+      # flag being absent, but it is absent deliberately.
+      - name: Core
+        run: dotnet test tests/Tf2DemoSalvage.Core.Tests -c Release --logger 'trx;LogFileName=core.trx'
+
+      - name: Cli
+        run: dotnet test tests/Tf2DemoSalvage.Cli.Tests -c Release --logger 'trx;LogFileName=cli.trx'
+
+      - name: Check the counts
+        # "Passed!" is not the result, the count is. A crashed test host prints a pass line with
+        # a truncated total, and a --filter matching nothing exits 0 with no summary at all.
+        # Floors rather than exact equality: an exact number turns every added test into a red
+        # build, while a floor still catches the two failures that actually hide - a host that
+        # died partway and a run that executed nothing. Raise these when tests are added.
+        run: |
+          ./build/assert-test-count.sh '**/core.trx' 744 Core
+          ./build/assert-test-count.sh '**/cli.trx' 63 Cli
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: unit-trx
+          path: '**/*.trx'
+
+  corpus:
+    name: Corpus + Audio (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Deliberately NOT lfs: true. Checking out with LFS enabled fetches the blobs on every
+          # run and bills every one of them. The cache step below fetches them once per change
+          # to the corpus instead, and the pointer files checked out here are what keys it.
+          lfs: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache the demo blobs
+        id: lfs-cache
+        uses: actions/cache@v6
+        with:
+          path: .git/lfs
+          # Keyed on the pointer files themselves. An LFS pointer's content IS the object's oid,
+          # so this key changes exactly when the corpus changes and never otherwise - which is
+          # the property that keeps the monthly LFS bandwidth flat as commits accumulate.
+          key: lfs-${{ hashFiles('tools/corpus/demos/*.dem') }}
+
+      - name: Fetch the demo blobs
+        run: git lfs pull
+
+      - name: Check the corpus actually materialised
+        shell: pwsh
+        # The failure this prevents is silent and total. Corpus.Files() skips anything under
+        # SmallestPlausibleDemo (4096 bytes) so an unfetched LFS pointer is not mistaken for a
+        # demo - which means a failed `git lfs pull` produces an EMPTY corpus, and a corpus test
+        # that iterates `foreach (path in Corpus.Files())` then passes having asserted nothing.
+        # Every one of them. Green, fast, and measuring nothing at all.
+        run: |
+          $demos = Get-ChildItem tools/corpus/demos -Filter *.dem |
+                   Where-Object { $_.Length -ge 4096 }
+          Write-Host "$($demos.Count) demos, $([math]::Round(($demos | Measure-Object Length -Sum).Sum / 1MB)) MB"
+          if ($demos.Count -lt 10) {
+              throw "Expected at least 10 fetched demos, found $($demos.Count) - git lfs pull did not deliver the corpus."
+          }
+
+      - name: Cache the native codecs
+        id: native-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            tools/native-audio/celt.dll
+            tools/native-audio/speex.dll
+          # The build script pins both upstream versions and the compile flags, so its own
+          # content is the whole input to the build.
+          key: native-audio-${{ runner.os }}-${{ hashFiles('tools/native-audio/build.ps1') }}
+
+      - name: Build celt.dll and speex.dll
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/native-audio/build.ps1
+
+      - name: Check the codecs are present
+        shell: pwsh
+        # CeltVoiceDecoder and SpeexVoiceDecoder throw pointing at build.ps1 when the library is
+        # missing, so absence would surface as a test failure rather than a skip. Checking here
+        # anyway makes the cause obvious instead of arriving as sixty identical decoder errors.
+        run: |
+          foreach ($lib in 'celt.dll', 'speex.dll') {
+              $path = "tools/native-audio/$lib"
+              if (-not (Test-Path $path)) { throw "$lib was neither cached nor built." }
+              Write-Host "$lib $((Get-Item $path).Length) bytes"
+          }
+
+      - name: Audio
+        run: dotnet test tests/Tf2DemoSalvage.Audio.Tests -c Release --logger 'trx;LogFileName=audio.trx'
+
+      - name: Corpus
+        run: dotnet test tests/Tf2DemoSalvage.Corpus.Tests -c Release --logger 'trx;LogFileName=corpus.trx'
+
+      - name: Check the counts
+        shell: bash
+        # The corpus floor is the load-bearing one. CI sees only the committed corpus (10 demos)
+        # while a developer's run also picks up tools/corpus/local, so the CI count is the lower
+        # of the two and a drop below it means demos went missing rather than tests being removed.
+        run: |
+          ./build/assert-test-count.sh '**/audio.trx' 16 Audio
+          ./build/assert-test-count.sh '**/corpus.trx' 130 Corpus
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: corpus-trx
+          path: '**/*.trx'
