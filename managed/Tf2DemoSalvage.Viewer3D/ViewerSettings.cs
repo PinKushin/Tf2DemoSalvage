@@ -95,11 +95,27 @@ internal sealed record ViewerSettings
 
     /// <summary>How much texture detail to load.</summary>
     /// <remarks>
-    /// Medium by default. A whole map at 512 is 208 textures for cp_process_final, which decodes
-    /// in about a second and is more detail than an overhead view can show; Full exists for a close
-    /// camera and for hardware that does not care.
+    /// **Full by default, which is the frag-movie baseline.** The recording configs people used
+    /// for TF2 movies — Chris' maxquality, Lawena, mastercomfig's ultra — all set
+    /// <c>mat_picmip -10</c>, meaning drop no mip levels at all. This viewer exists to look at
+    /// demos closely, so it should start where those configs start rather than where a competitive
+    /// FPS config does.
+    ///
+    /// **Measured, and it is nearly free.** Decoding every texture in cp_process_final:
+    ///
+    /// | cap | pixels | time |
+    /// |---|---|---|
+    /// | 256 | 40 MB | 0.25 s |
+    /// | 512 | 120 MB | 0.34 s |
+    /// | 1024 | 340 MB | 0.55 s |
+    /// | full | 355 MB | 0.58 s |
+    ///
+    /// Full costs fifteen megabytes and three hundredths of a second over 1024, because very few
+    /// TF2 world textures exceed 1024 pixels — the cap mostly binds on a handful of skyboxes. The
+    /// lower settings exist for weaker hardware and for the overhead view, where 2048-pixel detail
+    /// cannot be seen anyway.
     /// </remarks>
-    public TextureQuality TextureQuality { get; init; } = TextureQuality.Medium;
+    public TextureQuality TextureQuality { get; init; } = TextureQuality.Full;
 
     /// <summary>Where the settings file lives.</summary>
     public static string Path => System.IO.Path.Combine(

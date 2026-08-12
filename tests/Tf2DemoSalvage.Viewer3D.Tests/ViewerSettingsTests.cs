@@ -37,6 +37,16 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void Load_NoFile_GivesFullTextureDetail()
+    {
+        // The frag-movie baseline: the TF2 recording configs all set mat_picmip -10, and full
+        // detail was measured at 0.58s and 355 MB for a whole map - fifteen megabytes more than
+        // capping at 1024.
+        ViewerSettings.Load(Path.Combine(_folder, "absent.cfg"))
+            .TextureQuality.ShouldBe(TextureQuality.Full);
+    }
+
+    [Test]
     public void Load_NoFile_GivesBorderless()
     {
         // Borderless is the default because it always works: exclusive can be refused by DXGI.
@@ -161,7 +171,7 @@ public sealed class ViewerSettingsTests
     {
         // 999 is not a texture size this program has; taking it would ask the decoder for a mip
         // that does not exist.
-        ViewerSettings.Parse("texture_quality 999").TextureQuality.ShouldBe(TextureQuality.Medium);
+        ViewerSettings.Parse("texture_quality 999").TextureQuality.ShouldBe(TextureQuality.Full);
     }
 
     [Test]
