@@ -255,6 +255,45 @@ public sealed class SnappyTests
         Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
     }
 
+    [Fact]
+    public void ALiteralLengthWithItsTopBitSet_IsRejectedRatherThanGoingNegative()
+    {
+        // Found by the fuzzer on fuzz-box, 2026-08-11, in under sixty seconds of the snappy
+        // target's first scheduled-mode run — eleven bytes, reported as
+        // "Decompressing 11 bytes threw ArgumentOutOfRangeException rather than refusing them".
+        //
+        // A four-byte literal length is accumulated into a signed int by shifting each byte into
+        // place, so a top byte of 0x80 or above lands in the sign bit and the length comes out
+        // NEGATIVE.
+        // That is what makes it interesting rather than merely wrong: both guards downstream are
+        // written for a length that is too LARGE, and a negative satisfies each of them. Need()
+        // sees read + (negative) still inside the buffer, and `written + length > output.Length`
+        // is false. The value survives every check and dies in Slice's own argument validation,
+        // which is the wrong exception from the wrong layer.
+        //
+        // 0xFC is the literal tag with the length field at 63, meaning four trailing length
+        // bytes. 0x00 0x00 0x00 0x80 is the smallest of those that sets the sign bit.
+        byte[] compressed = [10, 0xFC, 0x00, 0x00, 0x00, 0x80, 1, 2, 3, 4, 5];
+
+        Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
+    }
+
+    [Fact]
+    public void ALiteralLongerThanTheStream_IsRejected()
+    {
+        // The control: a length that is genuinely positive and merely too long. This already
+        // passes, and must keep passing — it is the bystander proving the fix narrows the
+        // negative case without disturbing the ordinary overrun path.
+        //
+        // It took a correction to become a control. The first version used 0xFFFFFFFF as the
+        // "large positive" length, which is not one: it accumulates to 0x7FFFFFFF and then the
+        // trailing increment wraps it to int.MinValue, so it failed identically to the test above
+        // and measured the same defect twice. 0x00000100 stays positive through the increment.
+        byte[] compressed = [10, 0xFC, 0x00, 0x01, 0x00, 0x00, 1, 2, 3];
+
+        Should.Throw<InvalidDataException>(() => Snappy.Decompress(compressed));
+    }
+
     /// <summary>Packs a copy with a one-byte offset: length minus four, then eleven offset bits.</summary>
     private static byte[] Copy1(int offset, int length) =>
     [
