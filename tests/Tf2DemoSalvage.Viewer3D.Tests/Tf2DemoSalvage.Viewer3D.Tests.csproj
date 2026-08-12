@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests for the viewer shell. Windows-targeted because WinForms is, and because the automation
+    ids these assert are the surface the UI tests will drive.
+
+    xunit.v3 to match every other test project here. The house rule prefers NUnit for a NEW
+    project, but this repo is standardised on xunit.v3 and a second framework in one solution
+    costs more than the preference gains.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Viewer3D.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="Shouldly" Version="4.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Viewer3D\Tf2DemoSalvage.Viewer3D.csproj" />
+  </ItemGroup>
+
+</Project>

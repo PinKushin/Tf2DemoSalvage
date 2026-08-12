@@ -2,7 +2,6 @@ using System;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
-using Silk.NET.Windowing;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -47,25 +46,46 @@ internal sealed unsafe class Device3D : IDisposable
     }
 
     /// <summary>Creates a device and swap chain bound to a window.</summary>
-    /// <param name="window">The window to present into. Must already be initialised.</param>
+    /// <param name="handle">Win32 window handle to present into.</param>
+    /// <param name="width">Back buffer width in pixels.</param>
+    /// <param name="height">Back buffer height in pixels.</param>
     /// <returns>The device.</returns>
-    /// <exception cref="InvalidOperationException">The window exposes no Win32 handle.</exception>
-    public static Device3D Create(IWindow window)
+    /// <exception cref="ArgumentException">The handle is zero, or a dimension is not positive.</exception>
+    /// <remarks>
+    /// **Takes a handle, not a window.** A swap chain needs an HWND and nothing else, so binding
+    /// this to a particular windowing framework would be a dependency the renderer does not
+    /// actually have — and it was one: the first version took Silk's <c>IWindow</c> purely to read
+    /// <c>Native.DXHandle</c> off it. Hosting the viewport in a WinForms control then meant
+    /// changing the renderer, which is the wrong direction for that change to travel.
+    /// </remarks>
+    public static Device3D Create(nint handle, int width, int height)
     {
-        ArgumentNullException.ThrowIfNull(window);
+        if (handle == 0)
+        {
+            throw new ArgumentException(
+                "A swap chain cannot be bound to a null window handle.", nameof(handle));
+        }
 
-        nint handle = window.Native?.DXHandle
-            ?? throw new InvalidOperationException(
-                "The window has no Win32 handle, so a swap chain cannot be bound to it.");
+        // A zero or negative dimension reaches DXGI as a huge unsigned value after the cast
+        // below, which fails as an opaque HRESULT rather than as a statement about the argument.
+        if (width <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
+        }
 
-        D3D11 d3d = D3D11.GetApi(window);
+        if (height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
+        }
+
+        D3D11 d3d = D3D11.GetApi(null);
 
         SwapChainDesc description = new()
         {
             BufferDesc = new ModeDesc
             {
-                Width = (uint)window.FramebufferSize.X,
-                Height = (uint)window.FramebufferSize.Y,
+                Width = (uint)width,
+                Height = (uint)height,
 
                 // The presentation format, not the working one. Lighting and blending happen
                 // before this in linear space; sRGB here is what makes the result look right on
