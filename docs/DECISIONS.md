@@ -1288,3 +1288,49 @@ block") is disabled by an `.editorconfig` in the renderer directory alone. There
 formulation of this layer to prefer — the alternative to unsafe is a marshalling copy per frame —
 and scoping the suppression to the directory means the analyzer still objects if `unsafe` ever
 appears in `Core`, where it would be a decision to argue on its own merits.
+
+### D32 — a downloaded BSP is hostile input, and the rules are written before the parser
+
+Maps come from fastdl, the same HTTP mirror a game server hands a joining client. That is the
+right source — it is where the game itself gets them — but it means **the bytes are supplied by
+whoever runs the server**, not by Valve, and a map that arrives this way has passed through no
+review.
+
+This is not hypothetical. The Source engine has had map-driven remote-code-execution research
+published against it, and a BSP is a fat target by construction:
+
+- **A header of 64 lump entries, each a file offset and a length**, pointing anywhere in the file.
+- **An embedded ZIP** — the pakfile lump — so a BSP reader inherits a zip parser's entire attack
+  surface, including compression ratio bombs and `../` in entry names.
+- **A tree structure** in the node and leaf lumps, which a naive reader walks recursively.
+- **Indices between lumps everywhere**: texinfo into texdata, faces into edges, edges into
+  vertices. Every one is a number from the file used to subscript an array.
+
+**The rules, which apply when the reader is written and not after:**
+
+1. **Validate every lump against the file length before reading it.** `offset >= headerSize`,
+   `length >= 0`, and `offset + length <= fileLength` computed in `long`. This is the same check
+   `WireBounds` already performs for the demo format, and for the same reason.
+2. **Derive counts from lump length, never from a count inside the data**, where the format allows
+   the choice. A length is at least cross-checkable against the file; a declared count is not.
+3. **Allocate from what is present, not what is declared.** The two DoS defects found in this
+   project on 2026-08-12 were both allocate-before-validate — `Lzss` sizing a buffer from a
+   declared length that agreed with a second declared length, and `CopyBits` taking 250 MB from a
+   declared bit count before the first read could fail.
+4. **Bound-check every cross-lump index at use.** An index read from the file is untrusted even
+   when the lump it came from validated.
+5. **Traverse the BSP tree iteratively, or cap the depth.** Unbounded recursion raises
+   `StackOverflowException`, which .NET cannot catch — it kills the process outright, so it is a
+   denial of service that no `try` can soften.
+6. **Cap bzip2 expansion.** fastdl serves `maps/<name>.bsp.bz2`, and a decompression bomb is the
+   cheapest attack on the list.
+7. **Never write into the user's game install.** Their `tf/maps` is read-only to us; downloads land
+   in this application's own maps directory. A parser bug then cannot corrupt their game, and a
+   malicious map cannot be planted where the game itself will load it.
+8. **Sanitise any path taken from a pakfile entry** with `Path.GetFullPath` plus a prefix check
+   before it touches the file system — the standard zip-slip guard.
+
+**And the mechanism, because rules in a document decay.** The BSP reader gets a SharpFuzz target
+alongside `container` and `snappy` the day it can parse a header. That harness already exists, it
+already found a real bug in `Snappy` within sixty seconds of first running, and a format this
+shape is exactly what it is good at.
