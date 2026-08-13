@@ -37,6 +37,7 @@ it, because a second copy is a copy that goes stale.
 | [13-settings-parity.md](13-settings-parity.md) | TF2's graphics options, and where ours stand against each |
 | [14-playback-parity.md](14-playback-parity.md) | What TF2 gives you when it plays an STV demo natively |
 | [15-detail-textures.md](15-detail-textures.md) | The `$detail` chain: twelve combine modes, and three traps in them |
+| [16-bumped-lighting.md](16-bumped-lighting.md) | `$bumpmap`: four lightmaps per face, and why set 0 is not one of them |
 
 ## Which of this is original
 
