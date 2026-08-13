@@ -35,6 +35,29 @@ internal readonly record struct MapDetail(
     int Mode,
     (float Red, float Green, float Blue) Tint);
 
+/// <summary>A material's bump map and how to read it.</summary>
+/// <param name="Texture">The normal map, or the self-shadowing weights.</param>
+/// <param name="IsSelfShadowing">Whether it stores three light weights rather than a direction.</param>
+/// <remarks>
+/// **The two are indistinguishable by looking and combine completely differently.** A normal map is
+/// decoded as <c>xyz * 2 - 1</c> and drives squared dot products against the bump basis; a
+/// self-shadowing one is sampled raw and its channels ARE the weights. On cp_process_final it is 14
+/// against 13, so neither can be treated as the special case.
+/// </remarks>
+internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
+
+/// <summary>Everything one material resolved to.</summary>
+/// <param name="Texture">The base texture, or null when it could not be found.</param>
+/// <param name="Blend">The second layer of a blend material, or null.</param>
+/// <param name="Detail">The detail pattern, or null.</param>
+/// <param name="Bump">The bump map, or null.</param>
+/// <remarks>
+/// A record rather than a longer and longer tuple: at four members the positional form stops
+/// saying which is which at the call site, and two of these are the same type.
+/// </remarks>
+internal readonly record struct ResolvedMaterial(
+    MapTexture? Texture, MapTexture? Blend, MapDetail? Detail, MapBump? Bump);
+
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
 /// </summary>
@@ -218,6 +241,7 @@ internal sealed class MapAssets
         IReadOnlyList<MapTexture?> textures,
         IReadOnlyList<MapTexture?> blendTextures,
         IReadOnlyList<MapDetail?> details,
+        IReadOnlyList<MapBump?> bumps,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
         IReadOnlyList<PropVertex> props,
@@ -227,6 +251,7 @@ internal sealed class MapAssets
         Textures = textures;
         BlendTextures = blendTextures;
         Details = details;
+        Bumps = bumps;
         Materials = materials;
         Lightmaps = lightmaps;
         Props = props;
@@ -261,6 +286,15 @@ internal sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<MapDetail?> Details { get; }
 
+    /// <summary>The bump map for each material, null for those without one.</summary>
+    /// <remarks>
+    /// **A bump map does not change a surface's colour, it changes which of its four lightmaps are
+    /// read.** vrad stored light arriving from three directions; the normal map says which way each
+    /// pixel of the surface faces, and the three are mixed accordingly. That is what makes a flat
+    /// wall look like brick rather than like a photograph of one.
+    /// </remarks>
+    public IReadOnlyList<MapBump?> Bumps { get; }
+
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
 
@@ -291,19 +325,20 @@ internal sealed class MapAssets
         List<MapTexture?> textures = new(materials.Count);
         List<MapTexture?> blendTextures = new(materials.Count);
         List<MapDetail?> details = new(materials.Count);
+        List<MapBump?> bumps = new(materials.Count);
         int resolved = 0;
         int missing = 0;
 
         foreach (BspMaterial material in materials)
         {
-            (MapTexture? texture, MapTexture? blend, MapDetail? detail) =
-                Resolve(material.Name, pak, archives, maximumTextureSize);
+            ResolvedMaterial found = Resolve(material.Name, pak, archives, maximumTextureSize);
 
-            textures.Add(texture);
-            blendTextures.Add(blend);
-            details.Add(detail);
+            textures.Add(found.Texture);
+            blendTextures.Add(found.Blend);
+            details.Add(found.Detail);
+            bumps.Add(found.Bump);
 
-            if (texture is null)
+            if (found.Texture is null)
             {
                 missing++;
             }
@@ -340,6 +375,11 @@ internal sealed class MapAssets
             details.Add(null);
         }
 
+        while (bumps.Count < textures.Count)
+        {
+            bumps.Add(null);
+        }
+
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
         ViewerLog.Write(
@@ -350,10 +390,18 @@ internal sealed class MapAssets
             "assets",
             $"{materials.Count - brushMaterials} prop materials added to {brushMaterials} the map's own");
 
+        // **Measured, not assumed.** A bump chain that resolves nothing still draws a perfectly
+        // reasonable map, because every bumped face already has a correct flat lightmap.
+        ViewerLog.Write(
+            "assets",
+            $"{bumps.Count(bump => bump is not null)} materials carry a bump map, " +
+            $"{bumps.Count(bump => bump is { IsSelfShadowing: true })} of them self-shadowing");
+
         return new MapAssets(
             textures,
             blendTextures,
             details,
+            bumps,
             materials,
             LightmapAtlas.PackAll(BspLightmaps.ReadAll(map)),
             props,
@@ -366,7 +414,7 @@ internal sealed class MapAssets
     /// The chain is VMT, then a patch's included VMT if there is one, then the VTF. Any step
     /// failing yields null, because a half-resolved material has nothing to draw.
     /// </remarks>
-    private static (MapTexture? Texture, MapTexture? Blend, MapDetail? Detail) Resolve(
+    private static ResolvedMaterial Resolve(
         string materialName,
         PakFile pak,
         GameArchives archives,
@@ -399,7 +447,7 @@ internal sealed class MapAssets
                 ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
             }
 
-            return (null, null, null);
+            return default;
         }
 
         VmtMaterial material;
@@ -417,13 +465,63 @@ internal sealed class MapAssets
         {
             ViewerLog.Warn("assets", $"parsing materials/{materialName}.vmt", failure);
 
-            return (null, null, null);
+            return default;
         }
 
         MapTexture? first = Decode(material.BaseTexture, material.IsTransparent, material.IsAdditive);
         MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent, material.IsAdditive);
 
-        return (first, second, ResolveDetail());
+        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump());
+
+        MapBump? ResolveBump()
+        {
+            if (material.BumpMap is not { } name)
+            {
+                return null;
+            }
+
+            if (Load(name) is not { } decoded)
+            {
+                ViewerLog.Warn(
+                    "assets",
+                    $"bump map {name}, named by materials/{materialName}.vmt, could not be read");
+
+                return null;
+            }
+
+            // **The texture's own flag outranks the material's declaration**, the same way it does
+            // for a detail texture's blend mode. On cp_process_final the two agree on all 13
+            // materials that use one, but the flag is data and $ssbump is a statement about it.
+            return new MapBump(
+                new MapTexture(
+                    decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false),
+                decoded.IsSelfShadowBump || material.IsSelfShadowingBump);
+        }
+
+        VtfTexture? Load(string name)
+        {
+            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                ? name[..^4]
+                : name;
+
+            if (Find("materials/" + bare + ".vtf") is not { } file)
+            {
+                return null;
+            }
+
+            try
+            {
+                return VtfTexture.Decode(file, maximumTextureSize);
+            }
+            catch (InvalidDataException failure)
+            {
+                // Reported, never silent: the engine reads every one of these, so anything that
+                // will not decode is a defect here until shown otherwise.
+                ViewerLog.Warn("assets", $"decoding materials/{bare}.vtf", failure);
+
+                return null;
+            }
+        }
 
         MapDetail? ResolveDetail()
         {

@@ -142,5 +142,50 @@ public sealed class DetailMaterialTests
             () => Parse("\"x\"\n{\n\"$detailscale\" \"four\"\n}\n").DetailScale);
     }
 
+    [Test]
+    public void BumpMap_WhenAbsent_IsNone()
+    {
+        Parse("\"LightMappedGeneric\"\n{\n\"$basetexture\" \"a/b\"\n}\n").BumpMap.ShouldBeNull();
+    }
+
+    [Test]
+    public void BumpMap_NamesTheTextureAndSaysWhetherItIsSelfShadowing()
+    {
+        // Verbatim from the game: TF2's own concrete declares both keys, and the suffix in the
+        // path is a convention rather than the signal - $ssbump is what the material states.
+        VmtMaterial material = Parse(
+            "\"LightMappedGeneric\"\n{\n" +
+            "\"$basetexture\" \"concrete/concretefloor007b\"\n" +
+            "\"$bumpmap\" \"Concrete/concretefloor007b_height-ssbump\"\n" +
+            "\"$ssbump\" \"1\"\n}\n");
+
+        material.BumpMap.ShouldBe("Concrete/concretefloor007b_height-ssbump");
+        material.IsSelfShadowingBump.ShouldBeTrue();
+    }
+
+    [Test]
+    public void BumpMap_AnOrdinaryNormalMap_IsNotSelfShadowing()
+    {
+        // **The control, and it is the majority case.** On cp_process_final it is 14 ordinary
+        // against 13 self-shadowing, so a reader that answered "self-shadowing" to everything
+        // would light more than half the bumped surfaces with the wrong combine — and with a
+        // combine that still produces lighting rather than an error.
+        VmtMaterial material = Parse(
+            "\"LightMappedGeneric\"\n{\n\"$bumpmap\" \"Metal/metaldoor001_normal\"\n}\n");
+
+        material.BumpMap.ShouldBe("Metal/metaldoor001_normal");
+        material.IsSelfShadowingBump.ShouldBeFalse();
+    }
+
+    [Test]
+    public void BumpMap_ANameEndingInSsbump_IsNotEnoughOnItsOwn()
+    {
+        // Valve names ssbump textures with a "-ssbump" suffix and it is tempting to read that
+        // instead. It is a convention, not data: a material that omits $ssbump gets the ordinary
+        // combine here, and the caller settles it from the texture's own flag.
+        Parse("\"x\"\n{\n\"$bumpmap\" \"brick/brickwall002_height-ssbump\"\n}\n")
+            .IsSelfShadowingBump.ShouldBeFalse();
+    }
+
     private static VmtMaterial Parse(string text) => VmtMaterial.Parse(Encoding.UTF8.GetBytes(text));
 }
