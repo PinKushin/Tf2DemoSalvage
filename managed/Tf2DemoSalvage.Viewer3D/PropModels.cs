@@ -296,7 +296,13 @@ internal static class PropModels
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
-    private static LoadedModel? Read(
+    /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
+    /// <remarks>
+    /// Internal rather than private because networked entities need the same thing: a model loaded
+    /// once, in model space, to be posed per instance. A static prop is posed by the map and an
+    /// entity is posed by the demo, and only the transform differs.
+    /// </remarks>
+    internal static LoadedModel? Read(
         string path,
         PakFile pak,
         GameArchives archives,
@@ -448,7 +454,8 @@ internal static class PropModels
     /// the colours are looked up per placement — which needs to know, for each corner, which mesh
     /// and which vertex of it produced that corner.
     /// </remarks>
-    private sealed record LoadedModel(
+    /// <summary>One model's triangles, in model space, with its materials resolved.</summary>
+    internal sealed record LoadedModel(
         IReadOnlyList<PropVertex> Corners,
         IReadOnlyList<int> Meshes,
         IReadOnlyList<int> Vertices,
