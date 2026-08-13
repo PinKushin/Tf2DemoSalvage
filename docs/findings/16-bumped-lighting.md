@@ -107,25 +107,49 @@ maps — `concrete/concretefloor007b` names
 `concrete/concretefloor007b_height-ssbump` and sets `$ssbump 1`. So the ssbump path is likely the
 *common* case on this corpus, not the exotic one. To be measured before it is believed.
 
+## The tangent basis this was going to need, and does not
+
+The first version of this document listed *"a tangent basis per vertex"* as the first piece of
+work: the dot products are in tangent space, so surely each vertex needs `s` and `t` from its
+`texinfo` and the face normal.
+
+**It needs none of it, and reading `bumpvects.cpp` before writing the code is what established
+that.** The shader's dot products are against `bumpBasis`, which are the *local constants* from
+`bumpvects.h`, and `vNormal` comes straight out of the normal map already in tangent space. Both
+sides of the dot product are local. `vNormal` is rotated into world space further down and that is
+for reflections, which is a separate feature.
+
+The reason it works is at compile time. `GetBumpNormals` builds a basis around the face's normal,
+decides handedness from `dot(flatNormal, cross(sVect, tVect))`, and **negates the second axis when
+the face is left-handed** — so the three sets `vrad` writes are always in the canonical tangent
+frame regardless of how the face is wound or mirrored. The renderer inherits a resolved convention
+and never has to know which way the face was laid out.
+
+That is a whole piece of work deleted by half an hour of reading, and it is the second time in two
+days: the first version of this file also had the four sets interleaved per luxel until
+`radial.cpp` said otherwise. **Evidence class: read from published source.** A branch named
+`feat/tangent-basis` existed for about a minute.
+
 ## What this needs that does not exist yet
 
-1. **A tangent basis per vertex.** The dot products are in tangent space, so each vertex needs `s`
-   and `t` vectors from its `texinfo` plus the face normal. That is arithmetic on data already
-   read.
-2. **Four lightmap sets through the atlas.** `LightmapAtlas` packs one image per face today; a
+1. **Four lightmap sets through the atlas.** `LightmapAtlas` packs one image per face today; a
    bumped face needs three more, and the shader needs to reach them. Three extra atlas pages
    keyed the same way is the least invasive shape.
-3. **Normal map decode.** VTF formats used by normal maps include DXT5 and uncompressed BGRA;
+2. **Normal map decode.** VTF formats used by normal maps include DXT5 and uncompressed BGRA;
    whether `VtfTexture` already covers every format the 21 materials use is a measurement, not an
    assumption.
-4. **`$ssbump` detection.** Both the material key and the VTF's own `TEXTUREFLAGS_SSBUMP`, which is
+3. **`$ssbump` detection.** Both the material key and the VTF's own `TEXTUREFLAGS_SSBUMP`, which is
    the same bit already read for `$detail` mode 10/11.
 
 ## Order
 
-Research (this document) → tangent basis with unit tests → the four-set lightmap read with a
-control that a non-bumped face still reads identically → atlas → shader → picture comparison with
-bump on and off, plus the bit-identical control render that the detail work established.
+Research (this document) → the four-set lightmap read, with a control that a non-bumped face still
+reads byte-identically → atlas → normal map decode → shader → picture comparison with bump on and
+off, plus the bit-identical control render that the detail work established.
+
+**The control on the read is the important one.** Set 0 is where a non-bumped face's only set
+lives, so a four-set reader with its arithmetic wrong can still produce a correct picture on every
+unbumped face in the map — which is most of them.
 
 ## Status
 
