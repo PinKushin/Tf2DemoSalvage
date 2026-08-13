@@ -232,10 +232,14 @@ public sealed class MapWorldTests
     }
 
     [Test]
-    public void Build_APropWhoseMaterialResolvedToNothing_IsSkipped()
+    public void Build_APropWhoseMaterialResolvedToNothing_IsDrawnAsMissing()
     {
-        // Drawing it would paint a white rock, which reads as a rendering fault rather than as a
-        // missing texture.
+        // **Drawn, not skipped, and the reversal is deliberate.** This used to skip it, reasoning
+        // that a white rock reads as a rendering fault - true, and the wrong conclusion, because a
+        // HOLE reads as nothing at all and nothing at all is what goes uninvestigated. The engine's
+        // own convention is a magenta chequer, which looks like a bug and therefore gets reported.
+        //
+        // Several defects this session hid behind exactly that difference.
         PropVertex[] unpainted =
         [
             new(100f, 100f, 0f, 0f, 0f, -1),
@@ -246,7 +250,7 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map, [], Materials, LightmapAtlas.Pack([]), unpainted, Camera, null);
 
-        world.Vertices.ShouldBeEmpty();
+        world.Vertices.Count.ShouldBe(3, "a prop with no material draws in the missing chequer");
     }
 
     private static BspSurface Surface(

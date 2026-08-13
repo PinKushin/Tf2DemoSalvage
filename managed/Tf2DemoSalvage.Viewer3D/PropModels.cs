@@ -55,6 +55,9 @@ internal static class PropModels
     /// </remarks>
     private const int MaximumPlacements = 100_000;
 
+    /// <summary>What the engine multiplies static prop vertex lighting by, from its own shader.</summary>
+    private const float Overbright = 2f;
+
     /// <summary>Loads a map's props and places them.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own embedded content, searched before the game's.</param>
@@ -95,6 +98,7 @@ internal static class PropModels
             return [];
         }
 
+        int brushMaterialCount = textures.Count;
         Dictionary<string, LoadedModel?> loaded = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
         List<PropVertex> world = [];
@@ -167,10 +171,21 @@ internal static class PropModels
             placed++;
         }
 
+        int transparent = 0;
+
+        for (int index = brushMaterialCount; index < textures.Count; index++)
+        {
+            if (textures[index] is { IsTransparent: true })
+            {
+                transparent++;
+            }
+        }
+
         ViewerLog.Write(
             "props",
             $"{placed} props placed from {loaded.Count} models ({skipped} skipped, " +
-            $"{unlit} without baked lighting), {world.Count / 3} triangles");
+            $"{unlit} without baked lighting), {world.Count / 3} triangles, " +
+            $"{transparent} of {textures.Count - brushMaterialCount} prop materials alpha tested");
 
         return world;
     }
@@ -246,18 +261,28 @@ internal static class PropModels
 
         (byte red, byte green, byte blue) = colours[vertex];
 
-        // **Already display space, so no curve here.** vrad writes these through
-        // ConvertLinearToRGBA8888, which applies LinearToVertexLight - and that table is built as
-        // pow(linear, 1/gamma), the same correction BspLightmaps applies to lightmap samples. The
-        // bytes are the finished value; correcting them again brightens what is already right.
+        // **Doubled, because the engine doubles it.** vrad builds its vertex-light table as
+        // pow(linear, 1/gamma) * overbrightFactor, storing HALF the light when overbright is 2, and
+        // the vertex-lit shader multiplies it back:
         //
-        // This was nearly got wrong on a measurement that looked convincing: prop colours averaged
-        // 0.23 against the world's corrected lightmaps at 0.47, and taking props through the curve
-        // gave 0.50. The populations are not comparable - a prop's vertices wrap a closed solid,
-        // including undersides and faces pointing away from every light, while lightmap samples
-        // exist only on visible world faces. Reading vrad settled in one grep what the measurement
-        // had made worse.
-        return (red / 255f, green / 255f, blue / 255f);
+        // its vertex-lit shader defines an overbright of two and multiplies the stored colour by
+        // it before converting to linear.
+        //
+        // Without it every prop draws at half brightness - dark rocks and near-black foliage on a
+        // sunlit map, which is what the owner kept reporting as blobs.
+        //
+        // The measurement had said so before the source did: prop colours averaged 0.2309 against
+        // the world's lightmaps at 0.4704, a ratio of 2.04. That was first explained as a missing
+        // gamma step, because 0.23 ^ (1/2.2) is 0.495 and also lands near 0.47 - two different
+        // curves passing through one point, and the wrong one was picked. Only the shader settles
+        // which.
+        //
+        // Clamped rather than carried, since this renderer works in display space and has no tone
+        // map to give over-range light anywhere to go.
+        return (
+            Math.Min(1f, red / 255f * Overbright),
+            Math.Min(1f, green / 255f * Overbright),
+            Math.Min(1f, blue / 255f * Overbright));
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>

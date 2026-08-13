@@ -72,6 +72,12 @@ internal class MainForm : Form
     /// <summary>Automation id of the View &gt; Full screen item.</summary>
     public const string FullScreenItemId = "FullScreenMenuItem";
 
+    /// <summary>Automation id of the diagnostic surface-colour toggle.</summary>
+    public const string SurfaceColoursItemId = "SurfaceColoursMenuItem";
+
+    /// <summary>Automation id of the brush outline toggle.</summary>
+    public const string OutlineItemId = "OutlineMenuItem";
+
     /// <summary>Automation id of the borderless full-screen mode item.</summary>
     public const string BorderlessItemId = "BorderlessModeMenuItem";
 
@@ -168,6 +174,17 @@ internal class MainForm : Form
     private MapSurfaces? _surfaces;
 
     private readonly ToolStripMenuItem _fullScreen;
+
+    /// <summary>Draws flat colours by surface kind instead of the map's own textures.</summary>
+    private readonly ToolStripMenuItem _surfaceColours;
+
+    /// <summary>Draws the brush outline over the map.</summary>
+    /// <remarks>
+    /// **Off by default now that the map has textures.** The outline was the entire picture when
+    /// nothing else drew, and it stayed switched on out of habit - over a textured map it is
+    /// clutter that hides the thing it was standing in for.
+    /// </remarks>
+    private readonly ToolStripMenuItem _outline;
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
 
@@ -434,6 +451,39 @@ internal class MainForm : Form
         }
 
         ToolStripMenuItem view = new("&View") { Name = "ViewMenu", AccessibleName = "View menu" };
+        // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
+        // and what kind of thing is it", which a textured picture cannot - and which cost hours
+        // this session when terrain, a material and a prop each went missing while the map still
+        // looked like a map.
+        _surfaceColours = new ToolStripMenuItem("Surface &colours")
+        {
+            Name = SurfaceColoursItemId,
+            CheckOnClick = true,
+            ShortcutKeys = Keys.F9,
+        };
+
+        _surfaceColours.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write(
+                "render", $"surface colours {(_surfaceColours.Checked ? "on" : "off")}");
+
+            _device?.ClearWorld();
+            _worldIsStale = true;
+        };
+
+        _outline = new ToolStripMenuItem("Brush &outline")
+        {
+            Name = OutlineItemId,
+            CheckOnClick = true,
+            Checked = false,
+            ShortcutKeys = Keys.F10,
+        };
+
+        _outline.CheckedChanged += (_, _) => ViewerLog.Write(
+            "render", $"brush outline {(_outline.Checked ? "on" : "off")}");
+
+        view.DropDownItems.Add(_outline);
+        view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
         view.DropDownItems.Add(textureQuality);
@@ -851,7 +901,7 @@ internal class MainForm : Form
                 // vertices are in map coordinates and never move; only the view does. This is what
                 // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
                 // reason a free camera or a per-player view can exist at all.
-                _device.SetCamera(camera.ToMatrix());
+                _device.SetCamera(camera.ToMatrix(), _surfaceColours.Checked);
 
                 // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
                 // Counting these against "building the world" lines is what proves the geometry
@@ -877,7 +927,8 @@ internal class MainForm : Form
                         assets.Lightmaps,
                         assets.Props,
                         camera,
-                        _map.MainBounds);
+                        _map.MainBounds,
+                        _surfaceColours.Checked);
                 }
 
                 ViewerLog.Write(
@@ -1287,7 +1338,13 @@ internal class MainForm : Form
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
-        _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapFill, _mapLines, _scene);
+        _device?.DrawFrame(
+            0.06f,
+            0.07f,
+            0.09f,
+            _mapFill,
+            _outline.Checked ? _mapLines : [],
+            _scene);
 
         if (_fullScreenClock is { } clock)
         {
@@ -1588,6 +1645,8 @@ internal class MainForm : Form
             _search.Dispose();
             _downloader?.Dispose();
             _overlay?.Dispose();
+            _outline.Dispose();
+            _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }
 

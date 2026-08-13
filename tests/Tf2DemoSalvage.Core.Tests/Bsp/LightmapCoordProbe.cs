@@ -35,6 +35,9 @@ public sealed class LightmapCoordProbe
             $"{models.Length / 48} models total");
 
         int outsideEntities = 0;
+        int outsideLit = 0;
+        int lit = 0;
+        IReadOnlyList<BspLightmap> lightmaps = BspLightmaps.Read(map);
 
         int outside = 0;
         int outsideDisplacements = 0;
@@ -48,6 +51,13 @@ public sealed class LightmapCoordProbe
         foreach (BspSurface surface in surfaces)
         {
             total++;
+
+            bool isLit = surface.FaceIndex < lightmaps.Count && !lightmaps[surface.FaceIndex].IsEmpty;
+
+            if (isLit)
+            {
+                lit++;
+            }
 
             if (surface.IsDisplacement)
             {
@@ -89,6 +99,11 @@ public sealed class LightmapCoordProbe
                 {
                     outsideEntities++;
                 }
+
+                if (isLit)
+                {
+                    outsideLit++;
+                }
             }
         }
 
@@ -102,6 +117,9 @@ public sealed class LightmapCoordProbe
 
         TestContext.Out.WriteLine(
             $"COORD and {outsideEntities} of the {outside} belong to BRUSH ENTITIES, not worldspawn");
+
+        TestContext.Out.WriteLine(
+            $"COORD of the {outside}, {outsideLit} are on LIT faces (of {lit} lit) - the rest have no lightmap and land on the white texel by design");
 
         surfaces.ShouldNotBeEmpty();
     }

@@ -86,6 +86,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         cbuffer Camera : register(b0)
         {
             row_major float4x4 viewProjection;
+
+            // **A debug view that replaces the texture with a flat category colour.** Turning the
+            // map into "this is world, this is terrain, this is a prop, this is missing" answers in
+            // one glance what a textured picture hides - which is how several defects here survived
+            // for hours looking like art direction.
+            float4 surfaceColours;
         };
 
         Texture2D    albedoMap   : register(t0);
@@ -117,6 +123,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float4 first = albedoMap.Sample(wrapSampler, input.uv);
             float4 second = blendMap.Sample(wrapSampler, input.uv);
             float4 albedo = lerp(first, second, saturate(input.a));
+
+            // **Alpha-tested foliage, which is what a bush IS.** Source draws leaves and grates as
+            // flat cards whose texture alpha cuts out the shape. Drawn opaque, the cut-out region
+            // renders as its RGB - which is black - so every bush and tree became a solid black
+            // card the size of its quad. Opaque materials have their alpha forced to one on upload,
+            // so this clip only ever fires on materials that asked for it.
+            clip(albedo.a - 0.5f);
+
+            // In the category view the vertex colour IS the answer, so the texture is dropped.
+            if (surfaceColours.x > 0.5f)
+            {
+                return float4(input.vc, 1.0f);
+            }
             float3 light = lightMap.Sample(clampSampler, input.luv).rgb;
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
@@ -137,6 +156,68 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
+
+    /// <summary>Edge of the chequer drawn where a material could not be resolved.</summary>
+    private const int MissingSize = 32;
+
+    /// <summary>Squares across the chequer, as Source draws it.</summary>
+    private const int MissingSquares = 4;
+
+    /// <summary>
+    /// Uploads one texture, forcing an opaque material to be opaque.
+    /// </summary>
+    /// <remarks>
+    /// **The shader clips on alpha, so a material that never asked for that must not carry it.** A
+    /// VTF's alpha channel is only meaningful when the material says <c>$alphatest</c> or
+    /// <c>$translucent</c>; plenty of opaque textures store something else there, or nothing, and
+    /// clipping on it would punch holes through solid walls. Forcing it here means one shader path
+    /// serves both without a per-batch switch.
+    /// </remarks>
+    private static ComPtr<ID3D11ShaderResourceView> Upload(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture)
+    {
+        if (texture is not { } present)
+        {
+            return default;
+        }
+
+        if (present.IsTransparent)
+        {
+            return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
+        }
+
+        byte[] opaque = present.Pixels.ToArray();
+
+        for (int at = 3; at < opaque.Length; at += 4)
+        {
+            opaque[at] = 255;
+        }
+
+        return CreateTexture(device, context, present.Width, present.Height, opaque);
+    }
+
+    /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
+    private static byte[] Missing()
+    {
+        byte[] pixels = new byte[MissingSize * MissingSize * 4];
+        int square = MissingSize / MissingSquares;
+
+        for (int y = 0; y < MissingSize; y++)
+        {
+            for (int x = 0; x < MissingSize; x++)
+            {
+                bool magenta = ((x / square) + (y / square)) % 2 == 0;
+                int at = ((y * MissingSize) + x) * 4;
+
+                pixels[at + 0] = magenta ? (byte)255 : (byte)0;
+                pixels[at + 1] = 0;
+                pixels[at + 2] = magenta ? (byte)255 : (byte)0;
+                pixels[at + 3] = 255;
+            }
+        }
+
+        return pixels;
+    }
 
     /// <summary>Rasteriser state that draws both sides of a triangle.</summary>
     /// <remarks>
@@ -333,22 +414,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseTextures();
         TextureUploads++;
 
-        // A one-pixel white texture stands in for a material whose texture could not be found, so
-        // the face still takes its lighting and its shape rather than vanishing.
-        _white = CreateTexture(device, context, 1, 1, [255, 255, 255, 255]);
+        // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
+        // unresolved material as a magenta and black chequer, and it is the right call - a surface
+        // that quietly falls back to white or to nothing is a surface nobody investigates. Several
+        // defects in this project hid for hours behind exactly that: a hole and a dark patch look
+        // like art, while a magenta chequer looks like a bug and gets reported.
+        _white = CreateTexture(device, context, MissingSize, MissingSize, Missing());
 
         foreach (MapTexture? texture in assets.Textures)
         {
-            _textures.Add(texture is { } present
-                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
-                : default);
+            _textures.Add(Upload(device, context, texture));
         }
 
         foreach (MapTexture? texture in assets.BlendTextures)
         {
-            _blendTextures.Add(texture is { } present
-                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
-                : default);
+            _blendTextures.Add(Upload(device, context, texture));
         }
 
         _lightmap = CreateTexture(
@@ -463,6 +543,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="device">Device to create the buffer on, the first time.</param>
     /// <param name="context">Context to upload through.</param>
     /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
+    /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -471,7 +552,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// and the reason the free camera and per-player views could not exist.
     /// </remarks>
     public void SetCamera(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, float[] matrix)
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        float[] matrix,
+        bool surfaceColours = false)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -484,7 +568,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             BufferDesc description = new()
             {
-                ByteWidth = sizeof(float) * 16,
+                ByteWidth = sizeof(float) * 20,
                 Usage = Usage.Dynamic,
                 BindFlags = (uint)BindFlag.ConstantBuffer,
                 CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -497,15 +581,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _camera = buffer;
         }
 
+        // The matrix, then a float4 whose first component is the category-view switch. Constant
+        // buffers are sized in whole sixteen-byte registers, so the padding is not optional.
+        float[] contents =
+        [
+            .. matrix,
+            surfaceColours ? 1f : 0f, 0f, 0f, 0f,
+        ];
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(
             context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
-        fixed (float* source = matrix)
+        fixed (float* source = contents)
         {
             System.Buffer.MemoryCopy(
-                source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
+                source, mapped.PData, sizeof(float) * 20, sizeof(float) * 20);
         }
 
         context.Unmap(_camera, 0);
