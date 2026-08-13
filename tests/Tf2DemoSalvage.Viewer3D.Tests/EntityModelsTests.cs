@@ -3,140 +3,162 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>
-/// Posing a demo's entity models into world space.
+/// Packing entity models once and posing them with a matrix.
 /// </summary>
 /// <remarks>
-/// **Tested with a fake loader**, because reading a model needs the map's pakfile or the game's
-/// archives and the part worth checking is the posing. One triangle at a known offset says more
-/// about a transform than a rock with two thousand.
+/// **The arrangement is the engine's**: model-space vertices in a buffer that never changes, and a
+/// matrix per instance handed to the shader. The first version of this transformed every vertex on
+/// the processor each frame, which is exactly the work <c>LoadBoneMatrix</c> exists to avoid.
+///
+/// Tested with a fake loader, because reading a model needs the map's pakfile and the game's
+/// archives while the parts worth checking are the packing and the matrix.
 /// </remarks>
 public sealed class EntityModelsTests
 {
     [Test]
-    public void AModelIsPlacedWhereTheEntityStands()
+    public void AModelIsPackedInItsOwnCoordinates()
     {
-        // The corner sits one unit along X in the model's own coordinates, and the entity stands
-        // at (100, 200, 30) unrotated - so the corner lands at (101, 200, 30). Anything else means
-        // origin and rotation have been applied in the wrong order or the wrong space.
-        List<WorldVertex> vertices = [];
-        List<WorldBatch> batches = [];
+        // **Not moved to where the entity stands**, which is the whole difference from the version
+        // this replaced. The vertex keeps the model's own coordinates and the matrix carries the
+        // placement, so the buffer can be uploaded once and never touched again.
+        EntityModelSet models = new();
 
-        EntityModels.Build(
-            [Prop("models/props/crate.mdl", x: 100f, y: 200f, z: 30f)],
-            OneTriangle,
-            vertices,
-            batches);
+        models.Add([Prop("models/props/crate.mdl", x: 100f, y: 200f, z: 30f)], OneTriangle);
 
-        vertices.Count.ShouldBe(3);
-        vertices[0].X.ShouldBe(101f, 1e-4f);
-        vertices[0].Y.ShouldBe(200f, 1e-4f);
-        vertices[0].Depth.ShouldBe(30f, 1e-4f, "the vertex carries world height, not a depth");
+        models.Vertices.Count.ShouldBe(3);
+        models.Vertices[0].X.ShouldBe(1f, 1e-4f);
+        models.Vertices[0].Y.ShouldBe(0f, 1e-4f);
+        models.Vertices[0].Depth.ShouldBe(0f, 1e-4f);
     }
 
     [Test]
-    public void AYawedModel_TurnsAboutTheVertical()
+    public void AModelIsPackedOnce_HoweverManyEntitiesWearIt()
     {
-        // Ninety degrees of yaw sends the model's +X to the world's +Y, which is Valve's own
-        // convention and the reason this shares PropTransform rather than reimplementing it.
-        List<WorldVertex> vertices = [];
-        List<WorldBatch> batches = [];
+        // A match carries many copies of one rocket. Packing per instance would multiply the
+        // buffer by the number of entities and defeat the arrangement entirely.
+        EntityModelSet models = new();
 
-        EntityModels.Build(
-            [Prop("models/props/crate.mdl", yaw: 90f)],
-            OneTriangle,
-            vertices,
-            batches);
+        models.Add(
+            [
+                Prop("models/props/crate.mdl", x: 10f),
+                Prop("models/props/crate.mdl", x: 20f),
+                Prop("models/props/crate.mdl", x: 30f),
+            ],
+            OneTriangle);
 
-        vertices[0].X.ShouldBe(0f, 1e-4f);
-        vertices[0].Y.ShouldBe(1f, 1e-4f);
+        models.Count.ShouldBe(1);
+        models.Vertices.Count.ShouldBe(3);
+    }
+
+    [Test]
+    public void EachInstanceCarriesItsOwnPlacement()
+    {
+        // Three entities, one model, three matrices. The translation lives in the last row.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            Prop("models/props/crate.mdl", x: 10f),
+            Prop("models/props/crate.mdl", x: 20f),
+        ];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.Count.ShouldBe(2);
+        instances[0].Matrix[12].ShouldBe(10f, 1e-4f);
+        instances[1].Matrix[12].ShouldBe(20f, 1e-4f);
+    }
+
+    [Test]
+    public void AnInstanceWhoseModelDidNotLoad_IsNotDrawn()
+    {
+        // Otherwise the renderer sets a matrix and draws nothing, once per frame per missing
+        // model - invisible in the picture and pure cost.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/missing.mdl")];
+
+        models.Add(props, _ => null);
+        models.Instances(props, instances);
+
+        instances.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void AFailedModelIsNotRetriedEveryFrame()
+    {
+        // Asking again sixty times a second buries the log in one repeated line, which is how a
+        // real missing asset stops being noticeable.
+        EntityModelSet models = new();
+        int attempts = 0;
+
+        SceneProp[] props = [Prop("models/props/missing.mdl")];
+
+        for (int frame = 0; frame < 5; frame++)
+        {
+            models.Add(
+                props,
+                _ =>
+                {
+                    attempts++;
+                    return null;
+                });
+        }
+
+        attempts.ShouldBe(1);
     }
 
     [Test]
     public void BrushModelsAndSprites_AreNotHandedToTheStudioLoader()
     {
-        // A "*3" is an inline BSP submodel and a ".vmt" is a camera-facing sprite. Neither is a
-        // .mdl, and giving either to a studio loader draws nothing while reporting nothing - so
-        // they are skipped here and handled by their own path when it exists.
+        // A "*3" is an inline BSP submodel and a ".spr" is a camera-facing sprite. Neither is a
+        // .mdl, and giving either to a studio loader draws nothing while reporting nothing.
+        EntityModelSet models = new();
         List<string> asked = [];
-        List<WorldVertex> vertices = [];
-        List<WorldBatch> batches = [];
 
-        EntityModels.Build(
-            [
-                Prop("*3"),
-                Prop("sprites/glow06.spr"),
-                Prop("models/props/crate.mdl"),
-            ],
+        models.Add(
+            [Prop("*3"), Prop("sprites/glow06.spr"), Prop("models/props/crate.mdl")],
             path =>
             {
                 asked.Add(path);
                 return OneTriangle(path);
-            },
-            vertices,
-            batches);
+            });
 
         asked.ShouldBe(["models/props/crate.mdl"]);
     }
 
     [Test]
-    public void ModelsSharingAMaterial_AreDrawnInOneBatch()
-    {
-        // A match carries many copies of one rocket, and a bind per copy is the cost this avoids.
-        // Two instances of the same model must produce one batch, not two.
-        List<WorldVertex> vertices = [];
-        List<WorldBatch> batches = [];
-
-        EntityModels.Build(
-            [Prop("models/props/crate.mdl", x: 10f), Prop("models/props/crate.mdl", x: 20f)],
-            OneTriangle,
-            vertices,
-            batches);
-
-        batches.Count.ShouldBe(1);
-        batches[0].VertexCount.ShouldBe(6);
-        vertices.Count.ShouldBe(6);
-    }
-
-    [Test]
     public void EveryBatchCoversTheVerticesItClaims()
     {
-        // The batches index into one shared list, so a wrong offset draws another material's
-        // triangles with this material's texture - which looks like a texture assignment bug and
-        // is an arithmetic one.
-        List<WorldVertex> vertices = [];
-        List<WorldBatch> batches = [];
+        // Batches index into one shared buffer, so a wrong offset draws another model's triangles
+        // with this model's texture - which looks like a texture bug and is an arithmetic one.
+        EntityModelSet models = new();
 
-        EntityModels.Build(
-            [Prop("models/props/crate.mdl"), Prop("models/props/barrel.mdl")],
+        SceneProp[] props = [Prop("models/props/crate.mdl"), Prop("models/props/barrel.mdl")];
+
+        models.Add(
+            props,
             path => path.Contains("barrel", StringComparison.Ordinal)
                 ? [new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 7)]
-                : OneTriangle(path),
-            vertices,
-            batches);
+                : OneTriangle(path));
 
-        batches.Sum(batch => batch.VertexCount).ShouldBe(vertices.Count);
+        List<WorldBatch> all =
+            [.. props.SelectMany(prop => models.Batches(prop.ModelPath))];
 
-        foreach (WorldBatch batch in batches)
+        all.Sum(batch => batch.VertexCount).ShouldBe(models.Vertices.Count);
+
+        foreach (WorldBatch batch in all)
         {
-            (batch.FirstVertex + batch.VertexCount).ShouldBeLessThanOrEqualTo(vertices.Count);
+            (batch.FirstVertex + batch.VertexCount)
+                .ShouldBeLessThanOrEqualTo(models.Vertices.Count);
         }
-    }
-
-    [Test]
-    public void AModelThatWillNotLoad_IsSkippedRatherThanDrawnEmpty()
-    {
-        List<WorldVertex> vertices = [];
-        List<WorldBatch> batches = [];
-
-        EntityModels.Build([Prop("models/props/missing.mdl")], _ => null, vertices, batches);
-
-        vertices.ShouldBeEmpty();
-        batches.ShouldBeEmpty();
     }
 
     /// <summary>A triangle whose first corner sits one unit along the model's own X.</summary>
