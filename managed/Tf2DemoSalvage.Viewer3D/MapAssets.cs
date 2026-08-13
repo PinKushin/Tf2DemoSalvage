@@ -13,8 +13,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Height">Height in pixels.</param>
 /// <param name="Pixels">The image, four bytes per pixel, red first.</param>
 /// <param name="IsTransparent">Whether the material asked for alpha blending.</param>
+/// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
 internal readonly record struct MapTexture(
-    int Width, int Height, ReadOnlyMemory<byte> Pixels, bool IsTransparent);
+    int Width, int Height, ReadOnlyMemory<byte> Pixels, bool IsTransparent, bool IsAdditive = false);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -375,12 +376,12 @@ internal sealed class MapAssets
             return (null, null);
         }
 
-        MapTexture? first = Decode(material.BaseTexture, material.IsTransparent);
-        MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent);
+        MapTexture? first = Decode(material.BaseTexture, material.IsTransparent, material.IsAdditive);
+        MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent, material.IsAdditive);
 
         return (first, second);
 
-        MapTexture? Decode(string? name, bool transparent)
+        MapTexture? Decode(string? name, bool transparent, bool additive)
         {
             if (name is null)
             {
@@ -407,7 +408,8 @@ internal sealed class MapAssets
             {
                 VtfTexture decoded = VtfTexture.Decode(vtf, maximumTextureSize);
 
-                return new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, transparent);
+                return new MapTexture(
+                    decoded.Width, decoded.Height, decoded.Pixels, transparent, additive);
             }
             catch (InvalidDataException failure)
             {

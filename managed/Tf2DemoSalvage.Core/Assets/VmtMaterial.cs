@@ -59,6 +59,16 @@ public sealed class VmtMaterial
     public bool IsTransparent =>
         Value("$translucent") is "1" || Value("$alphatest") is "1";
 
+    /// <summary>Whether the material is drawn by ADDING its colour to what is behind it.</summary>
+    /// <remarks>
+    /// **Black contributes nothing under additive blending, which is the whole point.** Source
+    /// returns BT_ADD for <c>$additive</c>, so a light cone under a lamp brightens what it covers
+    /// and its dark parts disappear. Drawn opaque instead, the same cone is a solid black shape -
+    /// measured on cp_process_f12, where <c>props_lights/light_cone_farm_32</c> carries baked
+    /// lighting of exactly 0.000 and every lamp in the map wears one.
+    /// </remarks>
+    public bool IsAdditive => Value("$additive") is "1";
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material
