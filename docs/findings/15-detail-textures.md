@@ -1,0 +1,172 @@
+# 15 — Detail textures
+
+The `$detail` chain, read out of `source-sdk-2013` before writing any of it. This file is the
+implementation roadmap and the record of what the source actually says, including the three places
+where the obvious reading is wrong.
+
+Evidence class throughout: **read from published source**, `src/materialsystem/stdshaders/`.
+Anything measured on the corpus is marked as such.
+
+## Why it is next
+
+Measured on `cp_process_f12` (the map the viewer loads today), by summed drawn area:
+
+| Missing feature | Units drawn | Materials |
+|---|---|---|
+| `$bumpmap` | 54,857,158 | 21 |
+| `$detail` | 36,327,110 | 36 |
+
+`$bumpmap` is larger but needs TF2's bumped lightmaps — four luxel sets per sample, a different
+lightmap read, and a tangent basis per vertex. `$detail` needs one more texture and one more
+`lerp`. It is the larger share of the *cheap* remainder, so it goes first.
+
+## What the source says
+
+### Where it happens
+
+`lightmappedgeneric_ps2_3_x.h`, in order:
+
+```c
+HALF4 detailColor = HALF4( 1.0f, 1.0f, 1.0f, 1.0f );
+#if DETAILTEXTURE
+  #if SHADER_MODEL_PS_2_0
+      detailColor = tex2D( DetailSampler, detailTexCoord );
+  #else
+      detailColor = float4( g_DetailTint, 1.0f ) * tex2D( DetailSampler, detailTexCoord );
+  #endif
+#endif
+...
+if ( bDetailTexture )
+{
+    albedo = TextureCombine( albedo, detailColor, DETAIL_BLEND_MODE, g_DetailBlendFactor );
+}
+```
+
+**Detail modifies the albedo, before the lightmap multiply.** So it slots into our pixel shader
+between the base/blend `lerp` and the `light` multiply, not at the end. `$detailtint` is a
+pre-multiply on the sampled colour, and is dropped entirely on `ps_2_0` — a hardware fallback, not
+a semantic one; we implement the `ps_2_b`/`ps_3_0` form.
+
+### The twelve combine modes
+
+`common_ps_fxc.h`, `TextureCombine`. Transcribed exactly:
+
+| # | Name | Effect |
+|---|---|---|
+| 0 | `RGB_EQUALS_BASE_x_DETAILx2` | `base.rgb *= lerp(1, 2*detail.rgb, f)` |
+| 1 | `RGB_ADDITIVE` | `base.rgb += f * detail.rgb` |
+| 2 | `DETAIL_OVER_BASE` | `base.rgb = lerp(base.rgb, detail.rgb, f * detail.a)` |
+| 3 | `FADE` | `base = lerp(base, detail, f)` — **all four channels** |
+| 4 | `BASE_OVER_DETAIL` | `base.rgb = lerp(base.rgb, detail.rgb, f * (1-base.a))`; `base.a = detail.a` |
+| 5 | `RGB_ADDITIVE_SELFILLUM` | post-lighting; `TextureCombinePostLighting` |
+| 6 | `..._THRESHOLD_FADE` | post-lighting, remaps a widening band |
+| 7 | `MOD2X_SELECT_TWO_PATTERNS` | `dc = lerp(detail.r, detail.a, base.a)`; then as mode 0 with `dc` |
+| 8 | `MULTIPLY` | `base = lerp(base, base*detail, f)` — **all four channels** |
+| 9 | `MASK_BASE_BY_DETAIL_ALPHA` | `base.a = lerp(base.a, base.a*detail.a, f)` — alpha only |
+| 10 | `SSBUMP_BUMP` | detail modulates bumped lighting; needs `$bumpmap` |
+| 11 | `SSBUMP_NOBUMP` | `base.rgb *= dot(detail.rgb, 2.0/3.0)` |
+
+Modes 5 and 6 are applied **after** lighting and are a separate function. Mode 10 is out of scope
+until `$bumpmap` lands. Modes 0–4, 7–9 and 11 are all implementable now.
+
+Note that 3 and 8 write alpha as well as colour, and 4 and 9 write alpha specifically. Our alpha
+test currently clips on the base texture's alpha *before* any of this — that is wrong for four of
+the twelve modes and has to move after the combine.
+
+### Defaults
+
+`lightmappedgeneric_dx9.cpp`, `SHADER_PARAM` declarations — these are Valve's own defaults, not
+inferred:
+
+| Key | Default |
+|---|---|
+| `$detailscale` | `4` |
+| `$detailblendmode` | `0` |
+| `$detailblendfactor` | `1` |
+| `$detailtint` | `[1 1 1]` |
+| `$detailframe` | `0` |
+
+### UV
+
+`lightmappedgeneric_vs20.fxc` builds the detail coordinate from the **base** coordinate through a
+scaled transform:
+
+```c
+SetVertexShaderTextureScaledTransform(
+    VERTEX_SHADER_SHADER_SPECIFIC_CONST_2, info.m_nBaseTextureTransform, info.m_nDetailScale );
+```
+
+So `detailUV = baseUV * $detailscale` for the common case where `$basetexturetransform` is
+identity. The helper's own comment says the transform is set unconditionally because "you'll always
+have a detailscale".
+
+**Detail and bumpmap share a texcoord slot** — `detailOrBumpAndEnvmapMaskTexCoord`, and the
+comment says outright they are mutually exclusive "so that we have enough texcoords". That is a
+DX9 register limit, not a rule about materials, and does not bind us. It does explain why
+`$detail` and `$bumpmap` rarely appear together in TF2 content.
+
+## Three traps
+
+**1. The detail texture is NOT read as sRGB, except in mode 1.**
+
+```c
+bool bSRGBState = ( nDetailBlendMode == 1 );
+pShaderShadow->EnableSRGBRead( SHADER_SAMPLER12, bSRGBState );
+```
+
+Reading it sRGB everywhere is the natural thing to do — it is a colour texture in a colour
+pipeline — and it would be wrong on 35 of the 36 materials here. Mode 0's `2*detail` is a
+*modulation*, not a colour, so it stays linear. This is the kind of thing that produces a plausible
+picture that is quietly wrong everywhere, which is the failure mode this project keeps hitting.
+
+**2. Mode 10/11 is chosen from the VTF's flags, not from the VMT.**
+
+```c
+if ( pDetailTexture->GetFlags() & TEXTUREFLAGS_SSBUMP )
+    nDetailBlendMode = hasBump ? 10 : 11;
+```
+
+`$detailblendmode` absent therefore does **not** mean mode 0. If the detail texture carries
+`TEXTUREFLAGS_SSBUMP` (`0x08000000`), the material's stated mode is overridden. `VtfTexture` reads
+the flags field today but does not expose it; it has to.
+
+**3. Grey is the identity, and that is a free test.**
+
+When the fast path disables detail, the helper binds `TEXTURE_GREY` rather than unbinding:
+
+```c
+pContextData->m_SemiStaticCmdsOut.BindStandardTexture( SHADER_SAMPLER12, TEXTURE_GREY );
+```
+
+Grey is 0.5, and mode 0 is `lerp(1, 2*0.5, f)` = `1` for any blend factor. So a 0.5 detail texture
+must leave the albedo bit-identical under mode 0. That is a prediction with an exact value, and it
+falsifies a wrong `2*` or a wrong `lerp` argument order immediately — unlike "the picture changed",
+which any of them satisfies.
+
+## Implementation order
+
+TDD, research first — this document is the research step.
+
+1. **`VmtMaterial`** — `Detail`, `DetailScale` (4), `DetailBlendFactor` (1), `DetailBlendMode` (0),
+   `DetailTint` (1,1,1). Each with a control: a material that omits the key gets the default, a
+   material that sets it gets the set value. Parsing `[1 1 1]` is its own case — the brackets are
+   part of the KeyValues text, and `{255 255 255}` is the 0–255 spelling of the same thing.
+2. **A `DetailCombine` function in Core**, pure, one method per mode, tested against the table
+   above with hand-picked values where correct and broken differ. Mode 0 with grey is the identity
+   case; mode 0 with black is `base * (1-f)`; mode 0 with white is `base * (1+f)`.
+3. **`VtfTexture.Flags`** — exposed, with a test that an SSBUMP-flagged header reports it.
+4. **`MapAssets`** — a third texture list beside `Textures`/`BlendTextures`, loaded through the
+   same search path, and **logging every failure**, per the repo's no-silent-fallback rule. Then a
+   measurement: how many of the 36 detail materials actually resolved. "Measure the output, not the
+   capability."
+5. **`WorldRenderer`** — bind to the free **t3** slot; per-batch constants for scale, factor, mode
+   and tint. The camera buffer established the pattern; ~200 batches makes a per-batch write cheap.
+   Bind to **both** VS and PS stages — the height-cut bug was exactly this.
+6. **Move the alpha clip after the combine**, since modes 3, 4, 8 and 9 write alpha.
+7. **`MapPictureTests`** — a picture with detail on and one with it off, asserting a specific
+   surface changed, plus a control surface with no `$detail` that must be bit-identical.
+
+## Status
+
+Researched, not implemented. Nothing in this document has been measured against the corpus yet
+beyond the drawn-area counts at the top.
