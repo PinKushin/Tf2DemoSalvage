@@ -63,6 +63,25 @@ public sealed class EraPlayerProbe
                 foreach (INetMessage message in
                     NetMessageReader.Read(command.Payload.Span, state).Messages)
                 {
+                    // **Instance baselines, which the scene layer was not applying.** An entity
+                    // entering the potentially visible set is sent as a delta against its CLASS
+                    // baseline rather than in full, so without these the entering update is being
+                    // read against nothing.
+                    switch (message)
+                    {
+                        case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
+                            BaselineBuilder.Apply(create.Entries, decoder);
+                            continue;
+
+                        case UpdateStringTableMessage update
+                            when state.StringTableName(update.TableId) == BaselineBuilder.TableName:
+                            BaselineBuilder.Apply(update.Entries, decoder);
+                            continue;
+
+                        default:
+                            break;
+                    }
+
                     if (message is not PacketEntitiesMessage snapshot || snapshot.LengthBits <= 0)
                     {
                         continue;
