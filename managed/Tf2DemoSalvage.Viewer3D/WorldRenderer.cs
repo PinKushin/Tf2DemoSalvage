@@ -7,6 +7,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
+using Tf2DemoSalvage.Core.Diagnostics;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>One corner of a world triangle, ready for the GPU.</summary>
@@ -131,7 +133,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // x: 1 when the material has a bump map, 0 otherwise
             // y: 1 when that bump map is self-shadowing rather than a normal map
             // z: 1 when parts of the surface light themselves
-            // w: unused
+            // w: 1 when the material is ALPHA TESTED and its alpha is a cut-out
             float4 bump;
 
             // The colour the self-illuminated part is tinted by.
@@ -308,7 +310,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **After the combine, not before.** Four of the twelve modes write alpha, and alpha is
             // what this reads - so clipping first would test a value the material never asked to be
             // tested, and cut away pixels the engine keeps.
-            clip(albedo.a - 0.5f);
+            // **Only when the material asked for it**, which is what the engine does: alpha
+            // testing happens because a VMT says $alphatest, not because a texture happens to
+            // carry an alpha channel.
+            //
+            // This used to clip unconditionally, relying on opaque textures having their alpha
+            // flattened to 255 on upload. That holds for most of the map and fails for anything
+            // whose alpha is kept for another reason - a self-illuminated material, or a model
+            // texture with an unused alpha channel full of zeros. Every entity model in the demo
+            // was discarded pixel by pixel while its geometry, transform and draw call were all
+            // correct.
+            if (bump.w > 0.5f)
+            {
+                clip(albedo.a - 0.5f);
+            }
 
             // In the category view the vertex colour IS the answer, so the texture is dropped.
             if (surfaceColours.x > 0.5f)
@@ -837,6 +852,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float glowGreen = glow?.Green ?? 1f;
             float glowBlue = glow?.Blue ?? 1f;
 
+            // **Alpha testing is a material property, which is what the engine treats it as.**
+            // A material keeps its alpha channel when it is transparent or self-illuminated; only
+            // an ALPHA-TESTED one wants that channel used as a cut-out. Translucent materials keep
+            // alpha for blending and must not be clipped by it.
+            float alphaTested = surface is { IsTransparent: true, IsTranslucent: false } ? 1f : 0f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -851,7 +872,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasBump,
                     isSelfShadowing,
                     hasGlow,
-                    0f,
+                    alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
                 ]
                 :
@@ -861,7 +882,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasBump,
                     isSelfShadowing,
                     hasGlow,
-                    0f,
+                    alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
                 ]);
         }
@@ -1616,8 +1637,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
 
-        if (_modelVertices.Handle is null || batches.Count == 0)
+        if (_modelVertices.Handle is null)
         {
+            // Not silent: a caller asking to draw a model when nothing was uploaded is a wiring
+            // fault, and it looks exactly like a model that is correctly invisible.
+            DecodeLog.Lost("render", "a model was posed before any model geometry was uploaded");
+            return;
+        }
+
+        if (batches.Count == 0)
+        {
+            // Not silent either. A posed model with no batches means the renderer's copy of the
+            // packed set is older than the caller's, which draws nothing and reports nothing.
+            DecodeLog.Lost("render", "a model was posed but the renderer has no geometry for it");
             return;
         }
 

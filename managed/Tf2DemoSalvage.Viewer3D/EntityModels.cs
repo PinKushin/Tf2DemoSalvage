@@ -45,6 +45,9 @@ internal sealed class EntityModelSet
     /// <summary>How many distinct models have been packed.</summary>
     public int Count => _byModel.Count;
 
+    /// <summary>Every packed model's path.</summary>
+    public IEnumerable<string> Paths => _byModel.Keys;
+
     /// <summary>The batches for one model, or empty when it is not packed.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <returns>One run per material, indexing into <see cref="Vertices"/>.</returns>

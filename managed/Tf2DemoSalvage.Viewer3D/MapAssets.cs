@@ -280,6 +280,15 @@ internal sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<PropVertex> Props { get; }
 
+    /// <summary>Entity models, in their own coordinates, keyed by path.</summary>
+    /// <remarks>
+    /// Model space rather than world space, unlike <see cref="Props"/>: a static prop stands where
+    /// the map put it and can be baked, while an entity moves and is posed by a matrix in the
+    /// shader.
+    /// </remarks>
+    public IReadOnlyDictionary<string, IReadOnlyList<PropVertex>> EntityModels { get; private init; } =
+        new Dictionary<string, IReadOnlyList<PropVertex>>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
 
@@ -324,12 +333,16 @@ internal sealed class MapAssets
     /// <summary>Loads a map's textures and lighting.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="archives">The game's archives.</param>
+    /// <param name="entityModels">Model paths the demo uses, loaded with the map so the textures upload once.</param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
     public static MapAssets Load(
-        ReadOnlyMemory<byte> map, GameArchives archives, int maximumTextureSize)
+        ReadOnlyMemory<byte> map,
+        GameArchives archives,
+        int maximumTextureSize,
+        IReadOnlyCollection<string>? entityModels = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -394,6 +407,45 @@ internal sealed class MapAssets
 
         propTiming.Dispose();
 
+        // **Entity models are loaded here, with the map's own props, and that is the point.**
+        // Their materials go into the same table, so the textures upload once with everything in
+        // them. Loading a model during playback instead would mean growing the texture array
+        // mid-match and re-uploading it, which is a hitch exactly where the viewer is trying to
+        // look smooth.
+        //
+        // Every model the demo uses is already known: the timeline is built before anything is
+        // drawn, which is the same trade this project makes everywhere - know it all up front,
+        // and playback costs nothing. TF2 launches a listen server to play a demo, so the budget
+        // here is generous.
+        Dictionary<string, IReadOnlyList<PropVertex>> models = new(StringComparer.OrdinalIgnoreCase);
+
+        if (entityModels is { Count: > 0 })
+        {
+            using IDisposable modelTiming = ViewerLog.Time("assets", "loading entity models");
+
+            int loaded = 0;
+
+            foreach (string path in entityModels)
+            {
+                IReadOnlyList<PropVertex>? corners = PropModels.LoadOne(
+                    path,
+                    pak,
+                    archives,
+                    materials,
+                    textures,
+                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture);
+
+                if (corners is { Count: > 0 })
+                {
+                    models[path] = corners;
+                    loaded++;
+                }
+            }
+
+            ViewerLog.Write(
+                "assets", $"{loaded} of {entityModels.Count} entity models loaded");
+        }
+
         // The blend list is indexed in step with the textures, and a prop material never has a
         // second layer - only a displacement's WorldVertexTransition does.
         while (blendTextures.Count < textures.Count)
@@ -439,7 +491,10 @@ internal sealed class MapAssets
             PackLighting(map),
             props,
             resolved,
-            missing);
+            missing)
+        {
+            EntityModels = models,
+        };
     }
 
     private static LightmapAtlas PackLighting(ReadOnlyMemory<byte> map)

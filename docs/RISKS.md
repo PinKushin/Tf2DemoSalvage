@@ -2934,3 +2934,46 @@ what to hide is a property of the view rather than of the material.
 
 **Parked deliberately** until model rendering lands, on the owner's call. The measurements above are
 the expensive part and they are done.
+
+## B50 — the alpha-test threshold is a guess, and `$alphatestreference` is ignored — OPEN, small
+
+**Filed 2026-08-13**, while fixing the defect that hid every entity model.
+
+The shader used to clip on alpha unconditionally, which was safe only because opaque map textures
+have their alpha flattened to 255 on upload. Anything whose alpha is kept for another reason — a
+self-illuminated material, or a model texture with an unused alpha channel of zeros — had every
+pixel discarded. Entity models were drawn with correct geometry, correct transforms, correct
+batches and a correct draw call, and were invisible.
+
+**The gate is now verified against published source.** `BaseVSShader.cpp:925`:
+
+```cpp
+s_pShaderShadow->EnableAlphaTest( IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) );
+
+if( alphaTestReferenceVar != -1 && params[alphaTestReferenceVar]->GetFloatValue() > 0.0f )
+{
+    s_pShaderShadow->AlphaFunc( SHADER_ALPHAFUNC_GEQUAL, params[alphaTestReferenceVar]->GetFloatValue() );
+}
+```
+
+Alpha testing happens **only** when the material sets the flag, which is what `$alphatest 1` does.
+That much now matches.
+
+**What does not match, and cannot be read from the SDK:**
+
+- `$alphatestreference` defaults to `"0.0"` (`lightmappedgeneric_dx9.cpp:63`,
+  `vertexlitgeneric_dx9.cpp:42`), and at zero Valve never calls `AlphaFunc` — so the threshold comes
+  from the shader API's own default, which is in the closed implementation. Our hardcoded **0.5** is
+  a convention, not a measured value.
+- A material that *does* set `$alphatestreference` is cut at 0.5 by us regardless, so its foliage or
+  grate will lose or keep the wrong pixels.
+
+**The fix** is to read `$alphatestreference` in `VmtMaterial`, carry it in the material constants
+beside the alpha-test flag, and use it when it is above zero — falling back to 0.5 only when the
+material says nothing. Small, and it turns "matches the flag" into "matches the behaviour".
+
+**Worth keeping for the shape of it.** This defect was invisible to every instrument: the counts, the
+names, the matrices, the packed vertices and the batch ranges were all correct, and two probes
+(twenty-times scale, depth disabled) both came back negative because the pixels were being discarded
+after all of that. The thing that found it was reading the shader's own comment, which stated the
+assumption it depended on.

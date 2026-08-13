@@ -151,6 +151,14 @@ internal class MainForm : Form
 
     private readonly List<SceneProp> _props = [];
 
+    /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
+    private readonly EntityModelSet _models = new();
+
+    private readonly List<ModelInstance> _instances = [];
+
+    /// <summary>Last reported instance count, so the log records changes rather than frames.</summary>
+    private int _lastInstanceCount = -1;
+
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
 
@@ -856,7 +864,14 @@ internal class MainForm : Form
                 using (ViewerLog.Time("assets", "reading surfaces and textures"))
                 {
                     _surfaceList = BspSurfaces.Read(bytes);
-                    _assets = MapAssets.Load(bytes, _archives, (int)_settings.TextureQuality);
+
+                    // **Every model the demo will ever show, loaded with the map.** The timeline
+                    // is already built, so the whole set is known before anything is drawn - and
+                    // loading them here means their materials join the map's table and the
+                    // textures upload once. Loading during playback would grow that table and
+                    // force a re-upload mid-match.
+                    _assets = MapAssets.Load(
+                        bytes, _archives, (int)_settings.TextureQuality, DemoModelPaths());
                 }
 
                 int displacements = 0;
@@ -1070,6 +1085,42 @@ internal class MainForm : Form
     /// world geometry placed far outside the playable space, and fitting to that pushed
     /// cp_process_final into a third of the viewport with an empty expanse beside it.
     /// </remarks>
+    /// <summary>One model's triangles, from the set preloaded with the map.</summary>
+    /// <remarks>
+    /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
+    /// remembers rather than asking again every frame. The miss was already reported once, at
+    /// load, where a missing asset is worth reading.
+    /// </remarks>
+    private IReadOnlyList<PropVertex>? ModelGeometry(string path) =>
+        _assets is { } assets && assets.EntityModels.TryGetValue(path, out IReadOnlyList<PropVertex>? corners)
+            ? corners
+            : null;
+
+    /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
+    /// <remarks>
+    /// Brush models and sprites are excluded: a <c>*N</c> is map geometry and a sprite is a
+    /// camera-facing quad, and neither is a <c>.mdl</c> the studio loader can read.
+    /// </remarks>
+    private HashSet<string> DemoModelPaths()
+    {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        if (_timeline is not { } timeline)
+        {
+            return paths;
+        }
+
+        foreach (ScenePropTrack track in timeline.Props)
+        {
+            if (track.Kind == SceneModelKind.Studio)
+            {
+                paths.Add(track.ModelPath);
+            }
+        }
+
+        return paths;
+    }
+
     private TopDownCamera MapCamera()
     {
         TopDownCamera fitted = TopDownCamera.Fit(
@@ -1155,6 +1206,83 @@ internal class MainForm : Form
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
 
+        // Packing is a no-op after the first sighting of each model, so this costs a dictionary
+        // lookup per entity per frame once the demo has been running for a moment.
+        if (_models.Add(_props, ModelGeometry) && _device is { } device)
+        {
+            device.UploadModels(_models);
+
+            // **Logged because a model that draws nothing looks exactly like one that was never
+            // uploaded.** The counts separate the two: no vertices means the packing failed, and
+            // vertices with no instances means the posing did.
+            ViewerLog.Write(
+                "render",
+                $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
+
+            // **Named, not counted.** A count says how many arrived and nothing about which are
+            // missing, and "the health packs are not drawing" is a question about names.
+            foreach (string path in _models.Paths)
+            {
+                string indices = string.Join(
+                    ", ",
+                    _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
+
+                ViewerLog.Write(
+                    "render",
+                    $"  packed {path}: {indices} of {_assets?.Textures.Count ?? 0} textures");
+            }
+        }
+
+        _models.Instances(_props, _instances);
+
+        if (_instances.Count != _lastInstanceCount)
+        {
+            _lastInstanceCount = _instances.Count;
+
+            // **Named and counted.** "Some models are missing" is a question about which, and a
+            // total cannot answer it - a demo only carries what the recorder could see, so an
+            // absent pickup may be correct rather than broken.
+            string names = string.Join(
+                ", ",
+                _instances
+                    .GroupBy(instance => instance.ModelPath, StringComparer.Ordinal)
+                    .Select(group => $"{group.Count()}x{Path.GetFileNameWithoutExtension(group.Key)}"));
+
+            ViewerLog.Write("render", $"drawing {_instances.Count} posed models: {names}");
+
+            // The first medkit's actual transform. A model posed with a zero scale collapses to a
+            // point and draws nothing, while every count above still reads correctly.
+            foreach (ModelInstance instance in _instances
+                .Where(one => one.ModelPath.Contains("medkit", StringComparison.OrdinalIgnoreCase))
+                .Take(1))
+            {
+                float[] m = instance.Matrix;
+
+                ViewerLog.Write(
+                    "render",
+                    $"  medkit at ({m[12]:F1}, {m[13]:F1}, {m[14]:F1}) " +
+                    $"rows ({m[0]:F2},{m[1]:F2},{m[2]:F2}) ({m[4]:F2},{m[5]:F2},{m[6]:F2}) " +
+                    $"({m[8]:F2},{m[9]:F2},{m[10]:F2}) " +
+                    $"batches {_models.Batches(instance.ModelPath).Count} " +
+                    $"verts {_models.Batches(instance.ModelPath).Sum(batch => batch.VertexCount)}");
+
+                // The first three corners as packed, in model space. A medkit is a few tens of
+                // units across; all-zero corners would mean the packing wrote nothing real while
+                // every count above still read correctly.
+                WorldBatch first = _models.Batches(instance.ModelPath)[0];
+
+                for (int corner = first.FirstVertex; corner < first.FirstVertex + 3; corner++)
+                {
+                    WorldVertex vertex = _models.Vertices[corner];
+
+                    ViewerLog.Write(
+                        "render",
+                        $"    corner {corner}: ({vertex.X:F2}, {vertex.Y:F2}, {vertex.Depth:F2}) " +
+                        $"uv ({vertex.U:F2}, {vertex.V:F2}) rgb ({vertex.Red:F2}, {vertex.Green:F2}, {vertex.Blue:F2})");
+                }
+            }
+        }
+
         ShowPlayers(_players);
     }
 
@@ -1186,12 +1314,6 @@ internal class MainForm : Form
 
         List<ScenePoint> points = new(players.Count + _props.Count);
 
-        // **Entities first, so players draw over them.** A ScenePoint carries no depth - there is
-        // no Z on it and nothing sorts these - so the list order IS the draw order, and appending
-        // the entities afterwards put every dropped weapon and pickup on top of the people. The
-        // players are the thing being watched; everything else is context behind them.
-        AppendProps(points, camera);
-
         foreach (ScenePlayer player in players)
         {
             // **Spectators and the SourceTV camera are CTFPlayer entities too**, with real
@@ -1212,34 +1334,6 @@ internal class MainForm : Form
         }
 
         _scene = points;
-    }
-
-    /// <summary>Adds a marker for every model-bearing entity at the current moment.</summary>
-    /// <remarks>
-    /// **Markers rather than models, and only for now.** The renderer bakes the world into one
-    /// buffer at load, which suits brushwork and static props and cannot express a thing that
-    /// moves; drawing real models needs a per-object transform in the shader. Until then a marker
-    /// says truthfully where each entity is, which is what makes the tracks visible at all.
-    ///
-    /// Deliberately dimmer than the team colours: these are rockets, pickups, doors and dropped
-    /// weapons, and they outnumber the players by an order of magnitude. Drawn as brightly they
-    /// would bury the thing the viewer is for.
-    /// </remarks>
-    private void AppendProps(List<ScenePoint> points, TopDownCamera camera)
-    {
-        foreach (SceneProp prop in _props)
-        {
-            // Brush models are doors and lifts - parts of the map rather than things in it - and a
-            // marker at a door's origin says nothing a viewer wants. Sprites are glows.
-            if (prop.Kind != SceneModelKind.Studio)
-            {
-                continue;
-            }
-
-            (float x, float y) = camera.Project(prop.Pose.X, prop.Pose.Y);
-
-            points.Add(new ScenePoint(x, y, 0.55f, 0.55f, 0.50f));
-        }
     }
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
@@ -1764,7 +1858,8 @@ internal class MainForm : Form
             BackgroundBlue,
             _mapFill,
             _outline.Checked ? _mapLines : [],
-            _scene);
+            _scene,
+            _instances);
 
         if (_fullScreenClock is { } clock)
         {

@@ -164,6 +164,37 @@ internal sealed unsafe class Device3D : IDisposable
     public void ClearAndPresent(float red, float green, float blue) =>
         DrawAndPresent(red, green, blue, []);
 
+    /// <summary>Uploads every entity model's geometry, in model space.</summary>
+    /// <param name="models">The packed set.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="models"/> is null.</exception>
+    /// <remarks>
+    /// Called when the set grows, which stops happening within a few seconds of playback: a demo
+    /// shows most of its models early and none of them twice.
+    /// </remarks>
+    public void UploadModels(EntityModelSet models)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(models);
+
+        // **Created here rather than skipped, like every other entry point.** This read
+        // "if (_world is null) return;", and MainForm calls it only when a model is packed for the
+        // first time - which happens once per model, ever. Loading a demo from the command line
+        // packs the first models before anything has drawn, so the renderer did not exist yet, the
+        // upload was skipped, and nothing ever asked again: 47 instances drawn per frame out of an
+        // empty buffer, with every count in the log looking correct.
+        _world ??= WorldRenderer.Create(_device);
+
+        Dictionary<string, IReadOnlyList<WorldBatch>> batches =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string path in models.Paths)
+        {
+            batches[path] = models.Batches(path);
+        }
+
+        _world.UploadModels(_device, models.Vertices, batches);
+    }
+
     /// <summary>Writes the next presented frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
     /// <exception cref="ArgumentException"><paramref name="path"/> is null or blank.</exception>

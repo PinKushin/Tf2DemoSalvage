@@ -296,6 +296,33 @@ internal static class PropModels
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
+    /// <summary>Reads one model for an entity to wear, in the model's own coordinates.</summary>
+    /// <param name="path">The model path, as modelprecache named it.</param>
+    /// <param name="pak">The map's embedded files, which override the game's.</param>
+    /// <param name="archives">The game's own archives.</param>
+    /// <param name="materials">Material table to register this model's materials in.</param>
+    /// <param name="textures">Texture list, kept in step with the materials.</param>
+    /// <param name="load">Resolves a material path to a texture.</param>
+    /// <returns>The triangles, or <c>null</c> when the model could not be read.</returns>
+    /// <remarks>
+    /// **Its materials join the map's table**, so the renderer binds them the same way it binds a
+    /// brush face's and one texture upload covers everything. That is why entity models are
+    /// loaded with the map rather than during playback: growing the table afterwards would mean
+    /// re-uploading the textures mid-match.
+    ///
+    /// Its own material index cache, because this is called once per model rather than in the loop
+    /// static props use — and sharing one across calls would keep a dictionary alive for the life
+    /// of the map to save a lookup per model.
+    /// </remarks>
+    internal static IReadOnlyList<PropVertex>? LoadOne(
+        string path,
+        PakFile pak,
+        GameArchives archives,
+        List<BspMaterial> materials,
+        List<MapTexture?> textures,
+        Func<string, MapTexture?> load) =>
+        Read(path, pak, archives, materials, textures, [], load)?.Corners;
+
     /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
     /// <remarks>
     /// Internal rather than private because networked entities need the same thing: a model loaded
