@@ -7,6 +7,7 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Diagnostics;
 
 namespace Tf2DemoSalvage.Viewer3D;
@@ -23,6 +24,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Red">Per-vertex light, one for anything that takes its light from the lightmap.</param>
 /// <param name="Green">Per-vertex light.</param>
 /// <param name="Blue">Per-vertex light.</param>
+/// <param name="NormalX">World surface normal, east-west; lights models from the ambient cube.</param>
+/// <param name="NormalY">World surface normal, north-south.</param>
+/// <param name="NormalZ">World surface normal, vertically.</param>
 /// <param name="LightStep">How far along the atlas each directional lightmap sits, or zero.</param>
 /// <remarks>
 /// **The per-vertex colour exists for static props and nothing else.** A brush face takes its light
@@ -32,7 +36,8 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
-    float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f);
+    float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -64,8 +69,13 @@ internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, i
 /// </remarks>
 internal sealed unsafe class WorldRenderer : IDisposable
 {
-    /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap, one blend.</summary>
-    private const int VertexStride = sizeof(float) * 12;
+    /// <summary>Bytes per vertex: position, texture, lightmap, blend, colour, step and normal.</summary>
+    /// <remarks>
+    /// **The normal arrived for entity lighting**, since a model has no lightmap and is lit from
+    /// its leaf's ambient cube evaluated against the surface normal. Brush surfaces carry theirs
+    /// too rather than a placeholder: they already know it, and a free camera will want it.
+    /// </remarks>
+    private const int VertexStride = sizeof(float) * 15;
 
     private const string ShaderSource = """
         struct VsIn
@@ -75,6 +85,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
+            float3 nrm : TEXCOORD5;
             float  ls  : TEXCOORD4;
         };
 
@@ -85,6 +96,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
+            float3 nrm : TEXCOORD5;
             float  ls  : TEXCOORD4;
         };
 
@@ -114,6 +126,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
         cbuffer Model : register(b2)
         {
             row_major float4x4 model;
+
+            // **The ambient cube of the leaf this model stands in**, in the shader's own order:
+            // +X, -X, +Y, -Y, +Z, -Z. A model has no lightmap, so this is the light it gets - and
+            // without it every entity draws at full brightness, which is what made a medkit a pale
+            // square instead of a teal case.
+            //
+            // w of the first entry is 1 when the cube is real. An unlit model is drawn at full
+            // brightness deliberately, since a model lit by a cube nobody measured would be black.
+            float4 ambientCube[6];
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -225,6 +246,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.luv = input.luv;
             output.a = input.a;
             output.vc = input.vc;
+
+            // The normal is in the model's own space, so it turns with the model. Rotation only:
+            // the translation would move a direction, and the scale cancels once it is normalised.
+            output.nrm = normalize(mul(float4(input.nrm, 0.0f), model).xyz);
             output.ls = input.ls;
             return output;
         }
@@ -363,6 +388,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **The vertex colour is a static prop's lightmap.** It is white for everything that
             // has a real one, so this multiply is an identity for brushwork and the whole map goes
             // through one shader rather than two.
+            // **A model is lit by its leaf's ambient cube, not by a lightmap.** Valve's
+            // VertexShaderAmbientLight, transcribed: the squared normal weights the three axis
+            // pairs, so a surface facing along an axis takes that face alone and the sum is one
+            // for a unit normal.
+            //
+            // ambientCube[0].w says whether a cube was supplied. Without one the model keeps its
+            // full brightness rather than going black, because a model lit by a cube nobody
+            // measured is worse than a model that is merely too bright.
+            if (ambientCube[0].w > 0.5f)
+            {
+                float3 nSquared = input.nrm * input.nrm;
+                int3 isNegative = (int3)(input.nrm < 0.0f);
+
+                light = nSquared.x * ambientCube[isNegative.x].rgb +
+                        nSquared.y * ambientCube[isNegative.y + 2].rgb +
+                        nSquared.z * ambientCube[isNegative.z + 4].rgb;
+            }
+
             float3 lit = albedo.rgb * light * input.vc;
 
             if (mode >= 0)
@@ -656,6 +699,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 SemanticIndex = 4,
                 Format = Silk.NET.DXGI.Format.FormatR32Float,
                 AlignedByteOffset = sizeof(float) * 11,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 5,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 12,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -957,7 +1008,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 12];
+        float[] data = new float[vertices.Count * 15];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -974,6 +1025,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.Green;
             data[at++] = vertex.Blue;
             data[at++] = vertex.LightStep;
+            data[at++] = vertex.NormalX;
+            data[at++] = vertex.NormalY;
+            data[at++] = vertex.NormalZ;
         }
 
         CreateVertexBuffer(device, data);
@@ -1199,6 +1253,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Sets the transform applied to the vertices before the camera sees them.</summary>
     /// <param name="context">The device context.</param>
     /// <param name="matrix">Sixteen floats, row major.</param>
+    /// <param name="light">The ambient cube lighting this model, or null to leave it unlit.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -1211,7 +1266,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// A rigid entity is the one-bone case. Skinning adds more matrices and a weight per vertex;
     /// this arrangement does not change.
     /// </remarks>
-    public void SetModel(ComPtr<ID3D11DeviceContext> context, float[] matrix)
+    public void SetModel(
+        ComPtr<ID3D11DeviceContext> context, float[] matrix, AmbientCube? light = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -1222,20 +1278,58 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         EnsureModelBuffer(context);
 
+        // Sixteen for the matrix, then six float4s for the cube: the faces in the shader's own
+        // order, with w on the first saying whether a cube was supplied at all.
+        float[] contents = new float[ModelConstants];
+
+        Array.Copy(matrix, contents, 16);
+
+        if (light is { } cube)
+        {
+            WriteFace(contents, 16, cube.PositiveX);
+            WriteFace(contents, 20, cube.NegativeX);
+            WriteFace(contents, 24, cube.PositiveY);
+            WriteFace(contents, 28, cube.NegativeY);
+            WriteFace(contents, 32, cube.PositiveZ);
+            WriteFace(contents, 36, cube.NegativeZ);
+
+            contents[19] = 1f;
+        }
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
 
-        fixed (float* source = matrix)
+        fixed (float* source = contents)
         {
-            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, sizeof(float) * ModelConstants, sizeof(float) * ModelConstants);
         }
 
         context.Unmap(_model, 0);
 
-        // Vertex stage only: the pixel shader has no use for it, and binding what is not read is
-        // how the camera buffer once ended up half-bound with the height cut silently at zero.
+        // **Both stages, because both read it now.** The vertex shader takes the matrix and the
+        // pixel shader takes the ambient cube. This was bound to the vertex stage alone, with a
+        // comment saying the pixel shader had no use for it - true when the buffer held only a
+        // matrix, and false the moment lighting arrived.
+        //
+        // The failure is silent in the worst way: D3D hands the pixel shader zeros, so the cube's
+        // "is this real" flag reads false and every model draws exactly as it did before. Two
+        // captures of the same view came back byte for byte identical, which is the only reason
+        // it was noticed. The camera buffer made this same mistake once and cost a session.
         context.VSSetConstantBuffers(2, 1, ref _model);
+        context.PSSetConstantBuffers(2, 1, ref _model);
+    }
+
+    /// <summary>Floats in the model constant buffer: a matrix and six cube faces.</summary>
+    private const int ModelConstants = 16 + (6 * 4);
+
+    /// <summary>Writes one cube face, leaving its w alone.</summary>
+    private static void WriteFace(float[] into, int at, (float Red, float Green, float Blue) face)
+    {
+        into[at] = face.Red;
+        into[at + 1] = face.Green;
+        into[at + 2] = face.Blue;
     }
 
     private void EnsureModelBuffer(ComPtr<ID3D11DeviceContext> context)
@@ -1251,7 +1345,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BufferDesc description = new()
         {
-            ByteWidth = sizeof(float) * 16,
+            ByteWidth = sizeof(float) * ModelConstants,
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,
             CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -1599,7 +1693,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 12];
+        float[] data = new float[vertices.Count * 15];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -1616,6 +1710,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.Green;
             data[at++] = vertex.Blue;
             data[at++] = vertex.LightStep;
+            data[at++] = vertex.NormalX;
+            data[at++] = vertex.NormalY;
+            data[at++] = vertex.NormalZ;
         }
 
         BufferDesc description = new()
@@ -1675,6 +1772,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="context">The device context.</param>
     /// <param name="matrix">Where it stands: sixteen floats, row major.</param>
     /// <param name="batches">Its runs, indexing into the model buffer.</param>
+    /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -1683,7 +1781,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// precisely because an entity draw leaves its own matrix behind.
     /// </remarks>
     public void DrawModel(
-        ComPtr<ID3D11DeviceContext> context, float[] matrix, IReadOnlyList<WorldBatch> batches)
+        ComPtr<ID3D11DeviceContext> context,
+        float[] matrix,
+        IReadOnlyList<WorldBatch> batches,
+        AmbientCube? light = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1709,7 +1810,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
-        SetModel(context, matrix);
+        SetModel(context, matrix, light);
 
         foreach (WorldBatch batch in batches)
         {

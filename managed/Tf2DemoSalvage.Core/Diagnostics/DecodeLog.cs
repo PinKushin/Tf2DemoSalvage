@@ -29,6 +29,25 @@ public static class DecodeLog
     /// </remarks>
     public static Action<string, string>? Sink { get; set; }
 
+    /// <summary>Where ordinary observations go, when a host has offered somewhere.</summary>
+    /// <remarks>
+    /// **Separate from <see cref="Sink"/> because a count is not a warning.** The viewer routes
+    /// losses to its warning channel, and sending "read 4,812 ambient samples" there would train
+    /// a reader to ignore the word. Both are worth having: one says what went wrong, the other
+    /// says what the reader actually found, and the second is what makes an absence visible.
+    /// </remarks>
+    public static Action<string, string>? Notes { get; set; }
+
+    /// <summary>Records what a reader found, whether or not anything went wrong.</summary>
+    /// <param name="category">Which reader is speaking.</param>
+    /// <param name="message">What it read, with numbers.</param>
+    /// <remarks>
+    /// **Counts, because an empty result is the failure that reports nothing.** A map with no
+    /// ambient samples and a reader that silently returned none look identical from the outside;
+    /// a number distinguishes them without anyone having to reproduce the problem.
+    /// </remarks>
+    public static void Note(string category, string message) => Notes?.Invoke(category, message);
+
     /// <summary>Reports something that could not be read, without failing the read.</summary>
     /// <param name="category">Which reader is speaking, such as <c>assets</c> or <c>entities</c>.</param>
     /// <param name="message">What could not be read, and what happened instead.</param>

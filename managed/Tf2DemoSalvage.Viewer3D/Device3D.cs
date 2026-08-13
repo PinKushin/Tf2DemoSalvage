@@ -388,7 +388,11 @@ internal sealed unsafe class Device3D : IDisposable
                 // behind for the world.
                 foreach (ModelInstance instance in models ?? [])
                 {
-                    _world.DrawModel(_context, instance.Matrix, _world.ModelBatches(instance.ModelPath));
+                    _world.DrawModel(
+                        _context,
+                        instance.Matrix,
+                        _world.ModelBatches(instance.ModelPath),
+                        instance.Light);
                 }
             }
             else

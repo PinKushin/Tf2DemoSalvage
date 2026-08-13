@@ -141,6 +141,12 @@ internal class MainForm : Form
     private IReadOnlyList<BspOverlay>? _overlays;
 
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
+    /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
+    private BspLeafTree? _leaves;
+
+    /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
+    private IReadOnlyList<AmbientSamples> _ambient = [];
+
     /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
     private (float Lowest, float Highest)? _heightRange;
 
@@ -875,6 +881,13 @@ internal class MainForm : Form
                 {
                     _surfaceList = BspSurfaces.Read(bytes);
 
+                    // **What lights anything that moves.** A model has no lightmap, so it takes
+                    // the ambient cube of the leaf it stands in - which needs the tree to find the
+                    // leaf and the samples to light it. Read with the map, since both come from
+                    // the same file and neither changes afterwards.
+                    _leaves = BspLeafTree.Read(bytes);
+                    _ambient = BspAmbientLight.Read(bytes);
+
                     // **Every model the demo will ever show, loaded with the map.** The timeline
                     // is already built, so the whole set is known before anything is drawn - and
                     // loading them here means their materials join the map's table and the
@@ -1102,6 +1115,30 @@ internal class MainForm : Form
     /// world geometry placed far outside the playable space, and fitting to that pushed
     /// cp_process_final into a third of the viewport with an empty expanse beside it.
     /// </remarks>
+    /// <summary>The ambient light at a world position.</summary>
+    /// <remarks>
+    /// **The leaf decides, which is how the engine does it.** A model takes the light measured
+    /// inside the leaf it stands in, so two crates either side of a doorway are lit differently
+    /// without either carrying a lightmap.
+    ///
+    /// An unlit answer is returned as a default cube, which the shader reads as "no cube supplied"
+    /// and draws at full brightness rather than black - a model lit by a measurement nobody made
+    /// is worse than one that is merely too bright.
+    /// </remarks>
+    private AmbientCube LightAt(float x, float y, float z)
+    {
+        if (_leaves is not { } tree || _ambient.Count == 0)
+        {
+            return default;
+        }
+
+        int leaf = tree.LeafAt(x, y, z);
+
+        return leaf >= 0 && leaf < _ambient.Count
+            ? _ambient[leaf].Nearest(x, y, z)
+            : default;
+    }
+
     /// <summary>One model's triangles, from the set preloaded with the map.</summary>
     /// <remarks>
     /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
@@ -1392,7 +1429,7 @@ internal class MainForm : Form
             }
         }
 
-        _models.Instances(_props, _instances);
+        _models.Instances(_props, _instances, LightAt);
 
         if (_instances.Count != _lastInstanceCount)
         {
@@ -1407,7 +1444,14 @@ internal class MainForm : Form
                     .GroupBy(instance => instance.ModelPath, StringComparer.Ordinal)
                     .Select(group => $"{group.Count()}x{Path.GetFileNameWithoutExtension(group.Key)}"));
 
-            ViewerLog.Write("render", $"drawing {_instances.Count} posed models: {names}");
+            // **How many were actually lit, not just how many were drawn.** A model with no cube
+            // draws at full brightness and looks like a rendering fault; the count is what says
+            // whether the leaf lookup found anything, without anyone having to judge by eye.
+            int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
+
+            ViewerLog.Write(
+                "render",
+                $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
 
             // The first medkit's actual transform. A model posed with a zero scale collapses to a
             // point and draws nothing, while every count above still reads correctly.
