@@ -143,6 +143,11 @@ internal class MainForm : Form
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
     private DemoTimeline? _timeline;
 
+    /// <summary>Reused between frames; PlayersAt and PropsAt fill them rather than allocating.</summary>
+    private readonly List<ScenePlayer> _players = [];
+
+    private readonly List<SceneProp> _props = [];
+
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
 
@@ -384,7 +389,7 @@ internal class MainForm : Form
         // has one path from "which moment" to "who is where" rather than two that can disagree.
         _transport.TickChanged += (_, tick) =>
         {
-            if (_timeline is not { } timeline)
+            if (_timeline is null)
             {
                 return;
             }
@@ -393,7 +398,7 @@ internal class MainForm : Form
             // part-tick it had accumulated, or the next tick after a drag arrives early.
             _clock?.Seek(tick);
 
-            ShowPlayers(timeline.PlayersAt(tick));
+            ShowMoment(tick);
             _viewport.Invalidate();
         };
 
@@ -1112,6 +1117,30 @@ internal class MainForm : Form
         _scene = points;
     }
 
+    /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
+    /// <param name="tick">The moment to show, which may fall between ticks.</param>
+    /// <remarks>
+    /// **One path from "which moment" to "what is drawn".** Scrubbing and playing both come
+    /// through here, so the two cannot disagree about what a tick looks like — which they did once
+    /// before, when playback and the scrub bar each built the scene their own way.
+    ///
+    /// Takes a fractional tick rather than a whole one so the interpolation actually reaches the
+    /// picture. Truncating here would leave every pose snapped to the last packet and make the
+    /// whole interpolation layer a no-op that still passed its own tests.
+    /// </remarks>
+    public void ShowMoment(double tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return;
+        }
+
+        timeline.PlayersAt(tick, _players);
+        timeline.PropsAt(tick, _props);
+
+        ShowPlayers(_players);
+    }
+
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
     /// <param name="players">The players, from the timeline.</param>
     /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
@@ -1159,7 +1188,37 @@ internal class MainForm : Form
             points.Add(new ScenePoint(x, y, red, green, blue));
         }
 
+        AppendProps(points, camera);
+
         _scene = points;
+    }
+
+    /// <summary>Adds a marker for every model-bearing entity at the current moment.</summary>
+    /// <remarks>
+    /// **Markers rather than models, and only for now.** The renderer bakes the world into one
+    /// buffer at load, which suits brushwork and static props and cannot express a thing that
+    /// moves; drawing real models needs a per-object transform in the shader. Until then a marker
+    /// says truthfully where each entity is, which is what makes the tracks visible at all.
+    ///
+    /// Deliberately dimmer than the team colours: these are rockets, pickups, doors and dropped
+    /// weapons, and they outnumber the players by an order of magnitude. Drawn as brightly they
+    /// would bury the thing the viewer is for.
+    /// </remarks>
+    private void AppendProps(List<ScenePoint> points, TopDownCamera camera)
+    {
+        foreach (SceneProp prop in _props)
+        {
+            // Brush models are doors and lifts - parts of the map rather than things in it - and a
+            // marker at a door's origin says nothing a viewer wants. Sprites are glows.
+            if (prop.Kind != SceneModelKind.Studio)
+            {
+                continue;
+            }
+
+            (float x, float y) = camera.Project(prop.Pose.X, prop.Pose.Y);
+
+            points.Add(new ScenePoint(x, y, 0.55f, 0.55f, 0.50f));
+        }
     }
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
@@ -1573,7 +1632,7 @@ internal class MainForm : Form
     /// </remarks>
     private void AdvancePlayback()
     {
-        if (!_transport.Playing || _clock is not { } clock || _timeline is not { } timeline)
+        if (!_transport.Playing || _clock is not { } clock || _timeline is null)
         {
             return;
         }
@@ -1595,7 +1654,11 @@ internal class MainForm : Form
         clock.Advance(elapsed);
 
         _transport.ShowTick(clock.Tick);
-        ShowPlayers(timeline.PlayersAt(clock.Tick));
+
+        // **The clock's fractional position, not its whole tick.** Truncating here would snap
+        // every pose to the last packet and make the interpolation layer a no-op that still
+        // passed every one of its own tests.
+        ShowMoment(clock.Position);
 
         // Whichever end it is travelling towards: stopping only at the end would leave reverse
         // playback spinning against tick zero, still claiming to play.
