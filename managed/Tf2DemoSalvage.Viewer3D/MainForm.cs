@@ -833,6 +833,7 @@ internal class MainForm : Form
                         _surfaceList,
                         assets.Materials,
                         assets.Lightmaps,
+                        assets.Props,
                         camera,
                         _map.MainBounds);
                 }

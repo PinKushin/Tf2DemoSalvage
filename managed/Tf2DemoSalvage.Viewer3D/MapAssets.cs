@@ -189,6 +189,7 @@ internal sealed class MapAssets
         IReadOnlyList<MapTexture?> blendTextures,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
+        IReadOnlyList<PropVertex> props,
         int resolved,
         int missing)
     {
@@ -196,9 +197,17 @@ internal sealed class MapAssets
         BlendTextures = blendTextures;
         Materials = materials;
         Lightmaps = lightmaps;
+        Props = props;
         Resolved = resolved;
         Missing = missing;
     }
+
+    /// <summary>The map's placed models, in world space, three corners per triangle.</summary>
+    /// <remarks>
+    /// **Their materials continue the map's own table**, so a prop's material index indexes
+    /// <see cref="Textures"/> exactly like a brush face's. That is what lets one renderer draw both.
+    /// </remarks>
+    public IReadOnlyList<PropVertex> Props { get; }
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
@@ -237,7 +246,7 @@ internal sealed class MapAssets
         ArgumentNullException.ThrowIfNull(archives);
 
         PakFile pak = PakFile.ReadFrom(map);
-        IReadOnlyList<BspMaterial> materials = BspMaterials.Read(map);
+        List<BspMaterial> materials = [.. BspMaterials.Read(map)];
 
         List<MapTexture?> textures = new(materials.Count);
         List<MapTexture?> blendTextures = new(materials.Count);
@@ -262,11 +271,36 @@ internal sealed class MapAssets
             }
         }
 
+        // **Props after the brushwork, deliberately.** They extend the same material table, so
+        // every index the BSP already handed out keeps its meaning and the new ones continue from
+        // the end. Inserting them first would renumber every face in the map.
+        int brushMaterials = materials.Count;
+
+        IReadOnlyList<PropVertex> props = PropModels.Load(
+            map,
+            pak,
+            archives,
+            materials,
+            textures,
+            path => Resolve(path, pak, archives, maximumTextureSize).Texture);
+
+        // The blend list is indexed in step with the textures, and a prop material never has a
+        // second layer - only a displacement's WorldVertexTransition does.
+        while (blendTextures.Count < textures.Count)
+        {
+            blendTextures.Add(null);
+        }
+
+        ViewerLog.Write(
+            "assets",
+            $"{materials.Count - brushMaterials} prop materials added to {brushMaterials} the map's own");
+
         return new MapAssets(
             textures,
             blendTextures,
             materials,
             LightmapAtlas.Pack(BspLightmaps.Read(map)),
+            props,
             resolved,
             missing);
     }

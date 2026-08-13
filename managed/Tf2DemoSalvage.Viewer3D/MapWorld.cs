@@ -35,6 +35,7 @@ internal static class MapWorldBuilder
     /// <param name="surfaces">The map's surfaces.</param>
     /// <param name="materials">The map's texture table, for identifying tool materials.</param>
     /// <param name="atlas">Where each face's lighting sits.</param>
+    /// <param name="props">The map's placed models, in world space.</param>
     /// <param name="camera">Projection from world to clip space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
     /// <returns>The triangles and their batches.</returns>
@@ -49,12 +50,14 @@ internal static class MapWorldBuilder
         IReadOnlyList<BspSurface> surfaces,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas atlas,
+        IReadOnlyList<PropVertex> props,
         TopDownCamera camera,
         MapBounds? area)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
         ArgumentNullException.ThrowIfNull(atlas);
+        ArgumentNullException.ThrowIfNull(props);
 
         (float lowest, float highest) = HeightRange(surfaces);
 
@@ -124,6 +127,8 @@ internal static class MapWorldBuilder
             }
         }
 
+        AppendProps(props, byMaterial, area, camera, lowest, highest);
+
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];
 
@@ -140,6 +145,74 @@ internal static class MapWorldBuilder
 
         return new MapWorld(all, batches);
     }
+
+    /// <summary>
+    /// Adds the map's placed models to the batches the brushwork already filled.
+    /// </summary>
+    /// <remarks>
+    /// **Props are unlit here, and that is a known gap rather than an oversight.** A brush face
+    /// carries a lightmap rectangle; a static prop's baked lighting lives in its own lump, which
+    /// this project does not read yet. A zero-width rectangle sends every corner to the atlas's
+    /// reserved white texel, so a prop draws at its texture's own brightness — too bright in shade,
+    /// correct in the open, and visible either way. Drawn slightly wrong beats a hole, which is
+    /// what was there before.
+    ///
+    /// **No upward-facing filter.** Brush faces are culled by normal because a ceiling seen from
+    /// above should not hide the room; a prop is a closed solid whose far side is hidden by its own
+    /// near side under the depth buffer, so there is nothing to cull and a normal test would delete
+    /// half of every rock.
+    /// </remarks>
+    private static void AppendProps(
+        IReadOnlyList<PropVertex> props,
+        Dictionary<int, List<WorldVertex>> byMaterial,
+        MapBounds? area,
+        TopDownCamera camera,
+        float lowest,
+        float highest)
+    {
+        for (int corner = 0; corner + 2 < props.Count; corner += 3)
+        {
+            PropVertex first = props[corner];
+
+            if (first.MaterialIndex < 0)
+            {
+                // A material that resolved to nothing. Drawing it white would be worse than the
+                // hole it leaves, since a white rock reads as a rendering fault.
+                continue;
+            }
+
+            if (area is { } bounds && !Inside(props[corner], bounds) &&
+                !Inside(props[corner + 1], bounds) && !Inside(props[corner + 2], bounds))
+            {
+                // Outside the play area, which for a TF2 map is mostly the 3D skybox's own
+                // scenery - drawn at a fraction of world scale and nowhere near where it appears.
+                continue;
+            }
+
+            if (!byMaterial.TryGetValue(first.MaterialIndex, out List<WorldVertex>? vertices))
+            {
+                vertices = [];
+                byMaterial[first.MaterialIndex] = vertices;
+            }
+
+            for (int offset = 0; offset < 3; offset++)
+            {
+                PropVertex vertex = props[corner + offset];
+
+                Append(
+                    vertices,
+                    new SurfaceVertex(vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, 0f, 0f),
+                    default,
+                    camera,
+                    lowest,
+                    highest);
+            }
+        }
+    }
+
+    private static bool Inside(PropVertex vertex, MapBounds bounds) =>
+        vertex.X >= bounds.MinX && vertex.X <= bounds.MaxX &&
+        vertex.Y >= bounds.MinY && vertex.Y <= bounds.MaxY;
 
     /// <summary>Reads a displacement's terrain, or nothing if it cannot be read.</summary>
     /// <remarks>
