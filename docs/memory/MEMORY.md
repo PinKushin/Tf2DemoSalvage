@@ -43,3 +43,4 @@
 - [The focus check asks the wrong window](focus-check-asks-the-wrong-window.md) — HasKeyboardFocus on a top-level window is always false; cost 5s per focus and misdirected two sessions.
 - [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — five measurements were wrong before any reader was; check sensitivity before suspecting the code.
 - [Closed source: check the public API](closed-source-check-the-public-api.md) — a black box's exposed interface and its callers are usually enough; "closed" is not "unknowable".
+- [Log what is about to be drawn](log-what-is-about-to-be-drawn.md) — launch before the long suite, and log scene composition so the launch can answer.
