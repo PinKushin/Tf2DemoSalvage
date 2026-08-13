@@ -386,8 +386,12 @@ internal static class PropModels
             return -1;
         }
 
+        List<string> tried = [];
+
         foreach (string candidate in model.MaterialPaths(materialIndex))
         {
+            tried.Add(candidate);
+
             if (indices.TryGetValue(candidate, out int existing))
             {
                 return existing;
@@ -409,6 +413,14 @@ internal static class PropModels
 
             return index;
         }
+
+        // **Named, not counted.** A material that resolves nowhere draws in the missing chequer,
+        // which makes it visible - and the log is what says WHICH material and where it was looked
+        // for, so the fix is a lookup rather than a hunt.
+        ViewerLog.Warn(
+            "props",
+            $"{model.Name}: material \"{model.Materials[materialIndex]}\" not found; tried " +
+            string.Join(", ", tried));
 
         return -1;
     }

@@ -13,6 +13,12 @@ public sealed class ToolMaterialFlagsProbe
     public void ReportFlagsForEveryToolMaterial()
     {
         string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
+        string custom = "C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/maps/cp_process_f12.bsp";
+
+        if (File.Exists(custom))
+        {
+            path = custom;
+        }
 
         if (!File.Exists(path))
         {
@@ -35,8 +41,7 @@ public sealed class ToolMaterialFlagsProbe
 
             string name = materials[surface.MaterialIndex].Name;
 
-            if (!name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) &&
-                !name.StartsWith("TOOLS/", StringComparison.Ordinal))
+            if (!name.Contains("TOOLS", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

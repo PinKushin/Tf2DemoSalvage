@@ -330,17 +330,18 @@ internal sealed unsafe class Device3D : IDisposable
     /// <summary>Sets the view the world is drawn through.</summary>
     /// <param name="matrix">Sixteen floats, row major.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
+    /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <remarks>
     /// **The resize path, now.** Geometry is uploaded in world coordinates and stays; a viewport
     /// change rewrites one 64-byte buffer instead of rebuilding every vertex.
     /// </remarks>
-    public void SetCamera(float[] matrix, bool surfaceColours = false)
+    public void SetCamera(float[] matrix, bool surfaceColours = false, float heightCut = 0f)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _world ??= WorldRenderer.Create(_device);
-        _world.SetCamera(_device, _context, matrix, surfaceColours);
+        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut);
     }
 
     /// <summary>Whether a map's textures are resident.</summary>

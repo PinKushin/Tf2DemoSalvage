@@ -156,6 +156,18 @@ internal class MainForm : Form
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private Point? _dragFrom;
 
+    /// <summary>
+    /// How much of the map's height is cut away from the top, from 0 to 1.
+    /// </summary>
+    /// <remarks>
+    /// **What lets an overhead view see inside a building.** A roof is an upward-facing surface, so
+    /// nothing culls it and everything under it - the hallways into last on cp_process, the rooms
+    /// under the domes at mid - is simply hidden. Slicing the map at a height is how every level
+    /// editor solves this, and it costs nothing here because the shader discards on the depth the
+    /// vertices already carry.
+    /// </remarks>
+    private float _heightCut;
+
     /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
     /// <remarks>
     /// **The number a user actually feels**, and the one that would have caught this project's
@@ -901,7 +913,7 @@ internal class MainForm : Form
                 // vertices are in map coordinates and never move; only the view does. This is what
                 // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
                 // reason a free camera or a per-player view can exist at all.
-                _device.SetCamera(camera.ToMatrix(), _surfaceColours.Checked);
+                _device.SetCamera(camera.ToMatrix(), _surfaceColours.Checked, _heightCut);
 
                 // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
                 // Counting these against "building the world" lines is what proves the geometry
@@ -1486,6 +1498,28 @@ internal class MainForm : Form
     /// </remarks>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // **Page up and down slice the map**, which is the only control this needs: one axis, and
+        // the eye finds the useful height in a second or two. Home restores the whole map.
+        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _map is not null)
+        {
+            float step = keyData == Keys.PageUp ? 0.02f : -0.02f;
+
+            _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
+
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
+
+            _status.Text = _heightCut > 0f
+                ? string.Create(CultureInfo.InvariantCulture, $"Showing the lower {1f - _heightCut:P0} of the map. Page Up cuts more, Home restores it.")
+                : "Showing the whole map.";
+
+            _worldIsStale = true;
+
+            return true;
+        }
+
         if (keyData == Keys.Escape && IsFullScreen)
         {
             SetFullScreen(false);

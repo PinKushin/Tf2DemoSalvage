@@ -87,10 +87,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             row_major float4x4 viewProjection;
 
-            // **A debug view that replaces the texture with a flat category colour.** Turning the
-            // map into "this is world, this is terrain, this is a prop, this is missing" answers in
-            // one glance what a textured picture hides - which is how several defects here survived
-            // for hours looking like art direction.
+            // x: a debug view that replaces the texture with a flat category colour. Turning the
+            //    map into "this is world, this is terrain, this is a prop, this is missing" answers
+            //    in one glance what a textured picture hides.
+            // y: a cutting plane in DEPTH, which is world height inverted. Everything nearer than
+            //    this is discarded, so a roof can be taken off to show the room under it - the
+            //    hallways into last on cp_process being the case that asked for it. Zero draws
+            //    everything.
             float4 surfaceColours;
         };
 
@@ -122,6 +125,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // the same image, so the mix is an identity and costs a sample.
             float4 first = albedoMap.Sample(wrapSampler, input.uv);
             float4 second = blendMap.Sample(wrapSampler, input.uv);
+            // **The cut is on depth, which is height.** Discarding here rather than dropping the
+            // geometry means the slice moves without rebuilding anything - the camera matrix work
+            // is what makes that free.
+            clip(input.pos.z - surfaceColours.y);
+
             float4 albedo = lerp(first, second, saturate(input.a));
 
             // **Alpha-tested foliage, which is what a bush IS.** Source draws leaves and grates as
@@ -544,6 +552,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="context">Context to upload through.</param>
     /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
+    /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -555,7 +564,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
-        bool surfaceColours = false)
+        bool surfaceColours = false,
+        float heightCut = 0f)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -586,7 +596,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] contents =
         [
             .. matrix,
-            surfaceColours ? 1f : 0f, 0f, 0f, 0f,
+            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), 0f, 0f,
         ];
 
         MappedSubresource mapped = default;

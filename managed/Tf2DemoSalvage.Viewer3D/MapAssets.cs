@@ -332,12 +332,18 @@ internal sealed class MapAssets
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
+                // **Reported rather than swallowed.** An unreadable archive entry is a defect in
+                // this reader until shown otherwise; the engine opens all of these.
+                ViewerLog.Warn("assets", $"reading {path}", failure);
+
                 return null;
             }
         }
 
         if (Find("materials/" + materialName + ".vmt") is not { } vmt)
         {
+            ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
+
             return (null, null);
         }
 
@@ -352,8 +358,10 @@ internal sealed class MapAssets
                 material = VmtMaterial.ApplyPatch(material, VmtMaterial.Parse(based));
             }
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException failure)
         {
+            ViewerLog.Warn("assets", $"parsing materials/{materialName}.vmt", failure);
+
             return (null, null);
         }
 
@@ -364,8 +372,24 @@ internal sealed class MapAssets
 
         MapTexture? Decode(string? name, bool transparent)
         {
-            if (name is null || Find("materials/" + name + ".vtf") is not { } vtf)
+            if (name is null)
             {
+                return null;
+            }
+
+            // **Some materials name the texture WITH its extension.** Valve's own script-generated
+            // VMTs do it - the props_hydro pipes carry
+            // `$baseTexture "models/props_hydro/2pipe.vtf"` - and appending .vtf to that asks for
+            // 2pipe.vtf.vtf, which exists nowhere. The engine tolerates both spellings, so this
+            // must too; 19 of cp_process_final's prop materials resolved to nothing over it.
+            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                ? name[..^4]
+                : name;
+
+            if (Find("materials/" + bare + ".vtf") is not { } vtf)
+            {
+                ViewerLog.Warn("assets", $"texture materials/{bare}.vtf was not found");
+
                 return null;
             }
 
@@ -375,10 +399,13 @@ internal sealed class MapAssets
 
                 return new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, transparent);
             }
-            catch (InvalidDataException)
+            catch (InvalidDataException failure)
             {
-                // A format this project does not read, or a truncated file. The face falls back to
-                // the material's reflectivity.
+                // **Reported, never silent.** A texture that cannot be decoded is a defect in this
+                // reader until shown otherwise - the engine reads every one of these - and a face
+                // quietly falling back to a reflectivity colour is how that goes unnoticed.
+                ViewerLog.Warn("assets", $"decoding materials/{bare}.vtf", failure);
+
                 return null;
             }
         }
