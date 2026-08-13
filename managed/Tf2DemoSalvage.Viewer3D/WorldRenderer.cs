@@ -18,8 +18,18 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="LightU">Lightmap atlas coordinate across.</param>
 /// <param name="LightV">Lightmap atlas coordinate down.</param>
 /// <param name="Alpha">Blend between the material's two textures; 0 draws only the first.</param>
+/// <param name="Red">Per-vertex light, one for anything that takes its light from the lightmap.</param>
+/// <param name="Green">Per-vertex light.</param>
+/// <param name="Blue">Per-vertex light.</param>
+/// <remarks>
+/// **The per-vertex colour exists for static props and nothing else.** A brush face takes its light
+/// from the lightmap atlas; a model cannot, because the same model stands in many places under
+/// different light, so the compiler bakes a colour per vertex per placement. Brush faces carry
+/// white here, which multiplies to no change, so one shader serves both.
+/// </remarks>
 internal readonly record struct WorldVertex(
-    float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha);
+    float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
+    float Red = 1f, float Green = 1f, float Blue = 1f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -52,7 +62,7 @@ internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, i
 internal sealed unsafe class WorldRenderer : IDisposable
 {
     /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap, one blend.</summary>
-    private const int VertexStride = sizeof(float) * 8;
+    private const int VertexStride = sizeof(float) * 11;
 
     private const string ShaderSource = """
         struct VsIn
@@ -61,6 +71,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 uv  : TEXCOORD0;
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
+            float3 vc  : TEXCOORD3;
         };
 
         struct VsOut
@@ -69,6 +80,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 uv  : TEXCOORD0;
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
+            float3 vc  : TEXCOORD3;
         };
 
         Texture2D    albedoMap   : register(t0);
@@ -84,6 +96,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.uv = input.uv;
             output.luv = input.luv;
             output.a = input.a;
+            output.vc = input.vc;
             return output;
         }
 
@@ -102,7 +115,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // applies to the raw linear samples. BspLightmaps has already taken the sample through
             // its exponent and the gamma curve into display space, so doubling again is the second
             // half of a scaling that was already applied - measured as a map washed out to white.
-            return float4(albedo.rgb * light, albedo.a);
+            // **The vertex colour is a static prop's lightmap.** It is white for everything that
+            // has a real one, so this multiply is an identity for brushwork and the whole map goes
+            // through one shader rather than two.
+            return float4(albedo.rgb * light * input.vc, albedo.a);
         }
         """;
 
@@ -210,6 +226,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 SemanticIndex = 2,
                 Format = Silk.NET.DXGI.Format.FormatR32Float,
                 AlignedByteOffset = sizeof(float) * 7,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 3,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 8,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -342,7 +366,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 8];
+        float[] data = new float[vertices.Count * 11];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -355,6 +379,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.LightU;
             data[at++] = vertex.LightV;
             data[at++] = vertex.Alpha;
+            data[at++] = vertex.Red;
+            data[at++] = vertex.Green;
+            data[at++] = vertex.Blue;
         }
 
         CreateVertexBuffer(device, data);

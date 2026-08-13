@@ -150,12 +150,14 @@ internal static class MapWorldBuilder
     /// Adds the map's placed models to the batches the brushwork already filled.
     /// </summary>
     /// <remarks>
-    /// **Props are unlit here, and that is a known gap rather than an oversight.** A brush face
-    /// carries a lightmap rectangle; a static prop's baked lighting lives in its own lump, which
-    /// this project does not read yet. A zero-width rectangle sends every corner to the atlas's
-    /// reserved white texel, so a prop draws at its texture's own brightness — too bright in shade,
-    /// correct in the open, and visible either way. Drawn slightly wrong beats a hole, which is
-    /// what was there before.
+    /// **A prop's light comes from its own vertex colours, not from the lightmap.** The compiler
+    /// bakes a colour per vertex per placement into the map's pakfile, because the same model
+    /// stands in many places under different light and one lightmap could not serve them all. The
+    /// zero-width atlas rectangle sends every corner to the reserved white texel, so the lightmap
+    /// term is an identity and the vertex colour does the work.
+    ///
+    /// A placement whose lighting is missing or does not match its model keeps white, which draws
+    /// it at its texture's own brightness. Visible and slightly wrong beats a hole.
     ///
     /// **No upward-facing filter.** Brush faces are culled by normal because a ceiling seen from
     /// above should not hide the room; a prop is a closed solid whose far side is hidden by its own
@@ -211,7 +213,10 @@ internal static class MapWorldBuilder
                     default,
                     camera,
                     lowest,
-                    highest);
+                    highest,
+                    vertex.Red,
+                    vertex.Green,
+                    vertex.Blue);
             }
         }
     }
@@ -264,7 +269,10 @@ internal static class MapWorldBuilder
         AtlasRect rectangle,
         TopDownCamera camera,
         float lowest,
-        float highest)
+        float highest,
+        float red = 1f,
+        float green = 1f,
+        float blue = 1f)
     {
         (float x, float y) = camera.Project(corner.X, corner.Y);
 
@@ -282,7 +290,8 @@ internal static class MapWorldBuilder
         float lightU = rectangle.U + (Math.Clamp(corner.LightU, 0f, 1f) * rectangle.Width);
         float lightV = rectangle.V + (Math.Clamp(corner.LightV, 0f, 1f) * rectangle.Height);
 
-        vertices.Add(new WorldVertex(x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha));
+        vertices.Add(new WorldVertex(
+            x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha, red, green, blue));
     }
 
     /// <summary>Whether a material is one of the compiler's tools rather than a surface.</summary>

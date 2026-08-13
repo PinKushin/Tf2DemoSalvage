@@ -16,9 +16,13 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="MaterialIndex">Which material paints it, in the map's combined table.</param>
 /// <param name="OriginX">Where the placement stands, east-west.</param>
 /// <param name="OriginY">Where the placement stands, north-south.</param>
+/// <param name="Red">Baked lighting, one where the placement has none.</param>
+/// <param name="Green">Baked lighting, one where the placement has none.</param>
+/// <param name="Blue">Baked lighting, one where the placement has none.</param>
 internal readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
-    float OriginX = 0f, float OriginY = 0f);
+    float OriginX = 0f, float OriginY = 0f,
+    float Red = 1f, float Green = 1f, float Blue = 1f);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -97,9 +101,12 @@ internal static class PropModels
 
         int placed = 0;
         int skipped = 0;
+        int unlit = 0;
 
-        foreach (BspStaticProp placement in placements)
+        for (int index = 0; index < placements.Count; index++)
         {
+            BspStaticProp placement = placements[index];
+
             if (placed >= MaximumPlacements)
             {
                 ViewerLog.Warn(
@@ -122,9 +129,22 @@ internal static class PropModels
 
             PropTransform transform = new(placement);
 
-            foreach (PropVertex corner in model.Corners)
+            IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? lighting =
+                Lighting(pak, placed: index, model.Checksum);
+
+            if (lighting is null)
             {
+                unlit++;
+            }
+
+            for (int at = 0; at < model.Corners.Count; at++)
+            {
+                PropVertex corner = model.Corners[at];
+
                 (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
+
+                (float red, float green, float blue) = Colour(
+                    lighting, model.Meshes[at], model.Vertices[at]);
 
                 // **The placement's own origin rides along**, so a prop can be kept or dropped as
                 // one thing. Judging its triangles individually cannot tell a 3D skybox prop from
@@ -138,6 +158,9 @@ internal static class PropModels
                     Z = z,
                     OriginX = placement.X,
                     OriginY = placement.Y,
+                    Red = red,
+                    Green = green,
+                    Blue = blue,
                 });
             }
 
@@ -146,10 +169,84 @@ internal static class PropModels
 
         ViewerLog.Write(
             "props",
-            $"{placed} props placed from {loaded.Count} models ({skipped} skipped), " +
-            $"{world.Count / 3} triangles");
+            $"{placed} props placed from {loaded.Count} models ({skipped} skipped, " +
+            $"{unlit} without baked lighting), {world.Count / 3} triangles");
 
         return world;
+    }
+
+    /// <summary>Reads one placement's baked lighting, or nothing when it has none.</summary>
+    /// <remarks>
+    /// **Named by the placement's index in the static prop lump**, which is how the compiler wrote
+    /// it. A prop with no lighting is normal rather than an error - a map compiled without static
+    /// prop lighting has none for any of them - so this reports absence quietly and the caller
+    /// counts it.
+    /// </remarks>
+    private static IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? Lighting(
+        PakFile pak, int placed, int checksum)
+    {
+        foreach (string path in StudioVertexLighting.PathsFor(placed))
+        {
+            byte[]? file;
+
+            try
+            {
+                file = pak.ReadFile(path);
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            {
+                return null;
+            }
+
+            if (file is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                return StudioVertexLighting.Read(file, checksum);
+            }
+            catch (InvalidDataException failure)
+            {
+                // Includes the checksum guard: lighting baked against a different build of the
+                // model would light the wrong parts of it. Unlit is the honest fallback.
+                ViewerLog.Warn("props", $"reading {path}", failure);
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>One vertex's baked colour, or white where there is none to apply.</summary>
+    /// <remarks>
+    /// **Applied only where the counts agree**, which is the check the engine makes before
+    /// uploading vertex colours. vrad counts a mesh's colours from its strip group, which may
+    /// duplicate vertices past the model mesh's own count; measured at one model in two hundred on
+    /// cp_process_final. Applying a short run anyway would shift every colour after it onto the
+    /// wrong vertex, which lights the prop convincingly and wrongly.
+    /// </remarks>
+    private static (float Red, float Green, float Blue) Colour(
+        IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? lighting,
+        int mesh,
+        int vertex)
+    {
+        if (lighting is null || mesh < 0 || mesh >= lighting.Count)
+        {
+            return (1f, 1f, 1f);
+        }
+
+        IReadOnlyList<(byte Red, byte Green, byte Blue)> colours = lighting[mesh];
+
+        if (vertex < 0 || vertex >= colours.Count)
+        {
+            return (1f, 1f, 1f);
+        }
+
+        (byte red, byte green, byte blue) = colours[vertex];
+
+        return (red / 255f, green / 255f, blue / 255f);
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
@@ -195,6 +292,8 @@ internal static class PropModels
             IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
 
             List<PropVertex> corners = [];
+            List<int> cornerMeshes = [];
+            List<int> cornerVertices = [];
 
             for (int index = 0; index < meshes.Count && index < model.Meshes.Count; index++)
             {
@@ -214,10 +313,12 @@ internal static class PropModels
 
                     corners.Add(new PropVertex(
                         corner.X, corner.Y, corner.Z, corner.U, corner.V, material));
+                    cornerMeshes.Add(index);
+                    cornerVertices.Add(vertex);
                 }
             }
 
-            return new LoadedModel(corners);
+            return new LoadedModel(corners, cornerMeshes, cornerVertices, model.Checksum);
         }
         catch (InvalidDataException failure)
         {
@@ -273,6 +374,22 @@ internal static class PropModels
         return -1;
     }
 
-    /// <summary>A model's triangles in its own space, ready to be placed.</summary>
-    private sealed record LoadedModel(IReadOnlyList<PropVertex> Corners);
+    /// <summary>
+    /// A model's triangles in its own space, ready to be placed.
+    /// </summary>
+    /// <param name="Corners">The triangle corners, three per triangle.</param>
+    /// <param name="Meshes">Which mesh each corner came from.</param>
+    /// <param name="Vertices">Which vertex of that mesh each corner is.</param>
+    /// <param name="Checksum">The model's checksum, which its lighting must match.</param>
+    /// <remarks>
+    /// **The mesh and vertex are kept because the model is shared and the lighting is not.** One
+    /// model stands in fifty places under fifty different bakes, so the geometry is cached once and
+    /// the colours are looked up per placement — which needs to know, for each corner, which mesh
+    /// and which vertex of it produced that corner.
+    /// </remarks>
+    private sealed record LoadedModel(
+        IReadOnlyList<PropVertex> Corners,
+        IReadOnlyList<int> Meshes,
+        IReadOnlyList<int> Vertices,
+        int Checksum);
 }
