@@ -106,7 +106,16 @@ public sealed class DemoTimeline
 
     private readonly List<TimelineFrame> _frames;
 
-    private DemoTimeline(List<TimelineFrame> frames) => _frames = frames;
+    private readonly List<ScenePropTrack> _props;
+
+    private DemoTimeline(List<TimelineFrame> frames, List<ScenePropTrack>? props = null)
+    {
+        _frames = frames;
+        _props = props ?? [];
+    }
+
+    /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
+    public IReadOnlyList<ScenePropTrack> Props => _props;
 
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
@@ -173,6 +182,15 @@ public sealed class DemoTimeline
         List<TimelineFrame> frames = [];
         float interval = 0f;
 
+        ModelPrecache precache = new();
+        int protocol = header.NetworkProtocol;
+
+        // Live tracks by slot, plus every track ever started. A slot is reused when its occupant
+        // is destroyed, so the two are not the same list - keeping only the live ones would lose
+        // every rocket the moment the next one took its index.
+        Dictionary<int, ScenePropTrack> tracks = [];
+        List<ScenePropTrack> props = [];
+
         foreach (DemoCommand command in commands)
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
@@ -208,6 +226,17 @@ public sealed class DemoTimeline
                         BaselineBuilder.Apply(update.Entries, decoder);
                         continue;
 
+                    // Which model each m_nModelIndex names. Without this every entity carrying a
+                    // model resolves to nothing and the scene is players on an empty map.
+                    case CreateStringTableMessage { Name: ModelPrecache.TableName } models:
+                        precache.Apply(models.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == ModelPrecache.TableName:
+                        precache.Apply(update.Entries);
+                        continue;
+
                     default:
                         break;
                 }
@@ -221,6 +250,7 @@ public sealed class DemoTimeline
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
                     entities.Apply(entity);
+                    RecordProp(entity, entities, precache, tracks, props, protocol, command.Tick);
                 }
 
                 moved = true;
@@ -268,7 +298,86 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames) { IntervalPerTick = interval };
+        return new DemoTimeline(frames, props) { IntervalPerTick = interval };
+    }
+
+    /// <summary>Records where a model-bearing entity was, if this update said anything about it.</summary>
+    /// <remarks>
+    /// **Only entities the snapshot actually mentioned.** Walking the whole entity table every
+    /// frame would ask several hundred entities to repeat themselves across a hundred thousand
+    /// frames, and produce identical keyframes that the track then discards — the same answer for
+    /// tens of millions of times the work. A demo states what changed; this records exactly that.
+    /// </remarks>
+    private static void RecordProp(
+        DecodedEntity entity,
+        EntityStateTable entities,
+        ModelPrecache precache,
+        Dictionary<int, ScenePropTrack> tracks,
+        List<ScenePropTrack> props,
+        int protocol,
+        int tick)
+    {
+        if (entity.UpdateType == EntityUpdateType.Delete)
+        {
+            if (tracks.Remove(entity.EntityIndex, out ScenePropTrack? finished))
+            {
+                finished.End(tick);
+            }
+
+            return;
+        }
+
+        if (!entities.TryGet(entity.EntityIndex, out EntityState? state) ||
+            state.ModelIndex() is not { } rawIndex ||
+            state.Origin() is not { } origin)
+        {
+            return;
+        }
+
+        // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
+        // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
+        if (precache.Path(ModelPrecache.Unpack(rawIndex, protocol)) is not { } model)
+        {
+            return;
+        }
+
+        // **A slot is reused, so the model is what identifies the occupant.** A rocket that
+        // explodes frees its index for the next one, and appending that one's positions to the
+        // old track would draw a rocket flying between two unrelated places.
+        if (tracks.TryGetValue(entity.EntityIndex, out ScenePropTrack? track) &&
+            !string.Equals(track.ModelPath, model, StringComparison.Ordinal))
+        {
+            track.End(tick);
+            tracks.Remove(entity.EntityIndex);
+            track = null;
+        }
+
+        if (track is null)
+        {
+            track = new ScenePropTrack(entity.EntityIndex, model);
+            tracks[entity.EntityIndex] = track;
+            props.Add(track);
+        }
+
+        (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
+
+        track.Add(
+            tick,
+            new ScenePose
+            {
+                X = origin.X,
+                Y = origin.Y,
+                Z = origin.Z,
+                Pitch = pitch,
+                Yaw = yaw,
+                Roll = roll,
+
+                // Scale and sequence default rather than zero: an absent scale is authored size,
+                // and sequence -1 is "does not animate" where zero is a real animation.
+                Scale = state.ModelScale() ?? 1f,
+                Sequence = state.AnimationSequence() ?? -1,
+                Cycle = state.Cycle() ?? 0f,
+            });
     }
 
     /// <summary>Gives a player their earliest known team and class before it was first stated.</summary>

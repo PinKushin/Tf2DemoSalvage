@@ -4,6 +4,35 @@ using System.Collections.Generic;
 namespace Tf2DemoSalvage.Core.Scene;
 
 /// <summary>
+/// What kind of thing a model reference names, and therefore how to draw it.
+/// </summary>
+/// <remarks>
+/// **Valve's own <c>modtype_t</c>**, from <c>src/public/model_types.h</c>: <c>mod_bad</c>,
+/// <c>mod_brush</c>, <c>mod_sprite</c>, <c>mod_studio</c>. The engine keeps the distinction because
+/// the three real kinds come from entirely different places, and
+/// <c>C_BaseEntity::IsBrushModel</c> exists to ask which one an entity has.
+///
+/// **The corpus taught this one rather than the other way round.** A test written to demand
+/// <c>models/</c> failed twice: on <c>*3</c> from the 2007 demo, then on
+/// <c>sprites/light_glow02_noz.vmt</c> from the 2008 one. One string table carries all three, and a
+/// viewer that hands any of them to a <c>.mdl</c> loader draws nothing and reports nothing.
+/// </remarks>
+public enum SceneModelKind
+{
+    /// <summary>Nothing recognisable — <c>mod_bad</c>.</summary>
+    Unknown = 0,
+
+    /// <summary>An inline BSP submodel, named <c>*N</c>: a door, a lift, a visualiser.</summary>
+    Brush,
+
+    /// <summary>A camera-facing sprite, named by its material.</summary>
+    Sprite,
+
+    /// <summary>An ordinary <c>.mdl</c> studio model.</summary>
+    Studio,
+}
+
+/// <summary>
 /// Where a model-bearing entity was, and what it was doing, at one moment.
 /// </summary>
 /// <remarks>
@@ -81,11 +110,54 @@ public sealed class ScenePropTrack
     /// <summary>The model this entity draws as.</summary>
     public string ModelPath { get; }
 
+    /// <summary>Which of Valve's model types this reference names.</summary>
+    /// <remarks>
+    /// Decided by the reference itself, which is all the string table gives. A leading asterisk is
+    /// an inline BSP submodel numbered within the map — <c>*3</c> is the map's fourth. Everything
+    /// else is told apart by extension, the way the engine's own loader does.
+    /// </remarks>
+    public SceneModelKind Kind => Classify(ModelPath);
+
     /// <summary>How many moments the entity actually changed at.</summary>
     public int KeyframeCount => _keyframes.Count;
 
     /// <summary>The first tick this entity was seen at.</summary>
     public int FirstTick => _keyframes.Count > 0 ? _keyframes[0].Tick : int.MaxValue;
+
+    /// <summary>Works out what a model reference names.</summary>
+    /// <param name="modelPath">The reference, as <c>modelprecache</c> carried it.</param>
+    /// <returns>The kind, or <see cref="SceneModelKind.Unknown"/> for anything unrecognised.</returns>
+    /// <remarks>
+    /// **Unknown rather than a default of Studio.** A reference this does not recognise is a fact
+    /// about the corpus worth surfacing — both kinds beyond <c>.mdl</c> were found exactly this
+    /// way, by something refusing to classify them. Defaulting would have hidden both.
+    /// </remarks>
+    public static SceneModelKind Classify(string modelPath)
+    {
+        if (string.IsNullOrEmpty(modelPath))
+        {
+            return SceneModelKind.Unknown;
+        }
+
+        if (modelPath.StartsWith('*'))
+        {
+            return SceneModelKind.Brush;
+        }
+
+        if (modelPath.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+        {
+            return SceneModelKind.Studio;
+        }
+
+        // **Two extensions for one kind.** ".spr" is the Quake-descended sprite format Source
+        // inherited; ".vmt" is a material used as one. Both are mod_sprite to the engine, and the
+        // corpus carries both - .vmt on the 2008 demo, .spr on a 2026 one, so this is not an era
+        // split and neither can be treated as legacy.
+        return modelPath.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ||
+               modelPath.EndsWith(".spr", StringComparison.OrdinalIgnoreCase)
+            ? SceneModelKind.Sprite
+            : SceneModelKind.Unknown;
+    }
 
     /// <summary>Records a pose, if it differs from the one before it.</summary>
     /// <param name="tick">When the demo stated it.</param>

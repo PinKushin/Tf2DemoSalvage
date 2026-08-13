@@ -101,6 +101,24 @@ public sealed class ScenePropTrackTests
         track.At(400).ShouldBeNull();
     }
 
+    [Test]
+    [TestCase("models/items/medkit_small.mdl", SceneModelKind.Studio)]
+    [TestCase("*3", SceneModelKind.Brush)]
+    [TestCase("sprites/light_glow02_noz.vmt", SceneModelKind.Sprite)]
+    [TestCase("sprites/glow06.spr", SceneModelKind.Sprite)]
+    [TestCase("", SceneModelKind.Unknown)]
+    [TestCase("something/unexpected.txt", SceneModelKind.Unknown)]
+    public void Classify_TellsTheThreeKindsApart(string modelPath, SceneModelKind expected)
+    {
+        // **Every one of these came from the corpus refusing to be classified**, in this order:
+        // "*3" on the 2007 demo, then "sprites/light_glow02_noz.vmt" on the 2008 one, then
+        // "sprites/glow06.spr" on a 2026 one. Valve's modtype_t had all of it the whole time.
+        //
+        // Written as a unit test so the knowledge does not depend on a five-minute corpus run to
+        // be checked, and so a fourth kind arriving is a fast failure rather than a slow one.
+        ScenePropTrack.Classify(modelPath).ShouldBe(expected);
+    }
+
     private static ScenePose Pose(float x, float y, float z) =>
         new() { X = x, Y = y, Z = z };
 }
