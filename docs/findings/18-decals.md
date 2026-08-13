@@ -71,10 +71,37 @@ through `texdata`, but the texture coordinates come from `flU`, `flV` and the co
 is mapped by its own quad, not by a world-to-texture projection. Anything treating an overlay's
 texinfo the way it treats a face's gets nonsense out of it.
 
+## Placement, which has no published source behind it
+
+The encoding comes from `vbsp` and is settled. How the engine builds the quad and clips it lives in
+`client.dll`, which was never released, so the placement is **inferred** — and the Rust `vbsp`
+crate, the obvious differential, implements neither overlays nor cubemaps, so there is nothing to
+cross-check against either.
+
+Placing the corners is `origin + x·U + y·V`, and three measurements on `cp_process_final` say it is
+right. Two of the three questions were badly posed first, and the numbers are what said so:
+
+| Question | Result | What it meant |
+|---|---|---|
+| Do overlay and face normals agree, per pairing? | 491 of 785 | **Wrong question.** vbsp attaches an overlay to every face its box touches, so a decal on a doorframe names the frame, the wall beside it and the floor below. Only some share its orientation. |
+| Does each overlay agree with at least one of its faces? | 157 of 243 | **Still wrong.** `BspSurface.Normal` is corrected for which side of its plane a face sits on; an overlay's normal is the mapper's. Antiparallel wherever those differ. |
+| …ignoring the sign? | **242 of 243** | Right. And the last one names no face the surface reader kept, so there is nothing to compare it to. Every overlay that *can* be checked passes. |
+
+Displacements were the other candidate for the gap and are ruled out by measurement: **0** of the
+unaligned overlays touch one.
+
+The other two placement measurements:
+
+- **Median distance from the face plane: 0.00 units.** An overlay's origin lies exactly in the
+  plane of the faces it is pinned to. A wrong origin offset lands hundreds of units out.
+- **Smallest projected quad: 480 square units, none collapsed.** A swapped or zeroed basis axis
+  gives a line or a point, which draws nothing — and draws nothing in a way indistinguishable from
+  decals not being implemented.
+
 ## Status
 
-**The reader is done and the basis is recovered, 2026-08-13.** Nothing is drawn yet: placing the
-quads against the faces they name, and the depth-offset that stops a decal z-fighting the surface
-it sits on, are still to come.
+**Read, basis recovered and placement verified, 2026-08-13.** Nothing is drawn yet: clipping each
+quad to the faces it covers, and the depth offset that stops a decal z-fighting the surface it lies
+on, are still to come.
 
 Evidence class: read from published source (`vbsp`), confirmed by measurement on the corpus.

@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 
 namespace Tf2DemoSalvage.Content.Bsp;
@@ -38,6 +39,22 @@ public sealed record BspOverlay(
 {
     /// <summary>How many world faces the overlay is pinned to.</summary>
     public int FaceCount => Faces.Count;
+
+    /// <summary>The quad's four corners in world coordinates.</summary>
+    /// <remarks>
+    /// **The corners are two numbers in the overlay's own plane**, so placing them is
+    /// <c>origin + x·U + y·V</c>. That the result lands on the surfaces the overlay names — same
+    /// orientation, and within a few units of their plane — is what
+    /// <c>OverlayPlacementTests</c> measures, and it is the only check available: the engine's own
+    /// placement code was never released.
+    /// </remarks>
+    public IReadOnlyList<(float X, float Y, float Z)> WorldCorners =>
+    [
+        .. Corners.Select(corner => (
+            Origin.X + (corner.X * BasisU.X) + (corner.Y * BasisV.X),
+            Origin.Y + (corner.X * BasisU.Y) + (corner.Y * BasisV.Y),
+            Origin.Z + (corner.X * BasisU.Z) + (corner.Y * BasisV.Z))),
+    ];
 }
 
 /// <summary>
