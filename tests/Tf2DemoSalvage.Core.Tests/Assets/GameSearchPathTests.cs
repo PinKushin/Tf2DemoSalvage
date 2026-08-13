@@ -159,6 +159,45 @@ public sealed class GameSearchPathTests
     }
 
     [Test]
+    public void Read_APreVpkInstall_YieldsFoldersAndNoArchives()
+    {
+        // **The second generation of layout, which is the whole reason for reading the file.**
+        // TF2's 2008 build declares three folders and no VPKs at all:
+        //
+        //     Game  |gameinfo_path|.
+        //     Game  tf
+        //     Game  |all_source_engine_paths|hl2
+        //
+        // A reader that hardcodes tf2_textures_dir.vpk finds nothing here, and a reader that
+        // assumes every entry is an archive suffixes folders into paths that do not exist. The
+        // claim being tested is that one reader covers both eras without a special case, and that
+        // claim is worth measuring rather than asserting.
+        string? legacy = new[]
+        {
+            Environment.GetEnvironmentVariable("TF2_LEGACY_FOLDER"),
+            "F:/tf2-builds/tf2-2008/tf",
+            "F:/tf2-builds/tf2-2007/tf",
+        }.FirstOrDefault(folder =>
+            !string.IsNullOrWhiteSpace(folder) && File.Exists(Path.Combine(folder, "gameinfo.txt")));
+
+        if (legacy is null)
+        {
+            Assert.Ignore("No pre-VPK build available; set TF2_LEGACY_FOLDER to run this.");
+            return;
+        }
+
+        IReadOnlyList<SearchPathEntry> entries = GameSearchPath.Read(legacy);
+
+        entries.ShouldNotBeEmpty();
+        entries.ShouldAllBe(entry => !entry.IsArchive, "a pre-VPK install declares no archives");
+
+        // And the folders it names must be real, since a token resolved wrongly still produces a
+        // plausible-looking path.
+        entries.Count(entry => Directory.Exists(entry.Path))
+            .ShouldBeGreaterThan(1, "its declared folders should exist on disk");
+    }
+
+    [Test]
     public void Read_TheRealGameInfo_FindsTheArchivesTheGameActuallyShips()
     {
         // **The stock file, because the fixtures above are this project's idea of the format.**
