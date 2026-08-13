@@ -1049,13 +1049,12 @@ internal class MainForm : Form
             bool haveMap = LoadMap(_demo.MapName);
             _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
 
-            // A placeholder scene until tick decoding lands: the corners and centre of the map's
-            // nominal extent, so the viewport visibly responds to opening a demo and the whole
-            // path - camera, renderer, swap chain - is exercised by hand as well as by tests.
-            ShowPositions(
-            [
-                (-2000f, -2000f), (2000f, -2000f), (0f, 0f), (-2000f, 2000f), (2000f, 2000f),
-            ]);
+            // **Nothing is drawn over the map until something real is decoded.** There used to be
+            // five amber squares here - the corners and centre of a nominal box - so that opening a
+            // demo visibly did something back when the viewport had nothing else in it. The map
+            // itself is that proof now, and the squares sat at coordinates no entity occupies.
+            // ShowPositions stays, and takes real positions when tick decoding reaches the viewer.
+            _scene = [];
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {

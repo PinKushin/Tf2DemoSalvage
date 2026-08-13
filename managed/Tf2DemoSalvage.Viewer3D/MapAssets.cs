@@ -17,6 +17,24 @@ namespace Tf2DemoSalvage.Viewer3D;
 internal readonly record struct MapTexture(
     int Width, int Height, ReadOnlyMemory<byte> Pixels, bool IsTransparent, bool IsAdditive = false);
 
+/// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
+/// <param name="Texture">The detail pattern itself.</param>
+/// <param name="Scale">How many times it tiles per tile of the base texture.</param>
+/// <param name="BlendFactor">How strongly it is applied.</param>
+/// <param name="Mode">Which of the twelve combine modes to use.</param>
+/// <param name="Tint">The colour the sampled detail is multiplied by first.</param>
+/// <remarks>
+/// **The mode here is the engine's, not the material's.** If the detail texture's own VTF carries
+/// the self-shadowing bump flag, the engine overrides <c>$detailblendmode</c> — so this is resolved
+/// once, at load, rather than left for the renderer to work out per frame.
+/// </remarks>
+internal readonly record struct MapDetail(
+    MapTexture Texture,
+    float Scale,
+    float BlendFactor,
+    int Mode,
+    (float Red, float Green, float Blue) Tint);
+
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
 /// </summary>
@@ -199,6 +217,7 @@ internal sealed class MapAssets
     private MapAssets(
         IReadOnlyList<MapTexture?> textures,
         IReadOnlyList<MapTexture?> blendTextures,
+        IReadOnlyList<MapDetail?> details,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
         IReadOnlyList<PropVertex> props,
@@ -207,6 +226,7 @@ internal sealed class MapAssets
     {
         Textures = textures;
         BlendTextures = blendTextures;
+        Details = details;
         Materials = materials;
         Lightmaps = lightmaps;
         Props = props;
@@ -232,6 +252,14 @@ internal sealed class MapAssets
     /// surface as bare dirt, which is exactly how the map looked.
     /// </remarks>
     public IReadOnlyList<MapTexture?> BlendTextures { get; }
+
+    /// <summary>The detail pattern for each material, null for those without one.</summary>
+    /// <remarks>
+    /// **A detail texture is what stops a wall looking like a flat colour.** It is a small tiling
+    /// pattern - concrete grain, brick speckle, noise - multiplied into the base texture at four
+    /// times its frequency by default, and it is the difference between a surface and a swatch.
+    /// </remarks>
+    public IReadOnlyList<MapDetail?> Details { get; }
 
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
@@ -262,16 +290,18 @@ internal sealed class MapAssets
 
         List<MapTexture?> textures = new(materials.Count);
         List<MapTexture?> blendTextures = new(materials.Count);
+        List<MapDetail?> details = new(materials.Count);
         int resolved = 0;
         int missing = 0;
 
         foreach (BspMaterial material in materials)
         {
-            (MapTexture? texture, MapTexture? blend) =
+            (MapTexture? texture, MapTexture? blend, MapDetail? detail) =
                 Resolve(material.Name, pak, archives, maximumTextureSize);
 
             textures.Add(texture);
             blendTextures.Add(blend);
+            details.Add(detail);
 
             if (texture is null)
             {
@@ -303,6 +333,19 @@ internal sealed class MapAssets
             blendTextures.Add(null);
         }
 
+        // Prop materials are appended after the brushwork, so their detail slots have to be too or
+        // every prop indexes a detail belonging to a different material.
+        while (details.Count < textures.Count)
+        {
+            details.Add(null);
+        }
+
+        // **Measured rather than assumed.** A detail chain that loads nothing still draws a
+        // perfectly reasonable map, so the count is the only thing that says it is working.
+        ViewerLog.Write(
+            "assets",
+            $"{details.Count(detail => detail is not null)} materials carry a detail texture");
+
         ViewerLog.Write(
             "assets",
             $"{materials.Count - brushMaterials} prop materials added to {brushMaterials} the map's own");
@@ -310,6 +353,7 @@ internal sealed class MapAssets
         return new MapAssets(
             textures,
             blendTextures,
+            details,
             materials,
             LightmapAtlas.Pack(BspLightmaps.Read(map)),
             props,
@@ -322,7 +366,7 @@ internal sealed class MapAssets
     /// The chain is VMT, then a patch's included VMT if there is one, then the VTF. Any step
     /// failing yields null, because a half-resolved material has nothing to draw.
     /// </remarks>
-    private static (MapTexture? Texture, MapTexture? Blend) Resolve(
+    private static (MapTexture? Texture, MapTexture? Blend, MapDetail? Detail) Resolve(
         string materialName,
         PakFile pak,
         GameArchives archives,
@@ -355,7 +399,7 @@ internal sealed class MapAssets
                 ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
             }
 
-            return (null, null);
+            return (null, null, null);
         }
 
         VmtMaterial material;
@@ -373,13 +417,63 @@ internal sealed class MapAssets
         {
             ViewerLog.Warn("assets", $"parsing materials/{materialName}.vmt", failure);
 
-            return (null, null);
+            return (null, null, null);
         }
 
         MapTexture? first = Decode(material.BaseTexture, material.IsTransparent, material.IsAdditive);
         MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent, material.IsAdditive);
 
-        return (first, second);
+        return (first, second, ResolveDetail());
+
+        MapDetail? ResolveDetail()
+        {
+            if (material.Detail is not { } name)
+            {
+                return null;
+            }
+
+            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                ? name[..^4]
+                : name;
+
+            if (Find("materials/" + bare + ".vtf") is not { } file)
+            {
+                ViewerLog.Warn(
+                    "assets",
+                    $"detail texture materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
+
+                return null;
+            }
+
+            try
+            {
+                VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize);
+
+                // **The texture's own flag outranks the material's mode.** Valve's helper forces
+                // 10 or 11 when the detail is a self-shadowing bump map, whatever
+                // $detailblendmode asked for. Mode 10 needs a bump map we do not have yet, so
+                // ssbump detail resolves to 11, which is what the engine does without one.
+                int mode = decoded.IsSelfShadowBump
+                    ? DetailCombine.SelfShadowBumpNoBump
+                    : material.DetailBlendMode;
+
+                return new MapDetail(
+                    new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false),
+                    material.DetailScale,
+                    material.DetailBlendFactor,
+                    mode,
+                    material.DetailTint);
+            }
+            catch (InvalidDataException failure)
+            {
+                // **The base texture survives this.** A detail texture that will not decode, or a
+                // $detailscale that is not a number, costs the surface its grain and nothing else
+                // - it must never take the base texture with it and turn the surface purple.
+                ViewerLog.Warn("assets", $"detail for materials/{materialName}.vmt", failure);
+
+                return null;
+            }
+        }
 
         MapTexture? Decode(string? name, bool transparent, bool additive)
         {

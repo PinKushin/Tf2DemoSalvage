@@ -113,6 +113,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="assets">Textures to bind; the shader clips on their alpha.</param>
     /// <param name="surfaceColours">Draw flat category colours instead of textures.</param>
     /// <param name="heightCut">Discard anything above this height, 0 to 1.</param>
+    /// <param name="detail">Combine each material's detail texture; false renders without.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -130,7 +131,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float[] matrix,
         MapAssets assets,
         bool surfaceColours = false,
-        float heightCut = 0f)
+        float heightCut = 0f,
+        bool detail = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -138,6 +140,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ArgumentNullException.ThrowIfNull(assets);
 
         _world ??= WorldRenderer.Create(_device);
+        _world.DrawDetail = detail;
 
         // **Textures first, because the shader clips on their alpha.** With none bound the sample
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
