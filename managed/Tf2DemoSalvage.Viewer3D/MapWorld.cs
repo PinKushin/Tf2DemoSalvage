@@ -279,15 +279,33 @@ internal static class MapWorldBuilder
                 ? atlas.Rectangles[on.FaceIndex]
                 : default;
 
-            // The overlay's own texture coordinates: its quad spans StartU..EndU across and
-            // StartV..EndV down, corner by corner in the order vbsp wrote them.
-            (float U, float V)[] texture =
-            [
-                (overlay.U.Start, overlay.V.Start),
-                (overlay.U.End, overlay.V.Start),
-                (overlay.U.End, overlay.V.End),
-                (overlay.U.Start, overlay.V.End),
-            ];
+            // **Each corner's texture coordinate comes from where that corner sits in the
+            // overlay's own basis**, not from its position in the array. vecUVPoints holds the
+            // quad in basis space, and the U and V ranges span that quad - so mapping a corner is
+            // a lerp between the ranges by its own coordinate.
+            //
+            // Assigning the four corners a fixed winding instead - start/start, end/start,
+            // end/end, start/end - assumes vbsp wrote them in that order. It does not always, and
+            // an overlay stored the other way round renders rotated a quarter turn: cp_process's
+            // CAPTURE ZONE decal read vertically, its letters smeared, and was mistaken for a
+            // missing material.
+            float minimumX = overlay.Corners.Min(corner => corner.X);
+            float maximumX = overlay.Corners.Max(corner => corner.X);
+            float minimumY = overlay.Corners.Min(corner => corner.Y);
+            float maximumY = overlay.Corners.Max(corner => corner.Y);
+
+            float spanX = maximumX - minimumX;
+            float spanY = maximumY - minimumY;
+
+            (float U, float V)[] texture = [.. overlay.Corners.Select(corner => (
+                U: float.Lerp(
+                    overlay.U.Start,
+                    overlay.U.End,
+                    spanX > 0f ? (corner.X - minimumX) / spanX : 0f),
+                V: float.Lerp(
+                    overlay.V.Start,
+                    overlay.V.End,
+                    spanY > 0f ? (corner.Y - minimumY) / spanY : 0f)))];
 
             List<WorldVertex> corners = [];
 
