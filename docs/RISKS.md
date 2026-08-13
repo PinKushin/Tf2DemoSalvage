@@ -2124,7 +2124,7 @@ self-describing once `power` is read. Both lumps are LZMA compressed like every 
 
 Depends on nothing else; it is bounded work in `BspGeometry`.
 
-## B38 — a downloaded map may not be the version the demo was recorded on — MUCH SMALLER THAN FILED
+## B38 — a downloaded map may not be the version the demo was recorded on — CLOSED, the premise was wrong
 
 **Raised 2026-08-12** while wiring up map downloading, and **narrowed the same day** by the owner:
 "the map name does contain versions a lot of the time, unless it is an official map, and officials
@@ -2141,8 +2141,19 @@ distinct map names carry an explicit version suffix**: `cp_process_f12`, `cp_gul
 the name a demo records IS the version key, and fetching by it fetches the right file. The three
 without a suffix are stock or near-stock.
 
-**Official maps do not break demos.** Valve revises them, but not in ways that move a player through
-the geometry, so the version that matters is the one already installed.
+**Official maps do not break demos, and the reason is worth stating exactly**, because it is what
+closes this entry rather than merely shrinking it. Valve drops versioning from a map's final name
+and then changes only bug fixes, which do not move geometry. But the deeper point is that **a demo
+is the authority on where the player was.** It records positions; it does not re-simulate collision
+against the map. So a player who reached somewhere they should not have — the skybox glitch on a
+payload map being the standing example — is still shown up there when the map is later patched,
+because the recording says that is where they were. The patch removes the way in, not the record of
+having been in.
+
+That inverts the original fear. The worry was that a revised map would make playback wrong; in fact
+playback cannot desync from a map the way it can from a schema, because the map is scenery and the
+positions are data. A revised map can only ever look slightly different around a stable geometry,
+and official geometry is stable.
 
 **What is left, and it is small:** a community mapper who revises without renaming. That is against
 the convention every name above follows, and this project has no specimen of it.
