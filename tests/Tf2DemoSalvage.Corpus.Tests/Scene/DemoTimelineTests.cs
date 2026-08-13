@@ -111,18 +111,32 @@ public sealed class DemoTimelineTests
                 continue;
             }
 
-            int withTeam = everyone.Count(player => player.Team is 2 or 3);
+            // **Three buckets, not two.** The first version counted "team is 2 or 3" as known and
+            // everything else as missing, which folds spectators and the SourceTV camera in with
+            // genuine gaps - and they are neither missing nor players. That made a correct 92%
+            // look like a defect.
+            int playing = everyone.Count(player => player.IsPlaying);
+            int watching = everyone.Count(
+                player => player.Team is SceneTeams.Spectator or SceneTeams.Unassigned);
+            int unknown = everyone.Count(player => player.Team is null);
             int withClass = everyone.Count(player => player.PlayerClass is >= 1 and <= 9);
 
             TestContext.Out.WriteLine(
-                $"ROSTER {Path.GetFileName(path)}: {withTeam * 100 / everyone.Length}% have a team, " +
-                $"{withClass * 100 / everyone.Length}% a class, over {everyone.Length} sightings");
+                $"ROSTER {Path.GetFileName(path)}: {playing * 100 / everyone.Length}% playing, " +
+                $"{watching * 100 / everyone.Length}% watching, " +
+                $"{unknown * 100 / everyone.Length}% unknown, " +
+                $"{withClass * 100 / everyone.Length}% have a class, over {everyone.Length} sightings");
 
             // Not every sighting: a player is in the world for a moment before the resource has
             // said anything about them, and a spectator has neither. Most must, or the arrays are
             // not being read.
-            withTeam.ShouldBeGreaterThanOrEqualTo(0);
-            best = Math.Max(best, withTeam * 100 / everyone.Length);
+            // **The real assertion, and it is exact.** Every sighting must be accounted for:
+            // playing, watching, or genuinely never stated. Anything else means a team number the
+            // engine does not define.
+            (playing + watching + unknown).ShouldBe(
+                everyone.Length, $"{path}: every sighting must fall in a known bucket");
+
+            best = Math.Max(best, (playing + watching) * 100 / everyone.Length);
         }
 
         // **The mechanism, not the coverage.** One demo in the corpus reaches 100% on both, which
@@ -133,8 +147,8 @@ public sealed class DemoTimelineTests
         // The format is not the reason: player_resource.cpp transmits with FL_EDICT_ALWAYS and
         // refreshes every connected player every 0.1 seconds, so the data is in every demo
         // continuously.
-        best.ShouldBeGreaterThan(
-            90, "at least one demo must show the arrays being read end to end");
+        best.ShouldBe(
+            100, "every sighting in at least one demo must have a stated team");
     }
 
     [Test]

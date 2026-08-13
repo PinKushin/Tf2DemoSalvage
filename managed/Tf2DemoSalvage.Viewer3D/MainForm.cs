@@ -1087,14 +1087,19 @@ internal class MainForm : Form
 
         foreach (ScenePlayer player in players)
         {
+            // **Spectators and the SourceTV camera are CTFPlayer entities too**, with real
+            // positions that follow the action - so drawing everything puts convincing dots on the
+            // map where nobody is standing.
+            if (!player.IsPlaying)
+            {
+                continue;
+            }
+
             (float x, float y) = camera.Project(player.X, player.Y);
 
-            (float red, float green, float blue) = player.Team switch
-            {
-                2 => (0.90f, 0.31f, 0.27f),
-                3 => (0.34f, 0.60f, 0.78f),
-                _ => (0.62f, 0.62f, 0.62f),
-            };
+            (float red, float green, float blue) = player.Team == SceneTeams.Red
+                ? (0.90f, 0.31f, 0.27f)
+                : (0.34f, 0.60f, 0.78f);
 
             points.Add(new ScenePoint(x, y, red, green, blue));
         }

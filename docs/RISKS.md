@@ -2722,8 +2722,25 @@ is the "wrong condition" failure: the fix is a different input, not a stronger a
 | modern demos | 0–7% | **92%** |
 | z1800 | 2% | 95% |
 
-The residual eight per cent is players sighted before the resource has said anything about them,
-which is genuinely unknown rather than lost.
+### The residual eight per cent was two separate things, and neither was a gap
+
+**Backfill closed the first.** A player is sighted for a few frames before the resource first
+mentions them. The whole demo is in hand, so the earliest stated team and class are carried
+backwards to that player's first sighting — which a streaming parser cannot do, and which is why
+taking team from `player_spawn` is a worse trade: a demo beginning mid-round has no spawn event to
+read at all.
+
+**The rest were spectators, and they were being drawn.** `TEAM_UNASSIGNED` is 0 and
+`TEAM_SPECTATOR` is 1, against `TF_TEAM_RED = LAST_SHARED_TEAM + 1` making RED 2 and BLU 3. A
+spectator and a SourceTV camera are `CTFPlayer` entities with real positions that follow the
+action — so the viewer was drawing convincing dots where nobody stood, and the measurement was
+counting them as missing.
+
+Both corrected, the corpus reports **0% unknown on every file**: 100% playing on POV recordings,
+92–95% playing with 5–10% watching on SourceTV ones, which is what a relay should look like.
+
+Raised by the owner asking whether spectators could be told apart, after the same scrubbing session
+that found the delta bug.
 
 ### Note on the workaround this nearly became
 
