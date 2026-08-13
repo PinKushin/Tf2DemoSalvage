@@ -300,7 +300,7 @@ internal static class PropModels
         {
             StudioModelInfo model = StudioModel.Read(modelFile);
             IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(vertexFile);
-            IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
+            IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
             List<PropVertex> corners = [];
             List<int> cornerMeshes = [];
@@ -318,14 +318,17 @@ internal static class PropModels
                 int material = Register(
                     model, mesh.MaterialIndex, materials, textures, materialIndices, load);
 
-                foreach (int vertex in meshes[index])
+                foreach (StudioCorner corner in meshes[index])
                 {
-                    StudioVertex corner = vertices[mesh.FirstVertex + vertex];
+                    StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
 
                     corners.Add(new PropVertex(
-                        corner.X, corner.Y, corner.Z, corner.U, corner.V, material));
-                    cornerMeshes.Add(index);
-                    cornerVertices.Add(vertex);
+                        vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, material));
+
+                    // **Position by mesh vertex, colour by strip group vertex.** They are different
+                    // orderings of the same surface, and using one for both speckles the prop.
+                    cornerMeshes.Add(corner.LightingGroup);
+                    cornerVertices.Add(corner.LightingVertex);
                 }
             }
 
@@ -389,8 +392,8 @@ internal static class PropModels
     /// A model's triangles in its own space, ready to be placed.
     /// </summary>
     /// <param name="Corners">The triangle corners, three per triangle.</param>
-    /// <param name="Meshes">Which mesh each corner came from.</param>
-    /// <param name="Vertices">Which vertex of that mesh each corner is.</param>
+    /// <param name="Meshes">Which strip group each corner came from, in .vhv header order.</param>
+    /// <param name="Vertices">Which vertex of that strip group each corner is.</param>
     /// <param name="Checksum">The model's checksum, which its lighting must match.</param>
     /// <remarks>
     /// **The mesh and vertex are kept because the model is shared and the lighting is not.** One

@@ -81,11 +81,13 @@ public sealed class StudioTrianglesTests
 
         foreach ((StudioModelInfo model, byte[] indexFile, _) in Complete())
         {
-            IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
+            IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
-            meshes.Count.ShouldBe(model.Meshes.Count, model.Name);
+            // One entry per STRIP GROUP now, and a mesh may have more than one, so this is a
+            // floor rather than an equality - see StudioCorner for why the grouping changed.
+            meshes.Count.ShouldBeGreaterThanOrEqualTo(model.Meshes.Count, model.Name);
 
-            foreach (IReadOnlyList<int> mesh in meshes)
+            foreach (IReadOnlyList<StudioCorner> mesh in meshes)
             {
                 (mesh.Count % 3).ShouldBe(0, model.Name);
             }
@@ -108,15 +110,15 @@ public sealed class StudioTrianglesTests
         // real vertex of the same model, nothing but this check reports it.
         foreach ((StudioModelInfo model, byte[] indexFile, _) in Complete())
         {
-            IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
+            IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
             for (int index = 0; index < meshes.Count; index++)
             {
                 StudioMesh mesh = model.Meshes[index];
 
-                foreach (int vertex in meshes[index])
+                foreach (StudioCorner corner in meshes[index])
                 {
-                    vertex.ShouldBeInRange(0, Math.Max(0, mesh.VertexCount - 1), model.Name);
+                    corner.Vertex.ShouldBeInRange(0, Math.Max(0, mesh.VertexCount - 1), model.Name);
                 }
             }
         }
@@ -147,12 +149,12 @@ public sealed class StudioTrianglesTests
         foreach ((StudioModelInfo model, byte[] indexFile, byte[] vertexFile) in Complete())
         {
             IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(vertexFile);
-            IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
+            IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
             for (int index = 0; index < meshes.Count; index++)
             {
                 StudioMesh mesh = model.Meshes[index];
-                IReadOnlyList<int> triangles = meshes[index];
+                IReadOnlyList<StudioCorner> triangles = meshes[index];
 
                 if (triangles.Count < 300 || mesh.FirstVertex + mesh.VertexCount > vertices.Count)
                 {
@@ -167,9 +169,9 @@ public sealed class StudioTrianglesTests
 
                 for (int corner = 0; corner + 2 < triangles.Count; corner += 3)
                 {
-                    StudioVertex a = vertices[mesh.FirstVertex + triangles[corner]];
-                    StudioVertex b = vertices[mesh.FirstVertex + triangles[corner + 1]];
-                    StudioVertex c = vertices[mesh.FirstVertex + triangles[corner + 2]];
+                    StudioVertex a = vertices[mesh.FirstVertex + triangles[corner].Vertex];
+                    StudioVertex b = vertices[mesh.FirstVertex + triangles[corner + 1].Vertex];
+                    StudioVertex c = vertices[mesh.FirstVertex + triangles[corner + 2].Vertex];
 
                     total += Edge(a, b) + Edge(b, c) + Edge(a, c);
                     edges += 3;
