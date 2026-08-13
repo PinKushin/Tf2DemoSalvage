@@ -221,3 +221,31 @@ The bound is 25% of the diagonal, and it was not tuned to fit — it was checked
 Real content peaks around 12%; inverting the strip-versus-list flag, a sabotage that keeps every
 index in range and merely forms the wrong triangles, produces 46%. Real margin on both sides, and
 that sabotage fails this test and no other.
+
+## A better measurement that turned out not to be better
+
+The 25% mean-edge bound above is a heuristic with a hand-chosen number, and the obvious improvement
+is a *structural* property with no threshold in it: in a mesh describing a surface, triangles share
+edges with their neighbours, so most edges should appear exactly twice. A shuffled index buffer
+joins vertices at random, so shared edges become coincidences.
+
+That reasoning is sound and the measurement does not work. Written down because the failure is
+instructive.
+
+- Correct reading, aggregated over 269 meshes: **44.3%** of edges shared — far below the 90%+ the
+  argument predicts, because shipped models carry a great deal of one-sided geometry (foliage cards,
+  fences, cloth) and mechanical models are piles of separate open shells.
+  `bots/boss_bot/bomb_mechanism.mdl` alone is 46%.
+- Inverting the strip-versus-list flag — the sabotage the mean-edge test catches at 46% against a
+  25% bound — leaves the shared-edge fraction **above 25% and passes**.
+
+So the structural check is insensitive to the defect that matters. Reading a triangle strip as a
+list still consumes consecutive indices, and consecutive indices in a strip are adjacent vertices,
+so the triangles it forms still share plenty of edges. The property is real; it simply does not
+distinguish these two conditions.
+
+**The claim was written into the test comment before it was measured** — "three orders of magnitude
+of separation" — and measuring it produced a passing sabotage instead. The test was removed rather
+than kept with softer wording: a check not shown to fail for a real defect earns nothing but
+runtime. The mean-edge bound stays, with its number honestly labelled as tuned-for-separation
+(12% real, 46% sabotaged) rather than derived.
