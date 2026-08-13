@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -135,8 +136,19 @@ internal class MainForm : Form
     /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
     private bool _worldIsStale;
 
-    /// <summary>The viewport size the resident vertices were projected for.</summary>
-    private Size _projectedSize;
+    /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
+    /// <remarks>
+    /// **The number a user actually feels**, and the one that would have caught this project's
+    /// worst performance defect on its own. Full screen took roughly a frame a second because
+    /// entering it rebuilt the world seventeen times; every individual step looked fine and only
+    /// the end-to-end time was absurd. Timing the parts would not have found it either — the cost
+    /// was in how MANY times a fast thing ran.
+    ///
+    /// Stopped at the first PRESENTED frame rather than when the window finishes resizing, because
+    /// a window that has changed size while still showing the old picture is not yet full screen
+    /// as far as anyone looking at it is concerned.
+    /// </remarks>
+    private Stopwatch? _fullScreenClock;
 
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
@@ -555,7 +567,6 @@ internal class MainForm : Form
         _assets = null;
         _terrain = null;
         _texturesUploaded = false;
-        _projectedSize = Size.Empty;
         _device?.ClearWorld();
 
         string? path = FindMap(mapName);
@@ -814,15 +825,24 @@ internal class MainForm : Form
                     _texturesUploaded = true;
                 }
 
-                if (_projectedSize == _viewport.ClientSize && _device.HasWorld)
+                // **The camera is a matrix now, so a resize is not a rebuild.** The world's
+                // vertices are in map coordinates and never move; only the view does. This is what
+                // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
+                // reason a free camera or a per-player view can exist at all.
+                _device.SetCamera(camera.ToMatrix());
+
+                // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
+                // Counting these against "building the world" lines is what proves the geometry
+                // survived a viewport change rather than being quietly rebuilt: many camera lines
+                // and one build line is the fix working, and one of each per resize is not.
+                ViewerLog.Write(
+                    "render",
+                    $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
+
+                if (_device.HasWorld)
                 {
-                    // Nothing about the projection changed, so the resident vertices are already
-                    // the answer. A layout pass that moves a control without resizing the viewport
-                    // still raises Resize, and rebuilding for it is pure cost.
                     return;
                 }
-
-                _projectedSize = _viewport.ClientSize;
 
                 MapWorld built;
 
@@ -1046,6 +1066,7 @@ internal class MainForm : Form
 
         IsFullScreen = fullScreen;
         _fullScreen.Checked = fullScreen;
+        _fullScreenClock = Stopwatch.StartNew();
 
         if (fullScreen)
         {
@@ -1238,6 +1259,19 @@ internal class MainForm : Form
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
         _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapFill, _mapLines, _scene);
+
+        if (_fullScreenClock is { } clock)
+        {
+            _fullScreenClock = null;
+
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"full screen {(IsFullScreen ? "on" : "off")} took " +
+                    $"{clock.Elapsed.TotalMilliseconds:F0} ms to the first frame at " +
+                    $"{_viewport.ClientSize.Width}x{_viewport.ClientSize.Height}"));
+        }
     }
 
     /// <summary>

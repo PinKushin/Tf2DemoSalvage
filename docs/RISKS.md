@@ -2297,6 +2297,117 @@ with the engine's own statement of intent. The project already has a KeyValues r
 
 **Not blocking.** A stock install resolves 100% of `cp_process_final`'s materials today.
 
+## B42 — props draw near-black; the "blobs" are lit wrongly, not missing — OPEN, with a hypothesis
+
+**Cause found, then found again.** This entry has been wrong twice and the history is kept because
+each wrong answer looked exactly like the right one.
+
+1. **Originally**: fuzzy black patches over 153 grid cells, 5.1% of `cp_process_final`, covered only
+   by `tools/toolsinvisibledisplacement`. Read as missing surface.
+2. **Then**: the missing surface turned out to be `prop_static` — the rock at mid being the case
+   that named it. Props were read, placed, and drawn.
+3. **Now**: the props draw, they have unmistakable rock and foliage silhouettes in a screenshot, and
+   they are still nearly black. So the patches were never a hole in the last sense either.
+
+**The current hypothesis, written before testing it: the vertex colours are in the wrong colour
+space.** `BspLightmaps` takes a lightmap sample through its exponent and a gamma curve into display
+space before the shader sees it. The `.vhv` bytes are passed straight through as `value / 255`. If
+those bytes are linear, they need the same curve, and skipping it crushes everything toward black
+while leaving the shading faintly present — which is what the screenshot shows.
+
+**What supports it:** the props look uniformly dark whether they stand in open lit ground or in
+shade. Lighting that were simply absent would leave them at texture brightness, which for the grey
+rock textures on that map is much lighter than what is drawn. Lighting applied in the wrong space is
+the shape that produces "dark everywhere, but not flat".
+
+**What would settle it, and neither needs a screenshot:**
+
+- Compare a placement's mean vertex colour against the lightmap luminance of the ground it stands
+  on. Correct lighting agrees roughly; a missing gamma step is a consistent ratio.
+- Apply the same curve `BspLightmaps` uses and measure the mean brightness of prop materials before
+  and after. The dark-materials diagnostic already reports exactly that number.
+
+**A second, unrelated observation from the same screenshot:** a dropship model sits well outside the
+map at the top left. The skybox filter tests a placement's origin in X and Y only, so a prop parked
+ABOVE the play area — where a skybox dropship would be — passes straight through. One line, once
+confirmed.
+
+**Not blocking, and worth not losing.** The patches are the oldest open thread in this project and
+have survived four explanations; the pattern each time was reasoning from a static picture rather
+than measuring. The two measurements above are the way out of that.
+
+## B41 — large diffuse black areas over the map — RESOLVED, backface culling
+
+**Reported 2026-08-12** from a screenshot with the affected regions highlighted: irregular, soft-edged
+black patches spread across `cp_process_final`, in roughly the places the map has terrain.
+
+**What has been ruled out by measurement, not by argument:**
+
+- **Not unlit faces.** A face with no lightmap sampled the atlas at (0,0), which is padding and
+  therefore black. Fixed by reserving a white texel — and the patches did not change.
+- **Not holes from skipped tool displacements.** 518 of the map's 578 displacement faces use
+  `tools/toolsinvisibledisplacement` and are correctly not drawn, but a coverage grid puts the area
+  covered *only* by those at **5.1%** of the map. The patches are far larger.
+- **Not dark lighting.** The lightmaps on displacement materials average 103 to 240 out of 255.
+
+**The next measurement, which separates the two remaining candidates in one run:** disable the
+lightmap multiply in the world shader so it returns albedo alone.
+
+- Patches **gone** → the fault is in lightmap sampling: the atlas rectangle, or the coordinates,
+  most likely for displacements whose base-quad coordinates run far outside 0..1 (values to 25.9
+  were measured) and are clamped.
+- Patches **remain** → the fault is texture resolution for those specific materials, and the next
+  step is to report which material each black face uses.
+
+### Resolved 2026-08-12: the terrain was being culled
+
+Neither candidate. The black was the **absence of geometry**: D3D culls back faces by default, and
+the grid this project builds when it subdivides a displacement winds the opposite way to the quads
+the BSP supplies. Every terrain triangle was discarded and the background showed through — which is
+pixel-for-pixel identical to a black texture, and is why three texture-and-lighting hypotheses all
+failed to explain it.
+
+**The user's observation is what identified it**, and it was one sentence: the black covered *the
+whole ground area of mid and second*. Not patches correlated with a material or a lightmap — the
+ground, exactly and only where displacements are, starting when displacements began to be
+subdivided. A whole-region failure means geometry, not shading.
+
+Culling is now off for the world rather than the winding being corrected, because winding is not
+what this renderer relies on: which faces to draw is decided by their NORMAL, in `BspGeometry` and
+`MapWorldBuilder`, where a downward-facing surface is dropped. Having the rasteriser make the same
+decision from vertex order was a second source of truth that could disagree with the first, and did.
+
+**The lesson worth keeping**: "it looks black" has two entirely different causes — a surface drawn
+dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
+separates them is whether the affected area follows a *material* or follows a *region*.
+
+## B43 — the content search path is hardcoded rather than read from gameinfo.txt — OPEN
+
+**Raised 2026-08-12**, immediately after the hl2 mount landed and by the owner's objection to how
+it was found.
+
+`GameArchives.Open` searches `tf/custom/*`, `tf`, `tf/tf2_textures_dir.vpk`, `tf/tf2_misc_dir.vpk`,
+then `hl2` and its two archives. That list is **inferred**, and it is right for a stock TF2 install
+only by coincidence.
+
+**The engine reads it from `tf/gameinfo.txt`**, whose `SearchPaths` block declares exactly which
+folders and archives are mounted and in what order. That file ships beside the VPKs this project
+already opens. A mod, a different Source game, or an install with extra mounts would have a search
+path this code cannot know, and the failure is the quiet kind: a material resolves to nothing and
+the surface draws white or is skipped.
+
+**How it was found is the point.** Three materials on `cp_process_final` resolved to nothing —
+`GLASS/GLASSWINDOW008D`, `DEV/REFLECTIVITY_10B`, `PROPS/HAZARDSTRIP001A`. The first reading was that
+material resolution had a bug, because those assets "did not belong" on a 2013 industrial map. They
+do: mappers reuse content from anywhere in the install, and the job is to find it, not to treat it
+as suspect. Adding `hl2` took the map from three unresolved to zero.
+
+But the objection that followed is the durable one: **other parsers had solved this already, and
+Valve declares the answer in a file.** Reading `gameinfo.txt` replaces a guess that happens to work
+with the engine's own statement of intent. The project already has a KeyValues reader for VMTs.
+
+**Not blocking.** A stock install resolves 100% of `cp_process_final`'s materials today.
+
 ## B42 — small fuzzy black patches where only tool displacements cover the map — CAUSE FOUND, PARTLY FIXED
 
 **Left over from B41**, and measured before that one was solved: a coverage grid over

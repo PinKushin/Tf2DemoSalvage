@@ -107,7 +107,7 @@ internal static class MapWorldBuilder
 
                 foreach (SurfaceVertex corner in subdivided)
                 {
-                    Append(vertices, corner, rectangle, camera, lowest, highest);
+                    Append(vertices, corner, rectangle, lowest, highest);
                 }
 
                 if (subdivided.Count > 0)
@@ -121,13 +121,13 @@ internal static class MapWorldBuilder
 
             for (int index = 1; index + 1 < corners.Count; index++)
             {
-                Append(vertices, corners[0], rectangle, camera, lowest, highest);
-                Append(vertices, corners[index], rectangle, camera, lowest, highest);
-                Append(vertices, corners[index + 1], rectangle, camera, lowest, highest);
+                Append(vertices, corners[0], rectangle, lowest, highest);
+                Append(vertices, corners[index], rectangle, lowest, highest);
+                Append(vertices, corners[index + 1], rectangle, lowest, highest);
             }
         }
 
-        AppendProps(props, byMaterial, area, camera, lowest, highest);
+        AppendProps(props, byMaterial, area, lowest, highest);
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];
@@ -168,7 +168,6 @@ internal static class MapWorldBuilder
         IReadOnlyList<PropVertex> props,
         Dictionary<int, List<WorldVertex>> byMaterial,
         MapBounds? area,
-        TopDownCamera camera,
         float lowest,
         float highest)
     {
@@ -211,7 +210,6 @@ internal static class MapWorldBuilder
                     vertices,
                     new SurfaceVertex(vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, 0f, 0f),
                     default,
-                    camera,
                     lowest,
                     highest,
                     vertex.Red,
@@ -267,14 +265,18 @@ internal static class MapWorldBuilder
         List<WorldVertex> vertices,
         SurfaceVertex corner,
         AtlasRect rectangle,
-        TopDownCamera camera,
         float lowest,
         float highest,
         float red = 1f,
         float green = 1f,
         float blue = 1f)
     {
-        (float x, float y) = camera.Project(corner.X, corner.Y);
+        // **World coordinates, not projected ones.** The camera is a matrix the vertex shader
+        // applies, so these vertices are uploaded once per map and survive every resize, zoom and
+        // pan. Baking the projection here is what made a viewport change cost a rebuild of two and
+        // a half million vertices.
+        //
+        (float x, float y) = (corner.X, corner.Y);
 
         // **Height becomes depth, inverted.** Looking straight down, a higher surface is NEARER,
         // and D3D treats smaller depth as nearer - so the tallest geometry maps to zero. Without
