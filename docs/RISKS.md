@@ -2270,6 +2270,33 @@ decision from vertex order was a second source of truth that could disagree with
 dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
 separates them is whether the affected area follows a *material* or follows a *region*.
 
+## B43 — the content search path is hardcoded rather than read from gameinfo.txt — OPEN
+
+**Raised 2026-08-12**, immediately after the hl2 mount landed and by the owner's objection to how
+it was found.
+
+`GameArchives.Open` searches `tf/custom/*`, `tf`, `tf/tf2_textures_dir.vpk`, `tf/tf2_misc_dir.vpk`,
+then `hl2` and its two archives. That list is **inferred**, and it is right for a stock TF2 install
+only by coincidence.
+
+**The engine reads it from `tf/gameinfo.txt`**, whose `SearchPaths` block declares exactly which
+folders and archives are mounted and in what order. That file ships beside the VPKs this project
+already opens. A mod, a different Source game, or an install with extra mounts would have a search
+path this code cannot know, and the failure is the quiet kind: a material resolves to nothing and
+the surface draws white or is skipped.
+
+**How it was found is the point.** Three materials on `cp_process_final` resolved to nothing —
+`GLASS/GLASSWINDOW008D`, `DEV/REFLECTIVITY_10B`, `PROPS/HAZARDSTRIP001A`. The first reading was that
+material resolution had a bug, because those assets "did not belong" on a 2013 industrial map. They
+do: mappers reuse content from anywhere in the install, and the job is to find it, not to treat it
+as suspect. Adding `hl2` took the map from three unresolved to zero.
+
+But the objection that followed is the durable one: **other parsers had solved this already, and
+Valve declares the answer in a file.** Reading `gameinfo.txt` replaces a guess that happens to work
+with the engine's own statement of intent. The project already has a KeyValues reader for VMTs.
+
+**Not blocking.** A stock install resolves 100% of `cp_process_final`'s materials today.
+
 ## B42 — small fuzzy black patches where only tool displacements cover the map — CAUSE FOUND, PARTLY FIXED
 
 **Left over from B41**, and measured before that one was solved: a coverage grid over
