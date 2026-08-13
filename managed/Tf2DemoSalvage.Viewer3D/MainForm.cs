@@ -141,6 +141,9 @@ internal class MainForm : Form
     private IReadOnlyList<BspOverlay>? _overlays;
 
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
+    /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
+    private (float Lowest, float Highest)? _heightRange;
+
     private DemoTimeline? _timeline;
 
     /// <summary>Reused between frames; PlayersAt and PropsAt fill them rather than allocating.</summary>
@@ -1025,6 +1028,10 @@ internal class MainForm : Form
 
                 using (ViewerLog.Time("render", "building the world"))
                 {
+                    // Recorded before the build so MapCamera can project height on the very first
+                    // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
+                    _heightRange = MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds);
+
                     built = MapWorldBuilder.Build(
                         _terrain,
                         _surfaceList,
@@ -1075,7 +1082,17 @@ internal class MainForm : Form
 
         TopDownCamera zoomed = _zoom > 1f ? fitted.WithZoom(_zoom) : fitted;
 
-        return _lookingAt is { } centre ? zoomed.LookingAt(centre.X, centre.Y) : zoomed;
+        TopDownCamera placed = _lookingAt is { } centre
+            ? zoomed.LookingAt(centre.X, centre.Y)
+            : zoomed;
+
+        // **D21: the camera projects height, so it has to know the range.** The geometry carries
+        // world Z now; without this the third row is a pass-through and every surface lands at a
+        // depth of its own world height in units, which is far outside the clip range and draws
+        // nothing at all.
+        return _heightRange is { } range
+            ? placed.WithHeights(range.Lowest, range.Highest)
+            : placed;
     }
 
     /// <summary>Shows a set of world positions in the viewport.</summary>

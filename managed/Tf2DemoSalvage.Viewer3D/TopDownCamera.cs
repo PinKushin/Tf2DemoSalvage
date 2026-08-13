@@ -32,12 +32,25 @@ internal sealed class TopDownCamera
     private readonly float _scaleX;
     private readonly float _scaleY;
 
-    private TopDownCamera(float centreX, float centreY, float scaleX, float scaleY)
+    /// <summary>World height mapped to the near plane, and to the far one.</summary>
+    /// <remarks>
+    /// Equal by default, which means "not told", and <see cref="ToMatrix"/> then passes the third
+    /// component through untouched. That keeps a caller that still supplies a precomputed depth
+    /// working rather than silently flattening its geometry.
+    /// </remarks>
+    private readonly float _lowest;
+    private readonly float _highest;
+
+    private TopDownCamera(
+        float centreX, float centreY, float scaleX, float scaleY,
+        float lowest = 0f, float highest = 0f)
     {
         _centreX = centreX;
         _centreY = centreY;
         _scaleX = scaleX;
         _scaleY = scaleY;
+        _lowest = lowest;
+        _highest = highest;
     }
 
     /// <summary>Builds a camera showing every point, without distorting them.</summary>
@@ -109,7 +122,8 @@ internal sealed class TopDownCamera
                 nameof(factor), factor, "Zoom must be a positive, finite multiplier.");
         }
 
-        return new TopDownCamera(_centreX, _centreY, _scaleX * factor, _scaleY * factor);
+        return new TopDownCamera(
+            _centreX, _centreY, _scaleX * factor, _scaleY * factor, _lowest, _highest);
     }
 
     /// <summary>Returns this camera moved to look at a different point.</summary>
@@ -125,7 +139,7 @@ internal sealed class TopDownCamera
                 nameof(worldX), "A camera centre must be finite.");
         }
 
-        return new TopDownCamera(worldX, worldY, _scaleX, _scaleY);
+        return new TopDownCamera(worldX, worldY, _scaleX, _scaleY, _lowest, _highest);
     }
 
     /// <summary>Where this camera is looking, in world units.</summary>
@@ -147,6 +161,29 @@ internal sealed class TopDownCamera
     public (float X, float Y) Project(float worldX, float worldY) =>
         ((worldX - _centreX) * _scaleX, (worldY - _centreY) * _scaleY);
 
+    /// <summary>Returns this camera told how high and how low the world goes.</summary>
+    /// <param name="lowest">World height that should land furthest away.</param>
+    /// <param name="highest">World height that should land nearest.</param>
+    /// <returns>A camera whose matrix projects world height into the depth range.</returns>
+    /// <remarks>
+    /// **D21: the camera owns the projection, and depth is part of it.** Height used to be
+    /// flattened into every vertex before the matrix ran, which is a top-down projection baked
+    /// into the geometry — fine while the overhead view was the only camera, and exactly what a
+    /// free camera would have to undo.
+    ///
+    /// The convention is unchanged, deliberately: the highest point in the map is nearest at 0 and
+    /// the lowest is furthest at 1, which is what the per-vertex arithmetic produced. Only the
+    /// place it happens has moved.
+    ///
+    /// An empty or inverted range is ignored rather than throwing: a map with no height at all is
+    /// a legitimate degenerate case, and dividing by its range would put every surface at
+    /// infinity.
+    /// </remarks>
+    public TopDownCamera WithHeights(float lowest, float highest) =>
+        highest > lowest
+            ? new TopDownCamera(_centreX, _centreY, _scaleX, _scaleY, lowest, highest)
+            : this;
+
     /// <summary>The same projection as a matrix, for geometry the GPU transforms.</summary>
     /// <returns>Sixteen floats, row major, for <c>mul(float4(position, 1), matrix)</c>.</returns>
     /// <remarks>
@@ -159,14 +196,27 @@ internal sealed class TopDownCamera
     /// by the centre already scaled. A test asserts the two agree, because the failure is a
     /// half-pixel disagreement that looks like a rounding artifact rather than a wrong formula.
     ///
-    /// Z passes through untouched. Depth is computed from world height before this ever runs, and
-    /// it has nothing to do with where the camera is looking.
+    /// **The third row projects world height into depth** once <see cref="WithHeights"/> has said
+    /// what the range is: nearest at the top of the map, furthest at the bottom. Until it has, it
+    /// passes the component through, so geometry still carrying a precomputed depth is unharmed.
+    ///
+    /// Depth does not depend on the zoom, which is what keeps the map sorting the same however far
+    /// the view is pulled back.
     /// </remarks>
-    public float[] ToMatrix() =>
-    [
-        _scaleX, 0f, 0f, 0f,
-        0f, _scaleY, 0f, 0f,
-        0f, 0f, 1f, 0f,
-        -_centreX * _scaleX, -_centreY * _scaleY, 0f, 1f,
-    ];
+    public float[] ToMatrix()
+    {
+        bool projectsHeight = _highest > _lowest;
+
+        // z' = (highest - z) / (highest - lowest), written as a scale and a translate.
+        float depthScale = projectsHeight ? -1f / (_highest - _lowest) : 1f;
+        float depthOffset = projectsHeight ? _highest / (_highest - _lowest) : 0f;
+
+        return
+        [
+            _scaleX, 0f, 0f, 0f,
+            0f, _scaleY, 0f, 0f,
+            0f, 0f, depthScale, 0f,
+            -_centreX * _scaleX, -_centreY * _scaleY, depthOffset, 1f,
+        ];
+    }
 }
