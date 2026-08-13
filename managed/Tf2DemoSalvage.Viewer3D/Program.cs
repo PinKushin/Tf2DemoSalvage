@@ -43,6 +43,10 @@ internal static class Program
         // reach. Attaching it here is the whole wiring.
         DecodeLog.Sink = ViewerLog.Warn;
 
+        // Ordinary observations go to the ordinary channel. A count arriving as a warning teaches
+        // the reader to skip warnings, which is the opposite of what the log is for.
+        DecodeLog.Notes = ViewerLog.Write;
+
         ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the

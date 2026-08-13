@@ -6,10 +6,12 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
-/// <summary>One model to draw, and where it stands.</summary>
+/// <summary>One model to draw, where it stands, and the light reaching it.</summary>
 /// <param name="ModelPath">Which packed model to draw.</param>
 /// <param name="Matrix">Sixteen floats, row major, for the shader's model constant.</param>
-internal readonly record struct ModelInstance(string ModelPath, float[] Matrix);
+/// <param name="Light">The ambient cube of the leaf it stands in.</param>
+internal readonly record struct ModelInstance(
+    string ModelPath, float[] Matrix, AmbientCube Light);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -124,12 +126,16 @@ internal sealed class EntityModelSet
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
+    /// <param name="lightAt">The ambient cube at a world position, or null to leave models unlit.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
     /// was uploaded once and stays where it is.
     /// </remarks>
-    public void Instances(IReadOnlyList<SceneProp> props, ICollection<ModelInstance> into)
+    public void Instances(
+        IReadOnlyList<SceneProp> props,
+        ICollection<ModelInstance> into,
+        Func<float, float, float, AmbientCube>? lightAt = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -148,7 +154,14 @@ internal sealed class EntityModelSet
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
-            into.Add(new ModelInstance(prop.ModelPath, transform.ToMatrix()));
+            // **Lit from where it stands, which is what the engine does.** A model has no
+            // lightmap, so vrad's per-leaf ambient cube is the light it gets - sampled at the
+            // origin rather than per vertex, exactly as the client samples it once per model.
+            AmbientCube light = lightAt is null
+                ? default
+                : lightAt(pose.X, pose.Y, pose.Z);
+
+            into.Add(new ModelInstance(prop.ModelPath, transform.ToMatrix(), light));
         }
     }
 }

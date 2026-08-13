@@ -3035,3 +3035,30 @@ first-person view needs the same question answered every frame.
 **Not to be confused with B49.** There the surface is genuinely visible in play — a `toolsblack`
 ceiling seen from below — and only an overhead camera has a problem with it. Here the surface is
 never visible at all, and drawing it is wrong from every angle.
+
+## B53 — models take ambient light only; direct lights are not applied — OPEN, named remainder
+
+**Filed 2026-08-13**, immediately on fixing B51. Entity models are now lit from their leaf's ambient
+cube and look plausible indoors, while an outdoor model stays noticeably dimmer than the same object
+in TF2.
+
+That is expected, and `istudiorender.h` says why in a comment on the field itself:
+
+```cpp
+Vector m_vecAmbientCube[6];   // ambient, and lights that aren't in locallight[]
+```
+
+**The cube is the ambient term only.** Direct lights — the sun above all — are carried separately in
+`LightingState_t::locallight[]` as `LightDesc_t` entries, and applied on top. A health pack in
+daylight gets most of its brightness from the sun, so a viewer with the cube alone renders it as
+though it were in shade.
+
+**What it would take.** `LUMP_WORLDLIGHTS` carries the map's lights, including the sun as a
+directional `emit_skylight`. Applying the sun alone would close most of the visible gap, since it is
+the one light that reaches most outdoor surfaces; point and spot lights matter far less at the scale
+this viewer draws.
+
+**Why it is filed rather than fixed now.** The ambient half is complete, tested and measured, and it
+is the half that turns a white blob into a recognisable object. Adding direct light is a separate
+piece of work with its own failure modes — shadowing above all, since an unshadowed sun lights the
+inside of every building.

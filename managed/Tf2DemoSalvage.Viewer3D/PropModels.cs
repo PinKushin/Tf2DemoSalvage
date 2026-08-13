@@ -18,11 +18,15 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="OriginY">Where the placement stands, north-south.</param>
 /// <param name="Red">Baked lighting, one where the placement has none.</param>
 /// <param name="Green">Baked lighting, one where the placement has none.</param>
+/// <param name="NormalX">Surface normal, east-west, in the model own space.</param>
+/// <param name="NormalY">Surface normal, north-south.</param>
+/// <param name="NormalZ">Surface normal, vertically.</param>
 /// <param name="Blue">Baked lighting, one where the placement has none.</param>
 internal readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
-    float Red = 1f, float Green = 1f, float Blue = 1f);
+    float Red = 1f, float Green = 1f, float Blue = 1f,
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -390,8 +394,14 @@ internal static class PropModels
                 {
                     StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
 
+                    // **The normal comes along now.** A static prop is lit by baked vertex
+                    // colours and never needed it; an entity is lit from its leaf's ambient cube,
+                    // which is evaluated against the surface normal.
                     corners.Add(new PropVertex(
-                        vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, material));
+                        vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, material,
+                        NormalX: vertex.NormalX,
+                        NormalY: vertex.NormalY,
+                        NormalZ: vertex.NormalZ));
 
                     // **Position by mesh vertex, colour by strip group vertex.** They are different
                     // orderings of the same surface, and using one for both speckles the prop.
