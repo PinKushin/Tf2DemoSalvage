@@ -12,7 +12,9 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="Faces">The world faces it is pinned to.</param>
 /// <param name="U">Texture coordinate range across.</param>
 /// <param name="V">Texture coordinate range down.</param>
-/// <param name="Corners">The quad's four corners, in the overlay's own basis.</param>
+/// <param name="Corners">The quad's four corners, two dimensional, in the overlay's own basis.</param>
+/// <param name="BasisU">The basis axis across, recovered from the corners' unused z components.</param>
+/// <param name="BasisV">The basis axis down, derived from the normal and U.</param>
 /// <param name="Origin">Where it sits in the world.</param>
 /// <param name="BasisNormal">The direction it faces.</param>
 /// <remarks>
@@ -28,9 +30,11 @@ public sealed record BspOverlay(
     IReadOnlyList<int> Faces,
     (float Start, float End) U,
     (float Start, float End) V,
-    IReadOnlyList<(float X, float Y, float Z)> Corners,
+    IReadOnlyList<(float X, float Y)> Corners,
     (float X, float Y, float Z) Origin,
-    (float X, float Y, float Z) BasisNormal)
+    (float X, float Y, float Z) BasisNormal,
+    (float X, float Y, float Z) BasisU,
+    (float X, float Y, float Z) BasisV)
 {
     /// <summary>How many world faces the overlay is pinned to.</summary>
     public int FaceCount => Faces.Count;
@@ -58,6 +62,30 @@ public sealed record BspOverlay(
 /// The lump's decompressed length on cp_process_final divides by 352 exactly 243 times, so the
 /// stride is not a guess. A wrong field OFFSET would still parse cleanly, which is what the tests
 /// are for — the basis normal having length one is the check that pins the tail of the struct.
+///
+/// **The corners' z components are not coordinates.** vbsp smuggles the basis across in them,
+/// because the lump has nowhere else to put it:
+///
+/// <code>
+/// // Encode the BasisU into the unused z component of the vecUVPoints 0, 1, 2
+/// pOverlay-&gt;vecUVPoints[0].z = pMapOverlay-&gt;vecBasis[0].x;
+/// pOverlay-&gt;vecUVPoints[1].z = pMapOverlay-&gt;vecBasis[0].y;
+/// pOverlay-&gt;vecUVPoints[2].z = pMapOverlay-&gt;vecBasis[0].z;
+///
+/// // Encode whether or not the v axis should be flipped.
+/// Vector vecCross = pMapOverlay-&gt;vecBasis[2].Cross( pMapOverlay-&gt;vecBasis[0] );
+/// if ( vecCross.Dot( pMapOverlay-&gt;vecBasis[1] ) &lt; 0.0f )
+///     pOverlay-&gt;vecUVPoints[3].z = 1.0f;
+/// </code>
+///
+/// The map file carries three basis vectors and the lump stores one, so U comes out of those three
+/// z values and V is the cross product of the normal and U, flipped when the fourth says so. A
+/// reader treating the corners as three-dimensional points gets a quad standing on edge.
+///
+/// **An overlay's texinfo has no texture mapping in it either.** vbsp zeroes every texture vector
+/// and writes -99999 into the last component, so the material comes through <c>texdata</c> and the
+/// texture coordinates come from <c>flU</c>, <c>flV</c> and the corners. Anything projecting a
+/// position through this texinfo, as an ordinary face would, gets nonsense.
 /// </remarks>
 public static class BspOverlays
 {
@@ -119,11 +147,32 @@ public static class BspOverlays
                 faces.Add(BinaryPrimitives.ReadInt32LittleEndian(entry[(FacesOffset + (face * 4))..]));
             }
 
-            List<(float X, float Y, float Z)> corners = new(4);
+            // Two dimensional on purpose: the z of each corner carries the basis, not a height.
+            List<(float X, float Y)> corners = new(4);
 
             for (int corner = 0; corner < 4; corner++)
             {
-                corners.Add(Vector(entry, CornersOffset + (corner * 12)));
+                corners.Add((
+                    Float(entry, CornersOffset + (corner * 12)),
+                    Float(entry, CornersOffset + (corner * 12) + 4)));
+            }
+
+            (float X, float Y, float Z) basisU = (
+                Float(entry, CornersOffset + 8),
+                Float(entry, CornersOffset + 12 + 8),
+                Float(entry, CornersOffset + 24 + 8));
+
+            (float X, float Y, float Z) normal = Vector(entry, BasisNormalOffset);
+
+            // V is the cross product of the normal and U, flipped when the fourth corner's z says
+            // so - which is the one bit of information vbsp had left to encode it in.
+            bool flipped = Float(entry, CornersOffset + 36 + 8) != 0f;
+
+            (float X, float Y, float Z) basisV = Cross(normal, basisU);
+
+            if (flipped)
+            {
+                basisV = (-basisV.X, -basisV.Y, -basisV.Z);
             }
 
             read.Add(new BspOverlay(
@@ -135,11 +184,20 @@ public static class BspOverlays
                 (Float(entry, VOffset), Float(entry, VOffset + 4)),
                 corners,
                 Vector(entry, OriginOffset),
-                Vector(entry, BasisNormalOffset)));
+                normal,
+                basisU,
+                basisV));
         }
 
         return read;
     }
+
+    private static (float X, float Y, float Z) Cross(
+        (float X, float Y, float Z) left, (float X, float Y, float Z) right) =>
+        (
+            (left.Y * right.Z) - (left.Z * right.Y),
+            (left.Z * right.X) - (left.X * right.Z),
+            (left.X * right.Y) - (left.Y * right.X));
 
     private static (float X, float Y, float Z) Vector(ReadOnlySpan<byte> entry, int at) =>
         (Float(entry, at), Float(entry, at + 4), Float(entry, at + 8));
