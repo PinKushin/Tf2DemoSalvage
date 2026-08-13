@@ -2605,3 +2605,73 @@ match.
 
 Until such a demo turns up, multi-player playback is verified on modern files only, and any claim
 that a 2008 match plays back correctly is **interpolated**.
+
+## B45 — team and class coverage from CTFPlayerResource varies from 0% to 100% — OPEN
+
+**Where team and class actually live**, established 2026-08-13 and worth stating because the
+obvious answer is wrong: they are not on the player entity. A positioned *modern* player carries
+only `DT_BasePlayer.m_iHealth` of the three. Era demos do send `DT_BaseEntity.m_iTeamNum` on the
+player, which is what made a player-entity reader look like it worked.
+
+Both live on one `CTFPlayerResource` for the whole server, as arrays indexed by player slot.
+
+### What the SDK says, and it rules out the easy explanations
+
+`src/game/server/player_resource.cpp`:
+
+```c
+SendPropArray3( SENDINFO_ARRAY3(m_iTeam), SendPropInt( SENDINFO_ARRAY(m_iTeam), 4 ) ),
+```
+
+- **Always transmitted.** `UpdateTransmitState` returns `FL_EDICT_ALWAYS`.
+- **Refreshed constantly.** `ResourceThink` runs every 0.1 s and `UpdateConnectedPlayer` sets
+  `m_iTeam`, `m_iHealth`, `m_bAlive` and the rest for every connected player.
+- **Four bits per element**, indexed 1..`MAX_PLAYERS`, which is the player slot and therefore the
+  entity index for a player.
+
+And `SendPropArray3` in `src/public/dt_send.cpp` shows an array is not a special wire form at all —
+it is a DataTable with one independent `SendProp` per element, each named by
+`DT_ArrayElementNameForIdx(i)`:
+
+```c
+for ( int i = 0; i < elements; i++ ) {
+    pProps[i] = pArrayProp;
+    pProps[i].SetOffset( i*sizeofVar );
+    pProps[i].m_pVarName = DT_ArrayElementNameForIdx(i);
+}
+```
+
+That matches the keys this project produces — `m_iTeam.003` — so the naming is right. It also means
+each element deltas independently, so a snapshot carrying only some elements is correct and
+expected; the accumulated table should still end up holding every element that ever changed.
+
+### The measurement
+
+Share of player sightings carrying a team, over the whole corpus:
+
+| demo | team | class |
+|---|---|---|
+| tf2-2011-build4604-stv-koth_viaduct | **100%** | **100%** |
+| tf2-2013-build1729296-pov-cp_badlands | 12% | 100% |
+| tf2-2007-build3258-pov-cp_granary | 60% | 60% |
+| demostf-cp_steel_f12 | 49% | 0% |
+| demostf-cp_process_f12 | 0% | 20% |
+| demostf-koth_ashville_final2 | 0% | 0% |
+
+**One demo reaches 100% on both, so the arrays are found, named and read correctly.** The spread is
+therefore not "the feature is unimplemented" — it is something about which elements survive
+decoding, and it is not explained by the format, which transmits this data always and refreshes it
+ten times a second.
+
+Candidates, none tested:
+
+- The flattener's handling of a nested DataTable array under `SPROP_PROXY_ALWAYS_YES`, so some
+  element properties are never registered and their updates are skipped or misindexed.
+- Property indices shifting between the baseline and the delta for large tables, so element updates
+  land on neighbouring elements — which would show as *some* indices always present and others
+  never, which is the shape observed.
+- `EntityStateTable` replacing rather than merging when the resource's serial number changes.
+
+The renderer reads these today and falls back to the player entity's own `m_iTeamNum`, so era demos
+colour correctly and modern ones mostly do not. Until this is resolved, team colour on a modern
+demo is unreliable and class is worse.

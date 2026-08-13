@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
@@ -15,8 +16,9 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Z">World height.</param>
 /// <param name="Team">Which team, when the demo has said; 2 is RED and 3 is BLU.</param>
 /// <param name="Health">Current health, when known.</param>
+/// <param name="PlayerClass">Which of the nine classes, when known; 1 is Scout through 9 Engineer.</param>
 public readonly record struct ScenePlayer(
-    int EntityIndex, float X, float Y, float Z, int? Team, int? Health);
+    int EntityIndex, float X, float Y, float Z, int? Team, int? Health, int? PlayerClass);
 
 /// <summary>Where everyone was at one tick.</summary>
 /// <param name="Tick">The demo tick this was recorded at.</param>
@@ -41,6 +43,19 @@ public readonly record struct TimelineFrame(int Tick, IReadOnlyList<ScenePlayer>
 /// </remarks>
 public sealed class DemoTimeline
 {
+    /// <summary>The entity that carries every player's team and class.</summary>
+    /// <remarks>
+    /// **Team and class do not travel on the player entity, and on modern demos they are not there
+    /// at all.** A positioned modern player carries only its health among the three; era demos do
+    /// send <c>DT_BaseEntity.m_iTeamNum</c> on the player, which is what made this look like it
+    /// worked before it was measured.
+    ///
+    /// Both live on a single <c>CTFPlayerResource</c> entity as arrays indexed by entity index —
+    /// <c>m_iTeam.003</c>, <c>m_iPlayerClass.003</c> — which is one entity for the whole server
+    /// rather than a copy per player.
+    /// </remarks>
+    private const string ResourceClass = "CTFPlayerResource";
+
     private static readonly string[] TeamProperties =
     [
         "DT_BaseEntity.m_iTeamNum",
@@ -161,6 +176,7 @@ public sealed class DemoTimeline
             }
 
             List<ScenePlayer> players = [];
+            EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
             foreach (EntityState player in entities.OfClass("CTFPlayer"))
             {
@@ -169,13 +185,17 @@ public sealed class DemoTimeline
                     continue;
                 }
 
+                // The resource's arrays are keyed by entity index, zero padded to three digits.
+                string slot = player.EntityIndex.ToString("D3", CultureInfo.InvariantCulture);
+
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
                     origin.X,
                     origin.Y,
                     origin.Z,
-                    First(player, TeamProperties),
-                    First(player, HealthProperties)));
+                    resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties),
+                    resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
+                    resource?.Integer($"m_iPlayerClass.{slot}")));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
