@@ -159,3 +159,65 @@ Widening the selection to all models brought in characters and weapons, which ca
 per file and therefore non-zero offsets; the same sabotage then failed, on exactly the range check
 written for it. **A guard test now asserts the fixture still contains a model whose vertices do not
 start at zero**, so narrowing the selection later cannot quietly remove the sensitivity again.
+
+## `.vtx`: the header is called `optimize.h`, and it is published after all
+
+The gap noted above was a naming problem, not an availability one. The header is **`optimize.h`**,
+not `optimized_model.h`, and under that name a copy of the SDK source is published. So the whole
+model chain is read from first-party source and no decompiler was involved at any point.
+
+Everything is `#pragma pack(1)`, so each size is the plain sum of its fields:
+
+```
+FileHeader_t        36  0 version  4 vertCacheSize  8 maxBonesPerStrip 10 maxBonesPerTri
+                        12 maxBonesPerVert 16 checkSum 20 numLODs
+                        24 materialReplacementListOffset 28 numBodyParts 32 bodyPartOffset
+BodyPartHeader_t     8  0 numModels  4 modelOffset
+ModelHeader_t        8  0 numLODs  4 lodOffset
+ModelLODHeader_t    12  0 numMeshes  4 meshOffset  8 switchPoint
+MeshHeader_t         9  0 numStripGroups  4 stripGroupHeaderOffset  8 flags
+StripGroupHeader_t  25  0 numVerts  4 vertOffset  8 numIndices 12 indexOffset
+                        16 numStrips 20 stripOffset 24 flags
+StripHeader_t       27  0 numIndices  4 indexOffset  8 numVerts 12 vertOffset
+                        16 numBones 18 flags 19 numBoneStateChanges 23 boneStateChangeOffset
+Vertex_t             9  0 boneWeightIndex[3]  3 numBones  4 origMeshVertID  6 boneID[3]
+```
+
+Offsets are relative to the containing struct — the `.mdl` convention, and the opposite of the
+`.vvd`'s file-relative data starts.
+
+**Two levels of indirection, and skipping the second is invisible.** A strip's indices address the
+strip *group's* vertex array, and each entry there carries `origMeshVertID`, which is the index into
+the mesh's vertices in the `.vvd`. Use the strip index directly and it still lands on real vertices
+of the same model.
+
+**The strip flag decides list versus strip.** A triangle strip shares two vertices with its
+predecessor and **alternates winding every other triangle**. Emit them all the same way and half the
+surface faces backwards — under backface culling, the same class of failure that hid the map's
+terrain.
+
+**Later Source games grew these structures** (CS:GO adds topology fields). Rather than key off a
+version table, the reader tries the classic layout, checks whether the offsets it produces lie
+inside the data, and falls back only when they do not. Two known layouts settled by measurement is
+enumeration, not a guess with a fallback.
+
+## Finding a measurement that a shuffled index buffer cannot survive
+
+This file is where a wrong reading looks most like a right one: indices are small integers, and a
+misread one still names a real vertex of the same model. No exception, no impossible value — just a
+recognisable shape with its surfaces rearranged. Getting a test with teeth took three attempts, and
+the failures are more instructive than the result.
+
+1. **Absolute bound on the longest edge (512 units).** Failed on `bots/boss_bot/carrier.mdl` at
+   1,388 — the giant robot carrier, which really is that big. The bound was wrong about model scale,
+   and one loose enough to pass it would not catch a shuffle in anything smaller.
+2. **Longest edge relative to the mesh's own diagonal.** Failed on `ambulance.mdl` at 38%: its side
+   panel is a single quad spanning most of the model. Legitimate geometry, so the maximum is not the
+   discriminator.
+3. **Mean edge relative to the diagonal.** This one works, because a shuffle moves *every* edge while
+   a few large faces move only the tail.
+
+The bound is 25% of the diagonal, and it was not tuned to fit — it was checked for **separation**.
+Real content peaks around 12%; inverting the strip-versus-list flag, a sabotage that keeps every
+index in range and merely forms the wrong triangles, produces 46%. Real margin on both sides, and
+that sabotage fails this test and no other.
