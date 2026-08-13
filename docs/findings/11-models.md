@@ -92,3 +92,26 @@ array that is the right length and the wrong contents, which draws a recognisabl
 source available, and it has to come from another open-source parser instead. Recorded here so the
 difference in evidence class is not lost: everything above is read from Valve's own header, and
 whatever fills this gap will not be.
+
+## Shipped models contain degenerate normals
+
+*Evidence class: measured on the corpus.* `bot_heavy.vvd` has **two vertices out of 9,401 whose
+normal is exactly zero**. Every other normal in the 200 models checked is unit length to within
+0.01.
+
+It looked like a parse fault and is not. Three things settle it, and they are the shape of check
+worth reaching for whenever a reader produces one odd value:
+
+- The vertex count came out at exactly the header's declared 9,401 for LOD 0.
+- 9,401 × 48 is exactly 451,248, which is exactly the distance from `vertexDataStart` to
+  `tangentDataStart`. A wrong stride does not land on the boundary.
+- The two offending vertices carry perfectly ordinary positions and texture coordinates.
+
+So the compiler emits degenerate normals for collapsed or unused vertices and the engine tolerates
+them. **The test allows exactly zero and nothing in between**, which keeps it sharp — read at a
+wrong offset the lengths are arbitrary, and arbitrary is neither 1 nor 0 — and separately requires
+them to stay rare, because the quiet way this could go wrong is running off the end of the data into
+padding, which would produce zeros wholesale and satisfy the first check on every one of them.
+
+Both sabotages were run: moving `NormalOffset` by four bytes fails one test, and changing the vertex
+stride from 48 to 44 fails five.
