@@ -2606,7 +2606,7 @@ match.
 Until such a demo turns up, multi-player playback is verified on modern files only, and any claim
 that a 2008 match plays back correctly is **interpolated**.
 
-## B45 — team and class coverage from CTFPlayerResource varies from 0% to 100% — OPEN
+## B45 — team and class coverage varies from 0% to 100% — RESOLVED, every delta wiped the entity
 
 **Where team and class actually live**, established 2026-08-13 and worth stating because the
 obvious answer is wrong: they are not on the player entity. A positioned *modern* player carries
@@ -2691,7 +2691,64 @@ Remaining candidates, untested:
 - The resource being found by `OfClass(...).FirstOrDefault()` when more than one exists, so a stale
   or empty one is read. Not yet counted.
 
-The last is the cheapest to check and the easiest to get wrong quietly, so it goes first.
+### The cause: a delta states no serial number, and the table read that as a new occupant
+
+`EntityDecoder` reads a serial number only on an **Enter** update, because that is the only place
+it appears on the wire — confirmed by `NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS` in
+`src/public/const.h`, and by the structure of the update itself. For a Delta it passes zero.
+
+`EntityStateTable.Apply` compared that zero against the stored serial, decided the slot had a new
+occupant, and **threw away every property the entity had accumulated** — on every delta, for every
+entity, for the whole demo.
+
+Position survived because a delta usually resends an origin. Team did not, because it is sent once
+and never again.
+
+**Found by the owner scrubbing the viewer**, not by the suite: the demo showed team colours the
+moment it opened and lost them the instant it was scrubbed. Opening reads the first frame, which is
+still the Enter; scrubbing reads a later one, which is post-delta.
+
+**The suite could not have found it, and the reason is a fixture.** There was already a test named
+`ADeltaKeepsPropertiesEarlierSnapshotsSet`, asserting exactly the right property — and it passed,
+before and after, because its helper gives the delta `SerialNumber: 1` to match the enter. The
+decoder never produces that. Correct and broken predict the same observation for that input, which
+is the "wrong condition" failure: the fix is a different input, not a stronger assertion.
+
+### The measurement, after
+
+| | before | after |
+|---|---|---|
+| era demos, all eight | 0–100%, mostly under 10% | **100%** |
+| modern demos | 0–7% | **92%** |
+| z1800 | 2% | 95% |
+
+### The residual eight per cent was two separate things, and neither was a gap
+
+**Backfill closed the first.** A player is sighted for a few frames before the resource first
+mentions them. The whole demo is in hand, so the earliest stated team and class are carried
+backwards to that player's first sighting — which a streaming parser cannot do, and which is why
+taking team from `player_spawn` is a worse trade: a demo beginning mid-round has no spawn event to
+read at all.
+
+**The rest were spectators, and they were being drawn.** `TEAM_UNASSIGNED` is 0 and
+`TEAM_SPECTATOR` is 1, against `TF_TEAM_RED = LAST_SHARED_TEAM + 1` making RED 2 and BLU 3. A
+spectator and a SourceTV camera are `CTFPlayer` entities with real positions that follow the
+action — so the viewer was drawing convincing dots where nobody stood, and the measurement was
+counting them as missing.
+
+Both corrected, the corpus reports **0% unknown on every file**: 100% playing on POV recordings,
+92–95% playing with 5–10% watching on SourceTV ones, which is what a relay should look like.
+
+Raised by the owner asking whether spectators could be told apart, after the same scrubbing session
+that found the delta bug.
+
+### Note on the workaround this nearly became
+
+`demostf/parser` takes team from the `player_spawn` game event rather than from entity state. That
+may well be a response to this same bug, and it carries a cost: a demo that begins mid-round has no
+spawn event to read, so a player sits on a default team until the next one. Entity state has the
+answer continuously — `player_resource.cpp` transmits with `FL_EDICT_ALWAYS` and refreshes every
+0.1 seconds — so reading it is both cheaper and more correct once the accumulator is right.
 
 The renderer reads these today and falls back to the player entity's own `m_iTeamNum`, so era demos
 colour correctly and modern ones mostly do not. Until this is resolved, team colour on a modern

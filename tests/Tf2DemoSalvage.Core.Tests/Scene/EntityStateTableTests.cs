@@ -42,6 +42,37 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
+    public void ADeltaCarryingNoSerialNumberStillKeepsEarlierProperties()
+    {
+        // **The shape the decoder actually produces, which the test above does not use.** Only an
+        // Enter update carries a serial number on the wire; EntityDecoder passes zero for a Delta
+        // because there is nothing to read. The test above hands its delta a serial of 1, matching
+        // the enter, so it passes whether or not the table handles the real case - correct and
+        // broken predict the same observation, and the fixture is why.
+        //
+        // Untreated, every delta looks like a different entity in a reused slot and the table
+        // throws away everything accumulated. Position survives because deltas usually resend an
+        // origin; team does not, because it is sent once and never again. The symptom is a demo
+        // that shows team colours when it opens and loses them the moment it is scrubbed.
+        EntityStateTable table = new();
+
+        table.Apply(new DecodedEntity(
+            9, ClassId: 212, SerialNumber: 640, EntityUpdateType.Enter,
+            [Property("DT_BaseEntity", "m_iTeamNum", PropertyValue.FromInt(3)),
+             Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(125))]));
+
+        table.Apply(new DecodedEntity(
+            9, ClassId: 212, SerialNumber: 0, EntityUpdateType.Delta,
+            [Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(70))]));
+
+        table.TryGet(9, out EntityState? state).ShouldBeTrue();
+
+        state.Integer("DT_BasePlayer.m_iHealth").ShouldBe(70);
+        state.Integer("DT_BaseEntity.m_iTeamNum").ShouldBe(
+            3, "a delta states no serial, so it is not evidence of a new occupant");
+    }
+
+    [Test]
     public void LeavingTheVisibleSetIsNotBeingDestroyed()
     {
         // `Leave` and `Delete` are different messages and mean different things: an entity that

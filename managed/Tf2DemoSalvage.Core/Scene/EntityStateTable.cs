@@ -48,8 +48,20 @@ public sealed class EntityStateTable
             return;
         }
 
+        // **Only an Enter states a serial number.** It travels with an entity's creation and
+        // nowhere else, so EntityDecoder passes zero for a Delta because there is nothing on the
+        // wire to read. Comparing that zero against the stored serial makes every delta look like
+        // a new occupant, and the table then throws away everything it has accumulated.
+        //
+        // The symptom was a demo showing team colours the moment it opened and losing them as soon
+        // as it was scrubbed: position survives because deltas usually resend an origin, and team
+        // does not because it is sent once and never again. Found by the owner scrubbing, not by
+        // the suite - the existing test for this hands its delta the same serial as its enter,
+        // which is a value the decoder never produces, so correct and broken agreed on it.
+        bool statesSerial = entity.UpdateType == EntityUpdateType.Enter;
+
         if (!_entities.TryGetValue(entity.EntityIndex, out EntityState? state) ||
-            state.SerialNumber != entity.SerialNumber)
+            (statesSerial && state.SerialNumber != entity.SerialNumber))
         {
             // A different serial number in the same slot is a different entity. Merging into the
             // old one leaves the newcomer holding whichever properties it has not happened to
