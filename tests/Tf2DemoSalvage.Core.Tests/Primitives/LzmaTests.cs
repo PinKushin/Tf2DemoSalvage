@@ -139,7 +139,7 @@ public sealed class LzmaTests
     }
 
     /// <summary>Runs the decoder over a Valve lump's properties and body.</summary>
-    private static byte[] Decode(byte[] lump, int outputLength) => Lzma.Decode(
+    private static byte[] Decode(byte[] lump, int outputLength) => ValveLzma.Decode(
         lump.AsSpan(PropertiesOffset, 5),
         lump.AsSpan(Math.Min(BodyOffset, lump.Length)),
         outputLength);

@@ -21,6 +21,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Red">Per-vertex light, one for anything that takes its light from the lightmap.</param>
 /// <param name="Green">Per-vertex light.</param>
 /// <param name="Blue">Per-vertex light.</param>
+/// <param name="LightStep">How far along the atlas each directional lightmap sits, or zero.</param>
 /// <remarks>
 /// **The per-vertex colour exists for static props and nothing else.** A brush face takes its light
 /// from the lightmap atlas; a model cannot, because the same model stands in many places under
@@ -29,7 +30,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
-    float Red = 1f, float Green = 1f, float Blue = 1f);
+    float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -62,7 +63,7 @@ internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, i
 internal sealed unsafe class WorldRenderer : IDisposable
 {
     /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap, one blend.</summary>
-    private const int VertexStride = sizeof(float) * 11;
+    private const int VertexStride = sizeof(float) * 12;
 
     private const string ShaderSource = """
         struct VsIn
@@ -72,6 +73,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
+            float  ls  : TEXCOORD4;
         };
 
         struct VsOut
@@ -81,6 +83,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
+            float  ls  : TEXCOORD4;
         };
 
         cbuffer Camera : register(b0)
@@ -110,12 +113,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // The colour the sampled detail is multiplied by before it is combined.
             float4 detailTint;
+
+            // x: 1 when the material has a bump map, 0 otherwise
+            // y: 1 when that bump map is self-shadowing rather than a normal map
+            // z, w: unused
+            float4 bump;
         };
 
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
         Texture2D    blendMap    : register(t2);
         Texture2D    detailMap   : register(t3);
+        Texture2D    bumpMap     : register(t4);
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -193,7 +202,52 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.luv = input.luv;
             output.a = input.a;
             output.vc = input.vc;
+            output.ls = input.ls;
             return output;
+        }
+
+        // g_localBumpBasis from Valve's bumpvects.h, to the float. Hard-coded there rather than
+        // computed, so copied rather than derived.
+        static const float3 bumpBasis[3] =
+        {
+            float3( 0.81649661064147949f,  0.0f,                0.57735025882720947f),
+            float3(-0.40824821591377258f,  0.70710676908493042f, 0.57735025882720947f),
+            float3(-0.40824821591377258f, -0.70710676908493042f, 0.57735025882720947f),
+        };
+
+        // Mixes the three directional lightmaps for one surface normal. Transcribed from
+        // lightmappedgeneric_ps2_3_x.h; the managed BumpedLight carries the same arithmetic and is
+        // where it is actually tested.
+        float3 CombineBumped(float3 normal, float3 first, float3 second, float3 third, bool ssbump)
+        {
+            if (ssbump)
+            {
+                // An ssbump texel already holds three weights: no dots, no squaring, and
+                // deliberately no normalising, so weights summing to two give twice the light.
+                return normal.x * first + normal.y * second + normal.z * third;
+            }
+
+            float3 weights;
+            weights.x = saturate(dot(normal, bumpBasis[0]));
+            weights.y = saturate(dot(normal, bumpBasis[1]));
+            weights.z = saturate(dot(normal, bumpBasis[2]));
+            weights *= weights;
+
+            float total = weights.x + weights.y + weights.z;
+
+            if (total <= 0.0f)
+            {
+                // Valve divides here unchecked and a GPU returns NaN, which spreads through the
+                // frame as a pixel nothing explains. Costs one comparison.
+                return float3(0.0f, 0.0f, 0.0f);
+            }
+
+            float3 mixed = weights.x * first + weights.y * second + weights.z * third;
+
+            // **The division is what makes this a mix rather than a scale.** The three squared
+            // weights come to a third for a normal straight out of the surface, so without it the
+            // wall ripples with light rather than with shape.
+            return mixed / total;
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
@@ -239,7 +293,31 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 return float4(input.vc, 1.0f);
             }
-            float3 light = lightMap.Sample(clampSampler, input.luv).rgb;
+            float3 light;
+
+            if (bump.x > 0.5f && input.ls > 0.0f)
+            {
+                // **Set 0 is not read here, and that is the trap.** When a face is bump lit the
+                // engine reads sets 1, 2 and 3 - the three ARE the lighting. Treating the flat set
+                // as a base with the others adding to it gives a plausible picture that is roughly
+                // twice as bright and flat where it should be shaped.
+                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb;
+                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb;
+                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb;
+
+                float4 texel = bumpMap.Sample(wrapSampler, input.uv);
+
+                // An ssbump is sampled raw; an ordinary normal map is signed and needs decoding.
+                // Applying the signed decode to an ssbump sends a flat 128 to zero and the surface
+                // goes black exactly where it should be evenly lit.
+                float3 normal = bump.y > 0.5f ? texel.rgb : texel.rgb * 2.0f - 1.0f;
+
+                light = CombineBumped(normal, first, second, third, bump.y > 0.5f);
+            }
+            else
+            {
+                light = lightMap.Sample(clampSampler, input.luv).rgb;
+            }
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
             // applies to the raw linear samples. BspLightmaps has already taken the sample through
@@ -366,6 +444,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The detail pattern for each material, empty where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
 
+    /// <summary>The bump map for each material, empty where it has none.</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _bumps = [];
+
     /// <summary>Scale, blend factor, mode and tint per material, in the shader's own layout.</summary>
     /// <remarks>
     /// **Eight floats each, built once at upload.** A mode of -1 means the material has no detail,
@@ -462,6 +543,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 SemanticIndex = 3,
                 Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
                 AlignedByteOffset = sizeof(float) * 8,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 4,
+                Format = Silk.NET.DXGI.Format.FormatR32Float,
+                AlignedByteOffset = sizeof(float) * 11,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -597,14 +686,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _blendTextures.Add(Upload(device, context, texture));
         }
 
-        foreach (MapDetail? detail in assets.Details)
+        for (int index = 0; index < assets.Details.Count; index++)
         {
+            MapDetail? detail = assets.Details[index];
+            MapBump? bump = index < assets.Bumps.Count ? assets.Bumps[index] : null;
+
             _details.Add(detail is { } present ? Upload(device, context, present.Texture) : default);
+            _bumps.Add(bump is { } mapped ? Upload(device, context, mapped.Texture) : default);
 
             // **Mode -1 is "no detail", and it has to be a value rather than an absence.** The
             // shader reads the same constant buffer for every draw, so a material without a detail
             // texture needs something in it that says so; leaving the previous material's numbers
             // there would apply one material's grain to the next one's surface.
+            // Pulled out of the array initialisers: the analyser rejects a ternary inside one, and
+            // the two values are the same whichever branch builds the rest.
+            float hasBump = bump is null ? 0f : 1f;
+            float isSelfShadowing = bump is { IsSelfShadowing: true } ? 1f : 0f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -616,8 +714,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     values.Tint.Green,
                     values.Tint.Blue,
                     1f,
+                    hasBump,
+                    isSelfShadowing,
+                    0f,
+                    0f,
                 ]
-                : [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f]);
+                :
+                [
+                    0f, 0f, -1f, 0f,
+                    1f, 1f, 1f, 1f,
+                    hasBump,
+                    isSelfShadowing,
+                    0f,
+                    0f,
+                ]);
         }
 
         _lightmap = CreateTexture(
@@ -634,6 +744,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ViewerLog.Write(
             "render",
             $"{_details.Count(detail => detail.Handle is not null)} materials draw with a detail texture");
+
+        ViewerLog.Write(
+            "render",
+            $"{_bumps.Count(bump => bump.Handle is not null)} materials draw with a bump map");
     }
 
     /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
@@ -656,7 +770,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 11];
+        float[] data = new float[vertices.Count * 12];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -672,6 +786,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.Red;
             data[at++] = vertex.Green;
             data[at++] = vertex.Blue;
+            data[at++] = vertex.LightStep;
         }
 
         CreateVertexBuffer(device, data);
@@ -687,6 +802,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// person asks when they cannot tell whether it is working: what does it look like without.
     /// </remarks>
     public bool DrawDetail { get; set; } = true;
+
+    /// <summary>Whether to light bumped surfaces from their three directional lightmaps.</summary>
+    /// <remarks>
+    /// Off falls back to the flat set, which is what the renderer drew before any of this and is
+    /// what makes the feature measurable: two renders differing only in this switch.
+    /// </remarks>
+    public bool DrawBumped { get; set; } = true;
 
     /// <summary>Whether textures have been uploaded for a map.</summary>
     public bool HasTextures => _lightmap.Handle is not null;
@@ -767,11 +889,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _details[batch.MaterialIndex]
                     : _white;
 
+            ComPtr<ID3D11ShaderResourceView> bump =
+                batch.MaterialIndex >= 0 && batch.MaterialIndex < _bumps.Count &&
+                _bumps[batch.MaterialIndex].Handle is not null
+                    ? _bumps[batch.MaterialIndex]
+                    : _white;
+
             SetMaterial(context, batch.MaterialIndex);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref blend);
             context.PSSetShaderResources(3, 1, ref detail);
+            context.PSSetShaderResources(4, 1, ref bump);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
@@ -849,7 +978,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Mode -1, which is the value the shader tests to skip the combine entirely. The tint is white
     /// so that a stale sample can never darken anything even if the mode were somehow read.
     /// </remarks>
-    private static readonly float[] NoDetail = [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f];
+    private static readonly float[] NoDetail = [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f];
 
     private void EnsureMaterialBuffer(ComPtr<ID3D11DeviceContext> context)
     {
@@ -864,7 +993,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BufferDesc description = new()
         {
-            ByteWidth = sizeof(float) * 8,
+            ByteWidth = sizeof(float) * 12,
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,
             CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -890,9 +1019,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] contents = DrawDetail && materialIndex >= 0 && materialIndex < _detailParameters.Count
+        float[] contents = materialIndex >= 0 && materialIndex < _detailParameters.Count
             ? _detailParameters[materialIndex]
             : NoDetail;
+
+        if (!DrawDetail || !DrawBumped)
+        {
+            // Copied rather than mutated: the stored array is the material's, and turning a switch
+            // off for one frame must not edit it for every frame after.
+            contents = [.. contents];
+
+            if (!DrawDetail)
+            {
+                contents[2] = -1f;
+            }
+
+            if (!DrawBumped)
+            {
+                contents[8] = 0f;
+            }
+        }
 
         MappedSubresource mapped = default;
 
@@ -900,7 +1046,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         fixed (float* source = contents)
         {
-            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 8, sizeof(float) * 8);
+            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 12, sizeof(float) * 12);
         }
 
         context.Unmap(_material, 0);
@@ -972,7 +1118,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void ReleaseTextures()
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
-                 _textures.Concat(_blendTextures).Concat(_details)
+                 _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
@@ -981,6 +1127,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _textures.Clear();
         _blendTextures.Clear();
         _details.Clear();
+        _bumps.Clear();
         _detailParameters.Clear();
         _additive.Clear();
 

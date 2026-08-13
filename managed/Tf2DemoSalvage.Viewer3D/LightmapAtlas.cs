@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-using Tf2DemoSalvage.Core.Bsp;
+using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Viewer3D;
 

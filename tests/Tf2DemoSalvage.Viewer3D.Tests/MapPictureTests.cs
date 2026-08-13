@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-using Tf2DemoSalvage.Core.Bsp;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -193,17 +193,105 @@ public sealed class MapPictureTests
             on.Length / 100, "detail textures should visibly change the surfaces that use them");
     }
 
+    [Test]
+    public void DrawTheMapWithAndWithoutItsBumpedLighting()
+    {
+        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+
+        if (MapPath is not { } path || !Directory.Exists(tf))
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(Width, Height);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
+        MapOutline outline = MapOutline.FromFaces(BspGeometry.Read(map).Faces);
+        MapAssets assets = MapAssets.Load(map, GameArchives.Open(tf), maximumTextureSize: 512);
+        IReadOnlyList<BspSurface> surfaces = BspSurfaces.Read(map);
+
+        int withBump = assets.Bumps.Count(bump => bump is not null);
+
+        // The condition, before the measurement means anything. No bumped materials would make the
+        // two pictures identical for a reason that says nothing about the shader.
+        withBump.ShouldBeGreaterThan(0, "the map must use bump maps to test them");
+
+        TestContext.Out.WriteLine(
+            $"BUMP {withBump} of {assets.Bumps.Count} materials, " +
+            $"{assets.Bumps.Count(bump => bump is { IsSelfShadowing: true })} self-shadowing");
+
+        TopDownCamera camera = TopDownCamera.Fit(
+            [
+                (outline.MainBounds.MinX, outline.MainBounds.MinY),
+                (outline.MainBounds.MaxX, outline.MainBounds.MaxY),
+            ],
+            Width,
+            Height);
+
+        MapWorld world = MapWorldBuilder.Build(
+            BspTerrain.Create(map), surfaces, assets.Materials, assets.Lightmaps,
+            assets.Props, camera, outline.MainBounds);
+
+        byte[] on = Render(target, world, camera, assets, true, "map-bump-on", bumped: true);
+        byte[] again = Render(target, world, camera, assets, true, "map-bump-on-again", bumped: true);
+        byte[] off = Render(target, world, camera, assets, true, "map-bump-off", bumped: false);
+
+        again.ShouldBe(on, "two identical renders must produce identical pixels");
+
+        int changed = 0;
+
+        for (int at = 0; at < on.Length; at++)
+        {
+            if (on[at] != off[at])
+            {
+                changed++;
+            }
+        }
+
+        TestContext.Out.WriteLine(
+            $"BUMP {changed} of {on.Length} colour samples differ with bumped lighting on");
+
+        // **The threshold is calibrated against a sabotage, not chosen for comfort.** The first
+        // version of this asserted only that something changed, and it PASSED against a shader
+        // reading set 0 three times instead of sets 1, 2 and 3 - which is the headline mistake this
+        // whole feature has to avoid.
+        //
+        // It survived because the twelve ssbump materials still change under that sabotage: their
+        // combine is (n.x + n.y + n.z) * L, which is not L even when all three sets are identical.
+        // So "something changed" was true for a reason that had nothing to do with reading the
+        // right sets.
+        //
+        // Measured on cp_process_f12 at this size:
+        //
+        //     24,096 samples differ  - correct, sets 1, 2 and 3
+        //      9,502 samples differ  - sets collapsed to set 0
+        //
+        // Sitting the bar between them makes the experiment sensitive to the manipulation it
+        // exists for. A number rather than a proportion because it is a measured detection limit;
+        // if the view or the map changes, re-measure both figures rather than nudging this one.
+        changed.ShouldBeGreaterThan(
+            15000, "the three directional sets must reach the screen, not set 0 three times");
+    }
+
     private static byte[] Render(
         OffscreenTarget target,
         MapWorld world,
         TopDownCamera camera,
         MapAssets assets,
         bool detail,
-        string name)
+        string name,
+        bool bumped = true)
     {
         target.Clear(0.06f, 0.07f, 0.09f);
         target.DrawWorld(
-            world.Vertices, world.Batches, camera.ToMatrix(), assets, false, 0f, detail);
+            world.Vertices, world.Batches, camera.ToMatrix(), assets, false, 0f, detail, bumped);
 
         string file = Path.Combine(Pictures, name + ".png");
 
