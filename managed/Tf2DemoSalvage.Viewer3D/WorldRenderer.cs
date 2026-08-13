@@ -105,10 +105,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // times a frame, which is nothing next to the draw calls themselves.
         cbuffer Material : register(b1)
         {
-            // x: how many times the detail tiles per tile of the base texture
+            // x: how many times the detail tiles per tile of the base texture, across
             // y: how strongly it is applied
             // z: which of the twelve combine modes to use, or -1 for no detail at all
-            // w: unused
+            // w: the same tiling, down - a material may scale the two independently
             float4 detail;
 
             // The colour the sampled detail is multiplied by before it is combined.
@@ -274,7 +274,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // Applied after the light instead, the pattern would sit on top of the shading rather
             // than in it, and would be as bright in shadow as in sun.
             int mode = (int)detail.z;
-            float4 detailColour = detailTint * detailMap.Sample(wrapSampler, input.uv * detail.x);
+            float4 detailColour =
+                detailTint * detailMap.Sample(wrapSampler, input.uv * float2(detail.x, detail.w));
 
             if (mode >= 0)
             {
@@ -815,10 +816,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _detailParameters.Add(detail is { } values
                 ?
                 [
-                    values.Scale,
+                    values.Scale.U,
                     values.BlendFactor,
                     values.Mode,
-                    0f,
+                    values.Scale.V,
                     values.Tint.Red,
                     values.Tint.Green,
                     values.Tint.Blue,

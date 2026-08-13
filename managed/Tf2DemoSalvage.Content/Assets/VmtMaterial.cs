@@ -125,7 +125,31 @@ public sealed class VmtMaterial
     /// the pattern at a quarter of its frequency on every material that omits the key, which is
     /// invisible without a side-by-side.
     /// </remarks>
-    public float DetailScale => Number("$detailscale", 4f);
+    public (float U, float V) DetailScale
+    {
+        get
+        {
+            if (Value("$detailscale") is not { } text)
+            {
+                return (4f, 4f);
+            }
+
+            // **Two dimensional, and a scalar broadcasts.** Valve branches on the var's type: a
+            // vector supplies U and V independently, anything else defined is read as one float
+            // and copied to both. Accepting only the scalar throws on the vector form, and a
+            // material that throws while resolving its detail loses the texture entirely.
+            if (text.TrimStart().StartsWith('[') || text.TrimStart().StartsWith('{'))
+            {
+                (float first, float second, float _) = Colour("$detailscale");
+
+                return (first, second);
+            }
+
+            float scale = Number("$detailscale", 4f);
+
+            return (scale, scale);
+        }
+    }
 
     /// <summary>How strongly the detail texture is applied, from zero to one.</summary>
     /// <remarks>

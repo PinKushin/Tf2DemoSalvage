@@ -1144,6 +1144,33 @@ internal class MainForm : Form
                     "demo",
                     $"{_timeline.Frames.Count} recorded moments, ticks {_timeline.FirstTick} to " +
                     $"{_timeline.LastTick}");
+
+                // **What is actually going to be drawn, said once per demo.** Counts here are what
+                // a defect looks like from the outside: a team colour that never arrives shows up
+                // as "0 red, 0 blu" the moment the file opens, rather than as grey dots that have
+                // to be noticed and then chased through a seven-minute suite.
+                ScenePlayer[] roster =
+                [
+                    .. _timeline.Frames
+                        .SelectMany(frame => frame.Players)
+                        .GroupBy(player => player.EntityIndex)
+                        .Select(group => group.First()),
+                ];
+
+                ViewerLog.Write(
+                    "demo",
+                    $"roster: {roster.Count(p => p.Team == SceneTeams.Red)} red, " +
+                    $"{roster.Count(p => p.Team == SceneTeams.Blu)} blu, " +
+                    $"{roster.Count(p => p.Team is SceneTeams.Spectator or SceneTeams.Unassigned)} watching, " +
+                    $"{roster.Count(p => p.Team is null)} unknown, " +
+                    $"{roster.Count(p => p.PlayerClass is >= 1 and <= 9)} of {roster.Length} with a class");
+
+                int drawn = _timeline.Frames.Count == 0
+                    ? 0
+                    : _timeline.PlayersAt(_timeline.Frames[_timeline.Frames.Count / 2].Tick)
+                        .Count(player => player.IsPlaying);
+
+                ViewerLog.Write("demo", $"{drawn} players drawn at the midpoint of the demo");
             }
             catch (Exception failure) when (
                 failure is ArgumentException or InvalidDataException or IOException)

@@ -35,6 +35,9 @@ public sealed class EntityState
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
 
+    private readonly Dictionary<string, long> _lastSet = [];
+    private long _sequence;
+
     private readonly Dictionary<string, PropertyValue> _properties = new(StringComparer.Ordinal);
 
     internal EntityState(int entityIndex, int classId, int serialNumber, string? className)
@@ -121,7 +124,16 @@ public sealed class EntityState
     /// </remarks>
     public (float X, float Y, float Z)? Origin()
     {
-        foreach (string table in (string[])[LocalOriginTable, NonLocalOriginTable, BaseEntityTable])
+        // Most recently written first: see Sequence. A fixed order returns whichever table happens
+        // to be listed first even when the other one was updated a thousand ticks later.
+        string[] tables = [LocalOriginTable, NonLocalOriginTable, BaseEntityTable];
+
+        System.Array.Sort(
+            tables,
+            (left, right) => Sequence($"{right}.{OriginProperty}")
+                .CompareTo(Sequence($"{left}.{OriginProperty}")));
+
+        foreach (string table in tables)
         {
             if (!_properties.TryGetValue($"{table}.{OriginProperty}", out PropertyValue origin))
             {
@@ -174,5 +186,24 @@ public sealed class EntityState
         return null;
     }
 
-    internal void Set(string key, PropertyValue value) => _properties[key] = value;
+    internal void Set(string key, PropertyValue value)
+    {
+        _properties[key] = value;
+        _lastSet[key] = ++_sequence;
+    }
+
+    /// <summary>When a key was last written, as a monotonic counter.</summary>
+    /// <remarks>
+    /// **Which table spoke most recently is the answer, not which table is listed first.** TF2
+    /// sends the recording client's position through one exclusive table and everyone else's
+    /// through another, and an entity can hold a value in both — one of them stale. A fixed
+    /// preference order then returns the stale one forever, and the player stands still while the
+    /// demo plays around them.
+    ///
+    /// This was invisible for as long as every delta wiped the entity: only the table just written
+    /// existed, so any order picked it. Fixing the wipe made the stale value permanent and froze
+    /// every player on a SourceTV demo — a regression the owner saw in the viewer before the suite
+    /// was re-run.
+    /// </remarks>
+    private long Sequence(string key) => _lastSet.TryGetValue(key, out long at) ? at : -1;
 }

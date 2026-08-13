@@ -33,7 +33,7 @@ internal readonly record struct MapTexture(
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
-/// <param name="Scale">How many times it tiles per tile of the base texture.</param>
+/// <param name="Scale">How many times it tiles per tile of the base texture, across and down.</param>
 /// <param name="BlendFactor">How strongly it is applied.</param>
 /// <param name="Mode">Which of the twelve combine modes to use.</param>
 /// <param name="Tint">The colour the sampled detail is multiplied by first.</param>
@@ -44,7 +44,7 @@ internal readonly record struct MapTexture(
 /// </remarks>
 internal readonly record struct MapDetail(
     MapTexture Texture,
-    float Scale,
+    (float U, float V) Scale,
     float BlendFactor,
     int Mode,
     (float Red, float Green, float Blue) Tint);
