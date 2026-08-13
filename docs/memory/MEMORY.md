@@ -37,3 +37,4 @@
 - [Real data hides bugs, small inputs expose them](real-data-hides-bugs-small-inputs-expose.md) — density supplies missing behaviour by accident; test at the smallest distinguishing size.
 - [A hole is not always a drawing fault](a-hole-is-not-always-a-drawing-fault.md) — black patches were static props never read; a face-based instrument cannot report a missing non-face.
 - [Per-item APIs hide quadratic reads](per-item-apis-hide-quadratic-reads.md) — read-one-face plus whole-file re-decompresses the lumps every call; 830 ms per resize.
+- [UI tests run every time](ui-tests-run-every-time.md) — every change, not just UI ones; new UI ships with its UI test.
