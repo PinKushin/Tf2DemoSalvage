@@ -310,3 +310,75 @@ only that one, goes red under the sabotage.
 
 Reading the placements is not drawing them. The model chain — `.mdl`, `.vvd`, `.dx90.vtx` — is
 unimplemented, so the patches remain until it lands.
+
+## Official maps do change, and one of them was rebuilt
+
+*Evidence class: measured, by reading a 2008 install's maps and the modern ones with this project's
+own reader.*
+
+B38 was closed on the argument that a demo cannot desync from a revised map — positions are data,
+scenery is scenery — with the supporting claim that official geometry is stable anyway. The first
+half holds. **The second half is false as a blanket statement**, and the 2008 build kept for era
+testing is what showed it.
+
+| map | faces 2008 → now | vertices |
+|---|---|---|
+| `ctf_well` | 21,267 → 16,725 (**−21%**) | 108,848 → 83,991 |
+| `cp_granary` | 16,151 → 17,264 (+7%) | 82,139 → 88,021 |
+| `cp_well` | 21,482 → 20,907 (−2.7%) | 109,868 → 107,902 |
+| `cp_gravelpit` | 14,579 → 14,893 (+2%) | 74,439 → 76,049 |
+| `cp_badlands` | 13,672 → 13,845 (+1%) | 69,479 → 71,303 |
+| `cp_dustbowl` | 17,691 → 17,946 (+1.4%) | 91,304 → 92,719 |
+| `tc_hydro` | 21,214 → 21,322 (+0.5%) | 103,502 → 103,949 |
+| `ctf_2fort` | 15,768 → 15,791 (+0.1%) | 76,687 → 76,816 |
+
+`ctf_well` lost a fifth of its faces and its bounds shrank on every axis. That is a rebuild, not a
+bug fix. `cp_granary` gained 7%, which matches the competitive scene's memory of it changing enough
+to matter — and is part of why that community ran its own `_pro` variants.
+
+**A file hash says nothing here.** All eight differ, and `cp_badlands` alone went 65 MB to 26 MB —
+which is lump compression arriving, not two thirds of the map being deleted. Only reading the
+geometry answers the question, which is a good argument for having a parser rather than a checksum.
+
+### The bounds grew by exactly the same amount on three maps
+
+`cp_badlands`, `cp_granary` and `cp_gravelpit` all expand from roughly ±10,000 units to
+**−14,892 … 15,420**, while `cp_dustbowl`, `ctf_2fort` and `tc_hydro` do not move at all.
+
+The same numbers on three maps is a compile artifact rather than three mappers agreeing. The likely
+reading — flagged as interpolation, not measurement — is a **3D skybox added after 2008**, since
+skybox geometry is ordinary world geometry placed far outside the play area, and that is exactly
+what pushes bounds outward without changing the playable space.
+
+This matters to the viewer directly: the camera frames `MainBounds` rather than `Bounds` precisely
+because the skybox room would otherwise shrink the map into a corner of the viewport. A 2008 map
+with no skybox and a modern one with a large one are two different framing problems, and the
+project already has both eras on disk to test against.
+
+### The mismatch is asymmetric, and this project is on the safe side of it
+
+The owner's observation, and it is the part that matters: **the difference only bites when a NEW
+demo is played on an OLD map.**
+
+- **Old demo, modern map** — the recording predates the changes, so the player never uses anything
+  that was added. `cp_granary` opened up areas that were originally closed; a 2008 recording simply
+  never goes through them, and the new opening sits there unvisited. Geometry that appeared later is
+  scenery the player had no way to interact with.
+- **New demo, old map** — the player *does* use the modern opening, the old map still has a wall
+  across it, and they appear to walk through solid brushwork.
+
+Salvaging old demos means old recordings against whatever is installed today, which is the first
+case by construction. The second only arises if someone deliberately pairs a recent demo with an
+archived map — which is exactly what the fastdl era-fetching idea would enable, and worth
+remembering before building it.
+
+### What this changes about B38
+
+The entry stays closed and its reasoning is now better supported, not worse. A demo records where
+players were and does not re-simulate against the map, so a revised map cannot desync playback; and
+the direction this project actually runs in is the harmless one.
+
+What the measurement does correct is the supporting claim. "Official geometry is stable" is false —
+`ctf_well` lost a fifth of its faces — but stability was never what made the closure sound. The
+honest statement is: **map revision is a cosmetic risk rather than a correctness one, it is larger
+on official maps than assumed, and it is asymmetric in this project's favour.**
