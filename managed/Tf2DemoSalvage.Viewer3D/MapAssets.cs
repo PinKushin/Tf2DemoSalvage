@@ -12,10 +12,21 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
 /// <param name="Pixels">The image, four bytes per pixel, red first.</param>
-/// <param name="IsTransparent">Whether the material asked for alpha blending.</param>
+/// <param name="IsTransparent">Whether the material is cut out by a threshold.</param>
 /// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
+/// <param name="IsTranslucent">Whether it is BLENDED with what is behind it instead.</param>
+/// <remarks>
+/// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
+/// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
+/// to front, without writing depth. Source decides between them explicitly, and alpha test wins.
+/// </remarks>
 internal readonly record struct MapTexture(
-    int Width, int Height, ReadOnlyMemory<byte> Pixels, bool IsTransparent, bool IsAdditive = false);
+    int Width,
+    int Height,
+    ReadOnlyMemory<byte> Pixels,
+    bool IsTransparent,
+    bool IsAdditive = false,
+    bool IsTranslucent = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -468,8 +479,9 @@ internal sealed class MapAssets
             return default;
         }
 
-        MapTexture? first = Decode(material.BaseTexture, material.IsTransparent, material.IsAdditive);
-        MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent, material.IsAdditive);
+        MapTexture? first = Decode(material.BaseTexture, material.IsAlphaTested, material.IsAdditive);
+        MapTexture? second = Decode(
+            material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
 
         return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump());
 
@@ -601,7 +613,12 @@ internal sealed class MapAssets
                 VtfTexture decoded = VtfTexture.Decode(vtf, maximumTextureSize);
 
                 return new MapTexture(
-                    decoded.Width, decoded.Height, decoded.Pixels, transparent, additive);
+                    decoded.Width,
+                    decoded.Height,
+                    decoded.Pixels,
+                    transparent,
+                    additive,
+                    material.IsTranslucent);
             }
             catch (InvalidDataException failure)
             {

@@ -37,6 +37,41 @@ and it is the kind of thing that silently drops thirty materials.
 | 591,872 | 2 | `$alphatest` | done |
 | 123,932 | 4 | `$selfillum` | not implemented, and small |
 
+## Re-measured 2026-08-13, after `$detail` and `$bumpmap` landed
+
+`RemainingParityProbe` now produces this table rather than it being assembled by hand. On
+`cp_process_final`, area weighted:
+
+| area | materials | shader |
+|---|---|---|
+| 122,447,608 | 167 | `LightmappedGeneric` |
+| 49,077,935 | 32 | `LightMappedGeneric` |
+| 22,419,344 | 3 | `WorldVertexTransition` |
+| 663,167 | 2 | `UnLitGeneric` |
+| 450,559 | 4 | `UnlitGeneric` |
+
+**A third capitalisation turned up**: `UnLitGeneric` as well as `UnlitGeneric` and the two
+`Lightmapped` spellings. Four variants of two names on one map.
+
+| area | materials | key | state |
+|---|---|---|---|
+| 102,244,323 | 43 | `$detail` | **done** |
+| 89,861,277 | 87 | `$surfaceprop` | not ours — physics and footstep sound, and a demo carries the results |
+| 67,139,015 | 27 | `$bumpmap` | **done** |
+| 22,419,344 | 3 | `$basetexture2` | done |
+| 5,039,041 | 94 | `$translucent` | approximated by the alpha-test clip; real blending needs sorting |
+| 2,728,616 | 51 | `$envmap` | not implemented |
+| 2,087,066 | 66 | `$decal` | not implemented |
+| 1,412,608 | 2 | `$alphatest` | done |
+| 538,742 | 5 | `$selfillum` | not implemented |
+
+**About 10.4 million units of roughly 194 million drawn are still missing, near enough 5%.** The
+two largest items on the list are both finished; what is left is a long tail.
+
+`$envmap` is on this map after all — 51 materials — which an earlier version of this document
+implied it was not. It is also the one remaining feature that brings back the per-vertex tangent
+basis that bumped lighting turned out not to need, since a reflection is computed in world space.
+
 ## The order to do them in, and why
 
 1. **`$detail`** — 36 million units, and the cheapest of the two big ones: a second texture multiplied

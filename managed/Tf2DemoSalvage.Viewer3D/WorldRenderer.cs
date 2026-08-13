@@ -435,6 +435,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private readonly HashSet<int> _additive = [];
 
+    /// <summary>Materials blended with what is behind them, drawn last and sorted.</summary>
+    private readonly HashSet<int> _translucent = [];
+
+    /// <summary>The translucent batches, farthest first.</summary>
+    private IReadOnlyList<WorldBatch> _sortedTranslucent = [];
+
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
@@ -457,6 +463,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>The per-material constants, rewritten between draws.</summary>
     private ComPtr<ID3D11Buffer> _material;
+
+    /// <summary>Source-alpha blending, for translucent materials.</summary>
+    private ComPtr<ID3D11BlendState> _alphaBlend;
+
+    /// <summary>Depth tested but not written, so a blended surface does not occlude.</summary>
+    private ComPtr<ID3D11DepthStencilState> _depthReadOnly;
 
     private IReadOnlyList<WorldBatch> _batches = [];
 
@@ -662,6 +674,48 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _addBlend = state;
         }
 
+        if (_alphaBlend.Handle is null)
+        {
+            // Source-alpha over one-minus-source-alpha, which is what BT_BLEND means. The factors
+            // themselves are NOT in source-sdk-2013 - SetDefaultBlendingShadowState is defined in
+            // the closed materialsystem - so this is interpolated from the name and from what the
+            // surrounding code assumes. Flagged in docs/findings/17-translucency.md.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.SrcAlpha;
+            description.RenderTarget[0].DestBlend = Blend.InvSrcAlpha;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.InvSrcAlpha;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> blend = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
+
+            _alphaBlend = blend;
+        }
+
+        if (_depthReadOnly.Handle is null)
+        {
+            // **Test against depth, do not write it.** A translucent surface must not stop what is
+            // behind it from drawing, which is the same reason the engine turns off alpha writes
+            // for one. Writing depth here is what makes a pane of glass erase the room beyond it.
+            DepthStencilDesc depth = default;
+
+            depth.DepthEnable = 1;
+            depth.DepthWriteMask = DepthWriteMask.Zero;
+            depth.DepthFunc = ComparisonFunc.LessEqual;
+
+            ComPtr<ID3D11DepthStencilState> state2 = default;
+
+            SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in depth, ref state2));
+
+            _depthReadOnly = state2;
+        }
+
         // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
         // unresolved material as a magenta and black chequer, and it is the right call - a surface
         // that quietly falls back to white or to nothing is a surface nobody investigates. Several
@@ -678,6 +732,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (texture is { IsAdditive: true })
             {
                 _additive.Add(index);
+            }
+            else if (texture is { IsTranslucent: true })
+            {
+                _translucent.Add(index);
             }
         }
 
@@ -738,6 +796,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             "render",
             $"{_additive.Count} of {assets.Textures.Count} materials are additive, drawn in a second pass");
 
+        ViewerLog.Write(
+            "render",
+            $"{_translucent.Count} of {assets.Textures.Count} materials are translucent, blended and sorted");
+
         // **The output, not the capability.** A detail chain that resolves nothing draws a map that
         // looks entirely reasonable, so the count of textures actually bound is the only thing that
         // distinguishes "implemented" from "working".
@@ -792,6 +854,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         CreateVertexBuffer(device, data);
 
         _batches = batches;
+
+        // **Sorted once, at upload, because the order does not depend on the camera.** Looking
+        // straight down, depth IS height, and height does not change when the view pans or zooms.
+        // A perspective camera would have to re-sort per frame; this one never does.
+        _sortedTranslucent =
+        [
+            .. batches
+                .Where(batch => _translucent.Contains(batch.MaterialIndex))
+                .OrderByDescending(batch => MeanDepth(vertices, batch)),
+        ];
     }
 
     /// <summary>Whether to combine each material's detail texture, on by default.</summary>
@@ -861,7 +933,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // so anything drawn later would be added to nothing.
         foreach (WorldBatch batch in _batches)
         {
-            if (_additive.Contains(batch.MaterialIndex))
+            if (_additive.Contains(batch.MaterialIndex) || _translucent.Contains(batch.MaterialIndex))
             {
                 continue;
             }
@@ -904,6 +976,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
+        DrawTranslucent(context);
         DrawAdditive(context);
     }
 
@@ -1054,6 +1127,85 @@ internal sealed unsafe class WorldRenderer : IDisposable
     }
 
     /// <summary>Draws the additive materials over everything already painted.</summary>
+    /// <summary>Draws the translucent materials over the opaque ones, back to front.</summary>
+    /// <remarks>
+    /// **Sorted per batch, and that is a real limitation rather than an oversight.** A batch is one
+    /// material, so two translucent materials overlapping each other resolve by material order
+    /// instead of by depth. Sorting per triangle would mean rebuilding the translucent geometry
+    /// whenever the camera moves, which is exactly what the camera-matrix design removed - and the
+    /// common case here is glass on a wall seen from above, which one ordering handles.
+    ///
+    /// Far to near means LARGEST depth first: height is inverted into depth, so the ground is far
+    /// and a roof is near.
+    /// </remarks>
+    /// <summary>A batch's average depth, for ordering.</summary>
+    private static float MeanDepth(IReadOnlyList<WorldVertex> vertices, WorldBatch batch)
+    {
+        if (batch.VertexCount <= 0)
+        {
+            return 0f;
+        }
+
+        double total = 0;
+
+        for (int at = batch.FirstVertex; at < batch.FirstVertex + batch.VertexCount; at++)
+        {
+            total += vertices[at].Depth;
+        }
+
+        return (float)(total / batch.VertexCount);
+    }
+
+    private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_translucent.Count == 0 || _alphaBlend.Handle is null)
+        {
+            return;
+        }
+
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
+
+        if (_depthReadOnly.Handle is not null)
+        {
+            context.OMSetDepthStencilState(_depthReadOnly, 0);
+        }
+
+        foreach (WorldBatch batch in _sortedTranslucent)
+        {
+            if (batch.MaterialIndex >= _textures.Count ||
+                _textures[batch.MaterialIndex].Handle is null)
+            {
+                continue;
+            }
+
+            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
+
+            ComPtr<ID3D11ShaderResourceView> detail =
+                batch.MaterialIndex < _details.Count &&
+                _details[batch.MaterialIndex].Handle is not null
+                    ? _details[batch.MaterialIndex]
+                    : _white;
+
+            ComPtr<ID3D11ShaderResourceView> bump =
+                batch.MaterialIndex < _bumps.Count &&
+                _bumps[batch.MaterialIndex].Handle is not null
+                    ? _bumps[batch.MaterialIndex]
+                    : _white;
+
+            SetMaterial(context, batch.MaterialIndex);
+
+            context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(3, 1, ref detail);
+            context.PSSetShaderResources(4, 1, ref bump);
+            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        }
+
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
+    }
+
     private void DrawAdditive(ComPtr<ID3D11DeviceContext> context)
     {
         if (_additive.Count == 0 || _addBlend.Handle is null)
@@ -1098,6 +1250,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     public void Dispose()
     {
         _addBlend.Dispose();
+        _alphaBlend.Dispose();
+        _depthReadOnly.Dispose();
         ReleaseMap();
         _material.Dispose();
         _camera.Dispose();
@@ -1128,8 +1282,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _blendTextures.Clear();
         _details.Clear();
         _bumps.Clear();
+        _sortedTranslucent = [];
         _detailParameters.Clear();
         _additive.Clear();
+        _translucent.Clear();
 
         if (_lightmap.Handle is not null)
         {
