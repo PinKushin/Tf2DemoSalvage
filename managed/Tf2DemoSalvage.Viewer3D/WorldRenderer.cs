@@ -464,22 +464,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return default;
         }
 
-        // **Self-illuminated materials keep their alpha even though they are opaque.** That
-        // channel is the mask deciding which parts light themselves; flattened to 255 the whole
-        // surface glows rather than just the lamp in the middle of it.
-        if (present.IsTransparent || present.SelfIllum is not null)
-        {
-            return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
-        }
-
-        byte[] opaque = present.Pixels.ToArray();
-
-        for (int at = 3; at < opaque.Length; at += 4)
-        {
-            opaque[at] = 255;
-        }
-
-        return CreateTexture(device, context, present.Width, present.Height, opaque);
+        // **Alpha is uploaded as it was authored, and nothing is flattened.**
+        //
+        // This used to force alpha to 255 for anything not transparent or self-illuminated, and
+        // the reason was a workaround: the pixel shader clipped on alpha unconditionally, so an
+        // opaque material whose texture carried a stray alpha channel would have been cut away
+        // entirely.
+        //
+        // That clip is now gated on the material's own $alphatest flag, which is what the engine
+        // does - EnableAlphaTest( IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) ) - so the workaround
+        // protects nothing and costs the alpha that decals and translucent materials need to blend
+        // with. A decal drawn against a flattened alpha paints its whole quad as solid colour,
+        // which is what made the patch under a health pack look like a placeholder marker.
+        return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
     }
 
     /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
@@ -1476,6 +1473,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         context.RSSetState(_decalOffset);
+
+        // **Blended, because a decal is a stain on a surface rather than a surface of its own.**
+        // This pass set the depth bias and no blend state, so every overlay drew fully opaque: a
+        // flat coloured square painted over the ground instead of tinting it. The patch under a
+        // health pack looked like a placeholder marker, and was read as one for an evening.
+        //
+        // The engine blends them too - a decal material is translucent, and its alpha is the shape
+        // of the stain. Drawn opaque, the transparent surround is painted as solid colour, which
+        // is why the squares had hard edges no decal in the game has.
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        if (_alphaBlend.Handle is not null)
+        {
+            context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
+        }
 
         foreach (WorldBatch batch in _decals)
         {

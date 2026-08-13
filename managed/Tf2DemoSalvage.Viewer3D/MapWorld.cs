@@ -189,7 +189,7 @@ internal static class MapWorldBuilder
         }
 
         List<WorldBatch> decals = AppendDecals(
-            all, overlays, surfaces, atlas, area);
+            all, overlays, materials, surfaces, atlas, area);
 
         return new MapWorld(all, batches, decals);
     }
@@ -213,6 +213,7 @@ internal static class MapWorldBuilder
     private static List<WorldBatch> AppendDecals(
         List<WorldVertex> all,
         IReadOnlyList<BspOverlay>? overlays,
+        IReadOnlyList<BspMaterial> materials,
         IReadOnlyList<BspSurface> surfaces,
         LightmapAtlas atlas,
         MapBounds? area)
@@ -335,6 +336,18 @@ internal static class MapWorldBuilder
         ViewerLog.Write(
             "map",
             $"{placed} decals placed across {decals.Count} materials, {unlit} lying flat on nothing");
+
+        // **Named with their transparency, because a decal drawn opaque is a square of paint.**
+        // An overlay blends onto the surface it marks; if its material is not carrying alpha, the
+        // blend has nothing to work with and the quad's whole extent is painted.
+        foreach (int material in decals.Select(batch => batch.MaterialIndex))
+        {
+            string name = material >= 0 && material < materials.Count
+                ? materials[material].Name
+                : "none";
+
+            ViewerLog.Write("map", $"  decal material {material} {name}");
+        }
 
         return decals;
     }
