@@ -58,8 +58,8 @@ public sealed class ResolveProbe
 
             try
             {
-                Tf2DemoSalvage.Core.Assets.VtfTexture decoded =
-                    Tf2DemoSalvage.Core.Assets.VtfTexture.Decode(vtf, 0);
+                Tf2DemoSalvage.Content.Assets.VtfTexture decoded =
+                    Tf2DemoSalvage.Content.Assets.VtfTexture.Decode(vtf, 0);
 
                 TestContext.Out.WriteLine(
                     $"RESOLVE {name}.vtf decoded {decoded.Width}x{decoded.Height}");
