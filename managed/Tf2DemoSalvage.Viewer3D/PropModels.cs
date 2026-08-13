@@ -1,0 +1,263 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+using Tf2DemoSalvage.Core.Assets;
+using Tf2DemoSalvage.Core.Bsp;
+
+namespace Tf2DemoSalvage.Viewer3D;
+
+/// <summary>One triangle corner of a placed prop, already in world space.</summary>
+/// <param name="X">Where it stands in the map.</param>
+/// <param name="Y">Where it stands in the map.</param>
+/// <param name="Z">Where it stands in the map.</param>
+/// <param name="U">Texture coordinate.</param>
+/// <param name="V">Texture coordinate.</param>
+/// <param name="MaterialIndex">Which material paints it, in the map's combined table.</param>
+internal readonly record struct PropVertex(
+    float X, float Y, float Z, float U, float V, int MaterialIndex);
+
+/// <summary>
+/// The models a map places, loaded and put where the map says.
+/// </summary>
+/// <remarks>
+/// **This is what fills the map's remaining holes.** A displacement painted with
+/// <c>tools/toolsinvisibledisplacement</c> is collision-only terrain the engine never draws, and
+/// what a player sees standing there is a prop on top of it — the rock at cp_process mid being the
+/// case that named the problem. Reading the placements was not enough; they have to be drawn.
+///
+/// **Each model is loaded once and placed many times.** A map names a few hundred distinct models
+/// and places several thousand instances of them, so the three files behind each one are read once
+/// and the vertices are then transformed per placement. On a real map that is the difference
+/// between hundreds of archive reads and tens of thousands.
+///
+/// **Materials join the map's own table rather than living beside it.** A prop's material index
+/// continues where the BSP's texture table ends, so the renderer's existing per-material batching
+/// and texture array serve both without knowing which is which — one binding path, not two.
+///
+/// **A prop that cannot be loaded costs itself and nothing else.** A missing model, an unreadable
+/// one, a mismatched checksum: each is logged and skipped, because a map is largely drawable
+/// without any given rock and not drawable at all if one bad file stops the load.
+/// </remarks>
+internal static class PropModels
+{
+    /// <summary>The most placements to draw from one map.</summary>
+    /// <remarks>
+    /// A map is untrusted input (D32). Real maps place a few thousand props; the ceiling is well
+    /// clear of that and still refuses a file claiming millions.
+    /// </remarks>
+    private const int MaximumPlacements = 100_000;
+
+    /// <summary>Loads a map's props and places them.</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="pak">The map's own embedded content, searched before the game's.</param>
+    /// <param name="archives">The game's archives and folders.</param>
+    /// <param name="materials">The map's material table, extended in place with the props'.</param>
+    /// <param name="textures">The decoded textures, extended in step with the table.</param>
+    /// <param name="load">Loads a material's texture, or returns null.</param>
+    /// <returns>Every placed triangle corner, three per triangle.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static IReadOnlyList<PropVertex> Load(
+        ReadOnlyMemory<byte> map,
+        PakFile pak,
+        GameArchives archives,
+        List<BspMaterial> materials,
+        List<MapTexture?> textures,
+        Func<string, MapTexture?> load)
+    {
+        ArgumentNullException.ThrowIfNull(pak);
+        ArgumentNullException.ThrowIfNull(archives);
+        ArgumentNullException.ThrowIfNull(materials);
+        ArgumentNullException.ThrowIfNull(textures);
+        ArgumentNullException.ThrowIfNull(load);
+
+        IReadOnlyList<BspStaticProp> placements;
+
+        try
+        {
+            placements = BspStaticProps.Read(map);
+        }
+        catch (InvalidDataException failure)
+        {
+            ViewerLog.Warn("props", "reading the map's static props", failure);
+            return [];
+        }
+
+        if (placements.Count == 0)
+        {
+            return [];
+        }
+
+        Dictionary<string, LoadedModel?> loaded = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
+        List<PropVertex> world = [];
+
+        int placed = 0;
+        int skipped = 0;
+
+        foreach (BspStaticProp placement in placements)
+        {
+            if (placed >= MaximumPlacements)
+            {
+                ViewerLog.Warn(
+                    "props", $"stopping at {MaximumPlacements} placements; the map declares more");
+                break;
+            }
+
+            if (!loaded.TryGetValue(placement.Model, out LoadedModel? model))
+            {
+                model = Read(
+                    placement.Model, pak, archives, materials, textures, materialIndices, load);
+                loaded[placement.Model] = model;
+            }
+
+            if (model is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            PropTransform transform = new(placement);
+
+            foreach (PropVertex corner in model.Corners)
+            {
+                (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
+
+                world.Add(corner with { X = x, Y = y, Z = z });
+            }
+
+            placed++;
+        }
+
+        ViewerLog.Write(
+            "props",
+            $"{placed} props placed from {loaded.Count} models ({skipped} skipped), " +
+            $"{world.Count / 3} triangles");
+
+        return world;
+    }
+
+    /// <summary>Reads one model's three files and turns them into triangles.</summary>
+    private static LoadedModel? Read(
+        string path,
+        PakFile pak,
+        GameArchives archives,
+        List<BspMaterial> materials,
+        List<MapTexture?> textures,
+        Dictionary<string, int> materialIndices,
+        Func<string, MapTexture?> load)
+    {
+        byte[]? Find(string file)
+        {
+            try
+            {
+                return pak.ReadFile(file) ?? archives.Read(file);
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        // The index file is named by replacing the extension, and the game writes several - dx80,
+        // dx90, sw. dx90 is the one every machine that can run this viewer has.
+        string stem = path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)
+            ? path[..^4]
+            : path;
+
+        if (Find(path) is not { } modelFile ||
+            Find(stem + ".vvd") is not { } vertexFile ||
+            Find(stem + ".dx90.vtx") is not { } indexFile)
+        {
+            ViewerLog.Warn("props", $"{path}: one of its three files is missing");
+            return null;
+        }
+
+        try
+        {
+            StudioModelInfo model = StudioModel.Read(modelFile);
+            IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(vertexFile);
+            IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
+
+            List<PropVertex> corners = [];
+
+            for (int index = 0; index < meshes.Count && index < model.Meshes.Count; index++)
+            {
+                StudioMesh mesh = model.Meshes[index];
+
+                if (mesh.FirstVertex + mesh.VertexCount > vertices.Count)
+                {
+                    continue;
+                }
+
+                int material = Register(
+                    model, mesh.MaterialIndex, materials, textures, materialIndices, load);
+
+                foreach (int vertex in meshes[index])
+                {
+                    StudioVertex corner = vertices[mesh.FirstVertex + vertex];
+
+                    corners.Add(new PropVertex(
+                        corner.X, corner.Y, corner.Z, corner.U, corner.V, material));
+                }
+            }
+
+            return new LoadedModel(corners);
+        }
+        catch (InvalidDataException failure)
+        {
+            // Includes the checksum mismatch, which is the engine's own guard against a model
+            // whose three files do not belong together.
+            ViewerLog.Warn("props", $"reading {path}", failure);
+            return null;
+        }
+    }
+
+    /// <summary>Finds or creates the combined table's entry for one of a model's materials.</summary>
+    /// <remarks>
+    /// Keyed by the resolved path rather than by the model, because props share materials heavily —
+    /// a dozen rocks off one texture — and a per-model entry would decode it a dozen times.
+    /// </remarks>
+    private static int Register(
+        StudioModelInfo model,
+        int materialIndex,
+        List<BspMaterial> materials,
+        List<MapTexture?> textures,
+        Dictionary<string, int> indices,
+        Func<string, MapTexture?> load)
+    {
+        if (materialIndex < 0 || materialIndex >= model.Materials.Count)
+        {
+            return -1;
+        }
+
+        foreach (string candidate in model.MaterialPaths(materialIndex))
+        {
+            if (indices.TryGetValue(candidate, out int existing))
+            {
+                return existing;
+            }
+
+            if (load(candidate) is not { } texture)
+            {
+                continue;
+            }
+
+            // **The table and the textures grow together**, because the renderer indexes both by
+            // the same number. Appending to one without the other silently paints every prop from
+            // that point on with the wrong image.
+            int index = materials.Count;
+
+            materials.Add(new BspMaterial(candidate, (0.5f, 0.5f, 0.5f), texture.Width, texture.Height));
+            textures.Add(texture);
+            indices[candidate] = index;
+
+            return index;
+        }
+
+        return -1;
+    }
+
+    /// <summary>A model's triangles in its own space, ready to be placed.</summary>
+    private sealed record LoadedModel(IReadOnlyList<PropVertex> Corners);
+}

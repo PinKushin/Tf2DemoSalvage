@@ -33,7 +33,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [], Materials, LightmapAtlas.Pack([]), Camera, null);
+            [], Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Vertices.ShouldBeEmpty();
         world.Batches.ShouldBeEmpty();
@@ -44,7 +44,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), Camera, null);
+            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Vertices.Count.ShouldBe(6);
         world.Batches.Count.ShouldBe(1);
@@ -60,6 +60,7 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, normalZ: -1f)], Materials, LightmapAtlas.Pack([]),
+            [],
             Camera,
             null);
 
@@ -85,6 +86,7 @@ public sealed class MapWorldTests
             [Surface(0, material: 0, corners: 3), Surface(1, material: 1, corners: 3)],
             materials,
             LightmapAtlas.Pack([]),
+            [],
             Camera,
             null);
 
@@ -99,6 +101,7 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, flags: SurfaceProperties.NoDraw)], Materials, LightmapAtlas.Pack([]),
+            [],
             Camera,
             null);
 
@@ -120,7 +123,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            surfaces, Materials, LightmapAtlas.Pack([]), Camera, null);
+            surfaces, Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Batches.Count.ShouldBe(2);
         world.Vertices.Count.ShouldBe(9);
@@ -146,7 +149,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(1, material: 0, corners: 3)], Materials, atlas, Camera, null);
+            [Surface(1, material: 0, corners: 3)], Materials, atlas, [], Camera, null);
 
         AtlasRect rectangle = atlas.Rectangles[1];
 
@@ -164,7 +167,7 @@ public sealed class MapWorldTests
         // 0..1 are the normal case and clamping them would stretch one texel across the surface.
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), Camera, null);
+            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Vertices[0].U.ShouldBe(12.5f);
     }
