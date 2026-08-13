@@ -141,6 +141,44 @@ public sealed class VtfTextureTests
     }
 
     /// <summary>Builds a DXT1 block: two endpoints and sixteen two-bit selectors.</summary>
+    [Test]
+    public void Decode_ATextureWithNoFlags_ReportsNoneAndIsNotABumpMap()
+    {
+        // The control. Every other fixture in this file leaves the flags field zero, so this pins
+        // what that means before the next test asserts a flag was seen.
+        VtfTexture texture = VtfTexture.Decode(
+            Vtf(VtfFormat.Dxt1, 4, 4, 1, Dxt1Blocks(1, 0xFFFF, 0xFFFF)));
+
+        texture.Flags.ShouldBe(0u);
+        texture.IsSelfShadowBump.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Decode_ATextureFlaggedAsASelfShadowBump_SaysSo()
+    {
+        // **The engine overrides a material's stated detail blend mode from this flag.** Valve's
+        // helper reads the detail texture's flags and forces mode 10 or 11 regardless of what
+        // $detailblendmode says, so a material that names mode 0 and points at an ssbump does not
+        // draw as mode 0. Without this the surface gets a mod2x of a normal map, which is a
+        // plausible-looking pattern rather than an error.
+        VtfTexture texture = VtfTexture.Decode(
+            Vtf(VtfFormat.Dxt1, 4, 4, 1, Dxt1Blocks(1, 0xFFFF, 0xFFFF), flags: 0x08000000));
+
+        texture.IsSelfShadowBump.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Decode_ATextureWithOtherFlagsSet_IsNotMistakenForASelfShadowBump()
+    {
+        // A neighbouring bit rather than an arbitrary one: 0x04000000 sits directly below the
+        // ssbump bit, so an off-by-one shift or a "flags are non-zero" test passes on it.
+        VtfTexture texture = VtfTexture.Decode(
+            Vtf(VtfFormat.Dxt1, 4, 4, 1, Dxt1Blocks(1, 0xFFFF, 0xFFFF), flags: 0x04000000));
+
+        texture.Flags.ShouldBe(0x04000000u);
+        texture.IsSelfShadowBump.ShouldBeFalse();
+    }
+
     private static byte[] Dxt1Block(ushort first, ushort second, uint indices)
     {
         byte[] block = new byte[8];
@@ -163,7 +201,8 @@ public sealed class VtfTextureTests
     }
 
     /// <summary>Builds a VTF with no thumbnail, so the image data starts at the header's end.</summary>
-    private static byte[] Vtf(VtfFormat format, int width, int height, int mips, byte[] images)
+    private static byte[] Vtf(
+        VtfFormat format, int width, int height, int mips, byte[] images, uint flags = 0)
     {
         const int HeaderSize = 80;
 
@@ -175,6 +214,7 @@ public sealed class VtfTextureTests
         BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(12), HeaderSize);
         BinaryPrimitives.WriteUInt16LittleEndian(file.AsSpan(16), (ushort)width);
         BinaryPrimitives.WriteUInt16LittleEndian(file.AsSpan(18), (ushort)height);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(20), flags);
         BinaryPrimitives.WriteUInt16LittleEndian(file.AsSpan(24), 1);  // frames
         BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(52), (int)format);
         file[56] = (byte)mips;

@@ -42,11 +42,23 @@ internal static class ViewerLog
         "Tf2DemoSalvage",
         "viewer.log");
 
+    /// <summary>Where the previous run's log is kept.</summary>
+    public static string Previous => System.IO.Path.ChangeExtension(Path, ".previous.log");
+
     /// <summary>Starts a new log for this run.</summary>
     /// <param name="version">What is running, for the header.</param>
     /// <remarks>
-    /// Truncated per run rather than appended. A log covering one session answers "what happened
-    /// just now", which is the question anyone actually asks; a growing file answers it worse.
+    /// **One run per file, and the previous run kept beside it.** A log covering one session
+    /// answers "what happened just now", which is the question anyone actually asks; a growing file
+    /// answers it worse.
+    ///
+    /// But truncating outright destroys evidence, and it did: an owner stress-tested full screen,
+    /// the viewer was relaunched to look at something else, and the measurements were gone. The
+    /// interesting run is very often the one BEFORE the current one, because noticing something
+    /// worth investigating is what prompts the relaunch.
+    ///
+    /// One generation is enough. Two files answer "what happened just now" and "what happened the
+    /// time before", and nothing beyond that has ever been wanted here.
     /// </remarks>
     public static void Begin(string version)
     {
@@ -57,6 +69,13 @@ internal static class ViewerLog
             try
             {
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
+
+                if (File.Exists(Path))
+                {
+                    // Overwrites the older generation, which is the one nobody has asked for.
+                    File.Copy(Path, Previous, overwrite: true);
+                }
+
                 File.WriteAllText(
                     Path,
                     string.Create(

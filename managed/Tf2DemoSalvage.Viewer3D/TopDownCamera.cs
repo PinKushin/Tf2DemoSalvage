@@ -112,10 +112,61 @@ internal sealed class TopDownCamera
         return new TopDownCamera(_centreX, _centreY, _scaleX * factor, _scaleY * factor);
     }
 
+    /// <summary>Returns this camera moved to look at a different point.</summary>
+    /// <param name="worldX">Where to centre the view.</param>
+    /// <param name="worldY">Where to centre the view.</param>
+    /// <returns>A new camera.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">A coordinate is not finite.</exception>
+    public TopDownCamera LookingAt(float worldX, float worldY)
+    {
+        if (!float.IsFinite(worldX) || !float.IsFinite(worldY))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(worldX), "A camera centre must be finite.");
+        }
+
+        return new TopDownCamera(worldX, worldY, _scaleX, _scaleY);
+    }
+
+    /// <summary>Where this camera is looking, in world units.</summary>
+    public (float X, float Y) Centre => (_centreX, _centreY);
+
+    /// <summary>How many world units one screen pixel covers, horizontally.</summary>
+    /// <remarks>
+    /// **What a drag has to be converted through.** A mouse moves in pixels and the camera lives in
+    /// world units; panning by the pixel count makes the map fly off at any zoom but one, which
+    /// reads as the drag being wildly oversensitive rather than as a missing conversion.
+    /// </remarks>
+    public float WorldUnitsPerPixel(int viewportWidth) =>
+        _scaleX == 0f ? 1f : 2f / (_scaleX * Math.Max(1, viewportWidth));
+
     /// <summary>Projects a world position to normalised device coordinates.</summary>
     /// <param name="worldX">World X.</param>
     /// <param name="worldY">World Y.</param>
     /// <returns>Coordinates in [-1, 1] for anything inside the fitted bounds.</returns>
     public (float X, float Y) Project(float worldX, float worldY) =>
         ((worldX - _centreX) * _scaleX, (worldY - _centreY) * _scaleY);
+
+    /// <summary>The same projection as a matrix, for geometry the GPU transforms.</summary>
+    /// <returns>Sixteen floats, row major, for <c>mul(float4(position, 1), matrix)</c>.</returns>
+    /// <remarks>
+    /// **The same arithmetic as <see cref="Project"/>, and that is the point.** A vertex projected
+    /// on the processor and one projected by this matrix must land on the same pixel, or the map's
+    /// outline and its textured surfaces drift apart — they are drawn by different paths and only
+    /// one of them moved to the GPU.
+    ///
+    /// So this is deliberately a restatement rather than a reimplementation: scale, then translate
+    /// by the centre already scaled. A test asserts the two agree, because the failure is a
+    /// half-pixel disagreement that looks like a rounding artifact rather than a wrong formula.
+    ///
+    /// Z passes through untouched. Depth is computed from world height before this ever runs, and
+    /// it has nothing to do with where the camera is looking.
+    /// </remarks>
+    public float[] ToMatrix() =>
+    [
+        _scaleX, 0f, 0f, 0f,
+        0f, _scaleY, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        -_centreX * _scaleX, -_centreY * _scaleY, 0f, 1f,
+    ];
 }

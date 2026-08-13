@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Assets;
 using Tf2DemoSalvage.Core.Bsp;
@@ -12,8 +13,27 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Height">Height in pixels.</param>
 /// <param name="Pixels">The image, four bytes per pixel, red first.</param>
 /// <param name="IsTransparent">Whether the material asked for alpha blending.</param>
+/// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
 internal readonly record struct MapTexture(
-    int Width, int Height, ReadOnlyMemory<byte> Pixels, bool IsTransparent);
+    int Width, int Height, ReadOnlyMemory<byte> Pixels, bool IsTransparent, bool IsAdditive = false);
+
+/// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
+/// <param name="Texture">The detail pattern itself.</param>
+/// <param name="Scale">How many times it tiles per tile of the base texture.</param>
+/// <param name="BlendFactor">How strongly it is applied.</param>
+/// <param name="Mode">Which of the twelve combine modes to use.</param>
+/// <param name="Tint">The colour the sampled detail is multiplied by first.</param>
+/// <remarks>
+/// **The mode here is the engine's, not the material's.** If the detail texture's own VTF carries
+/// the self-shadowing bump flag, the engine overrides <c>$detailblendmode</c> — so this is resolved
+/// once, at load, rather than left for the renderer to work out per frame.
+/// </remarks>
+internal readonly record struct MapDetail(
+    MapTexture Texture,
+    float Scale,
+    float BlendFactor,
+    int Mode,
+    (float Red, float Green, float Blue) Tint);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -28,6 +48,7 @@ internal readonly record struct MapTexture(
 /// | <c>tf/custom/*/materials</c> | where custom content goes today, and it OVERRIDES the game |
 /// | <c>tf/materials</c> | loose files, including anything extracted from a pre-VPK install |
 /// | <c>tf/*_dir.vpk</c> | the modern archives |
+/// | <c>hl2/</c> and <c>hl2/*_dir.vpk</c> | what TF2's own gameinfo.txt mounts after its own |
 ///
 /// That order is the engine's: custom beats loose, loose beats packed. A viewer that searched the
 /// VPKs first would show the stock texture where the game shows the user's replacement.
@@ -41,20 +62,29 @@ internal readonly record struct MapTexture(
 /// </remarks>
 internal sealed class GameArchives
 {
-    private readonly List<VpkArchive> _archives = [];
-    private readonly List<string> _folders = [];
+    /// <summary>Every place to look, in the order the game declares them.</summary>
+    /// <remarks>
+    /// **One ordered list rather than folders-then-archives**, because gameinfo.txt interleaves
+    /// them and the order IS the priority. TF2 lists tf/custom/* first, then its VPKs, then the
+    /// loose mod folder — so a VPK beats a loose file in tf/, which is the opposite of the
+    /// folklore and is what the file says. Searching all folders before all archives, as this did,
+    /// silently inverts that for anyone with content extracted into tf/.
+    ///
+    /// **And the folklore is half right, which is why it survives.** A custom HUD does override the
+    /// game's copy — because it lives in <c>tf/custom/</c>, which the file lists FIRST, above the
+    /// archives. Loose files dropped into <c>tf/</c> itself are listed LAST and do not. One file,
+    /// both behaviours, and no contradiction once it is read rather than recalled.
+    /// </remarks>
+    private readonly List<(string Path, VpkArchive? Archive)> _sources = [];
 
-    private GameArchives(IEnumerable<VpkArchive> archives, IEnumerable<string> folders)
-    {
-        _archives.AddRange(archives);
-        _folders.AddRange(folders);
-    }
+    private GameArchives(IEnumerable<(string Path, VpkArchive? Archive)> sources) =>
+        _sources.AddRange(sources);
 
     /// <summary>Whether nothing at all was found.</summary>
-    public bool IsEmpty => _archives.Count == 0 && _folders.Count == 0;
+    public bool IsEmpty => _sources.Count == 0;
 
     /// <summary>How many loose content folders are being searched.</summary>
-    public int FolderCount => _folders.Count;
+    public int FolderCount => _sources.Count(source => source.Archive is null);
 
     /// <summary>Opens the game's content, wherever it lives.</summary>
     /// <param name="gameFolder">The <c>tf</c> folder of a TF2 install, or null.</param>
@@ -66,58 +96,63 @@ internal sealed class GameArchives
     /// </remarks>
     public static GameArchives Open(string? gameFolder)
     {
-        List<VpkArchive> archives = [];
-        List<string> folders = [];
+        List<(string Path, VpkArchive? Archive)> sources = [];
 
         if (string.IsNullOrWhiteSpace(gameFolder) || !Directory.Exists(gameFolder))
         {
-            return new GameArchives(archives, folders);
+            return new GameArchives(sources);
         }
 
-        try
-        {
-            // Custom content first, because that is what it is for: a file under tf/custom
-            // replaces the game's own copy.
-            string custom = Path.Combine(gameFolder, "custom");
+        IReadOnlyList<SearchPathEntry> declared = GameSearchPath.Read(gameFolder);
 
-            if (Directory.Exists(custom))
-            {
-                foreach (string folder in Directory.GetDirectories(custom))
-                {
-                    folders.Add(folder);
-                }
-            }
-
-            // Then the game folder itself, which is where loose files sit - including anything
-            // extracted from a pre-VPK install.
-            folders.Add(gameFolder);
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        if (declared.Count == 0)
         {
-            // An unreadable custom folder costs its overrides, not the viewer.
+            // **No gameinfo.txt falls back to the behaviour that predates all of this**: the mod
+            // folder's loose files, which is what Source read before VPKs and before tf/custom
+            // existed. Nothing else can be assumed - custom is a convention the FILE declares, and
+            // inventing it for a game that never declared it is the same hardcoding this type was
+            // written to remove.
+            sources.Add((gameFolder, null));
+
+            return new GameArchives(sources);
         }
 
-        foreach (string name in new[] { "tf2_textures_dir.vpk", "tf2_misc_dir.vpk" })
+        // **Exactly the order the file declares**, including that TF2 lists its VPKs above the
+        // loose mod folder. That ordering is easy to get backwards from memory - the folklore says
+        // a loose file overrides its archived copy - and the file settles it without anyone having
+        // to remember.
+        foreach (SearchPathEntry entry in declared)
         {
-            string path = Path.Combine(gameFolder, name);
-
             try
             {
-                if (File.Exists(path))
+                if (entry.IsArchive)
                 {
-                    archives.Add(VpkArchive.Open(path));
+                    if (File.Exists(entry.Path))
+                    {
+                        sources.Add((string.Empty, VpkArchive.Open(entry.Path)));
+                    }
+                }
+                else if (Directory.Exists(entry.Path))
+                {
+                    sources.Add((entry.Path, null));
                 }
             }
-            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            catch (Exception failure) when (
+                failure is IOException or InvalidDataException or UnauthorizedAccessException)
             {
-                // A damaged archive costs its textures, not the viewer.
+                // A damaged archive or unreadable folder costs its content, not the viewer.
             }
         }
 
-        return new GameArchives(archives, folders);
+        ViewerLog.Write(
+            "assets",
+            $"search path: {sources.Count} sources from gameinfo.txt " +
+            $"({sources.Count(source => source.Archive is not null)} archives)");
+
+        return new GameArchives(sources);
     }
 
-    /// <summary>Finds a file, searching loose folders before the archives.</summary>
+    /// <summary>Finds a file, searching every source in the order the game declares.</summary>
     /// <param name="path">Path such as <c>materials/concrete/x.vmt</c>.</param>
     /// <returns>The bytes, or null.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
@@ -125,44 +160,39 @@ internal sealed class GameArchives
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        foreach (string folder in _folders)
+        foreach ((string folder, VpkArchive? archive) in _sources)
         {
-            // **The path is joined and then checked to be inside the folder.** It comes from a
-            // material name in a map written by a stranger, and ".." in one would otherwise read
-            // any file on the machine (D32).
-            string candidate = Path.GetFullPath(Path.Combine(folder, path));
-
-            if (!candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             try
             {
+                if (archive is not null)
+                {
+                    if (archive.ReadFile(path) is { } packed)
+                    {
+                        return packed;
+                    }
+
+                    continue;
+                }
+
+                // **The path is joined and then checked to be inside the folder.** It comes from a
+                // material name in a map written by a stranger, and ".." in one would otherwise
+                // read any file on the machine (D32).
+                string candidate = Path.GetFullPath(Path.Combine(folder, path));
+
+                if (!candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 if (File.Exists(candidate))
                 {
                     return File.ReadAllBytes(candidate);
                 }
             }
             catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException)
+                failure is IOException or UnauthorizedAccessException or InvalidDataException)
             {
-                // One unreadable file must not stop the search.
-            }
-        }
-
-        foreach (VpkArchive archive in _archives)
-        {
-            try
-            {
-                if (archive.ReadFile(path) is { } bytes)
-                {
-                    return bytes;
-                }
-            }
-            catch (Exception failure) when (failure is IOException or InvalidDataException)
-            {
-                // One unreadable entry must not stop the search.
+                // One unreadable source must not stop the search.
             }
         }
 
@@ -187,18 +217,29 @@ internal sealed class MapAssets
     private MapAssets(
         IReadOnlyList<MapTexture?> textures,
         IReadOnlyList<MapTexture?> blendTextures,
+        IReadOnlyList<MapDetail?> details,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
+        IReadOnlyList<PropVertex> props,
         int resolved,
         int missing)
     {
         Textures = textures;
         BlendTextures = blendTextures;
+        Details = details;
         Materials = materials;
         Lightmaps = lightmaps;
+        Props = props;
         Resolved = resolved;
         Missing = missing;
     }
+
+    /// <summary>The map's placed models, in world space, three corners per triangle.</summary>
+    /// <remarks>
+    /// **Their materials continue the map's own table**, so a prop's material index indexes
+    /// <see cref="Textures"/> exactly like a brush face's. That is what lets one renderer draw both.
+    /// </remarks>
+    public IReadOnlyList<PropVertex> Props { get; }
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
@@ -211,6 +252,14 @@ internal sealed class MapAssets
     /// surface as bare dirt, which is exactly how the map looked.
     /// </remarks>
     public IReadOnlyList<MapTexture?> BlendTextures { get; }
+
+    /// <summary>The detail pattern for each material, null for those without one.</summary>
+    /// <remarks>
+    /// **A detail texture is what stops a wall looking like a flat colour.** It is a small tiling
+    /// pattern - concrete grain, brick speckle, noise - multiplied into the base texture at four
+    /// times its frequency by default, and it is the difference between a surface and a swatch.
+    /// </remarks>
+    public IReadOnlyList<MapDetail?> Details { get; }
 
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
@@ -237,20 +286,22 @@ internal sealed class MapAssets
         ArgumentNullException.ThrowIfNull(archives);
 
         PakFile pak = PakFile.ReadFrom(map);
-        IReadOnlyList<BspMaterial> materials = BspMaterials.Read(map);
+        List<BspMaterial> materials = [.. BspMaterials.Read(map)];
 
         List<MapTexture?> textures = new(materials.Count);
         List<MapTexture?> blendTextures = new(materials.Count);
+        List<MapDetail?> details = new(materials.Count);
         int resolved = 0;
         int missing = 0;
 
         foreach (BspMaterial material in materials)
         {
-            (MapTexture? texture, MapTexture? blend) =
+            (MapTexture? texture, MapTexture? blend, MapDetail? detail) =
                 Resolve(material.Name, pak, archives, maximumTextureSize);
 
             textures.Add(texture);
             blendTextures.Add(blend);
+            details.Add(detail);
 
             if (texture is null)
             {
@@ -262,11 +313,50 @@ internal sealed class MapAssets
             }
         }
 
+        // **Props after the brushwork, deliberately.** They extend the same material table, so
+        // every index the BSP already handed out keeps its meaning and the new ones continue from
+        // the end. Inserting them first would renumber every face in the map.
+        int brushMaterials = materials.Count;
+
+        IReadOnlyList<PropVertex> props = PropModels.Load(
+            map,
+            pak,
+            archives,
+            materials,
+            textures,
+            path => Resolve(path, pak, archives, maximumTextureSize, report: false).Texture);
+
+        // The blend list is indexed in step with the textures, and a prop material never has a
+        // second layer - only a displacement's WorldVertexTransition does.
+        while (blendTextures.Count < textures.Count)
+        {
+            blendTextures.Add(null);
+        }
+
+        // Prop materials are appended after the brushwork, so their detail slots have to be too or
+        // every prop indexes a detail belonging to a different material.
+        while (details.Count < textures.Count)
+        {
+            details.Add(null);
+        }
+
+        // **Measured rather than assumed.** A detail chain that loads nothing still draws a
+        // perfectly reasonable map, so the count is the only thing that says it is working.
+        ViewerLog.Write(
+            "assets",
+            $"{details.Count(detail => detail is not null)} materials carry a detail texture");
+
+        ViewerLog.Write(
+            "assets",
+            $"{materials.Count - brushMaterials} prop materials added to {brushMaterials} the map's own");
+
         return new MapAssets(
             textures,
             blendTextures,
+            details,
             materials,
             LightmapAtlas.Pack(BspLightmaps.Read(map)),
+            props,
             resolved,
             missing);
     }
@@ -276,8 +366,12 @@ internal sealed class MapAssets
     /// The chain is VMT, then a patch's included VMT if there is one, then the VTF. Any step
     /// failing yields null, because a half-resolved material has nothing to draw.
     /// </remarks>
-    private static (MapTexture? Texture, MapTexture? Blend) Resolve(
-        string materialName, PakFile pak, GameArchives archives, int maximumTextureSize)
+    private static (MapTexture? Texture, MapTexture? Blend, MapDetail? Detail) Resolve(
+        string materialName,
+        PakFile pak,
+        GameArchives archives,
+        int maximumTextureSize,
+        bool report = true)
     {
         byte[]? Find(string path)
         {
@@ -287,13 +381,25 @@ internal sealed class MapAssets
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
+                // **Reported rather than swallowed.** An unreadable archive entry is a defect in
+                // this reader until shown otherwise; the engine opens all of these.
+                ViewerLog.Warn("assets", $"reading {path}", failure);
+
                 return null;
             }
         }
 
         if (Find("materials/" + materialName + ".vmt") is not { } vmt)
         {
-            return (null, null);
+            // **Silent only when the caller is guessing.** A model's material can be reached by
+            // several candidate paths and all but one are expected to miss; reporting each would
+            // bury the real failures, which the caller logs once it has run out of candidates.
+            if (report)
+            {
+                ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
+            }
+
+            return (null, null, null);
         }
 
         VmtMaterial material;
@@ -307,20 +413,88 @@ internal sealed class MapAssets
                 material = VmtMaterial.ApplyPatch(material, VmtMaterial.Parse(based));
             }
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException failure)
         {
-            return (null, null);
+            ViewerLog.Warn("assets", $"parsing materials/{materialName}.vmt", failure);
+
+            return (null, null, null);
         }
 
-        MapTexture? first = Decode(material.BaseTexture, material.IsTransparent);
-        MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent);
+        MapTexture? first = Decode(material.BaseTexture, material.IsTransparent, material.IsAdditive);
+        MapTexture? second = Decode(material.Value("$basetexture2"), material.IsTransparent, material.IsAdditive);
 
-        return (first, second);
+        return (first, second, ResolveDetail());
 
-        MapTexture? Decode(string? name, bool transparent)
+        MapDetail? ResolveDetail()
         {
-            if (name is null || Find("materials/" + name + ".vtf") is not { } vtf)
+            if (material.Detail is not { } name)
             {
+                return null;
+            }
+
+            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                ? name[..^4]
+                : name;
+
+            if (Find("materials/" + bare + ".vtf") is not { } file)
+            {
+                ViewerLog.Warn(
+                    "assets",
+                    $"detail texture materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
+
+                return null;
+            }
+
+            try
+            {
+                VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize);
+
+                // **The texture's own flag outranks the material's mode.** Valve's helper forces
+                // 10 or 11 when the detail is a self-shadowing bump map, whatever
+                // $detailblendmode asked for. Mode 10 needs a bump map we do not have yet, so
+                // ssbump detail resolves to 11, which is what the engine does without one.
+                int mode = decoded.IsSelfShadowBump
+                    ? DetailCombine.SelfShadowBumpNoBump
+                    : material.DetailBlendMode;
+
+                return new MapDetail(
+                    new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false),
+                    material.DetailScale,
+                    material.DetailBlendFactor,
+                    mode,
+                    material.DetailTint);
+            }
+            catch (InvalidDataException failure)
+            {
+                // **The base texture survives this.** A detail texture that will not decode, or a
+                // $detailscale that is not a number, costs the surface its grain and nothing else
+                // - it must never take the base texture with it and turn the surface purple.
+                ViewerLog.Warn("assets", $"detail for materials/{materialName}.vmt", failure);
+
+                return null;
+            }
+        }
+
+        MapTexture? Decode(string? name, bool transparent, bool additive)
+        {
+            if (name is null)
+            {
+                return null;
+            }
+
+            // **Some materials name the texture WITH its extension.** Valve's own script-generated
+            // VMTs do it - the props_hydro pipes carry
+            // `$baseTexture "models/props_hydro/2pipe.vtf"` - and appending .vtf to that asks for
+            // 2pipe.vtf.vtf, which exists nowhere. The engine tolerates both spellings, so this
+            // must too; 19 of cp_process_final's prop materials resolved to nothing over it.
+            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                ? name[..^4]
+                : name;
+
+            if (Find("materials/" + bare + ".vtf") is not { } vtf)
+            {
+                ViewerLog.Warn("assets", $"texture materials/{bare}.vtf was not found");
+
                 return null;
             }
 
@@ -328,12 +502,16 @@ internal sealed class MapAssets
             {
                 VtfTexture decoded = VtfTexture.Decode(vtf, maximumTextureSize);
 
-                return new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, transparent);
+                return new MapTexture(
+                    decoded.Width, decoded.Height, decoded.Pixels, transparent, additive);
             }
-            catch (InvalidDataException)
+            catch (InvalidDataException failure)
             {
-                // A format this project does not read, or a truncated file. The face falls back to
-                // the material's reflectivity.
+                // **Reported, never silent.** A texture that cannot be decoded is a defect in this
+                // reader until shown otherwise - the engine reads every one of these - and a face
+                // quietly falling back to a reflectivity colour is how that goes unnoticed.
+                ViewerLog.Warn("assets", $"decoding materials/{bare}.vtf", failure);
+
                 return null;
             }
         }

@@ -310,3 +310,123 @@ only that one, goes red under the sabotage.
 
 Reading the placements is not drawing them. The model chain — `.mdl`, `.vvd`, `.dx90.vtx` — is
 unimplemented, so the patches remain until it lands.
+
+## Official maps do change, and one of them was rebuilt
+
+*Evidence class: measured, by reading a 2008 install's maps and the modern ones with this project's
+own reader.*
+
+B38 was closed on the argument that a demo cannot desync from a revised map — positions are data,
+scenery is scenery — with the supporting claim that official geometry is stable anyway. The first
+half holds. **The second half is false as a blanket statement**, and the 2008 build kept for era
+testing is what showed it.
+
+| map | faces 2008 → now | vertices |
+|---|---|---|
+| `ctf_well` | 21,267 → 16,725 (**−21%**) | 108,848 → 83,991 |
+| `cp_granary` | 16,151 → 17,264 (+7%) | 82,139 → 88,021 |
+| `cp_well` | 21,482 → 20,907 (−2.7%) | 109,868 → 107,902 |
+| `cp_gravelpit` | 14,579 → 14,893 (+2%) | 74,439 → 76,049 |
+| `cp_badlands` | 13,672 → 13,845 (+1%) | 69,479 → 71,303 |
+| `cp_dustbowl` | 17,691 → 17,946 (+1.4%) | 91,304 → 92,719 |
+| `tc_hydro` | 21,214 → 21,322 (+0.5%) | 103,502 → 103,949 |
+| `ctf_2fort` | 15,768 → 15,791 (+0.1%) | 76,687 → 76,816 |
+
+`ctf_well` lost a fifth of its faces and its bounds shrank on every axis. That is a rebuild, not a
+bug fix. `cp_granary` gained 7%, which matches the competitive scene's memory of it changing enough
+to matter — and is part of why that community ran its own `_pro` variants.
+
+**A file hash says nothing here.** All eight differ, and `cp_badlands` alone went 65 MB to 26 MB —
+which is lump compression arriving, not two thirds of the map being deleted. Only reading the
+geometry answers the question, which is a good argument for having a parser rather than a checksum.
+
+### The bounds grew by exactly the same amount on three maps
+
+`cp_badlands`, `cp_granary` and `cp_gravelpit` all expand from roughly ±10,000 units to
+**−14,892 … 15,420**, while `cp_dustbowl`, `ctf_2fort` and `tc_hydro` do not move at all.
+
+The same numbers on three maps is a compile artifact rather than three mappers agreeing. The likely
+reading — flagged as interpolation, not measurement — is a **3D skybox added after 2008**, since
+skybox geometry is ordinary world geometry placed far outside the play area, and that is exactly
+what pushes bounds outward without changing the playable space.
+
+This matters to the viewer directly: the camera frames `MainBounds` rather than `Bounds` precisely
+because the skybox room would otherwise shrink the map into a corner of the viewport. A 2008 map
+with no skybox and a modern one with a large one are two different framing problems, and the
+project already has both eras on disk to test against.
+
+### The mismatch is asymmetric, and this project is on the safe side of it
+
+The owner's observation, and it is the part that matters: **the difference only bites when a NEW
+demo is played on an OLD map.**
+
+- **Old demo, modern map** — the recording predates the changes, so the player never uses anything
+  that was added. `cp_granary` opened up areas that were originally closed; a 2008 recording simply
+  never goes through them, and the new opening sits there unvisited. Geometry that appeared later is
+  scenery the player had no way to interact with.
+- **New demo, old map** — the player *does* use the modern opening, the old map still has a wall
+  across it, and they appear to walk through solid brushwork.
+
+Salvaging old demos means old recordings against whatever is installed today, which is the first
+case by construction. The second only arises if someone deliberately pairs a recent demo with an
+archived map — which is exactly what the fastdl era-fetching idea would enable, and worth
+remembering before building it.
+
+### What this changes about B38
+
+The entry stays closed and its reasoning is now better supported, not worse. A demo records where
+players were and does not re-simulate against the map, so a revised map cannot desync playback; and
+the direction this project actually runs in is the harmless one.
+
+What the measurement does correct is the supporting claim. "Official geometry is stable" is false —
+`ctf_well` lost a fifth of its faces — but stability was never what made the closure sound. The
+honest statement is: **map revision is a cosmetic risk rather than a correctness one, it is larger
+on official maps than assumed, and it is asymmetric in this project's favour.**
+
+## The demo names which version of a map it wants
+
+*Evidence class: measured on the corpus, with the algorithm still open.*
+
+`svc_ServerInfo` carries a 32-bit map checksum, and this project already decodes it as `MapCrc`. It
+is the thing that identifies **which build of a map** a recording was made against — the piece B38
+was written around not having.
+
+Measured across the era corpus and the archived installs:
+
+| | value |
+|---|---|
+| 2007 demo (protocol 11), `cp_granary` | 1,397,681,020 |
+| 2008 demo (protocol 14), `cp_granary` | 998,373,642 |
+
+Four archived builds of that same map exist on this machine, and all four are distinct files:
+
+| build | CRC32 of the whole file | size |
+|---|---|---|
+| 2007 | 628,509,263 | 57,560,076 |
+| 2008 | 3,690,386,726 | 58,260,872 |
+| 2013 | 2,105,659,328 | 58,825,164 |
+| modern | 1,256,781,424 | 60,353,484 |
+
+**Two demos from different eras carry different checksums, and the four map files are four different
+files.** So the identification works in principle: the demo states a version, and the versions are
+genuinely distinguishable.
+
+**What it is not is a CRC32 of the file.** None of the four match either demo, including the pairs
+that should correspond. So the engine CRCs something narrower — some subset of lumps, or the file
+with a region excluded.
+
+**And Valve does not publish the answer.** `src/tier1/checksum_crc.cpp` in `source-sdk-2013` is the
+CRC32 primitive; `CRC_MapFile`, which decides *what* is fed to it, lives in the engine, which is not
+in the SDK. This is the first thing this project has wanted that reading published source cannot
+settle — the model chain, the search path, the lighting and the angle convention were all one fetch
+away, and this is not.
+
+**The experiment that would settle it** is available and cheap, because the corpus supplies matched
+pairs: a 2008 demo and the 2008 build's own `cp_granary.bsp`. Enumerate candidate inputs — the whole
+file, the file minus the entities lump, the file minus the pakfile lump, the lump directory alone,
+each lump individually — and CRC each until one equals 998,373,642. A single match against a matched
+pair, confirmed on the 2007 pair, settles it; nothing needs to be reverse engineered.
+
+One caveat to check first: that the archived 2008 install's map is the same build the 2008 demo was
+recorded against. The demo is build 3420, the install is dated the same year, and that is an
+assumption rather than a measurement.

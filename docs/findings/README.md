@@ -32,6 +32,11 @@ it, because a second copy is a copy that goes stale.
 | [08-method.md](08-method.md) | The techniques that actually worked, and the ones that misled |
 | [09-valve-implementation.md](09-valve-implementation.md) | What Valve's own engine and game code say — behaviours, not format |
 | [10-maps.md](10-maps.md) | Reading a BSP: compressed lumps, and what counts as "the map" |
+| [11-models.md](11-models.md) | The `.mdl`/`.vvd`/`.vtx` chain, static prop placement, and baked vertex light |
+| [12-shader-parity.md](12-shader-parity.md) | Which material features the renderer still lacks, by drawn area |
+| [13-settings-parity.md](13-settings-parity.md) | TF2's graphics options, and where ours stand against each |
+| [14-playback-parity.md](14-playback-parity.md) | What TF2 gives you when it plays an STV demo natively |
+| [15-detail-textures.md](15-detail-textures.md) | The `$detail` chain: twelve combine modes, and three traps in them |
 
 ## Which of this is original
 

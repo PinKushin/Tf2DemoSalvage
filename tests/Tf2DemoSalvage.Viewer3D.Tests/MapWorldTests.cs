@@ -33,7 +33,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [], Materials, LightmapAtlas.Pack([]), Camera, null);
+            [], Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Vertices.ShouldBeEmpty();
         world.Batches.ShouldBeEmpty();
@@ -44,7 +44,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), Camera, null);
+            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Vertices.Count.ShouldBe(6);
         world.Batches.Count.ShouldBe(1);
@@ -60,6 +60,7 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, normalZ: -1f)], Materials, LightmapAtlas.Pack([]),
+            [],
             Camera,
             null);
 
@@ -67,7 +68,7 @@ public sealed class MapWorldTests
     }
 
     [Test]
-    public void Build_ToolMaterials_AreDroppedEvenWithoutAToolFlag()
+    public void Build_InvisibleDisplacement_IsDroppedButToolsBlackIsKept()
     {
         // **518 of cp_process_final's 578 displacement faces are painted with
         // tools/toolsinvisibledisplacement**, which the engine never draws. Its VMT declares
@@ -78,18 +79,30 @@ public sealed class MapWorldTests
         [
             new("tools/toolsinvisibledisplacement", (0f, 0f, 0f), 32, 32),
             new("nature/blendgroundtograss007", (0.3f, 0.4f, 0.2f), 512, 512),
+            new("tools/toolsblack", (0f, 0f, 0f), 32, 32),
         ];
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 0, corners: 3), Surface(1, material: 1, corners: 3)],
+            [
+                Surface(0, material: 0, corners: 3),
+                Surface(1, material: 1, corners: 3),
+                Surface(2, material: 2, corners: 3),
+            ],
             materials,
             LightmapAtlas.Pack([]),
+            [],
             Camera,
             null);
 
-        world.Batches.Count.ShouldBe(1, "only the real material should be drawn");
-        world.Batches[0].MaterialIndex.ShouldBe(1);
+        // **toolsblack is kept, and that is the point of this test now.** It shares the tools/
+        // path and is an ordinary drawn surface - 80 visible faces with no flags on
+        // cp_process_final, covering 4.8 million square units. Dropping it with its siblings left
+        // holes that read as dark blobs.
+        world.Batches.Count.ShouldBe(2, "only the invisible displacement should be dropped");
+        world.Batches.ShouldNotContain(batch => batch.MaterialIndex == 0);
+        world.Batches.ShouldContain(batch => batch.MaterialIndex == 1);
+        world.Batches.ShouldContain(batch => batch.MaterialIndex == 2);
     }
 
     [Test]
@@ -99,6 +112,7 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, flags: SurfaceProperties.NoDraw)], Materials, LightmapAtlas.Pack([]),
+            [],
             Camera,
             null);
 
@@ -120,7 +134,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            surfaces, Materials, LightmapAtlas.Pack([]), Camera, null);
+            surfaces, Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Batches.Count.ShouldBe(2);
         world.Vertices.Count.ShouldBe(9);
@@ -146,7 +160,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(1, material: 0, corners: 3)], Materials, atlas, Camera, null);
+            [Surface(1, material: 0, corners: 3)], Materials, atlas, [], Camera, null);
 
         AtlasRect rectangle = atlas.Rectangles[1];
 
@@ -164,9 +178,79 @@ public sealed class MapWorldTests
         // 0..1 are the normal case and clamping them would stretch one texel across the surface.
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), Camera, null);
+            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), [], Camera, null);
 
         world.Vertices[0].U.ShouldBe(12.5f);
+    }
+
+    [Test]
+    public void Build_APropWhoseOriginIsOutsideThePlayArea_IsDroppedWholeEvenIfItReachesInside()
+    {
+        // **The 3D skybox test.** A TF2 map keeps a miniature copy of the surrounding scenery far
+        // outside the play area; those are ordinary prop_static entries whose triangles are valid
+        // shapes at valid positions, so nothing about a TRIANGLE distinguishes them - only where
+        // its placement stands does.
+        //
+        // The condition is chosen so the two readings disagree: this prop's origin is well outside
+        // the area while one of its corners reaches inside it. Judged per triangle, as the first
+        // version did, it is kept; judged by origin it is dropped. A prop entirely outside would
+        // be dropped either way and would prove nothing.
+        MapBounds area = new(0f, 0f, 1000f, 1000f);
+
+        PropVertex[] straddling =
+        [
+            new(500f, 500f, 0f, 0f, 0f, 0, OriginX: 9000f, OriginY: 9000f),
+            new(9000f, 9000f, 0f, 1f, 0f, 0, OriginX: 9000f, OriginY: 9000f),
+            new(9100f, 9100f, 0f, 1f, 1f, 0, OriginX: 9000f, OriginY: 9000f),
+        ];
+
+        MapWorld world = MapWorldBuilder.Build(
+            Map, [], Materials, LightmapAtlas.Pack([]), straddling, Camera, area);
+
+        world.Vertices.ShouldBeEmpty("a prop standing in the skybox room is not in the map");
+    }
+
+    [Test]
+    public void Build_APropStandingInThePlayArea_IsKept()
+    {
+        // The control. Without it "drops the skybox" and "drops every prop" are the same
+        // observation, which is the failure mode the whole filter risks.
+        MapBounds area = new(0f, 0f, 1000f, 1000f);
+
+        PropVertex[] inside =
+        [
+            new(100f, 100f, 0f, 0f, 0f, 0, OriginX: 500f, OriginY: 500f),
+            new(200f, 100f, 0f, 1f, 0f, 0, OriginX: 500f, OriginY: 500f),
+            new(200f, 200f, 0f, 1f, 1f, 0, OriginX: 500f, OriginY: 500f),
+        ];
+
+        MapWorld world = MapWorldBuilder.Build(
+            Map, [], Materials, LightmapAtlas.Pack([]), inside, Camera, area);
+
+        world.Vertices.Count.ShouldBe(3);
+        world.Batches.Single().MaterialIndex.ShouldBe(0);
+    }
+
+    [Test]
+    public void Build_APropWhoseMaterialResolvedToNothing_IsDrawnAsMissing()
+    {
+        // **Drawn, not skipped, and the reversal is deliberate.** This used to skip it, reasoning
+        // that a white rock reads as a rendering fault - true, and the wrong conclusion, because a
+        // HOLE reads as nothing at all and nothing at all is what goes uninvestigated. The engine's
+        // own convention is a magenta chequer, which looks like a bug and therefore gets reported.
+        //
+        // Several defects this session hid behind exactly that difference.
+        PropVertex[] unpainted =
+        [
+            new(100f, 100f, 0f, 0f, 0f, -1),
+            new(200f, 100f, 0f, 1f, 0f, -1),
+            new(200f, 200f, 0f, 1f, 1f, -1),
+        ];
+
+        MapWorld world = MapWorldBuilder.Build(
+            Map, [], Materials, LightmapAtlas.Pack([]), unpainted, Camera, null);
+
+        world.Vertices.Count.ShouldBe(3, "a prop with no material draws in the missing chequer");
     }
 
     private static BspSurface Surface(

@@ -1,4 +1,7 @@
 using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -37,6 +40,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     private ComPtr<ID3D11Texture2D> _staging;
     private ComPtr<ID3D11RenderTargetView> _view;
     private PointRenderer? _points;
+    private WorldRenderer? _world;
 
     private OffscreenTarget(
         D3D11 d3d,
@@ -98,6 +102,98 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         d3d.Dispose();
         return null;
+    }
+
+    /// <summary>
+    /// Draws world geometry through the real world shader, for tests with no screen.
+    /// </summary>
+    /// <param name="vertices">Triangle corners in world coordinates.</param>
+    /// <param name="batches">Material runs.</param>
+    /// <param name="matrix">Camera matrix, sixteen floats row major.</param>
+    /// <param name="assets">Textures to bind; the shader clips on their alpha.</param>
+    /// <param name="surfaceColours">Draw flat category colours instead of textures.</param>
+    /// <param name="heightCut">Discard anything above this height, 0 to 1.</param>
+    /// <param name="detail">Combine each material's detail texture; false renders without.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
+    /// reads from Valve - the camera matrix, the category view, the height cut - has no source to
+    /// check against, so the only way to know it works is to draw it and look at the pixels. Doing
+    /// that offscreen is what makes "look at the pixels" something a test can do.
+    ///
+    /// The height cut in particular went three rounds of "it does not work" with no way to tell
+    /// whether the constant reached the shader, the depth values were wrong, or the key never
+    /// arrived.
+    /// </remarks>
+    public void DrawWorld(
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        float[] matrix,
+        MapAssets assets,
+        bool surfaceColours = false,
+        float heightCut = 0f,
+        bool detail = true)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(matrix);
+        ArgumentNullException.ThrowIfNull(assets);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.DrawDetail = detail;
+
+        // **Textures first, because the shader clips on their alpha.** With none bound the sample
+        // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
+        _world.UploadTextures(_device, _context, assets);
+        _world.UploadGeometry(_device, vertices, batches);
+        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), ref Unsafe.NullRef<ID3D11DepthStencilView>());
+
+        _world.Draw(_context);
+    }
+
+    /// <summary>
+    /// Saves what has been drawn as a PNG, so a person can look at what a test verified.
+    /// </summary>
+    /// <param name="path">Where to write it; the folder is created if needed.</param>
+    /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+    /// <remarks>
+    /// **A test that renders can leave the picture behind, and it should.** Every assertion here
+    /// reduces an image to a number - "this pixel is not black" - and the number is what fails,
+    /// while the image is what explains. Writing both costs one file and turns a red test into
+    /// something anyone can diagnose without rebuilding.
+    ///
+    /// It also answers the thing this project kept lacking: a way to see the renderer's output
+    /// without a screen, a window, or a working screenshot tool.
+    /// </remarks>
+    public void SavePng(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        string? folder = Path.GetDirectoryName(Path.GetFullPath(path));
+
+        if (folder is not null)
+        {
+            Directory.CreateDirectory(folder);
+        }
+
+        using Bitmap bitmap = new(_width, _height, PixelFormat.Format32bppArgb);
+
+        for (int y = 0; y < _height; y++)
+        {
+            for (int x = 0; x < _width; x++)
+            {
+                (int red, int green, int blue) = PixelAt(x, y);
+
+                bitmap.SetPixel(x, y, Color.FromArgb(255, red, green, blue));
+            }
+        }
+
+        bitmap.Save(path, ImageFormat.Png);
     }
 
     /// <summary>Fills the target with one colour.</summary>
@@ -186,6 +282,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     public void Dispose()
     {
         _points?.Dispose();
+        _world?.Dispose();
         _view.Dispose();
         _staging.Dispose();
         _texture.Dispose();

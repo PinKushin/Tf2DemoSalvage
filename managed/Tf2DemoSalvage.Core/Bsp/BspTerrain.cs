@@ -134,6 +134,13 @@ public sealed class BspTerrain
         SurfaceVertex[] corners = Rotate(surface.Vertices, start);
         SurfaceVertex[] grid = new SurfaceVertex[needed];
 
+        // The face's own lightmap, in samples. The span is one less, because the coordinates run
+        // between texel centres rather than across the whole image.
+        float luxelWidth = Math.Max(1, surface.LuxelWidth);
+        float luxelHeight = Math.Max(1, surface.LuxelHeight);
+        float luxelSpanU = Math.Max(0f, luxelWidth - 1f);
+        float luxelSpanV = Math.Max(0f, luxelHeight - 1f);
+
         for (int row = 0; row < side; row++)
         {
             float rowFraction = row / (float)(side - 1);
@@ -156,8 +163,26 @@ public sealed class BspTerrain
                 float distance = BinaryPrimitives.ReadSingleLittleEndian(displacement[12..]);
                 float alpha = BinaryPrimitives.ReadSingleLittleEndian(displacement[16..]);
 
+                // **A displacement's lightmap coordinates are NOT projected through lightmapVecs.**
+                // The compiler assigns them straight from the corner ordering, spanning texel
+                // centres across the face's own lightmap:
+                //
+                //     corner 0 -> (0.5, 0.5)          corner 1 -> (0.5, V + 0.5)
+                //     corner 3 -> (U + 0.5, 0.5)      corner 2 -> (U + 0.5, V + 0.5)
+                //
+                // with the same start corner this grid is already rotated to. Interpolating the
+                // base quad's projected coordinates instead - which is what this did, and which
+                // looks obviously right - put 219 of cp_process_final's 578 displacements outside
+                // their own lightmap, worst case by a factor of 389. Those were then clamped, so
+                // each drew in one flat shade taken from an edge texel: the diffuse dark patches
+                // scattered over the map's terrain.
+                float luxelU = (0.5f + (columnFraction * luxelSpanU)) / luxelWidth;
+                float luxelV = (0.5f + (rowFraction * luxelSpanV)) / luxelHeight;
+
                 grid[(row * side) + column] = flat with
                 {
+                    LightU = luxelU,
+                    LightV = luxelV,
                     X = flat.X + (directionX * distance),
                     Y = flat.Y + (directionY * distance),
                     Z = flat.Z + (directionZ * distance),

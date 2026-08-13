@@ -18,8 +18,18 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="LightU">Lightmap atlas coordinate across.</param>
 /// <param name="LightV">Lightmap atlas coordinate down.</param>
 /// <param name="Alpha">Blend between the material's two textures; 0 draws only the first.</param>
+/// <param name="Red">Per-vertex light, one for anything that takes its light from the lightmap.</param>
+/// <param name="Green">Per-vertex light.</param>
+/// <param name="Blue">Per-vertex light.</param>
+/// <remarks>
+/// **The per-vertex colour exists for static props and nothing else.** A brush face takes its light
+/// from the lightmap atlas; a model cannot, because the same model stands in many places under
+/// different light, so the compiler bakes a colour per vertex per placement. Brush faces carry
+/// white here, which multiplies to no change, so one shader serves both.
+/// </remarks>
 internal readonly record struct WorldVertex(
-    float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha);
+    float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
+    float Red = 1f, float Green = 1f, float Blue = 1f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -52,7 +62,7 @@ internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, i
 internal sealed unsafe class WorldRenderer : IDisposable
 {
     /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap, one blend.</summary>
-    private const int VertexStride = sizeof(float) * 8;
+    private const int VertexStride = sizeof(float) * 11;
 
     private const string ShaderSource = """
         struct VsIn
@@ -61,6 +71,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 uv  : TEXCOORD0;
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
+            float3 vc  : TEXCOORD3;
         };
 
         struct VsOut
@@ -69,21 +80,119 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 uv  : TEXCOORD0;
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
+            float3 vc  : TEXCOORD3;
+        };
+
+        cbuffer Camera : register(b0)
+        {
+            row_major float4x4 viewProjection;
+
+            // x: a debug view that replaces the texture with a flat category colour. Turning the
+            //    map into "this is world, this is terrain, this is a prop, this is missing" answers
+            //    in one glance what a textured picture hides.
+            // y: a cutting plane in DEPTH, which is world height inverted. Everything nearer than
+            //    this is discarded, so a roof can be taken off to show the room under it - the
+            //    hallways into last on cp_process being the case that asked for it. Zero draws
+            //    everything.
+            float4 surfaceColours;
+        };
+
+        // **Per material rather than per frame.** A detail texture's scale, strength and combine
+        // mode belong to the material, so this is rewritten between draws - around two hundred
+        // times a frame, which is nothing next to the draw calls themselves.
+        cbuffer Material : register(b1)
+        {
+            // x: how many times the detail tiles per tile of the base texture
+            // y: how strongly it is applied
+            // z: which of the twelve combine modes to use, or -1 for no detail at all
+            // w: unused
+            float4 detail;
+
+            // The colour the sampled detail is multiplied by before it is combined.
+            float4 detailTint;
         };
 
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
         Texture2D    blendMap    : register(t2);
+        Texture2D    detailMap   : register(t3);
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
+
+        // Transcribed from TextureCombine in Valve's common_ps_fxc.h. The modes are numbered by
+        // the engine and the numbers appear in materials, so they stay as numbers here.
+        float4 CombineDetail(float4 albedo, float4 detailColour, int mode, float blend)
+        {
+            if (mode == 7)
+            {
+                float3 selected = lerp(detailColour.r, detailColour.a, albedo.a);
+                albedo.rgb *= lerp(float3(1, 1, 1), 2.0f * selected, blend);
+            }
+            if (mode == 0)
+            {
+                albedo.rgb *= lerp(float3(1, 1, 1), 2.0f * detailColour.rgb, blend);
+            }
+            if (mode == 1)
+            {
+                albedo.rgb += blend * detailColour.rgb;
+            }
+            if (mode == 2)
+            {
+                albedo.rgb = lerp(albedo.rgb, detailColour.rgb, blend * detailColour.a);
+            }
+            if (mode == 3)
+            {
+                albedo = lerp(albedo, detailColour, blend);
+            }
+            if (mode == 4)
+            {
+                albedo.rgb = lerp(albedo.rgb, detailColour.rgb, blend * (1.0f - albedo.a));
+                albedo.a = detailColour.a;
+            }
+            if (mode == 8)
+            {
+                albedo = lerp(albedo, albedo * detailColour, blend);
+            }
+            if (mode == 9)
+            {
+                albedo.a = lerp(albedo.a, albedo.a * detailColour.a, blend);
+            }
+            if (mode == 11)
+            {
+                // No blend factor in this one, deliberately: Valve's line is a bare multiply.
+                albedo.rgb *= dot(detailColour.rgb, 2.0f / 3.0f);
+            }
+            return albedo;
+        }
+
+        // Modes 5 and 6 are self-illumination and are added AFTER the lightmap, which is why they
+        // are a second function rather than two more cases above.
+        float3 CombineDetailAfterLighting(float3 lit, float4 detailColour, int mode, float blend)
+        {
+            if (mode == 5)
+            {
+                lit += blend * detailColour.rgb;
+            }
+            if (mode == 6)
+            {
+                float multiplier = (blend >= 0.5f) ? 1.0f / blend : 4.0f * blend;
+                float offset = (blend >= 0.5f) ? 1.0f - multiplier : -0.5f * multiplier;
+                lit += saturate(multiplier * detailColour.rgb + offset);
+            }
+            return lit;
+        }
 
         VsOut VsMain(VsIn input)
         {
             VsOut output;
-            output.pos = float4(input.pos, 1.0f);
+            // **World space in, clip space out.** The vertices are uploaded once in the map's own
+            // coordinates and this matrix is the only thing that changes when the view does, so a
+            // resize costs 64 bytes instead of rebuilding a couple of million vertices.
+            output.pos = mul(float4(input.pos, 1.0f), viewProjection);
             output.uv = input.uv;
             output.luv = input.luv;
             output.a = input.a;
+            output.vc = input.vc;
             return output;
         }
 
@@ -95,14 +204,58 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // the same image, so the mix is an identity and costs a sample.
             float4 first = albedoMap.Sample(wrapSampler, input.uv);
             float4 second = blendMap.Sample(wrapSampler, input.uv);
+            // **The cut is on depth, which is height.** Discarding here rather than dropping the
+            // geometry means the slice moves without rebuilding anything - the camera matrix work
+            // is what makes that free.
+            clip(input.pos.z - surfaceColours.y);
+
             float4 albedo = lerp(first, second, saturate(input.a));
+
+            // **The detail goes in before the lighting, as Valve's shader does it.** It modifies
+            // the albedo - the surface's own colour - and the lightmap then multiplies the result.
+            // Applied after the light instead, the pattern would sit on top of the shading rather
+            // than in it, and would be as bright in shadow as in sun.
+            int mode = (int)detail.z;
+            float4 detailColour = detailTint * detailMap.Sample(wrapSampler, input.uv * detail.x);
+
+            if (mode >= 0)
+            {
+                albedo = CombineDetail(albedo, detailColour, mode, detail.y);
+            }
+
+            // **Alpha-tested foliage, which is what a bush IS.** Source draws leaves and grates as
+            // flat cards whose texture alpha cuts out the shape. Drawn opaque, the cut-out region
+            // renders as its RGB - which is black - so every bush and tree became a solid black
+            // card the size of its quad. Opaque materials have their alpha forced to one on upload,
+            // so this clip only ever fires on materials that asked for it.
+            //
+            // **After the combine, not before.** Four of the twelve modes write alpha, and alpha is
+            // what this reads - so clipping first would test a value the material never asked to be
+            // tested, and cut away pixels the engine keeps.
+            clip(albedo.a - 0.5f);
+
+            // In the category view the vertex colour IS the answer, so the texture is dropped.
+            if (surfaceColours.x > 0.5f)
+            {
+                return float4(input.vc, 1.0f);
+            }
             float3 light = lightMap.Sample(clampSampler, input.luv).rgb;
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
             // applies to the raw linear samples. BspLightmaps has already taken the sample through
             // its exponent and the gamma curve into display space, so doubling again is the second
             // half of a scaling that was already applied - measured as a map washed out to white.
-            return float4(albedo.rgb * light, albedo.a);
+            // **The vertex colour is a static prop's lightmap.** It is white for everything that
+            // has a real one, so this multiply is an identity for brushwork and the whole map goes
+            // through one shader rather than two.
+            float3 lit = albedo.rgb * light * input.vc;
+
+            if (mode >= 0)
+            {
+                lit = CombineDetailAfterLighting(lit, detailColour, mode, detail.y);
+            }
+
+            return float4(lit, albedo.a);
         }
         """;
 
@@ -110,8 +263,71 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11PixelShader> _pixelShader;
     private ComPtr<ID3D11InputLayout> _layout;
     private ComPtr<ID3D11Buffer> _vertices;
+    private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
+
+    /// <summary>Edge of the chequer drawn where a material could not be resolved.</summary>
+    private const int MissingSize = 32;
+
+    /// <summary>Squares across the chequer, as Source draws it.</summary>
+    private const int MissingSquares = 4;
+
+    /// <summary>
+    /// Uploads one texture, forcing an opaque material to be opaque.
+    /// </summary>
+    /// <remarks>
+    /// **The shader clips on alpha, so a material that never asked for that must not carry it.** A
+    /// VTF's alpha channel is only meaningful when the material says <c>$alphatest</c> or
+    /// <c>$translucent</c>; plenty of opaque textures store something else there, or nothing, and
+    /// clipping on it would punch holes through solid walls. Forcing it here means one shader path
+    /// serves both without a per-batch switch.
+    /// </remarks>
+    private static ComPtr<ID3D11ShaderResourceView> Upload(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture)
+    {
+        if (texture is not { } present)
+        {
+            return default;
+        }
+
+        if (present.IsTransparent)
+        {
+            return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
+        }
+
+        byte[] opaque = present.Pixels.ToArray();
+
+        for (int at = 3; at < opaque.Length; at += 4)
+        {
+            opaque[at] = 255;
+        }
+
+        return CreateTexture(device, context, present.Width, present.Height, opaque);
+    }
+
+    /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
+    private static byte[] Missing()
+    {
+        byte[] pixels = new byte[MissingSize * MissingSize * 4];
+        int square = MissingSize / MissingSquares;
+
+        for (int y = 0; y < MissingSize; y++)
+        {
+            for (int x = 0; x < MissingSize; x++)
+            {
+                bool magenta = ((x / square) + (y / square)) % 2 == 0;
+                int at = ((y * MissingSize) + x) * 4;
+
+                pixels[at + 0] = magenta ? (byte)255 : (byte)0;
+                pixels[at + 1] = 0;
+                pixels[at + 2] = magenta ? (byte)255 : (byte)0;
+                pixels[at + 3] = 255;
+            }
+        }
+
+        return pixels;
+    }
 
     /// <summary>Rasteriser state that draws both sides of a triangle.</summary>
     /// <remarks>
@@ -129,9 +345,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11RasterizerState> _bothSides;
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
+
+    /// <summary>Which materials the engine adds rather than paints, by index.</summary>
+    /// <remarks>
+    /// **Drawn in a second pass with additive blending, which is what the engine does.** Source
+    /// returns BT_ADD for <c>$additive</c>, so a light cone brightens what it covers and its dark
+    /// parts contribute nothing. Drawn opaque it is a solid black cone; skipped entirely - which
+    /// this did first - the glow is simply missing. Neither is what the map says.
+    ///
+    /// Five of cp_process_f12's 285 materials are additive.
+    /// </remarks>
+    private readonly HashSet<int> _additive = [];
+
+    /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
+    private ComPtr<ID3D11BlendState> _addBlend;
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
     private ComPtr<ID3D11ShaderResourceView> _lightmap;
     private ComPtr<ID3D11ShaderResourceView> _white;
+
+    /// <summary>The detail pattern for each material, empty where it has none.</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
+
+    /// <summary>Scale, blend factor, mode and tint per material, in the shader's own layout.</summary>
+    /// <remarks>
+    /// **Eight floats each, built once at upload.** A mode of -1 means the material has no detail,
+    /// which is what the shader tests; packing it into the same buffer keeps the draw loop free of
+    /// a branch and the shader free of a second constant.
+    /// </remarks>
+    private readonly List<float[]> _detailParameters = [];
+
+    /// <summary>The per-material constants, rewritten between draws.</summary>
+    private ComPtr<ID3D11Buffer> _material;
 
     private IReadOnlyList<WorldBatch> _batches = [];
 
@@ -210,6 +454,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 SemanticIndex = 2,
                 Format = Silk.NET.DXGI.Format.FormatR32Float,
                 AlignedByteOffset = sizeof(float) * 7,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 3,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 8,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -300,26 +552,88 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseTextures();
         TextureUploads++;
 
-        // A one-pixel white texture stands in for a material whose texture could not be found, so
-        // the face still takes its lighting and its shape rather than vanishing.
-        _white = CreateTexture(device, context, 1, 1, [255, 255, 255, 255]);
-
-        foreach (MapTexture? texture in assets.Textures)
+        if (_addBlend.Handle is null)
         {
-            _textures.Add(texture is { } present
-                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
-                : default);
+            // SRC_ONE, DEST_ONE: exactly what the engine's BT_ADD does.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.One;
+            description.RenderTarget[0].DestBlend = Blend.One;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.One;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> state = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref state));
+
+            _addBlend = state;
+        }
+
+        // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
+        // unresolved material as a magenta and black chequer, and it is the right call - a surface
+        // that quietly falls back to white or to nothing is a surface nobody investigates. Several
+        // defects in this project hid for hours behind exactly that: a hole and a dark patch look
+        // like art, while a magenta chequer looks like a bug and gets reported.
+        _white = CreateTexture(device, context, MissingSize, MissingSize, Missing());
+
+        for (int index = 0; index < assets.Textures.Count; index++)
+        {
+            MapTexture? texture = assets.Textures[index];
+
+            _textures.Add(Upload(device, context, texture));
+
+            if (texture is { IsAdditive: true })
+            {
+                _additive.Add(index);
+            }
         }
 
         foreach (MapTexture? texture in assets.BlendTextures)
         {
-            _blendTextures.Add(texture is { } present
-                ? CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span)
-                : default);
+            _blendTextures.Add(Upload(device, context, texture));
+        }
+
+        foreach (MapDetail? detail in assets.Details)
+        {
+            _details.Add(detail is { } present ? Upload(device, context, present.Texture) : default);
+
+            // **Mode -1 is "no detail", and it has to be a value rather than an absence.** The
+            // shader reads the same constant buffer for every draw, so a material without a detail
+            // texture needs something in it that says so; leaving the previous material's numbers
+            // there would apply one material's grain to the next one's surface.
+            _detailParameters.Add(detail is { } values
+                ?
+                [
+                    values.Scale,
+                    values.BlendFactor,
+                    values.Mode,
+                    0f,
+                    values.Tint.Red,
+                    values.Tint.Green,
+                    values.Tint.Blue,
+                    1f,
+                ]
+                : [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f]);
         }
 
         _lightmap = CreateTexture(
             device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
+
+        // Counted, because "we now skip additive materials" is a capability and this is the output.
+        ViewerLog.Write(
+            "render",
+            $"{_additive.Count} of {assets.Textures.Count} materials are additive, drawn in a second pass");
+
+        // **The output, not the capability.** A detail chain that resolves nothing draws a map that
+        // looks entirely reasonable, so the count of textures actually bound is the only thing that
+        // distinguishes "implemented" from "working".
+        ViewerLog.Write(
+            "render",
+            $"{_details.Count(detail => detail.Handle is not null)} materials draw with a detail texture");
     }
 
     /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
@@ -342,7 +656,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 8];
+        float[] data = new float[vertices.Count * 11];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -355,12 +669,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.LightU;
             data[at++] = vertex.LightV;
             data[at++] = vertex.Alpha;
+            data[at++] = vertex.Red;
+            data[at++] = vertex.Green;
+            data[at++] = vertex.Blue;
         }
 
         CreateVertexBuffer(device, data);
 
         _batches = batches;
     }
+
+    /// <summary>Whether to combine each material's detail texture, on by default.</summary>
+    /// <remarks>
+    /// **Turning it off is how the feature is measured.** A detail texture is a subtle multiply, and
+    /// "the map has grain now" is not something a picture can be asserted against on its own. Two
+    /// renders that differ only in this switch can be, and the same switch answers the question a
+    /// person asks when they cannot tell whether it is working: what does it look like without.
+    /// </remarks>
+    public bool DrawDetail { get; set; } = true;
 
     /// <summary>Whether textures have been uploaded for a map.</summary>
     public bool HasTextures => _lightmap.Handle is not null;
@@ -398,10 +724,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
         context.PSSetSamplers(1, 1, ref _clampSampler);
+        // **Bound to BOTH stages, because both read it.** The vertex shader takes the matrix and
+        // the pixel shader takes the category switch and the height cut. Binding it to the vertex
+        // stage alone is not an error - D3D simply hands the pixel shader zeros - so the cut sat at
+        // zero however hard it was pressed, and the category view drew nothing. Found by a test
+        // that renders offscreen and reads a pixel, which is the only instrument that could see it.
+        context.VSSetConstantBuffers(0, 1, ref _camera);
+        context.PSSetConstantBuffers(0, 1, ref _camera);
         context.PSSetShaderResources(1, 1, ref _lightmap);
 
+        EnsureMaterialBuffer(context);
+
+        // **Opaque first, additive after.** An additive fragment brightens whatever is behind it,
+        // so anything drawn later would be added to nothing.
         foreach (WorldBatch batch in _batches)
         {
+            if (_additive.Contains(batch.MaterialIndex))
+            {
+                continue;
+            }
+
             ComPtr<ID3D11ShaderResourceView> texture =
                 batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
                 _textures[batch.MaterialIndex].Handle is not null
@@ -416,16 +758,203 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _blendTextures[batch.MaterialIndex]
                     : texture;
 
+            // The detail pattern, or white with the mode set to "none" - the shader skips the
+            // combine entirely rather than multiplying by an identity, because several of the modes
+            // have no identity to multiply by.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                batch.MaterialIndex >= 0 && batch.MaterialIndex < _details.Count &&
+                _details[batch.MaterialIndex].Handle is not null
+                    ? _details[batch.MaterialIndex]
+                    : _white;
+
+            SetMaterial(context, batch.MaterialIndex);
+
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref blend);
+            context.PSSetShaderResources(3, 1, ref detail);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+
+        DrawAdditive(context);
+    }
+
+    /// <summary>Sets the view for the frames that follow.</summary>
+    /// <param name="device">Device to create the buffer on, the first time.</param>
+    /// <param name="context">Context to upload through.</param>
+    /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
+    /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
+    /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
+    /// <remarks>
+    /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
+    /// moves; changing the view rewrites one 64-byte buffer. Before this, the projection was baked
+    /// into every vertex, so a new viewport meant rebuilding 2.9 million of them - 0.33 seconds,
+    /// and the reason the free camera and per-player views could not exist.
+    /// </remarks>
+    public void SetCamera(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        float[] matrix,
+        bool surfaceColours = false,
+        float heightCut = 0f)
+    {
+        ArgumentNullException.ThrowIfNull(matrix);
+
+        if (matrix.Length != 16)
+        {
+            throw new ArgumentException("A camera matrix is sixteen floats.", nameof(matrix));
+        }
+
+        if (_camera.Handle is null)
+        {
+            BufferDesc description = new()
+            {
+                ByteWidth = sizeof(float) * 20,
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.ConstantBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            ComPtr<ID3D11Buffer> buffer = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+            _camera = buffer;
+        }
+
+        // The matrix, then a float4 whose first component is the category-view switch. Constant
+        // buffers are sized in whole sixteen-byte registers, so the padding is not optional.
+        float[] contents =
+        [
+            .. matrix,
+            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), 0f, 0f,
+        ];
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(
+            context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = contents)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, sizeof(float) * 20, sizeof(float) * 20);
+        }
+
+        context.Unmap(_camera, 0);
+    }
+
+    /// <summary>The per-material constants a material without a detail texture gets.</summary>
+    /// <remarks>
+    /// Mode -1, which is the value the shader tests to skip the combine entirely. The tint is white
+    /// so that a stale sample can never darken anything even if the mode were somehow read.
+    /// </remarks>
+    private static readonly float[] NoDetail = [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f];
+
+    private void EnsureMaterialBuffer(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_material.Handle is not null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11Device> device = default;
+
+        context.GetDevice(ref device);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = sizeof(float) * 8,
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+        _material = buffer;
+        device.Dispose();
+    }
+
+    /// <summary>Uploads one material's detail constants before its draw.</summary>
+    /// <remarks>
+    /// **Bound to the pixel stage only**, because only the pixel shader reads it - unlike the camera
+    /// buffer, which both stages read and which spent a session bound to one of them.
+    /// </remarks>
+    private void SetMaterial(ComPtr<ID3D11DeviceContext> context, int materialIndex)
+    {
+        if (_material.Handle is null)
+        {
+            return;
+        }
+
+        float[] contents = DrawDetail && materialIndex >= 0 && materialIndex < _detailParameters.Count
+            ? _detailParameters[materialIndex]
+            : NoDetail;
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_material, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = contents)
+        {
+            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 8, sizeof(float) * 8);
+        }
+
+        context.Unmap(_material, 0);
+        context.PSSetConstantBuffers(1, 1, ref _material);
+    }
+
+    /// <summary>Draws the additive materials over everything already painted.</summary>
+    private void DrawAdditive(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_additive.Count == 0 || _addBlend.Handle is null)
+        {
+            return;
+        }
+
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(_addBlend, factor, 0xFFFFFFFF);
+
+        foreach (WorldBatch batch in _batches)
+        {
+            if (!_additive.Contains(batch.MaterialIndex) ||
+                batch.MaterialIndex >= _textures.Count ||
+                _textures[batch.MaterialIndex].Handle is null)
+            {
+                continue;
+            }
+
+            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
+
+            ComPtr<ID3D11ShaderResourceView> detail =
+                batch.MaterialIndex < _details.Count &&
+                _details[batch.MaterialIndex].Handle is not null
+                    ? _details[batch.MaterialIndex]
+                    : _white;
+
+            SetMaterial(context, batch.MaterialIndex);
+
+            context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(3, 1, ref detail);
+            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        }
+
+        // Back to ordinary painting, or every later frame keeps adding.
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
+        _addBlend.Dispose();
         ReleaseMap();
+        _material.Dispose();
+        _camera.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
@@ -443,13 +972,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void ReleaseTextures()
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
-                 _textures.Concat(_blendTextures).Where(texture => texture.Handle is not null))
+                 _textures.Concat(_blendTextures).Concat(_details)
+                     .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
         }
 
         _textures.Clear();
         _blendTextures.Clear();
+        _details.Clear();
+        _detailParameters.Clear();
+        _additive.Clear();
 
         if (_lightmap.Handle is not null)
         {

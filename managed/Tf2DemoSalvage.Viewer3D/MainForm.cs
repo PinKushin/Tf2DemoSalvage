@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -71,6 +72,12 @@ internal class MainForm : Form
     /// <summary>Automation id of the View &gt; Full screen item.</summary>
     public const string FullScreenItemId = "FullScreenMenuItem";
 
+    /// <summary>Automation id of the diagnostic surface-colour toggle.</summary>
+    public const string SurfaceColoursItemId = "SurfaceColoursMenuItem";
+
+    /// <summary>Automation id of the brush outline toggle.</summary>
+    public const string OutlineItemId = "OutlineMenuItem";
+
     /// <summary>Automation id of the borderless full-screen mode item.</summary>
     public const string BorderlessItemId = "BorderlessModeMenuItem";
 
@@ -135,13 +142,61 @@ internal class MainForm : Form
     /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
     private bool _worldIsStale;
 
-    /// <summary>The viewport size the resident vertices were projected for.</summary>
-    private Size _projectedSize;
+    /// <summary>How far the view is zoomed in past the fitted whole map.</summary>
+    /// <remarks>
+    /// **Free to change now, which it was not before.** The projection used to be baked into every
+    /// vertex, so zooming meant rebuilding 2.6 million of them; the camera is a matrix, so this is
+    /// a 64-byte upload and can be driven by a mouse wheel.
+    /// </remarks>
+    private float _zoom = 1f;
+
+    /// <summary>Where the view is centred, or null to keep it on the whole map.</summary>
+    private (float X, float Y)? _lookingAt;
+
+    /// <summary>Where a drag started, in viewport pixels.</summary>
+    private Point? _dragFrom;
+
+    /// <summary>
+    /// How much of the map's height is cut away from the top, from 0 to 1.
+    /// </summary>
+    /// <remarks>
+    /// **What lets an overhead view see inside a building.** A roof is an upward-facing surface, so
+    /// nothing culls it and everything under it - the hallways into last on cp_process, the rooms
+    /// under the domes at mid - is simply hidden. Slicing the map at a height is how every level
+    /// editor solves this, and it costs nothing here because the shader discards on the depth the
+    /// vertices already carry.
+    /// </remarks>
+    private float _heightCut;
+
+    /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
+    /// <remarks>
+    /// **The number a user actually feels**, and the one that would have caught this project's
+    /// worst performance defect on its own. Full screen took roughly a frame a second because
+    /// entering it rebuilt the world seventeen times; every individual step looked fine and only
+    /// the end-to-end time was absurd. Timing the parts would not have found it either — the cost
+    /// was in how MANY times a fast thing ran.
+    ///
+    /// Stopped at the first PRESENTED frame rather than when the window finishes resizing, because
+    /// a window that has changed size while still showing the old picture is not yet full screen
+    /// as far as anyone looking at it is concerned.
+    /// </remarks>
+    private Stopwatch? _fullScreenClock;
 
     /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
     private MapSurfaces? _surfaces;
 
     private readonly ToolStripMenuItem _fullScreen;
+
+    /// <summary>Draws flat colours by surface kind instead of the map's own textures.</summary>
+    private readonly ToolStripMenuItem _surfaceColours;
+
+    /// <summary>Draws the brush outline over the map.</summary>
+    /// <remarks>
+    /// **Off by default now that the map has textures.** The outline was the entire picture when
+    /// nothing else drew, and it stayed switched on out of habit - over a textured map it is
+    /// clutter that hides the thing it was standing in for.
+    /// </remarks>
+    private readonly ToolStripMenuItem _outline;
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
 
@@ -204,6 +259,14 @@ internal class MainForm : Form
         };
         _viewport.HandleCreated += OnViewportHandleCreated;
         _viewport.Resize += OnViewportResize;
+        // **A Panel does not take focus, so its own wheel event may never fire.** The form's does,
+        // and the pointer position is converted into the viewport - which also means the wheel
+        // works without clicking the map first, the behaviour anyone expects from a map viewer.
+        _viewport.MouseWheel += OnViewportWheel;
+        MouseWheel += OnFormWheel;
+        _viewport.MouseDown += OnViewportMouseDown;
+        _viewport.MouseMove += OnViewportMouseMove;
+        _viewport.MouseUp += OnViewportMouseUp;
 
         // **No entity or class list.** That is what the parser works in, not what someone watching
         // a demo wants on screen - anyone who needs it can export the assembly script, which says
@@ -400,6 +463,39 @@ internal class MainForm : Form
         }
 
         ToolStripMenuItem view = new("&View") { Name = "ViewMenu", AccessibleName = "View menu" };
+        // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
+        // and what kind of thing is it", which a textured picture cannot - and which cost hours
+        // this session when terrain, a material and a prop each went missing while the map still
+        // looked like a map.
+        _surfaceColours = new ToolStripMenuItem("Surface &colours")
+        {
+            Name = SurfaceColoursItemId,
+            CheckOnClick = true,
+            ShortcutKeys = Keys.F9,
+        };
+
+        _surfaceColours.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write(
+                "render", $"surface colours {(_surfaceColours.Checked ? "on" : "off")}");
+
+            _device?.ClearWorld();
+            _worldIsStale = true;
+        };
+
+        _outline = new ToolStripMenuItem("Brush &outline")
+        {
+            Name = OutlineItemId,
+            CheckOnClick = true,
+            Checked = false,
+            ShortcutKeys = Keys.F10,
+        };
+
+        _outline.CheckedChanged += (_, _) => ViewerLog.Write(
+            "render", $"brush outline {(_outline.Checked ? "on" : "off")}");
+
+        view.DropDownItems.Add(_outline);
+        view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
         view.DropDownItems.Add(textureQuality);
@@ -555,7 +651,6 @@ internal class MainForm : Form
         _assets = null;
         _terrain = null;
         _texturesUploaded = false;
-        _projectedSize = Size.Empty;
         _device?.ClearWorld();
 
         string? path = FindMap(mapName);
@@ -814,15 +909,24 @@ internal class MainForm : Form
                     _texturesUploaded = true;
                 }
 
-                if (_projectedSize == _viewport.ClientSize && _device.HasWorld)
+                // **The camera is a matrix now, so a resize is not a rebuild.** The world's
+                // vertices are in map coordinates and never move; only the view does. This is what
+                // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
+                // reason a free camera or a per-player view can exist at all.
+                _device.SetCamera(camera.ToMatrix(), _surfaceColours.Checked, _heightCut);
+
+                // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
+                // Counting these against "building the world" lines is what proves the geometry
+                // survived a viewport change rather than being quietly rebuilt: many camera lines
+                // and one build line is the fix working, and one of each per resize is not.
+                ViewerLog.Write(
+                    "render",
+                    $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
+
+                if (_device.HasWorld)
                 {
-                    // Nothing about the projection changed, so the resident vertices are already
-                    // the answer. A layout pass that moves a control without resizing the viewport
-                    // still raises Resize, and rebuilding for it is pure cost.
                     return;
                 }
-
-                _projectedSize = _viewport.ClientSize;
 
                 MapWorld built;
 
@@ -833,8 +937,10 @@ internal class MainForm : Form
                         _surfaceList,
                         assets.Materials,
                         assets.Lightmaps,
+                        assets.Props,
                         camera,
-                        _map.MainBounds);
+                        _map.MainBounds,
+                        _surfaceColours.Checked);
                 }
 
                 ViewerLog.Write(
@@ -863,13 +969,20 @@ internal class MainForm : Form
     /// world geometry placed far outside the playable space, and fitting to that pushed
     /// cp_process_final into a third of the viewport with an empty expanse beside it.
     /// </remarks>
-    private TopDownCamera MapCamera() => TopDownCamera.Fit(
-        [
-            (_map!.MainBounds.MinX, _map.MainBounds.MinY),
-            (_map.MainBounds.MaxX, _map.MainBounds.MaxY),
-        ],
-        Math.Max(1, _viewport.ClientSize.Width),
-        Math.Max(1, _viewport.ClientSize.Height));
+    private TopDownCamera MapCamera()
+    {
+        TopDownCamera fitted = TopDownCamera.Fit(
+            [
+                (_map!.MainBounds.MinX, _map.MainBounds.MinY),
+                (_map.MainBounds.MaxX, _map.MainBounds.MaxY),
+            ],
+            Math.Max(1, _viewport.ClientSize.Width),
+            Math.Max(1, _viewport.ClientSize.Height));
+
+        TopDownCamera zoomed = _zoom > 1f ? fitted.WithZoom(_zoom) : fitted;
+
+        return _lookingAt is { } centre ? zoomed.LookingAt(centre.X, centre.Y) : zoomed;
+    }
 
     /// <summary>Shows a set of world positions in the viewport.</summary>
     /// <param name="positions">World XY positions, in Source units.</param>
@@ -936,13 +1049,12 @@ internal class MainForm : Form
             bool haveMap = LoadMap(_demo.MapName);
             _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
 
-            // A placeholder scene until tick decoding lands: the corners and centre of the map's
-            // nominal extent, so the viewport visibly responds to opening a demo and the whole
-            // path - camera, renderer, swap chain - is exercised by hand as well as by tests.
-            ShowPositions(
-            [
-                (-2000f, -2000f), (2000f, -2000f), (0f, 0f), (-2000f, 2000f), (2000f, 2000f),
-            ]);
+            // **Nothing is drawn over the map until something real is decoded.** There used to be
+            // five amber squares here - the corners and centre of a nominal box - so that opening a
+            // demo visibly did something back when the viewport had nothing else in it. The map
+            // itself is that proof now, and the squares sat at coordinates no entity occupies.
+            // ShowPositions stays, and takes real positions when tick decoding reaches the viewer.
+            _scene = [];
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -1045,6 +1157,7 @@ internal class MainForm : Form
 
         IsFullScreen = fullScreen;
         _fullScreen.Checked = fullScreen;
+        _fullScreenClock = Stopwatch.StartNew();
 
         if (fullScreen)
         {
@@ -1085,15 +1198,24 @@ internal class MainForm : Form
             WindowState = FormWindowState.Normal;
             Bounds = Screen.FromControl(this).Bounds;
 
-            // **Bounds alone do not hide the taskbar.** The shell keeps the taskbar above a window
-            // that merely happens to be screen-sized; it stands down for a window that is TOPMOST
-            // and covers the display. Measured by screenshot: without this the map filled 1920x1080
-            // and the taskbar was still drawn across the bottom of it, while every assertion about
-            // the window rectangle passed.
+            // **No TopMost here, deliberately, and the reason is worth keeping.** It was set once
+            // to hide the taskbar, and it does - but TOPMOST does not mean "above the shell", it
+            // means above every window on the desktop. Borderless then became indistinguishable
+            // from exclusive from the user's side: nothing could be alt-tabbed in front of the
+            // viewer, in the mode whose whole point is that things can be.
             //
-            // Restored on the way out, because a viewer that stays above every other window after
-            // leaving full screen is a viewer people close in irritation.
-            TopMost = true;
+            // Found by the owner with the one test that separates the two modes - "I cannot alt-tab
+            // you above it, meaning it is exclusive" - while the status bar was simultaneously
+            // reporting that exclusive had been REFUSED and borderless was in use. Both were true.
+            // The mode selection was working perfectly and this flag was undoing it.
+            //
+            // How it got in is the part to remember: the change was verified by screenshot, the
+            // taskbar was gone, and it was called done. The screenshot confirmed the one property
+            // being looked at and said nothing about the one being broken.
+            //
+            // Windows hides the taskbar on its own for a borderless window that exactly covers the
+            // monitor and holds the foreground, which is the mechanism games rely on and which
+            // leaves alt-tab alone.
 
             // **The window is sized first, then the display is taken.** DXGI wants the window
             // already covering the output it is about to own; asking for exclusive from a small
@@ -1128,7 +1250,6 @@ internal class MainForm : Form
         // setting says exclusive: the setting can be changed while full screen, and what has to be
         // undone is what was done, not what is currently preferred.
         Layout -= KeepOverlayOnTheViewport;
-        TopMost = false;
         _device?.SetExclusiveFullScreen(false);
 
         if (_overlay is not null)
@@ -1228,7 +1349,26 @@ internal class MainForm : Form
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
         // stays the form's grey looks identical whether the device failed or simply drew nothing.
-        _device?.DrawFrame(0.06f, 0.07f, 0.09f, _mapFill, _mapLines, _scene);
+        _device?.DrawFrame(
+            0.06f,
+            0.07f,
+            0.09f,
+            _mapFill,
+            _outline.Checked ? _mapLines : [],
+            _scene);
+
+        if (_fullScreenClock is { } clock)
+        {
+            _fullScreenClock = null;
+
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"full screen {(IsFullScreen ? "on" : "off")} took " +
+                    $"{clock.Elapsed.TotalMilliseconds:F0} ms to the first frame at " +
+                    $"{_viewport.ClientSize.Width}x{_viewport.ClientSize.Height}"));
+        }
     }
 
     /// <summary>
@@ -1243,6 +1383,96 @@ internal class MainForm : Form
     /// The swap chain is still resized immediately: it is cheap, and letting it lag the panel
     /// stretches the last frame across the new rectangle, which is visible.
     /// </remarks>
+    /// <summary>Zooms about the pointer, the way every map viewer does.</summary>
+    /// <remarks>
+    /// **About the cursor rather than the centre**, so the thing being looked at stays under the
+    /// pointer as the view magnifies. Zooming about the centre instead makes closing in on a
+    /// corner a game of chasing it back into view.
+    /// </remarks>
+    private void OnViewportWheel(object? sender, MouseEventArgs e)
+    {
+        if (_map is null || _map.IsEmpty)
+        {
+            return;
+        }
+
+        float step = e.Delta > 0 ? 1.25f : 1f / 1.25f;
+        float zoomed = Math.Clamp(_zoom * step, 1f, 64f);
+
+        if (Math.Abs(zoomed - _zoom) < float.Epsilon)
+        {
+            return;
+        }
+
+        // The world point under the cursor before the zoom has to stay under it afterwards, which
+        // fixes where the new centre must be.
+        (float worldX, float worldY) = WorldAt(e.Location);
+
+        _zoom = zoomed;
+
+        (float afterX, float afterY) = WorldAt(e.Location);
+
+        (float centreX, float centreY) = MapCamera().Centre;
+
+        _lookingAt = (centreX + (worldX - afterX), centreY + (worldY - afterY));
+
+        _worldIsStale = true;
+    }
+
+    /// <summary>Routes a wheel turn anywhere over the viewport to the zoom.</summary>
+    private void OnFormWheel(object? sender, MouseEventArgs e)
+    {
+        Point inViewport = _viewport.PointToClient(Cursor.Position);
+
+        if (!_viewport.ClientRectangle.Contains(inViewport))
+        {
+            return;
+        }
+
+        OnViewportWheel(sender, new MouseEventArgs(e.Button, e.Clicks, inViewport.X, inViewport.Y, e.Delta));
+    }
+
+    private void OnViewportMouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            _dragFrom = e.Location;
+        }
+    }
+
+    private void OnViewportMouseMove(object? sender, MouseEventArgs e)
+    {
+        if (_dragFrom is not { } from || _map is null || _map.IsEmpty)
+        {
+            return;
+        }
+
+        float perPixel = MapCamera().WorldUnitsPerPixel(_viewport.ClientSize.Width);
+        (float centreX, float centreY) = MapCamera().Centre;
+
+        // Y is inverted between the screen and the world, the same flip the projection makes.
+        _lookingAt = (
+            centreX - ((e.Location.X - from.X) * perPixel),
+            centreY + ((e.Location.Y - from.Y) * perPixel));
+
+        _dragFrom = e.Location;
+        _worldIsStale = true;
+    }
+
+    private void OnViewportMouseUp(object? sender, MouseEventArgs e) => _dragFrom = null;
+
+    /// <summary>The world position under a point in the viewport.</summary>
+    private (float X, float Y) WorldAt(Point point)
+    {
+        TopDownCamera camera = MapCamera();
+        float perPixel = camera.WorldUnitsPerPixel(_viewport.ClientSize.Width);
+        (float centreX, float centreY) = camera.Centre;
+
+        return (
+            centreX + ((point.X - (_viewport.ClientSize.Width / 2f)) * perPixel),
+            centreY - ((point.Y - (_viewport.ClientSize.Height / 2f)) * perPixel));
+    }
+
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);
@@ -1267,6 +1497,30 @@ internal class MainForm : Form
     /// </remarks>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // **Page DOWN descends through the map**, taking the roofs off first, and page up brings
+        // them back. The obvious reading of the key is the one to follow: the first version had it
+        // inverted, and pressing page down 166 times did nothing because the cut was already at
+        // zero and the log said so.
+        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _map is not null)
+        {
+            float step = keyData == Keys.PageDown ? 0.02f : -0.02f;
+
+            _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
+
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
+
+            _status.Text = _heightCut > 0f
+                ? string.Create(CultureInfo.InvariantCulture, $"Showing the lower {1f - _heightCut:P0} of the map. Page Down cuts deeper, Page Up or Home restores it.")
+                : "Showing the whole map.";
+
+            _worldIsStale = true;
+
+            return true;
+        }
+
         if (keyData == Keys.Escape && IsFullScreen)
         {
             SetFullScreen(false);
@@ -1398,6 +1652,11 @@ internal class MainForm : Form
     {
         if (disposing)
         {
+            // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
+            // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
+            // is slow is not guessable - the log says.
+            Stopwatch closing = Stopwatch.StartNew();
+
             if (_rendering)
             {
                 // Before the device goes: an Idle handler that outlives the swap chain presents
@@ -1406,8 +1665,17 @@ internal class MainForm : Form
                 _rendering = false;
             }
 
+            TimeSpan idleStopped = closing.Elapsed;
+
             _device?.Dispose();
             _device = null;
+
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"shutdown: idle stopped after {idleStopped.TotalMilliseconds:F0} ms, " +
+                    $"device released after {closing.Elapsed.TotalMilliseconds:F0} ms"));
 
             // Both are in Controls, which base.Dispose already walks - but the analyzer cannot
             // see that ownership, and stating it costs nothing and is true.
@@ -1426,6 +1694,8 @@ internal class MainForm : Form
             _search.Dispose();
             _downloader?.Dispose();
             _overlay?.Dispose();
+            _outline.Dispose();
+            _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }
 

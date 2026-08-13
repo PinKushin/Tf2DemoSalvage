@@ -1,0 +1,105 @@
+# What parity with Source's renderer actually requires
+
+The goal is not "an overhead map that reads well" but a correct Source renderer — because the
+first-person view needs one, and because once at parity the extra headroom of DX11 over DX9 can go
+somewhere useful.
+
+Parity is a finite list, and the map itself states it. Measured on `cp_process_f12` by reading every
+material's VMT and weighting by the world area its surfaces cover — the same method that found
+`tools/toolsblack` covering 4.8 million units while a brightness ranking had put a 4,096-pixel tool
+texture at the top.
+
+## Shaders the map uses
+
+| area | materials | shader | state |
+|---|---|---|---|
+| 122,411,259 | 102 | `LightmappedGeneric` | drawn |
+| 18,340,886 | 3 | `WorldVertexTransition` | drawn, two textures mixed by vertex alpha |
+| 11,363,671 | 30 | `LightMappedGeneric` | same, and note the capitalisation differs |
+| 9,022,902 | 46 | `Patch` / `patch` | resolved through to the included material |
+| 1,538,304 | 1 | `UnlitTwoTexture` | **not implemented** |
+| 154,588 | 5 | `UnlitGeneric` | drawn as ordinary albedo |
+
+**Shader names vary in case across the same map** — `LightmappedGeneric`, `LightMappedGeneric`,
+`Patch`, `patch`. Anything matching them must do so case-insensitively; this project already does,
+and it is the kind of thing that silently drops thirty materials.
+
+## Features the map asks for
+
+| area | materials | key | state |
+|---|---|---|---|
+| 117,465,699 | 41 | `$surfaceprop` | not rendering — physics and footstep sound |
+| **54,857,158** | **21** | **`$bumpmap`** | **not implemented** |
+| **36,327,110** | **36** | **`$detail`** | **not implemented** |
+| 18,340,886 | 3 | `$basetexture2` | done |
+| 1,538,304 | 1 | `$additive` | done, second pass, SRC_ONE DEST_ONE |
+| 1,451,017 | 63 | `$translucent` | approximated by the alpha-test clip; real blending needs sorting |
+| 591,872 | 2 | `$alphatest` | done |
+| 123,932 | 4 | `$selfillum` | not implemented, and small |
+
+## The order to do them in, and why
+
+1. **`$detail`** — 36 million units, and the cheapest of the two big ones: a second texture multiplied
+   in at a scale the material states, which is most of what a surface looks like from close range and
+   nothing at all from above. Needed the moment there is a first-person camera.
+2. **`$bumpmap`** — 55 million units, and the expensive one, because TF2's lightmaps for a bumped
+   material store **four sets of luxels per sample**: one flat and three in the bump basis. Reading
+   only the first is what this project does now, which is right for unbumped faces and throws away
+   three quarters of the data for the rest. Verify against the lump arithmetic before writing any of
+   it — the existing check that samples tile the lighting lump to exactly 100.0% is the instrument
+   that will say whether bumped faces are already being walked correctly.
+3. **`$translucent` sorting** — 63 materials but small area. The alpha-test clip standing in for it is
+   wrong in a way that matters more in first person than from above.
+4. **`UnlitTwoTexture` and `$selfillum`** — one material each in practice.
+
+## What this does not cover
+
+HDR and tone mapping, water, the 3D skybox drawn as sky rather than culled, `$phong` and rim lighting
+on models, and decals or overlays. Each is real; none is on this map's critical path by area, and the
+list above is the part that can be checked off against a number.
+
+## `$detail`, transcribed from the engine
+
+`TextureCombine` in `materialsystem/stdshaders/common_ps_fxc.h` holds every mode. The default,
+`TCOMBINE_RGB_EQUALS_BASE_x_DETAILx2` (mode 0):
+
+```c
+baseColor.rgb *= lerp( float3(1,1,1), 2.0*detailColor.rgb, fBlendFactor );
+```
+
+So at a blend factor of 1 it is `base * 2 * detail` — a detail texture averaging 0.5 grey leaves the
+surface unchanged, which is why they are authored around mid grey. The other modes matter less by
+area but are cheap to add once the plumbing exists:
+
+| mode | effect |
+|---|---|
+| `MOD2X_SELECT_TWO_PATTERNS` | picks between detail red and alpha by base alpha, then mod2x |
+| `RGB_ADDITIVE` | `base += factor * detail` |
+| `DETAIL_OVER_BASE` | lerp toward detail by `factor * detail.a` |
+| `FADE` | lerp base to detail by factor |
+| `BASE_OVER_DETAIL` | lerp toward detail by `factor * (1 - base.a)` |
+| `MULTIPLY` | lerp base toward `base * detail` |
+| `MASK_BASE_BY_DETAIL_ALPHA` | modulates base alpha only |
+
+Two material keys go with it: `$detailscale` (default 4) multiplies the base UV to get the detail
+UV, and `$detailblendfactor` (default 1) is `fBlendFactor`. `$detailblendmode` selects the mode.
+
+**What it needs from the renderer:** a fourth texture slot, and the scale, factor and mode reaching
+the shader per material. The camera matrix already established the pattern — a constant buffer
+updated between draws — and there are around two hundred batches, so a small per-batch write is
+affordable.
+
+## The camera modes this has to serve
+
+The overhead view is the easy case and it is not the target. A SourceTV recording carries both
+first-person and third-person views of players, and the viewer wants a free camera as well. So:
+
+- **First person** — every approximation that survives at a distance fails here. `$detail` is most
+  of what a wall looks like from a metre away, and `$bumpmap` is most of what it looks like lit.
+- **Third person** — same shading, plus the player's own model, which needs the model shader path
+  (`$phong`, rim lighting) rather than the world one.
+- **Free camera** — no new shading, but it removes any excuse for view-dependent shortcuts, and it
+  is what makes the height cut a stopgap rather than a feature.
+
+The current renderer is correct for a top-down view of static geometry. Everything above is what
+stands between that and a camera a person can fly.

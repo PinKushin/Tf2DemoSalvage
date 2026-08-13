@@ -81,6 +81,30 @@ public sealed class MapAssetsTests
         // **The engine's own order, and the reason it matters.** A file under tf/custom REPLACES
         // the game's copy, so a viewer that searched the other way round would show the stock
         // texture where the game shows the user's replacement.
+        //
+        // **The fixture needs a gameinfo.txt, because that is what declares custom at all.** This
+        // test used to pass against a folder with none, back when the custom convention was
+        // hardcoded here; the search path now comes from the file, and a folder without one falls
+        // back to loose files only - which is the behaviour that predates VPKs and custom.
+        //
+        // Written with |gameinfo_path| rather than TF2's literal "tf/custom/*", because a relative
+        // entry resolves against the INSTALL ROOT and so assumes the mod folder is named tf. That
+        // is true of the real game and not of a temporary fixture, and getting it wrong here
+        // resolves to a folder that does not exist - which is silent.
+        File.WriteAllText(Path.Combine(_folder, "gameinfo.txt"), """
+            "GameInfo"
+            {
+                FileSystem
+                {
+                    SearchPaths
+                    {
+                        game+mod+custom_mod  |gameinfo_path|custom/*
+                        mod+mod_write        |gameinfo_path|.
+                    }
+                }
+            }
+            """);
+
         Directory.CreateDirectory(Path.Combine(_folder, "materials", "concrete"));
         File.WriteAllText(
             Path.Combine(_folder, "materials", "concrete", "a.vmt"), "loose");
