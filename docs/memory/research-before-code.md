@@ -1,33 +1,38 @@
 ---
 name: research-before-code
-description: The project's method — hypothesise, then check first sources and decomp BEFORE coding or testing, confirm the sources don't already answer it, then test.
+description: Check Valve's source before writing or changing anything, and let it outrank every other authority including the owner's recollection and mine.
 metadata:
   type: feedback
 ---
 
-The owner's stated loop, verbatim in intent: **hypothesis → research from first sources or decomp →
-refine hypothesis → make sure that hypothesis isn't already answered in the sources or decomp →
-test it.**
+**Check the source first, every time, before doing anything.** The loop is: hypothesis, research
+from first sources or decomp, refine, confirm the sources do not already answer it, then test.
 
-"Always check source first." Applies to test oracles and claims about behaviour, not just to
-implementation. Valve publishes far more than expected, and it is usually one fetch away:
-`studio.h`, `optimize.h` (NOT `optimized_model.h`), `hardwareverts.h`, `bitbuf.cpp`,
-`mathlib_base.cpp`, and the tools that WRITE the formats — `vradstaticprops.cpp` writes the `.vhv`
-files. Decomp is the fallback when nothing is published, and its output never enters a repository.
+**The source outranks everything else, including the owner's assertions and my own reasoning.** The
+owner's instruction, verbatim in intent: if they say something wrong or misremembered, say so and do
+the right thing. Deference to a stated belief that the code contradicts is not politeness, it is a
+defect waiting to ship.
 
-**Why:** skipping the verify step is what costs, every time. Two failures in one session, both
-self-inflicted:
+A local clone lives at `F:\src\source-sdk-2013` — outside every repository, per the rule that
+Valve's source and decompiler output never enter this tree or its history. Grep it; it answers in
+one command what several web fetches could not.
 
-- A "better" manifold measurement for `.vtx` was written into a test comment claiming "three orders
-  of magnitude of separation" **before being measured**. Measured: 44.3%, and the sabotage it was
-  meant to catch passed. The test was deleted.
-- A `.vhv` test oracle compared the flattened colour count against the `.vvd`'s LOD-0 vertex count.
-  It disagreed on one model and read as a reader defect. Reading `vrad`'s `SerializeLighting` —
-  one fetch — showed it writes a `MeshHeader_t` per mesh per LOD counted from the **strip group's**
-  vertices. The reader had been right the whole time; the oracle was wrong.
+**Measured cases, all from one session:**
 
-**How to apply:** before writing a test's expected value, ask what wrote the file and whether that
-writer is published. Prefer the encoder to the decoder. State the hypothesis, then go looking for
-the passage that settles it, and only then write code. Related:
-[[read-the-encoder-not-the-decoder]], [[differential-beats-fixtures]],
-[[valve-publishes-bitbuf]], [[binaries-answer-what-the-sdk-cannot]].
+- The owner said loose files override VPKs. `gameinfo.txt` lists the VPKs above the loose mod path,
+  and the folklore is half-right for a different reason — `tf/custom/*` is listed FIRST, which is
+  why HUDs win. Working code was nearly inverted to match the recollection. They corrected it
+  themselves; the point is that the file already had the answer before anyone spoke.
+- Props drew at half brightness. A measurement said props averaged 0.2309 against the world's
+  0.4704, and that was explained as a missing gamma step, because `0.23 ^ (1/2.2)` is 0.495 and also
+  lands near 0.47. The shader settles it: `cOverbright 2.0f`, and the ratio was 2.04. Two curves
+  through one point, and only the source distinguishes them.
+- Displacement lightmap coordinates are ASSIGNED from the corner ordering, never projected through
+  `lightmapVecs`. Projecting looked obviously right and put 219 of 578 faces outside their own
+  lightmap.
+
+**How to apply:** before writing an expected value, ask what program WROTE the file and whether that
+program is published — prefer the encoder to the decoder. State the hypothesis, find the passage
+that settles it, then code. Related: [[decode-must-be-total]],
+[[read-the-encoder-not-the-decoder]], [[valve-publishes-bitbuf]],
+[[binaries-answer-what-the-sdk-cannot]].

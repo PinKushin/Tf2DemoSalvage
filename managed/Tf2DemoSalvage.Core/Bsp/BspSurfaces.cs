@@ -28,6 +28,8 @@ public readonly record struct SurfaceVertex(
 /// <param name="Normal">Unit normal, already corrected for the face's side.</param>
 /// <param name="Flags">Surface flags from the face's texinfo.</param>
 /// <param name="DisplacementIndex">Index into DISPINFO, or -1 for an ordinary face.</param>
+/// <param name="LuxelWidth">Lightmap samples across, which is size plus one.</param>
+/// <param name="LuxelHeight">Lightmap samples down.</param>
 public sealed record BspSurface(
     int FaceIndex,
     IReadOnlyList<SurfaceVertex> Vertices,
@@ -35,7 +37,9 @@ public sealed record BspSurface(
     BspLightmap Lightmap,
     (float X, float Y, float Z) Normal,
     SurfaceProperties Flags,
-    int DisplacementIndex)
+    int DisplacementIndex,
+    int LuxelWidth = 1,
+    int LuxelHeight = 1)
 {
     /// <summary>Whether this face is the base quad of a displacement.</summary>
     /// <remarks>
@@ -219,7 +223,9 @@ public static class BspSurfaces
                 index < lightmaps.Count ? lightmaps[index] : default,
                 ReadNormal(planes, planeIndex, flipped),
                 (SurfaceProperties)BinaryPrimitives.ReadInt32LittleEndian(info[TexinfoFlagsOffset..]),
-                BinaryPrimitives.ReadInt16LittleEndian(face[FaceDisplacementOffset..])));
+                BinaryPrimitives.ReadInt16LittleEndian(face[FaceDisplacementOffset..]),
+                luxelWidth,
+                luxelHeight));
         }
 
         return surfaces;

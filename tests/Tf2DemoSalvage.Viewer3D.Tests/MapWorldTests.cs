@@ -68,7 +68,7 @@ public sealed class MapWorldTests
     }
 
     [Test]
-    public void Build_ToolMaterials_AreDroppedEvenWithoutAToolFlag()
+    public void Build_InvisibleDisplacement_IsDroppedButToolsBlackIsKept()
     {
         // **518 of cp_process_final's 578 displacement faces are painted with
         // tools/toolsinvisibledisplacement**, which the engine never draws. Its VMT declares
@@ -79,19 +79,30 @@ public sealed class MapWorldTests
         [
             new("tools/toolsinvisibledisplacement", (0f, 0f, 0f), 32, 32),
             new("nature/blendgroundtograss007", (0.3f, 0.4f, 0.2f), 512, 512),
+            new("tools/toolsblack", (0f, 0f, 0f), 32, 32),
         ];
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 0, corners: 3), Surface(1, material: 1, corners: 3)],
+            [
+                Surface(0, material: 0, corners: 3),
+                Surface(1, material: 1, corners: 3),
+                Surface(2, material: 2, corners: 3),
+            ],
             materials,
             LightmapAtlas.Pack([]),
             [],
             Camera,
             null);
 
-        world.Batches.Count.ShouldBe(1, "only the real material should be drawn");
-        world.Batches[0].MaterialIndex.ShouldBe(1);
+        // **toolsblack is kept, and that is the point of this test now.** It shares the tools/
+        // path and is an ordinary drawn surface - 80 visible faces with no flags on
+        // cp_process_final, covering 4.8 million square units. Dropping it with its siblings left
+        // holes that read as dark blobs.
+        world.Batches.Count.ShouldBe(2, "only the invisible displacement should be dropped");
+        world.Batches.ShouldNotContain(batch => batch.MaterialIndex == 0);
+        world.Batches.ShouldContain(batch => batch.MaterialIndex == 1);
+        world.Batches.ShouldContain(batch => batch.MaterialIndex == 2);
     }
 
     [Test]
@@ -221,10 +232,14 @@ public sealed class MapWorldTests
     }
 
     [Test]
-    public void Build_APropWhoseMaterialResolvedToNothing_IsSkipped()
+    public void Build_APropWhoseMaterialResolvedToNothing_IsDrawnAsMissing()
     {
-        // Drawing it would paint a white rock, which reads as a rendering fault rather than as a
-        // missing texture.
+        // **Drawn, not skipped, and the reversal is deliberate.** This used to skip it, reasoning
+        // that a white rock reads as a rendering fault - true, and the wrong conclusion, because a
+        // HOLE reads as nothing at all and nothing at all is what goes uninvestigated. The engine's
+        // own convention is a magenta chequer, which looks like a bug and therefore gets reported.
+        //
+        // Several defects this session hid behind exactly that difference.
         PropVertex[] unpainted =
         [
             new(100f, 100f, 0f, 0f, 0f, -1),
@@ -235,7 +250,7 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map, [], Materials, LightmapAtlas.Pack([]), unpainted, Camera, null);
 
-        world.Vertices.ShouldBeEmpty();
+        world.Vertices.Count.ShouldBe(3, "a prop with no material draws in the missing chequer");
     }
 
     private static BspSurface Surface(

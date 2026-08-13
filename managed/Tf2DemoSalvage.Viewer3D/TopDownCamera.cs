@@ -112,6 +112,34 @@ internal sealed class TopDownCamera
         return new TopDownCamera(_centreX, _centreY, _scaleX * factor, _scaleY * factor);
     }
 
+    /// <summary>Returns this camera moved to look at a different point.</summary>
+    /// <param name="worldX">Where to centre the view.</param>
+    /// <param name="worldY">Where to centre the view.</param>
+    /// <returns>A new camera.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">A coordinate is not finite.</exception>
+    public TopDownCamera LookingAt(float worldX, float worldY)
+    {
+        if (!float.IsFinite(worldX) || !float.IsFinite(worldY))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(worldX), "A camera centre must be finite.");
+        }
+
+        return new TopDownCamera(worldX, worldY, _scaleX, _scaleY);
+    }
+
+    /// <summary>Where this camera is looking, in world units.</summary>
+    public (float X, float Y) Centre => (_centreX, _centreY);
+
+    /// <summary>How many world units one screen pixel covers, horizontally.</summary>
+    /// <remarks>
+    /// **What a drag has to be converted through.** A mouse moves in pixels and the camera lives in
+    /// world units; panning by the pixel count makes the map fly off at any zoom but one, which
+    /// reads as the drag being wildly oversensitive rather than as a missing conversion.
+    /// </remarks>
+    public float WorldUnitsPerPixel(int viewportWidth) =>
+        _scaleX == 0f ? 1f : 2f / (_scaleX * Math.Max(1, viewportWidth));
+
     /// <summary>Projects a world position to normalised device coordinates.</summary>
     /// <param name="worldX">World X.</param>
     /// <param name="worldY">World Y.</param>

@@ -203,12 +203,12 @@ public static class BspLightmaps
         return pixels;
     }
 
-    private static byte ToSrgb(float linear)
-    {
-        // Normalised against a byte's range before the curve: a sample of 255 at exponent 0 is
-        // full brightness, and anything above it is over-range HDR to be clamped.
-        float value = Math.Clamp(linear / 255f, 0f, 1f);
-
-        return (byte)Math.Clamp(MathF.Pow(value, 1f / 2.2f) * 255f, 0f, 255f);
-    }
+    /// <summary>Takes one linear sample into display space.</summary>
+    /// <remarks>
+    /// Normalised against a byte's range before the curve: a sample of 255 at exponent 0 is full
+    /// brightness, and anything above it is over-range HDR to be clamped. The curve itself lives in
+    /// <see cref="SourceGamma"/>, because static prop vertex lighting needs the same one and two
+    /// copies would drift apart.
+    /// </remarks>
+    private static byte ToSrgb(float linear) => SourceGamma.ToDisplayByte(linear);
 }

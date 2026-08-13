@@ -55,6 +55,9 @@ internal static class PropModels
     /// </remarks>
     private const int MaximumPlacements = 100_000;
 
+    /// <summary>What the engine multiplies static prop vertex lighting by, from its own shader.</summary>
+    private const float Overbright = 2f;
+
     /// <summary>Loads a map's props and places them.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own embedded content, searched before the game's.</param>
@@ -95,6 +98,7 @@ internal static class PropModels
             return [];
         }
 
+        int brushMaterialCount = textures.Count;
         Dictionary<string, LoadedModel?> loaded = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
         List<PropVertex> world = [];
@@ -167,10 +171,21 @@ internal static class PropModels
             placed++;
         }
 
+        int transparent = 0;
+
+        for (int index = brushMaterialCount; index < textures.Count; index++)
+        {
+            if (textures[index] is { IsTransparent: true })
+            {
+                transparent++;
+            }
+        }
+
         ViewerLog.Write(
             "props",
             $"{placed} props placed from {loaded.Count} models ({skipped} skipped, " +
-            $"{unlit} without baked lighting), {world.Count / 3} triangles");
+            $"{unlit} without baked lighting), {world.Count / 3} triangles, " +
+            $"{transparent} of {textures.Count - brushMaterialCount} prop materials alpha tested");
 
         return world;
     }
@@ -246,7 +261,28 @@ internal static class PropModels
 
         (byte red, byte green, byte blue) = colours[vertex];
 
-        return (red / 255f, green / 255f, blue / 255f);
+        // **Doubled, because the engine doubles it.** vrad builds its vertex-light table as
+        // pow(linear, 1/gamma) * overbrightFactor, storing HALF the light when overbright is 2, and
+        // the vertex-lit shader multiplies it back:
+        //
+        // its vertex-lit shader defines an overbright of two and multiplies the stored colour by
+        // it before converting to linear.
+        //
+        // Without it every prop draws at half brightness - dark rocks and near-black foliage on a
+        // sunlit map, which is what the owner kept reporting as blobs.
+        //
+        // The measurement had said so before the source did: prop colours averaged 0.2309 against
+        // the world's lightmaps at 0.4704, a ratio of 2.04. That was first explained as a missing
+        // gamma step, because 0.23 ^ (1/2.2) is 0.495 and also lands near 0.47 - two different
+        // curves passing through one point, and the wrong one was picked. Only the shader settles
+        // which.
+        //
+        // Clamped rather than carried, since this renderer works in display space and has no tone
+        // map to give over-range light anywhere to go.
+        return (
+            Math.Min(1f, red / 255f * Overbright),
+            Math.Min(1f, green / 255f * Overbright),
+            Math.Min(1f, blue / 255f * Overbright));
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
@@ -289,7 +325,7 @@ internal static class PropModels
         {
             StudioModelInfo model = StudioModel.Read(modelFile);
             IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(vertexFile);
-            IReadOnlyList<IReadOnlyList<int>> meshes = StudioTriangles.Read(indexFile, model);
+            IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
             List<PropVertex> corners = [];
             List<int> cornerMeshes = [];
@@ -307,14 +343,17 @@ internal static class PropModels
                 int material = Register(
                     model, mesh.MaterialIndex, materials, textures, materialIndices, load);
 
-                foreach (int vertex in meshes[index])
+                foreach (StudioCorner corner in meshes[index])
                 {
-                    StudioVertex corner = vertices[mesh.FirstVertex + vertex];
+                    StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
 
                     corners.Add(new PropVertex(
-                        corner.X, corner.Y, corner.Z, corner.U, corner.V, material));
-                    cornerMeshes.Add(index);
-                    cornerVertices.Add(vertex);
+                        vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, material));
+
+                    // **Position by mesh vertex, colour by strip group vertex.** They are different
+                    // orderings of the same surface, and using one for both speckles the prop.
+                    cornerMeshes.Add(corner.LightingGroup);
+                    cornerVertices.Add(corner.LightingVertex);
                 }
             }
 
@@ -347,8 +386,12 @@ internal static class PropModels
             return -1;
         }
 
+        List<string> tried = [];
+
         foreach (string candidate in model.MaterialPaths(materialIndex))
         {
+            tried.Add(candidate);
+
             if (indices.TryGetValue(candidate, out int existing))
             {
                 return existing;
@@ -371,6 +414,14 @@ internal static class PropModels
             return index;
         }
 
+        // **Named, not counted.** A material that resolves nowhere draws in the missing chequer,
+        // which makes it visible - and the log is what says WHICH material and where it was looked
+        // for, so the fix is a lookup rather than a hunt.
+        ViewerLog.Warn(
+            "props",
+            $"{model.Name}: material \"{model.Materials[materialIndex]}\" not found; tried " +
+            string.Join(", ", tried));
+
         return -1;
     }
 
@@ -378,8 +429,8 @@ internal static class PropModels
     /// A model's triangles in its own space, ready to be placed.
     /// </summary>
     /// <param name="Corners">The triangle corners, three per triangle.</param>
-    /// <param name="Meshes">Which mesh each corner came from.</param>
-    /// <param name="Vertices">Which vertex of that mesh each corner is.</param>
+    /// <param name="Meshes">Which strip group each corner came from, in .vhv header order.</param>
+    /// <param name="Vertices">Which vertex of that strip group each corner is.</param>
     /// <param name="Checksum">The model's checksum, which its lighting must match.</param>
     /// <remarks>
     /// **The mesh and vertex are kept because the model is shared and the lighting is not.** One

@@ -87,6 +87,76 @@ public sealed class StudioVertexLightingTests
     }
 
     [Test]
+    public void EveryCornerIndexesAColourThatExists()
+    {
+        // **The contract, stated exactly.** vrad writes one .vhv mesh header per STRIP GROUP and
+        // indexes each colour by that group's own vertex number:
+        //
+        // it fills one colour per strip group vertex, taking the value from the mesh vertex that
+        // strip group vertex points at.
+        //
+        // So a corner's LightingGroup selects the header and LightingVertex indexes into it. If
+        // either is wrong the lookup lands on another vertex's colour, which draws the prop
+        // speckled with black rather than failing - the symptom that started this.
+        //
+        // Checking that every index is IN RANGE is what a wrong grouping cannot survive: reading
+        // one header per mesh gives too few groups the moment any mesh has two strip groups.
+        int checkedModels = 0;
+
+        foreach ((int index, BspStaticProp prop) in Placements())
+        {
+            if (ReadModel(prop.Model) is not { } model ||
+                Lighting(index, model.Info.Checksum) is not { } groups ||
+                ReadIndices(prop.Model, model.Info) is not { } meshes)
+            {
+                continue;
+            }
+
+            foreach (IReadOnlyList<StudioCorner> mesh in meshes)
+            {
+                foreach (StudioCorner corner in mesh)
+                {
+                    corner.LightingGroup.ShouldBeInRange(0, groups.Count - 1, prop.Model);
+                    corner.LightingVertex.ShouldBeInRange(
+                        0, groups[corner.LightingGroup].Count - 1, prop.Model);
+                }
+            }
+
+            checkedModels++;
+        }
+
+        checkedModels.ShouldBeGreaterThan(10, "some props should have been checked");
+    }
+
+    /// <summary>A model's triangles, when the game carries its index file.</summary>
+    private static IReadOnlyList<IReadOnlyList<StudioCorner>>? ReadIndices(
+        string path, StudioModelInfo model)
+    {
+        string? folder = MapFile is { } map ? Path.GetDirectoryName(Path.GetDirectoryName(map)) : null;
+
+        if (folder is null)
+        {
+            return null;
+        }
+
+        string stem = path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase) ? path[..^4] : path;
+
+        if (Archive(folder).ReadFile(stem + ".dx90.vtx") is not { } indexFile)
+        {
+            return null;
+        }
+
+        try
+        {
+            return StudioTriangles.Read(indexFile, model);
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+    }
+
+    [Test]
     public void Read_TheColours_MatchTheirModelsMeshesOneForOne()
     {
         // **The oracle comes from the writer, not from a guess.** Valve's

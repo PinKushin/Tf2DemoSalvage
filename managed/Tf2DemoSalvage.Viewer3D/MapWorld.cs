@@ -38,6 +38,7 @@ internal static class MapWorldBuilder
     /// <param name="props">The map's placed models, in world space.</param>
     /// <param name="camera">Projection from world to clip space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
+    /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
     /// <returns>The triangles and their batches.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -52,14 +53,22 @@ internal static class MapWorldBuilder
         LightmapAtlas atlas,
         IReadOnlyList<PropVertex> props,
         TopDownCamera camera,
-        MapBounds? area)
+        MapBounds? area,
+        bool categoryColours = false)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
         ArgumentNullException.ThrowIfNull(atlas);
         ArgumentNullException.ThrowIfNull(props);
 
-        (float lowest, float highest) = HeightRange(surfaces);
+        (float lowest, float highest) = HeightRange(surfaces, area);
+
+        // **Counted and logged, because a picture is a poor way to notice a category is empty.**
+        // Every defect chased this session showed up in these numbers before it showed up on
+        // screen: terrain that was culled, props that were skipped, a material that was dropped.
+        int brushFaces = 0;
+        int terrainFaces = 0;
+        int missingMaterials = 0;
 
         // Grouped first so each material's triangles end up contiguous, then flattened. A
         // dictionary keeps the grouping O(n) rather than sorting thirteen thousand faces.
@@ -101,13 +110,24 @@ internal static class MapWorldBuilder
             // **A displacement is not its face.** Its real surface is a heightfield subdividing
             // the quad, and drawing the quad gives a flat slab painted with only the first of the
             // material's two textures - a dirt field where a grassy hillside belongs.
+            if (materialIndex(surface) < 0)
+            {
+                missingMaterials++;
+            }
+
             if (surface.IsDisplacement)
             {
+                terrainFaces++;
+
                 IReadOnlyList<SurfaceVertex> subdivided = ReadTerrain(terrain, surface);
 
                 foreach (SurfaceVertex corner in subdivided)
                 {
-                    Append(vertices, corner, rectangle, lowest, highest);
+                    (float red, float green, float blue) = categoryColours
+                        ? CategoryColour(SurfaceCategory.Terrain)
+                        : (1f, 1f, 1f);
+
+                    Append(vertices, corner, rectangle, lowest, highest, red, green, blue);
                 }
 
                 if (subdivided.Count > 0)
@@ -116,18 +136,29 @@ internal static class MapWorldBuilder
                 }
             }
 
+            brushFaces++;
+
             // A fan from the first corner: faces out of a BSP are convex by construction.
             IReadOnlyList<SurfaceVertex> corners = surface.Vertices;
 
+            (float brushRed, float brushGreen, float brushBlue) = categoryColours
+                ? CategoryColour(SurfaceCategory.Brush)
+                : (1f, 1f, 1f);
+
             for (int index = 1; index + 1 < corners.Count; index++)
             {
-                Append(vertices, corners[0], rectangle, lowest, highest);
-                Append(vertices, corners[index], rectangle, lowest, highest);
-                Append(vertices, corners[index + 1], rectangle, lowest, highest);
+                Append(vertices, corners[0], rectangle, lowest, highest, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[index], rectangle, lowest, highest, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[index + 1], rectangle, lowest, highest, brushRed, brushGreen, brushBlue);
             }
         }
 
-        AppendProps(props, byMaterial, area, lowest, highest);
+        AppendProps(props, byMaterial, area, lowest, highest, categoryColours);
+
+        ViewerLog.Write(
+            "render",
+            $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
+            $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material");
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];
@@ -169,18 +200,18 @@ internal static class MapWorldBuilder
         Dictionary<int, List<WorldVertex>> byMaterial,
         MapBounds? area,
         float lowest,
-        float highest)
+        float highest,
+        bool categoryColours)
     {
         for (int corner = 0; corner + 2 < props.Count; corner += 3)
         {
             PropVertex first = props[corner];
 
-            if (first.MaterialIndex < 0)
-            {
-                // A material that resolved to nothing. Drawing it white would be worse than the
-                // hole it leaves, since a white rock reads as a rendering fault.
-                continue;
-            }
+            // **A prop whose material resolved to nothing is DRAWN, in the missing-material
+            // chequer.** It used to be skipped, on the reasoning that a white rock reads as a
+            // rendering fault - which was true and was the wrong conclusion. A hole reads as
+            // nothing at all, and nothing at all is what nobody investigates. Magenta gets
+            // reported.
 
             if (area is { } bounds && !Inside(first, bounds))
             {
@@ -206,15 +237,23 @@ internal static class MapWorldBuilder
             {
                 PropVertex vertex = props[corner + offset];
 
+                SurfaceCategory category = vertex.MaterialIndex < 0
+                    ? SurfaceCategory.Missing
+                    : SurfaceCategory.Prop;
+
+                (float red, float green, float blue) = categoryColours
+                    ? CategoryColour(category)
+                    : (vertex.Red, vertex.Green, vertex.Blue);
+
                 Append(
                     vertices,
                     new SurfaceVertex(vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, 0f, 0f),
                     default,
                     lowest,
                     highest,
-                    vertex.Red,
-                    vertex.Green,
-                    vertex.Blue);
+                    red,
+                    green,
+                    blue);
             }
         }
     }
@@ -246,16 +285,37 @@ internal static class MapWorldBuilder
         }
     }
 
-    /// <summary>Finds the map's vertical extent, which is what depth is measured against.</summary>
-    private static (float Lowest, float Highest) HeightRange(IReadOnlyList<BspSurface> surfaces)
+    /// <summary>
+    /// Finds the vertical extent of the PLAY AREA, which is what depth is measured against.
+    /// </summary>
+    /// <remarks>
+    /// **Measured over the play area, not the whole file, for the same reason the camera frames
+    /// MainBounds.** A TF2 map keeps its 3D skybox as ordinary geometry far outside the level, and
+    /// on cp_process_f12 that puts the file's vertical span at -14,673 to 3,152 while everything a
+    /// player can stand on lives between roughly -72 and 2,240. Normalised against the file, the
+    /// entire playable map occupies 13% of the depth range.
+    ///
+    /// That wastes seven eighths of the depth buffer's precision on empty space, and it made the
+    /// height cut useless: the slice spent most of its travel above anything that exists.
+    /// </remarks>
+    private static (float Lowest, float Highest) HeightRange(
+        IReadOnlyList<BspSurface> surfaces, MapBounds? area)
     {
         float lowest = float.PositiveInfinity;
         float highest = float.NegativeInfinity;
 
-        foreach (float z in surfaces.SelectMany(surface => surface.Vertices.Select(v => v.Z)))
+        foreach (BspSurface surface in surfaces)
         {
-            lowest = Math.Min(lowest, z);
-            highest = Math.Max(highest, z);
+            if (area is { } bounds && !Touches(surface, bounds))
+            {
+                continue;
+            }
+
+            foreach (float z in surface.Vertices.Select(vertex => vertex.Z))
+            {
+                lowest = Math.Min(lowest, z);
+                highest = Math.Max(highest, z);
+            }
         }
 
         return float.IsFinite(lowest) && highest > lowest ? (lowest, highest) : (0f, 1f);
@@ -296,12 +356,35 @@ internal static class MapWorldBuilder
             x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha, red, green, blue));
     }
 
-    /// <summary>Whether a material is one of the compiler's tools rather than a surface.</summary>
+    /// <summary>
+    /// Whether a material is one the engine never draws, and cannot be told from its flags.
+    /// </summary>
     /// <remarks>
-    /// Matched on the path, which is the one thing every tool material shares: they all live under
-    /// <c>materials/tools</c>, by a convention the engine and Hammer both rely on. The alternative
-    /// - reading each VMT and guessing from its shader - fails on exactly the case that matters,
-    /// since toolsinvisibledisplacement declares itself LightmappedGeneric like any wall.
+    /// **Exactly one material needs this, and the blanket rule it replaces was hiding a real
+    /// surface.** Matching every path under <c>tools/</c> looked safe and was not: measured on
+    /// cp_process_final,
+    ///
+    /// <code>
+    ///   TOOLSINVISIBLEDISPLACEMENT  518 faces, 518 visible, flags Translucent
+    ///   TOOLSSKYBOX                 361 faces,   0 visible, flags Sky, NoLight
+    ///   TOOLSTRIGGER                318 faces,   0 visible, flags Trigger, NoLight
+    ///   TOOLSBLACK                   80 faces,  80 visible, flags None
+    /// </code>
+    ///
+    /// Sky and trigger carry flags, so the visibility check already excludes them and this was
+    /// never needed for either. <c>toolsblack</c> carries NO flags because it is an ordinary drawn
+    /// surface — mappers use it for the void behind a window, under a grate, inside a vent, and
+    /// the engine draws it as black. Skipping it left 4.8 million square units of the map unpainted,
+    /// showing the background through, which read as dark blobs and survived four separate
+    /// explanations about lighting.
+    ///
+    /// So only <c>toolsinvisibledisplacement</c> is matched by name — the one material that is
+    /// genuinely never drawn and carries nothing to say so. It is collision-only terrain laid under
+    /// what the player actually sees, which is a static prop.
+    ///
+    /// **The lesson is in the shape of the mistake**: a rule written from a category ("tool
+    /// materials are not drawn") rather than from the data, which was right about the case that
+    /// prompted it and wrong about a sibling nobody checked.
     /// </remarks>
     private static bool IsToolMaterial(int materialIndex, IReadOnlyList<BspMaterial> materials)
     {
@@ -310,11 +393,44 @@ internal static class MapWorldBuilder
             return false;
         }
 
-        string name = materials[materialIndex].Name;
-
-        return name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) ||
-            name.StartsWith("tools\\", StringComparison.OrdinalIgnoreCase);
+        return materials[materialIndex].Name.Contains(
+            "toolsinvisibledisplacement", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>Flat colours naming what a surface IS, for the diagnostic view.</summary>
+    /// <remarks>
+    /// **Answers in one glance what a textured picture hides.** Several defects this session looked
+    /// like art direction: terrain that was not drawn, a material dropped by a category rule, props
+    /// standing in for holes. "Is anything here at all, and what kind of thing is it" is a different
+    /// question from "does this look right", and it needs a different picture.
+    /// </remarks>
+    private static (float Red, float Green, float Blue) CategoryColour(SurfaceCategory category) =>
+        category switch
+        {
+            SurfaceCategory.Terrain => (0.25f, 0.85f, 0.35f),
+            SurfaceCategory.Prop => (1f, 0.6f, 0.15f),
+            SurfaceCategory.Missing => (1f, 0f, 1f),
+            _ => (0.55f, 0.6f, 0.72f),
+        };
+
+    /// <summary>What a drawn surface is, for the diagnostic view.</summary>
+    private enum SurfaceCategory
+    {
+        /// <summary>Ordinary world brushwork.</summary>
+        Brush,
+
+        /// <summary>A displacement's subdivided terrain.</summary>
+        Terrain,
+
+        /// <summary>A placed model.</summary>
+        Prop,
+
+        /// <summary>Anything whose material could not be resolved.</summary>
+        Missing,
+    }
+
+    /// <summary>A surface's material, or -1 when it names one the map does not have.</summary>
+    private static int materialIndex(BspSurface surface) => surface.MaterialIndex;
 
     private static bool Touches(BspSurface surface, MapBounds bounds)
     {

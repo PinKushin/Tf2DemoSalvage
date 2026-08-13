@@ -38,3 +38,4 @@
 - [A hole is not always a drawing fault](a-hole-is-not-always-a-drawing-fault.md) — black patches were static props never read; a face-based instrument cannot report a missing non-face.
 - [Per-item APIs hide quadratic reads](per-item-apis-hide-quadratic-reads.md) — read-one-face plus whole-file re-decompresses the lumps every call; 830 ms per resize.
 - [UI tests run every time](ui-tests-run-every-time.md) — every change, not just UI ones; new UI ships with its UI test.
+- [Decoding must be total](decode-must-be-total.md) — anything not reading at 100% with no errors is our defect; the engine reads these files fine.

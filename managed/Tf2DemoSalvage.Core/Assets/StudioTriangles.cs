@@ -47,6 +47,29 @@ namespace Tf2DemoSalvage.Core.Assets;
 /// larger one only when they do not. That is enumeration of two known layouts settled by
 /// measurement, not a guess with a fallback: a wrong stride does not produce coherent offsets.
 /// </remarks>
+/// <summary>One triangle corner of a model.</summary>
+/// <param name="Vertex">Index into the mesh's vertices, for position and texture coordinates.</param>
+/// <param name="LightingGroup">Which strip group it belongs to, counted across the whole model.</param>
+/// <param name="LightingVertex">Index into that strip group's own vertices, for baked colour.</param>
+/// <remarks>
+/// **Two indices, because a model stores position and lighting in different orders.** A strip
+/// group's vertex table holds <c>origMeshVertID</c>, which addresses the mesh's vertices in the
+/// <c>.vvd</c> - that is where a position comes from. But vrad writes a placement's baked colours
+/// indexed by the STRIP GROUP's own vertex number, with one <c>.vhv</c> mesh header per strip
+/// group rather than per mesh:
+///
+/// <code>
+///   m_VertexColors.AddMultipleToTail( pStripGroup-&gt;numVerts );
+///   int nIndex = pMesh-&gt;vertexoffset + pStripGroup-&gt;pVertex( nVertex )-&gt;origMeshVertID;
+///   m_VertexColors[nVertex] = (*colorVerts)[nIndex].m_Color;
+/// </code>
+///
+/// Using <c>origMeshVertID</c> for both is right only while a strip group's ordering happens to
+/// match its mesh's, which is usually and not always - and where it differs, colours land on the
+/// wrong vertices and the prop draws speckled with black.
+/// </remarks>
+public readonly record struct StudioCorner(int Vertex, int LightingGroup, int LightingVertex);
+
 public static class StudioTriangles
 {
     private const int SupportedVersion = 7;
@@ -83,7 +106,7 @@ public static class StudioTriangles
     /// Returned per mesh and in the same order the <c>.mdl</c> lists them, because that is what
     /// carries the material: the index data itself names no materials at all.
     /// </remarks>
-    public static IReadOnlyList<IReadOnlyList<int>> Read(
+    public static IReadOnlyList<IReadOnlyList<StudioCorner>> Read(
         ReadOnlyMemory<byte> file, StudioModelInfo model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -117,7 +140,7 @@ public static class StudioTriangles
 
         foreach (bool topology in new[] { false, true })
         {
-            if (TryRead(bytes, model, topology, out List<List<int>> meshes))
+            if (TryRead(bytes, model, topology, out List<List<StudioCorner>> meshes))
             {
                 return meshes;
             }
@@ -132,12 +155,17 @@ public static class StudioTriangles
         ReadOnlySpan<byte> file,
         StudioModelInfo model,
         bool topology,
-        out List<List<int>> meshes)
+        out List<List<StudioCorner>> meshes)
     {
         int stripGroupStride = topology ? StripGroupBytesWithTopology : StripGroupBytes;
         int stripStride = topology ? StripBytesWithTopology : StripBytes;
 
         meshes = [];
+
+        // **Counted across the whole model, because that is how the .vhv headers are ordered.**
+        // vrad appends one mesh header per strip group as it walks meshes and then groups, so
+        // the Nth strip group encountered here is the Nth header there.
+        int group = 0;
 
         try
         {
@@ -172,7 +200,7 @@ public static class StudioTriangles
                         0,
                         LodBytes);
 
-                    ReadLod(file, lodAt, stripGroupStride, stripStride, meshes);
+                    ReadLod(file, lodAt, stripGroupStride, stripStride, meshes, ref group);
                 }
             }
         }
@@ -194,7 +222,8 @@ public static class StudioTriangles
         int lodAt,
         int stripGroupStride,
         int stripStride,
-        List<List<int>> into)
+        List<List<StudioCorner>> into,
+        ref int group)
     {
         int meshes = BinaryPrimitives.ReadInt32LittleEndian(file[lodAt..]);
         int meshesAt = lodAt + BinaryPrimitives.ReadInt32LittleEndian(file[(lodAt + 4)..]);
@@ -203,23 +232,33 @@ public static class StudioTriangles
         {
             int meshAt = At(file, meshesAt, mesh, MeshBytes);
 
-            List<int> indices = [];
+            List<StudioCorner> corners = [];
 
             int groups = BinaryPrimitives.ReadInt32LittleEndian(file[meshAt..]);
             int groupsAt = meshAt + BinaryPrimitives.ReadInt32LittleEndian(file[(meshAt + 4)..]);
 
-            for (int group = 0; group < groups; group++)
+            for (int index = 0; index < groups; index++)
             {
                 ReadStripGroup(
-                    file, At(file, groupsAt, group, stripGroupStride), stripStride, indices);
+                    file,
+                    At(file, groupsAt, index, stripGroupStride),
+                    stripStride,
+                    group,
+                    corners);
+
+                group++;
             }
 
-            into.Add(indices);
+            into.Add(corners);
         }
     }
 
     private static void ReadStripGroup(
-        ReadOnlySpan<byte> file, int groupAt, int stripStride, List<int> into)
+        ReadOnlySpan<byte> file,
+        int groupAt,
+        int stripStride,
+        int group,
+        List<StudioCorner> into)
     {
         int vertices = BinaryPrimitives.ReadInt32LittleEndian(file[groupAt..]);
         int verticesAt = groupAt + BinaryPrimitives.ReadInt32LittleEndian(file[(groupAt + 4)..]);
@@ -256,6 +295,7 @@ public static class StudioTriangles
                 indicesAt + (firstIndex * sizeof(ushort)),
                 stripIndices,
                 (flags & TriangleList) != 0,
+                group,
                 into);
         }
     }
@@ -275,15 +315,16 @@ public static class StudioTriangles
         int indicesAt,
         int count,
         bool isList,
-        List<int> into)
+        int group,
+        List<StudioCorner> into)
     {
         if (isList)
         {
             for (int index = 0; index + 2 < count; index += 3)
             {
-                into.Add(Original(file, verticesAt, vertexCount, Index(file, indicesAt, index)));
-                into.Add(Original(file, verticesAt, vertexCount, Index(file, indicesAt, index + 1)));
-                into.Add(Original(file, verticesAt, vertexCount, Index(file, indicesAt, index + 2)));
+                into.Add(Corner(file, verticesAt, vertexCount, group, Index(file, indicesAt, index)));
+                into.Add(Corner(file, verticesAt, vertexCount, group, Index(file, indicesAt, index + 1)));
+                into.Add(Corner(file, verticesAt, vertexCount, group, Index(file, indicesAt, index + 2)));
             }
 
             return;
@@ -307,9 +348,9 @@ public static class StudioTriangles
                 (first, second) = (second, first);
             }
 
-            into.Add(Original(file, verticesAt, vertexCount, first));
-            into.Add(Original(file, verticesAt, vertexCount, second));
-            into.Add(Original(file, verticesAt, vertexCount, third));
+            into.Add(Corner(file, verticesAt, vertexCount, group, first));
+            into.Add(Corner(file, verticesAt, vertexCount, group, second));
+            into.Add(Corner(file, verticesAt, vertexCount, group, third));
         }
     }
 
@@ -327,16 +368,20 @@ public static class StudioTriangles
     /// lands on real vertices of the same model, so the result is a recognisable shape with its
     /// surfaces shuffled rather than an error.
     /// </remarks>
-    private static int Original(
-        ReadOnlySpan<byte> file, int verticesAt, int vertexCount, int index)
+    private static StudioCorner Corner(
+        ReadOnlySpan<byte> file, int verticesAt, int vertexCount, int group, int index)
     {
         if (index < 0 || index >= vertexCount)
         {
             throw new InvalidDataException("A strip index names a vertex its group does not have.");
         }
 
-        return BinaryPrimitives.ReadUInt16LittleEndian(
+        int original = BinaryPrimitives.ReadUInt16LittleEndian(
             file[(verticesAt + (index * VertexBytes) + VertexOriginalIdOffset)..]);
+
+        // The strip group index is kept alongside, because baked lighting is stored in that
+        // order while positions are stored in the mesh's.
+        return new StudioCorner(original, group, index);
     }
 
     /// <summary>The address of one element of an array, checked to be inside the file.</summary>
