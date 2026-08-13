@@ -373,6 +373,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11Buffer> _vertices;
     private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11Buffer> _model;
+
+    /// <summary>Entity model geometry, in model space, uploaded once.</summary>
+    private ComPtr<ID3D11Buffer> _modelVertices;
+
+    private Dictionary<string, IReadOnlyList<WorldBatch>> _modelBatches =
+        new(StringComparer.OrdinalIgnoreCase);
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
@@ -1461,6 +1467,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _material.Dispose();
         _camera.Dispose();
         _model.Dispose();
+        _modelVertices.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
@@ -1517,6 +1524,127 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         _batches = [];
+    }
+
+    /// <summary>Uploads every entity model's triangles, in model space.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="vertices">Packed model geometry; may be empty.</param>
+    /// <param name="batches">Each model's runs, keyed by its path.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="vertices"/> is null.</exception>
+    /// <remarks>
+    /// **A second buffer rather than a bigger one**, because the two have entirely different
+    /// lifetimes: the map's geometry is rebuilt when the world is, and this grows only when a
+    /// model the demo has not shown before appears. Merging them would rebuild the map every time
+    /// a new rocket type turned up.
+    ///
+    /// Uploaded whole each time a model is added, which is rare and bounded — a match uses a few
+    /// hundred distinct models and every one of them is known within a few seconds of playback.
+    /// </remarks>
+    public void UploadModels(
+        ComPtr<ID3D11Device> device,
+        IReadOnlyList<WorldVertex> vertices,
+        Dictionary<string, IReadOnlyList<WorldBatch>> batches)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        _modelBatches = batches;
+
+        _modelVertices.Dispose();
+        _modelVertices = default;
+
+        if (vertices.Count == 0)
+        {
+            return;
+        }
+
+        float[] data = new float[vertices.Count * 12];
+        int at = 0;
+
+        foreach (WorldVertex vertex in vertices)
+        {
+            data[at++] = vertex.X;
+            data[at++] = vertex.Y;
+            data[at++] = vertex.Depth;
+            data[at++] = vertex.U;
+            data[at++] = vertex.V;
+            data[at++] = vertex.LightU;
+            data[at++] = vertex.LightV;
+            data[at++] = vertex.Alpha;
+            data[at++] = vertex.Red;
+            data[at++] = vertex.Green;
+            data[at++] = vertex.Blue;
+            data[at++] = vertex.LightStep;
+        }
+
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)(data.Length * sizeof(float)),
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        fixed (float* first = data)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+
+            SilkMarshal.ThrowHResult(
+                device.CreateBuffer(in description, in initial, ref _modelVertices));
+        }
+    }
+
+    /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <returns>Its runs, indexing into the model buffer.</returns>
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) =>
+        _modelBatches.TryGetValue(modelPath, out IReadOnlyList<WorldBatch>? batches) ? batches : [];
+
+    /// <summary>Draws one posed model.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="matrix">Where it stands: sixteen floats, row major.</param>
+    /// <param name="batches">Its runs, indexing into the model buffer.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
+    /// uploaded once and never move; only this constant changes between instances. Callers set the
+    /// map's identity matrix back afterwards — see <see cref="Draw"/>, which does so every frame
+    /// precisely because an entity draw leaves its own matrix behind.
+    /// </remarks>
+    public void DrawModel(
+        ComPtr<ID3D11DeviceContext> context, float[] matrix, IReadOnlyList<WorldBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(matrix);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        if (_modelVertices.Handle is null || batches.Count == 0)
+        {
+            return;
+        }
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
+
+        SetModel(context, matrix);
+
+        foreach (WorldBatch batch in batches)
+        {
+            ComPtr<ID3D11ShaderResourceView> texture =
+                batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
+                _textures[batch.MaterialIndex].Handle is not null
+                    ? _textures[batch.MaterialIndex]
+                    : _white;
+
+            context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(3, 1, ref _white);
+            context.PSSetShaderResources(4, 1, ref _white);
+
+            SetMaterial(context, batch.MaterialIndex);
+
+            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        }
     }
 
     private void CreateVertexBuffer(ComPtr<ID3D11Device> device, float[] data)

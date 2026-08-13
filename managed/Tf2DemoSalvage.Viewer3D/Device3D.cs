@@ -296,6 +296,7 @@ internal sealed unsafe class Device3D : IDisposable
     /// <param name="mapLines">Map outline in clip space.</param>
     /// <param name="points">Player positions in clip space.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <param name="models">Posed entity models, or null to draw none.</param>
     /// <remarks>
     /// The map goes down first so the players draw over it. There is no depth buffer and none is
     /// wanted: for a flat overhead view the draw order IS the layering, and it is one fewer
@@ -307,7 +308,8 @@ internal sealed unsafe class Device3D : IDisposable
         float blue,
         IReadOnlyList<(float X, float Y, float Shade)> mapFill,
         IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> mapLines,
-        IReadOnlyList<ScenePoint> points)
+        IReadOnlyList<ScenePoint> points,
+        IReadOnlyList<ModelInstance>? models = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -337,6 +339,15 @@ internal sealed unsafe class Device3D : IDisposable
             {
                 _context.OMSetDepthStencilState(_depthOn, 0);
                 _world.Draw(_context);
+
+                // **After the map, and through the depth buffer**, so a model behind a wall is
+                // hidden by it rather than by draw order. The map's own identity matrix is set at
+                // the top of Draw each frame, which is what stops these leaving their transform
+                // behind for the world.
+                foreach (ModelInstance instance in models ?? [])
+                {
+                    _world.DrawModel(_context, instance.Matrix, _world.ModelBatches(instance.ModelPath));
+                }
             }
             else
             {
