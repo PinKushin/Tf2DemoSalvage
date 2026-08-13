@@ -63,6 +63,70 @@ public sealed class ScenePropTrackTests
     }
 
     [Test]
+    public void At_WithAThirdSample_FollowsTheHermiteCurve()
+    {
+        // **The engine's default, not an enhancement.** _Interpolate_Hermite is what the client
+        // uses whenever a third sample exists; linear is the fallback for when it does not, or
+        // when INTERPOLATE_LINEAR_ONLY is set. A rocket that is turning bends through its updates
+        // instead of taking a corner at each one.
+        //
+        // Predicted exactly rather than checked for "not linear". With p0 = 0, p1 = 0, p2 = 100
+        // evenly spaced, Lerp_Hermite at t = 0.5 is:
+        //     p1*(2t^3-3t^2+1) + p2*(-2t^3+3t^2) + d1*(t^3-2t^2+t) + d2*(t^3-t^2)
+        //   = 0*0.5 + 100*0.5 + 0*0.125 + 100*(-0.125)
+        //   = 37.5
+        // Linear would be 50, so the two disagree and the test can tell them apart.
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f));
+        track.Add(200, Pose(0f, 0f, 0f) with { Yaw = 1f });
+        track.Add(300, Pose(100f, 0f, 0f) with { Yaw = 1f });
+
+        track.At(250)!.Value.X.ShouldBe(37.5f, 0.001);
+    }
+
+    [Test]
+    public void At_WithOnlyTwoSamples_IsLinear()
+    {
+        // The control: hermite needs three points, and the engine falls back rather than
+        // fabricating one. Halfway between 0 and 100 is 50 - the value the test above is
+        // deliberately not.
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f));
+        track.Add(200, Pose(100f, 0f, 0f));
+
+        track.At(150)!.Value.X.ShouldBe(50f, 0.001);
+    }
+
+    [Test]
+    public void At_WithUnevenlySpacedSamples_RenormalisesTheOldest()
+    {
+        // **TimeFixup_Hermite, and the reason it exists.** A hermite spline assumes evenly spaced
+        // samples; demo updates are not, because the server sends when it sends. Valve rebuilds
+        // the oldest sample at a uniform interval before splining - lerping prev towards start and
+        // pretending it sits at start->changetime - dt1.
+        //
+        // Here p0 sits 200 ticks before p1 while p2 is only 100 after, so dt1/dt2 is 0.5 and the
+        // fixup lerps p0 halfway towards p1: a synthetic sample of -50 at tick 100, in place of
+        // the real -100 at tick 0.
+        //
+        // The spline then runs p0 = -50, p1 = 0, p2 = 100 at t = 0.5:
+        //     0*0.5 + 100*0.5 + 50*0.125 + 100*(-0.125) = 43.75
+        //
+        // Feeding the raw -100 in instead gives 37.5, which is what the first prediction written
+        // here assumed - so this test distinguishes the fixup from its absence rather than merely
+        // distinguishing hermite from linear.
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
+
+        track.Add(0, Pose(-100f, 0f, 0f));
+        track.Add(200, Pose(0f, 0f, 0f) with { Yaw = 1f });
+        track.Add(300, Pose(100f, 0f, 0f) with { Yaw = 1f });
+
+        track.At(250)!.Value.X.ShouldBe(43.75f, 0.001);
+    }
+
+    [Test]
     public void At_OutsideTheKeyframes_DoesNotExtrapolate()
     {
         // Before the first and after the last, the value holds. Extrapolating would send a rocket

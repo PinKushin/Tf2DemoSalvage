@@ -252,25 +252,196 @@ public sealed class ScenePropTrack
 
         (float pitch, float yaw, float roll) = SlerpAngles(from, to, fraction);
 
+        // Hermite when a third sample exists, which is the engine's default rather than an extra:
+        // the client splines whenever there is an older entry, and falls back to linear only when
+        // there is not, or when INTERPOLATE_LINEAR_ONLY is set on the variable.
+        ScenePose? previous = index > 0 ? Renormalise(index, toTick - fromTick) : null;
+
+        float cycle = InterpolateCycle(previous, from, to, fraction);
+
         return new ScenePose
         {
-            X = float.Lerp(from.X, to.X, fraction),
-            Y = float.Lerp(from.Y, to.Y, fraction),
-            Z = float.Lerp(from.Z, to.Z, fraction),
+            X = Curve(previous?.X, from.X, to.X, fraction),
+            Y = Curve(previous?.Y, from.Y, to.Y, fraction),
+            Z = Curve(previous?.Z, from.Z, to.Z, fraction),
             Pitch = pitch,
             Yaw = yaw,
             Roll = roll,
-            Scale = float.Lerp(from.Scale, to.Scale, fraction),
+            Scale = Curve(previous?.Scale, from.Scale, to.Scale, fraction),
 
-            // **A sequence change is a cut, not a blend.** Two animations share no timeline, so a
-            // cycle of 0.9 in one and 0.1 in the next are not two points on one curve, and the
-            // wrap rule below would fire on unrelated numbers. The engine restarts the variable
-            // instead: c_baseanimating.cpp calls m_iv_flCycle.Reset() when the sequence changes.
             Sequence = from.Sequence,
-            Cycle = from.Sequence == to.Sequence
-                ? LoopingLerp(from.Cycle, to.Cycle, fraction)
-                : from.Cycle,
+            Cycle = cycle,
         };
+    }
+
+    /// <summary>Advances the animation cycle, allowing for both wrapping and sequence changes.</summary>
+    /// <remarks>
+    /// **A sequence change is a cut, not a blend.** Two animations share no timeline, so a cycle
+    /// of 0.9 in one and 0.1 in the next are not two points on one curve — and it is exactly the
+    /// wrap rule that would otherwise fire on those unrelated numbers. The engine restarts the
+    /// variable instead: <c>c_baseanimating.cpp</c> calls <c>m_iv_flCycle.Reset()</c>.
+    ///
+    /// The same applies one sample further back: a third point from a different animation is not
+    /// a tangent, so the spline drops to the two-point form rather than curving through it.
+    /// </remarks>
+    private static float InterpolateCycle(
+        ScenePose? previous, ScenePose from, ScenePose to, float fraction)
+    {
+        if (from.Sequence != to.Sequence)
+        {
+            return from.Cycle;
+        }
+
+        return previous is { } older && older.Sequence == from.Sequence
+            ? LoopingCurve(older.Cycle, from.Cycle, to.Cycle, fraction)
+            : LoopingLerp(from.Cycle, to.Cycle, fraction);
+    }
+
+    /// <summary>Rebuilds the sample before <paramref name="index"/> at an even spacing.</summary>
+    /// <param name="index">Position of the keyframe the interpolation starts from.</param>
+    /// <param name="span">Ticks from that keyframe to the one after it.</param>
+    /// <returns>The synthetic earlier sample, or <c>null</c> when hermite does not apply.</returns>
+    /// <remarks>
+    /// **<c>TimeFixup_Hermite</c>, and it is not an optimisation — it is what makes the spline
+    /// usable on real data.** A hermite curve assumes its three samples are evenly spaced, and a
+    /// demo's are not: the server sends when it sends, and a packet arriving late leaves a gap of
+    /// a different size from the one before it. Valve rebuilds the oldest sample rather than
+    /// feeding the spline uneven spacing —
+    ///
+    /// <code>
+    /// float frac = dt1 / dt2;
+    /// fixup.changetime = start->changetime - dt1;
+    /// fixup.value = Lerp( 1-frac, prev->value, start->value );
+    /// </code>
+    ///
+    /// — placing a synthetic sample exactly <c>dt1</c> before the start. Skipping it does not
+    /// produce a slightly different curve; it produces one that overshoots whenever the packet
+    /// spacing wobbles, which on a real demo is most of the time.
+    /// </remarks>
+    private ScenePose? Renormalise(int index, int span)
+    {
+        (int previousTick, ScenePose previous) = _keyframes[index - 1];
+
+        int gap = _keyframes[index].Tick - previousTick;
+
+        if (gap <= 0 || span <= 0)
+        {
+            return null;
+        }
+
+        if (Math.Abs(span - gap) <= 0.0001f)
+        {
+            // Already evenly spaced, so the stored sample is the one the spline wants.
+            return previous;
+        }
+
+        ScenePose start = _keyframes[index].Pose;
+        float fraction = 1f - ((float)span / gap);
+
+        return new ScenePose
+        {
+            X = float.Lerp(previous.X, start.X, fraction),
+            Y = float.Lerp(previous.Y, start.Y, fraction),
+            Z = float.Lerp(previous.Z, start.Z, fraction),
+            Scale = float.Lerp(previous.Scale, start.Scale, fraction),
+            Sequence = previous.Sequence,
+            Cycle = previous.Sequence == start.Sequence
+                ? LoopingLerp(previous.Cycle, start.Cycle, fraction)
+                : previous.Cycle,
+        };
+    }
+
+    /// <summary>Hermite through three samples, or linear when there is no third.</summary>
+    /// <remarks>
+    /// **<c>Lerp_Hermite</c> from <c>lerp_functions.h</c>**, transcribed:
+    ///
+    /// <code>
+    /// T d1 = p1 - p0;
+    /// T d2 = p2 - p1;
+    /// output  = p1 * (2*tCube-3*tSqr+1);
+    /// output += p2 * (-2*tCube+3*tSqr);
+    /// output += d1 * (tCube-2*tSqr+t);
+    /// output += d2 * (tCube-tSqr);
+    /// </code>
+    ///
+    /// The tangents come from the differences either side, so a curving path bends through its
+    /// updates rather than turning a corner at each one.
+    /// </remarks>
+    private static float Curve(float? p0, float p1, float p2, float t)
+    {
+        if (p0 is not { } previous)
+        {
+            return float.Lerp(p1, p2, t);
+        }
+
+        float d1 = p1 - previous;
+        float d2 = p2 - p1;
+
+        float tSqr = t * t;
+        float tCube = t * tSqr;
+
+        return (p1 * ((2f * tCube) - (3f * tSqr) + 1f)) +
+               (p2 * ((-2f * tCube) + (3f * tSqr))) +
+               (d1 * (tCube - (2f * tSqr) + t)) +
+               (d2 * (tCube - tSqr));
+    }
+
+    /// <summary>Hermite for a value that wraps at 1, such as an animation cycle.</summary>
+    /// <remarks>
+    /// **<c>LoopingLerp_Hermite</c>**, and the second half of it is the interesting part. Raising
+    /// <c>p1</c> to reach <c>p2</c> can leave it more than half a cycle from <c>p0</c>, so Valve
+    /// re-checks that pair afterwards — its own comment gives the case it was written for:
+    /// "important for vars that are decreasing from p0-&gt;p1-&gt;p2 where p1 is fixed up relative
+    /// to p2, eg p0 = 0.2, p1 = 0.1, p2 = 0.9".
+    ///
+    /// Note the threshold here is <c>&gt;</c> where <c>LoopingLerp</c> uses <c>&gt;=</c>. That is
+    /// Valve's, kept rather than tidied: an exactly-half-cycle step is treated as a wrap by one
+    /// and not by the other, and choosing which is right is not this project's call to make.
+    /// </remarks>
+    private static float LoopingCurve(float p0, float p1, float p2, float t)
+    {
+        if (Math.Abs(p1 - p0) > 0.5f)
+        {
+            if (p0 < p1)
+            {
+                p0 += 1f;
+            }
+            else
+            {
+                p1 += 1f;
+            }
+        }
+
+        if (Math.Abs(p2 - p1) > 0.5f)
+        {
+            if (p1 < p2)
+            {
+                p1 += 1f;
+
+                // Valve's re-check: p1 has moved, so it may now be more than half a cycle from p0.
+                if (Math.Abs(p1 - p0) > 0.5f)
+                {
+                    if (p0 < p1)
+                    {
+                        p0 += 1f;
+                    }
+                    else
+                    {
+                        p1 += 1f;
+                    }
+                }
+            }
+            else
+            {
+                p2 += 1f;
+            }
+        }
+
+        float value = Curve(p0, p1, p2, t);
+
+        value -= (int)value;
+
+        return value < 0f ? value + 1f : value;
     }
 
     /// <summary>The pose the demo actually stated at or before a tick, with nothing added.</summary>
