@@ -98,10 +98,54 @@ The other two placement measurements:
   gives a line or a point, which draws nothing — and draws nothing in a way indistinguishable from
   decals not being implemented.
 
+## Clipping, and how much it matters
+
+`vbsp` records the face list and never clips; the geometric clip is engine-side and closed. But the
+face list *is* the clip specification, so the question is not how Valve does it but how much of
+each quad falls outside. Sampled on a 12×12 grid per overlay, tested against the named faces'
+polygons:
+
+| | |
+|---|---|
+| Median share of a quad landing on a face it names | **100%** |
+| Mean | 93.7% |
+| Fully covered | 175 of 242 |
+| Less than half covered | 7 |
+| Worst | 25% |
+
+**So drawing unclipped is defensible as a first pass** — roughly 6% of decal area would be painted
+where it should not be, concentrated in a handful of overlays that wrap edges. Clipping is a
+refinement, not a precondition.
+
+**The measurement was wrong first, and the shape of the wrongness was the clue.** It reported a
+median of 0% with a bimodal split — 56 overlays fully covered and 162 under half — which reads
+exactly like a placement defect. It was the point-in-polygon test: it assumed a winding direction.
+`BspSurface.Normal` is corrected for which side of its plane a face sits on, and the vertex order
+is *not* corrected with it, so half the faces wind the other way relative to that normal. Requiring
+the point to be consistently on one side, rather than on a particular side, is what convexity
+actually gives.
+
+Worth separating from the earlier placement checks, which did not cover this: they verified the
+origin lies in the face plane and the normals align. Neither says anything about the quad's
+**extent**, and a decal can satisfy both while being the wrong size.
+
+## The depth offset is published
+
+Not inferred after all — `materialsystem_config.h` carries the exact values:
+
+```c
+m_SlopeScaleDepthBias_Decal = -0.5f;
+m_DepthBias_Decal = -262144;
+```
+
+Those map straight onto D3D11's rasteriser state: `DepthBias = -262144`,
+`SlopeScaledDepthBias = -0.5f`. Against a 24-bit depth buffer, -262144 is a push of
+262144 / 2^24 ≈ 1.6% toward the camera.
+
 ## Status
 
-**Read, basis recovered and placement verified, 2026-08-13.** Nothing is drawn yet: clipping each
-quad to the faces it covers, and the depth offset that stops a decal z-fighting the surface it lies
-on, are still to come.
+**Read, basis recovered, placement and extent verified, 2026-08-13.** Nothing is drawn yet, but
+nothing is unknown either: the depth offset is Valve's published pair, and clipping is measured as
+worth about 6% of decal area rather than being a precondition.
 
 Evidence class: read from published source (`vbsp`), confirmed by measurement on the corpus.
