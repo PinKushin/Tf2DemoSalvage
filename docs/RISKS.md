@@ -3062,3 +3062,46 @@ this viewer draws.
 is the half that turns a white blob into a recognisable object. Adding direct light is a separate
 piece of work with its own failure modes — shadowing above all, since an unshadowed sun lights the
 inside of every building.
+
+## B54 — colour maths happens in display space, not linear — OPEN, and it is the root of several
+
+**Filed 2026-08-13**, after the owner observed that "we keep running into problems because we are
+flattening stuff".
+
+**What the engine does.** A lightmap sample is linear light. A texture is sRGB and is linearised on
+sampling by an sRGB view. The shader multiplies them in linear space, applies the overbright factor
+(Source's shaders multiply an LDR lightmap by two), and the hardware applies gamma once when writing
+to an sRGB target.
+
+**What this project does.** `BspLightmaps` applies the exponent *and* the gamma curve at decode, so
+the lightmap arrives already in display space. Base textures are uploaded as plain `UNORM` and
+sampled raw, so they are also display space. The shader multiplies two display-space values and
+writes to a non-sRGB back buffer. Valve's doubling is then deliberately skipped, because on top of
+gamma-corrected values it blows the map out to white.
+
+Each of those compensates for the one before it. The result looks approximately right on a lit wall
+and goes wrong wherever anything new is introduced:
+
+- The ambient cube was written linear, per the format, and rendered nearly black against
+  display-space lightmaps — fixed by gamma-correcting the cube, which is the *wrong* fix in a
+  correct pipeline and the only possible one in this one.
+- Alpha was flattened at upload to survive an unconditional clip, which then cost every decal its
+  shape (fixed 2026-08-13).
+- Brightness comparisons against the game are unreliable, so "too dark" and "too bright" cannot be
+  used as evidence about anything else.
+
+**What it would take**, in order, each step checkable against a capture:
+
+1. Create the back buffer's render target view with an sRGB format, so the hardware applies gamma
+   on write. The flip-model swap chain itself stays `UNORM`.
+2. Create base-texture views with `_SRGB` formats, so sampling returns linear.
+3. Stop applying the gamma curve in `BspLightmaps`; upload linear samples, which needs more range
+   than eight bits — a half-float texture is the straightforward answer.
+4. Restore Valve's overbright multiply in the shader.
+5. Remove the gamma correction added to the ambient cube, which exists only to match step 3's
+   current behaviour.
+
+**Why it is worth doing rather than living with.** Every future lighting feature — direct lights
+(B53), self-illumination, a first-person camera's exposure — has to be reconciled against whatever
+space the pipeline is in. Doing it in the engine's space means Valve's own numbers can be used
+directly, which is the whole reason this project reads the SDK.
