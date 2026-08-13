@@ -107,6 +107,24 @@ public sealed class VmtMaterial
     /// </remarks>
     public (float Red, float Green, float Blue) DetailTint => Colour("$detailtint");
 
+    /// <summary>The normal or self-shadowing bump map, without extension, or null.</summary>
+    public string? BumpMap => Value("$bumpmap");
+
+    /// <summary>Whether the bump map stores three light weights rather than a direction.</summary>
+    /// <remarks>
+    /// **Two textures that look alike and decode completely differently.** An ordinary normal map
+    /// stores a direction, decoded as <c>xyz * 2 - 1</c> and used in squared dot products against
+    /// the basis. A self-shadowing one already holds three weights and is sampled raw. Applying the
+    /// signed decode to an ssbump sends a flat 128 to zero and the surface goes black exactly where
+    /// it should be evenly lit.
+    ///
+    /// **Not the last word**, the same way <c>$detailblendmode</c> is not: the texture's own
+    /// <c>TEXTUREFLAGS_SSBUMP</c> says so as well, and on cp_process_final the two agree on all 13
+    /// of the materials that use one. The flag is data and this is a declaration, so a caller that
+    /// has the texture should prefer the flag.
+    /// </remarks>
+    public bool IsSelfShadowingBump => Value("$ssbump") is "1";
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material
