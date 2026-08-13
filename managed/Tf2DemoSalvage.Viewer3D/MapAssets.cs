@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Assets;
 using Tf2DemoSalvage.Core.Bsp;
@@ -42,20 +43,29 @@ internal readonly record struct MapTexture(
 /// </remarks>
 internal sealed class GameArchives
 {
-    private readonly List<VpkArchive> _archives = [];
-    private readonly List<string> _folders = [];
+    /// <summary>Every place to look, in the order the game declares them.</summary>
+    /// <remarks>
+    /// **One ordered list rather than folders-then-archives**, because gameinfo.txt interleaves
+    /// them and the order IS the priority. TF2 lists tf/custom/* first, then its VPKs, then the
+    /// loose mod folder — so a VPK beats a loose file in tf/, which is the opposite of the
+    /// folklore and is what the file says. Searching all folders before all archives, as this did,
+    /// silently inverts that for anyone with content extracted into tf/.
+    ///
+    /// **And the folklore is half right, which is why it survives.** A custom HUD does override the
+    /// game's copy — because it lives in <c>tf/custom/</c>, which the file lists FIRST, above the
+    /// archives. Loose files dropped into <c>tf/</c> itself are listed LAST and do not. One file,
+    /// both behaviours, and no contradiction once it is read rather than recalled.
+    /// </remarks>
+    private readonly List<(string Path, VpkArchive? Archive)> _sources = [];
 
-    private GameArchives(IEnumerable<VpkArchive> archives, IEnumerable<string> folders)
-    {
-        _archives.AddRange(archives);
-        _folders.AddRange(folders);
-    }
+    private GameArchives(IEnumerable<(string Path, VpkArchive? Archive)> sources) =>
+        _sources.AddRange(sources);
 
     /// <summary>Whether nothing at all was found.</summary>
-    public bool IsEmpty => _archives.Count == 0 && _folders.Count == 0;
+    public bool IsEmpty => _sources.Count == 0;
 
     /// <summary>How many loose content folders are being searched.</summary>
-    public int FolderCount => _folders.Count;
+    public int FolderCount => _sources.Count(source => source.Archive is null);
 
     /// <summary>Opens the game's content, wherever it lives.</summary>
     /// <param name="gameFolder">The <c>tf</c> folder of a TF2 install, or null.</param>
@@ -67,82 +77,63 @@ internal sealed class GameArchives
     /// </remarks>
     public static GameArchives Open(string? gameFolder)
     {
-        List<VpkArchive> archives = [];
-        List<string> folders = [];
+        List<(string Path, VpkArchive? Archive)> sources = [];
 
         if (string.IsNullOrWhiteSpace(gameFolder) || !Directory.Exists(gameFolder))
         {
-            return new GameArchives(archives, folders);
+            return new GameArchives(sources);
         }
 
-        try
+        IReadOnlyList<SearchPathEntry> declared = GameSearchPath.Read(gameFolder);
+
+        if (declared.Count == 0)
         {
-            // Custom content first, because that is what it is for: a file under tf/custom
-            // replaces the game's own copy.
-            string custom = Path.Combine(gameFolder, "custom");
+            // **No gameinfo.txt falls back to the behaviour that predates all of this**: the mod
+            // folder's loose files, which is what Source read before VPKs and before tf/custom
+            // existed. Nothing else can be assumed - custom is a convention the FILE declares, and
+            // inventing it for a game that never declared it is the same hardcoding this type was
+            // written to remove.
+            sources.Add((gameFolder, null));
 
-            if (Directory.Exists(custom))
-            {
-                foreach (string folder in Directory.GetDirectories(custom))
-                {
-                    folders.Add(folder);
-                }
-            }
-
-            // Then the game folder itself, which is where loose files sit - including anything
-            // extracted from a pre-VPK install.
-            folders.Add(gameFolder);
-
-            // **And then hl2, because that is what the engine mounts.** TF2's gameinfo.txt lists
-            // hl2's archives after its own, so a mapper can use Half-Life 2 content and the game
-            // finds it. Mappers do exactly that - reusing an asset from anywhere in the install is
-            // ordinary practice, not a mistake - and a viewer that searches only tf/ silently
-            // fails to resolve those materials.
-            //
-            // Found from the three materials cp_process_final could not resolve:
-            // GLASS/GLASSWINDOW008D and DEV/REFLECTIVITY_10B are both HL2 content.
-            string half = Path.Combine(Path.GetDirectoryName(gameFolder) ?? gameFolder, "hl2");
-
-            if (Directory.Exists(half))
-            {
-                folders.Add(half);
-            }
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            // An unreadable custom folder costs its overrides, not the viewer.
+            return new GameArchives(sources);
         }
 
-        // The engine's order, from gameinfo.txt: the game's own archives, then hl2's.
-        string? install = Path.GetDirectoryName(gameFolder);
-
-        foreach ((string folder, string name) in new[]
+        // **Exactly the order the file declares**, including that TF2 lists its VPKs above the
+        // loose mod folder. That ordering is easy to get backwards from memory - the folklore says
+        // a loose file overrides its archived copy - and the file settles it without anyone having
+        // to remember.
+        foreach (SearchPathEntry entry in declared)
         {
-            (gameFolder, "tf2_textures_dir.vpk"),
-            (gameFolder, "tf2_misc_dir.vpk"),
-            (Path.Combine(install ?? gameFolder, "hl2"), "hl2_textures_dir.vpk"),
-            (Path.Combine(install ?? gameFolder, "hl2"), "hl2_misc_dir.vpk"),
-        })
-        {
-            string path = Path.Combine(folder, name);
-
             try
             {
-                if (File.Exists(path))
+                if (entry.IsArchive)
                 {
-                    archives.Add(VpkArchive.Open(path));
+                    if (File.Exists(entry.Path))
+                    {
+                        sources.Add((string.Empty, VpkArchive.Open(entry.Path)));
+                    }
+                }
+                else if (Directory.Exists(entry.Path))
+                {
+                    sources.Add((entry.Path, null));
                 }
             }
-            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            catch (Exception failure) when (
+                failure is IOException or InvalidDataException or UnauthorizedAccessException)
             {
-                // A damaged archive costs its textures, not the viewer.
+                // A damaged archive or unreadable folder costs its content, not the viewer.
             }
         }
 
-        return new GameArchives(archives, folders);
+        ViewerLog.Write(
+            "assets",
+            $"search path: {sources.Count} sources from gameinfo.txt " +
+            $"({sources.Count(source => source.Archive is not null)} archives)");
+
+        return new GameArchives(sources);
     }
 
-    /// <summary>Finds a file, searching loose folders before the archives.</summary>
+    /// <summary>Finds a file, searching every source in the order the game declares.</summary>
     /// <param name="path">Path such as <c>materials/concrete/x.vmt</c>.</param>
     /// <returns>The bytes, or null.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
@@ -150,44 +141,39 @@ internal sealed class GameArchives
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        foreach (string folder in _folders)
+        foreach ((string folder, VpkArchive? archive) in _sources)
         {
-            // **The path is joined and then checked to be inside the folder.** It comes from a
-            // material name in a map written by a stranger, and ".." in one would otherwise read
-            // any file on the machine (D32).
-            string candidate = Path.GetFullPath(Path.Combine(folder, path));
-
-            if (!candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             try
             {
+                if (archive is not null)
+                {
+                    if (archive.ReadFile(path) is { } packed)
+                    {
+                        return packed;
+                    }
+
+                    continue;
+                }
+
+                // **The path is joined and then checked to be inside the folder.** It comes from a
+                // material name in a map written by a stranger, and ".." in one would otherwise
+                // read any file on the machine (D32).
+                string candidate = Path.GetFullPath(Path.Combine(folder, path));
+
+                if (!candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 if (File.Exists(candidate))
                 {
                     return File.ReadAllBytes(candidate);
                 }
             }
             catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException)
+                failure is IOException or UnauthorizedAccessException or InvalidDataException)
             {
-                // One unreadable file must not stop the search.
-            }
-        }
-
-        foreach (VpkArchive archive in _archives)
-        {
-            try
-            {
-                if (archive.ReadFile(path) is { } bytes)
-                {
-                    return bytes;
-                }
-            }
-            catch (Exception failure) when (failure is IOException or InvalidDataException)
-            {
-                // One unreadable entry must not stop the search.
+                // One unreadable source must not stop the search.
             }
         }
 
