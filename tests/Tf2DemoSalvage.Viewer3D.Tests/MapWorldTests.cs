@@ -172,6 +172,72 @@ public sealed class MapWorldTests
         world.Vertices[0].U.ShouldBe(12.5f);
     }
 
+    [Test]
+    public void Build_APropWhoseOriginIsOutsideThePlayArea_IsDroppedWholeEvenIfItReachesInside()
+    {
+        // **The 3D skybox test.** A TF2 map keeps a miniature copy of the surrounding scenery far
+        // outside the play area; those are ordinary prop_static entries whose triangles are valid
+        // shapes at valid positions, so nothing about a TRIANGLE distinguishes them - only where
+        // its placement stands does.
+        //
+        // The condition is chosen so the two readings disagree: this prop's origin is well outside
+        // the area while one of its corners reaches inside it. Judged per triangle, as the first
+        // version did, it is kept; judged by origin it is dropped. A prop entirely outside would
+        // be dropped either way and would prove nothing.
+        MapBounds area = new(0f, 0f, 1000f, 1000f);
+
+        PropVertex[] straddling =
+        [
+            new(500f, 500f, 0f, 0f, 0f, 0, OriginX: 9000f, OriginY: 9000f),
+            new(9000f, 9000f, 0f, 1f, 0f, 0, OriginX: 9000f, OriginY: 9000f),
+            new(9100f, 9100f, 0f, 1f, 1f, 0, OriginX: 9000f, OriginY: 9000f),
+        ];
+
+        MapWorld world = MapWorldBuilder.Build(
+            Map, [], Materials, LightmapAtlas.Pack([]), straddling, Camera, area);
+
+        world.Vertices.ShouldBeEmpty("a prop standing in the skybox room is not in the map");
+    }
+
+    [Test]
+    public void Build_APropStandingInThePlayArea_IsKept()
+    {
+        // The control. Without it "drops the skybox" and "drops every prop" are the same
+        // observation, which is the failure mode the whole filter risks.
+        MapBounds area = new(0f, 0f, 1000f, 1000f);
+
+        PropVertex[] inside =
+        [
+            new(100f, 100f, 0f, 0f, 0f, 0, OriginX: 500f, OriginY: 500f),
+            new(200f, 100f, 0f, 1f, 0f, 0, OriginX: 500f, OriginY: 500f),
+            new(200f, 200f, 0f, 1f, 1f, 0, OriginX: 500f, OriginY: 500f),
+        ];
+
+        MapWorld world = MapWorldBuilder.Build(
+            Map, [], Materials, LightmapAtlas.Pack([]), inside, Camera, area);
+
+        world.Vertices.Count.ShouldBe(3);
+        world.Batches.Single().MaterialIndex.ShouldBe(0);
+    }
+
+    [Test]
+    public void Build_APropWhoseMaterialResolvedToNothing_IsSkipped()
+    {
+        // Drawing it would paint a white rock, which reads as a rendering fault rather than as a
+        // missing texture.
+        PropVertex[] unpainted =
+        [
+            new(100f, 100f, 0f, 0f, 0f, -1),
+            new(200f, 100f, 0f, 1f, 0f, -1),
+            new(200f, 200f, 0f, 1f, 1f, -1),
+        ];
+
+        MapWorld world = MapWorldBuilder.Build(
+            Map, [], Materials, LightmapAtlas.Pack([]), unpainted, Camera, null);
+
+        world.Vertices.ShouldBeEmpty();
+    }
+
     private static BspSurface Surface(
         int faceIndex,
         int material,
