@@ -59,14 +59,20 @@ and it is the kind of thing that silently drops thirty materials.
 | 89,861,277 | 87 | `$surfaceprop` | not ours — physics and footstep sound, and a demo carries the results |
 | 67,139,015 | 27 | `$bumpmap` | **done** |
 | 22,419,344 | 3 | `$basetexture2` | done |
-| 5,039,041 | 94 | `$translucent` | approximated by the alpha-test clip; real blending needs sorting |
-| 2,728,616 | 51 | `$envmap` | not implemented |
-| 2,087,066 | 66 | `$decal` | not implemented |
+| 5,039,041 | 94 | `$translucent` | **done** — blended, sorted, depth written off |
+| 2,728,616 | 51 | `$envmap` | not implemented, and gated on the first-person camera |
+| 2,087,066 | 66 | `$decal` | **done** — 222 overlays placed, lit by the face beneath, Valve's depth bias |
 | 1,412,608 | 2 | `$alphatest` | done |
-| 538,742 | 5 | `$selfillum` | not implemented |
+| 538,742 | 5 | `$selfillum` | **done** — masked by the base texture's alpha |
 
-**About 10.4 million units of roughly 194 million drawn are still missing, near enough 5%.** The
-two largest items on the list are both finished; what is left is a long tail.
+**As of 2026-08-13 only `$envmap` is left: 2.7 million units of roughly 194 million, about 1.4%.**
+Everything else on this list is drawn.
+
+`$envmap` stays unimplemented deliberately rather than by omission. A reflection needs a view
+direction and this camera looks straight down everywhere, so it would compute a nearly constant
+reflection until the first-person camera exists. It is also the one feature that brings back the
+per-vertex tangent basis bumped lighting turned out not to need, since a reflection is computed in
+world space.
 
 `$envmap` is on this map after all — 51 materials — which an earlier version of this document
 implied it was not. It is also the one remaining feature that brings back the per-vertex tangent

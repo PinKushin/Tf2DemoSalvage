@@ -168,6 +168,24 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsSelfShadowingBump => Value("$ssbump") is "1";
 
+    /// <summary>Whether parts of the surface light themselves.</summary>
+    /// <remarks>
+    /// **Masked by the base texture's alpha**, so a self-illuminated material must keep its alpha
+    /// channel through upload even though it is otherwise opaque:
+    ///
+    /// <code>
+    /// float3 selfIllumComponent = g_SelfIllumTint * albedo.xyz;
+    /// diffuseComponent = lerp( diffuseComponent, selfIllumComponent, baseColor.a );
+    /// </code>
+    ///
+    /// Alpha one is fully unlit, alpha zero is normally lit — so flattening the channel to opaque
+    /// makes the whole surface glow rather than just the lamp in the middle of it.
+    /// </remarks>
+    public bool IsSelfIlluminated => Value("$selfillum") is "1";
+
+    /// <summary>The colour the self-illuminated part is tinted by.</summary>
+    public (float Red, float Green, float Blue) SelfIllumTint => Colour("$selfillumtint");
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material

@@ -15,6 +15,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="IsTransparent">Whether the material is cut out by a threshold.</param>
 /// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
 /// <param name="IsTranslucent">Whether it is BLENDED with what is behind it instead.</param>
+/// <param name="SelfIllum">Tint for the self-illuminated part, or null when there is none.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -26,7 +27,8 @@ internal readonly record struct MapTexture(
     ReadOnlyMemory<byte> Pixels,
     bool IsTransparent,
     bool IsAdditive = false,
-    bool IsTranslucent = false);
+    bool IsTranslucent = false,
+    (float Red, float Green, float Blue)? SelfIllum = null);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -480,6 +482,7 @@ internal sealed class MapAssets
         }
 
         MapTexture? first = Decode(material.BaseTexture, material.IsAlphaTested, material.IsAdditive);
+
         MapTexture? second = Decode(
             material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
 
@@ -618,7 +621,8 @@ internal sealed class MapAssets
                     decoded.Pixels,
                     transparent,
                     additive,
-                    material.IsTranslucent);
+                    material.IsTranslucent,
+                    material.IsSelfIlluminated ? material.SelfIllumTint : null);
             }
             catch (InvalidDataException failure)
             {

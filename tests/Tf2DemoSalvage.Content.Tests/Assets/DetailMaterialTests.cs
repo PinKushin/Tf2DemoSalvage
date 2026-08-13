@@ -187,5 +187,30 @@ public sealed class DetailMaterialTests
             .IsSelfShadowingBump.ShouldBeFalse();
     }
 
+    [Test]
+    public void SelfIllum_WhenAbsent_IsOff()
+    {
+        VmtMaterial material = Parse("\"x\"{\"$basetexture\" \"a/b\"}");
+
+        material.IsSelfIlluminated.ShouldBeFalse();
+        material.SelfIllumTint.ShouldBe((1f, 1f, 1f));
+    }
+
+    [Test]
+    public void SelfIllum_IsMaskedByTheBaseTexturesAlphaAndCarriesATint()
+    {
+        // **The base texture's alpha is the mask**, which is why a self-illuminated material must
+        // keep its alpha channel through upload. Valve lerps from the lit colour to the tinted
+        // albedo by that alpha, so one is fully unlit and zero is normally lit. Our upload forces
+        // alpha to 255 on anything not alpha tested, which would make every self-illuminated
+        // surface glow across its whole area rather than only where the lamp is.
+        VmtMaterial material = Parse("\"LightmappedGeneric\"{\"$basetexture\" \"signs/light\" " +
+            "\"$selfillum\" \"1\" \"$selfillumtint\" \"[1 0.8 0.5]\"}");
+
+        material.IsSelfIlluminated.ShouldBeTrue();
+        material.SelfIllumTint.ShouldBe((1f, 0.8f, 0.5f));
+    }
+
+
     private static VmtMaterial Parse(string text) => VmtMaterial.Parse(Encoding.UTF8.GetBytes(text));
 }
