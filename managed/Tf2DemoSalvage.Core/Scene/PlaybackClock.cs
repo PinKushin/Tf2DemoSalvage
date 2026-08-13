@@ -47,10 +47,16 @@ public sealed class PlaybackClock
         _lastTick = lastTick;
     }
 
-    /// <summary>How fast playback runs; one is real time.</summary>
+    /// <summary>How fast playback runs; one is real time, negative runs backwards.</summary>
     /// <remarks>
-    /// The engine's own <c>demo_timescale</c>. Applied to elapsed time rather than to the tick
+    /// The engine's own <c>demo_timescale</c>, applied to elapsed time rather than to the tick
     /// rate, so changing it mid-playback does not move the position.
+    ///
+    /// **Negative is something the real engine cannot do.** TF2 streams a demo forward and every
+    /// snapshot is a delta against the one before it, so there is nothing to step back into — the
+    /// engine would have to replay from the start to show the previous second. This project decodes
+    /// the whole demo into absolute positions before playing any of it, which makes reverse cost
+    /// exactly what forward costs.
     /// </remarks>
     public double TimeScale { get; set; } = 1.0;
 
@@ -70,20 +76,25 @@ public sealed class PlaybackClock
     /// <summary>Whether playback has reached the end of the demo.</summary>
     public bool AtEnd => _position >= _lastTick;
 
+    /// <summary>Whether reverse playback has reached the start.</summary>
+    public bool AtStart => _position <= 0;
+
     /// <summary>Advances by an interval of real time.</summary>
     /// <param name="seconds">How long has passed since the last call.</param>
     /// <remarks>
-    /// Negative time is refused rather than played backwards: a clock that ran back on a bad
-    /// measurement would look like a stutter, and the demo can be scrubbed instead.
+    /// **Negative elapsed time is refused; a negative TimeScale is not.** Time running backwards is
+    /// a bad measurement and would show as a stutter, but a negative scale is reverse playback,
+    /// which is deliberate — see <see cref="TimeScale"/>.
     /// </remarks>
     public void Advance(double seconds)
     {
-        if (seconds <= 0 || TimeScale <= 0)
+        if (seconds <= 0 || TimeScale == 0)
         {
             return;
         }
 
-        _position = Math.Min(_lastTick, _position + (seconds * TimeScale / _intervalPerTick));
+        _position = Math.Clamp(
+            _position + (seconds * TimeScale / _intervalPerTick), 0, _lastTick);
     }
 
     /// <summary>Jumps to a tick, discarding any part-tick already accumulated.</summary>

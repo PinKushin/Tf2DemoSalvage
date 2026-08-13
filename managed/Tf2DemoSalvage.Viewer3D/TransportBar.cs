@@ -27,9 +27,43 @@ internal sealed class TransportBar : UserControl
     /// <summary>Automation id of the tick readout.</summary>
     public const string TickLabelId = "TickLabel";
 
+    /// <summary>Automation id of the jump-to-start button.</summary>
+    public const string StartButtonId = "StartButton";
+
+    /// <summary>Automation id of the slower/reverse button.</summary>
+    public const string SlowerButtonId = "SlowerButton";
+
+    /// <summary>Automation id of the faster button.</summary>
+    public const string FasterButtonId = "FasterButton";
+
+    /// <summary>Automation id of the jump-to-end button.</summary>
+    public const string EndButtonId = "EndButton";
+
+    /// <summary>Automation id of the speed readout.</summary>
+    public const string SpeedLabelId = "SpeedLabel";
+
+    /// <summary>The speeds the shuttle buttons step through.</summary>
+    /// <remarks>
+    /// **Negative speeds are real here and impossible in TF2.** The engine streams a demo forward
+    /// and each snapshot is a delta on the last, so it has nothing to step back into. This viewer
+    /// decodes the whole demo to absolute positions first, so reverse costs what forward costs.
+    ///
+    /// The ladder is the one a video editor uses — halves and doubles either side of one — and it
+    /// omits zero, because stopping is what the play button is for.
+    /// </remarks>
+    private static readonly double[] Speeds =
+        [-4, -2, -1, -0.5, -0.25, 0.25, 0.5, 1, 2, 4, 8];
+
+    private readonly Button _start;
+    private readonly Button _slower;
     private readonly Button _playPause;
+    private readonly Button _faster;
+    private readonly Button _end;
     private readonly TrackBar _scrub;
+    private readonly Label _speed;
     private readonly Label _tick;
+
+    private int _speedIndex = Array.IndexOf(Speeds, 1.0);
 
     private bool _playing;
     private bool _suppressScrubEvent;
@@ -42,18 +76,43 @@ internal sealed class TransportBar : UserControl
         Height = 44;
         Dock = DockStyle.Bottom;
 
+        // **Laid out the way a video player is**, because that is what someone reaching for it
+        // expects: jump to start, shuttle down, play, shuttle up, jump to end, then the scrub bar
+        // filling the width, then the readouts at the right.
+        _start = Shuttle(StartButtonId, "|<", "Jump to start", "Moves playback to the first tick.");
+        _slower = Shuttle(
+            SlowerButtonId,
+            "<<",
+            "Slower or reverse",
+            "Steps the speed down, through one quarter to reverse.");
+
         _playPause = new Button
         {
             Name = PlayButtonId,
             AccessibleName = "Play",
             AccessibleDescription = "Starts or pauses playback of the loaded demo.",
             Text = "Play",
-            Width = 80,
-            Left = 8,
+            Width = 72,
             Top = 8,
             Enabled = false,
         };
         _playPause.Click += (_, _) => Playing = !Playing;
+
+        _faster = Shuttle(
+            FasterButtonId, ">>", "Faster", "Steps the speed up, to a maximum of eight times.");
+        _end = Shuttle(EndButtonId, ">|", "Jump to end", "Moves playback to the last tick.");
+
+        _speed = new Label
+        {
+            Name = SpeedLabelId,
+
+            // Live readout, so no fixed AccessibleName - UpdateSpeedLabel keeps both in step.
+            AccessibleName = "speed 1x",
+            Text = "1x",
+            AutoSize = true,
+            Top = 12,
+            Anchor = AnchorStyles.Right | AnchorStyles.Top,
+        };
 
         _scrub = new TrackBar
         {
@@ -73,6 +132,13 @@ internal sealed class TransportBar : UserControl
         };
         _scrub.ValueChanged += OnScrubValueChanged;
 
+        // Wired here rather than beside the buttons: these lambdas read _scrub, and the compiler
+        // is right that it does not exist yet at the point the buttons are built.
+        _start.Click += (_, _) => Seek(0);
+        _end.Click += (_, _) => Seek(_scrub.Maximum);
+        _slower.Click += (_, _) => StepSpeed(-1);
+        _faster.Click += (_, _) => StepSpeed(1);
+
         _tick = new Label
         {
             Name = TickLabelId,
@@ -86,8 +152,13 @@ internal sealed class TransportBar : UserControl
             Anchor = AnchorStyles.Right | AnchorStyles.Top,
         };
 
+        Controls.Add(_start);
+        Controls.Add(_slower);
         Controls.Add(_playPause);
+        Controls.Add(_faster);
+        Controls.Add(_end);
         Controls.Add(_scrub);
+        Controls.Add(_speed);
         Controls.Add(_tick);
         Resize += (_, _) => LayoutChildren();
         LayoutChildren();
@@ -98,6 +169,9 @@ internal sealed class TransportBar : UserControl
 
     /// <summary>Raised when playback is started or paused.</summary>
     public event EventHandler<bool>? PlayingChanged;
+
+    /// <summary>Raised when the speed changes; negative means reverse.</summary>
+    public event EventHandler<double>? SpeedChanged;
 
     /// <summary>Whether playback is running.</summary>
     /// <remarks>
@@ -148,6 +222,12 @@ internal sealed class TransportBar : UserControl
         _suppressScrubEvent = false;
 
         bool playable = lastTick > 0;
+
+        foreach (Control control in (Control[])[_start, _slower, _faster, _end])
+        {
+            control.Enabled = playable;
+        }
+
         _scrub.Enabled = playable;
         _playPause.Enabled = playable;
         Playing = false;
@@ -190,10 +270,15 @@ internal sealed class TransportBar : UserControl
     {
         if (disposing)
         {
-            // All three are in Controls, which the base walks - but the analyzer cannot see that
+            // Every one is in Controls, which the base walks - but the analyzer cannot see that
             // ownership, and saying so costs nothing and is true.
+            _start.Dispose();
+            _slower.Dispose();
             _playPause.Dispose();
+            _faster.Dispose();
+            _end.Dispose();
             _scrub.Dispose();
+            _speed.Dispose();
             _tick.Dispose();
         }
 
@@ -203,7 +288,59 @@ internal sealed class TransportBar : UserControl
     private void LayoutChildren()
     {
         const int margin = 8;
+        const int gap = 4;
+
+        int left = margin;
+
+        foreach (Control control in (Control[])[_start, _slower, _playPause, _faster, _end])
+        {
+            control.Left = left;
+            left += control.Width + gap;
+        }
+
         _tick.Left = Math.Max(margin, ClientSize.Width - _tick.Width - margin);
-        _scrub.Width = Math.Max(80, _tick.Left - _scrub.Left - margin);
+        _speed.Left = Math.Max(margin, _tick.Left - _speed.Width - (gap * 3));
+        _scrub.Left = left + gap;
+        _scrub.Width = Math.Max(80, _speed.Left - _scrub.Left - margin);
+    }
+
+    /// <summary>One of the small shuttle buttons either side of play.</summary>
+    private static Button Shuttle(string id, string glyph, string name, string description) =>
+        new()
+        {
+            Name = id,
+            AccessibleName = name,
+            AccessibleDescription = description,
+            Text = glyph,
+            Width = 40,
+            Top = 8,
+            Enabled = false,
+        };
+
+    private void StepSpeed(int direction)
+    {
+        _speedIndex = Math.Clamp(_speedIndex + direction, 0, Speeds.Length - 1);
+
+        UpdateSpeedLabel();
+        SpeedChanged?.Invoke(this, Speeds[_speedIndex]);
+    }
+
+    private void Seek(int tick)
+    {
+        // Deliberately NOT suppressed: a jump is a seek the caller must hear about, unlike
+        // ShowTick, which is playback reporting where it has got to.
+        _scrub.Value = Math.Clamp(tick, _scrub.Minimum, _scrub.Maximum);
+    }
+
+    private void UpdateSpeedLabel()
+    {
+        double speed = Speeds[_speedIndex];
+
+        _speed.Text = string.Create(CultureInfo.InvariantCulture, $"{speed:0.##}x");
+        _speed.AccessibleName = speed < 0
+            ? string.Create(CultureInfo.InvariantCulture, $"speed {-speed:0.##} times, reversed")
+            : string.Create(CultureInfo.InvariantCulture, $"speed {speed:0.##} times");
+
+        LayoutChildren();
     }
 }

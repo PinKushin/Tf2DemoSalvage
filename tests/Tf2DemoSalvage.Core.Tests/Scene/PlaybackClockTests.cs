@@ -105,6 +105,57 @@ public sealed class PlaybackClockTests
     }
 
     [Test]
+    public void ANegativeTimeScale_PlaysBackwards()
+    {
+        // **Something the real engine cannot do.** TF2 streams a demo forward and each snapshot is
+        // a delta against the last, so there is nothing to step back into - the engine would have
+        // to replay from the start to show the previous second. This project decodes the whole
+        // demo into absolute positions first, which makes running it backwards no harder than
+        // running it forwards.
+        PlaybackClock clock = new(intervalPerTick: 0.015f, lastTick: 100_000);
+
+        clock.Seek(1_000);
+        clock.TimeScale = -1.0;
+        clock.Advance(1.0);
+
+        // 1000 minus 66.67 is 933.33, and the position floors the same way going backwards as
+        // forwards - the tick that has occurred, not the one being approached.
+        clock.Tick.ShouldBe(933, "a second of reverse is a second of ticks back");
+    }
+
+    [Test]
+    public void Reversing_StopsAtTheStartRatherThanGoingNegative()
+    {
+        // The scrub bar's minimum is zero and a negative tick has no frame. Clamping here means
+        // reverse simply stops, the way forward playback stops at the end.
+        PlaybackClock clock = new(intervalPerTick: 0.015f, lastTick: 100_000);
+
+        clock.Seek(10);
+        clock.TimeScale = -4.0;
+        clock.Advance(1.0);
+
+        clock.Tick.ShouldBe(0);
+        clock.AtStart.ShouldBeTrue();
+    }
+
+    [Test]
+    public void AtEnd_IsNotReachedWhileReversing()
+    {
+        // The control for the pair above: a clock that reported AtEnd on any clamp would stop
+        // reverse playback the instant it started, since both ends share the clamping code.
+        PlaybackClock clock = new(intervalPerTick: 0.015f, lastTick: 100);
+
+        clock.Seek(100);
+        clock.AtEnd.ShouldBeTrue();
+
+        clock.TimeScale = -1.0;
+        clock.Advance(0.5);
+
+        clock.AtEnd.ShouldBeFalse("reversing away from the end is no longer at it");
+        clock.AtStart.ShouldBeFalse();
+    }
+
+    [Test]
     public void AnIntervalOfZero_FallsBackToTheEngineDefault()
     {
         // **A demo with no svc_ServerInfo still has to play.** DEFAULT_TICK_INTERVAL from Valve's

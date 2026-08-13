@@ -27,6 +27,9 @@
     <!-- The shell is internal (CA1515: an application's types are not an API), so the tests that
          assert its automation ids need to see inside. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
+    <!-- So UI tests can name controls by the same constants the controls declare, rather than by
+         literal strings that drift apart from them silently. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.UiTests" />
   </ItemGroup>
 
   <ItemGroup>

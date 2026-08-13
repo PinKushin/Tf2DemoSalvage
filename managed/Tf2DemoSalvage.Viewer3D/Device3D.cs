@@ -350,9 +350,15 @@ internal sealed unsafe class Device3D : IDisposable
             _points.Draw(_device, _context, points);
         }
 
-        // No vertical sync yet. A demo viewer scrubbing through ticks wants frames as fast as it
-        // can produce them while the camera is being dragged; pacing belongs with playback.
-        SilkMarshal.ThrowHResult(_swapChain.Present(SyncInterval: 0u, Flags: 0u));
+        // **Synced to the display, which is also what paces the render loop.** The loop draws for
+        // as long as Windows has nothing else for the thread, so without a sync interval it spins
+        // a core producing frames no one can see. Blocking here until the next vertical blank
+        // costs nothing, removes tearing, and hands the pacing to the one clock that matches what
+        // the user is looking at.
+        //
+        // It does not pace playback: the clock is told how long the frame took, so a 60 Hz display
+        // and a 144 Hz one play the same demo at the same speed.
+        SilkMarshal.ThrowHResult(_swapChain.Present(SyncInterval: 1u, Flags: 0u));
 
         if (_captureTo is { } file)
         {

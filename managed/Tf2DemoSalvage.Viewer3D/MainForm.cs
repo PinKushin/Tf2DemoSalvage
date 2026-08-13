@@ -146,16 +146,17 @@ internal class MainForm : Form
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
 
-    /// <summary>Drives playback while it is running.</summary>
-    /// <remarks>
-    /// **A timer rather than Application.Idle**, which fires when the message queue empties and not
-    /// on any schedule - fine for coalescing resizes, useless as a clock. Fifteen milliseconds is
-    /// one tick at TF2's usual rate, so a demo advances about a tick per firing and the remainder
-    /// the clock carries covers the rest.
-    /// </remarks>
-    private readonly System.Windows.Forms.Timer _playTimer = new() { Interval = 15 };
-
     /// <summary>Real time since the last advance, which is what the clock consumes.</summary>
+    /// <remarks>
+    /// **Playback rides the idle loop rather than a timer of its own.** A first version used a
+    /// 15 ms timer that invalidated the viewport on every firing - and the viewer already redraws
+    /// on every idle, so paint messages never drained and the mouse went sluggish over the very
+    /// buttons that had just been added. The comment beside Application.Idle warned about exactly
+    /// this: a timer would keep presenting underneath it.
+    ///
+    /// Advancing in the idle loop is also closer to what an engine does: a frame takes however long
+    /// it takes, and the clock is told how long that was.
+    /// </remarks>
     private readonly Stopwatch _playWatch = new();
 
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
@@ -404,38 +405,30 @@ internal class MainForm : Form
                 // paused is not playback time, and feeding it to the clock on the first tick would
                 // jump the demo forward by however long the user was reading the map.
                 _playWatch.Restart();
-                _playTimer.Start();
             }
             else
             {
-                _playTimer.Stop();
                 _playWatch.Reset();
             }
         };
 
-        _playTimer.Tick += (_, _) =>
+        // **The scale is applied to elapsed time, not to the tick rate**, which is how Valve's own
+        // replay editor does it (replayperformanceeditor.cpp multiplies its elapsed by
+        // host_timescale). Scaling the rate instead would move the current position the instant
+        // the speed changed, because the position is measured in ticks.
+        _transport.SpeedChanged += (_, speed) =>
         {
-            if (_clock is not { } clock || _timeline is not { } timeline)
+            if (_clock is not { } clock)
             {
                 return;
             }
 
-            // **Real elapsed time, not the timer's nominal interval.** A WinForms timer is coarse
-            // and drifts under load; asking the stopwatch how long actually passed is what keeps a
-            // demo playing at the speed it was recorded rather than at the speed the message pump
-            // happened to manage.
-            double elapsed = _playWatch.Elapsed.TotalSeconds;
+            clock.TimeScale = speed;
 
-            _playWatch.Restart();
-            clock.Advance(elapsed);
-
-            _transport.ShowTick(clock.Tick);
-            ShowPlayers(timeline.PlayersAt(clock.Tick));
-            _viewport.Invalidate();
-
-            if (clock.AtEnd)
+            // Restarted so the frame that straddles the change is not counted at the new speed.
+            if (_transport.Playing)
             {
-                _transport.Playing = false;
+                _playWatch.Restart();
             }
         };
 
@@ -1569,7 +1562,72 @@ internal class MainForm : Form
     private void KeepOverlayOnTheViewport(object? sender, LayoutEventArgs e) =>
         _overlay?.PositionOver(_viewport);
 
+    /// <summary>Longest frame playback will believe in, in seconds.</summary>
+    private const double MaximumFrameSeconds = 0.1;
+
+    /// <summary>Moves playback on by however long the last frame took.</summary>
+    /// <remarks>
+    /// **Nothing is invalidated here.** The idle loop this runs inside already draws every frame,
+    /// and asking for a repaint as well is what made the mouse sluggish over the transport
+    /// buttons - paint messages queued faster than the pump could drain them.
+    /// </remarks>
+    private void AdvancePlayback()
+    {
+        if (!_transport.Playing || _clock is not { } clock || _timeline is not { } timeline)
+        {
+            return;
+        }
+
+        double elapsed = _playWatch.Elapsed.TotalSeconds;
+
+        if (elapsed <= 0)
+        {
+            return;
+        }
+
+        _playWatch.Restart();
+
+        // **A stall is not elapsed playback time.** Loading a map, dragging the window by its title
+        // bar or a world rebuild all stop the loop for a while, and feeding that whole gap to the
+        // clock teleports the demo forward by however long the hitch was. Capping the step turns a
+        // hitch into a brief slowdown instead, which is what an engine does with its frame time.
+        elapsed = Math.Min(elapsed, MaximumFrameSeconds);
+        clock.Advance(elapsed);
+
+        _transport.ShowTick(clock.Tick);
+        ShowPlayers(timeline.PlayersAt(clock.Tick));
+
+        // Whichever end it is travelling towards: stopping only at the end would leave reverse
+        // playback spinning against tick zero, still claiming to play.
+        if ((clock.TimeScale > 0 && clock.AtEnd) || (clock.TimeScale < 0 && clock.AtStart))
+        {
+            _transport.Playing = false;
+        }
+    }
+
+    /// <summary>Renders continuously for as long as Windows has nothing else for this thread.</summary>
+    /// <remarks>
+    /// **This loop is the render loop; the event only starts it.** <c>Application.Idle</c> fires
+    /// once when the queue empties and not again until a message arrives and is dispatched, so a
+    /// handler that draws one frame and returns draws at whatever rate Windows happens to be
+    /// posting messages — irregular by nature, which is what the jitter was. Staying here while
+    /// the queue is empty is the documented shape and it is also the engine's: Source pumps
+    /// messages and then runs a frame, over and over, rather than waiting to be asked.
+    ///
+    /// Yielding the moment anything arrives is what keeps the UI responsive. The mistake before
+    /// this one was the opposite — a timer invalidating the viewport, which queued paint messages
+    /// faster than the pump could drain them and made the mouse sluggish over the transport bar.
+    /// </remarks>
     private void OnIdle(object? sender, EventArgs e)
+    {
+        do
+        {
+            RenderFrame();
+        }
+        while (!MessageQueue.HasWork());
+    }
+
+    private void RenderFrame()
     {
         // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
         // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
@@ -1580,6 +1638,8 @@ internal class MainForm : Form
             _worldIsStale = false;
             ProjectMap();
         }
+
+        AdvancePlayback();
 
         // The clear colour is the whole picture for now, and that is deliberate: it is the
         // evidence that the swap chain is bound to this panel and presenting. A viewport that
@@ -1928,8 +1988,6 @@ internal class MainForm : Form
             _viewport.Dispose();
             _status.Dispose();
             _actions.Dispose();
-            _playTimer.Stop();
-            _playTimer.Dispose();
             _transport.Dispose();
             _playlist.Dispose();
             _borderlessMode.Dispose();
