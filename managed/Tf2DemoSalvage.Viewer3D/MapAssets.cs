@@ -355,7 +355,7 @@ internal sealed class MapAssets
             blendTextures,
             details,
             materials,
-            LightmapAtlas.Pack(BspLightmaps.Read(map)),
+            LightmapAtlas.PackAll(BspLightmaps.ReadAll(map)),
             props,
             resolved,
             missing);
