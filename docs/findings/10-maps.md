@@ -382,3 +382,51 @@ What the measurement does correct is the supporting claim. "Official geometry is
 `ctf_well` lost a fifth of its faces — but stability was never what made the closure sound. The
 honest statement is: **map revision is a cosmetic risk rather than a correctness one, it is larger
 on official maps than assumed, and it is asymmetric in this project's favour.**
+
+## The demo names which version of a map it wants
+
+*Evidence class: measured on the corpus, with the algorithm still open.*
+
+`svc_ServerInfo` carries a 32-bit map checksum, and this project already decodes it as `MapCrc`. It
+is the thing that identifies **which build of a map** a recording was made against — the piece B38
+was written around not having.
+
+Measured across the era corpus and the archived installs:
+
+| | value |
+|---|---|
+| 2007 demo (protocol 11), `cp_granary` | 1,397,681,020 |
+| 2008 demo (protocol 14), `cp_granary` | 998,373,642 |
+
+Four archived builds of that same map exist on this machine, and all four are distinct files:
+
+| build | CRC32 of the whole file | size |
+|---|---|---|
+| 2007 | 628,509,263 | 57,560,076 |
+| 2008 | 3,690,386,726 | 58,260,872 |
+| 2013 | 2,105,659,328 | 58,825,164 |
+| modern | 1,256,781,424 | 60,353,484 |
+
+**Two demos from different eras carry different checksums, and the four map files are four different
+files.** So the identification works in principle: the demo states a version, and the versions are
+genuinely distinguishable.
+
+**What it is not is a CRC32 of the file.** None of the four match either demo, including the pairs
+that should correspond. So the engine CRCs something narrower — some subset of lumps, or the file
+with a region excluded.
+
+**And Valve does not publish the answer.** `src/tier1/checksum_crc.cpp` in `source-sdk-2013` is the
+CRC32 primitive; `CRC_MapFile`, which decides *what* is fed to it, lives in the engine, which is not
+in the SDK. This is the first thing this project has wanted that reading published source cannot
+settle — the model chain, the search path, the lighting and the angle convention were all one fetch
+away, and this is not.
+
+**The experiment that would settle it** is available and cheap, because the corpus supplies matched
+pairs: a 2008 demo and the 2008 build's own `cp_granary.bsp`. Enumerate candidate inputs — the whole
+file, the file minus the entities lump, the file minus the pakfile lump, the lump directory alone,
+each lump individually — and CRC each until one equals 998,373,642. A single match against a matched
+pair, confirmed on the 2007 pair, settles it; nothing needs to be reverse engineered.
+
+One caveat to check first: that the archived 2008 install's map is the same build the 2008 demo was
+recorded against. The demo is build 3420, the install is dated the same year, and that is an
+assumption rather than a measurement.
