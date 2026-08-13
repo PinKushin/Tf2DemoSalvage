@@ -296,12 +296,35 @@ internal static class MapWorldBuilder
             x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha, red, green, blue));
     }
 
-    /// <summary>Whether a material is one of the compiler's tools rather than a surface.</summary>
+    /// <summary>
+    /// Whether a material is one the engine never draws, and cannot be told from its flags.
+    /// </summary>
     /// <remarks>
-    /// Matched on the path, which is the one thing every tool material shares: they all live under
-    /// <c>materials/tools</c>, by a convention the engine and Hammer both rely on. The alternative
-    /// - reading each VMT and guessing from its shader - fails on exactly the case that matters,
-    /// since toolsinvisibledisplacement declares itself LightmappedGeneric like any wall.
+    /// **Exactly one material needs this, and the blanket rule it replaces was hiding a real
+    /// surface.** Matching every path under <c>tools/</c> looked safe and was not: measured on
+    /// cp_process_final,
+    ///
+    /// <code>
+    ///   TOOLSINVISIBLEDISPLACEMENT  518 faces, 518 visible, flags Translucent
+    ///   TOOLSSKYBOX                 361 faces,   0 visible, flags Sky, NoLight
+    ///   TOOLSTRIGGER                318 faces,   0 visible, flags Trigger, NoLight
+    ///   TOOLSBLACK                   80 faces,  80 visible, flags None
+    /// </code>
+    ///
+    /// Sky and trigger carry flags, so the visibility check already excludes them and this was
+    /// never needed for either. <c>toolsblack</c> carries NO flags because it is an ordinary drawn
+    /// surface — mappers use it for the void behind a window, under a grate, inside a vent, and
+    /// the engine draws it as black. Skipping it left 4.8 million square units of the map unpainted,
+    /// showing the background through, which read as dark blobs and survived four separate
+    /// explanations about lighting.
+    ///
+    /// So only <c>toolsinvisibledisplacement</c> is matched by name — the one material that is
+    /// genuinely never drawn and carries nothing to say so. It is collision-only terrain laid under
+    /// what the player actually sees, which is a static prop.
+    ///
+    /// **The lesson is in the shape of the mistake**: a rule written from a category ("tool
+    /// materials are not drawn") rather than from the data, which was right about the case that
+    /// prompted it and wrong about a sibling nobody checked.
     /// </remarks>
     private static bool IsToolMaterial(int materialIndex, IReadOnlyList<BspMaterial> materials)
     {
@@ -310,10 +333,8 @@ internal static class MapWorldBuilder
             return false;
         }
 
-        string name = materials[materialIndex].Name;
-
-        return name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) ||
-            name.StartsWith("tools\\", StringComparison.OrdinalIgnoreCase);
+        return materials[materialIndex].Name.Contains(
+            "toolsinvisibledisplacement", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool Touches(BspSurface surface, MapBounds bounds)

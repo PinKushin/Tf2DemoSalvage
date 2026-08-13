@@ -136,6 +136,20 @@ internal class MainForm : Form
     /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
     private bool _worldIsStale;
 
+    /// <summary>How far the view is zoomed in past the fitted whole map.</summary>
+    /// <remarks>
+    /// **Free to change now, which it was not before.** The projection used to be baked into every
+    /// vertex, so zooming meant rebuilding 2.6 million of them; the camera is a matrix, so this is
+    /// a 64-byte upload and can be driven by a mouse wheel.
+    /// </remarks>
+    private float _zoom = 1f;
+
+    /// <summary>Where the view is centred, or null to keep it on the whole map.</summary>
+    private (float X, float Y)? _lookingAt;
+
+    /// <summary>Where a drag started, in viewport pixels.</summary>
+    private Point? _dragFrom;
+
     /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
     /// <remarks>
     /// **The number a user actually feels**, and the one that would have caught this project's
@@ -216,6 +230,14 @@ internal class MainForm : Form
         };
         _viewport.HandleCreated += OnViewportHandleCreated;
         _viewport.Resize += OnViewportResize;
+        // **A Panel does not take focus, so its own wheel event may never fire.** The form's does,
+        // and the pointer position is converted into the viewport - which also means the wheel
+        // works without clicking the map first, the behaviour anyone expects from a map viewer.
+        _viewport.MouseWheel += OnViewportWheel;
+        MouseWheel += OnFormWheel;
+        _viewport.MouseDown += OnViewportMouseDown;
+        _viewport.MouseMove += OnViewportMouseMove;
+        _viewport.MouseUp += OnViewportMouseUp;
 
         // **No entity or class list.** That is what the parser works in, not what someone watching
         // a demo wants on screen - anyone who needs it can export the assembly script, which says
@@ -884,13 +906,20 @@ internal class MainForm : Form
     /// world geometry placed far outside the playable space, and fitting to that pushed
     /// cp_process_final into a third of the viewport with an empty expanse beside it.
     /// </remarks>
-    private TopDownCamera MapCamera() => TopDownCamera.Fit(
-        [
-            (_map!.MainBounds.MinX, _map.MainBounds.MinY),
-            (_map.MainBounds.MaxX, _map.MainBounds.MaxY),
-        ],
-        Math.Max(1, _viewport.ClientSize.Width),
-        Math.Max(1, _viewport.ClientSize.Height));
+    private TopDownCamera MapCamera()
+    {
+        TopDownCamera fitted = TopDownCamera.Fit(
+            [
+                (_map!.MainBounds.MinX, _map.MainBounds.MinY),
+                (_map.MainBounds.MaxX, _map.MainBounds.MaxY),
+            ],
+            Math.Max(1, _viewport.ClientSize.Width),
+            Math.Max(1, _viewport.ClientSize.Height));
+
+        TopDownCamera zoomed = _zoom > 1f ? fitted.WithZoom(_zoom) : fitted;
+
+        return _lookingAt is { } centre ? zoomed.LookingAt(centre.X, centre.Y) : zoomed;
+    }
 
     /// <summary>Shows a set of world positions in the viewport.</summary>
     /// <param name="positions">World XY positions, in Source units.</param>
@@ -1286,6 +1315,96 @@ internal class MainForm : Form
     /// The swap chain is still resized immediately: it is cheap, and letting it lag the panel
     /// stretches the last frame across the new rectangle, which is visible.
     /// </remarks>
+    /// <summary>Zooms about the pointer, the way every map viewer does.</summary>
+    /// <remarks>
+    /// **About the cursor rather than the centre**, so the thing being looked at stays under the
+    /// pointer as the view magnifies. Zooming about the centre instead makes closing in on a
+    /// corner a game of chasing it back into view.
+    /// </remarks>
+    private void OnViewportWheel(object? sender, MouseEventArgs e)
+    {
+        if (_map is null || _map.IsEmpty)
+        {
+            return;
+        }
+
+        float step = e.Delta > 0 ? 1.25f : 1f / 1.25f;
+        float zoomed = Math.Clamp(_zoom * step, 1f, 64f);
+
+        if (Math.Abs(zoomed - _zoom) < float.Epsilon)
+        {
+            return;
+        }
+
+        // The world point under the cursor before the zoom has to stay under it afterwards, which
+        // fixes where the new centre must be.
+        (float worldX, float worldY) = WorldAt(e.Location);
+
+        _zoom = zoomed;
+
+        (float afterX, float afterY) = WorldAt(e.Location);
+
+        (float centreX, float centreY) = MapCamera().Centre;
+
+        _lookingAt = (centreX + (worldX - afterX), centreY + (worldY - afterY));
+
+        _worldIsStale = true;
+    }
+
+    /// <summary>Routes a wheel turn anywhere over the viewport to the zoom.</summary>
+    private void OnFormWheel(object? sender, MouseEventArgs e)
+    {
+        Point inViewport = _viewport.PointToClient(Cursor.Position);
+
+        if (!_viewport.ClientRectangle.Contains(inViewport))
+        {
+            return;
+        }
+
+        OnViewportWheel(sender, new MouseEventArgs(e.Button, e.Clicks, inViewport.X, inViewport.Y, e.Delta));
+    }
+
+    private void OnViewportMouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            _dragFrom = e.Location;
+        }
+    }
+
+    private void OnViewportMouseMove(object? sender, MouseEventArgs e)
+    {
+        if (_dragFrom is not { } from || _map is null || _map.IsEmpty)
+        {
+            return;
+        }
+
+        float perPixel = MapCamera().WorldUnitsPerPixel(_viewport.ClientSize.Width);
+        (float centreX, float centreY) = MapCamera().Centre;
+
+        // Y is inverted between the screen and the world, the same flip the projection makes.
+        _lookingAt = (
+            centreX - ((e.Location.X - from.X) * perPixel),
+            centreY + ((e.Location.Y - from.Y) * perPixel));
+
+        _dragFrom = e.Location;
+        _worldIsStale = true;
+    }
+
+    private void OnViewportMouseUp(object? sender, MouseEventArgs e) => _dragFrom = null;
+
+    /// <summary>The world position under a point in the viewport.</summary>
+    private (float X, float Y) WorldAt(Point point)
+    {
+        TopDownCamera camera = MapCamera();
+        float perPixel = camera.WorldUnitsPerPixel(_viewport.ClientSize.Width);
+        (float centreX, float centreY) = camera.Centre;
+
+        return (
+            centreX + ((point.X - (_viewport.ClientSize.Width / 2f)) * perPixel),
+            centreY - ((point.Y - (_viewport.ClientSize.Height / 2f)) * perPixel));
+    }
+
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);

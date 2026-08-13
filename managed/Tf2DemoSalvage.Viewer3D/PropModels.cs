@@ -246,6 +246,17 @@ internal static class PropModels
 
         (byte red, byte green, byte blue) = colours[vertex];
 
+        // **Already display space, so no curve here.** vrad writes these through
+        // ConvertLinearToRGBA8888, which applies LinearToVertexLight - and that table is built as
+        // pow(linear, 1/gamma), the same correction BspLightmaps applies to lightmap samples. The
+        // bytes are the finished value; correcting them again brightens what is already right.
+        //
+        // This was nearly got wrong on a measurement that looked convincing: prop colours averaged
+        // 0.23 against the world's corrected lightmaps at 0.47, and taking props through the curve
+        // gave 0.50. The populations are not comparable - a prop's vertices wrap a closed solid,
+        // including undersides and faces pointing away from every light, while lightmap samples
+        // exist only on visible world faces. Reading vrad settled in one grep what the measurement
+        // had made worse.
         return (red / 255f, green / 255f, blue / 255f);
     }
 
