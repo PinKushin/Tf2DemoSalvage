@@ -327,6 +327,21 @@ internal sealed unsafe class Device3D : IDisposable
         _world.UploadGeometry(_device, world.Vertices, world.Batches);
     }
 
+    /// <summary>Sets the view the world is drawn through.</summary>
+    /// <param name="matrix">Sixteen floats, row major.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **The resize path, now.** Geometry is uploaded in world coordinates and stays; a viewport
+    /// change rewrites one 64-byte buffer instead of rebuilding every vertex.
+    /// </remarks>
+    public void SetCamera(float[] matrix)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.SetCamera(_device, _context, matrix);
+    }
+
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;
 

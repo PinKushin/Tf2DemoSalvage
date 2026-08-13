@@ -83,6 +83,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float3 vc  : TEXCOORD3;
         };
 
+        cbuffer Camera : register(b0)
+        {
+            row_major float4x4 viewProjection;
+        };
+
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
         Texture2D    blendMap    : register(t2);
@@ -92,7 +97,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         VsOut VsMain(VsIn input)
         {
             VsOut output;
-            output.pos = float4(input.pos, 1.0f);
+            // **World space in, clip space out.** The vertices are uploaded once in the map's own
+            // coordinates and this matrix is the only thing that changes when the view does, so a
+            // resize costs 64 bytes instead of rebuilding a couple of million vertices.
+            output.pos = mul(float4(input.pos, 1.0f), viewProjection);
             output.uv = input.uv;
             output.luv = input.luv;
             output.a = input.a;
@@ -126,6 +134,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11PixelShader> _pixelShader;
     private ComPtr<ID3D11InputLayout> _layout;
     private ComPtr<ID3D11Buffer> _vertices;
+    private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
@@ -425,6 +434,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
         context.PSSetSamplers(1, 1, ref _clampSampler);
+        context.VSSetConstantBuffers(0, 1, ref _camera);
         context.PSSetShaderResources(1, 1, ref _lightmap);
 
         foreach (WorldBatch batch in _batches)
@@ -449,10 +459,63 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
     }
 
+    /// <summary>Sets the view for the frames that follow.</summary>
+    /// <param name="device">Device to create the buffer on, the first time.</param>
+    /// <param name="context">Context to upload through.</param>
+    /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
+    /// <remarks>
+    /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
+    /// moves; changing the view rewrites one 64-byte buffer. Before this, the projection was baked
+    /// into every vertex, so a new viewport meant rebuilding 2.9 million of them - 0.33 seconds,
+    /// and the reason the free camera and per-player views could not exist.
+    /// </remarks>
+    public void SetCamera(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, float[] matrix)
+    {
+        ArgumentNullException.ThrowIfNull(matrix);
+
+        if (matrix.Length != 16)
+        {
+            throw new ArgumentException("A camera matrix is sixteen floats.", nameof(matrix));
+        }
+
+        if (_camera.Handle is null)
+        {
+            BufferDesc description = new()
+            {
+                ByteWidth = sizeof(float) * 16,
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.ConstantBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            ComPtr<ID3D11Buffer> buffer = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+            _camera = buffer;
+        }
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(
+            context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = matrix)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
+        }
+
+        context.Unmap(_camera, 0);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
         ReleaseMap();
+        _camera.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();

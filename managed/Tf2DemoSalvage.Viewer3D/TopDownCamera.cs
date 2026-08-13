@@ -118,4 +118,27 @@ internal sealed class TopDownCamera
     /// <returns>Coordinates in [-1, 1] for anything inside the fitted bounds.</returns>
     public (float X, float Y) Project(float worldX, float worldY) =>
         ((worldX - _centreX) * _scaleX, (worldY - _centreY) * _scaleY);
+
+    /// <summary>The same projection as a matrix, for geometry the GPU transforms.</summary>
+    /// <returns>Sixteen floats, row major, for <c>mul(float4(position, 1), matrix)</c>.</returns>
+    /// <remarks>
+    /// **The same arithmetic as <see cref="Project"/>, and that is the point.** A vertex projected
+    /// on the processor and one projected by this matrix must land on the same pixel, or the map's
+    /// outline and its textured surfaces drift apart — they are drawn by different paths and only
+    /// one of them moved to the GPU.
+    ///
+    /// So this is deliberately a restatement rather than a reimplementation: scale, then translate
+    /// by the centre already scaled. A test asserts the two agree, because the failure is a
+    /// half-pixel disagreement that looks like a rounding artifact rather than a wrong formula.
+    ///
+    /// Z passes through untouched. Depth is computed from world height before this ever runs, and
+    /// it has nothing to do with where the camera is looking.
+    /// </remarks>
+    public float[] ToMatrix() =>
+    [
+        _scaleX, 0f, 0f, 0f,
+        0f, _scaleY, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        -_centreX * _scaleX, -_centreY * _scaleY, 0f, 1f,
+    ];
 }
