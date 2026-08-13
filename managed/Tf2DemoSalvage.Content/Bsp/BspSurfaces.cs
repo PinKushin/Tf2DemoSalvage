@@ -20,6 +20,44 @@ namespace Tf2DemoSalvage.Content.Bsp;
 public readonly record struct SurfaceVertex(
     float X, float Y, float Z, float U, float V, float LightU, float LightV, float Alpha = 0f);
 
+/// <summary>How a face turns a world position into a coordinate in its own lightmap.</summary>
+/// <param name="Across">The lightmap U row of the texinfo: three axis terms and an offset.</param>
+/// <param name="Down">The V row.</param>
+/// <param name="MinU">This face's own origin in the shared luxel grid, across.</param>
+/// <param name="MinV">The same, down.</param>
+/// <param name="Width">Luxels across.</param>
+/// <param name="Height">Luxels down.</param>
+/// <remarks>
+/// **Kept so anything lying ON a face can be lit by it.** A decal is a quad pinned to a surface and
+/// takes that surface's light; without this it would have to be drawn unlit, which glows in a dark
+/// room and is the sort of wrong that looks deliberate.
+///
+/// The luxel grid is shared by every face using the same texinfo, so a face's own mins have to be
+/// subtracted before the coordinate means anything.
+/// </remarks>
+public readonly record struct LuxelMapping(
+    (float X, float Y, float Z, float Offset) Across,
+    (float X, float Y, float Z, float Offset) Down,
+    int MinU,
+    int MinV,
+    int Width,
+    int Height)
+{
+    /// <summary>Where a world position lands in this face's lightmap, from 0 to 1.</summary>
+    /// <param name="x">World x.</param>
+    /// <param name="y">World y.</param>
+    /// <param name="z">World z.</param>
+    /// <returns>The coordinate, unclamped.</returns>
+    public (float U, float V) Project(float x, float y, float z) =>
+        (
+            Width > 0
+                ? ((Across.X * x) + (Across.Y * y) + (Across.Z * z) + Across.Offset - MinU) / Width
+                : 0f,
+            Height > 0
+                ? ((Down.X * x) + (Down.Y * y) + (Down.Z * z) + Down.Offset - MinV) / Height
+                : 0f);
+}
+
 /// <summary>A face ready to draw: its corners, its material and its baked lighting.</summary>
 /// <param name="FaceIndex">Position in the faces lump, so other lumps can be reached.</param>
 /// <param name="Vertices">The polygon's corners, in winding order.</param>
@@ -30,6 +68,7 @@ public readonly record struct SurfaceVertex(
 /// <param name="DisplacementIndex">Index into DISPINFO, or -1 for an ordinary face.</param>
 /// <param name="LuxelWidth">Lightmap samples across, which is size plus one.</param>
 /// <param name="LuxelHeight">Lightmap samples down.</param>
+/// <param name="Lighting">How to light anything lying on this face, such as a decal.</param>
 public sealed record BspSurface(
     int FaceIndex,
     IReadOnlyList<SurfaceVertex> Vertices,
@@ -39,7 +78,8 @@ public sealed record BspSurface(
     SurfaceProperties Flags,
     int DisplacementIndex,
     int LuxelWidth = 1,
-    int LuxelHeight = 1)
+    int LuxelHeight = 1,
+    LuxelMapping Lighting = default)
 {
     /// <summary>Whether this face is the base quad of a displacement.</summary>
     /// <remarks>
@@ -225,7 +265,14 @@ public static class BspSurfaces
                 (SurfaceProperties)BinaryPrimitives.ReadInt32LittleEndian(info[TexinfoFlagsOffset..]),
                 BinaryPrimitives.ReadInt16LittleEndian(face[FaceDisplacementOffset..]),
                 luxelWidth,
-                luxelHeight));
+                luxelHeight,
+                new LuxelMapping(
+                    Row(info, TexinfoLightmapVecsOffset),
+                    Row(info, TexinfoLightmapVecsOffset + 16),
+                    luxelMinU,
+                    luxelMinV,
+                    luxelWidth,
+                    luxelHeight)));
         }
 
         return surfaces;
@@ -256,6 +303,14 @@ public static class BspSurfaces
             BinaryPrimitives.ReadSingleLittleEndian(vertex[4..]),
             BinaryPrimitives.ReadSingleLittleEndian(vertex[8..]));
     }
+
+    /// <summary>One row of a texinfo's projection: three axis terms and an offset.</summary>
+    private static (float X, float Y, float Z, float Offset) Row(ReadOnlySpan<byte> info, int at) =>
+        (
+            BinaryPrimitives.ReadSingleLittleEndian(info[at..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(at + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(at + 8)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(at + 12)..]));
 
     private static (float X, float Y, float Z) ReadNormal(
         ReadOnlySpan<byte> planes, int index, bool flipped)

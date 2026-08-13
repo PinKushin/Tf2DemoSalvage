@@ -280,6 +280,77 @@ public sealed class MapPictureTests
             15000, "the three directional sets must reach the screen, not set 0 three times");
     }
 
+    [Test]
+    public void DrawTheMapWithAndWithoutItsDecals()
+    {
+        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+
+        if (MapPath is not { } path || !Directory.Exists(tf))
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(Width, Height);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
+        MapOutline outline = MapOutline.FromFaces(BspGeometry.Read(map).Faces);
+        MapAssets assets = MapAssets.Load(map, GameArchives.Open(tf), maximumTextureSize: 512);
+        IReadOnlyList<BspSurface> surfaces = BspSurfaces.Read(map);
+        IReadOnlyList<BspOverlay> overlays = BspOverlays.Read(map);
+
+        overlays.Count.ShouldBeGreaterThan(0, "the map must carry decals to test them");
+
+        TopDownCamera camera = TopDownCamera.Fit(
+            [
+                (outline.MainBounds.MinX, outline.MainBounds.MinY),
+                (outline.MainBounds.MaxX, outline.MainBounds.MaxY),
+            ],
+            Width,
+            Height);
+
+        MapWorld world = MapWorldBuilder.Build(
+            BspTerrain.Create(map), surfaces, assets.Materials, assets.Lightmaps,
+            assets.Props, camera, outline.MainBounds, categoryColours: false, overlays: overlays);
+
+        world.Decals.Count.ShouldBeGreaterThan(0, "decals must reach the renderer as batches");
+
+        TestContext.Out.WriteLine(
+            $"DECAL {overlays.Count} overlays became {world.Decals.Count} batches, " +
+            $"{world.Decals.Sum(batch => batch.VertexCount) / 6} quads");
+
+        byte[] on = Render(
+            target, world, camera, assets, true, "map-decals-on", decals: world.Decals);
+        byte[] again = Render(
+            target, world, camera, assets, true, "map-decals-on-again", decals: world.Decals);
+        byte[] off = Render(target, world, camera, assets, true, "map-decals-off");
+
+        again.ShouldBe(on, "two identical renders must produce identical pixels");
+
+        int changed = 0;
+
+        for (int at = 0; at < on.Length; at++)
+        {
+            if (on[at] != off[at])
+            {
+                changed++;
+            }
+        }
+
+        TestContext.Out.WriteLine(
+            $"DECAL {changed} of {on.Length} colour samples differ with decals drawn");
+
+        // Decals are small - signs and floor markings on a map seen from above - so the bar is low.
+        // The claim is that they reach the screen, not that they dominate it.
+        changed.ShouldBeGreaterThan(200, "decals should be visible on the map");
+    }
+
     private static byte[] Render(
         OffscreenTarget target,
         MapWorld world,
@@ -287,11 +358,13 @@ public sealed class MapPictureTests
         MapAssets assets,
         bool detail,
         string name,
-        bool bumped = true)
+        bool bumped = true,
+        IReadOnlyList<WorldBatch>? decals = null)
     {
         target.Clear(0.06f, 0.07f, 0.09f);
         target.DrawWorld(
-            world.Vertices, world.Batches, camera.ToMatrix(), assets, false, 0f, detail, bumped);
+            world.Vertices, world.Batches, camera.ToMatrix(), assets, false, 0f, detail, bumped,
+            decals);
 
         string file = Path.Combine(Pictures, name + ".png");
 

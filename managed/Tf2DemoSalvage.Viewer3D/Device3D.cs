@@ -324,7 +324,7 @@ internal sealed unsafe class Device3D : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _world ??= WorldRenderer.Create(_device);
-        _world.UploadGeometry(_device, world.Vertices, world.Batches);
+        _world.UploadGeometry(_device, world.Vertices, world.Batches, world.Decals);
     }
 
     /// <summary>Sets the view the world is drawn through.</summary>

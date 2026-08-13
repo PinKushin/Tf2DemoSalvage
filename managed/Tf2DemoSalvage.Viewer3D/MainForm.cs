@@ -136,6 +136,9 @@ internal class MainForm : Form
     /// <summary>The map's displacement lumps, read once rather than once per face.</summary>
     private BspTerrain? _terrain;
 
+    /// <summary>The map's decals, read once and reused across every rebuild.</summary>
+    private IReadOnlyList<BspOverlay>? _overlays;
+
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
     private bool _texturesUploaded;
 
@@ -650,6 +653,7 @@ internal class MainForm : Form
         _surfaceList = [];
         _assets = null;
         _terrain = null;
+        _overlays = null;
         _texturesUploaded = false;
         _device?.ClearWorld();
 
@@ -755,6 +759,18 @@ internal class MainForm : Form
                 {
                     _terrain = null;
                     ViewerLog.Warn("assets", "reading the map's terrain", failure);
+                }
+
+                try
+                {
+                    _overlays = BspOverlays.Read(bytes);
+                }
+                catch (InvalidDataException failure)
+                {
+                    // Costs the decals, not the map. Reported rather than swallowed: the engine
+                    // reads this lump on every map it opens.
+                    _overlays = null;
+                    ViewerLog.Warn("assets", "reading the map's decals", failure);
                 }
 
                 using (ViewerLog.Time("assets", "reading surfaces and textures"))
@@ -940,7 +956,8 @@ internal class MainForm : Form
                         assets.Props,
                         camera,
                         _map.MainBounds,
-                        _surfaceColours.Checked);
+                        _surfaceColours.Checked,
+                        _overlays);
                 }
 
                 ViewerLog.Write(

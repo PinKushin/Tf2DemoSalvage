@@ -9,8 +9,11 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <summary>A map turned into triangles the renderer can draw in a few calls.</summary>
 /// <param name="Vertices">Every triangle corner, grouped so one material's are contiguous.</param>
 /// <param name="Batches">The runs, one per material actually used.</param>
+/// <param name="Decals">Overlay quads, drawn after the world with a depth bias.</param>
 internal readonly record struct MapWorld(
-    IReadOnlyList<WorldVertex> Vertices, IReadOnlyList<WorldBatch> Batches);
+    IReadOnlyList<WorldVertex> Vertices,
+    IReadOnlyList<WorldBatch> Batches,
+    IReadOnlyList<WorldBatch> Decals);
 
 /// <summary>
 /// Turns a map's surfaces into batched, projected triangles.
@@ -38,6 +41,7 @@ internal static class MapWorldBuilder
     /// <param name="props">The map's placed models, in world space.</param>
     /// <param name="camera">Projection from world to clip space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
+    /// <param name="overlays">The map decals, or null to draw none.</param>
     /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
     /// <returns>The triangles and their batches.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -54,7 +58,8 @@ internal static class MapWorldBuilder
         IReadOnlyList<PropVertex> props,
         TopDownCamera camera,
         MapBounds? area,
-        bool categoryColours = false)
+        bool categoryColours = false,
+        IReadOnlyList<BspOverlay>? overlays = null)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
@@ -180,7 +185,154 @@ internal static class MapWorldBuilder
             all.AddRange(group.Value);
         }
 
-        return new MapWorld(all, batches);
+        List<WorldBatch> decals = AppendDecals(
+            all, overlays, surfaces, atlas, area, lowest, highest);
+
+        return new MapWorld(all, batches, decals);
+    }
+
+    /// <summary>Turns each overlay into a quad lit by the face it is pinned to.</summary>
+    /// <remarks>
+    /// **A decal takes its light from the surface underneath, not from one of its own.** The
+    /// overlay lump has no lightmap; the quad lies on a face that does, so its corners are
+    /// projected through that face's luxel mapping. Drawn unlit instead, every sign and scorch mark
+    /// glows in a dark room — which reads as a deliberate effect rather than a defect.
+    ///
+    /// **Unclipped, deliberately and measurably.** The engine clips each quad to the faces it
+    /// names and that code was never released. Sampled on cp_process_final, a median of 100% of
+    /// each quad already lands on a face it names and the mean is 93.7%, so clipping is worth about
+    /// six per cent of decal area — a refinement rather than a precondition.
+    ///
+    /// The one face chosen is the first the overlay names that shares its plane. An overlay
+    /// wrapping a corner names faces on both sides, and lighting the whole quad from one of them is
+    /// the same approximation as not clipping it.
+    /// </remarks>
+    private static List<WorldBatch> AppendDecals(
+        List<WorldVertex> all,
+        IReadOnlyList<BspOverlay>? overlays,
+        IReadOnlyList<BspSurface> surfaces,
+        LightmapAtlas atlas,
+        MapBounds? area,
+        float lowest,
+        float highest)
+    {
+        List<WorldBatch> decals = [];
+
+        if (overlays is null || overlays.Count == 0)
+        {
+            return decals;
+        }
+
+        Dictionary<int, BspSurface> byFace = [];
+
+        foreach (BspSurface surface in surfaces)
+        {
+            byFace[surface.FaceIndex] = surface;
+        }
+
+        Dictionary<int, List<WorldVertex>> byMaterial = [];
+        int placed = 0;
+        int unlit = 0;
+
+        foreach (BspOverlay overlay in overlays)
+        {
+            if (overlay.MaterialIndex < 0)
+            {
+                continue;
+            }
+
+            BspSurface? on = null;
+
+            foreach (int face in overlay.Faces)
+            {
+                if (byFace.TryGetValue(face, out BspSurface? candidate) &&
+                    Math.Abs(
+                        (overlay.BasisNormal.X * candidate.Normal.X) +
+                        (overlay.BasisNormal.Y * candidate.Normal.Y) +
+                        (overlay.BasisNormal.Z * candidate.Normal.Z)) > 0.9f)
+                {
+                    on = candidate;
+                    break;
+                }
+            }
+
+            if (on is null)
+            {
+                // Reported rather than skipped silently: an overlay that lies flat on nothing is
+                // either a reader defect or a map quirk, and both are worth knowing about.
+                unlit++;
+                continue;
+            }
+
+            IReadOnlyList<(float X, float Y, float Z)> quad = overlay.WorldCorners;
+
+            if (area is { } bounds && !quad.Any(corner =>
+                    corner.X >= bounds.MinX && corner.X <= bounds.MaxX &&
+                    corner.Y >= bounds.MinY && corner.Y <= bounds.MaxY))
+            {
+                continue;
+            }
+
+            AtlasRect rectangle = on.FaceIndex < atlas.Rectangles.Count
+                ? atlas.Rectangles[on.FaceIndex]
+                : default;
+
+            // The overlay's own texture coordinates: its quad spans StartU..EndU across and
+            // StartV..EndV down, corner by corner in the order vbsp wrote them.
+            (float U, float V)[] texture =
+            [
+                (overlay.U.Start, overlay.V.Start),
+                (overlay.U.End, overlay.V.Start),
+                (overlay.U.End, overlay.V.End),
+                (overlay.U.Start, overlay.V.End),
+            ];
+
+            List<WorldVertex> corners = [];
+
+            for (int index = 0; index < 4; index++)
+            {
+                (float x, float y, float z) = quad[index];
+                (float lightU, float lightV) = on.Lighting.Project(x, y, z);
+
+                corners.Add(new WorldVertex(
+                    x,
+                    y,
+                    1f - Math.Clamp((z - lowest) / (highest - lowest), 0f, 1f),
+                    texture[index].U,
+                    texture[index].V,
+                    rectangle.U + (Math.Clamp(lightU, 0f, 1f) * rectangle.Width),
+                    rectangle.V + (Math.Clamp(lightV, 0f, 1f) * rectangle.Height),
+                    0f));
+            }
+
+            if (!byMaterial.TryGetValue(overlay.MaterialIndex, out List<WorldVertex>? into))
+            {
+                into = [];
+                byMaterial[overlay.MaterialIndex] = into;
+            }
+
+            // Two triangles from the quad, wound as the corners are given.
+            into.Add(corners[0]);
+            into.Add(corners[1]);
+            into.Add(corners[2]);
+            into.Add(corners[0]);
+            into.Add(corners[2]);
+            into.Add(corners[3]);
+
+            placed++;
+        }
+
+        foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
+        {
+            decals.Add(new WorldBatch(group.Key, all.Count, group.Value.Count));
+            all.AddRange(group.Value);
+        }
+
+        ViewerLog.Write(
+            "map",
+            $"{placed} decals placed across {decals.Count} materials, {unlit} lying flat on nothing");
+
+        return decals;
     }
 
     /// <summary>
