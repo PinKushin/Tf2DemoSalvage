@@ -1086,15 +1086,24 @@ internal class MainForm : Form
             WindowState = FormWindowState.Normal;
             Bounds = Screen.FromControl(this).Bounds;
 
-            // **Bounds alone do not hide the taskbar.** The shell keeps the taskbar above a window
-            // that merely happens to be screen-sized; it stands down for a window that is TOPMOST
-            // and covers the display. Measured by screenshot: without this the map filled 1920x1080
-            // and the taskbar was still drawn across the bottom of it, while every assertion about
-            // the window rectangle passed.
+            // **No TopMost here, deliberately, and the reason is worth keeping.** It was set once
+            // to hide the taskbar, and it does - but TOPMOST does not mean "above the shell", it
+            // means above every window on the desktop. Borderless then became indistinguishable
+            // from exclusive from the user's side: nothing could be alt-tabbed in front of the
+            // viewer, in the mode whose whole point is that things can be.
             //
-            // Restored on the way out, because a viewer that stays above every other window after
-            // leaving full screen is a viewer people close in irritation.
-            TopMost = true;
+            // Found by the owner with the one test that separates the two modes - "I cannot alt-tab
+            // you above it, meaning it is exclusive" - while the status bar was simultaneously
+            // reporting that exclusive had been REFUSED and borderless was in use. Both were true.
+            // The mode selection was working perfectly and this flag was undoing it.
+            //
+            // How it got in is the part to remember: the change was verified by screenshot, the
+            // taskbar was gone, and it was called done. The screenshot confirmed the one property
+            // being looked at and said nothing about the one being broken.
+            //
+            // Windows hides the taskbar on its own for a borderless window that exactly covers the
+            // monitor and holds the foreground, which is the mechanism games rely on and which
+            // leaves alt-tab alone.
 
             // **The window is sized first, then the display is taken.** DXGI wants the window
             // already covering the output it is about to own; asking for exclusive from a small
@@ -1129,7 +1138,6 @@ internal class MainForm : Form
         // setting says exclusive: the setting can be changed while full screen, and what has to be
         // undone is what was done, not what is currently preferred.
         Layout -= KeepOverlayOnTheViewport;
-        TopMost = false;
         _device?.SetExclusiveFullScreen(false);
 
         if (_overlay is not null)
