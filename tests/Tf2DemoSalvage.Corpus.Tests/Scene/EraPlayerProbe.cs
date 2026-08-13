@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
@@ -117,6 +118,34 @@ public sealed class EraPlayerProbe
 
             TestContext.Out.WriteLine(
                 $"ERA   player-ish classes: {string.Join(", ", classesWithPlayers)}");
+
+            if (players.Length > 8)
+            {
+                EntityState one = players.First(p => p.Origin() is not null);
+
+                string team = one.Integer("DT_BaseEntity.m_iTeamNum") is { } value
+                    ? value.ToString(CultureInfo.InvariantCulture)
+                    : "null";
+
+                string kind =
+                    one.Properties.TryGetValue("DT_BaseEntity.m_iTeamNum", out PropertyValue raw)
+                        ? raw.Kind.ToString()
+                        : "absent";
+
+                TestContext.Out.WriteLine($"ERA   team via Integer: {team}; raw kind: {kind}");
+                TestContext.Out.WriteLine(
+                    $"ERA   all keys: {string.Join(" | ", one.Properties.Keys.OrderBy(k => k, StringComparer.Ordinal))}");
+
+                string[] teamKeys = [.. players
+                    .SelectMany(p => p.Properties.Keys)
+                    .Where(k => k.Contains("Team", StringComparison.OrdinalIgnoreCase) ||
+                        k.Contains("Health", StringComparison.OrdinalIgnoreCase) ||
+                        k.Contains("Class", StringComparison.OrdinalIgnoreCase))
+                    .Distinct()
+                    .OrderBy(k => k, StringComparer.Ordinal)];
+
+                TestContext.Out.WriteLine($"ERA   team/health/class keys: {string.Join(" | ", teamKeys)}");
+            }
 
             // A probe, but not an empty one: a demo that decoded no entities at all would make
             // every line above meaningless.
