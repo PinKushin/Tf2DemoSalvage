@@ -3007,3 +3007,31 @@ have.
 Until it is implemented, every entity model in the viewer is overbright, and any judgement about a
 model's texture or material is unreliable — three separate defects were attributed to materials
 tonight before this was understood.
+
+## B52 — buried geometry is drawn, because nothing culls by visibility — OPEN, structural
+
+**Filed 2026-08-13** from an in-game comparison: the concrete around cp_process's mid point is
+buried under the ground in TF2, and this viewer draws it as a slab over the surrounding surface.
+
+**Nothing here culls by visibility.** The renderer keeps a face when its material resolves, its
+surface flags are drawable, and its normal points upward; it has no notion of whether a player could
+ever see it. The engine's answer is the BSP itself: `vvis` computes a potentially visible set per
+leaf, and geometry sealed inside solid space is never submitted at all.
+
+So a face buried under the ground is drawn, lands at nearly the same depth as the ground above it,
+and which one survives is decided by material batching order. That is the same family as B49's black
+lids — surfaces that exist in the file and are never seen in play — but the mechanism is different
+and so is the fix.
+
+**What this predicts, and is worth checking when it is fixed:** interior faces showing through
+floors, surfaces inside sealed props, and the odd patch of terrain that flickers as the view moves.
+Any of those seen now are probably this.
+
+**The fix is the visibility lump.** A BSP carries `LUMP_VISIBILITY` alongside its nodes and leaves;
+resolving each face's leaf and keeping only faces in leaves reachable from open space would remove
+buried geometry without a heuristic. It is also the foundation a free camera wants, since a
+first-person view needs the same question answered every frame.
+
+**Not to be confused with B49.** There the surface is genuinely visible in play — a `toolsblack`
+ceiling seen from below — and only an overhead camera has a problem with it. Here the surface is
+never visible at all, and drawing it is wrong from every angle.
