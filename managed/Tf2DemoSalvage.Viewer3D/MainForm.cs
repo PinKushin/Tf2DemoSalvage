@@ -1143,6 +1143,9 @@ internal class MainForm : Form
     /// <summary>How far to zoom in before capturing.</summary>
     private float _shotZoom = 1f;
 
+    /// <summary>Whether to capture the category view rather than the textured one.</summary>
+    private bool _shotSurfaceColours;
+
     /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
     private int _shotDelay = 45;
 
@@ -1177,6 +1180,12 @@ internal class MainForm : Form
                 }
 
                 ViewerLog.Warn("viewer", $"--look {x} {y} is not a position; ignoring it");
+                continue;
+            }
+
+            if (argument == "--colours")
+            {
+                _shotSurfaceColours = true;
                 continue;
             }
 
@@ -1241,6 +1250,11 @@ internal class MainForm : Form
                 _clock?.Seek(_shotTick);
                 _transport.ShowTick(_shotTick);
                 ShowMoment(_shotTick);
+
+                if (_shotSurfaceColours)
+                {
+                    _surfaceColours.Checked = true;
+                }
 
                 if (_shotLookAt is { } centre)
                 {
@@ -1390,35 +1404,7 @@ internal class MainForm : Form
 
             // The first medkit's actual transform. A model posed with a zero scale collapses to a
             // point and draws nothing, while every count above still reads correctly.
-            foreach (ModelInstance instance in _instances
-                .Where(one => one.ModelPath.Contains("medkit", StringComparison.OrdinalIgnoreCase))
-                .Take(1))
-            {
-                float[] m = instance.Matrix;
 
-                ViewerLog.Write(
-                    "render",
-                    $"  medkit at ({m[12]:F1}, {m[13]:F1}, {m[14]:F1}) " +
-                    $"rows ({m[0]:F2},{m[1]:F2},{m[2]:F2}) ({m[4]:F2},{m[5]:F2},{m[6]:F2}) " +
-                    $"({m[8]:F2},{m[9]:F2},{m[10]:F2}) " +
-                    $"batches {_models.Batches(instance.ModelPath).Count} " +
-                    $"verts {_models.Batches(instance.ModelPath).Sum(batch => batch.VertexCount)}");
-
-                // The first three corners as packed, in model space. A medkit is a few tens of
-                // units across; all-zero corners would mean the packing wrote nothing real while
-                // every count above still read correctly.
-                WorldBatch first = _models.Batches(instance.ModelPath)[0];
-
-                for (int corner = first.FirstVertex; corner < first.FirstVertex + 3; corner++)
-                {
-                    WorldVertex vertex = _models.Vertices[corner];
-
-                    ViewerLog.Write(
-                        "render",
-                        $"    corner {corner}: ({vertex.X:F2}, {vertex.Y:F2}, {vertex.Depth:F2}) " +
-                        $"uv ({vertex.U:F2}, {vertex.V:F2}) rgb ({vertex.Red:F2}, {vertex.Green:F2}, {vertex.Blue:F2})");
-                }
-            }
         }
 
         ShowPlayers(_players);
