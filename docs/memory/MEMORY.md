@@ -41,3 +41,4 @@
 - [Decoding must be total](decode-must-be-total.md) — anything not reading at 100% with no errors is our defect; the engine reads these files fine.
 - [A test can outlive its design](a-test-can-outlive-its-design.md) — the full-screen test demanded a rebuild the camera matrix deleted, and its failure blamed the app.
 - [The focus check asks the wrong window](focus-check-asks-the-wrong-window.md) — HasKeyboardFocus on a top-level window is always false; cost 5s per focus and misdirected two sessions.
+- [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — five measurements were wrong before any reader was; check sensitivity before suspecting the code.
