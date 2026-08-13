@@ -2854,3 +2854,37 @@ present.
 
 The corpus test `PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains` is held `[Explicit]`
 and is the check on the fix: its assertion is correct, only its precondition is missing.
+
+## B48 — a hypothesis for TF2's end-of-demo freeze, from the interpolation code — UNTESTED
+
+**Filed 2026-08-13, prompted by the owner's recollection** that playing a demo in TF2 ends with
+things freezing and "kinda glitching out". Recorded as a hypothesis because it fits code that has
+been read, and nothing more — no measurement against a running client has been made.
+
+`GetInterpolationInfo` in `interpolatedvar.h` clamps the interpolation fraction:
+
+```cpp
+pInfo->frac = ( targettime - older_change_time ) / ( newer_change_time - older_change_time );
+pInfo->frac = MIN( pInfo->frac, 2.0f );
+```
+
+A fraction above 1 is **extrapolation** — the client running past its newest sample by up to a full
+interval, which during normal play covers a dropped packet.
+
+At the end of a demo the stream stops but `curtime` does not. Every entity's newest sample stays
+fixed while the target time advances, so the fraction climbs past 1, everything extrapolates on
+past where it was last seen, and then clamps at 2.0 and stops dead. Sliding-then-freezing is what
+that would look like.
+
+**What would confirm or kill it:** watching a demo end in a client with `cl_interp` set very high
+and very low. If the effect scales with the interpolation window, the mechanism is this one; if it
+is identical either way, it is something else — most likely in engine demo shutdown, which is not
+in the SDK.
+
+**Why it is worth keeping even unresolved.** This project extrapolates nothing: `ScenePropTrack.At`
+holds the last pose after the final keyframe rather than running past it. If this hypothesis is
+right, that is a case where deliberately *not* copying the engine produces the better viewer, and
+the reasoning behind that choice should be recoverable later.
+
+Not to be confused with the trailing-block quirk in `IceCipher.DecryptAll`, which was found in the
+same session and affects script files only — it has nothing to do with demo playback.
