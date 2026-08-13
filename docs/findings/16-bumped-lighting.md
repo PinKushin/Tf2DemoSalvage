@@ -147,12 +147,47 @@ Research (this document) → the four-set lightmap read, with a control that a n
 reads byte-identically → atlas → normal map decode → shader → picture comparison with bump on and
 off, plus the bit-identical control render that the detail work established.
 
-**The control on the read is the important one.** Set 0 is where a non-bumped face's only set
-lives, so a four-set reader with its arithmetic wrong can still produce a correct picture on every
-unbumped face in the map — which is most of them.
+**The control on the read is the important one — and the obvious control does not work.** The
+natural one is *"the flat set must read byte-identically to before"*. It cannot fail. Set 0 sits at
+`lightofs + (0 * sets + 0) * luxels * 4`, so the set count cancels whenever the style is zero, and
+style is always zero for a map's normal appearance. Forcing every face in the map to four sets
+passes that control, passes a test that the directional sets differ from the flat one, and passes
+every other assertion that was written first. Measured, not reasoned: the sabotage was run and it
+survived.
+
+**Lengths are what falsify it.** `vrad` writes faces one after another with no padding, so each
+face's whole span — styles × sets × luxels × 4 — must reach exactly the next face's offset. One
+face with the wrong set count and the arithmetic stops meeting.
+
+One correction was needed before that worked, and it is worth recording because the first result
+looked like a broken set count rather than an incomplete test. The gap between two faces is not
+padding — it is the next face's own header:
+
+```c
+lightdatasize += lightstyles * 4;   // BEFORE the offset is taken
+f->lightofs = lightdatasize;
+```
+
+Four bytes per light style precede every face: the average light colour for that style. `lightofs`
+points past them. Accounting for that, **13,107 of 13,107 spans on `cp_process_final` meet their
+neighbour exactly.**
 
 ## Status
 
-**Researched, not implemented, 2026-08-13.** No measurement on the corpus yet beyond the drawn-area
-count at the top. In particular the claim that ssbump is the common case on TF2 world materials is
-**interpolated from one material** and needs counting.
+**The read is implemented, 2026-08-13.** Measured on `cp_process_final`:
+
+| | |
+|---|---|
+| Faces bump lit | 1,633 of 13,821 (11.8%) |
+| Directional sets differing from the flat set | 1,534 of 1,633 |
+| Lighting spans meeting their neighbour exactly | 13,107 of 13,107 |
+| Flat sets unchanged from the old reader | all 13,821 |
+
+The 99 bumped faces whose first directional set equals their flat set are not a defect: a surface
+lit evenly from every direction legitimately has identical sets.
+
+**Still to do:** the atlas, the normal map decode, and the shader. Nothing is drawn differently
+yet — this reads three quarters more data and hands it to a renderer that does not use it.
+
+The claim that ssbump is the common case on TF2 world materials is still **interpolated from one
+material** and needs counting.
