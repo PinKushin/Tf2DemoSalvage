@@ -243,6 +243,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11RasterizerState> _bothSides;
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
+
+    /// <summary>Which materials the engine adds rather than paints, by index.</summary>
+    /// <remarks>
+    /// **Drawn in a second pass with additive blending, which is what the engine does.** Source
+    /// returns BT_ADD for <c>$additive</c>, so a light cone brightens what it covers and its dark
+    /// parts contribute nothing. Drawn opaque it is a solid black cone; skipped entirely - which
+    /// this did first - the glow is simply missing. Neither is what the map says.
+    ///
+    /// Five of cp_process_f12's 285 materials are additive.
+    /// </remarks>
+    private readonly HashSet<int> _additive = [];
+
+    /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
+    private ComPtr<ID3D11BlendState> _addBlend;
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
     private ComPtr<ID3D11ShaderResourceView> _lightmap;
     private ComPtr<ID3D11ShaderResourceView> _white;
@@ -422,6 +436,27 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseTextures();
         TextureUploads++;
 
+        if (_addBlend.Handle is null)
+        {
+            // SRC_ONE, DEST_ONE: exactly what the engine's BT_ADD does.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.One;
+            description.RenderTarget[0].DestBlend = Blend.One;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.One;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> state = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref state));
+
+            _addBlend = state;
+        }
+
         // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
         // unresolved material as a magenta and black chequer, and it is the right call - a surface
         // that quietly falls back to white or to nothing is a surface nobody investigates. Several
@@ -429,9 +464,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // like art, while a magenta chequer looks like a bug and gets reported.
         _white = CreateTexture(device, context, MissingSize, MissingSize, Missing());
 
-        foreach (MapTexture? texture in assets.Textures)
+        for (int index = 0; index < assets.Textures.Count; index++)
         {
+            MapTexture? texture = assets.Textures[index];
+
             _textures.Add(Upload(device, context, texture));
+
+            if (texture is { IsAdditive: true })
+            {
+                _additive.Add(index);
+            }
         }
 
         foreach (MapTexture? texture in assets.BlendTextures)
@@ -441,6 +483,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         _lightmap = CreateTexture(
             device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
+
+        // Counted, because "we now skip additive materials" is a capability and this is the output.
+        ViewerLog.Write(
+            "render",
+            $"{_additive.Count} of {assets.Textures.Count} materials are additive, drawn in a second pass");
     }
 
     /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
@@ -531,8 +578,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetConstantBuffers(0, 1, ref _camera);
         context.PSSetShaderResources(1, 1, ref _lightmap);
 
+        // **Opaque first, additive after.** An additive fragment brightens whatever is behind it,
+        // so anything drawn later would be added to nothing.
         foreach (WorldBatch batch in _batches)
         {
+            if (_additive.Contains(batch.MaterialIndex))
+            {
+                continue;
+            }
+
             ComPtr<ID3D11ShaderResourceView> texture =
                 batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
                 _textures[batch.MaterialIndex].Handle is not null
@@ -551,6 +605,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.PSSetShaderResources(2, 1, ref blend);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+
+        DrawAdditive(context);
     }
 
     /// <summary>Sets the view for the frames that follow.</summary>
@@ -619,9 +675,42 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.Unmap(_camera, 0);
     }
 
+    /// <summary>Draws the additive materials over everything already painted.</summary>
+    private void DrawAdditive(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_additive.Count == 0 || _addBlend.Handle is null)
+        {
+            return;
+        }
+
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(_addBlend, factor, 0xFFFFFFFF);
+
+        foreach (WorldBatch batch in _batches)
+        {
+            if (!_additive.Contains(batch.MaterialIndex) ||
+                batch.MaterialIndex >= _textures.Count ||
+                _textures[batch.MaterialIndex].Handle is null)
+            {
+                continue;
+            }
+
+            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
+
+            context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref texture);
+            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        }
+
+        // Back to ordinary painting, or every later frame keeps adding.
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
+        _addBlend.Dispose();
         ReleaseMap();
         _camera.Dispose();
         _bothSides.Dispose();
@@ -648,6 +737,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         _textures.Clear();
         _blendTextures.Clear();
+        _additive.Clear();
 
         if (_lightmap.Handle is not null)
         {
