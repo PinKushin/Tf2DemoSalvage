@@ -8,7 +8,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One decal painted onto the world.</summary>
 /// <param name="Id">The overlay's own identifier.</param>
-/// <param name="TexInfo">Which texinfo, and through it which material, it draws.</param>
+/// <param name="TexInfo">Which texinfo it draws through.</param>
+/// <param name="MaterialIndex">Which material, resolved through that texinfo's texdata.</param>
 /// <param name="RenderOrder">Which of four layers it belongs to; higher draws later.</param>
 /// <param name="Faces">The world faces it is pinned to.</param>
 /// <param name="U">Texture coordinate range across.</param>
@@ -27,6 +28,7 @@ namespace Tf2DemoSalvage.Content.Bsp;
 public sealed record BspOverlay(
     int Id,
     short TexInfo,
+    int MaterialIndex,
     int RenderOrder,
     IReadOnlyList<int> Faces,
     (float Start, float End) U,
@@ -107,6 +109,12 @@ public sealed record BspOverlay(
 public static class BspOverlays
 {
     private const int LumpOverlays = 45;
+    private const int LumpTexinfo = 6;
+
+    private const int TexinfoStride = 72;
+
+    /// <summary>Which material a texinfo names.</summary>
+    private const int TexinfoTexdataOffset = 68;
 
     /// <summary>Bytes per overlay, and the arithmetic above is the reason it is this.</summary>
     private const int OverlayStride = 352;
@@ -136,6 +144,9 @@ public static class BspOverlays
 
         ReadOnlySpan<byte> overlays = BspLumpData
             .ReadStructures(file, header.Lump(LumpOverlays), OverlayStride, "overlays").Span;
+
+        ReadOnlySpan<byte> texinfo = BspLumpData
+            .ReadStructures(file, header.Lump(LumpTexinfo), TexinfoStride, "texinfo").Span;
 
         int count = overlays.Length / OverlayStride;
         List<BspOverlay> read = new(count);
@@ -192,9 +203,21 @@ public static class BspOverlays
                 basisV = (-basisV.X, -basisV.Y, -basisV.Z);
             }
 
+            short texInfoIndex = BinaryPrimitives.ReadInt16LittleEndian(entry[TexInfoOffset..]);
+
+            // **An overlay's texinfo carries no mapping, only a material.** vbsp zeroes every
+            // texture vector in it and writes -99999 into the last component, so texdata is the
+            // only field worth reading - the texture coordinates come from flU, flV and the quad.
+            int materialIndex = texInfoIndex >= 0 &&
+                ((texInfoIndex + 1) * TexinfoStride) <= texinfo.Length
+                ? BinaryPrimitives.ReadInt32LittleEndian(
+                    texinfo[((texInfoIndex * TexinfoStride) + TexinfoTexdataOffset)..])
+                : -1;
+
             read.Add(new BspOverlay(
                 BinaryPrimitives.ReadInt32LittleEndian(entry),
-                BinaryPrimitives.ReadInt16LittleEndian(entry[TexInfoOffset..]),
+                texInfoIndex,
+                materialIndex,
                 renderOrder,
                 faces,
                 (Float(entry, UOffset), Float(entry, UOffset + 4)),

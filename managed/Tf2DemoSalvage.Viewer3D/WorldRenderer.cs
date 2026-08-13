@@ -441,6 +441,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The translucent batches, farthest first.</summary>
     private IReadOnlyList<WorldBatch> _sortedTranslucent = [];
 
+    /// <summary>The decal batches, drawn over the world with a depth bias.</summary>
+    private IReadOnlyList<WorldBatch> _decals = [];
+
+    /// <summary>Rasteriser state that pulls a decal toward the camera.</summary>
+    /// <remarks>
+    /// **Valve's own numbers, from materialsystem_config.h**, which is published even though the
+    /// overlay renderer is not:
+    ///
+    /// <code>
+    /// m_SlopeScaleDepthBias_Decal = -0.5f;
+    /// m_DepthBias_Decal = -262144;
+    /// </code>
+    ///
+    /// Against a 24-bit depth buffer, -262144 is a push of 262144 / 2^24, about 1.6% of the range.
+    /// Without it a decal shares its surface's depth exactly and the two flicker against each
+    /// other as the view moves.
+    /// </remarks>
+    private ComPtr<ID3D11RasterizerState> _decalOffset;
+
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
@@ -597,6 +616,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> bothSides = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in rasterizer, ref bothSides));
 
+        // The same state pulled toward the camera by Valve's own decal bias.
+        RasterizerDesc biased = rasterizer;
+
+        biased.DepthBias = -262144;
+        biased.SlopeScaledDepthBias = -0.5f;
+
+        ComPtr<ID3D11RasterizerState> decalOffset = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
+
         return new WorldRenderer(
             vertexShader,
             pixelShader,
@@ -605,6 +633,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             Sampler(device, TextureAddressMode.Clamp))
         {
             _bothSides = bothSides,
+            _decalOffset = decalOffset,
         };
     }
 
@@ -816,11 +845,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="device">Device to create the vertex buffer on.</param>
     /// <param name="vertices">Every triangle corner, already in clip space.</param>
     /// <param name="batches">The runs, one per material.</param>
+    /// <param name="decals">Overlay runs, drawn afterwards with a depth bias.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void UploadGeometry(
         ComPtr<ID3D11Device> device,
         IReadOnlyList<WorldVertex> vertices,
-        IReadOnlyList<WorldBatch> batches)
+        IReadOnlyList<WorldBatch> batches,
+        IReadOnlyList<WorldBatch>? decals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -858,6 +889,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // **Sorted once, at upload, because the order does not depend on the camera.** Looking
         // straight down, depth IS height, and height does not change when the view pans or zooms.
         // A perspective camera would have to re-sort per frame; this one never does.
+        _decals = decals ?? [];
+
         _sortedTranslucent =
         [
             .. batches
@@ -976,6 +1009,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
+        DrawDecals(context);
         DrawTranslucent(context);
         DrawAdditive(context);
     }
@@ -1156,6 +1190,46 @@ internal sealed unsafe class WorldRenderer : IDisposable
         return (float)(total / batch.VertexCount);
     }
 
+    /// <summary>Draws the map's decals over the surfaces they lie on.</summary>
+    /// <remarks>
+    /// Before the translucent pass, because a decal is part of the surface it sits on rather than
+    /// something in front of it: a window should blend over a sign painted on the wall behind it,
+    /// not the other way round.
+    /// </remarks>
+    private void DrawDecals(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_decals.Count == 0 || _decalOffset.Handle is null)
+        {
+            return;
+        }
+
+        context.RSSetState(_decalOffset);
+
+        foreach (WorldBatch batch in _decals)
+        {
+            if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
+            {
+                continue;
+            }
+
+            ComPtr<ID3D11ShaderResourceView> texture =
+                _textures[batch.MaterialIndex].Handle is not null
+                    ? _textures[batch.MaterialIndex]
+                    : _white;
+
+            SetMaterial(context, batch.MaterialIndex);
+
+            context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(3, 1, ref _white);
+            context.PSSetShaderResources(4, 1, ref _white);
+            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        }
+
+        // Back to the ordinary rasteriser, or everything after this is pulled forward too.
+        context.RSSetState(_bothSides);
+    }
+
     private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
     {
         if (_translucent.Count == 0 || _alphaBlend.Handle is null)
@@ -1255,6 +1329,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseMap();
         _material.Dispose();
         _camera.Dispose();
+        _decalOffset.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
@@ -1283,6 +1358,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _details.Clear();
         _bumps.Clear();
         _sortedTranslucent = [];
+        _decals = [];
         _detailParameters.Clear();
         _additive.Clear();
         _translucent.Clear();
