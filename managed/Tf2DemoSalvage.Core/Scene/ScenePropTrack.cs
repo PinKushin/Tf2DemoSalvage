@@ -138,6 +138,18 @@ public sealed class ScenePropTrack
     /// <summary>How many moments the entity actually changed at.</summary>
     public int KeyframeCount => _keyframes.Count;
 
+    /// <summary>The moments the demo stated, in order, with nothing added.</summary>
+    /// <remarks>
+    /// **What the recording said, as opposed to what gets drawn.** Anything reasoning about the
+    /// demo itself — a report, an export, a test asking whether a property ever arrived — wants
+    /// these rather than <see cref="At(double)"/>, which interpolates.
+    ///
+    /// It is also the difference between a cheap question and an expensive one: asking a track
+    /// about every tick of a long demo is hundreds of thousands of lookups for a few dozen stored
+    /// poses.
+    /// </remarks>
+    public IReadOnlyList<(int Tick, ScenePose Pose)> Keyframes => _keyframes;
+
     /// <summary>The first tick this entity was seen at.</summary>
     public int FirstTick => _keyframes.Count > 0 ? _keyframes[0].Tick : int.MaxValue;
 

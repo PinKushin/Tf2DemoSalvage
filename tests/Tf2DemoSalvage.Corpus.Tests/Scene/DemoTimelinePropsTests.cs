@@ -180,6 +180,65 @@ public sealed class DemoTimelinePropsTests
     }
 
     [Test]
+    public void EntitiesAreHiddenAndComeBack_RatherThanLingering()
+    {
+        // **The check that EF_NODRAW actually arrives.** A taken health pack is hidden rather than
+        // deleted because it respawns, and the fix for that reads one bit of m_fEffects. If the
+        // property never reaches the decoder the fix is a no-op that looks identical to working -
+        // markers on the floor either way - so the only honest verification is to count.
+        //
+        // Also checks the coming back. A track whose poses are hidden from some point onwards
+        // could be an entity that was destroyed, which proves nothing about respawning; one that
+        // goes hidden and visible again is a pickup doing what pickups do.
+        int hiddenAnywhere = 0;
+        int returned = 0;
+
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+            int hiddenHere = 0;
+            int returnedHere = 0;
+
+            // **Over the keyframes, not over the ticks.** The first version of this walked every
+            // tick of every track, which on a 100,000-tick demo with 1,400 tracks is 140 million
+            // lookups to examine a few tens of thousands of stored poses. A test slow enough that
+            // nobody runs it is a test that does not exist.
+            foreach (ScenePropTrack track in timeline.Props)
+            {
+                bool everHidden = false;
+                bool everBack = false;
+
+                foreach ((int _, ScenePose pose) in track.Keyframes)
+                {
+                    if (pose.Hidden)
+                    {
+                        everHidden = true;
+                    }
+                    else if (everHidden)
+                    {
+                        everBack = true;
+                        break;
+                    }
+                }
+
+                hiddenHere += everHidden ? 1 : 0;
+                returnedHere += everBack ? 1 : 0;
+            }
+
+            TestContext.Out.WriteLine(
+                $"HIDDEN {Path.GetFileName(path)}: {hiddenHere} of {timeline.Props.Count} tracks " +
+                $"hidden at some point, {returnedHere} of them came back");
+
+            hiddenAnywhere += hiddenHere;
+            returned += returnedHere;
+        }
+
+        hiddenAnywhere.ShouldBeGreaterThan(0, "EF_NODRAW never reached the timeline");
+        returned.ShouldBeGreaterThan(0, "nothing was ever hidden and then shown again");
+    }
+
+    [Test]
     public void Build_SomethingSomewhereMoves()
     {
         // The control against a scene of statues: tracks that all hold one keyframe would satisfy

@@ -1628,6 +1628,29 @@ internal class MainForm : Form
     /// <summary>Longest frame playback will believe in, in seconds.</summary>
     private const double MaximumFrameSeconds = 0.1;
 
+    /// <summary>The colour behind everything: a dark blue, and deliberately not black.</summary>
+    /// <remarks>
+    /// **A diagnostic choice more than a cosmetic one.** This started at 0.06/0.07/0.09, which is
+    /// near enough to black that a surface drawn black and a surface not drawn at all look
+    /// identical — so a hole in the map reads as background and nobody investigates it. The owner
+    /// found a black box on cp_process's last points only after suspecting the background was
+    /// hiding it, and could not tell whether it was geometry or a gap.
+    ///
+    /// It also still does the job the near-black one was written for: a viewport that stays the
+    /// form's grey looks the same whether the device failed or simply drew nothing, so the clear
+    /// colour is the evidence that the swap chain is bound to this panel and presenting.
+    ///
+    /// Blue rather than any other hue because nothing in a TF2 map is this colour: the team blues
+    /// are far brighter, and the world is browns, greys and greens.
+    /// </remarks>
+    private const float BackgroundRed = 0.07f;
+
+    /// <inheritdoc cref="BackgroundRed"/>
+    private const float BackgroundGreen = 0.10f;
+
+    /// <inheritdoc cref="BackgroundRed"/>
+    private const float BackgroundBlue = 0.20f;
+
     /// <summary>Moves playback on by however long the last frame took.</summary>
     /// <remarks>
     /// **Nothing is invalidated here.** The idle loop this runs inside already draws every frame,
@@ -1718,13 +1741,10 @@ internal class MainForm : Form
 
         AdvancePlayback();
 
-        // The clear colour is the whole picture for now, and that is deliberate: it is the
-        // evidence that the swap chain is bound to this panel and presenting. A viewport that
-        // stays the form's grey looks identical whether the device failed or simply drew nothing.
         _device?.DrawFrame(
-            0.06f,
-            0.07f,
-            0.09f,
+            BackgroundRed,
+            BackgroundGreen,
+            BackgroundBlue,
             _mapFill,
             _outline.Checked ? _mapLines : [],
             _scene);
