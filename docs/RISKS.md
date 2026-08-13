@@ -2753,3 +2753,41 @@ answer continuously — `player_resource.cpp` transmits with `FL_EDICT_ALWAYS` a
 The renderer reads these today and falls back to the player entity's own `m_iTeamNum`, so era demos
 colour correctly and modern ones mostly do not. Until this is resolved, team colour on a modern
 demo is unreliable and class is worse.
+
+## B46 — ten static props draw unlit, and it is not a decode failure — OPEN, low value
+
+Measured on cp_process_f12: **10 of 1,353 placed props have no baked vertex lighting**, and the
+viewer draws those white.
+
+**vrad never wrote one for them.** From `vradstaticprops.cpp`:
+
+```c
+// no need to write this file if we didn't compute the data
+// props marked this way will not load the info anyway
+if ( m_StaticProps[i].m_Flags & STATIC_PROP_NO_PER_VERTEX_LIGHTING )
+    continue;
+```
+
+`STATIC_PROP_NO_PER_VERTEX_LIGHTING` is `0x40` in `gamebspfile.h`, and its comment says what
+happens instead: *"in vrad, compute lighting at lighting origin, not for each vertex"*. So the prop
+gets one colour sampled at `m_LightingOrigin` rather than a colour per vertex, and the absent
+`.vhv` is correct rather than missing.
+
+So this is not a reader defect. What is wrong is the fallback: white, where the right answer is a
+single sampled colour.
+
+**Why it is filed rather than fixed.** Two costs, against 0.7% of props:
+
+1. **`m_Flags` moved between versions.** The modern `StaticPropLump_t` carries it as a late
+   `unsigned int`; V4 had it as an `unsigned char` immediately after `m_Solid`. Reading it needs a
+   per-version field map, which is exactly what `BspStaticProps` avoids by measuring its stride
+   through division — a deliberate choice that has survived five protocol eras.
+2. **The colour has to come from somewhere.** Sampling at the lighting origin means reading the
+   leaf ambient lighting lump, which nothing in this project reads yet.
+
+White is also a defensible fallback here: the props that carry this flag are typically small or
+already bright, and the black blobs that prompted the original hunt turned out to be a test
+artefact rather than these.
+
+Worth doing when the leaf ambient lump is read for another reason. Not worth a version table on its
+own.
