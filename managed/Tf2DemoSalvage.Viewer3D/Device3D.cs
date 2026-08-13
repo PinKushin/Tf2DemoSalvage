@@ -164,6 +164,17 @@ internal sealed unsafe class Device3D : IDisposable
     public void ClearAndPresent(float red, float green, float blue) =>
         DrawAndPresent(red, green, blue, []);
 
+    /// <summary>Sizes the decal depth bias for the map's height range.</summary>
+    /// <param name="worldRange">Highest world height minus lowest, in units.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    public void SetDecalBias(float worldRange)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.SetDecalBias(_device, worldRange);
+    }
+
     /// <summary>Uploads every entity model's geometry, in model space.</summary>
     /// <param name="models">The packed set.</param>
     /// <exception cref="ArgumentNullException"><paramref name="models"/> is null.</exception>

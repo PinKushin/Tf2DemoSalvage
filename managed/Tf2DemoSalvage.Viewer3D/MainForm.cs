@@ -1057,6 +1057,13 @@ internal class MainForm : Form
                     // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
                     _heightRange = MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds);
 
+                    // The decal bias is a fraction of the depth buffer, and the depth buffer spans
+                    // this range - so the same bias is worth a different distance on every map.
+                    if (_heightRange is { } range && range.Highest > range.Lowest)
+                    {
+                        _device.SetDecalBias(range.Highest - range.Lowest);
+                    }
+
                     built = MapWorldBuilder.Build(
                         _terrain,
                         _surfaceList,

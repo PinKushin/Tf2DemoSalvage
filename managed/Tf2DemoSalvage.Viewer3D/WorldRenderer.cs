@@ -509,11 +509,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// m_DepthBias_Decal = -262144;
     /// </code>
     ///
-    /// Against a 24-bit depth buffer, -262144 is a push of 262144 / 2^24, about 1.6% of the range.
-    /// Without it a decal shares its surface's depth exactly and the two flicker against each
-    /// other as the view moves.
+    /// Against a 24-bit depth buffer, -262144 is a push of 262144 / 2^24, about **1.6% of the
+    /// range** — and that is the trap. Valve's projection is perspective, where most of the depth
+    /// range sits close to the camera, so 1.6% near the surface being decalled is a fraction of a
+    /// unit. This projection is orthographic over the whole map's height: 1.6% of a 1,600-unit
+    /// range is **twenty-five world units**, which is taller than a health pack.
+    ///
+    /// The visible result was a decal painted over the pickup standing on it, with the pack's
+    /// shape faintly showing through — reported as "the health packs are not drawing" and chased
+    /// through the model pipeline for an evening. Comparing against TF2 itself is what settled it:
+    /// in game the pack sits clearly on top of a much smaller patch.
+    ///
+    /// So the bias is computed from the map's own height range to be worth about one world unit,
+    /// which is what Valve's constant achieves in Valve's projection. Copying the number without
+    /// matching the projection copies the intent and inverts the effect.
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
+
+    /// <summary>Depth bias used until the map's height range is known.</summary>
+    /// <remarks>
+    /// Sized for a range of about 1,600 units, which is a typical TF2 map: one unit of a 24-bit
+    /// range is 2^24 / 1600, near enough ten thousand. <see cref="SetDecalBias"/> replaces it with
+    /// the real arithmetic once the map has been read.
+    /// </remarks>
+    private const int DefaultDecalBias = -10000;
 
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
@@ -671,10 +690,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> bothSides = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in rasterizer, ref bothSides));
 
-        // The same state pulled toward the camera by Valve's own decal bias.
+        // The same state pulled toward the camera, by an amount worth about a world unit rather
+        // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
 
-        biased.DepthBias = -262144;
+        biased.DepthBias = DefaultDecalBias;
         biased.SlopeScaledDepthBias = -0.5f;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
@@ -1612,6 +1632,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
             SilkMarshal.ThrowHResult(
                 device.CreateBuffer(in description, in initial, ref _modelVertices));
         }
+    }
+
+    /// <summary>Sizes the decal bias for the map's own height range.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="worldRange">Highest world height minus lowest, in units.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="worldRange"/> is not positive.</exception>
+    /// <remarks>
+    /// **A world unit, whatever the map.** The depth buffer spans the map's whole height, so the
+    /// same bias means different distances on different maps — a tall map would push its decals
+    /// further through whatever stands on them. One unit is enough to stop a decal fighting the
+    /// surface it lies on and far less than the smallest thing that can stand on one.
+    /// </remarks>
+    public void SetDecalBias(ComPtr<ID3D11Device> device, float worldRange)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(worldRange);
+
+        RasterizerDesc description = new()
+        {
+            FillMode = FillMode.Solid,
+            CullMode = CullMode.None,
+            DepthClipEnable = 1,
+            DepthBias = -(int)(16777216.0 / worldRange),
+            SlopeScaledDepthBias = -0.5f,
+        };
+
+        ComPtr<ID3D11RasterizerState> replacement = default;
+
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref replacement));
+
+        _decalOffset.Dispose();
+        _decalOffset = replacement;
     }
 
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
