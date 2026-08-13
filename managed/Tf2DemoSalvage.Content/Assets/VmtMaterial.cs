@@ -52,14 +52,57 @@ public sealed class VmtMaterial
     /// <summary>The texture drawn on the surface, without extension, or null.</summary>
     public string? BaseTexture => Value("$basetexture");
 
-    /// <summary>Whether the surface needs alpha blending rather than being drawn opaque.</summary>
+    /// <summary>Whether the surface is not simply opaque, by either route.</summary>
     /// <remarks>
-    /// Either key means blending. `$alphatest` is the cheaper cutout form — grates and chain-link
-    /// fences — and `$translucent` is real blending; for a map overview both mean "do not draw this
-    /// as a solid".
+    /// Kept for callers that only need to know a surface is not a solid. Anything that has to
+    /// DRAW it wants <see cref="IsAlphaTested"/> or <see cref="IsTranslucent"/>, which are
+    /// different operations and mutually exclusive.
     /// </remarks>
-    public bool IsTransparent =>
-        Value("$translucent") is "1" || Value("$alphatest") is "1";
+    public bool IsTransparent => IsAlphaTested || IsTranslucent;
+
+    /// <summary>Whether the surface is cut out by a threshold rather than blended.</summary>
+    /// <remarks>
+    /// The cheap form, and what foliage and grates use: each pixel is drawn or discarded, nothing
+    /// in between, so it needs no sorting and can be drawn in the opaque pass.
+    /// </remarks>
+    public bool IsAlphaTested => Value("$alphatest") is "1";
+
+    /// <summary>Whether the surface is blended with what is behind it.</summary>
+    /// <remarks>
+    /// **Alpha test wins when a material declares both**, which is Valve's own clause rather than
+    /// a tie-break invented here:
+    ///
+    /// <code>
+    /// isTranslucent = ... || ( TextureIsTranslucent( textureVar, isBaseTexture ) &amp;&amp;
+    ///                          !(CurrentMaterialVarFlags() &amp; MATERIAL_VAR_ALPHATEST ) );
+    /// </code>
+    ///
+    /// **And <c>$translucent</c> is not the only route in.** Constant modulation through
+    /// <c>$alpha</c>, and per-vertex alpha, both reach the same conclusion — so a material can be
+    /// translucent without ever naming the key. Source also consults the texture's own alpha
+    /// channel, which this cannot do without the texture; a caller holding one should add that.
+    /// </remarks>
+    public bool IsTranslucent
+    {
+        get
+        {
+            if (IsAlphaTested)
+            {
+                return false;
+            }
+
+            if (Value("$translucent") is "1" || Value("$vertexalpha") is "1")
+            {
+                return true;
+            }
+
+            // $alpha is a constant multiplier, so anything short of fully opaque blends. A missing
+            // or unparseable value is not translucency - it is a material that said nothing.
+            return Value("$alpha") is { } alpha &&
+                float.TryParse(alpha, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) &&
+                value < 1f;
+        }
+    }
 
     /// <summary>Whether the material is drawn by ADDING its colour to what is behind it.</summary>
     /// <remarks>

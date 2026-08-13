@@ -88,6 +88,52 @@ public sealed class VmtMaterialTests
     {
         Parse("\"x\"{\"$translucent\" \"1\"}").IsTransparent.ShouldBeTrue();
         Parse("\"x\"{\"$alphatest\" \"1\"}").IsTransparent.ShouldBeTrue();
+    }
+
+    [Test]
+    public void AlphaTestAndTranslucent_AreDifferentThings()
+    {
+        // **Collapsing these draws glass as a cutout.** An alpha-tested surface is clipped - a
+        // grate is either there or it is not - while a translucent one is blended. Both used to
+        // answer the same question here, so a window was drawn with its own texture punched into
+        // holes wherever its alpha fell below the clip.
+        VmtMaterial grate = Parse("\"x\"{\"$alphatest\" \"1\"}");
+
+        grate.IsAlphaTested.ShouldBeTrue();
+        grate.IsTranslucent.ShouldBeFalse();
+
+        VmtMaterial glass = Parse("\"x\"{\"$translucent\" \"1\"}");
+
+        glass.IsAlphaTested.ShouldBeFalse();
+        glass.IsTranslucent.ShouldBeTrue();
+    }
+
+    [Test]
+    public void AlphaTest_CancelsTranslucency()
+    {
+        // **Valve's own clause, and it is explicit.** EvaluateBlendRequirements counts a
+        // texture's alpha only when the alpha-test flag is absent, so a material declaring both
+        // is alpha tested rather than blended. Reading it the other way puts
+        // every grate into the sorted pass, where it blends with whatever is behind it instead of
+        // cutting out.
+        VmtMaterial both = Parse("\"x\"{\"$translucent\" \"1\" \"$alphatest\" \"1\"}");
+
+        both.IsAlphaTested.ShouldBeTrue();
+        both.IsTranslucent.ShouldBeFalse("alpha test wins; the two are alternatives");
+    }
+
+    [Test]
+    public void Translucency_ArrivesByOtherRoutesThanTheKey()
+    {
+        // $alpha is constant modulation and reaches BT_BLEND through IsAlphaModulating, so a
+        // material can be translucent without ever naming $translucent. A reader that keys only on
+        // $translucent draws these opaque.
+        Parse("\"x\"{\"$alpha\" \"0.5\"}").IsTranslucent.ShouldBeTrue();
+        Parse("\"x\"{\"$vertexalpha\" \"1\"}").IsTranslucent.ShouldBeTrue();
+
+        // The control: a fully opaque $alpha is not translucency, and treating it as such would
+        // move an ordinary material into the sorted pass for nothing.
+        Parse("\"x\"{\"$alpha\" \"1\"}").IsTranslucent.ShouldBeFalse();
 
         // The control: a material with neither must be opaque, or every surface blends.
         Parse("\"x\"{\"$basetexture\" \"a/b\"}").IsTransparent.ShouldBeFalse();
