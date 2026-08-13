@@ -26,23 +26,120 @@ public sealed class ScenePropTrackTests
 
         track.Add(500, Pose(0f, 0f, 0f));
 
-        track.At(100).ShouldBeNull();
+        track.AtKeyframe(100).ShouldBeNull();
     }
 
     [Test]
-    public void At_BetweenKeyframes_IsTheOneBefore()
+    public void AtKeyframe_BetweenKeyframes_IsTheOneBefore()
     {
-        // Not interpolated: the demo said the entity was here and then said it was there, and
-        // anything in between is invention. Players are interpolated by the engine because they
-        // move every tick; a door that opened at tick 900 was shut at 899.
+        // The raw stored value, with nothing added. Kept alongside the interpolating overload
+        // because "what did the demo actually say" and "what should be drawn" are different
+        // questions, and only one of them is evidence.
         ScenePropTrack track = new(entityIndex: 3, "models/props/door.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f));
         track.Add(900, Pose(64f, 0f, 0f));
 
-        track.At(500)!.Value.X.ShouldBe(0f);
-        track.At(899)!.Value.X.ShouldBe(0f);
-        track.At(900)!.Value.X.ShouldBe(64f);
+        track.AtKeyframe(500)!.Value.X.ShouldBe(0f);
+        track.AtKeyframe(899)!.Value.X.ShouldBe(0f);
+        track.AtKeyframe(900)!.Value.X.ShouldBe(64f);
+    }
+
+    [Test]
+    public void At_BetweenKeyframes_Interpolates()
+    {
+        // **Parity with the engine, which does not snap.** A client stores a history of
+        // value-plus-changetime entries - CInterpolatedVarEntryBase - and calls Interpolate() for
+        // the moment being drawn. Snapping to the earlier keyframe makes a rocket jump between
+        // updates instead of flying, which is most obvious on a 33-tick server where updates are
+        // twice as far apart.
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f));
+        track.Add(200, Pose(100f, 0f, 0f));
+
+        track.At(150)!.Value.X.ShouldBe(50f, 0.001);
+        track.At(175)!.Value.X.ShouldBe(75f, 0.001);
+    }
+
+    [Test]
+    public void At_OutsideTheKeyframes_DoesNotExtrapolate()
+    {
+        // Before the first and after the last, the value holds. Extrapolating would send a rocket
+        // on for ever after its last update, which is a plausible-looking trajectory and entirely
+        // invented.
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f));
+        track.Add(200, Pose(100f, 0f, 0f));
+
+        track.At(500)!.Value.X.ShouldBe(100f);
+    }
+
+    [Test]
+    public void At_OnCycle_WrapsRatherThanRunningBackwards()
+    {
+        // **Valve's LoopingLerp, from lerp_functions.h.** A looping animation goes 0.9 -> 0.1 by
+        // passing through 1.0, not by running backwards through 0.5. The rule is the engine's: if
+        // the two differ by half a cycle or more, raise the lower by one before interpolating and
+        // take the fractional part.
+        //
+        // Without it a looping model plays smoothly forwards and then rewinds through its whole
+        // animation at every loop point, which reads as a broken animation rather than as a
+        // broken interpolation.
+        ScenePropTrack track = new(entityIndex: 3, "models/props/fan.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.9f, Sequence = 1 });
+        track.Add(200, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 1 });
+
+        // Halfway is 1.0, which wraps to 0.0 - not 0.5, which is where a plain lerp lands.
+        track.At(150)!.Value.Cycle.ShouldBe(0f, 0.001);
+    }
+
+    [Test]
+    public void At_OnCycleWithinOneLoop_IsAPlainLerp()
+    {
+        // The control for the test above: the wrap only applies when the gap is half a cycle or
+        // more. A rule applied everywhere would corrupt ordinary playback, and both tests pass
+        // against code that always wraps unless one of them pins the ordinary case.
+        ScenePropTrack track = new(entityIndex: 3, "models/props/fan.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.2f, Sequence = 1 });
+        track.Add(200, Pose(0f, 0f, 0f) with { Cycle = 0.6f, Sequence = 1 });
+
+        track.At(150)!.Value.Cycle.ShouldBe(0.4f, 0.001);
+    }
+
+    [Test]
+    public void At_AcrossASequenceChange_DoesNotBlendTheCycle()
+    {
+        // Two different animations have no common timeline, so a cycle of 0.9 in one and 0.1 in
+        // the next are not two points on one curve. Blending them produces a pose from neither
+        // animation - and it is the loop case that makes this visible, since that is when the
+        // wrap rule would otherwise fire on unrelated numbers.
+        ScenePropTrack track = new(entityIndex: 3, "models/player/scout.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.9f, Sequence = 1 });
+        track.Add(200, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 2 });
+
+        ScenePose shown = track.At(150)!.Value;
+
+        shown.Sequence.ShouldBe(1, "the new animation has not started yet");
+        shown.Cycle.ShouldBe(0.9f, "held, not blended into an animation it does not belong to");
+    }
+
+    [Test]
+    public void At_OnYaw_TakesTheShortWayRound()
+    {
+        // 350 degrees to 10 degrees is a 20 degree turn through north, not a 340 degree turn the
+        // other way. A plain lerp spins the model almost all the way round between two updates,
+        // which looks like a model that cannot decide which way it faces.
+        ScenePropTrack track = new(entityIndex: 3, "models/props/door.mdl");
+
+        track.Add(100, Pose(0f, 0f, 0f) with { Yaw = 350f });
+        track.Add(200, Pose(0f, 0f, 0f) with { Yaw = 10f });
+
+        track.At(150)!.Value.Yaw.ShouldBe(0f, 0.01);
     }
 
     [Test]
@@ -54,7 +151,7 @@ public sealed class ScenePropTrackTests
 
         track.Add(100, Pose(10f, 20f, 30f));
 
-        track.At(90_000)!.Value.Y.ShouldBe(20f);
+        track.AtKeyframe(90_000)!.Value.Y.ShouldBe(20f);
     }
 
     [Test]
@@ -97,8 +194,8 @@ public sealed class ScenePropTrackTests
         track.Add(100, Pose(0f, 0f, 0f));
         track.End(400);
 
-        track.At(399).ShouldNotBeNull();
-        track.At(400).ShouldBeNull();
+        track.AtKeyframe(399).ShouldNotBeNull();
+        track.AtKeyframe(400).ShouldBeNull();
     }
 
     [Test]

@@ -41,6 +41,7 @@ it, because a second copy is a copy that goes stale.
 | [17-translucency.md](17-translucency.md) | What makes a surface see-through, and why `$alphatest` cancels `$translucent` |
 | [18-decals.md](18-decals.md) | Overlays: a basis smuggled through unused corner components, and the published depth bias |
 | [19-model-indices.md](19-model-indices.md) | Where a networked entity's model comes from, and the packing protocol ≤ 20 applied to it |
+| [20-interpolation.md](20-interpolation.md) | Turning stored keyframes into motion: three quantities, three rules, one gap left open |
 
 ## Which of this is original
 

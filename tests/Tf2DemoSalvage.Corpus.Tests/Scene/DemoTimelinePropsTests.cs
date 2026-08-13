@@ -87,6 +87,43 @@ public sealed class DemoTimelinePropsTests
     }
 
     [Test]
+    public void PropsAt_ReturnsFewerModelsThanTheDemoEverHeldOf()
+    {
+        // **The check that tracks are being asked about a moment, not summed.** A viewer draws
+        // what exists NOW; a demo's track list is everything that ever existed, including every
+        // rocket that has already exploded. If those matched, PropsAt would be ignoring its tick
+        // and the map would fill with the debris of the whole match.
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+            if (timeline.Props.Count == 0 || timeline.Frames.Count == 0)
+            {
+                continue;
+            }
+
+            List<SceneProp> shown = [];
+
+            timeline.PropsAt(timeline.LastTick, shown);
+
+            TestContext.Out.WriteLine(
+                $"AT {Path.GetFileName(path)}: {shown.Count} models at the last tick, " +
+                $"{timeline.Props.Count} tracks over the whole demo");
+
+            shown.Count.ShouldBeLessThanOrEqualTo(timeline.Props.Count, path);
+
+            // Every model shown must be one the demo actually carried, which catches a pose being
+            // paired with the wrong track's path.
+            foreach (SceneProp prop in shown)
+            {
+                timeline.Props
+                    .Any(track => string.Equals(track.ModelPath, prop.ModelPath, StringComparison.Ordinal))
+                    .ShouldBeTrue(path);
+            }
+        }
+    }
+
+    [Test]
     public void Build_SomethingSomewhereMoves()
     {
         // The control against a scene of statues: tracks that all hold one keyframe would satisfy

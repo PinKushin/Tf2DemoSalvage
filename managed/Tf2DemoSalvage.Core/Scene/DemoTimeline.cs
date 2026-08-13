@@ -456,6 +456,34 @@ public sealed class DemoTimeline
         }
     }
 
+    /// <summary>Every model that existed at a tick, with the pose it held then.</summary>
+    /// <param name="tick">The moment being shown, which may fall between ticks.</param>
+    /// <param name="into">Filled with the visible models; cleared first.</param>
+    /// <remarks>
+    /// **Fills a caller's collection rather than returning a new one.** A viewer asks this on
+    /// every frame, and a match carries over a thousand tracks on a busy map — allocating a list
+    /// per frame is garbage the renderer does not need to make. Typed as
+    /// <see cref="ICollection{T}"/> rather than <c>List</c> so callers keep their own buffer
+    /// without this API dictating which type it is (CA1002).
+    ///
+    /// Tracks are asked individually because each holds its own keyframes; a track that has not
+    /// started or has already ended simply answers nothing.
+    /// </remarks>
+    public void PropsAt(double tick, ICollection<SceneProp> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        foreach (ScenePropTrack track in _props)
+        {
+            if (track.At(tick) is { } pose)
+            {
+                into.Add(new SceneProp(track.EntityIndex, track.ModelPath, track.Kind, pose));
+            }
+        }
+    }
+
     /// <summary>Where everyone was at a tick, or the most recent moment before it.</summary>
     /// <param name="tick">The tick being shown.</param>
     /// <returns>The players, empty before the first recorded frame.</returns>
