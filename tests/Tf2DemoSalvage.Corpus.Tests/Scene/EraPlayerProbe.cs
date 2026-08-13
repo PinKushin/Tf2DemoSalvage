@@ -133,8 +133,39 @@ public sealed class EraPlayerProbe
                         : "absent";
 
                 TestContext.Out.WriteLine($"ERA   team via Integer: {team}; raw kind: {kind}");
+                EntityState[] resources = [.. all.Where(e => e.ClassName == "CTFPlayerResource")];
+
                 TestContext.Out.WriteLine(
-                    $"ERA   all keys: {string.Join(" | ", one.Properties.Keys.OrderBy(k => k, StringComparer.Ordinal))}");
+                    $"ERA   {resources.Length} resource entities: " +
+                    string.Join(", ", resources.Select(r =>
+                        $"#{r.EntityIndex} visible={r.IsVisible} keys={r.Properties.Count} " +
+                        $"teams={r.Properties.Keys.Count(k => k.StartsWith("m_iTeam.", StringComparison.Ordinal))}")));
+
+                EntityState? resource = resources.FirstOrDefault();
+
+                if (resource is not null)
+                {
+                    string[] roots = [.. resource.Properties.Keys
+                        .Select(k => k.Contains('.', StringComparison.Ordinal)
+                            ? k[..k.LastIndexOf('.')]
+                            : k)
+                        .Distinct()
+                        .OrderBy(k => k, StringComparer.Ordinal)];
+
+                    TestContext.Out.WriteLine(
+                        $"ERA   resource arrays: {string.Join(" | ", roots)}");
+
+                    foreach (string probe in (string[])["m_iTeam", "m_iPlayerClass"])
+                    {
+                        string[] sample = [.. resource.Properties
+                            .Where(pair => pair.Key.StartsWith(probe + ".", StringComparison.Ordinal))
+                            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                            .Take(6)
+                            .Select(pair => $"{pair.Key}={pair.Value.Kind}")];
+
+                        TestContext.Out.WriteLine($"ERA   {probe}: {string.Join(", ", sample)}");
+                    }
+                }
 
                 string[] teamKeys = [.. players
                     .SelectMany(p => p.Properties.Keys)
