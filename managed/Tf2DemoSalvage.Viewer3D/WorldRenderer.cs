@@ -116,8 +116,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // x: 1 when the material has a bump map, 0 otherwise
             // y: 1 when that bump map is self-shadowing rather than a normal map
-            // z, w: unused
+            // z: 1 when parts of the surface light themselves
+            // w: unused
             float4 bump;
+
+            // The colour the self-illuminated part is tinted by.
+            float4 selfIllumTint;
         };
 
         Texture2D    albedoMap   : register(t0);
@@ -333,6 +337,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 lit = CombineDetailAfterLighting(lit, detailColour, mode, detail.y);
             }
 
+            // **The base texture's alpha decides which parts light themselves**, one being fully
+            // unlit and zero normally lit. Applied after the lightmap, because the whole point is
+            // that these parts ignore it.
+            if (bump.z > 0.5f)
+            {
+                lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, albedo.a);
+            }
+
             return float4(lit, albedo.a);
         }
         """;
@@ -369,7 +381,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return default;
         }
 
-        if (present.IsTransparent)
+        // **Self-illuminated materials keep their alpha even though they are opaque.** That
+        // channel is the mask deciding which parts light themselves; flattened to 255 the whole
+        // surface glows rather than just the lamp in the middle of it.
+        if (present.IsTransparent || present.SelfIllum is not null)
         {
             return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
         }
@@ -790,6 +805,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float hasBump = bump is null ? 0f : 1f;
             float isSelfShadowing = bump is { IsSelfShadowing: true } ? 1f : 0f;
 
+            MapTexture? surface = index < assets.Textures.Count ? assets.Textures[index] : null;
+            (float Red, float Green, float Blue)? glow = surface?.SelfIllum;
+            float hasGlow = glow is null ? 0f : 1f;
+            float glowRed = glow?.Red ?? 1f;
+            float glowGreen = glow?.Green ?? 1f;
+            float glowBlue = glow?.Blue ?? 1f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -803,8 +825,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     1f,
                     hasBump,
                     isSelfShadowing,
+                    hasGlow,
                     0f,
-                    0f,
+                    glowRed, glowGreen, glowBlue, 1f,
                 ]
                 :
                 [
@@ -812,8 +835,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     1f, 1f, 1f, 1f,
                     hasBump,
                     isSelfShadowing,
+                    hasGlow,
                     0f,
-                    0f,
+                    glowRed, glowGreen, glowBlue, 1f,
                 ]);
         }
 
@@ -839,6 +863,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ViewerLog.Write(
             "render",
             $"{_bumps.Count(bump => bump.Handle is not null)} materials draw with a bump map");
+
+        ViewerLog.Write(
+            "render",
+            $"{assets.Textures.Count(texture => texture is { SelfIllum: not null })} materials light themselves");
     }
 
     /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
@@ -1085,7 +1113,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Mode -1, which is the value the shader tests to skip the combine entirely. The tint is white
     /// so that a stale sample can never darken anything even if the mode were somehow read.
     /// </remarks>
-    private static readonly float[] NoDetail = [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f];
+    private static readonly float[] NoDetail =
+        [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f];
 
     private void EnsureMaterialBuffer(ComPtr<ID3D11DeviceContext> context)
     {
@@ -1100,7 +1129,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BufferDesc description = new()
         {
-            ByteWidth = sizeof(float) * 12,
+            ByteWidth = sizeof(float) * 16,
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,
             CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -1153,7 +1182,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         fixed (float* source = contents)
         {
-            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 12, sizeof(float) * 12);
+            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
         }
 
         context.Unmap(_material, 0);
