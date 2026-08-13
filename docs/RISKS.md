@@ -2897,3 +2897,40 @@ the reasoning behind that choice should be recoverable later.
 
 Not to be confused with the trailing-block quirk in `IceCipher.DecryptAll`, which was found in the
 same session and affects script files only — it has nothing to do with demo playback.
+
+## B49 — black lids over rooms in the overhead view — OPEN, and it is roof removal, not lighting
+
+**Filed 2026-08-13.** Solid black boxes sit over cp_process's last points and a few other rooms.
+Three measurements, none of which needed a guess:
+
+- **The category view (F9) says world brush.** Present, drawn, not missing, not displacement.
+- **No surface in the map is unlit.** 12,230 visible surfaces, **zero** with an all-black
+  lightmap. Lighting is not the cause.
+- **The material is `tools/toolsblack`**, whose reflectivity vbsp itself records as
+  `0.000 0.000 0.000` — 118 faces of it.
+
+So the renderer is correct and the picture is wrong. Lighting multiplies the texture, and anything
+times zero is zero: a perfectly lit black texture is black. Mappers cap rooms with `toolsblack` so
+the skybox does not show through from inside; from below it reads as dark void above, and nobody is
+ever above it to see that it is a slab.
+
+**Do not fix this by skipping the material.** That was tried and reverted, and `MapWorld.cs`
+carries the account: `toolsblack` is genuinely drawn behind windows, under grates and inside vents,
+and removing it by name left 4.8 million square units showing the background through — read as dark
+blobs, and survived four separate explanations about lighting before anyone checked.
+
+**Orientation separates the two uses, and the numbers are clean:**
+
+| Facing | Count | What it is |
+|---|---|---|
+| Up | 88 | Lids over rooms — only ever seen from above |
+| Vertical | 30 | Window voids, grates, vents — must stay |
+| Down | 0 | — |
+
+An up-facing rule would therefore keep every case that broke the last attempt. But the right fix is
+the roof-removal feature the viewer already half has (the depth cut), because the same problem
+applies to any roof and not only to black ones: an overhead camera stands where no player does, and
+what to hide is a property of the view rather than of the material.
+
+**Parked deliberately** until model rendering lands, on the owner's call. The measurements above are
+the expensive part and they are done.
