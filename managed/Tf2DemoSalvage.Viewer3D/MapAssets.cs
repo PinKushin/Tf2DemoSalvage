@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
@@ -342,16 +343,29 @@ internal sealed class MapAssets
         int resolved = 0;
         int missing = 0;
 
-        foreach (BspMaterial material in materials)
+        IDisposable materialTiming = ViewerLog.Time("assets", "resolving materials");
+
+        // **Resolved in parallel, written by index.** Each material is an independent chain of
+        // VMT, patch and VTF, and both content sources are read-only once opened: VpkArchive opens
+        // a fresh stream per read and PakFile reads an in-memory buffer, so neither has shared
+        // mutable state.
+        //
+        // Index-addressed rather than appended, because the material table's ORDER is load-bearing
+        // - every face in the map indexes into it. Appending from several threads would shuffle it
+        // and repaint the map with the wrong textures, differently on each run.
+        ResolvedMaterial[] found = new ResolvedMaterial[materials.Count];
+
+        Parallel.For(0, materials.Count, index =>
+            found[index] = Resolve(materials[index].Name, pak, archives, maximumTextureSize));
+
+        foreach (ResolvedMaterial material in found)
         {
-            ResolvedMaterial found = Resolve(material.Name, pak, archives, maximumTextureSize);
+            textures.Add(material.Texture);
+            blendTextures.Add(material.Blend);
+            details.Add(material.Detail);
+            bumps.Add(material.Bump);
 
-            textures.Add(found.Texture);
-            blendTextures.Add(found.Blend);
-            details.Add(found.Detail);
-            bumps.Add(found.Bump);
-
-            if (found.Texture is null)
+            if (material.Texture is null)
             {
                 missing++;
             }
@@ -366,6 +380,10 @@ internal sealed class MapAssets
         // the end. Inserting them first would renumber every face in the map.
         int brushMaterials = materials.Count;
 
+        materialTiming.Dispose();
+
+        IDisposable propTiming = ViewerLog.Time("assets", "loading props");
+
         IReadOnlyList<PropVertex> props = PropModels.Load(
             map,
             pak,
@@ -373,6 +391,8 @@ internal sealed class MapAssets
             materials,
             textures,
             path => Resolve(path, pak, archives, maximumTextureSize, report: false).Texture);
+
+        propTiming.Dispose();
 
         // The blend list is indexed in step with the textures, and a prop material never has a
         // second layer - only a displacement's WorldVertexTransition does.
@@ -416,10 +436,18 @@ internal sealed class MapAssets
             details,
             bumps,
             materials,
-            LightmapAtlas.PackAll(BspLightmaps.ReadAll(map)),
+            PackLighting(map),
             props,
             resolved,
             missing);
+    }
+
+    private static LightmapAtlas PackLighting(ReadOnlyMemory<byte> map)
+    {
+        using (ViewerLog.Time("assets", "reading and packing lightmaps"))
+        {
+            return LightmapAtlas.PackAll(BspLightmaps.ReadAll(map));
+        }
     }
 
     /// <summary>Follows a material to its texture.</summary>

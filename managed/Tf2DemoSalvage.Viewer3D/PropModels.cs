@@ -99,6 +99,16 @@ internal static class PropModels
         }
 
         int brushMaterialCount = textures.Count;
+        // **Sequential, and not because nobody has looked.** Loading props is the largest stage of
+        // a map load - 2.97s against 0.65s for materials and 1.17s for lightmaps on
+        // cp_process_f12 - and the decode itself would parallelise, since each model's .mdl, .vvd
+        // and .vtx are independent.
+        //
+        // What does not parallelise is what the loop does alongside the decode: it appends each
+        // model's materials to the shared table and hands out their indices. Those indices are
+        // referenced by every prop vertex, so producing them out of order repaints the props with
+        // each other's textures, differently on each run. Separating the decode from the index
+        // assignment is a real refactor rather than a wrapper, so it is left as one.
         Dictionary<string, LoadedModel?> loaded = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
         List<PropVertex> world = [];
