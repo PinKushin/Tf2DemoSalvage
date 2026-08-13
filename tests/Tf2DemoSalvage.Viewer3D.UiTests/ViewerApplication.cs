@@ -1,9 +1,11 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Exceptions;
 using FlaUI.Core.Tools;
 using FlaUI.UIA3;
 
@@ -139,8 +141,42 @@ internal sealed class ViewerApplication : IDisposable
         Log($"focus acquired: {HasFocus()}");
     }
 
-    /// <summary>Whether the viewer currently holds keyboard focus.</summary>
-    public bool HasFocus() => Window.Properties.HasKeyboardFocus.ValueOrDefault;
+    /// <summary>Whether keyboard input will reach the viewer.</summary>
+    /// <remarks>
+    /// **The question is where a keystroke lands, not which element reports focus.** This used to
+    /// read <c>Window.Properties.HasKeyboardFocus</c>, which is the TOP-LEVEL window's own flag -
+    /// and that is false whenever focus legitimately sits on a child, which on this form it always
+    /// does: the playlist takes it the moment the window opens. So the check failed on a window
+    /// that was foreground and typable, the caller clicked the title bar, then waited out a
+    /// five-second retry for a flag that could never become true.
+    ///
+    /// Nothing about that was flake and nothing about it was the application. It cost five seconds
+    /// of every test that focuses the window, and it made a failure elsewhere read as "the viewer
+    /// would not take focus".
+    ///
+    /// Asking the automation system which element has focus, and whether that element belongs to
+    /// our process, answers the question actually being asked.
+    /// </remarks>
+    public bool HasFocus()
+    {
+        try
+        {
+            AutomationElement? focused = _automation.FocusedElement();
+
+            return focused is not null &&
+                focused.Properties.ProcessId.ValueOrDefault == _application.ProcessId;
+        }
+        catch (Exception failure) when (
+            failure is COMException or TimeoutException or PropertyNotSupportedException)
+        {
+            // A window closing under the query, or an element that has gone away between the two
+            // calls. Reported rather than swallowed: a focus check that quietly says "no" is how a
+            // test spends its retry budget on a question nobody answered.
+            Log($"focus check failed: {failure.Message}");
+
+            return false;
+        }
+    }
 
     /// <summary>Writes a diagnostic line, flushed so a CI log keeps it on a crash.</summary>
     /// <param name="message">What happened.</param>
