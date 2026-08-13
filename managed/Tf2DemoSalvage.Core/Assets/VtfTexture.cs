@@ -72,7 +72,14 @@ public sealed class VtfTexture
     /// <summary>The four bytes a VTF starts with.</summary>
     private static ReadOnlySpan<byte> Magic => "VTF\0"u8;
 
-    private VtfTexture(int width, int height, VtfFormat format, int mipCount, byte[] pixels, int level)
+    /// <summary>The bit that marks a texture as a self-shadowing bump map.</summary>
+    /// <remarks>
+    /// <c>TEXTUREFLAGS_SSBUMP</c> from <c>src/public/vtf/vtf.h</c>.
+    /// </remarks>
+    private const uint SelfShadowBumpFlag = 0x08000000;
+
+    private VtfTexture(
+        int width, int height, VtfFormat format, int mipCount, byte[] pixels, int level, uint flags)
     {
         Width = width;
         Height = height;
@@ -80,6 +87,7 @@ public sealed class VtfTexture
         MipCount = mipCount;
         Pixels = pixels;
         Level = level;
+        Flags = flags;
     }
 
     /// <summary>Width of the decoded image.</summary>
@@ -96,6 +104,31 @@ public sealed class VtfTexture
 
     /// <summary>Which mip was decoded; 0 is full size.</summary>
     public int Level { get; }
+
+    /// <summary>The header's flags word, as written.</summary>
+    /// <remarks>
+    /// Kept whole rather than unpacked into properties. Most of the bits describe how the texture
+    /// was compiled — clamping, point sampling, no mipmaps — and matter to the engine rather than
+    /// to a viewer; the one that changes what is drawn is exposed as
+    /// <see cref="IsSelfShadowBump"/>.
+    /// </remarks>
+    public uint Flags { get; }
+
+    /// <summary>Whether the texture is a self-shadowing bump map rather than a colour.</summary>
+    /// <remarks>
+    /// **This overrides what a material says.** Valve's own helper reads the detail texture's flags
+    /// and forces the combine mode to 10 or 11 whatever <c>$detailblendmode</c> asked for:
+    ///
+    /// <code>
+    /// if ( pDetailTexture-&gt;GetFlags() &amp; TEXTUREFLAGS_SSBUMP )
+    ///     nDetailBlendMode = hasBump ? 10 : 11;
+    /// </code>
+    ///
+    /// So an absent <c>$detailblendmode</c> does not mean mode 0, and a caller that trusts the
+    /// material alone applies a mod2x to what is actually a normal map — a pattern that looks like
+    /// grain rather than like a defect.
+    /// </remarks>
+    public bool IsSelfShadowBump => (Flags & SelfShadowBumpFlag) != 0;
 
     /// <summary>The decoded image, four bytes per pixel, red first.</summary>
     /// <remarks>
@@ -133,6 +166,7 @@ public sealed class VtfTexture
         int headerSize = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[12..]);
         int width = BinaryPrimitives.ReadUInt16LittleEndian(span[16..]);
         int height = BinaryPrimitives.ReadUInt16LittleEndian(span[18..]);
+        uint flags = BinaryPrimitives.ReadUInt32LittleEndian(span[20..]);
         int frames = BinaryPrimitives.ReadUInt16LittleEndian(span[24..]);
         VtfFormat format = ToFormat(BinaryPrimitives.ReadInt32LittleEndian(span[52..]));
         int mipCount = span[56];
@@ -183,7 +217,7 @@ public sealed class VtfTexture
 
         byte[] pixels = Decode(span.Slice(at, bytes), format, levelWidth, levelHeight);
 
-        return new VtfTexture(levelWidth, levelHeight, format, mipCount, pixels, level);
+        return new VtfTexture(levelWidth, levelHeight, format, mipCount, pixels, level, flags);
     }
 
     /// <summary>Picks the smallest mip whose longest edge still reaches a size.</summary>

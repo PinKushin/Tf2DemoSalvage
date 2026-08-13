@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 
@@ -68,6 +70,42 @@ public sealed class VmtMaterial
     /// lighting of exactly 0.000 and every lamp in the map wears one.
     /// </remarks>
     public bool IsAdditive => Value("$additive") is "1";
+
+    /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
+    public string? Detail => Value("$detail");
+
+    /// <summary>How many times the detail texture tiles per tile of the base texture.</summary>
+    /// <remarks>
+    /// **Four by default, not one.** That is Valve's own default from the SHADER_PARAM declaration
+    /// in <c>lightmappedgeneric_dx9.cpp</c>, and the helper's comment says the transform is set
+    /// unconditionally because "you'll always have a detailscale". Reading the default as one puts
+    /// the pattern at a quarter of its frequency on every material that omits the key, which is
+    /// invisible without a side-by-side.
+    /// </remarks>
+    public float DetailScale => Number("$detailscale", 4f);
+
+    /// <summary>How strongly the detail texture is applied, from zero to one.</summary>
+    /// <remarks>
+    /// One by default. Zero is the identity for eleven of the twelve combine modes, so reading the
+    /// default as zero would disable detail everywhere while still loading the texture and
+    /// reporting success.
+    /// </remarks>
+    public float DetailBlendFactor => Number("$detailblendfactor", 1f);
+
+    /// <summary>Which of the twelve combine modes the detail texture uses.</summary>
+    /// <remarks>
+    /// **This is not the last word.** If the detail texture's own VTF carries the SSBUMP flag the
+    /// engine overrides this with mode 10 or 11 regardless of what the material says, so a caller
+    /// has to check the texture before trusting the number.
+    /// </remarks>
+    public int DetailBlendMode => Integer("$detailblendmode", 0);
+
+    /// <summary>The colour the detail texture is multiplied by before it is combined.</summary>
+    /// <remarks>
+    /// White by default, which is the multiplicative identity. Both spellings appear in Valve's own
+    /// defaults for the same white: <c>[1 1 1]</c> is floats and <c>{255 255 255}</c> is bytes.
+    /// </remarks>
+    public (float Red, float Green, float Blue) DetailTint => Colour("$detailtint");
 
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
@@ -200,6 +238,95 @@ public sealed class VmtMaterial
         }
 
         return new VmtMaterial(included.Shader, merged);
+    }
+
+    private float Number(string key, float fallback)
+    {
+        string? text = Value(key);
+
+        if (text is null)
+        {
+            return fallback;
+        }
+
+        // **Invariant, not current culture.** A material file always writes a point, and a machine
+        // set to a comma locale reads "7.5" as 75 - a plausible number an order of magnitude out,
+        // which is exactly the failure this project keeps finding.
+        if (!float.TryParse(
+                text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+        {
+            throw new InvalidDataException($"A material's {key} is \"{text}\", which is not a number.");
+        }
+
+        return value;
+    }
+
+    private int Integer(string key, int fallback)
+    {
+        string? text = Value(key);
+
+        if (text is null)
+        {
+            return fallback;
+        }
+
+        if (!int.TryParse(
+                text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        {
+            throw new InvalidDataException($"A material's {key} is \"{text}\", which is not a whole number.");
+        }
+
+        return value;
+    }
+
+    private (float Red, float Green, float Blue) Colour(string key)
+    {
+        string? text = Value(key);
+
+        if (text is null)
+        {
+            return (1f, 1f, 1f);
+        }
+
+        string trimmed = text.Trim();
+
+        // Two spellings of the same thing, both of which appear in Valve's own SHADER_PARAM
+        // defaults: brackets are floats, braces are bytes. Reading a brace form as floats gives a
+        // tint of 255 and saturates the surface to white.
+        bool isBytes = trimmed.StartsWith('{');
+        bool isFloats = trimmed.StartsWith('[');
+
+        if (isBytes || isFloats)
+        {
+            trimmed = trimmed[1..^(trimmed.Length > 1 && (trimmed[^1] is '}' or ']') ? 1 : 0)];
+        }
+
+        string[] parts = trimmed.Split(
+            [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (parts.Length != 3)
+        {
+            throw new InvalidDataException(
+                $"A material's {key} is \"{text}\", which is not three numbers.");
+        }
+
+        float scale = isBytes ? 255f : 1f;
+
+        return (
+            Component(key, text, parts[0], scale),
+            Component(key, text, parts[1], scale),
+            Component(key, text, parts[2], scale));
+    }
+
+    private static float Component(string key, string whole, string part, float scale)
+    {
+        if (!float.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+        {
+            throw new InvalidDataException(
+                $"A material's {key} is \"{whole}\", and \"{part}\" is not a number.");
+        }
+
+        return value / scale;
     }
 
     private static string ReadToken(string text, ref int at)

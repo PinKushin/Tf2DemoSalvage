@@ -105,6 +105,21 @@ comment says outright they are mutually exclusive "so that we have enough texcoo
 DX9 register limit, not a rule about materials, and does not bind us. It does explain why
 `$detail` and `$bumpmap` rarely appear together in TF2 content.
 
+### The one thing here that is inference, not a read
+
+`$detailtint` is a colour, and colours appear in Valve's own defaults in two spellings —
+`aftershock.cpp` declares `"[1 1 1]"` and `cloak.cpp` declares `"{255 255 255}"`, both meaning
+white. So brackets are floats and braces are bytes.
+
+**The parser that decides that is not in `source-sdk-2013`.** Only `stdshaders` and `shaderapidx9`
+ship; `materialsystem` itself, where `IMaterialVar` initialises a vector from a string, is closed.
+The conclusion above is drawn from two published defaults that must both be the identity, which is
+sound but is *inference*, not a read of the code that does it.
+
+**Evidence class: interpolated.** To be settled by measuring the shipped VMTs — if every brace form
+has components in 0–255 and every bracket form in 0–1, that is differential evidence from Valve's
+own content. Until then it is flagged.
+
 ## Three traps
 
 **1. The detail texture is NOT read as sRGB, except in mode 1.**
@@ -149,8 +164,7 @@ TDD, research first — this document is the research step.
 
 1. **`VmtMaterial`** — `Detail`, `DetailScale` (4), `DetailBlendFactor` (1), `DetailBlendMode` (0),
    `DetailTint` (1,1,1). Each with a control: a material that omits the key gets the default, a
-   material that sets it gets the set value. Parsing `[1 1 1]` is its own case — the brackets are
-   part of the KeyValues text, and `{255 255 255}` is the 0–255 spelling of the same thing.
+   material that sets it gets the set value.
 2. **A `DetailCombine` function in Core**, pure, one method per mode, tested against the table
    above with hand-picked values where correct and broken differ. Mode 0 with grey is the identity
    case; mode 0 with black is `base * (1-f)`; mode 0 with white is `base * (1+f)`.
