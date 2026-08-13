@@ -97,6 +97,12 @@ internal static class MapWorldBuilder
                 continue;
             }
 
+            // Per vertex rather than per material, because a batch spans many faces and each one
+            // has its own lightmap size. Valve carries the same number as a vertex attribute.
+            float lightStep = surface.FaceIndex < atlas.DirectionalSteps.Count
+                ? atlas.DirectionalSteps[surface.FaceIndex]
+                : 0f;
+
             AtlasRect rectangle = surface.FaceIndex < atlas.Rectangles.Count
                 ? atlas.Rectangles[surface.FaceIndex]
                 : default;
@@ -127,7 +133,7 @@ internal static class MapWorldBuilder
                         ? CategoryColour(SurfaceCategory.Terrain)
                         : (1f, 1f, 1f);
 
-                    Append(vertices, corner, rectangle, lowest, highest, red, green, blue);
+                    Append(vertices, corner, rectangle, lightStep, lowest, highest, red, green, blue);
                 }
 
                 if (subdivided.Count > 0)
@@ -147,9 +153,9 @@ internal static class MapWorldBuilder
 
             for (int index = 1; index + 1 < corners.Count; index++)
             {
-                Append(vertices, corners[0], rectangle, lowest, highest, brushRed, brushGreen, brushBlue);
-                Append(vertices, corners[index], rectangle, lowest, highest, brushRed, brushGreen, brushBlue);
-                Append(vertices, corners[index + 1], rectangle, lowest, highest, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[0], rectangle, lightStep, lowest, highest, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[index], rectangle, lightStep, lowest, highest, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[index + 1], rectangle, lightStep, lowest, highest, brushRed, brushGreen, brushBlue);
             }
         }
 
@@ -249,6 +255,9 @@ internal static class MapWorldBuilder
                     vertices,
                     new SurfaceVertex(vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, 0f, 0f),
                     default,
+                    // A prop takes its light from its own baked vertex colours, not from a
+                    // lightmap, so it never steps along the atlas.
+                    0f,
                     lowest,
                     highest,
                     red,
@@ -325,6 +334,7 @@ internal static class MapWorldBuilder
         List<WorldVertex> vertices,
         SurfaceVertex corner,
         AtlasRect rectangle,
+        float lightStep,
         float lowest,
         float highest,
         float red = 1f,
@@ -353,7 +363,8 @@ internal static class MapWorldBuilder
         float lightV = rectangle.V + (Math.Clamp(corner.LightV, 0f, 1f) * rectangle.Height);
 
         vertices.Add(new WorldVertex(
-            x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha, red, green, blue));
+            x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha, red, green, blue,
+            lightStep));
     }
 
     /// <summary>

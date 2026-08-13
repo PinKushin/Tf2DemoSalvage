@@ -114,6 +114,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="surfaceColours">Draw flat category colours instead of textures.</param>
     /// <param name="heightCut">Discard anything above this height, 0 to 1.</param>
     /// <param name="detail">Combine each material's detail texture; false renders without.</param>
+    /// <param name="bumped">Light bumped surfaces directionally; false uses the flat lightmap.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -132,7 +133,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         MapAssets assets,
         bool surfaceColours = false,
         float heightCut = 0f,
-        bool detail = true)
+        bool detail = true,
+        bool bumped = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -141,6 +143,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world ??= WorldRenderer.Create(_device);
         _world.DrawDetail = detail;
+        _world.DrawBumped = bumped;
 
         // **Textures first, because the shader clips on their alpha.** With none bound the sample
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
