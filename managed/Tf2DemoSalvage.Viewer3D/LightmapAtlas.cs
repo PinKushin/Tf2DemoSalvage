@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Bsp;
 
@@ -54,13 +55,30 @@ internal sealed class LightmapAtlas
     /// </remarks>
     private const int Padding = 1;
 
-    private LightmapAtlas(int width, int height, byte[] pixels, IReadOnlyList<AtlasRect> rectangles)
+    private LightmapAtlas(
+        int width,
+        int height,
+        byte[] pixels,
+        IReadOnlyList<AtlasRect> rectangles,
+        IReadOnlyList<float> directionalSteps)
     {
         Width = width;
         Height = height;
         Pixels = pixels;
         Rectangles = rectangles;
+        DirectionalSteps = directionalSteps;
     }
+
+    /// <summary>How far along to step for each directional lightmap, in texture coordinates.</summary>
+    /// <remarks>
+    /// **Valve's own layout.** lightmappedgeneric_vs20.fxc builds the three directional coordinates
+    /// by adding a per-vertex offset to the base one, once, twice and three times, so the four sets
+    /// sit adjacent in a page and the shader walks them. Packing a strip mirrors that, and any
+    /// bilinear bleed at a seam is behaviour the engine already ships.
+    ///
+    /// Zero for a face that is not bump lit, which is most of them.
+    /// </remarks>
+    public IReadOnlyList<float> DirectionalSteps { get; }
 
     /// <summary>Atlas width in texels.</summary>
     public int Width { get; }
@@ -87,9 +105,30 @@ internal sealed class LightmapAtlas
     public static LightmapAtlas Pack(IReadOnlyList<BspLightmap> lightmaps, int maximumWidth = 2048)
     {
         ArgumentNullException.ThrowIfNull(lightmaps);
+
+        return PackAll(
+            [.. lightmaps.Select(map => new BspFaceLighting(map, []))], maximumWidth);
+    }
+
+    /// <summary>Packs every face's lighting, directional sets included, into one image.</summary>
+    /// <param name="lighting">One entry per face; empty entries are skipped.</param>
+    /// <param name="maximumWidth">Width to pack into.</param>
+    /// <returns>The atlas.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="lighting"/> is null.</exception>
+    /// <remarks>
+    /// A bump-lit face occupies a strip four lightmaps wide rather than one, and its entry in
+    /// <see cref="DirectionalSteps"/> says how far along each set sits. The rectangle still covers
+    /// set 0 alone, so every existing caller keeps the coordinates it always had.
+    /// </remarks>
+    public static LightmapAtlas PackAll(
+        IReadOnlyList<BspFaceLighting> lighting, int maximumWidth = 2048)
+    {
+        ArgumentNullException.ThrowIfNull(lighting);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumWidth);
 
+        List<BspLightmap> lightmaps = [.. lighting.Select(face => face.Flat)];
         List<AtlasRect> rectangles = new(lightmaps.Count);
+        List<float> steps = new(lightmaps.Count);
         List<(int Face, int X, int Y, int Width, int Height)> placements = [];
 
         // The reserved white texel sits at (0,0), so packing starts past it.
@@ -106,10 +145,15 @@ internal sealed class LightmapAtlas
             {
                 // Points at the reserved white texel rather than at nothing: see WhiteTexel.
                 rectangles.Add(new AtlasRect(0f, 0f, 0f, 0f));
+                steps.Add(0f);
                 continue;
             }
 
-            int width = lightmap.Width;
+            // **A bump-lit face is four lightmaps wide.** Reserving one face's width and then
+            // writing four is how the next face on the shelf gets overwritten - and the damage
+            // reads as a lighting artefact on a neighbour rather than as a packing bug.
+            int sets = 1 + lighting[face].Directional.Count;
+            int width = lightmap.Width * sets;
             int height = lightmap.Height;
 
             if (shelfX + width + Padding > maximumWidth)
@@ -122,6 +166,7 @@ internal sealed class LightmapAtlas
 
             placements.Add((face, shelfX, shelfY, width, height));
             rectangles.Add(default);
+            steps.Add(sets > 1 ? lightmap.Width : 0f);
 
             shelfHeight = Math.Max(shelfHeight, height);
             usedWidth = Math.Max(usedWidth, shelfX + width + Padding);
@@ -138,14 +183,26 @@ internal sealed class LightmapAtlas
         pixels[(WhiteTexel * 4) + 2] = 255;
         pixels[(WhiteTexel * 4) + 3] = 255;
 
-        foreach ((int face, int x, int y, int width, int height) in placements)
+        foreach ((int face, int x, int y, int _, int height) in placements)
         {
-            ReadOnlySpan<byte> source = lightmaps[face].Pixels.Span;
+            int setWidth = lightmaps[face].Width;
+            int set = 0;
 
-            for (int row = 0; row < height; row++)
+            // Set 0 first, then each directional set one lightmap further along, which is the
+            // order the shader's stepped coordinates expect to find them in.
+            foreach (BspLightmap source in
+                     new[] { lightmaps[face] }.Concat(lighting[face].Directional))
             {
-                source.Slice(row * width * 4, width * 4)
-                    .CopyTo(pixels.AsSpan((((y + row) * atlasWidth) + x) * 4));
+                ReadOnlySpan<byte> bytes = source.Pixels.Span;
+
+                for (int row = 0; row < height; row++)
+                {
+                    bytes.Slice(row * setWidth * 4, setWidth * 4)
+                        .CopyTo(pixels.AsSpan(
+                            (((y + row) * atlasWidth) + x + (set * setWidth)) * 4));
+                }
+
+                set++;
             }
 
             // **Half a texel in from each edge.** A sample sits at its texel's centre, so a
@@ -154,10 +211,13 @@ internal sealed class LightmapAtlas
             rectangles[face] = new AtlasRect(
                 (x + 0.5f) / atlasWidth,
                 (y + 0.5f) / atlasHeight,
-                Math.Max(0f, width - 1f) / atlasWidth,
+                Math.Max(0f, setWidth - 1f) / atlasWidth,
                 Math.Max(0f, height - 1f) / atlasHeight);
+
+            // Held in texels until now so the packing arithmetic stays whole numbers.
+            steps[face] = steps[face] / atlasWidth;
         }
 
-        return new LightmapAtlas(atlasWidth, atlasHeight, pixels, rectangles);
+        return new LightmapAtlas(atlasWidth, atlasHeight, pixels, rectangles, steps);
     }
 }
