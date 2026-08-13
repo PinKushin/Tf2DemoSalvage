@@ -2124,37 +2124,38 @@ self-describing once `power` is read. Both lumps are LZMA compressed like every 
 
 Depends on nothing else; it is bounded work in `BspGeometry`.
 
-## B38 — a downloaded map may not be the version the demo was recorded on — OPEN
+## B38 — a downloaded map may not be the version the demo was recorded on — MUCH SMALLER THAN FILED
 
-**Raised 2026-08-12**, while wiring up map downloading.
+**Raised 2026-08-12** while wiring up map downloading, and **narrowed the same day** by the owner:
+"the map name does contain versions a lot of the time, unless it is an official map, and officials
+never break."
 
-The mirror serves whatever version of a map it currently carries. A demo from 2014 was recorded
-against whatever `cp_gullywash_final1` was *then* — and community maps are revised constantly, often
-keeping the same file name. Geometry moves, doorways change, a point gets rebuilt. Drawing 2014
-player positions over a 2026 map produces a picture that is wrong in a way nobody can see: players
-walk through walls that did not exist, or stand inside brushwork that has since been added.
+The original worry was that a mirror serves whatever version it currently carries, so a 2014 demo
+would be drawn over a 2026 map — players walking through walls that did not exist yet. That failure
+is real in principle and mostly cannot happen in practice, for two separate reasons.
 
-**This is not a cosmetic problem for this project specifically.** Salvaging old demos is the entire
-point, and old demos are exactly the ones whose maps have moved on.
+**Community maps put the version in the file name.** Measured across the local corpus, **15 of 18
+distinct map names carry an explicit version suffix**: `cp_process_f12`, `cp_gullywash_f9`,
+`cp_metalworks_f7`, `pl_upward_f12`, `koth_cascade_rc1a`, `pass_sanctum_a2a`,
+`pl_badwater_pro_v12`, `koth_ashville_final2`, `cp_snakewater_final1`. A revision is a new name, so
+the name a demo records IS the version key, and fetching by it fetches the right file. The three
+without a suffix are stock or near-stock.
 
-**Not yet resolved, and the owner has supplied the mechanism that could resolve it:** a fastdl
-mirror does not only serve the current version. Mirrors are plain directory trees that servers have
-been pulling from since the engine shipped, and old files sit there as long as the operator leaves
-them — so an era-correct map is often still reachable at a path we are already able to fetch.
+**Official maps do not break demos.** Valve revises them, but not in ways that move a player through
+the geometry, so the version that matters is the one already installed.
 
-What is missing is not the transport, it is the KEY. Fetching the right file requires knowing which
-file is right, and a map name does not say. The demo does carry an identifier for the map the server
-was running, so the shape of a fix is: read that identifier out of the signon, then accept a
-downloaded map only when it matches, rather than accepting whatever the mirror currently has.
+**What is left, and it is small:** a community mapper who revises without renaming. That is against
+the convention every name above follows, and this project has no specimen of it.
 
-Two things follow, and both are cheap to state now and expensive to discover later:
+So the fix is not version negotiation. It is to fetch by the exact name the demo gives, never
+substitute a near-match, and say which file is being shown. A silently substituted map is the
+failure that looks correct.
 
-- **A mismatch must be reported, not silently tolerated.** A map that draws is not evidence it is
-  the right map, and this is precisely the failure that looks correct — see B36's family. The
-  viewer should say which version it is showing when it cannot confirm the match.
-- **The download API itself is not the risk here.** fastdl is a path GET with no versioning and no
-  contract to drift against, which is why its tests are mocked and deliberately do not hit a mirror.
-  The risk is entirely in the CHOICE of file, not in the fetching of it.
+**The download API is not a risk here at all.** fastdl is a path GET against a plain directory tree,
+with no versioning and no contract to drift against — mirrors have served servers this way since the
+engine shipped, and old files stay reachable as long as the operator leaves them. Its tests are
+mocked and deliberately do not hit a mirror: there is nothing to detect drift in, and hammering
+someone's mirror to prove that a GET is still a GET is a cost with no measurement behind it.
 
 **It is detectable, and that is the part worth doing first.** Two independent version markers exist:
 
