@@ -447,6 +447,10 @@ public sealed class DemoTimeline
                 Scale = state.ModelScale() ?? 1f,
                 Sequence = state.AnimationSequence() ?? -1,
                 Cycle = state.Cycle() ?? 0f,
+
+                // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
+                // than deleted because it respawns, so this is a property of the moment.
+                Hidden = !state.IsDrawn,
             });
     }
 
@@ -547,7 +551,8 @@ public sealed class DemoTimeline
 
         foreach (ScenePropTrack track in _props)
         {
-            if (track.At(tick) is { } pose)
+            // A hidden entity is not drawn but is still tracked: it is coming back.
+            if (track.At(tick) is { Hidden: false } pose)
             {
                 into.Add(new SceneProp(track.EntityIndex, track.ModelPath, track.Kind, pose));
             }

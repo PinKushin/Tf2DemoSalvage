@@ -101,6 +101,42 @@ public sealed class EntityModelTests
         entity.ModelScale().ShouldBeNull();
     }
 
+    [Test]
+    public void AnEntityWithNoDraw_IsHidden()
+    {
+        // **How a taken health pack disappears, and it is not by being deleted.** A pickup
+        // respawns, so the server hides it: CTFPowerup::SetDisabled calls AddEffects(EF_NODRAW),
+        // and EF_NODRAW is 0x020 in const.h. The entity keeps its position and keeps updating.
+        //
+        // A viewer that ignores this leaves a marker on the floor for the rest of the match at
+        // every pickup anyone ever took - which is what the owner saw.
+        EntityState entity = State(
+            Property("DT_BaseEntity", "m_fEffects", PropertyValue.FromInt(0x020)));
+
+        entity.IsDrawn.ShouldBeFalse();
+    }
+
+    [Test]
+    public void AnEntityWithOtherEffects_IsStillDrawn()
+    {
+        // The control. m_fEffects is a bit field carrying a dozen unrelated flags - EF_BONEMERGE,
+        // EF_DIMLIGHT, EF_NOSHADOW - and testing it for non-zero rather than for the one bit would
+        // hide entities for reasons that have nothing to do with visibility.
+        EntityState entity = State(
+            Property("DT_BaseEntity", "m_fEffects", PropertyValue.FromInt(0x001 | 0x004)));
+
+        entity.IsDrawn.ShouldBeTrue();
+    }
+
+    [Test]
+    public void AnEntityThatSentNoEffects_IsDrawn()
+    {
+        // Absence is not concealment. Most entities never send the property at all.
+        EntityState entity = State(Property("DT_BaseEntity", "m_nModelIndex", PropertyValue.FromInt(3)));
+
+        entity.IsDrawn.ShouldBeTrue();
+    }
+
     private static EntityState State(params DecodedProperty[] properties)
     {
         EntityStateTable table = new();

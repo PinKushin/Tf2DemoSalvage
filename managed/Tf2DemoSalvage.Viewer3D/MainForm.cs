@@ -1167,7 +1167,13 @@ internal class MainForm : Form
                 Math.Max(1, _viewport.ClientSize.Width),
                 Math.Max(1, _viewport.ClientSize.Height));
 
-        List<ScenePoint> points = new(players.Count);
+        List<ScenePoint> points = new(players.Count + _props.Count);
+
+        // **Entities first, so players draw over them.** A ScenePoint carries no depth - there is
+        // no Z on it and nothing sorts these - so the list order IS the draw order, and appending
+        // the entities afterwards put every dropped weapon and pickup on top of the people. The
+        // players are the thing being watched; everything else is context behind them.
+        AppendProps(points, camera);
 
         foreach (ScenePlayer player in players)
         {
@@ -1187,8 +1193,6 @@ internal class MainForm : Form
 
             points.Add(new ScenePoint(x, y, red, green, blue));
         }
-
-        AppendProps(points, camera);
 
         _scene = points;
     }
@@ -1700,6 +1704,16 @@ internal class MainForm : Form
         {
             _worldIsStale = false;
             ProjectMap();
+
+            // **The scene is projected too, so a camera change invalidates it as well.** Points
+            // are stored in screen space while the world's vertices are not, so rebuilding one and
+            // not the other left every dot at the pixel it had before the zoom while the map moved
+            // underneath it. Playback hid this by rebuilding the scene every frame regardless; it
+            // only showed while paused.
+            //
+            // Done here rather than beside each camera change: five places already set this flag,
+            // and the next one added would have had the same bug again.
+            ReprojectScene();
         }
 
         AdvancePlayback();
@@ -1775,6 +1789,21 @@ internal class MainForm : Form
         _lookingAt = (centreX + (worldX - afterX), centreY + (worldY - afterY));
 
         _worldIsStale = true;
+    }
+
+    /// <summary>Rebuilds the projected scene after the camera has moved.</summary>
+    /// <remarks>
+    /// Uses the clock's position when there is one, so a paused viewer reprojects the moment it is
+    /// actually showing rather than jumping to the scrub bar's whole tick.
+    /// </remarks>
+    private void ReprojectScene()
+    {
+        if (_timeline is null)
+        {
+            return;
+        }
+
+        ShowMoment(_clock?.Position ?? _transport.CurrentTick);
     }
 
     /// <summary>Routes a wheel turn anywhere over the viewport to the zoom.</summary>

@@ -70,6 +70,14 @@ public readonly record struct ScenePose
     /// <summary>How far through that animation, from 0 to 1.</summary>
     public float Cycle { get; init; }
 
+    /// <summary>Whether the engine was told not to draw this entity at this moment.</summary>
+    /// <remarks>
+    /// **Part of the pose rather than an end to the track**, because a hidden entity comes back.
+    /// A health pack that has been taken sets <c>EF_NODRAW</c> and respawns in the same place a
+    /// few seconds later; ending its track would lose everything after the first pickup.
+    /// </remarks>
+    public bool Hidden { get; init; }
+
     /// <summary>Builds a pose at the world origin, unrotated and unanimated.</summary>
     public ScenePose()
     {
@@ -271,6 +279,10 @@ public sealed class ScenePropTrack
 
             Sequence = from.Sequence,
             Cycle = cycle,
+
+            // Discrete, so it takes the earlier keyframe's value rather than being blended.
+            // Half-hidden is not a state the engine has.
+            Hidden = from.Hidden,
         };
     }
 

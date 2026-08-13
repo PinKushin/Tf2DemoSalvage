@@ -38,6 +38,11 @@ public sealed class EntityState
 
     private const string AnglesProperty = "m_angRotation";
 
+    private const string EffectsProperty = "m_fEffects";
+
+    /// <summary><c>EF_NODRAW</c> from <c>src/public/const.h</c>: "don't draw entity".</summary>
+    private const int NoDraw = 0x020;
+
     /// <summary>Only things that animate carry the four below.</summary>
     private const string AnimatingTable = "DT_BaseAnimating";
 
@@ -105,6 +110,24 @@ public sealed class EntityState
         value.Kind == PropertyValueKind.Float
             ? value.AsFloat
             : null;
+
+    /// <summary>Whether the entity should be drawn at all right now.</summary>
+    /// <remarks>
+    /// **A taken health pack is hidden, not destroyed, because it respawns.**
+    /// <c>CTFPowerup::SetDisabled</c> calls <c>AddEffects(EF_NODRAW)</c>, and the entity carries on
+    /// existing and updating in place. A viewer that ignores the flag leaves a marker on the floor
+    /// at every pickup anyone took for the rest of the match.
+    ///
+    /// <c>EF_NODRAW</c> is <c>0x020</c> in <c>const.h</c>, and it is one bit of a field carrying a
+    /// dozen unrelated flags — bone merging, dim light, no shadow. Testing the field for non-zero
+    /// would hide entities for reasons that have nothing to do with visibility.
+    ///
+    /// The visible set matters too: <see cref="IsVisible"/> is false while an entity has left the
+    /// PVS, which is a different thing from being deleted and a different thing again from being
+    /// told not to draw.
+    /// </remarks>
+    public bool IsDrawn =>
+        IsVisible && ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & NoDraw) == 0;
 
     /// <summary>Which model the entity is, as an index into <c>modelprecache</c>.</summary>
     /// <returns>The index, or <c>null</c> when the entity never sent one.</returns>
