@@ -75,7 +75,8 @@ public readonly record struct TimelineFrame(int Tick, IReadOnlyList<ScenePlayer>
 ///
 /// **A frame per packet, not per tick.** Positions arrive with <c>svc_PacketEntities</c> and the
 /// server does not send one every tick, so the frames are irregular by nature and
-/// <see cref="PlayersAt"/> answers with the most recent one rather than requiring an exact match.
+/// <see cref="PlayersAt(int)"/> answers with the most recent one rather than requiring an exact
+/// match.
 /// </remarks>
 public sealed class DemoTimeline
 {
@@ -108,10 +109,19 @@ public sealed class DemoTimeline
 
     private readonly List<ScenePropTrack> _props;
 
+    private readonly Dictionary<int, ScenePropTrack> _trackByEntity = [];
+
     private DemoTimeline(List<TimelineFrame> frames, List<ScenePropTrack>? props = null)
     {
         _frames = frames;
         _props = props ?? [];
+
+        // Last track wins where a slot was reused: the later occupant is the one still alive at
+        // any tick a caller can ask about after it started, and At answers null before that.
+        foreach (ScenePropTrack track in _props)
+        {
+            _trackByEntity[track.EntityIndex] = track;
+        }
     }
 
     /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
@@ -514,6 +524,42 @@ public sealed class DemoTimeline
         }
 
         return found >= 0 ? _frames[found].Players : [];
+    }
+
+    /// <summary>Where everyone was at a moment, with positions interpolated as the client does.</summary>
+    /// <param name="tick">The moment being shown, which may fall between ticks.</param>
+    /// <param name="into">Filled with the players; cleared first.</param>
+    /// <remarks>
+    /// **A player is interpolated by exactly the same machinery as a rocket, because in the engine
+    /// it is the same code.** <c>m_vecOrigin</c> and <c>m_angRotation</c> are registered on
+    /// <c>C_BaseEntity</c> — <c>AddVar(&amp;m_vecOrigin, &amp;m_iv_vecOrigin, LATCH_SIMULATION_VAR)</c>
+    /// at <c>c_baseentity.cpp:905</c> — and a player is a <c>C_BaseEntity</c>. There is no separate
+    /// player position path to reproduce. TF2 adds exactly one interpolated variable of its own,
+    /// <c>m_angEyeAngles</c> (<c>c_tf_player.cpp:3874</c>).
+    ///
+    /// So the position here comes from the entity's own <see cref="ScenePropTrack"/> — the same
+    /// hermite spline, the same time renormalisation — rather than from a second implementation
+    /// that would drift from the first.
+    ///
+    /// **Team, class and health are not interpolated, and that is measured rather than assumed.**
+    /// Neither appears in any <c>AddVar</c> call in the client. They are discrete facts: a player
+    /// between 125 and 68 health was never on 96, and one changing team was never on a team
+    /// between the two.
+    /// </remarks>
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
+        {
+            into.Add(
+                _trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) &&
+                track.At(tick) is { } pose
+                    ? player with { X = pose.X, Y = pose.Y, Z = pose.Z }
+                    : player);
+        }
     }
 
     private static int? First(EntityState player, string[] keys)

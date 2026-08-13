@@ -124,6 +124,64 @@ public sealed class DemoTimelinePropsTests
     }
 
     [Test]
+    [Explicit("B47: players carry no model index, so no track exists to interpolate through yet.")]
+    public void PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains()
+    {
+        // **Players go through the same interpolator as everything else**, because in the engine
+        // they are the same code: m_vecOrigin is registered on C_BaseEntity, and a player is a
+        // C_BaseEntity. This is the measurement that they actually do - a position asked for
+        // between two frames must be one that no frame states, or the interpolation is not
+        // reaching players and they are stepping at the packet rate.
+        //
+        // **Measured at zero on every demo, and the reason is not this code.** A player's model is
+        // not networked: CTFPlayerClassShared::GetModelName returns
+        // GetPlayerClassData(m_iClass)->GetModelName(), which the client resolves locally from the
+        // class. Only m_iszCustomModel travels. So a CTFPlayer never sends m_nModelIndex, never
+        // gets a track, and PlayersAt has nothing to interpolate through - it falls back to the
+        // stated frame position, which is what the zero says.
+        //
+        // Held as Explicit rather than deleted because the assertion is right and becomes the
+        // check on B47's fix, which is to build player tracks from the class table instead.
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+            if (timeline.Frames.Count < 4)
+            {
+                continue;
+            }
+
+            int between = 0;
+            List<ScenePlayer> shown = [];
+
+            foreach (TimelineFrame frame in timeline.Frames)
+            {
+                timeline.PlayersAt(frame.Tick + 0.5, shown);
+
+                foreach (ScenePlayer player in shown)
+                {
+                    ScenePlayer stated = frame.Players.FirstOrDefault(
+                        other => other.EntityIndex == player.EntityIndex);
+
+                    // A whole unit of world space, which is well beyond float noise and far below
+                    // any real movement: players run at several hundred units a second, so half a
+                    // tick of motion is tens of units.
+                    if (stated.EntityIndex == player.EntityIndex &&
+                        (Math.Abs(stated.X - player.X) > 1f || Math.Abs(stated.Y - player.Y) > 1f))
+                    {
+                        between++;
+                    }
+                }
+            }
+
+            TestContext.Out.WriteLine(
+                $"INTERP {Path.GetFileName(path)}: {between} player samples off a stated position");
+
+            between.ShouldBeGreaterThan(0, path);
+        }
+    }
+
+    [Test]
     public void Build_SomethingSomewhereMoves()
     {
         // The control against a scene of statues: tracks that all hold one keyframe would satisfy

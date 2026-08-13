@@ -89,6 +89,58 @@ so a one-shot animation does not wrap.
 otherwise fire on those unrelated numbers. The engine resets the variable instead
 (`m_iv_flCycle.Reset()`).
 
+## The interpolation amount is derived from the update rate, and POV differs from STV
+
+`cdll_bounded_cvars.cpp:127`:
+
+```cpp
+float GetClientInterpAmount()
+{
+	...
+	return MAX( cl_interp->GetFloat(), cl_interp_ratio->GetFloat() / pUpdateRateBounded->GetFloat() );
+}
+```
+
+So the render delay is not a fixed 100 ms — it is `cl_interp_ratio / cl_updaterate`, with `cl_interp`
+as a floor. A server sending fewer updates a second gets a proportionally longer delay, because the
+delay exists to guarantee a *later* sample is available to interpolate towards. `GetInterpolationAmount`
+then adds a server tick on top:
+
+```cpp
+return AdjustInterpolationAmount( this, TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple ) );
+```
+
+`serverTickMultiple` is 2 when `IsSimulatingOnAlternateTicks()`, which is the single-player
+tick-skipping case.
+
+**The engine treats a POV demo differently from an STV one, and names the distinction**
+(`c_baseentity.cpp:5930`):
+
+```cpp
+// Always fully interpolate during multi-player or during demo playback, if the recorded
+// demo was recorded locally.
+const bool bPlayingNonLocallyRecordedDemo = bPlayingDemo && !engine->IsPlayingDemoALocallyRecordedDemo();
+if ( bPlayingMultiplayer || bPlayingNonLocallyRecordedDemo )
+	return AdjustInterpolationAmount( this, TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple ) );
+```
+
+A **non-locally-recorded** demo — an STV recording — takes the full `cl_interp` path. A **locally
+recorded** one — a POV — falls through to the tick-based branches below it, where anything both
+animated and simulated every tick gets `TICK_INTERVAL * expandedServerTickMultiple` instead: about
+one tick rather than a whole interp window.
+
+Note the comment and the code disagree in an interesting way. The comment says "if the recorded demo
+was recorded locally", while the condition fires for demos that were **not** recorded locally. The
+code is what runs; recorded here because a reader checking only the comment would conclude the
+opposite.
+
+**What this means for this project.** The delay itself is a streaming artefact and is not
+reproduced — see the `cl_interp` note below — but the *shape* of it matters when comparing our
+output against what a player saw: a POV and an STV recording of the same moment were displayed by
+the engine with different amounts of smoothing, so neither is "what really happened". The stored
+positions are the server's either way, which is what this project interpolates, and that is the
+closer thing to truth.
+
 ## What is deliberately not implemented
 
 **Hermite interpolation for position.** The engine's default is `Lerp_Hermite`, which needs three
@@ -100,8 +152,12 @@ small one: Valve falls back to linear for angles by its own choice, and exposes
 also produces. The visible difference is smoothness through a direction change, most noticeable on
 something fast and curving, which in TF2 means projectiles.
 
-**`cl_interp` as a concept.** The client deliberately renders *in the past* — by default 100 ms —
-so it always has a later keyframe to interpolate towards. This project has the whole demo in hand,
-so the later keyframe always exists and there is nothing to delay for. Worth stating because the
-absence looks like an oversight otherwise: the engine's interpolation delay is a consequence of
-streaming, not a property of correct playback.
+**`cl_interp` as a concept.** The client deliberately renders *in the past* so it always has a later
+keyframe to interpolate towards — by `cl_interp_ratio / cl_updaterate`, as above, not a fixed
+figure. This project has the whole demo in hand, so the later keyframe always exists and there is
+nothing to delay for. Worth stating because the absence looks like an oversight otherwise: the
+engine's interpolation delay is a consequence of streaming, not a property of correct playback.
+
+This is also the one place where being an offline reader is strictly better rather than merely
+different. The engine must guess how far behind to sit, and gets it wrong when the update rate
+changes under it; a reader holding the whole file never has to guess.

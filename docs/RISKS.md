@@ -2817,3 +2817,40 @@ explanations and only the last was right:
 
 That last one is the most expensive mistake in this register: not a wrong hypothesis, but a
 measuring instrument that manufactured the defect being measured.
+
+## B47 — players are not interpolated, because their model is not networked — OPEN, and the fix is known
+
+**Filed 2026-08-13.** Prop poses interpolate through `ScenePropTrack` — hermite, with Valve's time
+renormalisation. Players do not, and the reason took a measurement to find.
+
+`DemoTimeline.PlayersAt(double, …)` looks a player's entity up in the track table and falls back to
+the stated frame position when there is none. On every demo in the corpus it always falls back:
+**zero** player samples differ from a stated position.
+
+The cause is in TF2's own client, not in this code. A player's model is never sent —
+`tf_playerclass_shared.cpp:136`:
+
+```cpp
+const char *CTFPlayerClassShared::GetModelName( void ) const
+{
+	if ( m_iszCustomModel[0] ) return m_iszCustomModel;
+	Q_strncpy( modelFilename, GetPlayerClassData( m_iClass )->GetModelName(), … );
+	return modelFilename;
+}
+```
+
+The client resolves it locally from `m_iClass` through the class data table; only `m_iszCustomModel`
+travels on the wire. So a `CTFPlayer` carries no `m_nModelIndex`, `RecordProp` skips it, and no
+track exists.
+
+**This is not a reason for a second interpolator.** In the engine a player's position uses exactly
+the same machinery as a rocket's: `AddVar(&m_vecOrigin, &m_iv_vecOrigin, LATCH_SIMULATION_VAR)` is
+on `C_BaseEntity` (`c_baseentity.cpp:905`), and a player is a `C_BaseEntity`. TF2 adds one
+interpolated variable of its own, `m_angEyeAngles` (`c_tf_player.cpp:3874`).
+
+**The fix** is to build player tracks from the class table rather than from a model index, which
+also supplies the player models the viewer will need anyway. `m_iszCustomModel` overrides it when
+present.
+
+The corpus test `PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains` is held `[Explicit]`
+and is the check on the fix: its assertion is correct, only its precondition is missing.
