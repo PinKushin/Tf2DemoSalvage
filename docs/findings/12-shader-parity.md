@@ -72,6 +72,30 @@ two largest items on the list are both finished; what is left is a long tail.
 implied it was not. It is also the one remaining feature that brings back the per-vertex tangent
 basis that bumped lighting turned out not to need, since a reflection is computed in world space.
 
+## What the two remaining features would need, measured
+
+Lump sizes, **decompressed** — and that qualifier is the finding. Every BSP lump is LZMA packed
+and the directory reports the packed length, so dividing that by a structure's stride gives a
+fractional entry count that reads as a wrong stride. Measured before the decompression was added:
+18.46 overlays and 16.88 cubemaps. Both are plausible enough to chase.
+
+| Lump | Decompressed | Stride | Entries |
+|---|---|---|---|
+| 45, overlays | 85,536 | 352 | **243.00** |
+| 42, cubemap samples | 688 | 16 | **43.00** |
+
+Exact division both times, which confirms `doverlay_t` at 352 bytes and `dcubemapsample_t` at 16
+before either reader exists.
+
+The map's pakfile carries **86 cubemap-shaped textures against 43 samples** — exactly two each,
+which is the LDR and HDR pair per sample. A second unrelated route agreeing with the lump count.
+
+**Decals are the better next target despite `$envmap` being larger by area.** 243 overlays are
+view independent: signs, scorch marks and arrows painted flat on floors and walls, all of them
+visible from directly above. A reflection needs a view direction, and this camera looks straight
+down everywhere — so `$envmap` would compute a nearly constant reflection until the first-person
+camera exists. Its value is gated on that camera, not on the shader.
+
 ## The order to do them in, and why
 
 1. **`$detail`** — 36 million units, and the cheapest of the two big ones: a second texture multiplied
