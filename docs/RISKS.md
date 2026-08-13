@@ -2663,14 +2663,35 @@ therefore not "the feature is unimplemented" — it is something about which ele
 decoding, and it is not explained by the format, which transmits this data always and refreshes it
 ten times a second.
 
-Candidates, none tested:
+### Three candidates eliminated, 2026-08-13
 
-- The flattener's handling of a nested DataTable array under `SPROP_PROXY_ALWAYS_YES`, so some
-  element properties are never registered and their updates are skipped or misindexed.
-- Property indices shifting between the baseline and the delta for large tables, so element updates
-  land on neighbouring elements — which would show as *some* indices always present and others
-  never, which is the shape observed.
-- `EntityStateTable` replacing rather than merging when the resource's serial number changes.
+Checked against the SDK first and then against `demostf/parser`, which is the differential this
+project has used before. **All three agree with what this decoder already does**, so none of these
+is the cause:
+
+1. **Array element naming.** `SendPropArray3` builds a plain `SendTable` whose children are normal
+   props named `DT_ArrayElementNameForIdx(i)`. Those children are *not* inside-array props, so
+   flattening them individually — producing `m_iTeam.003` — is correct. Only the other form,
+   `SendPropArray` / `DPT_Array`, carries an element template.
+2. **`SPROP_INSIDEARRAY` handling.** The flag means an element must be kept out of the flattened
+   list. `SchemaFlattener` honours it (`InsideArrayFlag`, excluded alongside `IsExcluded`), and
+   `demostf/parser` defines it identically as `InsideArray = 256` with the same comment.
+3. **Array count width.** `demostf/parser` computes `log_base2(element_count) + 1`; this project
+   computes `WireWidths.ClassId(n) = Log2Floor(n) + 1`. The same expression. This was the most
+   promising of the three, because floor-plus-one and ceiling diverge at exact powers of two — but
+   both implementations use floor-plus-one, so there is no divergence to find.
+
+Remaining candidates, untested:
+
+- `EntityStateTable` replacing rather than merging when the resource's serial number changes, so a
+  recreated resource drops every element previously accumulated.
+- Element updates landing on neighbouring indices, which would show as some indices always present
+  and others never — the shape observed, and worth checking directly by dumping which indices a
+  single demo ever sets.
+- The resource being found by `OfClass(...).FirstOrDefault()` when more than one exists, so a stale
+  or empty one is read. Not yet counted.
+
+The last is the cheapest to check and the easiest to get wrong quietly, so it goes first.
 
 The renderer reads these today and falls back to the player entity's own `m_iTeamNum`, so era demos
 colour correctly and modern ones mostly do not. Until this is resolved, team colour on a modern
