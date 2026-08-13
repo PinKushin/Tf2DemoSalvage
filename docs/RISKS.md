@@ -2541,3 +2541,43 @@ candidates it could see.
 **Half fixed.** `BspStaticProps` now reads the placements — model path, origin, angles, scale —
 from the game lump. Drawing them needs the model chain (`.mdl` / `.vvd` / `.dx90.vtx`), which is
 its own piece of work and is not done. Until it is, the patches remain.
+
+## B44 — pre-2013 demos decode only one player entity — OPEN
+
+**Every demo in the corpus recorded before 2013 yields exactly one positioned player, including
+SourceTV recordings that watched twelve.** Measured 2026-08-13 by `EraPlayerProbe`, accumulating
+every packet in each file:
+
+| demo | entities | `CTFPlayer` | positioned |
+|---|---|---|---|
+| tf2-2007-build3258-pov-cp_granary | 392 | 1 | 1 |
+| tf2-2008-build3420-stv-cp_granary | 411 | 2 | 1 |
+| tf2-2009-build3862-pov-cp_badlands | 336 | 1 | 1 |
+| tf2-2011-build4604-stv-koth_viaduct | 214 | 2 | 1 |
+| tf2-2013-build1729296-stv-cp_foundry | 863 | 2 | 1 |
+| demostf-cp_gullywash_f9 (modern) | 601 | **10** | 9 |
+
+**It is not an origin problem, which is what it looks like at first.** `Origin()` handles the
+local/non-local table split and the modern XY-plus-Z shape, and on these files it succeeds on
+every `CTFPlayer` it is given. The players are not losing their positions — they are not being
+decoded as players at all. A POV demo finding one is what you would expect if only the recorder's
+own entity existed; an STV demo finding two is not explicable that way.
+
+**Hundreds of entities do decode**, so this is not a broken stream. Something about how entities of
+that era are created, named or delta-decoded is dropping the rest.
+
+Candidates, none tested:
+
+- Class ids resolving differently for that era, so player entities are named as something else.
+  Against this: `entities.All` shows no other player-shaped class, only `CTFPlayer` and
+  `CTFPlayerResource`.
+- Entity creation depending on baselines from `dem_stringtables` that are not being applied, so
+  entities that never receive a full update are never created.
+- A delta-decode path that silently stops after the first entity in a snapshot for older
+  protocols.
+
+**Why it matters and why it is filed rather than fixed here:** this is the difference between a
+viewer that plays a 2008 match and one that shows a single dot moving around an empty map, and it
+sits squarely under this repo's rule that anything not decoding at 100% is our defect. It was found
+while building `DemoTimeline`, which is a layer above it and works correctly on modern demos — so
+the two are worth separating rather than tangling.

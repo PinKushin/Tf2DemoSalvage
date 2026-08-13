@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -138,6 +139,9 @@ internal class MainForm : Form
 
     /// <summary>The map's decals, read once and reused across every rebuild.</summary>
     private IReadOnlyList<BspOverlay>? _overlays;
+
+    /// <summary>Where every player stood, for every moment the demo recorded.</summary>
+    private DemoTimeline? _timeline;
 
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
     private bool _texturesUploaded;
@@ -359,6 +363,19 @@ internal class MainForm : Form
         playlistPanel.Controls.Add(_search);
 
         _transport = new TransportBar();
+
+        // **The tick drives the picture.** Scrubbing and playing both raise this, so the viewer
+        // has one path from "which moment" to "who is where" rather than two that can disagree.
+        _transport.TickChanged += (_, tick) =>
+        {
+            if (_timeline is not { } timeline)
+            {
+                return;
+            }
+
+            ShowPlayers(timeline.PlayersAt(tick));
+            _viewport.Invalidate();
+        };
 
         _status = new ToolStripStatusLabel
         {
@@ -1040,6 +1057,51 @@ internal class MainForm : Form
         _scene = points;
     }
 
+    /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
+    /// <param name="players">The players, from the timeline.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// **Team two is RED and team three is BLU**, which is the engine's own numbering: nought is
+    /// unassigned and one is spectator. A player whose team has not arrived yet is drawn grey
+    /// rather than guessed at — a wrong team colour is worse than no colour, because it is read as
+    /// information.
+    /// </remarks>
+    public void ShowPlayers(IReadOnlyList<ScenePlayer> players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        if (players.Count == 0)
+        {
+            _scene = [];
+            return;
+        }
+
+        TopDownCamera camera = _map is not null && !_map.IsEmpty
+            ? MapCamera()
+            : TopDownCamera.Fit(
+                [.. players.Select(player => (player.X, player.Y))],
+                Math.Max(1, _viewport.ClientSize.Width),
+                Math.Max(1, _viewport.ClientSize.Height));
+
+        List<ScenePoint> points = new(players.Count);
+
+        foreach (ScenePlayer player in players)
+        {
+            (float x, float y) = camera.Project(player.X, player.Y);
+
+            (float red, float green, float blue) = player.Team switch
+            {
+                2 => (0.90f, 0.31f, 0.27f),
+                3 => (0.34f, 0.60f, 0.78f),
+                _ => (0.62f, 0.62f, 0.62f),
+            };
+
+            points.Add(new ScenePoint(x, y, red, green, blue));
+        }
+
+        _scene = points;
+    }
+
     /// <summary>The points the viewport is currently drawing.</summary>
     public IReadOnlyList<ScenePoint> Scene => _scene;
 
@@ -1063,19 +1125,40 @@ internal class MainForm : Form
                 (_demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
             _transport.SetDemoLength(_demo.LastTick);
 
+            // **Its own guard, because a timeline is not worth the demo.** A file with no schema,
+            // or one truncated mid-packet, still has a header, a map name and a length worth
+            // showing - so a failure here costs the player positions and nothing else.
+            try
+            {
+                using (ViewerLog.Time("demo", "building the position timeline"))
+                {
+                    _timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+                }
+
+                ViewerLog.Write(
+                    "demo",
+                    $"{_timeline.Frames.Count} recorded moments, ticks {_timeline.FirstTick} to " +
+                    $"{_timeline.LastTick}");
+            }
+            catch (Exception failure) when (
+                failure is ArgumentException or InvalidDataException or IOException)
+            {
+                _timeline = null;
+                ViewerLog.Warn("demo", "building the position timeline", failure);
+            }
+
             bool haveMap = LoadMap(_demo.MapName);
             _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
 
-            // **Nothing is drawn over the map until something real is decoded.** There used to be
-            // five amber squares here - the corners and centre of a nominal box - so that opening a
-            // demo visibly did something back when the viewport had nothing else in it. The map
-            // itself is that proof now, and the squares sat at coordinates no entity occupies.
-            // ShowPositions stays, and takes real positions when tick decoding reaches the viewer.
-            _scene = [];
+            // The first frame, so opening a demo shows the players standing where they started
+            // rather than an empty map waiting for someone to press play.
+            ShowPlayers(_timeline?.PlayersAt(_timeline.FirstTick) ?? []);
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
             _demo = null;
+            _timeline = null;
+            _scene = [];
             _transport.SetDemoLength(0);
             _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
         }
