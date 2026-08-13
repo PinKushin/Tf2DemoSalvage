@@ -102,6 +102,30 @@ public readonly record struct PropTransform
         _originY + (_scale * ((_m10 * x) + (_m11 * y) + (_m12 * z))),
         _originZ + (_scale * ((_m20 * x) + (_m21 * y) + (_m22 * z))));
 
+    /// <summary>The same placement as a matrix, for geometry the GPU transforms.</summary>
+    /// <returns>Sixteen floats, row major, for <c>mul(float4(position, 1), matrix)</c>.</returns>
+    /// <remarks>
+    /// **The same arithmetic as <see cref="Apply"/>, restated rather than reimplemented**, which
+    /// is the whole point: a vertex placed on the processor and one placed by this matrix must
+    /// land in the same spot, and a test asserts they do. The failure otherwise is a model that
+    /// sits slightly wrong — the kind of thing that reads as a bad animation rather than as a
+    /// wrong formula.
+    ///
+    /// This is what lets a model's vertices stay in a static buffer in model space and be posed by
+    /// the GPU, which is the engine's arrangement: <c>LoadBoneMatrix</c> hands the transform to the
+    /// shader and the vertices never move on the processor at all.
+    ///
+    /// Row major with the translation in the last row, matching the camera matrix and the
+    /// <c>row_major</c> declaration in the shader.
+    /// </remarks>
+    public float[] ToMatrix() =>
+    [
+        _scale * _m00, _scale * _m10, _scale * _m20, 0f,
+        _scale * _m01, _scale * _m11, _scale * _m21, 0f,
+        _scale * _m02, _scale * _m12, _scale * _m22, 0f,
+        _originX, _originY, _originZ, 1f,
+    ];
+
     /// <summary>Turns a normal, which takes the rotation but neither the origin nor the scale.</summary>
     /// <param name="x">The normal, in the model's own space.</param>
     /// <param name="y">The normal, in the model's own space.</param>
