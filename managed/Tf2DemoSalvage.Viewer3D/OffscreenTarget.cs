@@ -38,6 +38,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     private ComPtr<ID3D11DeviceContext> _context;
     private ComPtr<ID3D11Texture2D> _texture;
     private ComPtr<ID3D11Texture2D> _staging;
+    private ComPtr<ID3D11Texture2D> _depthTexture;
+    private ComPtr<ID3D11DepthStencilView> _depthView;
     private ComPtr<ID3D11RenderTargetView> _view;
     private PointRenderer? _points;
     private WorldRenderer? _world;
@@ -50,7 +52,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         ComPtr<ID3D11Texture2D> texture,
         ComPtr<ID3D11Texture2D> staging,
-        ComPtr<ID3D11RenderTargetView> view)
+        ComPtr<ID3D11RenderTargetView> view,
+        ComPtr<ID3D11Texture2D> depthTexture,
+        ComPtr<ID3D11DepthStencilView> depthView)
     {
         _d3d = d3d;
         _width = width;
@@ -60,6 +64,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _texture = texture;
         _staging = staging;
         _view = view;
+        _depthTexture = depthTexture;
+        _depthView = depthView;
     }
 
     /// <summary>Creates a target, or returns null if no Direct3D 11 device can be made at all.</summary>
@@ -156,7 +162,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), ref Unsafe.NullRef<ID3D11DepthStencilView>());
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
         _world.Draw(_context);
     }
@@ -289,6 +296,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points?.Dispose();
         _world?.Dispose();
         _view.Dispose();
+        _depthView.Dispose();
+        _depthTexture.Dispose();
         _staging.Dispose();
         _texture.Dispose();
         _context.Dispose();
@@ -334,6 +343,26 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         SilkMarshal.ThrowHResult(device.CreateRenderTargetView(
             texture, ref Unsafe.NullRef<RenderTargetViewDesc>(), ref view));
 
-        return new OffscreenTarget(d3d, width, height, device, context, texture, staging, view);
+        // **A depth buffer, because without one this target was not drawing the same picture.**
+        // The window has one; this did not, so every draw simply overwrote what came before in
+        // material-batch order. A dark surface batched late painted over a tree batched early, and
+        // the result was black blobs sitting on top of foliage - in the TEST's pictures only. Those
+        // pictures were then read as evidence about the viewer, which does not have the problem.
+        Texture2DDesc depthDescription = description with
+        {
+            Format = Format.FormatD32Float,
+            BindFlags = (uint)BindFlag.DepthStencil,
+        };
+
+        ComPtr<ID3D11Texture2D> depthTexture = default;
+        SilkMarshal.ThrowHResult(device.CreateTexture2D(
+            in depthDescription, ref Unsafe.NullRef<SubresourceData>(), ref depthTexture));
+
+        ComPtr<ID3D11DepthStencilView> depthView = default;
+        SilkMarshal.ThrowHResult(device.CreateDepthStencilView(
+            depthTexture, ref Unsafe.NullRef<DepthStencilViewDesc>(), ref depthView));
+
+        return new OffscreenTarget(
+            d3d, width, height, device, context, texture, staging, view, depthTexture, depthView);
     }
 }

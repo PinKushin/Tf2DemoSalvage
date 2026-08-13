@@ -1107,6 +1107,27 @@ internal class MainForm : Form
         _scene = points;
     }
 
+    /// <summary>Writes the next drawn frame to a PNG.</summary>
+    /// <param name="path">Where to write it.</param>
+    /// <exception cref="ArgumentException"><paramref name="path"/> is null or blank.</exception>
+    /// <remarks>
+    /// **The picture comes from the renderer the user is looking at**, which is the only kind that
+    /// is evidence about it. The offscreen target draws the same scene through a parallel path, and
+    /// a parallel path agrees only until one side gains an argument the other does not — decals
+    /// were added to this one and not to that one, and its pictures went on being read as though
+    /// they showed the viewer.
+    ///
+    /// Bound to F12 as well, because a person looking at something wrong wants to send a picture of
+    /// it more often than a test does.
+    /// </remarks>
+    public void CaptureViewport(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        _device?.CaptureNextFrame(path);
+        _viewport.Invalidate();
+    }
+
     /// <summary>The points the viewport is currently drawing.</summary>
     public IReadOnlyList<ScenePoint> Scene => _scene;
 
@@ -1649,6 +1670,17 @@ internal class MainForm : Form
                 : "Showing the whole map.";
 
             _worldIsStale = true;
+
+            return true;
+        }
+
+        if (keyData == Keys.F12)
+        {
+            CaptureViewport(Path.Combine(
+                Path.GetDirectoryName(ViewerLog.Path) ?? ".",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
 
             return true;
         }

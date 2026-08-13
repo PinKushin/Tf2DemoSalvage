@@ -36,6 +36,9 @@ internal sealed unsafe class Device3D : IDisposable
     private WorldRenderer? _world;
     private int _width;
     private int _height;
+
+    /// <summary>Where to write the next presented frame, when a capture has been asked for.</summary>
+    private string? _captureTo;
     private ComPtr<ID3D11RenderTargetView> _backBufferView;
 
     /// <summary>Depth buffer, so a roof covers the floor beneath it rather than the draw order.</summary>
@@ -161,6 +164,114 @@ internal sealed unsafe class Device3D : IDisposable
     public void ClearAndPresent(float red, float green, float blue) =>
         DrawAndPresent(red, green, blue, []);
 
+    /// <summary>Writes the next presented frame to a PNG.</summary>
+    /// <param name="path">Where to write it.</param>
+    /// <exception cref="ArgumentException"><paramref name="path"/> is null or blank.</exception>
+    /// <remarks>
+    /// **A picture from the renderer that actually runs, rather than one that resembles it.** The
+    /// offscreen target exists so tests can draw without a window, and it drifted from the viewer
+    /// the moment either gained an argument the other did not — decals were added to the window and
+    /// not to the test, so the test kept passing on a map with none, and its pictures were then
+    /// read as evidence about the window.
+    ///
+    /// Capturing here cannot drift, because there is nothing to keep in step: this is the swap
+    /// chain the user is looking at. The cost is that it needs a real window, so the test that uses
+    /// it is a UI test and takes the desktop.
+    ///
+    /// Taken after Present rather than before, so what lands in the file is exactly what was shown.
+    /// </remarks>
+    public void CaptureNextFrame(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        _captureTo = path;
+    }
+
+    private void SaveBackBuffer(string path)
+    {
+        ComPtr<ID3D11Texture2D> back = default;
+
+        try
+        {
+            SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0, out back));
+
+            Texture2DDesc description = default;
+            back.GetDesc(ref description);
+
+            description.Usage = Usage.Staging;
+            description.BindFlags = 0;
+            description.CPUAccessFlags = (uint)CpuAccessFlag.Read;
+            description.MiscFlags = 0;
+
+            ComPtr<ID3D11Texture2D> staging = default;
+
+            try
+            {
+                SilkMarshal.ThrowHResult(
+                    _device.CreateTexture2D(in description, null, ref staging));
+
+                _context.CopyResource(staging, back);
+
+                MappedSubresource mapped = default;
+                SilkMarshal.ThrowHResult(_context.Map(staging, 0, Map.Read, 0, ref mapped));
+
+                try
+                {
+                    WritePng(path, (int)description.Width, (int)description.Height, mapped);
+                }
+                finally
+                {
+                    _context.Unmap(staging, 0);
+                }
+            }
+            finally
+            {
+                staging.Dispose();
+            }
+        }
+        catch (Exception failure) when (failure is InvalidOperationException or System.IO.IOException)
+        {
+            // A capture that fails costs a picture, not the frame the user is watching.
+            ViewerLog.Warn("render", $"capturing the viewport to {path}", failure);
+        }
+        finally
+        {
+            back.Dispose();
+        }
+    }
+
+    private static void WritePng(string path, int width, int height, MappedSubresource mapped)
+    {
+        string? folder = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
+
+        if (folder is not null)
+        {
+            System.IO.Directory.CreateDirectory(folder);
+        }
+
+        using System.Drawing.Bitmap bitmap = new(
+            width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+        for (int y = 0; y < height; y++)
+        {
+            // RowPitch, not width * 4: the driver pads rows to its own alignment.
+            byte* row = (byte*)mapped.PData + ((uint)y * mapped.RowPitch);
+
+            for (int x = 0; x < width; x++)
+            {
+                byte* pixel = row + (x * 4);
+
+                // The back buffer is B8G8R8A8, so the bytes arrive blue first.
+                bitmap.SetPixel(
+                    x, y, System.Drawing.Color.FromArgb(255, pixel[2], pixel[1], pixel[0]));
+            }
+        }
+
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+
+        ViewerLog.Write("render", $"captured the viewport to {path}");
+    }
+
     /// <summary>Clears, draws a set of points, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
@@ -242,6 +353,12 @@ internal sealed unsafe class Device3D : IDisposable
         // No vertical sync yet. A demo viewer scrubbing through ticks wants frames as fast as it
         // can produce them while the camera is being dragged; pacing belongs with playback.
         SilkMarshal.ThrowHResult(_swapChain.Present(SyncInterval: 0u, Flags: 0u));
+
+        if (_captureTo is { } file)
+        {
+            _captureTo = null;
+            SaveBackBuffer(file);
+        }
     }
 
     /// <summary>Rebuilds the back buffer at a new size.</summary>
