@@ -57,3 +57,49 @@ and it is the kind of thing that silently drops thirty materials.
 HDR and tone mapping, water, the 3D skybox drawn as sky rather than culled, `$phong` and rim lighting
 on models, and decals or overlays. Each is real; none is on this map's critical path by area, and the
 list above is the part that can be checked off against a number.
+
+## `$detail`, transcribed from the engine
+
+`TextureCombine` in `materialsystem/stdshaders/common_ps_fxc.h` holds every mode. The default,
+`TCOMBINE_RGB_EQUALS_BASE_x_DETAILx2` (mode 0):
+
+```c
+baseColor.rgb *= lerp( float3(1,1,1), 2.0*detailColor.rgb, fBlendFactor );
+```
+
+So at a blend factor of 1 it is `base * 2 * detail` — a detail texture averaging 0.5 grey leaves the
+surface unchanged, which is why they are authored around mid grey. The other modes matter less by
+area but are cheap to add once the plumbing exists:
+
+| mode | effect |
+|---|---|
+| `MOD2X_SELECT_TWO_PATTERNS` | picks between detail red and alpha by base alpha, then mod2x |
+| `RGB_ADDITIVE` | `base += factor * detail` |
+| `DETAIL_OVER_BASE` | lerp toward detail by `factor * detail.a` |
+| `FADE` | lerp base to detail by factor |
+| `BASE_OVER_DETAIL` | lerp toward detail by `factor * (1 - base.a)` |
+| `MULTIPLY` | lerp base toward `base * detail` |
+| `MASK_BASE_BY_DETAIL_ALPHA` | modulates base alpha only |
+
+Two material keys go with it: `$detailscale` (default 4) multiplies the base UV to get the detail
+UV, and `$detailblendfactor` (default 1) is `fBlendFactor`. `$detailblendmode` selects the mode.
+
+**What it needs from the renderer:** a fourth texture slot, and the scale, factor and mode reaching
+the shader per material. The camera matrix already established the pattern — a constant buffer
+updated between draws — and there are around two hundred batches, so a small per-batch write is
+affordable.
+
+## The camera modes this has to serve
+
+The overhead view is the easy case and it is not the target. A SourceTV recording carries both
+first-person and third-person views of players, and the viewer wants a free camera as well. So:
+
+- **First person** — every approximation that survives at a distance fails here. `$detail` is most
+  of what a wall looks like from a metre away, and `$bumpmap` is most of what it looks like lit.
+- **Third person** — same shading, plus the player's own model, which needs the model shader path
+  (`$phong`, rim lighting) rather than the world one.
+- **Free camera** — no new shading, but it removes any excuse for view-dependent shortcuts, and it
+  is what makes the height cut a stopgap rather than a feature.
+
+The current renderer is correct for a top-down view of static geometry. Everything above is what
+stands between that and a camera a person can fly.
