@@ -44,14 +44,39 @@ public sealed class DetailMaterialTests
     {
         // Four is the interesting default precisely because one is the plausible guess. A test
         // that asserted "some positive number" would pass against either.
-        Parse("\"x\"\n{\n\"$detail\" \"d/e\"\n}\n").DetailScale.ShouldBe(4f);
+        (float across, float down) = Parse("\"x\"\n{\n\"$detail\" \"d/e\"\n}\n").DetailScale;
+
+        across.ShouldBe(4f);
+        down.ShouldBe(4f);
     }
 
     [Test]
     public void DetailScale_WhenSet_IsTheStatedValue()
     {
-        Parse("\"x\"\n{\n\"$detail\" \"d/e\"\n\"$detailscale\" \"7.5\"\n}\n")
-            .DetailScale.ShouldBe(7.5f);
+        (float across, float down) =
+            Parse("\"x\"\n{\n\"$detail\" \"d/e\"\n\"$detailscale\" \"7.5\"\n}\n").DetailScale;
+
+        across.ShouldBe(7.5f);
+        down.ShouldBe(7.5f, "one number scales both axes");
+    }
+
+    [Test]
+    public void DetailScale_CanBeTwoNumbers()
+    {
+        // **A scalar broadcasts, a vector does not**, which is Valve's own branch in
+        // SetVertexShaderTextureScaledTransform: a vector supplies U and V independently, and
+        // anything else defined is read as one float and copied to both.
+        //
+        // Reading only the scalar form THROWS on the vector one, and a material that throws while
+        // resolving its detail loses the texture altogether. Found in the log of a running viewer -
+        // cp_process's concrete and brick both declare "[1.1 2.3]" - which is the case a test
+        // written from the SHADER_PARAM declaration alone would never have produced, since that
+        // declares $detailscale a float with a default of 4.
+        (float across, float down) =
+            Parse("\"x\"\n{\n\"$detailscale\" \"[1.1 2.3]\"\n}\n").DetailScale;
+
+        across.ShouldBe(1.1f, 0.0001);
+        down.ShouldBe(2.3f, 0.0001);
     }
 
     [Test]
@@ -60,7 +85,7 @@ public sealed class DetailMaterialTests
         // A material file always uses a point, and a machine set to a comma locale parses "7.5"
         // as 75 under the current culture. The result is a plausible number four times too large,
         // not an error - which is this project's recurring failure shape.
-        Parse("\"x\"\n{\n\"$detailscale\" \".5\"\n}\n").DetailScale.ShouldBe(0.5f);
+        Parse("\"x\"\n{\n\"$detailscale\" \".5\"\n}\n").DetailScale.U.ShouldBe(0.5f);
     }
 
     [Test]

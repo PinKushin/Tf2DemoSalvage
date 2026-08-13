@@ -125,30 +125,44 @@ public sealed class VmtMaterial
     /// the pattern at a quarter of its frequency on every material that omits the key, which is
     /// invisible without a side-by-side.
     /// </remarks>
-    public (float U, float V) DetailScale
+    public (float U, float V) DetailScale => ReadDetailScale();
+
+    // Split out of the property because a getter may not throw (CA1065), and a malformed
+    // $detailscale must be reported rather than silently becoming the default.
+    private (float U, float V) ReadDetailScale()
     {
-        get
+        if (Value("$detailscale") is not { } text)
         {
-            if (Value("$detailscale") is not { } text)
-            {
-                return (4f, 4f);
-            }
+            return (4f, 4f);
+        }
 
-            // **Two dimensional, and a scalar broadcasts.** Valve branches on the var's type: a
-            // vector supplies U and V independently, anything else defined is read as one float
-            // and copied to both. Accepting only the scalar throws on the vector form, and a
-            // material that throws while resolving its detail loses the texture entirely.
-            if (text.TrimStart().StartsWith('[') || text.TrimStart().StartsWith('{'))
-            {
-                (float first, float second, float _) = Colour("$detailscale");
-
-                return (first, second);
-            }
-
+        // **Two dimensional, and a scalar broadcasts.** Valve branches on the var's type: a vector
+        // supplies U and V independently, and anything else defined is read as one float and
+        // copied to both. Two components, not three - a colour is three numbers and this is not a
+        // colour, so reading it through the colour parser refuses "[1.1 2.3]" for having too few,
+        // which is how the whole material loses its detail texture.
+        if (!text.TrimStart().StartsWith('[') && !text.TrimStart().StartsWith('{'))
+        {
             float scale = Number("$detailscale", 4f);
 
             return (scale, scale);
         }
+
+        string[] parts = text.Trim().Trim('[', ']', '{', '}').Split(
+            [' ', '\t', ','],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (parts.Length < 2 ||
+            !float.TryParse(
+                parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float across) ||
+            !float.TryParse(
+                parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float down))
+        {
+            throw new InvalidDataException(
+                $"A material's $detailscale is \"{text}\", which is not two numbers.");
+        }
+
+        return (across, down);
     }
 
     /// <summary>How strongly the detail texture is applied, from zero to one.</summary>
