@@ -117,6 +117,18 @@ public sealed class DemoTimeline
     /// <summary>The last tick with positions, or zero.</summary>
     public int LastTick => _frames.Count > 0 ? _frames[^1].Tick : 0;
 
+    /// <summary>Seconds per tick, as the server that recorded this demo ran.</summary>
+    /// <remarks>
+    /// **Read from the demo, never assumed.** <c>svc_ServerInfo</c> states it, and it is not always
+    /// TF2's usual 0.015 — the rate is a server setting, so it varies with how a given box was set
+    /// up rather than with when the demo was recorded. A demo played back at the wrong rate looks
+    /// like a slow or fast server rather than like a defect.
+    ///
+    /// Zero when no <c>svc_ServerInfo</c> arrived, which leaves the choice of a default to the
+    /// caller rather than burying one here.
+    /// </remarks>
+    public float IntervalPerTick { get; private init; }
+
     /// <summary>Walks a demo and records where everyone was.</summary>
     /// <param name="file">The whole demo file, header included.</param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
@@ -159,6 +171,7 @@ public sealed class DemoTimeline
         }
 
         List<TimelineFrame> frames = [];
+        float interval = 0f;
 
         foreach (DemoCommand command in commands)
         {
@@ -179,6 +192,13 @@ public sealed class DemoTimeline
                 // in full.
                 switch (message)
                 {
+                    // **The server's own tick rate, not a constant.** Early servers ran 33 tick,
+                    // and a demo replayed at the wrong rate looks like a slow or fast server
+                    // rather than like a defect.
+                    case ServerInfoMessage server when server.IntervalPerTick > 0f:
+                        interval = server.IntervalPerTick;
+                        continue;
+
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
                         BaselineBuilder.Apply(create.Entries, decoder);
                         continue;
@@ -248,7 +268,7 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames);
+        return new DemoTimeline(frames) { IntervalPerTick = interval };
     }
 
     /// <summary>Gives a player their earliest known team and class before it was first stated.</summary>

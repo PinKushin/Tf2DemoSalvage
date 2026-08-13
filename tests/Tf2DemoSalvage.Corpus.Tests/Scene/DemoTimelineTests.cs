@@ -152,6 +152,34 @@ public sealed class DemoTimelineTests
     }
 
     [Test]
+    public void Build_ReadsTheServersOwnTickRate()
+    {
+        // **Never a constant.** TF2's usual interval is 0.015, but early servers ran 33 tick and
+        // LoadedDemo had 66.667 hardcoded for its duration. A demo replayed at the wrong rate is
+        // wrong in a way that reads as a slow or fast server rather than as a defect, so the rate
+        // comes from svc_ServerInfo and the corpus is asked what it actually contains.
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+            if (timeline.IntervalPerTick <= 0f)
+            {
+                TestContext.Out.WriteLine($"RATE {Path.GetFileName(path)}: no svc_ServerInfo");
+                continue;
+            }
+
+            TestContext.Out.WriteLine(
+                $"RATE {Path.GetFileName(path)}: {timeline.IntervalPerTick:F6}s per tick, " +
+                $"{1f / timeline.IntervalPerTick:F2} per second");
+
+            // A plausible range rather than an exact value: the point is that it was read, and a
+            // garbage float would fall outside any sane server rate.
+            (1f / timeline.IntervalPerTick).ShouldBeInRange(
+                10f, 200f, $"{path}: an implausible tick rate means the field was misread");
+        }
+    }
+
+    [Test]
     public void PlayersAt_ReturnsTheLastFrameAtOrBeforeATick()
     {
         // Scrubbing lands on arbitrary ticks, and not every tick has a frame - positions arrive

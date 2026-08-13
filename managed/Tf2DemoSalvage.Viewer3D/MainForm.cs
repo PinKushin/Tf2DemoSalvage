@@ -143,6 +143,21 @@ internal class MainForm : Form
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
     private DemoTimeline? _timeline;
 
+    /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
+    private PlaybackClock? _clock;
+
+    /// <summary>Drives playback while it is running.</summary>
+    /// <remarks>
+    /// **A timer rather than Application.Idle**, which fires when the message queue empties and not
+    /// on any schedule - fine for coalescing resizes, useless as a clock. Fifteen milliseconds is
+    /// one tick at TF2's usual rate, so a demo advances about a tick per firing and the remainder
+    /// the clock carries covers the rest.
+    /// </remarks>
+    private readonly System.Windows.Forms.Timer _playTimer = new() { Interval = 15 };
+
+    /// <summary>Real time since the last advance, which is what the clock consumes.</summary>
+    private readonly Stopwatch _playWatch = new();
+
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
     private bool _texturesUploaded;
 
@@ -373,8 +388,55 @@ internal class MainForm : Form
                 return;
             }
 
+            // A scrub is a seek: the clock takes the new position outright and drops whatever
+            // part-tick it had accumulated, or the next tick after a drag arrives early.
+            _clock?.Seek(tick);
+
             ShowPlayers(timeline.PlayersAt(tick));
             _viewport.Invalidate();
+        };
+
+        _transport.PlayingChanged += (_, playing) =>
+        {
+            if (playing && _clock is not null)
+            {
+                // **Restart the watch, not just the timer.** Whatever real time passed while
+                // paused is not playback time, and feeding it to the clock on the first tick would
+                // jump the demo forward by however long the user was reading the map.
+                _playWatch.Restart();
+                _playTimer.Start();
+            }
+            else
+            {
+                _playTimer.Stop();
+                _playWatch.Reset();
+            }
+        };
+
+        _playTimer.Tick += (_, _) =>
+        {
+            if (_clock is not { } clock || _timeline is not { } timeline)
+            {
+                return;
+            }
+
+            // **Real elapsed time, not the timer's nominal interval.** A WinForms timer is coarse
+            // and drifts under load; asking the stopwatch how long actually passed is what keeps a
+            // demo playing at the speed it was recorded rather than at the speed the message pump
+            // happened to manage.
+            double elapsed = _playWatch.Elapsed.TotalSeconds;
+
+            _playWatch.Restart();
+            clock.Advance(elapsed);
+
+            _transport.ShowTick(clock.Tick);
+            ShowPlayers(timeline.PlayersAt(clock.Tick));
+            _viewport.Invalidate();
+
+            if (clock.AtEnd)
+            {
+                _transport.Playing = false;
+            }
         };
 
         _status = new ToolStripStatusLabel
@@ -1166,6 +1228,25 @@ internal class MainForm : Form
                     $"{_timeline.Frames.Count} recorded moments, ticks {_timeline.FirstTick} to " +
                     $"{_timeline.LastTick}");
 
+                // **The rate the recording server ran, not a constant.** It is a server setting, so
+                // a box left at its default runs 33 where a configured one runs 66, and replaying
+                // at the wrong rate reads as a slow or fast server rather than as a defect.
+                _clock = new PlaybackClock(_timeline.IntervalPerTick, _demo.LastTick);
+
+                float interval = _timeline.IntervalPerTick > 0f
+                    ? _timeline.IntervalPerTick
+                    : PlaybackClock.DefaultIntervalPerTick;
+
+                string source = _timeline.IntervalPerTick > 0f
+                    ? "from svc_ServerInfo"
+                    : "the engine default - the demo never said";
+
+                ViewerLog.Write(
+                    "demo",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{interval:F6}s per tick ({1f / interval:F1} per second), {source}"));
+
                 // **What is actually going to be drawn, said once per demo.** Counts here are what
                 // a defect looks like from the outside: a team colour that never arrives shows up
                 // as "0 red, 0 blu" the moment the file opens, rather than as grey dots that have
@@ -1211,6 +1292,7 @@ internal class MainForm : Form
         {
             _demo = null;
             _timeline = null;
+            _clock = null;
             _scene = [];
             _transport.SetDemoLength(0);
             _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
@@ -1846,6 +1928,8 @@ internal class MainForm : Form
             _viewport.Dispose();
             _status.Dispose();
             _actions.Dispose();
+            _playTimer.Stop();
+            _playTimer.Dispose();
             _transport.Dispose();
             _playlist.Dispose();
             _borderlessMode.Dispose();
