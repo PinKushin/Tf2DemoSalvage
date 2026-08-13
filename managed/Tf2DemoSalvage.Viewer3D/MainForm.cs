@@ -277,6 +277,16 @@ internal class MainForm : Form
     /// </remarks>
     public MainForm(params string[] initialPaths)
     {
+        // **A capture flag, because the alternative was asking a person to press F12.** Several
+        // rendering defects this session were found by the owner photographing their own screen and
+        // describing it, which is slow for them and leaves the loop dependent on someone being at
+        // the machine. "--shot <file>" loads, seeks, draws, writes a PNG and exits; "--tick <n>"
+        // says when.
+        //
+        // Deliberately not a test harness: it drives the real viewer through the real renderer,
+        // which is the whole reason the offscreen target was deleted. See CaptureViewport.
+        initialPaths = ReadCaptureOptions(initialPaths);
+
         Text = "TF2 Demo Salvage";
         Name = "MainWindow";
         AccessibleName = "TF2 Demo Salvage viewer";
@@ -1121,6 +1131,134 @@ internal class MainForm : Form
         return paths;
     }
 
+    /// <summary>Where to write an automatic capture, when one was asked for.</summary>
+    private string? _shotPath;
+
+    /// <summary>Which tick to show before capturing.</summary>
+    private int _shotTick;
+
+    /// <summary>Where to point the camera before capturing, in world units.</summary>
+    private (float X, float Y)? _shotLookAt;
+
+    /// <summary>How far to zoom in before capturing.</summary>
+    private float _shotZoom = 1f;
+
+    /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
+    private int _shotDelay = 45;
+
+    /// <summary>Pulls the capture options out of the paths, returning what is left.</summary>
+    private string[] ReadCaptureOptions(string[] arguments)
+    {
+        List<string> paths = [];
+        Queue<string> pending = new(arguments);
+
+        // A queue rather than an indexed loop: an option consumes the value after it, and moving a
+        // loop counter from inside the body is the shape analyzers rightly object to.
+        while (pending.Count > 0)
+        {
+            string argument = pending.Dequeue();
+
+            if (argument == "--shot" && pending.Count > 0)
+            {
+                _shotPath = pending.Dequeue();
+                continue;
+            }
+
+            if (argument == "--look" && pending.Count > 1)
+            {
+                string x = pending.Dequeue();
+                string y = pending.Dequeue();
+
+                if (float.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldX) &&
+                    float.TryParse(y, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldY))
+                {
+                    _shotLookAt = (worldX, worldY);
+                    continue;
+                }
+
+                ViewerLog.Warn("viewer", $"--look {x} {y} is not a position; ignoring it");
+                continue;
+            }
+
+            if (argument == "--zoom" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float zoom))
+                {
+                    _shotZoom = zoom;
+                    continue;
+                }
+
+                ViewerLog.Warn("viewer", $"--zoom {value} is not a number; ignoring it");
+                continue;
+            }
+
+            if (argument == "--tick" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (int.TryParse(
+                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
+                {
+                    _shotTick = tick;
+                    continue;
+                }
+
+                // Not silent: a mistyped tick that quietly captures tick zero is a picture of the
+                // wrong moment, which is worse than no picture.
+                ViewerLog.Warn("viewer", $"--tick {value} is not a number; capturing tick 0");
+                continue;
+            }
+
+            paths.Add(argument);
+        }
+
+        return [.. paths];
+    }
+
+    /// <summary>Takes the automatic capture once the world has settled, then closes.</summary>
+    /// <remarks>
+    /// **Counted in frames, not seconds.** The map, its textures and the entity models all load
+    /// before the first frame is drawn, so a frame count after that is a count of settled frames -
+    /// where a wall-clock wait would be a guess that fails on a slower machine or a bigger map.
+    /// </remarks>
+    private void TakeAutomaticShot()
+    {
+        if (_shotPath is not { } path)
+        {
+            return;
+        }
+
+        if (_shotDelay-- > 0)
+        {
+            if (_shotDelay == 40 && _timeline is not null)
+            {
+                // **The clock too, not just the transport.** Moving the camera marks the world
+                // stale, and the reprojection that follows re-reads the moment from the clock - so
+                // a capture that only told the transport photographed tick zero while every log
+                // line said otherwise.
+                _clock?.Seek(_shotTick);
+                _transport.ShowTick(_shotTick);
+                ShowMoment(_shotTick);
+
+                if (_shotLookAt is { } centre)
+                {
+                    _zoom = _shotZoom;
+                    _lookingAt = centre;
+                    _worldIsStale = true;
+                }
+            }
+
+            return;
+        }
+
+        _shotPath = null;
+
+        CaptureViewport(path);
+        BeginInvoke(Close);
+    }
+
     private TopDownCamera MapCamera()
     {
         TopDownCamera fitted = TopDownCamera.Fit(
@@ -1851,6 +1989,7 @@ internal class MainForm : Form
         }
 
         AdvancePlayback();
+        TakeAutomaticShot();
 
         _device?.DrawFrame(
             BackgroundRed,
