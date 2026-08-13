@@ -139,6 +139,28 @@ public sealed class PropTransformTests
         MathF.Sqrt((x * x) + (y * y) + (z * z)).ShouldBe(13f, 1e-3f);
     }
 
+    [Test]
+    public void APlacedPropAndAPosedEntity_TransformIdentically()
+    {
+        // **One transform for both, because the engine has one.** A static prop from the map file
+        // and a networked entity both reduce to an origin, a QAngle and a scale, and AngleMatrix
+        // does not care which produced them. The map constructor delegates to the general one, so
+        // this is the check that the delegation is faithful rather than a second implementation
+        // that agrees today.
+        //
+        // A yaw-and-pitch case rather than a single axis: with one angle set, almost any wrong
+        // axis order still agrees.
+        PropTransform fromMap = new(Prop(x: 64f, y: -32f, z: 8f, pitch: 20f, yaw: 135f, scale: 2f));
+        PropTransform fromPose = new(64f, -32f, 8f, pitch: 20f, yaw: 135f, roll: 0f, scale: 2f);
+
+        (float mapX, float mapY, float mapZ) = fromMap.Apply(10f, 3f, -5f);
+        (float poseX, float poseY, float poseZ) = fromPose.Apply(10f, 3f, -5f);
+
+        poseX.ShouldBe(mapX, 1e-4f);
+        poseY.ShouldBe(mapY, 1e-4f);
+        poseZ.ShouldBe(mapZ, 1e-4f);
+    }
+
     private static BspStaticProp Prop(
         float x = 0f,
         float y = 0f,

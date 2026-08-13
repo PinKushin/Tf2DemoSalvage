@@ -43,15 +43,36 @@ public readonly record struct PropTransform
     /// analyzers are right that a value type without it is a trap waiting for someone who does.
     /// </remarks>
     public PropTransform(BspStaticProp prop)
+        : this(prop.X, prop.Y, prop.Z, prop.Pitch, prop.Yaw, prop.Roll, prop.Scale)
     {
-        _originX = prop.X;
-        _originY = prop.Y;
-        _originZ = prop.Z;
-        _scale = prop.Scale;
+    }
 
-        (float sinYaw, float cosYaw) = MathF.SinCos(Radians(prop.Yaw));
-        (float sinPitch, float cosPitch) = MathF.SinCos(Radians(prop.Pitch));
-        (float sinRoll, float cosRoll) = MathF.SinCos(Radians(prop.Roll));
+    /// <summary>Builds the transform for anything placed anywhere.</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <param name="pitch">Rotation about the side axis, in degrees.</param>
+    /// <param name="yaw">Rotation about the vertical axis, in degrees.</param>
+    /// <param name="roll">Rotation about the forward axis, in degrees.</param>
+    /// <param name="scale">Size relative to the model as authored.</param>
+    /// <remarks>
+    /// **The same transform serves a static prop and a networked entity**, because in the engine
+    /// it is the same transform: a placement and an entity both reduce to an origin, a QAngle and
+    /// a scale, and <c>AngleMatrix</c> turns those into a matrix without caring which produced
+    /// them. The map-file constructor delegates here so Valve's rotation exists once — a second
+    /// copy for entities would be a second chance to get the axis order wrong.
+    /// </remarks>
+    public PropTransform(
+        float x, float y, float z, float pitch, float yaw, float roll, float scale)
+    {
+        _originX = x;
+        _originY = y;
+        _originZ = z;
+        _scale = scale;
+
+        (float sinYaw, float cosYaw) = MathF.SinCos(Radians(yaw));
+        (float sinPitch, float cosPitch) = MathF.SinCos(Radians(pitch));
+        (float sinRoll, float cosRoll) = MathF.SinCos(Radians(roll));
 
         _m00 = cosPitch * cosYaw;
         _m10 = cosPitch * sinYaw;
