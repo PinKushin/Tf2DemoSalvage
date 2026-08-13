@@ -46,6 +46,15 @@ and `$bumpmap`; standing in a corridor does not.
 Chat is the one the owner named as missing from the first pass of this list, and it is nearly free:
 the messages already come out of the reader, so it is a display question rather than a parsing one.
 
+**Voice** belongs here too, and this project is further along with it than with anything else on the
+page. TF2 shows a speaker badge beside whoever is talking; the badge is the easy half. The voice
+data itself is already decoded here — the packets are unpacked and run through libopus — so the
+viewer can do what the game does and also play it back, which no amount of watching a demo in TF2
+gives you if you were not in that lobby.
+
+Both are viewing rather than options: nothing to configure, just a question of what is drawn over
+the picture.
+
 ## What this project can do that TF2 cannot
 
 Worth stating, because it is the reason for building rather than patching the game: several players'
