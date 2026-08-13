@@ -93,6 +93,9 @@ public sealed class DemoTimeline
     /// </remarks>
     private const string ResourceClass = "CTFPlayerResource";
 
+    /// <summary>The class every player entity has, spectators and the SourceTV camera included.</summary>
+    private const string PlayerClass = "CTFPlayer";
+
     private static readonly string[] TeamProperties =
     [
         "DT_BaseEntity.m_iTeamNum",
@@ -111,10 +114,16 @@ public sealed class DemoTimeline
 
     private readonly Dictionary<int, ScenePropTrack> _trackByEntity = [];
 
-    private DemoTimeline(List<TimelineFrame> frames, List<ScenePropTrack>? props = null)
+    private readonly List<ScenePropTrack> _playerTracks;
+
+    private DemoTimeline(
+        List<TimelineFrame> frames,
+        List<ScenePropTrack>? props = null,
+        List<ScenePropTrack>? playerTracks = null)
     {
         _frames = frames;
         _props = props ?? [];
+        _playerTracks = playerTracks ?? [];
 
         // Last track wins where a slot was reused: the later occupant is the one still alive at
         // any tick a caller can ask about after it started, and At answers null before that.
@@ -122,10 +131,24 @@ public sealed class DemoTimeline
         {
             _trackByEntity[track.EntityIndex] = track;
         }
+
+        foreach (ScenePropTrack track in _playerTracks)
+        {
+            _trackByEntity[track.EntityIndex] = track;
+        }
     }
 
     /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
     public IReadOnlyList<ScenePropTrack> Props => _props;
+
+    /// <summary>Every player, with the pose the interpolator works from.</summary>
+    /// <remarks>
+    /// **Separate from <see cref="Props"/> because these carry no model.** A player's model is
+    /// resolved from the installed game rather than from the demo — see
+    /// <c>PlayerClassModels</c> — so a consumer walking <see cref="Props"/> to draw models would
+    /// find entries it could only report as missing assets.
+    /// </remarks>
+    public IReadOnlyList<ScenePropTrack> PlayerTracks => _playerTracks;
 
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
@@ -200,6 +223,7 @@ public sealed class DemoTimeline
         // every rocket the moment the next one took its index.
         Dictionary<int, ScenePropTrack> tracks = [];
         List<ScenePropTrack> props = [];
+        List<ScenePropTrack> playerTracks = [];
 
         foreach (DemoCommand command in commands)
         {
@@ -260,7 +284,9 @@ public sealed class DemoTimeline
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
                     entities.Apply(entity);
-                    RecordProp(entity, entities, precache, tracks, props, protocol, command.Tick);
+                    RecordProp(
+                        entity, entities, precache, tracks, props, playerTracks,
+                        protocol, command.Tick);
                 }
 
                 moved = true;
@@ -274,7 +300,7 @@ public sealed class DemoTimeline
             List<ScenePlayer> players = [];
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
-            foreach (EntityState player in entities.OfClass("CTFPlayer"))
+            foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 if (!player.IsVisible || player.Origin() is not { } origin)
                 {
@@ -308,7 +334,7 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames, props) { IntervalPerTick = interval };
+        return new DemoTimeline(frames, props, playerTracks) { IntervalPerTick = interval };
     }
 
     /// <summary>Records where a model-bearing entity was, if this update said anything about it.</summary>
@@ -318,12 +344,38 @@ public sealed class DemoTimeline
     /// frames, and produce identical keyframes that the track then discards — the same answer for
     /// tens of millions of times the work. A demo states what changed; this records exactly that.
     /// </remarks>
+    /// <summary>What an entity draws as, or <c>null</c> when nothing can say.</summary>
+    /// <returns>
+    /// A model path; the empty string for a player, whose model is not in the demo at all.
+    /// </returns>
+    /// <remarks>
+    /// **A player's model is never sent.** <c>CTFPlayerClassShared::GetModelName</c> looks it up
+    /// locally from <c>m_iClass</c> through the class data table, and only
+    /// <c>m_iszCustomModel</c> travels. So a player is recognised by class and given a track with
+    /// no model: the poses are what the interpolator needs, and the model is resolved from the
+    /// installed game by whoever draws it.
+    /// </remarks>
+    private static string? ModelFor(EntityState state, ModelPrecache precache, int protocol)
+    {
+        if (PlayerClass.Equals(state.ClassName, StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
+        // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
+        return state.ModelIndex() is { } rawIndex
+            ? precache.Path(ModelPrecache.Unpack(rawIndex, protocol))
+            : null;
+    }
+
     private static void RecordProp(
         DecodedEntity entity,
         EntityStateTable entities,
         ModelPrecache precache,
         Dictionary<int, ScenePropTrack> tracks,
         List<ScenePropTrack> props,
+        List<ScenePropTrack> players,
         int protocol,
         int tick)
     {
@@ -338,15 +390,19 @@ public sealed class DemoTimeline
         }
 
         if (!entities.TryGet(entity.EntityIndex, out EntityState? state) ||
-            state.ModelIndex() is not { } rawIndex ||
             state.Origin() is not { } origin)
         {
             return;
         }
 
-        // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
-        // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
-        if (precache.Path(ModelPrecache.Unpack(rawIndex, protocol)) is not { } model)
+        // **A player's model is not on the wire, so it cannot be resolved here.**
+        // CTFPlayerClassShared::GetModelName looks it up locally from m_iClass through the class
+        // data table, and only m_iszCustomModel travels. A player therefore sends no
+        // m_nModelIndex and gets a track with no model rather than no track at all - the poses are
+        // what the interpolator needs, and the model is the viewer's to resolve from the install.
+        string? model = ModelFor(state, precache, protocol);
+
+        if (model is null)
         {
             return;
         }
@@ -366,7 +422,11 @@ public sealed class DemoTimeline
         {
             track = new ScenePropTrack(entity.EntityIndex, model);
             tracks[entity.EntityIndex] = track;
-            props.Add(track);
+
+            // Player tracks are kept apart from Props. They carry poses and no model, so a
+            // consumer walking Props to draw models would find one it cannot draw and could only
+            // report as a missing asset - which is exactly the false alarm this split avoids.
+            (model.Length == 0 ? players : props).Add(track);
         }
 
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);

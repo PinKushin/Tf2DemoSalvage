@@ -124,7 +124,6 @@ public sealed class DemoTimelinePropsTests
     }
 
     [Test]
-    [Explicit("B47: players carry no model index, so no track exists to interpolate through yet.")]
     public void PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains()
     {
         // **Players go through the same interpolator as everything else**, because in the engine
@@ -133,15 +132,14 @@ public sealed class DemoTimelinePropsTests
         // between two frames must be one that no frame states, or the interpolation is not
         // reaching players and they are stepping at the packet rate.
         //
-        // **Measured at zero on every demo, and the reason is not this code.** A player's model is
-        // not networked: CTFPlayerClassShared::GetModelName returns
-        // GetPlayerClassData(m_iClass)->GetModelName(), which the client resolves locally from the
-        // class. Only m_iszCustomModel travels. So a CTFPlayer never sends m_nModelIndex, never
-        // gets a track, and PlayersAt has nothing to interpolate through - it falls back to the
-        // stated frame position, which is what the zero says.
+        // **This measured zero when first written, and that was B47.** A player's model is not
+        // networked - CTFPlayerClassShared::GetModelName resolves it locally from m_iClass - so a
+        // CTFPlayer sends no m_nModelIndex, got no track, and PlayersAt had nothing to interpolate
+        // through. It silently fell back to the stated frame position.
         //
-        // Held as Explicit rather than deleted because the assertion is right and becomes the
-        // check on B47's fix, which is to build player tracks from the class table instead.
+        // The fix was to recognise a player by class and give it a track with no model, since the
+        // poses are what the interpolator needs and the model comes from the install. This test is
+        // what says the fix took.
         foreach (string path in Corpus.FilesWithSchema())
         {
             DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));

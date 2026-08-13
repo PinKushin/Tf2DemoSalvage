@@ -2818,7 +2818,7 @@ explanations and only the last was right:
 That last one is the most expensive mistake in this register: not a wrong hypothesis, but a
 measuring instrument that manufactured the defect being measured.
 
-## B47 — players are not interpolated, because their model is not networked — OPEN, and the fix is known
+## B47 — players are not interpolated, because their model is not networked — RESOLVED 2026-08-13
 
 **Filed 2026-08-13.** Prop poses interpolate through `ScenePropTrack` — hermite, with Valve's time
 renormalisation. Players do not, and the reason took a measurement to find.
@@ -2852,8 +2852,17 @@ interpolated variable of its own, `m_angEyeAngles` (`c_tf_player.cpp:3874`).
 also supplies the player models the viewer will need anyway. `m_iszCustomModel` overrides it when
 present.
 
-The corpus test `PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains` is held `[Explicit]`
-and is the check on the fix: its assertion is correct, only its precondition is missing.
+**Resolved the same day.** A player is now recognised by class name and given a track with an
+empty model path, kept in `PlayerTracks` rather than in `Props`. The poses are what the
+interpolator needs; the model comes from the install through `PlayerClassModels`.
+
+Keeping the two lists apart matters: a consumer walking `Props` to draw models would otherwise find
+entries with no model and could only report them as missing assets, which is a false alarm about
+the very thing that works.
+
+The corpus test `PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains` is no longer
+`[Explicit]` and passes across the corpus. It went from measuring exactly zero to measuring the
+fix, which is the shape a regression test should have.
 
 ## B48 — a hypothesis for TF2's end-of-demo freeze, from the interpolation code — UNTESTED
 
