@@ -2977,3 +2977,33 @@ names, the matrices, the packed vertices and the batch ranges were all correct, 
 (twenty-times scale, depth disabled) both came back negative because the pixels were being discarded
 after all of that. The thing that found it was reading the shader's own comment, which stated the
 assumption it depended on.
+
+## B51 — entity models draw unlit and blown out — OPEN, and it is the reason they look wrong
+
+**Filed 2026-08-13.** Entity models render at the right places with the right materials, and look
+like white blobs. Static props do not, and the difference is lighting.
+
+A static prop carries baked per-vertex lighting from the map's `.vhv`, so its vertex colour darkens
+it into the scene. An entity has none: this project gives it `1, 1, 1` and a lightmap coordinate of
+`(0, 0)`, which lands on the atlas's reserved white texel. Full-brightness vertex colour times a
+white lightmap washes the texture out — a medkit's teal case and red cross become a pale square.
+
+**The occlusion story was wrong, and the mistake is worth recording.** The category view showed a
+white square where each pickup stands, and white was read as map geometry covering it. The palette
+has no white: `Terrain` is green, `Prop` orange, `Missing` magenta, `Brush` blue-grey, and the
+diagnostic shader returns the vertex colour — so the white square *was* the model, drawn on top of
+everything. The owner's flat statement that nothing covers those packs in game is what forced the
+check, and reading `CategoryColour` took ten seconds against an hour of inference.
+
+**What the engine does.** A dynamic model is lit from the light cache rather than from a lightmap:
+`LightingState_t` in `istudiorender.h` carries `m_vecAmbientCube[6]` — "ambient, and lights that
+aren't in locallight[]" — plus an array of local lights, sampled near the model's origin. That is
+the same mechanism whether the model is a health pack or a player.
+
+**Not a lightmap lookup.** A model does not have lightmap coordinates, which is precisely why the
+engine has a separate path for it; adding one here would be inventing a mechanism Source does not
+have.
+
+Until it is implemented, every entity model in the viewer is overbright, and any judgement about a
+model's texture or material is unreliable — three separate defects were attributed to materials
+tonight before this was understood.
