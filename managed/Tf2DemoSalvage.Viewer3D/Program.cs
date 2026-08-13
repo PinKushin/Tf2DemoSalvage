@@ -1,6 +1,8 @@
 using System;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Core.Diagnostics;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -34,6 +36,13 @@ internal static class Program
         // STAThread and this initialisation order are both required by WinForms itself: COM
         // apartment first, then visual styles, before any control exists.
         ViewerLog.Begin("viewer");
+
+        // **Core and Content can now say what they lost.** Both are libraries and neither can see
+        // this log, so until they had a sink their only honest options were to throw or return
+        // nothing - and the second is the silent fallback this project bans everywhere it can
+        // reach. Attaching it here is the whole wiring.
+        DecodeLog.Sink = ViewerLog.Warn;
+
         ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the

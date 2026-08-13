@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
+using Tf2DemoSalvage.Core.Diagnostics;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One place the game looks for content.</summary>
@@ -99,6 +101,11 @@ public static class GameSearchPath
         catch (Exception failure) when (
             failure is IOException or UnauthorizedAccessException or NotSupportedException)
         {
+            // Reported rather than swallowed: with no gameinfo.txt the caller falls back to the
+            // mod folder alone, so every VPK the game declares silently stops being searched and
+            // the map draws with missing textures instead of an error.
+            DecodeLog.Lost("assets", "reading gameinfo.txt", failure);
+
             return [];
         }
 
@@ -248,7 +255,9 @@ public static class GameSearchPath
             catch (Exception failure) when (
                 failure is IOException or UnauthorizedAccessException)
             {
-                // An unreadable custom folder costs its overrides, not the search path.
+                // An unreadable custom folder costs its overrides, not the search path - and
+                // custom content is exactly what someone notices missing, so it says so.
+                DecodeLog.Lost("assets", $"reading custom content in {folder}", failure);
             }
 
             return;
