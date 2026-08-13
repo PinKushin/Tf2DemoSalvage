@@ -39,3 +39,5 @@
 - [Per-item APIs hide quadratic reads](per-item-apis-hide-quadratic-reads.md) — read-one-face plus whole-file re-decompresses the lumps every call; 830 ms per resize.
 - [UI tests run every time](ui-tests-run-every-time.md) — every change, not just UI ones; new UI ships with its UI test.
 - [Decoding must be total](decode-must-be-total.md) — anything not reading at 100% with no errors is our defect; the engine reads these files fine.
+- [A test can outlive its design](a-test-can-outlive-its-design.md) — the full-screen test demanded a rebuild the camera matrix deleted, and its failure blamed the app.
+- [The focus check asks the wrong window](focus-check-asks-the-wrong-window.md) — HasKeyboardFocus on a top-level window is always false; cost 5s per focus and misdirected two sessions.
