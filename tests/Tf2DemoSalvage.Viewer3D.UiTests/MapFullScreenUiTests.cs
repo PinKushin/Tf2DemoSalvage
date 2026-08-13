@@ -34,8 +34,11 @@ public sealed class MapFullScreenUiTests
     /// <summary>What the viewer logs when it decodes and uploads a map's textures.</summary>
     private const string TextureUploadLine = "uploading textures";
 
-    /// <summary>What it logs when it projects the world through the camera.</summary>
+    /// <summary>What it logs when it projects the world through the camera, once per map.</summary>
     private const string WorldBuildLine = "building the world";
+
+    /// <summary>What it logs on every viewport change, which is now the whole cost of one.</summary>
+    private const string CameraLine = "camera set for a";
 
     private ViewerApplication _viewer = null!;
 
@@ -76,19 +79,28 @@ public sealed class MapFullScreenUiTests
     public void CloseViewer() => _viewer?.Dispose();
 
     [Test]
-    public void EnteringFullScreen_RebuildsTheWorldWithoutReUploadingTheTextures()
+    public void EnteringFullScreen_RepointsTheCameraWithoutRebuildingOrReuploading()
     {
-        // **The measurement.** Going full screen must reproject the world - the camera projection
-        // is baked into the vertices, so new viewport, new vertices - and must NOT touch the
-        // textures, which do not depend on the camera at all.
+        // **The measurement, and it inverted when the camera became a matrix.** This test used to
+        // demand that going full screen REBUILD the world, because the projection was baked into
+        // every vertex and a new viewport meant new vertices. That is the design the camera matrix
+        // removed: the vertices are in map coordinates now and never move, so a resize uploads
+        // sixty-four bytes and the world is built exactly once per map.
         //
-        // Both halves matter. Asserting only that textures were uploaded once would pass against a
-        // viewer that had stopped resizing altogether, and asserting only that the world was
-        // rebuilt would pass against the defect this exists for.
+        // Left as it was, the test failed against the improvement - it waited twenty seconds for a
+        // rebuild that correctly never comes, and the failure read as "full screen is broken" while
+        // the window in front of the tester was plainly full screen. A test that encodes the old
+        // design does not become right by continuing to pass elsewhere.
+        //
+        // Three counts, and all three are needed. The camera must be repointed, or nothing happened
+        // at all. The world must NOT be rebuilt, which is the fix. The textures must NOT be
+        // re-uploaded, which is the older fix underneath it.
         int texturesBefore = Count(TextureUploadLine);
         int buildsBefore = Count(WorldBuildLine);
+        int camerasBefore = Count(CameraLine);
 
         texturesBefore.ShouldBe(1, "the map's textures should have been uploaded once at load");
+        buildsBefore.ShouldBe(1, "the world should have been built once at load");
 
         _viewer.Focus();
         Keyboard.Type(VirtualKeyShort.F11);
@@ -102,13 +114,17 @@ public sealed class MapFullScreenUiTests
             timeoutMessage: "The viewport never filled the screen.");
 
         // Wait for the resize to have been PROCESSED, not merely for the window to have moved.
-        // Without this the count could be read before the rebuild it is meant to observe, and the
-        // test would pass for the wrong reason on a fast machine.
+        // Without this the counts below could be read before the viewer has handled the resize at
+        // all, and "nothing was rebuilt" would be true for the wrong reason on a fast machine.
         Retry.WhileFalse(
-            () => Count(WorldBuildLine) > buildsBefore,
+            () => Count(CameraLine) > camerasBefore,
             TimeSpan.FromSeconds(20),
             throwOnTimeout: true,
-            timeoutMessage: "Full screen never rebuilt the world.");
+            timeoutMessage: "Full screen never repointed the camera.");
+
+        Count(WorldBuildLine).ShouldBe(
+            buildsBefore,
+            "a resize must not rebuild the world; the camera is a matrix");
 
         Count(TextureUploadLine).ShouldBe(
             texturesBefore,
