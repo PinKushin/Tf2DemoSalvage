@@ -276,6 +276,13 @@ internal static class DemoScan
         }
         catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
         {
+            // **A shorter dump is not a smaller demo.** Skipping a snapshot silently means every
+            // entity it carried is absent from the output with nothing to say they were ever
+            // there, and a dump that stops describing a match halfway through looks like a quiet
+            // match rather than a failed decode.
+            Diagnostics.DecodeLog.Lost(
+                "entities", $"decoding a snapshot at tick {tick}", error);
+
             return;
         }
 

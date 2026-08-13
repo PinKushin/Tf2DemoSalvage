@@ -151,6 +151,11 @@ public static class EntityAssembly
         }
         catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
         {
+            // Temp entities are effects - a rocket trail, a blood spray - so losing them costs
+            // detail rather than structure. It still says so: "no effects in this demo" and "the
+            // effects would not decode" look identical in the output otherwise.
+            Diagnostics.DecodeLog.Lost("entities", "decoding temp entities", failure);
+
             return null;
         }
 

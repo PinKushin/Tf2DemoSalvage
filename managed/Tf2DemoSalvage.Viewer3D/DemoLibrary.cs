@@ -139,6 +139,12 @@ internal sealed class DemoLibrary
             }
             catch (Exception failure) when (failure is UnauthorizedAccessException or IOException)
             {
+                // **A folder that cannot be read holds demos that never appear.** Silently, and
+                // indistinguishably from a folder that has none - so someone whose recordings sit
+                // behind a permission problem sees an empty list and concludes the viewer cannot
+                // read their demos.
+                ViewerLog.Warn("library", $"listing {current}", failure);
+
                 continue;
             }
 
