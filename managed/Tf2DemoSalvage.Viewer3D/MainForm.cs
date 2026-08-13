@@ -1498,11 +1498,13 @@ internal class MainForm : Form
     /// </remarks>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        // **Page up and down slice the map**, which is the only control this needs: one axis, and
-        // the eye finds the useful height in a second or two. Home restores the whole map.
+        // **Page DOWN descends through the map**, taking the roofs off first, and page up brings
+        // them back. The obvious reading of the key is the one to follow: the first version had it
+        // inverted, and pressing page down 166 times did nothing because the cut was already at
+        // zero and the log said so.
         if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _map is not null)
         {
-            float step = keyData == Keys.PageUp ? 0.02f : -0.02f;
+            float step = keyData == Keys.PageDown ? 0.02f : -0.02f;
 
             _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
 
@@ -1512,7 +1514,7 @@ internal class MainForm : Form
                     CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
 
             _status.Text = _heightCut > 0f
-                ? string.Create(CultureInfo.InvariantCulture, $"Showing the lower {1f - _heightCut:P0} of the map. Page Up cuts more, Home restores it.")
+                ? string.Create(CultureInfo.InvariantCulture, $"Showing the lower {1f - _heightCut:P0} of the map. Page Down cuts deeper, Page Up or Home restores it.")
                 : "Showing the whole map.";
 
             _worldIsStale = true;

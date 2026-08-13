@@ -293,7 +293,7 @@ internal sealed class MapAssets
             archives,
             materials,
             textures,
-            path => Resolve(path, pak, archives, maximumTextureSize).Texture);
+            path => Resolve(path, pak, archives, maximumTextureSize, report: false).Texture);
 
         // The blend list is indexed in step with the textures, and a prop material never has a
         // second layer - only a displacement's WorldVertexTransition does.
@@ -322,7 +322,11 @@ internal sealed class MapAssets
     /// failing yields null, because a half-resolved material has nothing to draw.
     /// </remarks>
     private static (MapTexture? Texture, MapTexture? Blend) Resolve(
-        string materialName, PakFile pak, GameArchives archives, int maximumTextureSize)
+        string materialName,
+        PakFile pak,
+        GameArchives archives,
+        int maximumTextureSize,
+        bool report = true)
     {
         byte[]? Find(string path)
         {
@@ -342,7 +346,13 @@ internal sealed class MapAssets
 
         if (Find("materials/" + materialName + ".vmt") is not { } vmt)
         {
-            ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
+            // **Silent only when the caller is guessing.** A model's material can be reached by
+            // several candidate paths and all but one are expected to miss; reporting each would
+            // bury the real failures, which the caller logs once it has run out of candidates.
+            if (report)
+            {
+                ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
+            }
 
             return (null, null);
         }

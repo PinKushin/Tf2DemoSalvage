@@ -61,7 +61,7 @@ internal static class MapWorldBuilder
         ArgumentNullException.ThrowIfNull(atlas);
         ArgumentNullException.ThrowIfNull(props);
 
-        (float lowest, float highest) = HeightRange(surfaces);
+        (float lowest, float highest) = HeightRange(surfaces, area);
 
         // **Counted and logged, because a picture is a poor way to notice a category is empty.**
         // Every defect chased this session showed up in these numbers before it showed up on
@@ -285,16 +285,37 @@ internal static class MapWorldBuilder
         }
     }
 
-    /// <summary>Finds the map's vertical extent, which is what depth is measured against.</summary>
-    private static (float Lowest, float Highest) HeightRange(IReadOnlyList<BspSurface> surfaces)
+    /// <summary>
+    /// Finds the vertical extent of the PLAY AREA, which is what depth is measured against.
+    /// </summary>
+    /// <remarks>
+    /// **Measured over the play area, not the whole file, for the same reason the camera frames
+    /// MainBounds.** A TF2 map keeps its 3D skybox as ordinary geometry far outside the level, and
+    /// on cp_process_f12 that puts the file's vertical span at -14,673 to 3,152 while everything a
+    /// player can stand on lives between roughly -72 and 2,240. Normalised against the file, the
+    /// entire playable map occupies 13% of the depth range.
+    ///
+    /// That wastes seven eighths of the depth buffer's precision on empty space, and it made the
+    /// height cut useless: the slice spent most of its travel above anything that exists.
+    /// </remarks>
+    private static (float Lowest, float Highest) HeightRange(
+        IReadOnlyList<BspSurface> surfaces, MapBounds? area)
     {
         float lowest = float.PositiveInfinity;
         float highest = float.NegativeInfinity;
 
-        foreach (float z in surfaces.SelectMany(surface => surface.Vertices.Select(v => v.Z)))
+        foreach (BspSurface surface in surfaces)
         {
-            lowest = Math.Min(lowest, z);
-            highest = Math.Max(highest, z);
+            if (area is { } bounds && !Touches(surface, bounds))
+            {
+                continue;
+            }
+
+            foreach (float z in surface.Vertices.Select(vertex => vertex.Z))
+            {
+                lowest = Math.Min(lowest, z);
+                highest = Math.Max(highest, z);
+            }
         }
 
         return float.IsFinite(lowest) && highest > lowest ? (lowest, highest) : (0f, 1f);
