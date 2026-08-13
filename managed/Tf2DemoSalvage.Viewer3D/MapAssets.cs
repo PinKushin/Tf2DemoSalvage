@@ -28,6 +28,7 @@ internal readonly record struct MapTexture(
 /// | <c>tf/custom/*/materials</c> | where custom content goes today, and it OVERRIDES the game |
 /// | <c>tf/materials</c> | loose files, including anything extracted from a pre-VPK install |
 /// | <c>tf/*_dir.vpk</c> | the modern archives |
+/// | <c>hl2/</c> and <c>hl2/*_dir.vpk</c> | what TF2's own gameinfo.txt mounts after its own |
 ///
 /// That order is the engine's: custom beats loose, loose beats packed. A viewer that searched the
 /// VPKs first would show the stock texture where the game shows the user's replacement.
@@ -91,15 +92,39 @@ internal sealed class GameArchives
             // Then the game folder itself, which is where loose files sit - including anything
             // extracted from a pre-VPK install.
             folders.Add(gameFolder);
+
+            // **And then hl2, because that is what the engine mounts.** TF2's gameinfo.txt lists
+            // hl2's archives after its own, so a mapper can use Half-Life 2 content and the game
+            // finds it. Mappers do exactly that - reusing an asset from anywhere in the install is
+            // ordinary practice, not a mistake - and a viewer that searches only tf/ silently
+            // fails to resolve those materials.
+            //
+            // Found from the three materials cp_process_final could not resolve:
+            // GLASS/GLASSWINDOW008D and DEV/REFLECTIVITY_10B are both HL2 content.
+            string half = Path.Combine(Path.GetDirectoryName(gameFolder) ?? gameFolder, "hl2");
+
+            if (Directory.Exists(half))
+            {
+                folders.Add(half);
+            }
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
             // An unreadable custom folder costs its overrides, not the viewer.
         }
 
-        foreach (string name in new[] { "tf2_textures_dir.vpk", "tf2_misc_dir.vpk" })
+        // The engine's order, from gameinfo.txt: the game's own archives, then hl2's.
+        string? install = Path.GetDirectoryName(gameFolder);
+
+        foreach ((string folder, string name) in new[]
         {
-            string path = Path.Combine(gameFolder, name);
+            (gameFolder, "tf2_textures_dir.vpk"),
+            (gameFolder, "tf2_misc_dir.vpk"),
+            (Path.Combine(install ?? gameFolder, "hl2"), "hl2_textures_dir.vpk"),
+            (Path.Combine(install ?? gameFolder, "hl2"), "hl2_misc_dir.vpk"),
+        })
+        {
+            string path = Path.Combine(folder, name);
 
             try
             {
