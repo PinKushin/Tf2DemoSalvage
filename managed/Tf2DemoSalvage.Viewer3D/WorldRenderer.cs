@@ -522,7 +522,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
         context.PSSetSamplers(1, 1, ref _clampSampler);
+        // **Bound to BOTH stages, because both read it.** The vertex shader takes the matrix and
+        // the pixel shader takes the category switch and the height cut. Binding it to the vertex
+        // stage alone is not an error - D3D simply hands the pixel shader zeros - so the cut sat at
+        // zero however hard it was pressed, and the category view drew nothing. Found by a test
+        // that renders offscreen and reads a pixel, which is the only instrument that could see it.
         context.VSSetConstantBuffers(0, 1, ref _camera);
+        context.PSSetConstantBuffers(0, 1, ref _camera);
         context.PSSetShaderResources(1, 1, ref _lightmap);
 
         foreach (WorldBatch batch in _batches)

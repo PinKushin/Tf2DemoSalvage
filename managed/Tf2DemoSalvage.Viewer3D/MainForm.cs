@@ -1653,6 +1653,11 @@ internal class MainForm : Form
     {
         if (disposing)
         {
+            // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
+            // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
+            // is slow is not guessable - the log says.
+            Stopwatch closing = Stopwatch.StartNew();
+
             if (_rendering)
             {
                 // Before the device goes: an Idle handler that outlives the swap chain presents
@@ -1661,8 +1666,17 @@ internal class MainForm : Form
                 _rendering = false;
             }
 
+            TimeSpan idleStopped = closing.Elapsed;
+
             _device?.Dispose();
             _device = null;
+
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"shutdown: idle stopped after {idleStopped.TotalMilliseconds:F0} ms, " +
+                    $"device released after {closing.Elapsed.TotalMilliseconds:F0} ms"));
 
             // Both are in Controls, which base.Dispose already walks - but the analyzer cannot
             // see that ownership, and stating it costs nothing and is true.
