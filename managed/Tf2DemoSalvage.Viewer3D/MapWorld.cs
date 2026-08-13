@@ -181,11 +181,17 @@ internal static class MapWorldBuilder
                 continue;
             }
 
-            if (area is { } bounds && !Inside(props[corner], bounds) &&
-                !Inside(props[corner + 1], bounds) && !Inside(props[corner + 2], bounds))
+            if (area is { } bounds && !Inside(first, bounds))
             {
-                // Outside the play area, which for a TF2 map is mostly the 3D skybox's own
-                // scenery - drawn at a fraction of world scale and nowhere near where it appears.
+                // **Judged by the placement's origin, not by its triangles.** A TF2 map keeps a
+                // miniature copy of the surrounding scenery in a separate room far outside the
+                // play area, drawn at a fraction of world scale; those are ordinary prop_static
+                // entries whose triangles are perfectly valid shapes at perfectly valid positions.
+                // Nothing about a triangle distinguishes them - only where its prop stands does.
+                //
+                // The earlier per-triangle test kept a prop if ANY corner fell inside, which let
+                // whole skybox buildings through wherever one touched the boundary. Visible in a
+                // screenshot as structures scattered well outside the map's own outline.
                 continue;
             }
 
@@ -211,8 +217,8 @@ internal static class MapWorldBuilder
     }
 
     private static bool Inside(PropVertex vertex, MapBounds bounds) =>
-        vertex.X >= bounds.MinX && vertex.X <= bounds.MaxX &&
-        vertex.Y >= bounds.MinY && vertex.Y <= bounds.MaxY;
+        vertex.OriginX >= bounds.MinX && vertex.OriginX <= bounds.MaxX &&
+        vertex.OriginY >= bounds.MinY && vertex.OriginY <= bounds.MaxY;
 
     /// <summary>Reads a displacement's terrain, or nothing if it cannot be read.</summary>
     /// <remarks>

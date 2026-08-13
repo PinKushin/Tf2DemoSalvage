@@ -14,8 +14,11 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="U">Texture coordinate.</param>
 /// <param name="V">Texture coordinate.</param>
 /// <param name="MaterialIndex">Which material paints it, in the map's combined table.</param>
+/// <param name="OriginX">Where the placement stands, east-west.</param>
+/// <param name="OriginY">Where the placement stands, north-south.</param>
 internal readonly record struct PropVertex(
-    float X, float Y, float Z, float U, float V, int MaterialIndex);
+    float X, float Y, float Z, float U, float V, int MaterialIndex,
+    float OriginX = 0f, float OriginY = 0f);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -123,7 +126,19 @@ internal static class PropModels
             {
                 (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
 
-                world.Add(corner with { X = x, Y = y, Z = z });
+                // **The placement's own origin rides along**, so a prop can be kept or dropped as
+                // one thing. Judging its triangles individually cannot tell a 3D skybox prop from
+                // a real one: both are made of ordinary triangles, and the skybox's are a valid
+                // shape at a valid position - just a position that is nowhere near where the
+                // player sees it.
+                world.Add(corner with
+                {
+                    X = x,
+                    Y = y,
+                    Z = z,
+                    OriginX = placement.X,
+                    OriginY = placement.Y,
+                });
             }
 
             placed++;
