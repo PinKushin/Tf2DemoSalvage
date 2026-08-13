@@ -100,6 +100,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float4 surfaceColours;
         };
 
+        // **The model transform, which is Valve's own shape.** IMaterialSystem::LoadBoneMatrix
+        // hands bone matrices to the shader as constants and the GPU transforms model-space
+        // vertices - which is why the engine draws a hundred animated models without noticing.
+        // Rebuilding vertices on the processor every frame is the thing that path exists to avoid.
+        //
+        // A rigid entity is the one-bone case: one matrix for the whole model. Skinning adds more
+        // matrices and a weight per vertex; nothing about this arrangement changes.
+        //
+        // Identity for the map's own geometry, which is already in world space.
+        cbuffer Model : register(b2)
+        {
+            row_major float4x4 model;
+        };
+
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
         // mode belong to the material, so this is rewritten between draws - around two hundred
         // times a frame, which is nothing next to the draw calls themselves.
@@ -201,7 +215,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **World space in, clip space out.** The vertices are uploaded once in the map's own
             // coordinates and this matrix is the only thing that changes when the view does, so a
             // resize costs 64 bytes instead of rebuilding a couple of million vertices.
-            output.pos = mul(float4(input.pos, 1.0f), viewProjection);
+            // Model space to world, then world to clip. The map's geometry passes an identity
+            // model matrix, so it costs one multiply and keeps a single path for both.
+            float4 world = mul(float4(input.pos, 1.0f), model);
+            output.pos = mul(world, viewProjection);
             output.uv = input.uv;
             output.luv = input.luv;
             output.a = input.a;
@@ -355,6 +372,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11InputLayout> _layout;
     private ComPtr<ID3D11Buffer> _vertices;
     private ComPtr<ID3D11Buffer> _camera;
+    private ComPtr<ID3D11Buffer> _model;
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
@@ -991,6 +1009,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         EnsureMaterialBuffer(context);
 
+        // The map's own geometry is already in world space, so it draws with an identity model
+        // matrix. Set every frame rather than once: an entity draw leaves its own matrix behind,
+        // and inheriting it would move the whole map to wherever the last rocket was.
+        SetModel(context, Identity);
+
         // **Opaque first, additive after.** An additive fragment brightens whatever is behind it,
         // so anything drawn later would be added to nothing.
         foreach (WorldBatch batch in _batches)
@@ -1116,6 +1139,84 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private static readonly float[] NoDetail =
         [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f];
+
+    /// <summary>The model matrix for geometry already in world space.</summary>
+    private static readonly float[] Identity =
+    [
+        1f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        0f, 0f, 0f, 1f,
+    ];
+
+    /// <summary>Sets the transform applied to the vertices before the camera sees them.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="matrix">Sixteen floats, row major.</param>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
+    /// <remarks>
+    /// **Valve's arrangement, and the reason it matters here.**
+    /// <c>IMaterialSystem::LoadBoneMatrix</c> hands bone matrices to the shader as constants and
+    /// the GPU transforms model-space vertices — which is how the engine draws a great many
+    /// animated models without noticing. Rebuilding vertices on the processor each frame is
+    /// precisely what that path avoids, and a viewer that did it would feel slow where TF2 does
+    /// not.
+    ///
+    /// A rigid entity is the one-bone case. Skinning adds more matrices and a weight per vertex;
+    /// this arrangement does not change.
+    /// </remarks>
+    public void SetModel(ComPtr<ID3D11DeviceContext> context, float[] matrix)
+    {
+        ArgumentNullException.ThrowIfNull(matrix);
+
+        if (matrix.Length != 16)
+        {
+            throw new ArgumentException("A model matrix is sixteen floats.", nameof(matrix));
+        }
+
+        EnsureModelBuffer(context);
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = matrix)
+        {
+            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
+        }
+
+        context.Unmap(_model, 0);
+
+        // Vertex stage only: the pixel shader has no use for it, and binding what is not read is
+        // how the camera buffer once ended up half-bound with the height cut silently at zero.
+        context.VSSetConstantBuffers(2, 1, ref _model);
+    }
+
+    private void EnsureModelBuffer(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_model.Handle is not null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11Device> device = default;
+
+        context.GetDevice(ref device);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = sizeof(float) * 16,
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+        _model = buffer;
+        device.Dispose();
+    }
 
     private void EnsureMaterialBuffer(ComPtr<ID3D11DeviceContext> context)
     {
@@ -1359,6 +1460,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseMap();
         _material.Dispose();
         _camera.Dispose();
+        _model.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
