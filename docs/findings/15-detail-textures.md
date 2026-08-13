@@ -180,7 +180,54 @@ TDD, research first — this document is the research step.
 7. **`MapPictureTests`** — a picture with detail on and one with it off, asserting a specific
    surface changed, plus a control surface with no `$detail` that must be bit-identical.
 
+## Two modes the source does not advertise
+
+Both found by writing a sweep asserting the obvious property — *a blend factor of zero turns a mode
+off* — and watching it fail. Neither is stated anywhere; both are visible in `TextureCombine` once
+you know to look at where the braces are.
+
+**Mode 4 replaces alpha outside the blend.**
+
+```c
+float fblend = fBlendFactor * (1-baseColor.a);
+baseColor.rgb = lerp( baseColor.rgb, detailColor.rgb, fblend );
+baseColor.a = detailColor.a;          // not inside the lerp, not scaled by fblend
+```
+
+At a factor of zero the colour is untouched and the alpha is still replaced. Since alpha feeds the
+alpha test, that changes which pixels survive.
+
+**Mode 11 has no blend factor at all.**
+
+```c
+baseColor.rgb = baseColor.rgb * dot( detailColor.rgb, 2.0/3.0 );
+```
+
+`$detailblendfactor "0"` does not turn mode 11 off. It is also a second grey identity — a detail of
+(0.5, 0.5, 0.5) sums to 1.5, times 2/3 is exactly 1 — which a reading of "average the channels"
+would get wrong by a factor of two.
+
+The sweep now carries these as two named exclusions with a test each, rather than being narrowed
+until it passed. **Evidence class: read from published source, found by measurement.**
+
 ## Status
 
-Researched, not implemented. Nothing in this document has been measured against the corpus yet
-beyond the drawn-area counts at the top.
+**Implemented, 2026-08-13.** Measured on `cp_process_f12` with the modern VPKs mounted:
+
+| | |
+|---|---|
+| Materials naming `$detail` | 34 of 285 |
+| Resolved | 34 |
+| Drawn with a detail texture | 34 |
+| Not found | 0 |
+| Sampled pixels that change with it on | 7,155 of 172,800 (4.1%) |
+
+Zero misses, which is the bar this repo sets: the engine reads all of these, so anything short of
+all of them is our defect.
+
+The 4.1% is measured on a top-down overview at 640×360, where most surfaces are floors seen flat and
+a detail texture is a subtle multiply. It is a floor on the effect, not a measure of it.
+
+**Still open from this chain:** modes 5, 6 and 10 are implemented but unexercised — no material on
+this map uses them, so they are transcription rather than measurement. Mode 10 additionally needs
+`$bumpmap`, which is the next item.
