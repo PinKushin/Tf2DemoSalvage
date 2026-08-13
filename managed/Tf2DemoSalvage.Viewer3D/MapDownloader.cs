@@ -5,6 +5,8 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -207,7 +209,7 @@ internal sealed class MapDownloader : IDisposable
     /// <remarks>
     /// The magic and a plausible version, not a full parse. This is a cheap gate against a mirror
     /// answering 200 with an HTML error page or a login redirect; the real validation is
-    /// <see cref="Core.Bsp.BspHeader"/>, which runs when the map is read.
+    /// <see cref="BspHeader"/>, which runs when the map is read.
     /// </remarks>
     private static bool LooksLikeBsp(byte[] bytes)
     {

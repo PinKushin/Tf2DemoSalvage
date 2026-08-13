@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Source engine CONTENT: maps, materials, textures and models. Everything needed to draw what a
+    demo describes, and nothing to do with reading a demo.
+
+    Split out of Core because the two share no code in either direction - the check that made the
+    split cheap was that no file under Bsp or Assets mentioned Core.Net, Core.Container or
+    Core.Schema, and no demo-parsing file mentioned either of these. The one dependency is
+    Core.Primitives for the LZMA reader, which every BSP lump needs.
+
+    Keeping them apart means a tool that dumps a demo to text does not drag in LZMA, VTF decoding
+    and the .mdl/.vvd/.vtx chain, and it keeps the project honest about what it is: a .dem parser,
+    with a viewer built on top.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Content</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Content.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+  </ItemGroup>
+
+</Project>
