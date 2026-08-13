@@ -102,10 +102,27 @@ diffuseLighting = vNormal.x * lightmapColor1 +
                   vNormal.z * lightmapColor3;
 ```
 
-That matters here because **TF2's own world materials commonly ship ssbump**, not ordinary normal
-maps — `concrete/concretefloor007b` names
-`concrete/concretefloor007b_height-ssbump` and sets `$ssbump 1`. So the ssbump path is likely the
-*common* case on this corpus, not the exotic one. To be measured before it is believed.
+**How common is it? Counted, because the first version of this paragraph guessed.** It said TF2's
+world materials "commonly ship ssbump", on the evidence of one material —
+`concrete/concretefloor007b`, which names `concrete/concretefloor007b_height-ssbump` and sets
+`$ssbump 1`. Flagged as interpolated, then measured on `cp_process_final`:
+
+| | |
+|---|---|
+| Materials resolved | 208 |
+| Naming a `$bumpmap` | 27 |
+| Declaring `$ssbump 1` | 13 |
+| Whose VTF carries `TEXTUREFLAGS_SSBUMP` | 13 |
+| Naming a bump texture that is missing | 0 |
+
+**Neither path is the exotic one.** It is 13 against 14, so both combines have to exist before
+bumped lighting can be claimed to work — writing one and calling it done would leave half the
+bumped surfaces wrong, and wrong in the direction that still looks like lighting.
+
+The two signals agree exactly, 13 and 13: `$ssbump 1` in the material and the flag on the texture
+are the same fact recorded by two unrelated routes, which is the shape that tests a decode against
+the compiler rather than against our reading of it. Valve's naming follows suit — `-ssbump` versus
+`_normal` — but a suffix is a convention and the flag is data, so the flag decides.
 
 ## The tangent basis this was going to need, and does not
 
@@ -189,5 +206,5 @@ lit evenly from every direction legitimately has identical sets.
 **Still to do:** the atlas, the normal map decode, and the shader. Nothing is drawn differently
 yet — this reads three quarters more data and hands it to a renderer that does not use it.
 
-The claim that ssbump is the common case on TF2 world materials is still **interpolated from one
-material** and needs counting.
+The ssbump question is settled and the guess was wrong: 13 ssbump against 14 ordinary, so both
+combines are required. Counted by `BumpMapPrevalenceProbe`.
