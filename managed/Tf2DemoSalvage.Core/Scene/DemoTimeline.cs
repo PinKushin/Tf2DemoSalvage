@@ -121,6 +121,26 @@ public sealed class DemoTimeline
             foreach (INetMessage message in
                 NetMessageReader.Read(command.Payload.Span, state).Messages)
             {
+                // **Instance baselines, because an entering entity is a delta against its class.**
+                // Applying them changed no count on any file in the corpus, era or modern - but
+                // "it changed nothing measurable here" is not evidence that it never will, and the
+                // format says an entity entering the visible set is sent against this rather than
+                // in full.
+                switch (message)
+                {
+                    case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
+                        BaselineBuilder.Apply(create.Entries, decoder);
+                        continue;
+
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == BaselineBuilder.TableName:
+                        BaselineBuilder.Apply(update.Entries, decoder);
+                        continue;
+
+                    default:
+                        break;
+                }
+
                 if (message is not PacketEntitiesMessage snapshot || snapshot.LengthBits <= 0)
                 {
                     continue;

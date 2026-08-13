@@ -2542,7 +2542,7 @@ candidates it could see.
 from the game lump. Drawing them needs the model chain (`.mdl` / `.vvd` / `.dx90.vtx`), which is
 its own piece of work and is not done. Until it is, the patches remain.
 
-## B44 — pre-2013 demos decode only one player entity — OPEN
+## B44 — pre-2013 demos decode only one player entity — NOT A DEFECT, and the corpus said so
 
 **Every demo in the corpus recorded before 2013 yields exactly one positioned player, including
 SourceTV recordings that watched twelve.** Measured 2026-08-13 by `EraPlayerProbe`, accumulating
@@ -2576,8 +2576,32 @@ Candidates, none tested:
 - A delta-decode path that silently stops after the first entity in a snapshot for older
   protocols.
 
-**Why it matters and why it is filed rather than fixed here:** this is the difference between a
-viewer that plays a 2008 match and one that shows a single dot moving around an empty map, and it
-sits squarely under this repo's rule that anything not decoding at 100% is our defect. It was found
-while building `DemoTimeline`, which is a layer above it and works correctly on modern demos — so
-the two are worth separating rather than tangling.
+### Resolved the same day, by reading the manifest
+
+**There is no defect. Those demos contain one player.** Every era specimen was recorded by the
+owner on a **listen server**, solo, to capture a protocol — `tools/corpus/manifest.json` says it
+outright for each one: *"recorded by the owner 2026-08-10 on TF2 build 3258, listen server"*. The
+SourceTV files show two because SourceTV is itself an entity.
+
+The reasoning above was sound and its premise was never checked. "One player is not a plausible
+number for a match" is true, and these are not matches. The instrument was right, the decoder was
+right, and the corpus was documented — the assumption sat between them.
+
+**One hypothesis was tested and killed before that**, which is the only part worth keeping as
+method: instance baselines. An entity entering the potentially visible set is sent as a delta
+against its class baseline, and `DemoTimeline` was not applying them where
+`CorpusEntityDecodeTests` was. Wiring them in changed **no count on any file**, era or modern. They
+are still applied now, because the format requires them and "it changed nothing measurable here"
+is not evidence that it never will.
+
+### What this does leave open
+
+**The corpus has no multi-player demo before 2020.** Every era specimen is a solo listen-server
+recording, so nothing in it can exercise playback with a full server across the era axis: crossing
+players, entities entering and leaving the visible set, twenty-four origins at once. That is a gap
+in the corpus rather than in the code, and it is the kind D5 already warns about — old specimens
+are genuinely rare, and the ones that exist were made to date protocols rather than to watch a
+match.
+
+Until such a demo turns up, multi-player playback is verified on modern files only, and any claim
+that a 2008 match plays back correctly is **interpolated**.
