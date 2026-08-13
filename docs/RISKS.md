@@ -2100,7 +2100,7 @@ becomes the fallback for the first frame, before any position is known.
 **Not blocking.** The current framing is correct enough to read the map by, and the failure mode is
 cosmetic — a margin of unreachable geometry around the edge, not a wrong picture.
 
-## B37 — displacement terrain draws as its flat base quad — OPEN
+## B37 — displacement terrain draws as its flat base quad — RESOLVED, BspTerrain reads DISP_VERTS
 
 **Seen 2026-08-12**, on the first render of a downloaded `pl_vigil_rc9`: large flat slabs cover the
 west and south of the map where the terrain should be.
@@ -2185,7 +2185,7 @@ that maps CRCs to files.
 **Not blocking**, and the order is clear: detect and report the mismatch first, fetch the right
 version second.
 
-## B39 — blend materials draw only their first layer, so grass is missing — OPEN
+## B39 — blend materials draw only their first layer, so grass is missing — RESOLVED, $basetexture2 mixed by vertex alpha
 
 **Found 2026-08-12**, by looking at the rendered map and asking where the grass went.
 
@@ -2270,7 +2270,7 @@ decision from vertex order was a second source of truth that could disagree with
 dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
 separates them is whether the affected area follows a *material* or follows a *region*.
 
-## B43 — the content search path is hardcoded rather than read from gameinfo.txt — OPEN
+## B43a — the content search path is hardcoded rather than read from gameinfo.txt — RESOLVED, GameSearchPath reads it
 
 **Raised 2026-08-12**, immediately after the hl2 mount landed and by the owner's objection to how
 it was found.
@@ -2377,7 +2377,7 @@ decision from vertex order was a second source of truth that could disagree with
 dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
 separates them is whether the affected area follows a *material* or follows a *region*.
 
-## B43 — the content search path is hardcoded rather than read from gameinfo.txt — OPEN
+## B43b — duplicate of B43a, filed on a parallel branch — RESOLVED
 
 **Raised 2026-08-12**, immediately after the hl2 mount landed and by the owner's objection to how
 it was found.
@@ -2404,7 +2404,7 @@ with the engine's own statement of intent. The project already has a KeyValues r
 
 **Not blocking.** A stock install resolves 100% of `cp_process_final`'s materials today.
 
-## B42 — props draw near-black; the "blobs" are lit wrongly, not missing — OPEN, with a hypothesis
+## B42b — props draw near-black; the "blobs" are lit wrongly, not missing — SUPERSEDED, see the note at the end
 
 **Cause found, then found again.** This entry has been wrong twice and the history is kept because
 each wrong answer looked exactly like the right one.
@@ -2488,7 +2488,7 @@ decision from vertex order was a second source of truth that could disagree with
 dark, and no surface at all. Every hypothesis tried here assumed the first. The question that
 separates them is whether the affected area follows a *material* or follows a *region*.
 
-## B43 — the content search path is hardcoded rather than read from gameinfo.txt — OPEN
+## B43c — duplicate of B43a, filed on a parallel branch — RESOLVED
 
 **Raised 2026-08-12**, immediately after the hl2 mount landed and by the owner's objection to how
 it was found.
@@ -2515,7 +2515,7 @@ with the engine's own statement of intent. The project already has a KeyValues r
 
 **Not blocking.** A stock install resolves 100% of `cp_process_final`'s materials today.
 
-## B42 — small fuzzy black patches where only tool displacements cover the map — CAUSE FOUND, PARTLY FIXED
+## B42c — small fuzzy black patches where only tool displacements cover the map — RESOLVED by static props
 
 **Left over from B41**, and measured before that one was solved: a coverage grid over
 `cp_process_final` finds **153 cells — 5.1% of the map — covered only by
@@ -2791,3 +2791,29 @@ artefact rather than these.
 
 Worth doing when the leaf ambient lump is read for another reason. Not worth a version table on its
 own.
+
+## Register hygiene, 2026-08-13
+
+**Numbers collided and states went stale**, both because entries were filed on parallel branches
+that were merged without anyone reconciling them. B42 was used four times and B43 three, and
+several entries stayed OPEN long after the work landed. Corrected in place rather than renumbered,
+since the numbers are referenced from commit messages and findings: duplicates now carry a letter
+suffix and say what they duplicate.
+
+**The black-blob thread is the one worth reading end to end**, because it went through four
+explanations and only the last was right:
+
+1. **B41** — backface culling. Real, fixed.
+2. **B42** — alpha-tested foliage drawn opaque, so every bush was a black card. Real, fixed.
+3. **B42b** — props lit wrongly. Wrong: props were not yet drawn at all when this was filed, and
+   drawing them did not remove the patches.
+4. **B42c** — tool displacements covering ground with nothing behind them. Real, and fixed by
+   reading static props.
+5. **The remainder was never in the viewer.** The offscreen render target had no depth buffer, so
+   draws landed in material-batch order and dark surfaces painted over foliage. Every picture it
+   produced was read as evidence about the window for several sessions. The owner settled it by
+   looking at the window, where the same map was fine. The target now has a depth buffer, and the
+   authoritative picture is captured from the swap chain instead.
+
+That last one is the most expensive mistake in this register: not a wrong hypothesis, but a
+measuring instrument that manufactured the defect being measured.
