@@ -3706,7 +3706,7 @@ unmeasured:
   is the identity the model genuinely rests lying down; if it is a quarter turn the correction is
   already in hand and the fault is downstream of it.
 
-### B67 resolved to a single statement: the reference pose lies down, and our animation never stands it up
+### B67 RESOLVED — a substring match on a sequence name
 
 Last measurement, the 3x3 of the rest skinning matrix, which had never been looked at:
 
@@ -3744,3 +3744,45 @@ in the order they should be measured:
 
 Both are cheap to measure against the rest pose: pose scout with a known standing sequence and
 report the z span. Standing is 83, and nothing else is.
+
+## B67 RESOLVED — `Find` matched a sequence name by substring
+
+**One line, and it explains every player symptom in this file.**
+
+`PropModels.SkinnedModel.Find` looked a sequence up with `Contains` rather than equality, returning
+the earliest label in the merged table that merely EMBEDS the wanted name. Measured on a scout:
+
+```
+Find("Stand_PRIMARY") -> sequence 9, label "AttackStand_PRIMARY"
+real  stand_PRIMARY   -> sequence 175
+```
+
+`AttackStand_PRIMARY` contains `Stand_PRIMARY`, sorts earlier, and won every time. So an idle player
+was posed with an ATTACK animation — and a TF2 attack sequence is an upper-body layer meant to be
+ADDED to a base pose. Played alone as an absolute pose it leaves the skeleton near its reference,
+which for a player is lying on its back.
+
+That is why the evidence looked contradictory for so long: animation data really was being read and
+applied, so the posed shape differed from the rest shape, and the model still never stood up.
+
+Posed heights, scout, bones only:
+
+| Sequence | Z span |
+|---|---|
+| reference pose | 14 |
+| `AttackStand_PRIMARY` (what was being played) | 23 |
+| `stand_PRIMARY` | 59 |
+| `run_PRIMARY` | 68 |
+
+Valve's own lookup is `stricmp` — exact. The fix is one `string.Equals`.
+
+**Downstream of this, and expected to resolve with it:** B64's crazy legs, and the worn items sitting
+at ankle height, since `bip_head` was down there with the rest of the skeleton. B63's merge, B64's
+blend grid and the pose parameters were all correct and are unaffected.
+
+**The wrong turns, kept, because four separate confident conclusions were wrong before this one:**
+an up-axis conversion, an axis transposition in the readers, a broken bone composition worth
+rewriting wholesale, and the blend grid. Each was filed with evidence; each was retracted by a
+later measurement. What finally worked was comparing a player against a prop through the same
+reader, then asking the lookup what it actually returned rather than assuming it returned what was
+asked for.

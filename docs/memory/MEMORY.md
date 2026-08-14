@@ -56,3 +56,4 @@
 - [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — even ones are networked in the DynamicModels table; that is where every cosmetic lives.
 - [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land in %LOCALAPPDATA%\Tf2DemoSalvage\shot-*.png beside viewer.log.
 - [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half; open the routine that implements it before writing your own.
+- [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup returned AttackStand_PRIMARY for Stand_PRIMARY and laid every player down.

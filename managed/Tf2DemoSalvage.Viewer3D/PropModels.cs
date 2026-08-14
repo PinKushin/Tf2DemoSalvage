@@ -1140,8 +1140,24 @@ internal static class PropModels
                     continue;
                 }
 
-                if (Groups[where.Group].Sequences[where.Local].Label
-                    .Contains(name, StringComparison.OrdinalIgnoreCase))
+                // **Exact, which is what the engine does and what this got wrong.**
+                // Studio_LookupSequence compares labels with stricmp. Matching on Contains instead
+                // takes the first LONGER label that happens to embed the wanted one, and TF2 has
+                // several: asking a scout for "Stand_PRIMARY" returned sequence 9,
+                // "AttackStand_PRIMARY", while the real "stand_PRIMARY" sits at 175 and was never
+                // reached.
+                //
+                // The consequence was not a slightly wrong animation. An attack sequence is an
+                // upper-body layer meant to be added onto a base pose, so playing one on its own as
+                // an absolute pose leaves the skeleton near its reference — which for a TF2 player
+                // is lying on its back. Every player in the viewer was posed that way: the shape
+                // differed from rest, so the animation was demonstrably being applied, and the
+                // model still never stood up. Measured, scout: this sequence poses to a Z span of
+                // 23 where "stand_PRIMARY" gives 59 and "run_PRIMARY" gives 68.
+                if (string.Equals(
+                    Groups[where.Group].Sequences[where.Local].Label,
+                    name,
+                    StringComparison.OrdinalIgnoreCase))
                 {
                     return sequence;
                 }
