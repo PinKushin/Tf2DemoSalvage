@@ -52,6 +52,58 @@ public sealed class VmtMaterial
     /// <summary>The texture drawn on the surface, without extension, or null.</summary>
     public string? BaseTexture => Value("$basetexture");
 
+    /// <summary>The texture that carries this material's colour, whatever its shader calls it.</summary>
+    /// <remarks>
+    /// **Not every material has a <c>$basetexture</c>.** TF2 paints eyes with <c>EyeRefract</c>,
+    /// which composes one from an iris, a cornea normal map, an occlusion map and a light warp:
+    ///
+    /// <code>
+    /// "EyeRefract"
+    /// {
+    ///     "$Iris"          "models/player/shared/eye-iris-blue"
+    ///     "$CorneaTexture" "models/player/shared/eye-cornea"
+    /// }
+    /// </code>
+    ///
+    /// Asking only for <c>$basetexture</c> finds nothing there and draws the missing-texture
+    /// chequer, which is what put purple eyes on every player in the viewer.
+    ///
+    /// **This is not an implementation of those shaders and does not pretend to be.** It answers
+    /// "if you can only draw one texture for this material, which one is the colour" — the iris for
+    /// an eye. A renderer that later implements <c>EyeRefract</c> properly should stop using this
+    /// for eyes rather than build on it.
+    ///
+    /// Ordered so <c>$basetexture</c> always wins when present: a material naming both should not
+    /// have its wall repainted by whichever fallback happened to match.
+    /// </remarks>
+    public string? PrimaryTexture => BaseTexture ?? Fallback();
+
+    /// <summary>Parameters that carry a material's colour when it names no base texture.</summary>
+    /// <remarks>
+    /// Deliberately short. Each entry is a shader whose output a viewer would otherwise lose
+    /// entirely, and adding one is a claim that this parameter is the closest single texture to
+    /// what the player sees.
+    /// </remarks>
+    private static readonly string[] ColourBearingParameters =
+    [
+        // EyeRefract: the iris is the eye's colour; the cornea is a normal map and the
+        // ambient-occlusion texture is a mask.
+        "$iris",
+    ];
+
+    private string? Fallback()
+    {
+        foreach (string parameter in ColourBearingParameters)
+        {
+            if (Value(parameter) is { Length: > 0 } named)
+            {
+                return named;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Whether the surface is not simply opaque, by either route.</summary>
     /// <remarks>
     /// Kept for callers that only need to know a surface is not a solid. Anything that has to

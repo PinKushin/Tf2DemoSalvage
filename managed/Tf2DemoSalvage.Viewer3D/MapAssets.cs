@@ -191,6 +191,18 @@ internal sealed class GameArchives
             $"search path: {sources.Count} sources from gameinfo.txt " +
             $"({sources.Count(source => source.Archive is not null)} archives)");
 
+        // **Named, not counted.** "archives plus 8 folders" cannot answer which archive a
+        // missing material should have come from, and TF2 splits its content: the VTFs live in
+        // tf2_textures and the VMTs in tf2_misc, so losing one of them loses every material while
+        // the other still resolves textures.
+        ViewerLog.Write(
+            "assets",
+            "content: " + string.Join(
+                ", ",
+                sources.Select(source => source.Archive is null
+                    ? "folder " + source.Path
+                    : "archive")));
+
         return new GameArchives(sources);
     }
 
@@ -591,7 +603,12 @@ internal sealed class MapAssets
             return default;
         }
 
-        MapTexture? first = Decode(material.BaseTexture, material.IsAlphaTested, material.IsAdditive);
+        // **PrimaryTexture, not BaseTexture**, because a material need not have a base one. TF2's
+        // eyes use EyeRefract, which names an iris, a cornea and an occlusion map and no
+        // $basetexture at all - so asking for the base drew the missing-texture chequer on every
+        // player's eyes while the material itself resolved perfectly (B62).
+        MapTexture? first = Decode(
+            material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive);
 
         MapTexture? second = Decode(
             material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);

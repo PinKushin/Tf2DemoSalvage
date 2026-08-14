@@ -3402,3 +3402,44 @@ In rough order of how visible each is:
 The measurement that closed B57 also bounds this one: speed separates moving from still cleanly
 across the era demos, so the inputs an animation state needs are derivable even where they are not
 sent. What is missing is the state machine, not the data.
+
+## B62 — a material can name no `$basetexture` at all — OPEN, and the first diagnosis was wrong
+
+Player eyes draw as the missing-texture chequer. **The reason is that the eye material has no base
+texture to find**, which is not what this entry first said.
+
+```
+"EyeRefract"
+{
+    "$Iris"               "models/player/shared/eye-iris-blue"
+    "$AmbientOcclTexture" "models/player/shared/eye-extra"
+    "$CorneaTexture"      "models/player/shared/eye-cornea"
+    "$lightwarptexture"   "models/player/shared/eye_lightwarp"
+```
+
+`EyeRefract` composes an eye from an iris, a cornea normal map, an occlusion map and a light warp.
+There is no `$basetexture` in it, so a loader that asks only for that finds nothing and reports the
+material as unresolved — which it is not.
+
+**The first version of this entry blamed DirectX-level texture variants**, having noticed that
+`MODELS/PLAYER/SHARED/DXLEVEL80/EYEBALL_L.VTF` exists while the plain path does not. That
+observation is true and irrelevant: those are the low-shader-model fallbacks, and the real textures
+are the ones named above. The hypothesis was published on the strength of a suggestive filename
+rather than on reading the material, which is the same shape of mistake as the illumination one.
+
+The fix is to take the texture a shader actually uses when it names no base one — `$Iris` here,
+which is the eye's colour. Doing that generally means knowing, per shader, which parameter carries
+the thing a viewer without that shader should draw.
+
+**A wrong log cost most of the time before that.** `Register` reported "material not found, tried …"
+when every candidate came back with a null TEXTURE, which is a different failure. Corrected to say
+what it knows. Note also that neither of `Resolve`'s specific warnings fired here — no missing VMT,
+no missing VTF — and that silence was the clue: the material resolved and simply named no base
+texture.
+
+**The material census (B55) would not have caught this either.** It reports what a map's materials
+ask for, and model materials do not go through it.
+
+Also not started, and unrelated: **cosmetics and weapons are not drawn at all.** Only the base
+player model is. Wearables are separate entities (`m_hMyWearables`) and a weapon is its own model,
+so that is a feature rather than a texture defect.

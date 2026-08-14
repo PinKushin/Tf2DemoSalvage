@@ -837,13 +837,20 @@ internal static class PropModels
             return index;
         }
 
-        // **Named, not counted.** A material that resolves nowhere draws in the missing chequer,
-        // which makes it visible - and the log is what says WHICH material and where it was looked
-        // for, so the fix is a lookup rather than a hunt.
+        // **This says what it knows, which is less than it used to claim.** It knew only that no
+        // candidate yielded a usable TEXTURE, and reported "material not found" - which is a
+        // different failure with different causes. Read literally it sent an investigation into
+        // path joining and archive mounting while the truth was that the VMT resolved perfectly
+        // and its texture existed only as a dxlevel-specific variant (B62).
+        //
+        // The distinction is already in the log a few lines above, from Resolve: one message for a
+        // VMT that is missing and another for a texture that is. This points at them rather than
+        // overwriting them with a guess.
         ViewerLog.Warn(
             "props",
-            $"{model.Name}: material \"{model.Materials[materialIndex]}\" not found; tried " +
-            string.Join(", ", tried));
+            $"{model.Name}: material \"{model.Materials[materialIndex]}\" produced no texture; " +
+            $"tried {string.Join(", ", tried)}. The lines above say whether the VMT was missing or " +
+            $"whether it resolved and its texture was.");
 
         return -1;
     }

@@ -49,3 +49,5 @@
 - [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — real files take one path; sabotage each branch and write the coverage limit into the class comment.
 - [Mutation score is a ratchet](mutation-score-is-a-ratchet.md) — tf2-core's baseline is 52.16% from 2026-08-13; it may rise, never fall, and 80 was never a rule here.
 - [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md) — -1 meaning both "not known" and a real answer; on the wire, absent means the DEFAULT.
+- [A log must name what it measured](a-log-must-name-what-it-measured.md) — a log reporting the wrong quantity misdirects with authority; say which case you are in.
+- [Edit files with the file tools](edit-files-with-the-file-tools.md) — scripted edits no-op silently and mangle escaping; Read/Edit/Write fail loudly instead.
