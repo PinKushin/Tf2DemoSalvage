@@ -3913,3 +3913,35 @@ decal path is exonerated. Starting points, none measured:
 
 The second is the stronger candidate: the bands in question are team-coloured trim, exactly the kind
 of thing mapped as a separate brush entity.
+
+## B71 — brush-model entities are decoded and then skipped, so doors never draw — OPEN
+
+**The owner's observation, and it is exactly right:** the rolling doors were supposed to arrive the
+same way the health and ammo packs did, and they do. Nothing is lost on the wire.
+
+A `func_door` is a networked entity like any other. What differs is its model reference: a pack is
+`models/items/medkit_small.mdl`, a door is `*12` — an inline BSP submodel. `ScenePropTrack.Classify`
+already recognises the leading asterisk, and the probe run earlier listed `*1, *2, *5, *6, *7` among
+the props at a tick, so they reach the scene layer intact.
+
+They are dropped by the renderer, in two places:
+
+```csharp
+if (prop.Kind != SceneModelKind.Studio || _byModel.ContainsKey(prop.ModelPath))   // packing
+if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath, frame).Count == 0)   // drawing
+```
+
+So every brush-model entity in every demo is decoded, tracked, interpolated and then discarded for
+not being a `.mdl`. Doors, moving platforms, the cart on payload maps, anything mapped as brushwork
+that moves.
+
+**What it needs:** a submodel index `*N` names a range of faces in the BSP's models lump —
+`firstface`/`numfaces` — which is geometry this project already reads for the world. Drawing one is
+building those faces into a batch like any other and placing it at the entity's networked origin and
+angles, which the timeline already carries. The face reading, the material path and the lightmap are
+all done; what is missing is the models lump and a second geometry source in `EntityModelSet`.
+
+Worth noting the entity lump is separately unused: `BspEntities` is referenced by nothing outside
+its own file, so map-placed `prop_dynamic` models are not instantiated either. That is a different
+gap with a similar smell, and it is NOT what makes the doors missing — the doors are networked and
+already in hand.
