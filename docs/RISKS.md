@@ -3829,3 +3829,54 @@ single-bone item needs.
 
 Next step is to read `mstudioattachment_t` and check whether these items' owners carry an attachment
 whose index matches what the entity sends.
+
+### B68 REOPENED — the placement is correct, so the cause is not what was committed
+
+**The fix committed for this was wrong and has been reverted.** It changed the decal depth bias,
+and a depth bias cannot move geometry: it changes the depth value written, never the screen
+position, so it can never produce a visible offset with parallax. The owner described a spatial
+offset in the first sentence and the wrong mechanism was reached for anyway.
+
+**Measured since, and it clears the geometry outright:**
+
+```
+PLACE median 0.00 units from the face plane, 396 of 491 within 8 units
+```
+
+Overlay origins sit exactly on the faces they are pinned to. `OverlayPlacementTests` has asserted
+this all along and passes; the quads are where they belong.
+
+So what is on screen is not a decal in the wrong place. The remaining candidates:
+
+1. **A decal winning depth tests it should lose**, drawing over nearer geometry and so appearing to
+   float in front of it. The reverted change made this WORSE if so, since Valve's `-262144` is a
+   larger push than the tuned `-10000`.
+2. **The wall itself not drawing**, which the owner also reported in the same screenshot — a decal
+   correctly placed on a face whose brushwork is missing looks exactly like a floating decal.
+
+**The decisive experiment, and it should come before any more code:** set the decal bias to ZERO
+and look. Z-fighting means the geometry is coincident and the bias was only ever hiding it, which
+proves candidate 1. Decals still hanging in space with no z-fighting proves the surface behind them
+is absent, which is candidate 2 and an entirely different bug.
+
+### B70 — the decal bias is a deliberate deviation from Valve, to be undone with real cameras
+
+Recorded separately from B68 because it is a real future requirement rather than a bug.
+
+`DefaultDecalBias` is `-10000` where Valve's `m_DepthBias_Decal` is `-262144`. That retune was
+correct and necessary for the orthographic map view: a depth bias is a fraction of the depth RANGE,
+and an orthographic projection spreads that range evenly over a whole map's height, where Valve's
+constant is tens of world units.
+
+**When the viewer gains real cameras — third person, point of view, the frame-maker's free fly —
+those are perspective, and the value must return to Valve's**, because under perspective most of the
+range sits near the camera and the constant means what Valve intended.
+
+Two things learned from getting this wrong once already:
+
+- Do not gate it on a flag the caller passes. A defaulted `perspective: false` silently restores the
+  orthographic value for every camera someone forgets to annotate. Derive it from the matrix: under
+  this project's row-vector convention an orthographic projection leaves `m[3]`, `m[7]` and `m[11]`
+  zero, and a perspective one puts 1 in `m[11]`. There is no third case.
+- Verify it against a picture before calling it fixed. The first attempt was committed as a fix for
+  B68 on reasoning alone and changed nothing visible.
