@@ -3787,7 +3787,7 @@ later measurement. What finally worked was comparing a player against a prop thr
 reader, then asking the lookup what it actually returned rather than assuming it returned what was
 asked for.
 
-## B68 RESOLVED — the decal depth bias was tuned for the orthographic view
+## B68 — decals hover off the walls at a large offset — OPEN, found by the free camera
 
 Visible the moment a perspective view existed: cp_process's red wall bands are drawn floating in
 front of the brickwork rather than on it, by enough to read as a separate object. From the top-down
@@ -3829,31 +3829,3 @@ single-bone item needs.
 
 Next step is to read `mstudioattachment_t` and check whether these items' owners carry an attachment
 whose index matches what the entity sends.
-
-### B68 RESOLVED — a depth bias is a fraction of the depth RANGE, and the range depends on the projection
-
-The renderer already carried the explanation, written when there was only one view to be wrong in:
-
-> Valve's projection is perspective, where most of the depth range sits close to the camera, so
-> 1.6% near the surface being decalled is a fraction of a unit. This projection is orthographic
-> over the whole map's height: 1.6% of a 1,600-unit map...
-
-So the constant was retuned from Valve's `-262144` down to `-10000` to suit an orthographic
-projection spread over a whole map's height. That was right for the only view that existed.
-
-The free camera made it wrong. Under perspective the same fraction is a large world-space push
-along the view axis, so every decal on cp_process stood off its wall far enough to read as a
-separate object, and near ones hid the wall behind them — which looked like missing geometry rather
-than a misplaced decal.
-
-**It was invisible from the top-down view because the push is along the view axis, and that view
-looks straight down it.** A whole map's worth of floating signage sat there through every
-screenshot taken today.
-
-Fixed by keeping both: the tuned bias for the orthographic map view, Valve's own constant for the
-perspective one, chosen by a flag that follows the camera. Two rasteriser states, built once,
-because the state is immutable after creation.
-
-**Worth generalising from:** a constant retuned to suit one configuration is only correct in that
-configuration, and the note explaining why is not the same as a guard that keeps it true. This one
-carried an unusually good explanation and still broke the moment its assumption changed.

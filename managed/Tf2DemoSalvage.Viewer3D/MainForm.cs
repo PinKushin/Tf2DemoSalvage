@@ -1131,8 +1131,7 @@ internal class MainForm : Form
                 _device.SetCamera(
                     (_freeLook ? FreeLookCamera().ToMatrix() : camera.ToMatrix()),
                     _surfaceColours.Checked,
-                    _heightCut,
-                    _freeLook);
+                    _heightCut);
 
                 // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
                 // Counting these against "building the world" lines is what proves the geometry

@@ -747,12 +747,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
 
-    /// <summary>The decal state for a perspective view; see <see cref="PerspectiveDecalBias"/>.</summary>
-    private ComPtr<ID3D11RasterizerState> _perspectiveDecalOffset;
-
-    /// <summary>Whether the camera last set was a perspective one.</summary>
-    private bool _perspective;
-
     /// <summary>Depth bias used until the map's height range is known.</summary>
     /// <remarks>
     /// Sized for a range of about 1,600 units, which is a typical TF2 map: one unit of a 24-bit
@@ -760,25 +754,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// the real arithmetic once the map has been read.
     /// </remarks>
     private const int DefaultDecalBias = -10000;
-
-    /// <summary>The decal bias for a PERSPECTIVE view, which is Valve's own constant.</summary>
-    /// <remarks>
-    /// **The tuned value above is only right for the orthographic view it was measured against**,
-    /// and that limitation was written down here before there was any other view to be wrong in.
-    /// A depth bias is a fraction of the depth RANGE, so what it costs in world units depends
-    /// entirely on how depth is distributed — spread evenly over a whole map's height by an
-    /// orthographic projection, and crowded up against the near plane by a perspective one.
-    ///
-    /// The moment the free camera existed the difference was visible everywhere: every decal on
-    /// cp_process stood off its wall far enough to read as a separate object, and near ones hid
-    /// the wall behind them, which looked like missing geometry. From directly overhead none of it
-    /// showed, because the push is along the view axis and that view looks straight down it.
-    ///
-    /// So the bias follows the projection. <c>-262144</c> against a 24-bit buffer is about 1.6% of
-    /// the range, which under perspective is a fraction of a unit near the surface being decalled —
-    /// exactly what Valve intended.
-    /// </remarks>
-    private const int PerspectiveDecalBias = -262144;
 
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
@@ -986,15 +961,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
 
-        // The same state at Valve's own bias, for when the view is a perspective one. Built here
-        // rather than switched at draw time because a rasteriser state is immutable once made.
-        biased.DepthBias = PerspectiveDecalBias;
-
-        ComPtr<ID3D11RasterizerState> perspectiveDecalOffset = default;
-
-        SilkMarshal.ThrowHResult(
-            device.CreateRasterizerState(in biased, ref perspectiveDecalOffset));
-
         return new WorldRenderer(
             vertexShader,
             pixelShader,
@@ -1004,7 +970,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             _bothSides = bothSides,
             _decalOffset = decalOffset,
-            _perspectiveDecalOffset = perspectiveDecalOffset,
         };
     }
 
@@ -1405,7 +1370,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
-    /// <param name="perspective">Whether the matrix is a perspective projection, which the decal bias depends on.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -1418,15 +1382,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
         bool surfaceColours = false,
-        float heightCut = 0f,
-        bool perspective = false)
+        float heightCut = 0f)
     {
         ArgumentNullException.ThrowIfNull(matrix);
-
-        // **Which projection this is, because the decal bias depends on it.** A depth bias is a
-        // fraction of the depth RANGE, and the two projections distribute depth completely
-        // differently - see PerspectiveDecalBias.
-        _perspective = perspective;
 
         if (matrix.Length != 16)
         {
@@ -1878,10 +1836,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        context.RSSetState(
-            _perspective && _perspectiveDecalOffset.Handle is not null
-                ? _perspectiveDecalOffset
-                : _decalOffset);
+        context.RSSetState(_decalOffset);
 
         // **Blended, because a decal is a stain on a surface rather than a surface of its own.**
         // This pass set the depth bias and no blend state, so every overlay drew fully opaque: a
@@ -2025,7 +1980,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _model.Dispose();
         _modelVertices.Dispose();
         _decalOffset.Dispose();
-        _perspectiveDecalOffset.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
@@ -2161,7 +2115,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref replacement));
 
         _decalOffset.Dispose();
-        _perspectiveDecalOffset.Dispose();
         _decalOffset = replacement;
     }
 
