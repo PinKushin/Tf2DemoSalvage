@@ -51,3 +51,5 @@
 - [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md) — -1 meaning both "not known" and a real answer; on the wire, absent means the DEFAULT.
 - [A log must name what it measured](a-log-must-name-what-it-measured.md) — a log reporting the wrong quantity misdirects with authority; say which case you are in.
 - [Edit files with the file tools](edit-files-with-the-file-tools.md) — scripted edits no-op silently and mangle escaping; Read/Edit/Write fail loudly instead.
+- [Bone merge sends no position](bone-merge-sends-no-position.md) — cosmetics and carried weapons carry no origin, model index or moveparent; EF_BONEMERGE takes the owner's bones by name.
+- [Demo ticks do not start at zero](demo-ticks-do-not-start-at-zero.md) — a hardcoded probe tick can walk zero commands and still report a plausible count.

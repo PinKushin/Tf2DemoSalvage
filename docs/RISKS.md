@@ -3443,3 +3443,31 @@ ask for, and model materials do not go through it.
 Also not started, and unrelated: **cosmetics and weapons are not drawn at all.** Only the base
 player model is. Wearables are separate entities (`m_hMyWearables`) and a weapon is its own model,
 so that is a feature rather than a texture defect.
+
+## B63 — bone-merged attachments are the whole of cosmetics and carried weapons — OPEN, emulation
+
+**A player draws as a bare class model** with no hat, no badge and nothing in hand. Not a decode
+gap: the entities are all present and every bit of them is being read.
+
+Measured on `demostf-cp_process_f12-2026-08-07.dem` at its own midpoint tick, live entities with no
+origin include `CTFWearable 37/37`, `CTFRocketLauncher 3/3` and `CTFShovel 3/3`. One carried
+weapon's entire property set is `m_hOuter, m_nSequence, m_iState, m_fEffects, m_flSimulationTime,
+m_flNextPrimaryAttack, m_flNextSecondaryAttack, m_iBuildState` — no origin, no model index, **and no
+`moveparent`**.
+
+That is deliberate. `CBaseCombatWeapon::Equip` calls `FollowEntity`, which sets `EF_BONEMERGE`
+(`0x001`) and zeroes local origin and angles, because a merged entity takes its parent's bone
+matrices by bone NAME rather than transforming from a position of its own
+(`shared/basecombatweapon_shared.cpp:987`, `shared/baseentity_shared.cpp:2360`,
+`public/const.h:284`). At that tick 32 entities carry the flag and 60 name an owner.
+
+Work needed, none of it in the decoder:
+
+- Owner link — `m_hOwnerEntity` for weapons; wearables to be measured separately.
+- Bone merge itself, which `StudioBones.Remap` already does by name.
+- Model resolution for the merged entities that send no `m_nModelIndex` — 41 of the origin-less
+  ones do send it, the rest presumably resolve through the attribute container's item definition.
+- Active-weapon selection, since a player carries several and holds one.
+
+Full account, including two wrong diagnoses that survived a round of work each, in
+`docs/findings/22-bone-merged-attachments.md`.
