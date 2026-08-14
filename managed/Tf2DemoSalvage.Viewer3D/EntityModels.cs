@@ -10,8 +10,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="ModelPath">Which packed model to draw.</param>
 /// <param name="Matrix">Sixteen floats, row major, for the shader's model constant.</param>
 /// <param name="Light">The ambient cube of the leaf it stands in.</param>
+/// <param name="Sun">The sun, when this model traced to sky; null when it stands in shade.</param>
 internal readonly record struct ModelInstance(
-    string ModelPath, float[] Matrix, AmbientCube Light);
+    string ModelPath, float[] Matrix, AmbientCube Light, SunLight? Sun);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -118,6 +119,39 @@ internal sealed class EntityModelSet
                 batches.Add(new WorldBatch(group.Key, _vertices.Count, group.Value.Count));
                 _vertices.AddRange(group.Value);
             }
+
+            // **A model's own bounding box, logged for every model.** Whether a model stands up is
+            // not answerable from an overhead camera - a squat prop looks the same lying down, so
+            // the whole prop set can be tipped and read as correct. A humanoid is the first model
+            // tall enough to show it, which means the picture noticed a defect the props had been
+            // hiding since they were added.
+            //
+            // In Source's model space a player is about 83 units tall and far narrower, so an
+            // upright model has Z much the largest extent. If Z is the smallest, the model is on
+            // its side and the fault is in the transform rather than in any missing animation.
+            float minimumX = float.MaxValue, minimumY = float.MaxValue, minimumZ = float.MaxValue;
+            float maximumX = float.MinValue, maximumY = float.MinValue, maximumZ = float.MinValue;
+
+            foreach (PropVertex corner in corners)
+            {
+                minimumX = MathF.Min(minimumX, corner.X);
+                minimumY = MathF.Min(minimumY, corner.Y);
+                minimumZ = MathF.Min(minimumZ, corner.Z);
+                maximumX = MathF.Max(maximumX, corner.X);
+                maximumY = MathF.Max(maximumY, corner.Y);
+                maximumZ = MathF.Max(maximumZ, corner.Z);
+            }
+
+            float spanX = maximumX - minimumX;
+            float spanY = maximumY - minimumY;
+            float spanZ = maximumZ - minimumZ;
+
+            ViewerLog.Write(
+                "props",
+                $"extents {prop.ModelPath}: " +
+                $"x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
+                $"(z from {minimumZ:0.#} to {maximumZ:0.#}), " +
+                $"tallest axis {Tallest(spanX, spanY, spanZ)}");
         }
 
         return added;
@@ -127,6 +161,7 @@ internal sealed class EntityModelSet
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
     /// <param name="lightAt">The ambient cube at a world position, or null to leave models unlit.</param>
+    /// <param name="sunAt">The sun at a world position, or null to apply no direct light.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
@@ -135,7 +170,8 @@ internal sealed class EntityModelSet
     public void Instances(
         IReadOnlyList<SceneProp> props,
         ICollection<ModelInstance> into,
-        Func<float, float, float, AmbientCube>? lightAt = null)
+        Func<float, float, float, AmbientCube>? lightAt = null,
+        Func<float, float, float, SunLight?>? sunAt = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -161,7 +197,26 @@ internal sealed class EntityModelSet
                 ? default
                 : lightAt(pose.X, pose.Y, pose.Z);
 
-            into.Add(new ModelInstance(prop.ModelPath, transform.ToMatrix(), light));
+            into.Add(new ModelInstance(
+                prop.ModelPath,
+                transform.ToMatrix(),
+                light,
+                sunAt?.Invoke(pose.X, pose.Y, pose.Z)));
         }
+    }
+
+    /// <summary>Which axis a model is longest along, named for the log.</summary>
+    /// <remarks>
+    /// "z, upright" is the expected answer for anything that stands up. Anything else on a
+    /// humanoid means the model is on its side.
+    /// </remarks>
+    private static string Tallest(float spanX, float spanY, float spanZ)
+    {
+        if (spanZ >= spanX && spanZ >= spanY)
+        {
+            return "z, upright";
+        }
+
+        return spanX >= spanY ? "x, ON ITS SIDE" : "y, ON ITS SIDE";
     }
 }

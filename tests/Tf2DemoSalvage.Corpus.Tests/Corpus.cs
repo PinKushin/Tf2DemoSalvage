@@ -60,6 +60,17 @@ internal static class Corpus
         return (ushort)DemoHeader.Parse(header).NetworkProtocol;
     }
 
+    /// <summary>Whether this run is restricted to the committed corpus.</summary>
+    /// <remarks>
+    /// Set <c>TF2DEMOSALVAGE_GCOR_ONLY=1</c> to skip <c>tools/corpus/local</c>. Anything other
+    /// than unset or "0" counts as on, so a typo errs towards the smaller, faster run rather than
+    /// towards silently including 774 MB of demos.
+    /// </remarks>
+    public static bool GcorOnly() =>
+        Environment.GetEnvironmentVariable("TF2DEMOSALVAGE_GCOR_ONLY") is { } value &&
+        value.Length > 0 &&
+        value != "0";
+
     /// <summary>Every usable demo in the corpus, in a stable order.</summary>
     public static IReadOnlyList<string> Files()
     {
@@ -76,7 +87,21 @@ internal static class Corpus
         string local = Path.Combine(
             Path.GetDirectoryName(directory) ?? directory, LocalDirectoryName);
         IEnumerable<string> paths = System.IO.Directory.EnumerateFiles(directory, "*.dem");
-        if (System.IO.Directory.Exists(local))
+
+        // **Opt out of the local corpus, for a run that matches CI.** lcor is 14 demos and 774 MB
+        // and takes about 23 minutes; gcor is one specimen per era and takes a fraction of that.
+        // The local set is for spot-checking that nothing is missed across many real matches, not
+        // for gating a merge, so a merge should not have to wait for it.
+        //
+        // Announced rather than silent. A suite that quietly halved its corpus would report a
+        // smaller total that reads as a passing run - which is the failure "Passed! is not the
+        // result, the COUNT is" is about.
+        if (GcorOnly())
+        {
+            TestContext.Out.WriteLine(
+                "CORPUS gcor only: the local corpus is excluded by TF2DEMOSALVAGE_GCOR_ONLY");
+        }
+        else if (System.IO.Directory.Exists(local))
         {
             paths = paths.Concat(System.IO.Directory.EnumerateFiles(local, "*.dem"));
         }

@@ -44,3 +44,6 @@
 - [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — five measurements were wrong before any reader was; check sensitivity before suspecting the code.
 - [Closed source: check the public API](closed-source-check-the-public-api.md) — a black box's exposed interface and its callers are usually enough; "closed" is not "unknowable".
 - [Log what is about to be drawn](log-what-is-about-to-be-drawn.md) — launch before the long suite, and log scene composition so the launch can answer.
+- [Logs are the debugger](logs-are-the-debugger.md) — no debugger here; a failure-only log reads clean while everything falls back.
+- [One place or it drifts](one-place-or-it-drifts.md) — a fix copied between two files is two sources of truth; put it where the data is produced.
+- [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — real files take one path; sabotage each branch and write the coverage limit into the class comment.

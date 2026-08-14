@@ -392,7 +392,8 @@ internal sealed unsafe class Device3D : IDisposable
                         _context,
                         instance.Matrix,
                         _world.ModelBatches(instance.ModelPath),
-                        instance.Light);
+                        instance.Light,
+                        instance.Sun);
                 }
             }
             else
@@ -645,9 +646,18 @@ internal sealed unsafe class Device3D : IDisposable
     {
         SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0u, out ComPtr<ID3D11Texture2D> buffer));
 
+        // **An sRGB view over a UNORM buffer, which is how the hardware applies gamma on write.**
+        // Colour arithmetic belongs in linear space - the engine multiplies linear lightmaps by
+        // linear albedo and lets the target encode the result once (B54). A flip-model swap chain
+        // may not itself be sRGB, so the conversion is asked for here, on the view.
+        RenderTargetViewDesc description = new()
+        {
+            Format = Silk.NET.DXGI.Format.FormatB8G8R8A8UnormSrgb,
+            ViewDimension = RtvDimension.Texture2D,
+        };
+
         ComPtr<ID3D11RenderTargetView> view = default;
-        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(
-            buffer, (RenderTargetViewDesc*)null, ref view));
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(buffer, in description, ref view));
 
         buffer.Dispose();
         _backBufferView = view;

@@ -15,10 +15,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="NormalZ">Surface normal, vertically.</param>
 /// <param name="U">Texture coordinate.</param>
 /// <param name="V">Texture coordinate.</param>
+/// <param name="Bones">Which bones move this vertex, up to three.</param>
+/// <param name="Weights">How much each of those bones moves it; sums to one.</param>
 public readonly record struct StudioVertex(
     float X, float Y, float Z,
     float NormalX, float NormalY, float NormalZ,
-    float U, float V);
+    float U, float V,
+    (byte First, byte Second, byte Third) Bones = default,
+    (float First, float Second, float Third) Weights = default);
 
 /// <summary>
 /// A model's vertices, from its <c>.vvd</c>.
@@ -58,6 +62,9 @@ public static class StudioVertices
 
     private const int HeaderBytes = 64;
     private const int FixupBytes = 12;
+
+    /// <summary>Where the three bone indices sit, after three floats of weight.</summary>
+    private const int BoneIndexOffset = 12;
     private const int VertexBytes = 48;
 
     /// <summary>How many levels of detail a model may declare, from <c>MAX_NUM_LODS</c>.</summary>
@@ -221,6 +228,9 @@ public static class StudioVertices
         {
             ReadOnlySpan<byte> vertex = vertices.Slice((first + index) * VertexBytes, VertexBytes);
 
+            // **The bone weights, which a static prop does not need and an animated model
+            // cannot do without.** mstudioboneweight_t opens the vertex: three floats of weight,
+            // then three bone indices as bytes, then how many of them are used.
             range.Add(new StudioVertex(
                 BinaryPrimitives.ReadSingleLittleEndian(vertex[PositionOffset..]),
                 BinaryPrimitives.ReadSingleLittleEndian(vertex[(PositionOffset + 4)..]),
@@ -229,7 +239,12 @@ public static class StudioVertices
                 BinaryPrimitives.ReadSingleLittleEndian(vertex[(NormalOffset + 4)..]),
                 BinaryPrimitives.ReadSingleLittleEndian(vertex[(NormalOffset + 8)..]),
                 BinaryPrimitives.ReadSingleLittleEndian(vertex[TexCoordOffset..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[(TexCoordOffset + 4)..])));
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[(TexCoordOffset + 4)..]),
+                (vertex[BoneIndexOffset], vertex[BoneIndexOffset + 1], vertex[BoneIndexOffset + 2]),
+                (
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex),
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex[4..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex[8..]))));
         }
 
         return range;

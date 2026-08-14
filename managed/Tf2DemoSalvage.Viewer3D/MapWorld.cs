@@ -279,33 +279,29 @@ internal static class MapWorldBuilder
                 ? atlas.Rectangles[on.FaceIndex]
                 : default;
 
-            // **Each corner's texture coordinate comes from where that corner sits in the
-            // overlay's own basis**, not from its position in the array. vecUVPoints holds the
-            // quad in basis space, and the U and V ranges span that quad - so mapping a corner is
-            // a lerp between the ranges by its own coordinate.
+            // **The corner order is measured, not assumed, because the SDK cannot answer it.**
+            // vbsp copies uv0-uv3 through from the VMF untouched (utils/vbsp/overlay.cpp) and
+            // nothing in the released source reads them back: the overlay renderer is engine-side.
             //
-            // Assigning the four corners a fixed winding instead - start/start, end/start,
-            // end/end, start/end - assumes vbsp wrote them in that order. It does not always, and
-            // an overlay stored the other way round renders rotated a quarter turn: cp_process's
-            // CAPTURE ZONE decal read vertically, its letters smeared, and was mistaken for a
-            // missing material.
-            float minimumX = overlay.Corners.Min(corner => corner.X);
-            float maximumX = overlay.Corners.Max(corner => corner.X);
-            float minimumY = overlay.Corners.Min(corner => corner.Y);
-            float maximumY = overlay.Corners.Max(corner => corner.Y);
-
-            float spanX = maximumX - minimumX;
-            float spanY = maximumY - minimumY;
-
-            (float U, float V)[] texture = [.. overlay.Corners.Select(corner => (
-                U: float.Lerp(
-                    overlay.U.Start,
-                    overlay.U.End,
-                    spanX > 0f ? (corner.X - minimumX) / spanX : 0f),
-                V: float.Lerp(
-                    overlay.V.Start,
-                    overlay.V.End,
-                    spanY > 0f ? (corner.Y - minimumY) / spanY : 0f)))];
+            // The map answers it instead, because a decal's texture and its quad are the same
+            // shape. On cp_process_f12, measuring each quad along BasisU against BasisV:
+            //
+            //   signs/capture_zone       512x128 (4.000)   quad 128x32   (4.000)
+            //   signs/sign069            256x512 (0.500)   quad  36x70   (0.511)
+            //   signs/factory_label02    256x256 (1.000)   quad  43x43   (1.007)
+            //   overlays/floor_stain003  512x512 (1.000)   quad 128x128  (1.000)
+            //
+            // So U runs along the corners' first component and V along their second, and the
+            // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
+            // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
+            // ninety degrees out and squeezed into a narrow column.
+            (float U, float V)[] texture =
+            [
+                (overlay.U.Start, overlay.V.Start),
+                (overlay.U.Start, overlay.V.End),
+                (overlay.U.End, overlay.V.End),
+                (overlay.U.End, overlay.V.Start),
+            ];
 
             List<WorldVertex> corners = [];
 
