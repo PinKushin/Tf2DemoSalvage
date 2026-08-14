@@ -3663,3 +3663,45 @@ found, and "port the bone setup faithfully" would not by itself produce it.
 through the identical path, dumping the root bone's `pos` and `quat` straight from the file. The
 prop stands and the player does not, from the same reader, so the difference is visible in those
 sixteen bytes or it is not in the loader at all.
+
+### B67 — the discriminator, measured: props carry a root up-axis rotation and players do not
+
+Same reader, four models, root bone only:
+
+```
+resupply_locker  body        quat (0.707,0,0,0.707)  euler (1.571,0,0)   exactly +90 deg about X
+medkit_small     Scene_Root  quat (0.707,0,0,0.707)  euler (1.571,0,0)   exactly +90 deg about X
+scout            bip_pelvis  quat (0.985,0,0,0.175)  euler (2.789,0,0)   159.8 deg
+soldier          bip_pelvis  quat (0.997,0,0,0.082)  euler (2.977,0,0)   170.6 deg
+```
+
+Every quaternion is unit length, which retires the "wrong offset" worry for good: these four floats
+really are the rotation.
+
+`1.571` is pi/2. A prop's root bone carries the **up-axis conversion** — the rotation studiomdl
+bakes in for a model authored Y-up — and this project applies it, which is exactly why props stand
+up and why nothing about them ever looked wrong.
+
+A player's root carries no such thing. 159.8 and 170.6 degrees are the pelvis's own bind
+orientation, not a Y-to-Z conversion, and they differ per class, which a fixed axis conversion
+never would.
+
+So the two model kinds are NOT equivalent and never were: props are self-standing because the
+correction lives in their data, and players need it from somewhere else. Every measurement in this
+entry is consistent with that — player vertices Y-tall at 84.5, player bones Y-tall at 75, props
+Z-tall after posing.
+
+**What this does NOT yet say** is where a player's correction comes from in the engine. Candidates,
+unmeasured:
+
+- The animation data supplies it and this project is applying the wrong animation, or applying it
+  to the wrong bones. Against this: the posed shape does differ from rest, so something is applied.
+- The engine's own `SetupBones` composes a transform for animated entities that this project skips.
+  `Studio_BuildMatrices` builds its `rotationmatrix` from the entity's angles and origin, which for
+  a player is yaw and a position at the feet — that alone cannot stand a Y-up skeleton up, so if it
+  is the answer, the angles being passed are not what is assumed here.
+- The player's rest skinning matrix already contains the correction, and only its TRANSLATION was
+  checked (it was ~zero, which a pure rotation about the origin also gives). **This is the cheapest
+  one left and it should be measured first:** print the 3x3 of `RestPose(scout).Matrices[0]`. If it
+  is the identity the model genuinely rests lying down; if it is a quarter turn the correction is
+  already in hand and the fault is downstream of it.

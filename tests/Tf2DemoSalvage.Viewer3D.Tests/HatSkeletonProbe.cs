@@ -43,6 +43,8 @@ public sealed class HatSkeletonProbe
             "models/player/items/all_class/hwn_spellbook_complete.mdl",
             "models/player/scout.mdl",
             "models/player/soldier.mdl",
+            "models/props_gameplay/resupply_locker.mdl",
+            "models/items/medkit_small.mdl",
         ];
 
         foreach (string path in wanted)
@@ -91,6 +93,29 @@ public sealed class HatSkeletonProbe
             // hands over. A scout stands about 83 units tall with their origin at their feet, so
             // bip_head belongs near z 64. Anything close to zero means what is being passed is not
             // a bone-to-world matrix at all.
+            // **The root bone's raw pos and quat, and whether the quat is a unit quaternion.** A
+            // rotation quaternion has length one by definition, so a length that is not one means
+            // these four floats are not the rotation — the offset is wrong and everything built
+            // from it is quietly rubbish. It is the cheapest possible check that the reader is
+            // looking at the right bytes, and it has never been run here.
+            //
+            // The comparison that matters is player against prop: both come through this same
+            // reader, the prop stands up and the player does not.
+            for (int index = 0; index < bones.Count && index < 1; index++)
+            {
+                (float X, float Y, float Z, float W) q = bones[index].Rotation;
+                (float X, float Y, float Z) euler = bones[index].Euler;
+
+                float length = MathF.Sqrt((q.X * q.X) + (q.Y * q.Y) + (q.Z * q.Z) + (q.W * q.W));
+
+                TestContext.Out.WriteLine(
+                    $"HAT   root [{index}]{bones[index].Name}: " +
+                    $"pos ({bones[index].Position.X:0.##},{bones[index].Position.Y:0.##}," +
+                    $"{bones[index].Position.Z:0.##}) " +
+                    $"quat ({q.X:0.###},{q.Y:0.###},{q.Z:0.###},{q.W:0.###}) length {length:0.####} " +
+                    $"euler ({euler.X:0.###},{euler.Y:0.###},{euler.Z:0.###})");
+            }
+
             StudioSkeleton rest = StudioBones.RestPose(bones);
 
             List<string> placed = [];
