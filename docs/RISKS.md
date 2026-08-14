@@ -3880,3 +3880,36 @@ Two things learned from getting this wrong once already:
   zero, and a perspective one puts 1 in `m[11]`. There is no third case.
 - Verify it against a picture before calling it fixed. The first attempt was committed as a fix for
   B68 on reasoning alone and changed nothing visible.
+
+### B68 — the experiment settles it: the decals are fine, the WALLS are missing
+
+Ran with the decal depth bias set to zero. **No z-fighting and no flicker**, confirmed by the owner
+looking at it.
+
+That kills the depth explanation outright. Coincident geometry with no bias z-fights; these do not,
+so the decals are not sitting on a surface at all — there is nothing behind them to fight with.
+
+Everything now agrees on one story:
+
+- Overlay origins measure `median 0.00 units from the face plane`, so placement is right.
+- The tail of that same measurement is the tell: only `396 of 491` pairings are within 8 units, so
+  about ninety-five sit well away from any face they name.
+- On screen, decals whose wall IS drawn look perfect — cp_process's "REDSTONE CARGO" lettering and
+  its arrow sign sit flat and correct. Only the coloured bands float.
+- The owner reported missing wall geometry in the same screenshot, independently.
+
+**So this is not a decal bug. It is a brush face bug wearing a decal's clothes:** a correctly placed
+decal on a wall that was never drawn looks exactly like a floating decal, and that is what has been
+chased all evening.
+
+Renamed in effect — the question is now "which brush faces is `MapWorld` dropping, and why", and the
+decal path is exonerated. Starting points, none measured:
+
+- The face filters in `MapWorld` — the height cut, the area bounds, and whatever discards nodraw and
+  tool textures. A filter too eager takes real walls with it.
+- Faces belonging to brush ENTITIES rather than the world model. `func_brush` and friends live in
+  other BSP models, and a reader that walks only model 0 draws the map minus every door, every
+  moving platform and a good deal of trim — which is the shape of what is missing.
+
+The second is the stronger candidate: the bands in question are team-coloured trim, exactly the kind
+of thing mapped as a separate brush entity.
