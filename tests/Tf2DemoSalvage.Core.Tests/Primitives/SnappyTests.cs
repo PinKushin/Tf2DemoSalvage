@@ -300,4 +300,41 @@ public sealed class SnappyTests
         (byte)(((offset >> 8) << 5) | ((length - 4) << 2) | 1),
         (byte)(offset & 0xFF),
     ];
+
+    [Test]
+    public void ALiteralLengthOfExactlyIntMaxLessOne_IsRefusedRatherThanOverflowing()
+    {
+        // **The fuzzer's own reproducer, nine bytes**, found on fuzz-box 2026-08-13 and kept as a
+        // permanent fixture:
+        //
+        //   08          uncompressed length 8
+        //   00 ff       a one byte literal
+        //   fc          a literal whose length occupies four trailing bytes
+        //   fe ff ff 7f  0x7FFFFFFE, which is int.MaxValue - 1
+        //
+        // **It passed every guard by one, and then arithmetic did the rest.** The oversize check
+        // refuses anything ABOVE int.MaxValue - 1, so this exact value survives it. The stored
+        // length is then incremented - the format stores one less than the real length - which
+        // makes it int.MaxValue. Need() adds that to the read offset and OVERFLOWS to a negative,
+        // so it does not fire; the output capacity check adds it to the written count and
+        // overflows too. The value reaches Slice, which throws ArgumentOutOfRangeException where
+        // this type promises InvalidDataException.
+        //
+        // A guard written as "is this number too large" cannot catch a number that becomes small
+        // by wrapping. This one is written against the bytes that actually remain instead.
+        byte[] crash = [0x08, 0x00, 0xff, 0xfc, 0xfe, 0xff, 0xff, 0x7f, 0x09];
+
+        Should.Throw<InvalidDataException>(() => Snappy.Decompress(crash));
+    }
+
+    [Test]
+    public void ALiteralLongerThanTheStream_IsRefused()
+    {
+        // The ordinary case of the same fault, without needing the overflow to reach it. A
+        // literal declaring more bytes than the stream holds is corrupt whatever the number is,
+        // and this is the check the boundary case above has to share rather than special-case.
+        byte[] tooLong = [0x08, 0xfc, 0x00, 0x01, 0x00, 0x00, 0x41];
+
+        Should.Throw<InvalidDataException>(() => Snappy.Decompress(tooLong));
+    }
 }
