@@ -408,7 +408,8 @@ internal sealed unsafe class Device3D : IDisposable
                         instance.Light,
                         instance.Sun,
                         instance.Blend,
-                        instance.Bones?.Count ?? 0);
+                        instance.Bones?.Count ?? 0,
+                        instance.SkinSwap);
                 }
             }
             else

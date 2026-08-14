@@ -15,6 +15,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Frame">Which baked animation frame to draw, from the demo's sequence and cycle.</param>
 /// <param name="Blend">How far toward the next baked frame, so the shader can smooth between them.</param>
 /// <param name="Bones">Bone matrices for a model skinned on the GPU, or null when it is baked.</param>
+/// <param name="SkinSwap">Which material replaces which for its team, or null.</param>
 internal readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -22,7 +23,8 @@ internal readonly record struct ModelInstance(
     SunLight? Sun,
     int Frame = 0,
     float Blend = 0f,
-    IReadOnlyList<float[]>? Bones = null);
+    IReadOnlyList<float[]>? Bones = null,
+    IReadOnlyDictionary<int, int>? SkinSwap = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -61,6 +63,16 @@ internal sealed class EntityModelSet
 
     /// <summary>Models already reported as animating, so the log states it once.</summary>
     private readonly HashSet<string> _reportedFrames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Which material replaces which, per model and skin family.</summary>
+    /// <remarks>
+    /// **A skin is a substitution, not a second model.** The batching, the vertex ranges and the
+    /// geometry are identical between a RED player and a BLU one; only which material paints each
+    /// run differs. So this is a handful of integers per model rather than a copy of anything, and
+    /// resolving it at draw time means a player who switches teams is right on the next frame.
+    /// </remarks>
+    private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<int, int>>> _swaps =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Models already reported as drawing unlit.</summary>
     private readonly HashSet<string> _reportedDark = new(StringComparer.OrdinalIgnoreCase);
@@ -219,9 +231,18 @@ internal sealed class EntityModelSet
     /// <param name="modelPath">The model's path.</param>
     /// <returns>One entry per baked frame, each a list of runs.</returns>
     public IReadOnlyList<IReadOnlyList<WorldBatch>> AllFrames(string modelPath) =>
-        _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames)
-            ? frames
-            : [];
+        _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ? frames : [];
+
+    /// <summary>Which material replaces which for a skin family, or null for the model's own.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <param name="skin">Which family; zero is the model's own and substitutes nothing.</param>
+    /// <returns>The substitution to apply when binding, or null.</returns>
+    public IReadOnlyDictionary<int, int>? SkinSwap(string modelPath, int skin) =>
+        skin > 0 &&
+        _swaps.TryGetValue(modelPath, out IReadOnlyList<IReadOnlyDictionary<int, int>>? swaps) &&
+        skin - 1 < swaps.Count
+            ? swaps[skin - 1]
+            : null;
 
     /// <summary>Which baked frame a prop's sequence and cycle select.</summary>
     /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
@@ -277,7 +298,12 @@ internal sealed class EntityModelSet
             }
 
             _frames[prop.ModelPath] = model;
-            _raw[prop.ModelPath] = model.Geometry[0];
+                _raw[prop.ModelPath] = model.Geometry[0];
+
+                if (model.SkinSwaps is { Count: > 0 } families)
+                {
+                    _swaps[prop.ModelPath] = families;
+                }
 
             for (int slot = 0; slot < model.Geometry.Count; slot++)
             {
@@ -290,6 +316,7 @@ internal sealed class EntityModelSet
 
                 List<WorldBatch> batches = [];
                 frames.Add(batches);
+
 
                 // Grouped by material so one bind covers every triangle of this frame that shares
                 // it. Every frame carries the same corners in the same order, so the batching is
@@ -345,6 +372,8 @@ internal sealed class EntityModelSet
                     batches.Add(new WorldBatch(group.Key, _vertices.Count, group.Value.Count));
                     _vertices.AddRange(group.Value);
                 }
+
+
             }
 
             // **A model's own bounding box, logged for every model.** Whether a model stands up is
@@ -419,6 +448,8 @@ internal sealed class EntityModelSet
         foreach (SceneProp prop in props)
         {
             (int frame, int _, float blend) = SelectFor(prop, seconds);
+
+            int skin = prop.Pose.Skin;
 
             if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath, frame).Count == 0)
             {
@@ -529,7 +560,8 @@ internal sealed class EntityModelSet
                 sunAt?.Invoke(lightX, lightY, lightZ),
                 frame,
                 blend,
-                bones));
+                bones,
+                SkinSwap(prop.ModelPath, skin)));
         }
     }
 

@@ -1554,6 +1554,11 @@ internal class MainForm : Form
                     // -1 is a real answer meaning "no such sequence", so it looks like a lookup
                     // that failed rather than one that ran too early.
                     Speed = player.Speed,
+
+                    // **RED is skin 0 and BLU is skin 1**, which is the game's own convention:
+                    // m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1. Without it every player draws in
+                    // the model's first family, which is red - both teams in red.
+                    Skin = player.Team == SceneTeams.Blu ? 1 : 0,
                 }));
         }
 

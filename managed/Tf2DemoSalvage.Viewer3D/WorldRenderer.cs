@@ -2125,14 +2125,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>The runs for one model at one baked animation frame.</summary>
     /// <param name="modelPath">Which model.</param>
-    /// <param name="frame">Which baked frame; clamped into what was uploaded.</param>
+    /// <param name="index">Which baked frame; clamped into what was uploaded.</param>
     /// <returns>Its runs, or empty when the model is not packed.</returns>
     /// <remarks>
     /// **A frame is a different range of the same buffer.** Every frame of an animated model was
     /// skinned at load and packed end to end, so choosing one costs an index rather than any
     /// transform work at draw time.
     /// </remarks>
-    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath, int frame)
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath, int index)
     {
         if (!_modelBatches.TryGetValue(
                 modelPath, out IReadOnlyList<IReadOnlyList<WorldBatch>>? frames) ||
@@ -2141,7 +2141,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return [];
         }
 
-        return frames[Math.Clamp(frame, 0, frames.Count - 1)];
+        return frames[Math.Clamp(index, 0, frames.Count - 1)];
     }
 
     /// <summary>Draws one posed model.</summary>
@@ -2152,6 +2152,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
+    /// <param name="skin">Which material replaces which for a team colour; null for the model's own.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2166,7 +2167,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         AmbientCube? light = null,
         SunLight? sun = null,
         float blend = 0f,
-        int bones = 0)
+        int bones = 0,
+        IReadOnlyDictionary<int, int>? skin = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2196,10 +2198,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in batches)
         {
+            // **A skin is one lookup at draw time, which is how the engine does it.** Valve resolve
+            // a mesh's material through the skin table - pSkinref(skin * numskinref + material) -
+            // rather than keeping a second copy of anything. A RED player and a BLU one share their
+            // geometry, their batching and their vertex ranges exactly; only which material paints
+            // each run differs, so duplicating batches per team would be memory spent for nothing.
+            //
+            // Resolving here also means a player who switches teams is right on the very next
+            // frame, with nothing repacked.
+            int material = skin is not null && skin.TryGetValue(batch.MaterialIndex, out int swapped)
+                ? swapped
+                : batch.MaterialIndex;
+
+
             ComPtr<ID3D11ShaderResourceView> texture =
-                batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
-                _textures[batch.MaterialIndex].Handle is not null
-                    ? _textures[batch.MaterialIndex]
+                material >= 0 && material < _textures.Count &&
+                _textures[material].Handle is not null
+                    ? _textures[material]
                     : _white;
 
             context.PSSetShaderResources(0, 1, ref texture);
@@ -2207,7 +2222,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.PSSetShaderResources(3, 1, ref _white);
             context.PSSetShaderResources(4, 1, ref _white);
 
-            SetMaterial(context, batch.MaterialIndex);
+            SetMaterial(context, material);
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }

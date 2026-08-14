@@ -568,6 +568,55 @@ internal static class PropModels
                     model, model.Meshes[index].MaterialIndex, materials, textures, materialIndices, load);
             }
 
+            // **Team colours are a SKIN FAMILY, not a tint.** A TF2 player model carries two: skin
+            // 0 is RED and skin 1 is BLU, which is the convention the game itself uses -
+            // `m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1` at tf_player_shared.cpp:4849. Using
+            // family zero for everyone draws both teams in red, which is what happened.
+            //
+            // Every family's materials are registered here so all of them upload with the map, and
+            // the batches below are emitted once per family over the SAME vertices - a family
+            // differs only in which material paints a mesh, so it costs batch metadata rather than
+            // geometry.
+            short[] skinTable = StudioSkins.Read(modelFile);
+            int families = StudioSkins.Families(modelFile);
+            int references = StudioSkins.References(modelFile);
+
+            List<Dictionary<int, int>> byFamily = [];
+
+            for (int family = 1; family < families; family++)
+            {
+                Dictionary<int, int> swap = [];
+
+                for (int index = 0; index < materialByMesh.Length; index++)
+                {
+                    int reference = model.Meshes[index].MaterialIndex;
+                    int at = (family * references) + reference;
+
+                    if (reference < 0 || at < 0 || at >= skinTable.Length)
+                    {
+                        continue;
+                    }
+
+                    int swapped = Register(
+                        model, skinTable[at], materials, textures, materialIndices, load);
+
+                    if (swapped >= 0 && materialByMesh[index] >= 0)
+                    {
+                        swap[materialByMesh[index]] = swapped;
+                    }
+                }
+
+                byFamily.Add(swap);
+            }
+
+            if (families > 1)
+            {
+                ViewerLog.Write(
+                    "props",
+                    $"skins {path}: {families} families over {references} references, " +
+                    $"{string.Join(", ", byFamily.Select(swap => swap.Count + " materials swapped"))}");
+            }
+
             // **A skinned model keeps ONE copy of its geometry, and unposed.** The shader applies
             // the bone matrices, so skinning here as well would transform every vertex twice - by
             // the rest pose on the processor and by the real pose on the card.
@@ -698,7 +747,8 @@ internal static class PropModels
                     sequenceAnimation,
                     sequenceLoops,
                     skin ? new SkinnedModel(bones, groupModels, table, groups) : null,
-                    IlluminationOf(modelFile)));
+                    IlluminationOf(modelFile),
+                    byFamily));
         }
         catch (InvalidDataException failure)
         {
@@ -1041,6 +1091,7 @@ internal static class PropModels
     /// <param name="SequenceLoops">Whether each sequence loops, from <c>STUDIO_LOOPING</c>.</param>
     /// <param name="Skinned">Set when this model is posed on the GPU instead of having frames baked.</param>
     /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
+    /// <param name="SkinSwaps">Per extra skin family, how each material of family zero is replaced.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -1052,7 +1103,8 @@ internal static class PropModels
         IReadOnlyList<int> SequenceAnimation,
         IReadOnlyList<bool> SequenceLoops,
         SkinnedModel? Skinned = null,
-        (float X, float Y, float Z) Illumination = default)
+        (float X, float Y, float Z) Illumination = default,
+        IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null)
     {
         /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
         /// <remarks>

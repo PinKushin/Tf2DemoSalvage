@@ -79,6 +79,14 @@ public readonly record struct ScenePose
     /// </remarks>
     public float? Speed { get; init; }
 
+    /// <summary>Which skin family paints this entity, where zero is the model's own.</summary>
+    /// <remarks>
+    /// **A team colour is a different material rather than a tint.** TF2's player models carry two
+    /// skin families and the game picks by team - RED is 0 and BLU is 1. Left at zero for anything
+    /// that has no team.
+    /// </remarks>
+    public int Skin { get; init; }
+
     /// <summary>Whether the engine was told not to draw this entity at this moment.</summary>
     /// <remarks>
     /// **Part of the pose rather than an end to the track**, because a hidden entity comes back.
