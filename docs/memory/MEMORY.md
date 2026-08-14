@@ -54,3 +54,5 @@
 - [Bone merge sends no position](bone-merge-sends-no-position.md) — cosmetics and carried weapons carry no origin, model index or moveparent; EF_BONEMERGE takes the owner's bones by name.
 - [Demo ticks do not start at zero](demo-ticks-do-not-start-at-zero.md) — a hardcoded probe tick can walk zero commands and still report a plausible count.
 - [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — even ones are networked in the DynamicModels table; that is where every cosmetic lives.
+- [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land in %LOCALAPPDATA%\Tf2DemoSalvage\shot-*.png beside viewer.log.
+- [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half; open the routine that implements it before writing your own.

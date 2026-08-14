@@ -39,8 +39,29 @@ public readonly record struct StudioBone(
 public sealed class StudioSkeleton
 {
     private readonly float[][] _skinning;
+    private readonly float[][] _boneToWorld;
 
-    internal StudioSkeleton(float[][] skinning) => _skinning = skinning;
+    internal StudioSkeleton(float[][] skinning)
+        : this(skinning, skinning)
+    {
+    }
+
+    internal StudioSkeleton(float[][] skinning, float[][] boneToWorld)
+    {
+        _skinning = skinning;
+        _boneToWorld = boneToWorld;
+    }
+
+    /// <summary>Where each bone itself is, before the bind pose is undone.</summary>
+    /// <remarks>
+    /// **Bone merging needs this and skinning matrices cannot supply it.** A skinning matrix is
+    /// <c>boneToWorld * poseToBone</c> — the bind pose is already folded in, and it is the WEARER's
+    /// bind pose. Copying one into a worn item's slot is right only where the two models were bound
+    /// identically, which is why a fully-matched hat looks fine and a partly-matched one tears: an
+    /// unmatched bone has to be built from its parent's position, and a skinning matrix does not
+    /// say where its bone is.
+    /// </remarks>
+    public IReadOnlyList<float[]> BoneToWorld => _boneToWorld;
 
     /// <summary>How many bones the model has.</summary>
     public int Count => _skinning.Length;
@@ -334,7 +355,70 @@ public static class StudioBones
             skinning[index] = Concatenate(boneToWorld[index], bone.PoseToBone.Span);
         }
 
-        return new StudioSkeleton(skinning);
+        return new StudioSkeleton(skinning, boneToWorld);
+    }
+
+    /// <summary>Poses one model's bones from another's, the way a bone merge does.</summary>
+    /// <param name="bones">The worn model's skeleton, which decides the numbering of the result.</param>
+    /// <param name="wearer">Where the wearer's bones are, as <see cref="StudioSkeleton.BoneToWorld"/>.</param>
+    /// <param name="map">
+    /// For each of <paramref name="bones"/>, the wearer bone it matches, or −1. <see cref="Remap"/>
+    /// produces it.
+    /// </param>
+    /// <returns>Skinning matrices in the worn model's bone order.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Valve copies only the bones that match, and the rest are NOT left alone.** <c>
+    /// CBoneMergeCache::MergeMatchingBones</c> runs after the worn model has done its own full
+    /// <c>SetupBones</c>, so an unmatched bone already holds a position built by walking the worn
+    /// model's own hierarchy — from its parent, which may itself have been merged. Copying the
+    /// matches and leaving everything else at its rest position in the model's OWN space is a
+    /// different thing entirely, and it tears the model apart: measured on a scout, a
+    /// <c>ghostly_gibus</c> matched 1 bone of 8 and the other seven stayed at the model origin
+    /// while the matched one sat at head height, so the triangles between them stretched from the
+    /// player's head to their feet as a large flat sheet.
+    ///
+    /// So the chain is walked here, in bone-to-world space, and only then folded with the WORN
+    /// model's own <c>poseToBone</c> — its bind pose, not the wearer's.
+    ///
+    /// **Bones are in hierarchy order and a parent's index is below its child's.** The studio
+    /// format guarantees it, and <see cref="RestPose"/> already relies on the same thing, so one
+    /// pass suffices.
+    /// </remarks>
+    public static IReadOnlyList<float[]> MergeOnto(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<float[]> wearer,
+        IReadOnlyList<int> map)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(wearer);
+        ArgumentNullException.ThrowIfNull(map);
+
+        float[][] boneToWorld = new float[bones.Count][];
+        float[][] skinning = new float[bones.Count][];
+
+        for (int index = 0; index < bones.Count; index++)
+        {
+            StudioBone bone = bones[index];
+            int matched = index < map.Count ? map[index] : -1;
+
+            if (matched >= 0 && matched < wearer.Count)
+            {
+                boneToWorld[index] = wearer[matched];
+            }
+            else
+            {
+                float[] local = FromQuaternion(bone.Rotation, bone.Position);
+
+                boneToWorld[index] = bone.Parent >= 0 && bone.Parent < index
+                    ? Concatenate(boneToWorld[bone.Parent], local)
+                    : local;
+            }
+
+            skinning[index] = Concatenate(boneToWorld[index], bone.PoseToBone.Span);
+        }
+
+        return skinning;
     }
 
     /// <summary>Maps one model's bone numbering onto another's, by name.</summary>

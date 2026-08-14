@@ -351,6 +351,7 @@ internal sealed class MapAssets
     /// <param name="map">The map's bytes.</param>
     /// <param name="archives">The game's archives.</param>
     /// <param name="entityModels">Model paths the demo uses, loaded with the map so the textures upload once.</param>
+    /// <param name="wornModels">Of those, the ones bone-merged onto another entity, which must be skinned.</param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -359,7 +360,8 @@ internal sealed class MapAssets
         ReadOnlyMemory<byte> map,
         GameArchives archives,
         int maximumTextureSize,
-        IReadOnlyCollection<string>? entityModels = null)
+        IReadOnlyCollection<string>? entityModels = null,
+        IReadOnlyCollection<string>? wornModels = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -472,7 +474,12 @@ internal sealed class MapAssets
                     archives,
                     materials,
                     textures,
-                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture);
+                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture,
+
+                    // **Worn models are skinned regardless of how cheap they are.** A bone-merged
+                    // item has no transform of its own; it is placed entirely by its wearer's
+                    // skeleton, so baking away its bones leaves nothing to hang it from.
+                    mustSkin: wornModels?.Contains(path) == true);
 
                 if (frames is { Geometry.Count: > 0 } && frames.Geometry[0].Count > 0)
                 {

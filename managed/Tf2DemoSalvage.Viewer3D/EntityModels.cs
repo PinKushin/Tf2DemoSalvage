@@ -547,6 +547,7 @@ internal sealed class EntityModelSet
             // in whatever position the artist modelled it, which for a player is lying on its
             // side.
             IReadOnlyList<float[]>? bones = null;
+            IReadOnlyList<float[]>? boneToWorld = null;
 
             if (_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) &&
                 entry.Skinned is { } skinned)
@@ -563,7 +564,13 @@ internal sealed class EntityModelSet
                 int posedFrame = StudioSequences.FrameFor(
                     phase, skinned.Frames(sequence), skinned.Loops(sequence));
 
-                bones = skinned.Pose(sequence, posedFrame);
+                StudioSkeleton posed = skinned.Skeleton(sequence, posedFrame);
+
+                bones = posed.Matrices;
+
+                // Kept separately: anything merged onto this entity needs where its BONES are, and
+                // a skinning matrix has the bind pose already folded in.
+                boneToWorld = posed.BoneToWorld;
 
                 // **Report the frame actually applied, not the baked one.** A skinned model has a
                 // single baked slot, so the baked-frame line below says "frame 0 of 1" for every
@@ -611,6 +618,18 @@ internal sealed class EntityModelSet
 
                 bones = Merge(prop.ModelPath, bones, worn);
                 transform = worn.Where;
+
+                // **Lit where its wearer stands, not where its own pose says.** A merged item's
+                // pose is (0,0,0) by construction, so sampling the ambient cube from it asks the
+                // leaf at the map origin - which is usually solid, carries no light, and draws
+                // every cosmetic in the match black. It showed in the log as "rocketboots is lit
+                // by nothing at (0,0,0)", which reads as a lighting quirk rather than as a light
+                // sampled before the item had been given a position.
+                light = lightAt is null
+                    ? default
+                    : lightAt(worn.LightX, worn.LightY, worn.LightZ);
+
+                (lightX, lightY, lightZ) = (worn.LightX, worn.LightY, worn.LightZ);
             }
             else if (_wanted.Contains(prop.EntityIndex))
             {
@@ -619,7 +638,8 @@ internal sealed class EntityModelSet
                 // it - silently, since the wearer itself still draws and only the hat vanishes.
                 // Merge handles the boneless case by keeping the item's own pose and taking only
                 // the transform, so it moves with the wearer even without following a bone.
-                _wearerBones[prop.EntityIndex] = new Worn(prop.ModelPath, bones ?? [], transform);
+                _wearerBones[prop.EntityIndex] = new Worn(
+                    prop.ModelPath, boneToWorld ?? [], transform, lightX, lightY, lightZ);
             }
 
             into.Add(new ModelInstance(
@@ -687,30 +707,54 @@ internal sealed class EntityModelSet
                 "render",
                 $"bone merge {System.IO.Path.GetFileName(modelPath)} onto " +
                 $"{System.IO.Path.GetFileName(wearer.ModelPath)}: " +
-                $"{matched} of {map.Length} bones matched");
+                $"{matched} of {map.Length} bones matched" +
+                (matched == map.Length ? "" : $"; missing {Unmatched(skinned.Bones, map)}"));
         }
 
-        float[][] merged = new float[map.Length][];
-        IReadOnlyList<float[]>? rest = null;
+        // **The unmatched bones are built from their parents, not left where they were.** Valve
+        // copies only the matches, but the worn model has already run its own full SetupBones, so
+        // an unmatched bone holds a position walked down the worn model's OWN hierarchy from its
+        // parent - which may itself have been merged. Leaving it at its rest position in model
+        // space instead tears the item across the map: a ghostly_gibus matched 1 bone of 8, the
+        // other seven stayed at the model origin, and the triangles between them stretched from
+        // the scout's head to his feet as a flat sheet.
+        return StudioBones.MergeOnto(skinned.Bones, wearer.Bones, map);
+    }
 
-        for (int bone = 0; bone < map.Length; bone++)
+    /// <summary>The names of the worn bones the wearer had no counterpart for.</summary>
+    /// <remarks>
+    /// **A count says how bad it is; the names say what it means.** A hat matching 1 bone of 8 is
+    /// fine when the one is <c>bip_head</c> and its seven children hang off it, and is a hat lying
+    /// on the grass when the one is a root the wearer happens to share and the head is missing.
+    /// The two are indistinguishable from the number alone, and the second was on screen.
+    /// </remarks>
+    private static string Unmatched(IReadOnlyList<StudioBone> bones, int[] map)
+    {
+        List<string> missing = [];
+
+        for (int index = 0; index < bones.Count && missing.Count < 6; index++)
         {
-            if (map[bone] >= 0 && map[bone] < wearer.Bones.Count)
+            if (index >= map.Length || map[index] < 0)
             {
-                merged[bone] = wearer.Bones[map[bone]];
-                continue;
+                missing.Add(bones[index].Name);
             }
-
-            rest ??= StudioBones.RestPose(skinned.Bones).Matrices;
-            merged[bone] = own is not null && bone < own.Count ? own[bone] : rest[bone];
         }
 
-        return merged;
+        return string.Join(", ", missing);
     }
 
     /// <summary>A drawn entity something else hangs off: its model, its pose and where it is.</summary>
+    /// <remarks>
+    /// The position is carried separately from the transform because a merged item is lit at its
+    /// wearer's place and <see cref="PropTransform"/> keeps its origin private.
+    /// </remarks>
     private readonly record struct Worn(
-        string ModelPath, IReadOnlyList<float[]> Bones, PropTransform Where);
+        string ModelPath,
+        IReadOnlyList<float[]> Bones,
+        PropTransform Where,
+        float LightX,
+        float LightY,
+        float LightZ);
 
     /// <summary>Which axis a model is longest along, named for the log.</summary>
     /// <remarks>

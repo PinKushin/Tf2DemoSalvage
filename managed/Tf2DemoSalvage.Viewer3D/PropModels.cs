@@ -377,14 +377,16 @@ internal static class PropModels
     /// and what this project will do for them - the two strategies coexist because the models
     /// differ by two orders of magnitude, not because one is a stopgap.
     /// </remarks>
+    /// <param name="mustSkin">Whether the model is bone-merged and so cannot be baked.</param>
     internal static ModelFrames? LoadFrames(
         string path,
         PakFile pak,
         GameArchives archives,
         List<BspMaterial> materials,
         List<MapTexture?> textures,
-        Func<string, MapTexture?> load) =>
-        Read(path, pak, archives, materials, textures, [], load)?.Frames;
+        Func<string, MapTexture?> load,
+        bool mustSkin = false) =>
+        Read(path, pak, archives, materials, textures, [], load, mustSkin)?.Frames;
 
     /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
     /// <remarks>
@@ -399,7 +401,8 @@ internal static class PropModels
         List<BspMaterial> materials,
         List<MapTexture?> textures,
         Dictionary<string, int> materialIndices,
-        Func<string, MapTexture?> load)
+        Func<string, MapTexture?> load,
+        bool mustSkin = false)
     {
         byte[]? Find(string file)
         {
@@ -535,7 +538,18 @@ internal static class PropModels
                         groups[where.Group].Sequences[where.Local].Animation));
             }
 
-            bool skin = wantedFrames > affordable && bones.Count > 1;
+            // **A worn model is skinned however cheap it is, and this is not an optimisation
+            // choice.** Baking pre-transforms the vertices by one pose and discards the bone
+            // indices, which is fine for a model drawn at its own transform and useless for one
+            // that is bone-merged: a merged item's entire position comes from its wearer's
+            // skeleton, so with no bones to pose it there is nothing to attach it by, and it draws
+            // at the wearer's ORIGIN - which on a player is their feet.
+            //
+            // Measured: every cosmetic in cp_process is a few thousand corners and one sequence,
+            // so all of them were baked, and the log said "1 baked frames" for each while the
+            // merge quietly did nothing. The hats sat at ankle height and the whole mechanism read
+            // as broken.
+            bool skin = (mustSkin || wantedFrames > affordable) && bones.Count > 1;
 
             foreach (int index in wanted)
             {
@@ -917,13 +931,24 @@ internal static class PropModels
         /// Computed per draw rather than stored: a scout's animation data is five megabytes, and
         /// recomputing one pose costs far less than keeping every pose it could take.
         /// </remarks>
-        public IReadOnlyList<float[]> Pose(int sequence, int frame)
+        public IReadOnlyList<float[]> Pose(int sequence, int frame) =>
+            Skeleton(sequence, frame).Matrices;
+
+        /// <summary>The whole skeleton for one sequence at one frame, bone positions included.</summary>
+        /// <param name="sequence">The merged sequence number, as a demo would network it.</param>
+        /// <param name="frame">Which frame of the animation it names.</param>
+        /// <returns>The posed skeleton.</returns>
+        /// <remarks>
+        /// Bone merging needs <see cref="StudioSkeleton.BoneToWorld"/> and skinning matrices cannot
+        /// supply it, since they already have the wearer's bind pose folded in.
+        /// </remarks>
+        public StudioSkeleton Skeleton(int sequence, int frame)
         {
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
             {
-                return StudioBones.RestPose(Bones).Matrices;
+                return StudioBones.RestPose(Bones);
             }
 
             int animation = Groups[where.Group].Sequences[where.Local].Animation;
@@ -954,7 +979,7 @@ internal static class PropModels
                 pose = renumbered;
             }
 
-            return StudioBones.Posed(Bones, pose).Matrices;
+            return StudioBones.Posed(Bones, pose);
         }
 
         private readonly Dictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = [];

@@ -925,7 +925,11 @@ internal class MainForm : Form
                     // textures upload once. Loading during playback would grow that table and
                     // force a re-upload mid-match.
                     _assets = MapAssets.Load(
-                        bytes, _archives, (int)_settings.TextureQuality, DemoModelPaths());
+                        bytes,
+                        _archives,
+                        (int)_settings.TextureQuality,
+                        DemoModelPaths(),
+                        WornModelPaths());
                 }
 
                 int displacements = 0;
@@ -1281,6 +1285,37 @@ internal class MainForm : Form
         foreach (ScenePropTrack track in timeline.Props)
         {
             if (track.Kind == SceneModelKind.Studio)
+            {
+                paths.Add(track.ModelPath);
+            }
+        }
+
+        return paths;
+    }
+
+    /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
+    /// <remarks>
+    /// **These must be skinned rather than baked, and the reason is not performance.** A
+    /// bone-merged item is placed entirely by its wearer's bones, so baking - which pre-transforms
+    /// the vertices by one pose and throws the bone indices away - leaves nothing to attach it by.
+    /// It then draws at the wearer's origin, which on a player is their FEET.
+    ///
+    /// Measured on cp_process: every cosmetic is a few thousand corners and a single sequence, so
+    /// the corner budget baked all of them and the hats sat at ankle height while the merge
+    /// reported nothing at all.
+    /// </remarks>
+    private HashSet<string> WornModelPaths()
+    {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        if (_timeline is not { } timeline)
+        {
+            return paths;
+        }
+
+        foreach (ScenePropTrack track in timeline.Props)
+        {
+            if (track.AttachedTo is not null && track.Kind == SceneModelKind.Studio)
             {
                 paths.Add(track.ModelPath);
             }
