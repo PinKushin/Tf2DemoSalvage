@@ -11,7 +11,19 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="MaterialIndex">Which of the model's materials paints it.</param>
 /// <param name="FirstVertex">Where its vertices begin in the model's vertex array.</param>
 /// <param name="VertexCount">How many it has.</param>
-public readonly record struct StudioMesh(int MaterialIndex, int FirstVertex, int VertexCount);
+/// <param name="BodyPart">Which body part it belongs to.</param>
+/// <param name="BodyModel">Which of that part's alternatives it belongs to.</param>
+/// <remarks>
+/// **The part and alternative travel with the mesh so the choice can be made at DRAW time.** A body
+/// part offers alternatives — a capture point sign reading A, B or C — and one is shown per entity,
+/// selected by <c>m_nBody</c>. Three capture points share one model and need three different signs,
+/// so the selection cannot be made when the model is read: every entity would get the same one.
+///
+/// This is the arrangement the team skins already use. One copy of the geometry, and a per-instance
+/// decision at bind time.
+/// </remarks>
+public readonly record struct StudioMesh(
+    int MaterialIndex, int FirstVertex, int VertexCount, int BodyPart = 0, int BodyModel = 0);
 
 /// <summary>A model's structure, from its <c>.mdl</c>.</summary>
 /// <param name="Name">The model's own name, as the compiler recorded it.</param>
@@ -19,16 +31,19 @@ public readonly record struct StudioMesh(int MaterialIndex, int FirstVertex, int
 /// <param name="Materials">Material names, without a directory.</param>
 /// <param name="MaterialFolders">Where to look for them, relative to <c>materials/</c>.</param>
 /// <param name="Meshes">The runs, in the order the index data walks them.</param>
-/// <param name="SelectedModels">
-/// Which model each body part contributed, chosen by the entity's <c>m_nBody</c>.
+/// <param name="BodyParts">
+/// Each body part's place value and how many alternatives it offers, for reading <c>m_nBody</c>.
 /// </param>
 /// <remarks>
-/// **The bodygroup selection has to travel, because the <c>.vtx</c> mirrors this structure.** A
-/// model's triangles are stored body part by body part and model by model in step with the
-/// <c>.mdl</c>, so a reader that picks one model here and walks all of them there desynchronises
-/// the two. The symptom is not a wrong picture but "an index file's strip groups do not fit either
-/// known layout" — which reads as a corrupt file rather than as two walks disagreeing, and is
-/// exactly what the tests reported when this was changed in one place only.
+/// **Every alternative is read and none is chosen here.** The choice is per ENTITY — three capture
+/// points share one model and show three different signs — so it belongs at draw time, and
+/// <see cref="Shows"/> makes it.
+///
+/// Choosing at read time was tried and is worth recording, because it fails in a way that does not
+/// look like itself: the <c>.vtx</c> mirrors this structure part by part and model by model, so a
+/// reader that picks one model here and walks all of them there desynchronises the two, and the
+/// symptom is "an index file's strip groups do not fit either known layout" — a corrupt-file
+/// message for two walks disagreeing about one structure.
 /// </remarks>
 public sealed record StudioModelInfo(
     string Name,
@@ -36,8 +51,34 @@ public sealed record StudioModelInfo(
     IReadOnlyList<string> Materials,
     IReadOnlyList<string> MaterialFolders,
     IReadOnlyList<StudioMesh> Meshes,
-    IReadOnlyList<int> SelectedModels)
+    IReadOnlyList<(int Base, int Count)> BodyParts)
 {
+    /// <summary>Whether a mesh is the one its body part shows for a given body number.</summary>
+    /// <param name="mesh">The mesh, carrying the part and alternative it belongs to.</param>
+    /// <param name="body">The entity's <c>m_nBody</c>.</param>
+    /// <returns>Whether to draw it.</returns>
+    /// <remarks>
+    /// <c>GetBodygroup</c>, <c>shared/animation.cpp:876</c>: a part's choice is the body number
+    /// divided by that part's base, modulo how many alternatives it has. The parts divide
+    /// <c>m_nBody</c> between them like digits of a mixed-radix number.
+    ///
+    /// A part this model does not describe, or one with a base of zero, shows its first
+    /// alternative — a malformed part costs itself and nothing else.
+    /// </remarks>
+    public bool Shows(StudioMesh mesh, int body)
+    {
+        if (mesh.BodyPart < 0 || mesh.BodyPart >= BodyParts.Count)
+        {
+            return mesh.BodyModel == 0;
+        }
+
+        (int place, int count) = BodyParts[mesh.BodyPart];
+
+        return place <= 0 || count <= 0
+            ? mesh.BodyModel == 0
+            : mesh.BodyModel == (body / place) % count;
+    }
+
     /// <summary>Where a material might be, in the order worth trying.</summary>
     /// <param name="materialIndex">Which of <see cref="Materials"/>.</param>
     /// <returns>Paths under <c>materials/</c>, forward-slashed, without an extension.</returns>
@@ -249,7 +290,7 @@ public static class StudioModel
                 $"{MaximumVersion} this reader knows.");
         }
 
-        (List<StudioMesh> meshes, List<int> chosen) = ReadMeshes(bytes, body);
+        (List<StudioMesh> meshes, List<(int Base, int Count)> parts) = ReadMeshes(bytes);
 
         return new StudioModelInfo(
             ReadFixedString(bytes.Slice(NameOffset, NameBytes)),
@@ -257,7 +298,7 @@ public static class StudioModel
             ReadMaterials(bytes),
             ReadFolders(bytes),
             meshes,
-            chosen);
+            parts);
     }
 
     private static List<string> ReadMaterials(ReadOnlySpan<byte> file)
@@ -304,23 +345,10 @@ public static class StudioModel
         return folders;
     }
 
-    /// <summary>Which of a body part's models the packed body number selects.</summary>
-    /// <remarks>
-    /// <c>GetBodygroup</c>, <c>shared/animation.cpp:876</c>. A part with a zero or negative base
-    /// would divide by zero, so it takes its first model — a malformed part should cost itself and
-    /// nothing else.
-    /// </remarks>
-    private static int Select(ReadOnlySpan<byte> file, int partAt, int models, int body)
+    private static (List<StudioMesh> Meshes, List<(int Base, int Count)> Parts) ReadMeshes(
+        ReadOnlySpan<byte> file)
     {
-        int place = BinaryPrimitives.ReadInt32LittleEndian(file[(partAt + BodyPartBaseOffset)..]);
-
-        return place <= 0 || models <= 0 ? 0 : (body / place) % models;
-    }
-
-    private static (List<StudioMesh> Meshes, List<int> Chosen) ReadMeshes(
-        ReadOnlySpan<byte> file, int body)
-    {
-        List<int> chosen = [];
+        List<(int Base, int Count)> chosen = [];
 
         int parts = Count(file, BodyPartCountOffset, "body parts");
         int partsAt = Offset(file, BodyPartIndexOffset, parts, BodyPartStride, "body parts");
@@ -335,30 +363,33 @@ public static class StudioModel
             int modelsAt = Relative(
                 file, partAt, partAt + BodyPartModelIndexOffset, models, ModelStride, "models");
 
-            // **A body part contributes ONE of its models, not all of them.** This is what a
-            // bodygroup is: a part offers alternatives — a head with a hat and a head without, a
-            // control point sign reading A, B or C — and the entity's m_nBody picks one per part.
+            // **Every alternative is read, and TAGGED with which one it is.** A body part offers
+            // alternatives — a capture point sign reading A, B or C — and one is shown per entity,
+            // chosen by m_nBody. Choosing here would give every entity sharing this model the same
+            // one, and cp_process's three capture points share a model.
             //
-            // Reading them all draws every alternative at once. Measured on cp_process, that is
-            // all three capture point labels stacked in the same place, which also makes the
-            // hologram they sit in read as far more opaque than it should, because three
-            // translucent signs are blended where one belongs.
+            // So the choice belongs at draw time, and the tag is what lets it be made there. This
+            // is what the team skins already do: one copy of the geometry, a per-instance decision
+            // at bind time, and nothing repacked when it changes.
             //
-            // Valve's selection, from GetBodygroup in shared/animation.cpp:876, is the body number
-            // divided by that part's base, modulo how many models the part has.
-            //
-            // A part's base is the place value it occupies in the packed number, so the parts
-            // divide m_nBody between them like digits of a mixed-radix integer.
-            int selected = Select(file, partAt, models, body);
+            // Reading them all and drawing them all is what put three labels in one place, which
+            // also made the hologram read as far more opaque than it should — three translucent
+            // signs blended where one belongs.
+            chosen.Add((
+                BinaryPrimitives.ReadInt32LittleEndian(file[(partAt + BodyPartBaseOffset)..]),
+                models));
 
-            chosen.Add(selected);
-            ReadModelMeshes(file, modelsAt + (selected * ModelStride), meshes);
+            for (int model = 0; model < models; model++)
+            {
+                ReadModelMeshes(file, modelsAt + (model * ModelStride), meshes, part, model);
+            }
         }
 
         return (meshes, chosen);
     }
 
-    private static void ReadModelMeshes(ReadOnlySpan<byte> file, int modelAt, List<StudioMesh> into)
+    private static void ReadModelMeshes(
+        ReadOnlySpan<byte> file, int modelAt, List<StudioMesh> into, int part, int model)
     {
         // **A byte offset, not a vertex index.** Dividing is what makes the mesh offsets below
         // line up with the .vvd; using it directly multiplies every index by 48 and still lands
@@ -390,7 +421,7 @@ public static class StudioModel
                     $"{vertices:N0}."));
             }
 
-            into.Add(new StudioMesh(material, firstVertex + offset, count));
+            into.Add(new StudioMesh(material, firstVertex + offset, count, part, model));
         }
     }
 

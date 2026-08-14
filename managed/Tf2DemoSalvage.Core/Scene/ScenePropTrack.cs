@@ -101,6 +101,17 @@ public readonly record struct ScenePose
     ///
     /// Zero for a player standing still, which is what the engine leaves them at.
     /// </remarks>
+    /// <summary>Which alternative each of the model's body parts shows.</summary>
+    /// <remarks>
+    /// **A capture point's label and a player's drawn weapon are the same mechanism.** A model's
+    /// body parts each offer alternatives and this packs one choice per part; the renderer draws
+    /// the selected mesh of each part rather than all of them.
+    ///
+    /// Zero when the entity never sent one, which selects every part's first alternative — what the
+    /// engine shows for an entity that never sets it.
+    /// </remarks>
+    public int Body { get; init; }
+
     public float MoveX { get; init; }
 
     /// <summary>The <c>move_y</c> pose parameter: how much of the motion is sideways.</summary>

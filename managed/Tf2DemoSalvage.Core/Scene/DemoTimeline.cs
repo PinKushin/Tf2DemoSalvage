@@ -567,6 +567,7 @@ public sealed class DemoTimeline
                 // and sequence -1 is "does not animate" where zero is a real animation.
                 Scale = state.ModelScale() ?? 1f,
                 Sequence = state.AnimationSequence() ?? -1,
+                Body = state.Body() ?? 0,
                 Cycle = state.Cycle() ?? 0f,
 
                 // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather

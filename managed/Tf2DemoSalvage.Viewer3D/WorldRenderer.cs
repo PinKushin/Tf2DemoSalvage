@@ -59,7 +59,20 @@ internal readonly record struct WorldVertex(
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
 /// <param name="FirstVertex">Where the run starts.</param>
 /// <param name="VertexCount">How many vertices it covers.</param>
-internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, int VertexCount);
+/// <param name="BodyPart">Which body part this run belongs to, for a model batch.</param>
+/// <param name="BodyModel">Which of that part's alternatives, so one can be chosen per entity.</param>
+/// <remarks>
+/// **A batch never spans two body parts**, which is what makes the choice possible at draw time. The
+/// grouping key is the material AND the part and alternative it came from, so a run can be skipped
+/// whole when the entity's <c>m_nBody</c> did not select it. Merging on material alone would put a
+/// capture point's three signs in one run, and then no per-entity decision could separate them.
+/// </remarks>
+internal readonly record struct WorldBatch(
+    int MaterialIndex,
+    int FirstVertex,
+    int VertexCount,
+    int BodyPart = 0,
+    int BodyModel = 0);
 
 /// <summary>The sun as it reaches one model.</summary>
 /// <param name="Red">Intensity, linear, from the map's own emit_skylight.</param>
@@ -2154,6 +2167,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
     /// <param name="skin">Which material replaces which for a team colour; null for the model's own.</param>
     /// <param name="blended">Draw the blended materials rather than the opaque ones.</param>
+    /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
+    /// <param name="body">Which alternative each part shows, packed as m_nBody.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2170,7 +2185,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float blend = 0f,
         int bones = 0,
         IReadOnlyDictionary<int, int>? skin = null,
-        bool blended = false)
+        bool blended = false,
+        IReadOnlyList<(int Base, int Count)>? bodyParts = null,
+        int body = 0)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2228,6 +2245,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
+            // **The body part's chosen alternative, per entity.** Every alternative is packed once
+            // and the choice is made here, which is how three capture points sharing one model show
+            // three different signs. Batches never span two alternatives, so skipping is whole runs
+            // rather than triangles.
+            if (bodyParts is { Count: > 0 } &&
+                !Shows(bodyParts, batch.BodyPart, batch.BodyModel, body))
+            {
+                continue;
+            }
+
             if (blended)
             {
                 // Per batch, because a model can carry both kinds: additive ADDS light to what is
@@ -2254,6 +2281,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+    }
+
+    /// <summary>Whether a batch is the alternative its body part shows.</summary>
+    /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>
+    private static bool Shows(
+        IReadOnlyList<(int Base, int Count)> parts, int part, int model, int body)
+    {
+        if (part < 0 || part >= parts.Count)
+        {
+            return model == 0;
+        }
+
+        (int place, int count) = parts[part];
+
+        return place <= 0 || count <= 0 ? model == 0 : model == (body / place) % count;
     }
 
     /// <summary>Puts blending back to opaque after a blended pass.</summary>

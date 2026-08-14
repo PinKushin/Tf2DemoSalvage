@@ -17,6 +17,8 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Blend">How far toward the next baked frame, so the shader can smooth between them.</param>
 /// <param name="Bones">Bone matrices for a model skinned on the GPU, or null when it is baked.</param>
 /// <param name="SkinSwap">Which material replaces which for its team, or null.</param>
+/// <param name="BodyParts">The model's body parts, for reading its body number.</param>
+/// <param name="Body">Which alternative each body part shows, as m_nBody packs it.</param>
 internal readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -25,7 +27,9 @@ internal readonly record struct ModelInstance(
     int Frame = 0,
     float Blend = 0f,
     IReadOnlyList<float[]>? Bones = null,
-    IReadOnlyDictionary<int, int>? SkinSwap = null);
+    IReadOnlyDictionary<int, int>? SkinSwap = null,
+    IReadOnlyList<(int Base, int Count)>? BodyParts = null,
+    int Body = 0);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -347,7 +351,11 @@ internal sealed class EntityModelSet
                 // Grouped by material so one bind covers every triangle of this frame that shares
                 // it. Every frame carries the same corners in the same order, so the batching is
                 // identical between them and only the positions differ.
-                Dictionary<int, List<WorldVertex>> byMaterial = [];
+                // **Keyed by the body part and alternative as well as the material**, because a
+                // batch that spanned two alternatives could not be skipped for one of them. A
+                // capture point's three signs share a material; merged on material alone they
+                // become one run and no per-entity choice can separate them again.
+                Dictionary<(int Material, int Part, int Model), List<WorldVertex>> byMaterial = [];
 
                 for (int index = 0; index < corners.Count; index++)
                 {
@@ -355,10 +363,13 @@ internal sealed class EntityModelSet
 
                     PropVertex ahead = index < onward.Count ? onward[index] : corner;
 
-                    if (!byMaterial.TryGetValue(corner.MaterialIndex, out List<WorldVertex>? into))
+                    (int Material, int Part, int Model) key =
+                        (corner.MaterialIndex, corner.BodyPart, corner.BodyModel);
+
+                    if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
                     {
                         into = [];
-                        byMaterial[corner.MaterialIndex] = into;
+                        byMaterial[key] = into;
                     }
 
                     // **Model space, untouched.** The shader's model matrix places it. No lightmap
@@ -393,9 +404,16 @@ internal sealed class EntityModelSet
                         WeightC: corner.Weights.Third));
                 }
 
-                foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
+                foreach (KeyValuePair<(int Material, int Part, int Model), List<WorldVertex>> group
+                    in byMaterial)
                 {
-                    batches.Add(new WorldBatch(group.Key, _vertices.Count, group.Value.Count));
+                    batches.Add(new WorldBatch(
+                        group.Key.Material,
+                        _vertices.Count,
+                        group.Value.Count,
+                        group.Key.Part,
+                        group.Key.Model));
+
                     _vertices.AddRange(group.Value);
                 }
 
@@ -687,7 +705,11 @@ internal sealed class EntityModelSet
                 frame,
                 blend,
                 bones,
-                SkinSwap(prop.ModelPath, skin)));
+                SkinSwap(prop.ModelPath, skin),
+                _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? parts)
+                    ? parts.BodyParts
+                    : null,
+                prop.Pose.Body));
         }
     }
 

@@ -73,6 +73,9 @@ public sealed class EntityState
     private const string AnimatingTable = "DT_BaseAnimating";
 
     private const string SequenceProperty = "m_nSequence";
+
+    /// <summary>Which alternative each body part shows, packed into one number.</summary>
+    private const string BodyProperty = "m_nBody";
     private const string CycleProperty = "m_flCycle";
     private const string PlaybackRateProperty = "m_flPlaybackRate";
     private const string ModelScaleProperty = "m_flModelScale";
@@ -251,6 +254,22 @@ public sealed class EntityState
     /// sequence zero is a real animation, usually the idle one.
     /// </remarks>
     public int? AnimationSequence() => Integer($"{AnimatingTable}.{SequenceProperty}");
+
+    /// <summary>Which alternative each of the model's body parts is showing.</summary>
+    /// <returns>The packed body number, or <c>null</c> when the entity never sent one.</returns>
+    /// <remarks>
+    /// **One number holding a choice per body part.** A model's parts each offer alternatives — a
+    /// capture point sign reading A, B or C, a player with a weapon drawn or holstered — and
+    /// <c>m_nBody</c> packs one selection per part into a single integer, mixed-radix: part N's
+    /// choice is <c>(body / base) % nummodels</c>, where <c>base</c> is that part's place value
+    /// (<c>GetBodygroup</c>, <c>shared/animation.cpp:876</c>).
+    ///
+    /// Null rather than zero when absent, because zero is a real body number meaning "every part
+    /// shows its first alternative" and an entity that never sent one is a different thing from an
+    /// entity that sent zero — even though both draw the same, which is exactly why collapsing them
+    /// would hide a decode that missed the property.
+    /// </remarks>
+    public int? Body() => Integer($"{AnimatingTable}.{BodyProperty}");
 
     /// <summary>Whether the entity is alive, when it says.</summary>
     /// <returns><c>m_lifeState</c>, or <c>null</c> when it was never sent.</returns>

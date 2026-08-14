@@ -26,13 +26,17 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Blue">Baked lighting, one where the placement has none.</param>
 /// <param name="Bones">Which bones move this vertex, for a model skinned on the GPU.</param>
 /// <param name="Weights">How much each of those bones moves it.</param>
+/// <param name="BodyPart">Which body part it belongs to, for a model with alternatives.</param>
+/// <param name="BodyModel">Which of that part's alternatives, chosen per entity at draw time.</param>
 internal readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
     float Red = 1f, float Green = 1f, float Blue = 1f,
     float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f,
     (byte First, byte Second, byte Third) Bones = default,
-    (float First, float Second, float Third) Weights = default);
+    (float First, float Second, float Third) Weights = default,
+    int BodyPart = 0,
+    int BodyModel = 0);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -672,7 +676,15 @@ internal static class PropModels
                             // ignores them; a skinned one is moved by them in the shader, and the
                             // decision between the two is made after the vertices are built.
                             Bones: vertex.Bones,
-                            Weights: vertex.Weights));
+                            Weights: vertex.Weights,
+
+                            // **Which alternative of which body part this corner belongs to.** The
+                            // choice between a part's alternatives is per ENTITY - three capture
+                            // points share one model and show three different signs - so it cannot
+                            // be made here. Carried through to the batching, which keeps each
+                            // alternative in its own run so one can be skipped whole at draw time.
+                            BodyPart: mesh.BodyPart,
+                            BodyModel: mesh.BodyModel));
 
                         // **Position by mesh vertex, colour by strip group vertex.** They are
                         // different orderings of the same surface, and using one for both speckles
@@ -769,7 +781,8 @@ internal static class PropModels
                             StudioSequences.PoseParameters(modelFile))
                         : null,
                     IlluminationOf(modelFile),
-                    byFamily));
+                    byFamily,
+                    model.BodyParts));
         }
         catch (InvalidDataException failure)
         {
@@ -1219,6 +1232,7 @@ internal static class PropModels
     /// <param name="Skinned">Set when this model is posed on the GPU instead of having frames baked.</param>
     /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
     /// <param name="SkinSwaps">Per extra skin family, how each material of family zero is replaced.</param>
+    /// <param name="BodyParts">Each body part's place value and alternative count, for m_nBody.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -1231,7 +1245,8 @@ internal static class PropModels
         IReadOnlyList<bool> SequenceLoops,
         SkinnedModel? Skinned = null,
         (float X, float Y, float Z) Illumination = default,
-        IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null)
+        IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null,
+        IReadOnlyList<(int Base, int Count)>? BodyParts = null)
     {
         /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
         /// <remarks>

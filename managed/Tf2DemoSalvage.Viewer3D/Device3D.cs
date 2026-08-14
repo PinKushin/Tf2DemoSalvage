@@ -429,7 +429,10 @@ internal sealed unsafe class Device3D : IDisposable
                         instance.Sun,
                         instance.Blend,
                         instance.Bones?.Count ?? 0,
-                        instance.SkinSwap);
+                        instance.SkinSwap,
+                        blended: false,
+                        instance.BodyParts,
+                        instance.Body);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -457,7 +460,9 @@ internal sealed unsafe class Device3D : IDisposable
                         instance.Blend,
                         instance.Bones?.Count ?? 0,
                         instance.SkinSwap,
-                        blended: true);
+                        blended: true,
+                        instance.BodyParts,
+                        instance.Body);
                 }
 
                 WorldRenderer.ResetBlend(_context);
