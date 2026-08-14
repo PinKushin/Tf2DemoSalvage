@@ -186,15 +186,20 @@ internal sealed class EntityModelSet
             maximumZ = MathF.Max(maximumZ, z);
         }
 
-        // **The z range, not just the z span.** A hat is a few inches tall wherever it is, so its
-        // SIZE says nothing about whether it is on a head; where it sits does. A scout's origin is
-        // at their feet and their head is around 64 units up, so a worn item spanning z 0 to 6 is
-        // on the floor and one spanning 60 to 70 is on the head.
+        // **All three ranges, because which axis is "up" is a property of the model.** A hat is a
+        // few inches tall wherever it is, so its SIZE says nothing about whether it is on a head;
+        // where it sits does. Reporting only the z range assumed z was up and this bind pose is
+        // Y-up - a player model measures 84 along Y and bip_head rests at (0, 75, -1) - so a hat
+        // correctly on the head reads as "z from -16 to -2" and looks like a hat on the floor.
+        //
+        // That mistake cost a full round of investigation, and it is the same one as measuring at
+        // a tick the demo does not contain: an instrument answering confidently about the wrong
+        // quantity.
         ViewerLog.Write(
             "props",
             $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
-            $"{bones.Count} bones, extents x {maximumX - minimumX:0.#} y {maximumY - minimumY:0.#} " +
-            $"z {maximumZ - minimumZ:0.#} (z from {minimumZ:0.#} to {maximumZ:0.#})");
+            $"{bones.Count} bones, x {minimumX:0.#}..{maximumX:0.#} " +
+            $"y {minimumY:0.#}..{maximumY:0.#} z {minimumZ:0.#}..{maximumZ:0.#}");
     }
 
     /// <summary>Every packed model's triangles, in model space.</summary>
@@ -602,6 +607,20 @@ internal sealed class EntityModelSet
             {
                 _reportedPoses.Add(prop.ModelPath);
                 ReportPosedExtents(prop.ModelPath, bones);
+
+                // **The same frame posed WITHOUT the blend, side by side.** Resolving the blend
+                // grid was this project's change and taking the grid's corner is what came before
+                // it. Three animations mixed at wrong weights crumple a skeleton - a run forward
+                // blended halfway against a run backward is not a stand, it is a heap - and that
+                // is indistinguishable from a broken decode unless both are measured together.
+                if (_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? both) &&
+                    both.Skinned is { } plain)
+                {
+                    ReportPosedExtents(
+                        prop.ModelPath,
+                        plain.Skeleton(Math.Max(0, prop.Pose.Sequence), 0).Matrices,
+                        prop.ModelPath + " CORNER, no pose parameters");
+                }
             }
 
             // **A merged entity takes its wearer's matrices, not its own pose.** This is what

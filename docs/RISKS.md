@@ -3545,3 +3545,46 @@ walks the hierarchy itself rather than porting `Studio_BuildBoneChain`/`CalcBone
 **Recommendation, and the owner raised it first:** port the bone setup path faithfully rather than
 continuing to repair an approximation of it. The pieces already ported are correct and can be kept;
 what needs replacing is the assembly around them.
+
+### B67 amended — the evidence is contradictory and the first conclusion was overstated
+
+The commit that filed B67 asserted the posed skeleton is broken. That is not established. Two
+measurements disagree and the screenshots side with the second one.
+
+**What the extents report says**, soldier at a mid-match tick, all three axes:
+
+```
+posed soldier: x -12.9..42.5  y -48.3..14.1  z -11.6..11.1
+posed scout:   x  -9.8..46.4  y -39.3..11.9  z -19.6..9.5
+```
+
+No axis is near the 83 a standing player needs.
+
+**What the screen says:** players draw upright and recognisable, with hats on heads in several
+captures. Some limbs are splayed wider than they should be, and some worn items are on the floor —
+so something IS wrong, but not "the skeleton never stands up".
+
+**What has been eliminated, each measured rather than assumed:**
+
+- The blend is not the cause. Posing the same frame with and without pose parameters gives nearly
+  the same extents (`z 22.7` against `24.0`), so resolving the grid changed the direction the legs
+  run and not the shape of the skeleton.
+- The matrix path matches Valve throughout: `FromQuaternion` against `QuaternionMatrix`
+  (`mathlib_base.cpp:1885`), `Concatenate` against `ConcatTransforms` (`:658`) including the
+  translation column, the chain against `Studio_BuildMatrices` (`bone_setup.cpp:4559`), `FromEuler`
+  against `AngleQuaternion` (`:2016`), plus the flag handling and run-length decode checked earlier.
+  There is no approximation left to point at, which weakens the case for rewriting the composition.
+- The gibus skeleton is fine and its merge walks it correctly.
+
+**The open question is whether the extents report measures what the GPU draws.** It applies bone
+matrices to `_raw`, which is `ModelFrames.Geometry[0]` — and for a skinned model that is a BAKED
+frame produced by posing the base model's local animation, not the bind pose. For a player the
+local animation is the reference pose so the two are nearly the same, which is why this has not
+obviously exploded; but "nearly" is doing real work in an argument that concluded a skeleton was
+broken. Until the instrument is shown to measure the drawn vertices, its disagreement with the
+screen is not evidence about the skeleton.
+
+**Next step, and it is an instrument step rather than a fix:** make the report skin exactly the
+vertices uploaded to the GPU, or drop it in favour of reading back what the shader produced.
+Deciding what to rewrite before that is settled would be choosing a cause to fit a number that has
+not been shown to mean anything.
