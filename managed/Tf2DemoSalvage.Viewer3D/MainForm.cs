@@ -147,6 +147,9 @@ internal class MainForm : Form
     /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
     private IReadOnlyList<AmbientSamples> _ambient = [];
 
+    /// <summary>The map's sun, when it has one.</summary>
+    private BspWorldLight? _sun;
+
     /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
     private (float Lowest, float Highest)? _heightRange;
 
@@ -888,6 +891,10 @@ internal class MainForm : Form
                     _leaves = BspLeafTree.Read(bytes);
                     _ambient = BspAmbientLight.Read(bytes);
 
+                    // The direct term. The ambient cube is the shade; this is what makes daylight
+                    // bright, and it is the reason a pack outdoors looked like one indoors.
+                    _sun = BspWorldLights.Sun(BspWorldLights.Read(bytes));
+
                     // **Every model the demo will ever show, loaded with the map.** The timeline
                     // is already built, so the whole set is known before anything is drawn - and
                     // loading them here means their materials join the map's table and the
@@ -1137,6 +1144,36 @@ internal class MainForm : Form
         return leaf >= 0 && leaf < _ambient.Count
             ? _ambient[leaf].Nearest(x, y, z)
             : default;
+    }
+
+    /// <summary>The sun reaching a world position, or null when it does not.</summary>
+    /// <remarks>
+    /// **The trace is the feature, not an optimisation.** Valve describes a sky light as a
+    /// "directional light with no falloff (surface must trace to SKY texture)" — applied without
+    /// that condition it lights the inside of every building, which is worse than the shade this
+    /// is meant to fix.
+    ///
+    /// Traced towards the sun, which is against the direction its light travels.
+    /// </remarks>
+    private SunLight? SunAt(float x, float y, float z)
+    {
+        if (_sun is not { } sun || _leaves is not { } tree)
+        {
+            return null;
+        }
+
+        if (!tree.SeesSky(x, y, z, -sun.Normal.X, -sun.Normal.Y, -sun.Normal.Z))
+        {
+            return null;
+        }
+
+        return new SunLight(
+            sun.Intensity.Red,
+            sun.Intensity.Green,
+            sun.Intensity.Blue,
+            sun.Normal.X,
+            sun.Normal.Y,
+            sun.Normal.Z);
     }
 
     /// <summary>One model's triangles, from the set preloaded with the map.</summary>
@@ -1429,7 +1466,7 @@ internal class MainForm : Form
             }
         }
 
-        _models.Instances(_props, _instances, LightAt);
+        _models.Instances(_props, _instances, LightAt, SunAt);
 
         if (_instances.Count != _lastInstanceCount)
         {

@@ -10,8 +10,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="ModelPath">Which packed model to draw.</param>
 /// <param name="Matrix">Sixteen floats, row major, for the shader's model constant.</param>
 /// <param name="Light">The ambient cube of the leaf it stands in.</param>
+/// <param name="Sun">The sun, when this model traced to sky; null when it stands in shade.</param>
 internal readonly record struct ModelInstance(
-    string ModelPath, float[] Matrix, AmbientCube Light);
+    string ModelPath, float[] Matrix, AmbientCube Light, SunLight? Sun);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -127,6 +128,7 @@ internal sealed class EntityModelSet
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
     /// <param name="lightAt">The ambient cube at a world position, or null to leave models unlit.</param>
+    /// <param name="sunAt">The sun at a world position, or null to apply no direct light.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
@@ -135,7 +137,8 @@ internal sealed class EntityModelSet
     public void Instances(
         IReadOnlyList<SceneProp> props,
         ICollection<ModelInstance> into,
-        Func<float, float, float, AmbientCube>? lightAt = null)
+        Func<float, float, float, AmbientCube>? lightAt = null,
+        Func<float, float, float, SunLight?>? sunAt = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -161,7 +164,11 @@ internal sealed class EntityModelSet
                 ? default
                 : lightAt(pose.X, pose.Y, pose.Z);
 
-            into.Add(new ModelInstance(prop.ModelPath, transform.ToMatrix(), light));
+            into.Add(new ModelInstance(
+                prop.ModelPath,
+                transform.ToMatrix(),
+                light,
+                sunAt?.Invoke(pose.X, pose.Y, pose.Z)));
         }
     }
 }

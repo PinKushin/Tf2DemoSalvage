@@ -346,21 +346,19 @@ public static class BspAmbientLight
     /// brightness everywhere, which is a picture rather than an error — the same trap the lightmap
     /// reader documents, and the same one that made these models white in the first place.
     ///
-    /// **Taken into display space, exactly as the lightmap is.** This is multiplied against a
-    /// texture in the same shader slot the lightmap occupies, and <c>BspLightmaps</c> puts its
-    /// samples through <c>SourceGamma</c> before upload — so a cube left in linear light is being
-    /// compared against display-space values and comes out far too dark.
+    /// **Linear, like every other light value in the pipeline.** The shader multiplies it against
+    /// an albedo the hardware has already linearised, and the sRGB render target applies the curve
+    /// once at the end (B54).
     ///
-    /// Measured: the first version left it linear, on the reasoning that both arrived "the same
-    /// way". They do not, and a medkit in daylight rendered nearly black.
+    /// This was gamma-corrected for a while, and correctly so at the time: the lightmap was then
+    /// being taken into display space at decode, and a linear cube against display-space light
+    /// rendered a medkit nearly black. The compensation went away with the thing it compensated
+    /// for, which is the point of doing the arithmetic in one space.
     /// </remarks>
     private static (float Red, float Green, float Blue) Colour(ReadOnlySpan<byte> sample)
     {
-        float scale = MathF.Pow(2f, (sbyte)sample[3]);
+        float scale = MathF.Pow(2f, (sbyte)sample[3]) / 255f;
 
-        return (
-            SourceGamma.ToDisplay(sample[0] * scale / 255f),
-            SourceGamma.ToDisplay(sample[1] * scale / 255f),
-            SourceGamma.ToDisplay(sample[2] * scale / 255f));
+        return (sample[0] * scale, sample[1] * scale, sample[2] * scale);
     }
 }
