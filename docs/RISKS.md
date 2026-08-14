@@ -3201,3 +3201,51 @@ comment naming `m_angEyeAngles` sat in another.
 
 The same rule is why the eye-angle fix is a single line at the pose rather than a field set on
 `ScenePlayer`: the pose already feeds the interpolator, so position and angle cannot drift apart.
+
+## B57 — player animation lives in included models, and cannot be baked — OPEN, measured
+
+**Where it is.** A player model carries almost no animation of its own. Measured:
+
+```
+scout.mdl                        306 sequences,    2 local animations of 1 frame
+  scout_user_animations.mdl        1 sequence,     1 animation
+  scout_animations.mdl           377 sequences, 1012 animations, 5.0 MB
+  scout_workshop_animations.mdl   90 sequences,   95 animations, 2.9 MB
+soldier.mdl                      361 sequences,    2 local animations
+  soldier_animations.mdl         419 sequences,  858 animations, 5.4 MB
+```
+
+Reached through `studiohdr_t.numincludemodels` at 336 and `includemodelindex` at 340, entries of
+eight bytes (`mstudiomodelgroup_t`: a label index and a name index, both relative to the entry).
+Offsets counted from `studio.h`'s field order and anchored on `numbodyparts` at 232, which this
+project had already verified against real files. **medkit_small reports zero included models**,
+which is the control that says the offsets are not landing on arbitrary data.
+
+The two local animations are the reference pose — the thing that stands a player upright (B?, see
+the animation commit). Everything a player actually does is in the included models.
+
+**How a sequence number resolves.** `virtualmodel_t::AppendSequences`
+(`public/studio_virtualmodel.cpp:142`) merges sequences **by label**: the base model's local
+sequences first, then each included model appends only those whose names are not already present.
+So `m_nSequence` indexes that merged list, and resolving it means walking the same merge.
+
+The useful consequence: a virtual sequence maps to a *(group, local sequence)* pair, and that
+group's own model holds both the sequence description and the animation it names. The virtual
+ANIMATION list never has to be built.
+
+**Baking is out for players, and the arithmetic is not close.** A health pack is one animation of
+thirty frames over 1,608 corners. A scout is 1,012 animations over 23,442 corners; baking even a
+tenth of them at thirty frames would be tens of gigabytes. The bake budget added for props
+(B?, `MaximumBakedCorners`) would silently degrade every player to one frame, which is exactly the
+state they are in now.
+
+So players need the transform done per frame on the GPU: bone matrices in a constant buffer and
+the skinning in the vertex shader, which is `IMaterialSystem::LoadBoneMatrix` and what the engine
+itself does. `StudioBones` already produces the matrices and `StudioVertex` already carries the
+indices and weights; what is missing is the renderer side.
+
+**And the poses are not networked.** TF2 computes player animation client-side in
+`CTFPlayerAnimState`, driven by velocity and eye angles — nothing in the demo says which sequence
+a player is playing. So even with the data reachable and the renderer able to skin, choosing the
+right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
+emulate the choice.
