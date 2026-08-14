@@ -139,6 +139,26 @@ public sealed class HatSkeletonProbe
 
             TestContext.Out.WriteLine($"HAT   rest: {string.Join("  ", placed)}");
 
+            // **The ROTATION of the rest skinning matrix, which has never been looked at.** Only
+            // its translation was checked; that was near zero, and a pure rotation about the origin
+            // gives exactly that — so "rest skinning is the identity" was concluded from evidence
+            // that cannot tell the identity from a quarter turn.
+            //
+            // If this is the identity the model genuinely rests lying down and the standing
+            // rotation has to arrive from elsewhere. If it is a quarter turn about X, the
+            // correction is already in the matrices this project computes and the fault is
+            // downstream of them.
+            if (rest.Matrices.Count > 0)
+            {
+                float[] m = rest.Matrices[0];
+
+                TestContext.Out.WriteLine(
+                    $"HAT   rest skinning 3x3 of bone 0: " +
+                    $"[{m[0]:0.##} {m[1]:0.##} {m[2]:0.##}] " +
+                    $"[{m[4]:0.##} {m[5]:0.##} {m[6]:0.##}] " +
+                    $"[{m[8]:0.##} {m[9]:0.##} {m[10]:0.##}]");
+            }
+
             // **The model's own hull, which says which axis is up without any of our code.**
             // studiohdr_t carries hull_min at 104 and hull_max at 116 — counted as id 0, version 4,
             // checksum 8, name[64] 12, length 76, eyeposition 80, illumposition 92, then the two

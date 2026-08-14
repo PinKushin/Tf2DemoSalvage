@@ -3705,3 +3705,42 @@ unmeasured:
   one left and it should be measured first:** print the 3x3 of `RestPose(scout).Matrices[0]`. If it
   is the identity the model genuinely rests lying down; if it is a quarter turn the correction is
   already in hand and the fault is downstream of it.
+
+### B67 resolved to a single statement: the reference pose lies down, and our animation never stands it up
+
+Last measurement, the 3x3 of the rest skinning matrix, which had never been looked at:
+
+```
+scout   bone 0: [1 0 0] [0 1 0] [0 -0 1]
+soldier bone 0: [1 0 0] [0 1 0] [0 -0 1]
+locker  bone 0: [1 0 0] [0 1 0] [0 -0 1]
+```
+
+The identity, for players and props alike. So `poseToBone` exactly cancels each root's rotation and
+the prop's pi/2 does nothing at rest — props stand up because their VERTICES are Z-tall, and players
+lie down because theirs are Y-tall. At rest every model draws precisely as authored.
+
+**A TF2 player's reference pose is authored lying down.** That is a normal thing in Source character
+pipelines: the reference SMD is a T-pose on its back and every real animation is authored standing.
+Nothing in the loader can or should correct it.
+
+**Therefore the standing orientation can only come from the animation, and ours does not supply
+it.** The posed z span is 23 where standing needs 83, while the posed shape DOES differ from the
+rest shape — so animation data is being read and applied, and it is either the wrong data or applied
+to the wrong bones.
+
+That is the whole of B67 now, and it is one question rather than a symptom list. The two candidates,
+in the order they should be measured:
+
+1. **The bone remap.** `masterBone` renumbers an included animation's bones onto the base skeleton,
+   and this project applies it only when `where.Group != 0`. A wrong or skipped remap moves the
+   right rotations to the wrong joints, which is "scrambled rather than absent" — the exact
+   signature here, since the shape changes without standing up. `StudioBones.Remap` is already
+   tested in isolation; what is NOT tested is that the group a sequence resolves to is the group
+   whose bones the remap was built from.
+2. **Which animation is being read.** A player's sequences live in included models; if the group or
+   local index is off, a real animation is decoded from the wrong file and produces a plausible,
+   wrong pose.
+
+Both are cheap to measure against the rest pose: pose scout with a known standing sequence and
+report the z span. Standing is 83, and nothing else is.
