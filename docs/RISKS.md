@@ -3588,3 +3588,45 @@ screen is not evidence about the skeleton.
 vertices uploaded to the GPU, or drop it in favour of reading back what the shader produced.
 Deciding what to rewrite before that is settled would be choosing a cause to fit a number that has
 not been shown to mean anything.
+
+### B67 amended again — vertices and bones agree, and both are Y-up
+
+Three measurements of `models/player/soldier.mdl`, read straight from the files:
+
+```
+vertices: 9626 corners, x -24..24   y -0..84.5   z -10.1..14.7
+bones:    bip_pelvis (root) at (0, 42.4, -0);  bip_head at (0, 75.2, -1.1)
+hull:     (-10.1,-25.8,-3.6) to (14.7,25.8,84.5)
+```
+
+**The vertices and the bones agree**: the model is 84.5 units tall along **Y**, and the head bone is
+75 up that axis. `bip_pelvis` is a ROOT, so its bone-to-world is its raw `pos` from the file with no
+chain and no rotation applied — the file itself says Y.
+
+That eliminates the transposition theory. There is no disagreement between the two readers that
+skinning depends on, and `mstudiobone_t`'s offsets were checked against `studio.h` field by field.
+
+The hull disagrees, and it is the least trustworthy of the three: its offsets were derived here by
+counting fields rather than verified against a known value, and its ranges are a PERMUTATION of the
+vertex ranges (`-10.1..14.7` and `84.5` both appear in both), which is what a four-byte slip would
+produce. Treat the hull line as unproven until an offset in it is confirmed the way `illumposition`
+at 92 and `numbones` at 156 already were.
+
+**So the open question is now well posed:** the model data is self-consistent and Y-up, this project
+draws it faithfully, and the result is a player lying down in the world — which is exactly the
+owner's report that "the player models feet are always facing up". Static props are unaffected and
+draw upright, so whatever supplies the standing orientation is specific to animated player models
+rather than to the loader.
+
+Candidates, none measured yet:
+
+- A `$upaxis Y` compile, with something in the engine's load path applying the correction.
+- The stand-up rotation living in an animation this project is not applying — the posed z span is
+  23 where standing needs 83, so nothing currently supplies it.
+- A root transform the engine composes that this project does not (`Studio_BuildMatrices` takes
+  `angles`/`origin` and builds a `rotationmatrix` the root bone is concatenated with; this project
+  applies its instance matrix in the shader instead, and if the two are not equivalent for a
+  Y-up model that is where it would show).
+
+The third is the one to measure first: it is the only place where this project's arrangement
+deliberately differs from the engine's.
