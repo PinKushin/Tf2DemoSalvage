@@ -88,6 +88,32 @@ public static class StudioAnimation
             : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationCountOffset..]));
     }
 
+    /// <summary>How many frames one animation has.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <returns>The frame count, or zero when the animation does not exist.</returns>
+    /// <remarks>
+    /// **Needed to turn a cycle into a frame**, since a cycle is a fraction of the whole sequence
+    /// and means nothing without knowing how long that is. One frame means the model does not
+    /// animate at all, which is worth being able to state rather than infer from a still picture.
+    /// </remarks>
+    public static int Frames(ReadOnlyMemory<byte> file, int animation)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file))
+        {
+            return 0;
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationIndexOffset..]) +
+            (animation * AnimationDescriptionStride);
+
+        return at < 0 || at + AnimationDescriptionStride > bytes.Length
+            ? 0
+            : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + FrameCountOffset)..]));
+    }
+
     /// <summary>Reads one animation's bone poses at one frame.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="bones">The skeleton, for rest values and compression scales.</param>
