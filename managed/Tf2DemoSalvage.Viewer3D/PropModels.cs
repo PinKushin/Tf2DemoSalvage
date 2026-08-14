@@ -374,6 +374,27 @@ internal static class PropModels
             IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(vertexFile);
             IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
+            // **The skeleton, which decides whether the model stands up.** A model compiled with
+            // $staticprop has its bone transform baked into the vertices and names no bone
+            // weights, so skinning it is an identity and costs a multiply. An animated model does
+            // not, and drawing its vertices raw lays it on its side - measured as a player 84
+            // units long on Y with only 25 on Z, where a TF2 player is 83 units TALL.
+            StudioSkeleton skeleton = StudioBones.RestPose(StudioBones.Read(modelFile));
+
+            // **Logged for every model, because a skinning step that quietly does nothing is
+            // indistinguishable from one that is not needed.** A static prop legitimately reports
+            // no weights; an animated model reporting none means the weights were not read.
+            if (vertices.Count > 0)
+            {
+                StudioVertex sample = vertices[vertices.Count / 2];
+
+                ViewerLog.Write(
+                    "props",
+                    $"skeleton {path}: {skeleton.Count} bones, sample vertex bones " +
+                    $"({sample.Bones.First},{sample.Bones.Second},{sample.Bones.Third}) weights " +
+                    $"({sample.Weights.First:0.###},{sample.Weights.Second:0.###},{sample.Weights.Third:0.###})");
+            }
+
             List<PropVertex> corners = [];
             List<int> cornerMeshes = [];
             List<int> cornerVertices = [];
@@ -397,8 +418,11 @@ internal static class PropModels
                     // **The normal comes along now.** A static prop is lit by baked vertex
                     // colours and never needed it; an entity is lit from its leaf's ambient cube,
                     // which is evaluated against the surface normal.
+                    (float x, float y, float z) = skeleton.Skin(
+                        vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
+
                     corners.Add(new PropVertex(
-                        vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, material,
+                        x, y, z, vertex.U, vertex.V, material,
                         NormalX: vertex.NormalX,
                         NormalY: vertex.NormalY,
                         NormalZ: vertex.NormalZ));

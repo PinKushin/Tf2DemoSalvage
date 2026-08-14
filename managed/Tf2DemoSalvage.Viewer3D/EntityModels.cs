@@ -119,6 +119,39 @@ internal sealed class EntityModelSet
                 batches.Add(new WorldBatch(group.Key, _vertices.Count, group.Value.Count));
                 _vertices.AddRange(group.Value);
             }
+
+            // **A model's own bounding box, logged for every model.** Whether a model stands up is
+            // not answerable from an overhead camera - a squat prop looks the same lying down, so
+            // the whole prop set can be tipped and read as correct. A humanoid is the first model
+            // tall enough to show it, which means the picture noticed a defect the props had been
+            // hiding since they were added.
+            //
+            // In Source's model space a player is about 83 units tall and far narrower, so an
+            // upright model has Z much the largest extent. If Z is the smallest, the model is on
+            // its side and the fault is in the transform rather than in any missing animation.
+            float minimumX = float.MaxValue, minimumY = float.MaxValue, minimumZ = float.MaxValue;
+            float maximumX = float.MinValue, maximumY = float.MinValue, maximumZ = float.MinValue;
+
+            foreach (PropVertex corner in corners)
+            {
+                minimumX = MathF.Min(minimumX, corner.X);
+                minimumY = MathF.Min(minimumY, corner.Y);
+                minimumZ = MathF.Min(minimumZ, corner.Z);
+                maximumX = MathF.Max(maximumX, corner.X);
+                maximumY = MathF.Max(maximumY, corner.Y);
+                maximumZ = MathF.Max(maximumZ, corner.Z);
+            }
+
+            float spanX = maximumX - minimumX;
+            float spanY = maximumY - minimumY;
+            float spanZ = maximumZ - minimumZ;
+
+            ViewerLog.Write(
+                "props",
+                $"extents {prop.ModelPath}: " +
+                $"x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
+                $"(z from {minimumZ:0.#} to {maximumZ:0.#}), " +
+                $"tallest axis {Tallest(spanX, spanY, spanZ)}");
         }
 
         return added;
@@ -170,5 +203,20 @@ internal sealed class EntityModelSet
                 light,
                 sunAt?.Invoke(pose.X, pose.Y, pose.Z)));
         }
+    }
+
+    /// <summary>Which axis a model is longest along, named for the log.</summary>
+    /// <remarks>
+    /// "z, upright" is the expected answer for anything that stands up. Anything else on a
+    /// humanoid means the model is on its side.
+    /// </remarks>
+    private static string Tallest(float spanX, float spanY, float spanZ)
+    {
+        if (spanZ >= spanX && spanZ >= spanY)
+        {
+            return "z, upright";
+        }
+
+        return spanX >= spanY ? "x, ON ITS SIDE" : "y, ON ITS SIDE";
     }
 }
