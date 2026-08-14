@@ -145,9 +145,18 @@ recording stopped, not that the file is damaged.
 **Evidence class: measured**, on 370 competitive demos from an ESEA archive.
 
 **Provenance, recovered 2026-08-13 and recorded because it had already been lost once.** The
-archive is **`http://demos.igmdb.org/`**, which carries per-season directories for ESEA **seasons
-29-32**; that is where cp_process came from as well. Two things about it are worth writing down
-rather than rediscovering:
+archive is **`http://demos.igmdb.org/`**, and calling it "an ESEA archive" undersells it twice
+over. It carries per-season directories across **several leagues and regions** - ETF2L (Europe),
+RGL (North America) and ozfortress (Australia) among them, alongside the ESEA seasons **29-32**
+this project's 370 demos came from. cp_process came from it too. It is run by IGMDb, which began
+as a fragmovie and demo-render site rather than as a league, which is why it outlived the leagues'
+own hosting - and why ESEA's expiry-date problem does not apply to it.
+
+That breadth matters here specifically: the era axis is short of protocols **12-13** and
+**17-23**, and a multi-league archive spans dates and regions that one league's seasons cannot.
+Worth walking before assuming a gap needs a period client and a manufactured recording.
+
+Three things about it are worth writing down rather than rediscovering:
 
 - **It is HTTP only in practice.** The host serves a certificate valid for `igmdb.org` and
   `www.igmdb.org` and *not* for `demos.igmdb.org`, so any client that upgrades to HTTPS fails with
