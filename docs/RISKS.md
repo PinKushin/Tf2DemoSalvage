@@ -3105,3 +3105,40 @@ and goes wrong wherever anything new is introduced:
 (B53), self-illumination, a first-person camera's exposure — has to be reconciled against whatever
 space the pipeline is in. Doing it in the engine's space means Valve's own numbers can be used
 directly, which is the whole reason this project reads the SDK.
+
+## B55 — `$envmap` is not implemented, and 43 of 189 map materials ask for it — OPEN
+
+**Measured, not estimated.** On cp_process_f12, **43 of 189 materials declare `$envmap`** — 23% of
+the map's surfaces, including every pane of glass, the polished floor tiles at both second points,
+and the metalwork around them. The viewer implements none of it: a material's cubemap reflection
+contributes nothing, so those surfaces render with their base texture and lightmap alone.
+
+The owner identified this from the game's own behaviour before any of it was measured here:
+control points are "very reflective and shiny", and running TF2 on DirectX 8.1 takes the shine off
+control points and übercharges. That is exactly the shader-model fallback — dx8's `LightmappedGeneric`
+drops the envmap pass — so the shine is envmap-sourced by construction, not inference.
+
+**What this does NOT explain**, and the record is kept because the wrong conclusion was reached
+twice on the way:
+
+- The black disc at every control point is **not** this. It survived every check: no material
+  failed to load (the log names only two absent tool materials and four vertex-lighting checksum
+  mismatches), the category view draws that area as ordinary brush, `overlays/stain016` is the
+  wrong size for it by three times, and widening the surface query to 160 units horizontally and
+  1024 units down finds **no upward-facing world face at mid's centre at all**. Still open.
+- A first pass reasoned "dx8.1 removes the shine and the map looks fine there, so the base texture
+  is not black, so the envmap is not the cause". The owner corrected it: dx8.1 removing the *shine*
+  is not a statement that the result looks correct. The inference was about a claim never made.
+
+**Why it is worth doing properly rather than faking a specular term.** A cubemap in a Source map is
+real baked data — `LUMP_CUBEMAPS` names the sample positions and the compiled `.vtf` faces are in
+the map's own pakfile, which this project already reads for everything else. Approximating it with
+a constant highlight would put a plausible shine in the wrong places, which is the failure mode this
+project keeps finding: a result that looks like art direction rather than like a bug.
+
+**A logging gap this exposed, and it is the more general finding.** Every material resolved, so the
+log was silent while a control point drew as a black disc. The viewer logs what fails to *load* and
+nothing about what a surface resolved *to* — which shader path it took, whether it declared an
+effect that is unimplemented. A map is 189 materials; a one-line summary of the unimplemented
+parameters they ask for would have named this in the first minute instead of after an hour of
+probes. Same shape as `measure-the-output-not-the-capability`.

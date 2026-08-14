@@ -145,10 +145,10 @@ public sealed class ControlPointMaterialProbe
                 float centreY = surface.Vertices.Average(vertex => vertex.Y);
                 float centreZ = surface.Vertices.Average(vertex => vertex.Z);
 
-                if (MathF.Abs(centreX - at[0]) > 256f ||
-                    MathF.Abs(centreY - at[1]) > 256f ||
+                if (MathF.Abs(centreX - at[0]) > 160f ||
+                    MathF.Abs(centreY - at[1]) > 160f ||
                     centreZ > at[2] + 32f ||
-                    centreZ < at[2] - 192f)
+                    centreZ < at[2] - 1024f)
                 {
                     continue;
                 }
@@ -210,10 +210,32 @@ public sealed class ControlPointMaterialProbe
             {
                 VtfTexture decoded = VtfTexture.Decode(vtf, 4096);
 
+                // The alpha channel decides whether a stain tints what is under it or paints over
+                // it. A decal decoded with alpha 255 everywhere is opaque however the blend state
+                // is set, which is what a black disc over a control point looks like.
+                long alpha = 0;
+                long opaque = 0;
+                long red = 0;
+
+                for (int at = 0; at + 3 < decoded.Pixels.Length; at += 4)
+                {
+                    red += decoded.Pixels[at];
+                    alpha += decoded.Pixels[at + 3];
+
+                    if (decoded.Pixels[at + 3] == 255)
+                    {
+                        opaque++;
+                    }
+                }
+
+                long pixels = decoded.Pixels.Length / 4;
+
                 TestContext.Out.WriteLine(
                     $"CPOV    texture {decoded.Width}x{decoded.Height} " +
                     $"(aspect {(float)decoded.Width / decoded.Height:0.###}), " +
-                    $"quad aspect {width / height:0.###}");
+                    $"quad aspect {width / height:0.###}, " +
+                    $"mean red {red / (double)pixels:0.#}, mean alpha {alpha / (double)pixels:0.#}, " +
+                    $"{opaque * 100.0 / pixels:0.#}% fully opaque");
             }
 
             if (Find("materials/" + name + ".vmt") is { } vmtFile)
