@@ -40,20 +40,76 @@ public sealed class CameraMatrixTests
     }
 
     [Test]
-    public void ToMatrix_LeavesDepthAlone()
+    public void ToMatrix_WithoutAHeightRange_LeavesDepthAlone()
     {
-        // Depth comes from world height and is computed before the camera is involved. A matrix
-        // that scaled it would sort the map by how far the view is zoomed.
+        // A camera that has not been told the map's height range cannot project height, so it
+        // passes the third component through. Callers that have not moved to world Z yet keep
+        // working rather than having their geometry silently flattened.
         TopDownCamera camera = TopDownCamera.Fit([(0f, 0f), (1000f, 1000f)], 800, 600);
         float[] matrix = camera.ToMatrix();
 
         foreach (float depth in new[] { 0f, 0.25f, 1f })
         {
-            float transformed =
-                (0f * matrix[2]) + (0f * matrix[6]) + (depth * matrix[10]) + matrix[14];
-
-            transformed.ShouldBe(depth, 1e-6f);
+            Depth(matrix, depth).ShouldBe(depth, 1e-6f);
         }
+    }
+
+    [Test]
+    public void ToMatrix_WithAHeightRange_ProjectsWorldHeightToDepth()
+    {
+        // **D21: the camera owns the projection, and that includes depth.** Height used to be
+        // flattened into the vertices before the matrix ever ran, which is a top-down projection
+        // baked into the geometry - fine while the overhead view was the only camera, and exactly
+        // what would have to be undone for a free camera.
+        //
+        // The convention is unchanged so that only the place the arithmetic happens moves: the
+        // highest point in the map is nearest at 0, the lowest is furthest at 1.
+        TopDownCamera camera = TopDownCamera
+            .Fit([(0f, 0f), (1000f, 1000f)], 800, 600)
+            .WithHeights(lowest: -200f, highest: 600f);
+
+        float[] matrix = camera.ToMatrix();
+
+        Depth(matrix, 600f).ShouldBe(0f, 1e-5f, "the highest point is nearest");
+        Depth(matrix, -200f).ShouldBe(1f, 1e-5f, "the lowest point is furthest");
+        Depth(matrix, 200f).ShouldBe(0.5f, 1e-5f, "halfway up is halfway back");
+    }
+
+    [Test]
+    public void ToMatrix_DepthMatchesTheArithmeticItReplaced()
+    {
+        // The formula that used to run per vertex on the processor, restated as the check on the
+        // matrix that replaced it. A disagreement here sorts the map differently from how it
+        // sorted before, which looks like a z-fighting problem rather than a moved calculation.
+        const float lowest = -128f;
+        const float highest = 1024f;
+
+        float[] matrix = TopDownCamera
+            .Fit([(0f, 0f), (1000f, 1000f)], 800, 600)
+            .WithHeights(lowest, highest)
+            .ToMatrix();
+
+        foreach (float z in new[] { -128f, 0f, 300f, 1024f })
+        {
+            float expected = 1f - Math.Clamp((z - lowest) / (highest - lowest), 0f, 1f);
+
+            Depth(matrix, z).ShouldBe(expected, 1e-5f);
+        }
+    }
+
+    [Test]
+    public void WithHeights_ZoomingAfterwards_DoesNotChangeDepth()
+    {
+        // Depth must not depend on how far the view is zoomed, which was the point the old test
+        // was making and is still true - it is only computed somewhere else now.
+        TopDownCamera camera = TopDownCamera
+            .Fit([(0f, 0f), (1000f, 1000f)], 800, 600)
+            .WithHeights(0f, 1000f);
+
+        float[] before = camera.ToMatrix();
+        float[] after = camera.WithZoom(4f).ToMatrix();
+
+        Depth(after, 250f).ShouldBe(Depth(before, 250f), 1e-6f);
     }
 
     [Test]
@@ -68,6 +124,10 @@ public sealed class CameraMatrixTests
         matrix[11].ShouldBe(0f);
         matrix[15].ShouldBe(1f);
     }
+
+    /// <summary>The depth the shader would compute for a world height.</summary>
+    private static float Depth(float[] matrix, float z) =>
+        (0f * matrix[2]) + (0f * matrix[6]) + (z * matrix[10]) + matrix[14];
 
     /// <summary>Row-vector multiply, exactly as the vertex shader does it.</summary>
     private static (float X, float Y) Transform(float[] matrix, float x, float y) =>

@@ -164,6 +164,48 @@ internal sealed unsafe class Device3D : IDisposable
     public void ClearAndPresent(float red, float green, float blue) =>
         DrawAndPresent(red, green, blue, []);
 
+    /// <summary>Sizes the decal depth bias for the map's height range.</summary>
+    /// <param name="worldRange">Highest world height minus lowest, in units.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    public void SetDecalBias(float worldRange)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.SetDecalBias(_device, worldRange);
+    }
+
+    /// <summary>Uploads every entity model's geometry, in model space.</summary>
+    /// <param name="models">The packed set.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="models"/> is null.</exception>
+    /// <remarks>
+    /// Called when the set grows, which stops happening within a few seconds of playback: a demo
+    /// shows most of its models early and none of them twice.
+    /// </remarks>
+    public void UploadModels(EntityModelSet models)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(models);
+
+        // **Created here rather than skipped, like every other entry point.** This read
+        // "if (_world is null) return;", and MainForm calls it only when a model is packed for the
+        // first time - which happens once per model, ever. Loading a demo from the command line
+        // packs the first models before anything has drawn, so the renderer did not exist yet, the
+        // upload was skipped, and nothing ever asked again: 47 instances drawn per frame out of an
+        // empty buffer, with every count in the log looking correct.
+        _world ??= WorldRenderer.Create(_device);
+
+        Dictionary<string, IReadOnlyList<WorldBatch>> batches =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string path in models.Paths)
+        {
+            batches[path] = models.Batches(path);
+        }
+
+        _world.UploadModels(_device, models.Vertices, batches);
+    }
+
     /// <summary>Writes the next presented frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
     /// <exception cref="ArgumentException"><paramref name="path"/> is null or blank.</exception>
@@ -296,6 +338,7 @@ internal sealed unsafe class Device3D : IDisposable
     /// <param name="mapLines">Map outline in clip space.</param>
     /// <param name="points">Player positions in clip space.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <param name="models">Posed entity models, or null to draw none.</param>
     /// <remarks>
     /// The map goes down first so the players draw over it. There is no depth buffer and none is
     /// wanted: for a flat overhead view the draw order IS the layering, and it is one fewer
@@ -307,7 +350,8 @@ internal sealed unsafe class Device3D : IDisposable
         float blue,
         IReadOnlyList<(float X, float Y, float Shade)> mapFill,
         IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> mapLines,
-        IReadOnlyList<ScenePoint> points)
+        IReadOnlyList<ScenePoint> points,
+        IReadOnlyList<ModelInstance>? models = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -337,6 +381,20 @@ internal sealed unsafe class Device3D : IDisposable
             {
                 _context.OMSetDepthStencilState(_depthOn, 0);
                 _world.Draw(_context);
+
+                // **After the map, and through the depth buffer**, so a model behind a wall is
+                // hidden by it rather than by draw order. The map's own identity matrix is set at
+                // the top of Draw each frame, which is what stops these leaving their transform
+                // behind for the world.
+                foreach (ModelInstance instance in models ?? [])
+                {
+                    _world.DrawModel(
+                        _context,
+                        instance.Matrix,
+                        _world.ModelBatches(instance.ModelPath),
+                        instance.Light,
+                        instance.Sun);
+                }
             }
             else
             {
@@ -588,9 +646,18 @@ internal sealed unsafe class Device3D : IDisposable
     {
         SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0u, out ComPtr<ID3D11Texture2D> buffer));
 
+        // **An sRGB view over a UNORM buffer, which is how the hardware applies gamma on write.**
+        // Colour arithmetic belongs in linear space - the engine multiplies linear lightmaps by
+        // linear albedo and lets the target encode the result once (B54). A flip-model swap chain
+        // may not itself be sRGB, so the conversion is asked for here, on the view.
+        RenderTargetViewDesc description = new()
+        {
+            Format = Silk.NET.DXGI.Format.FormatB8G8R8A8UnormSrgb,
+            ViewDimension = RtvDimension.Texture2D,
+        };
+
         ComPtr<ID3D11RenderTargetView> view = default;
-        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(
-            buffer, (RenderTargetViewDesc*)null, ref view));
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(buffer, in description, ref view));
 
         buffer.Dispose();
         _backBufferView = view;

@@ -66,7 +66,10 @@ internal static class MapWorldBuilder
         ArgumentNullException.ThrowIfNull(atlas);
         ArgumentNullException.ThrowIfNull(props);
 
-        (float lowest, float highest) = HeightRange(surfaces, area);
+        // The height range is no longer needed here: the vertices carry world Z and the camera
+        // projects it (D21). MainForm reads the same range through HeightRange to build the
+        // matrix, so the arithmetic still happens exactly once - somewhere a free camera can also
+        // reach it.
 
         // **Counted and logged, because a picture is a poor way to notice a category is empty.**
         // Every defect chased this session showed up in these numbers before it showed up on
@@ -138,7 +141,7 @@ internal static class MapWorldBuilder
                         ? CategoryColour(SurfaceCategory.Terrain)
                         : (1f, 1f, 1f);
 
-                    Append(vertices, corner, rectangle, lightStep, lowest, highest, red, green, blue);
+                    Append(vertices, corner, rectangle, lightStep, red, green, blue);
                 }
 
                 if (subdivided.Count > 0)
@@ -158,13 +161,13 @@ internal static class MapWorldBuilder
 
             for (int index = 1; index + 1 < corners.Count; index++)
             {
-                Append(vertices, corners[0], rectangle, lightStep, lowest, highest, brushRed, brushGreen, brushBlue);
-                Append(vertices, corners[index], rectangle, lightStep, lowest, highest, brushRed, brushGreen, brushBlue);
-                Append(vertices, corners[index + 1], rectangle, lightStep, lowest, highest, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[0], rectangle, lightStep, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[index], rectangle, lightStep, brushRed, brushGreen, brushBlue);
+                Append(vertices, corners[index + 1], rectangle, lightStep, brushRed, brushGreen, brushBlue);
             }
         }
 
-        AppendProps(props, byMaterial, area, lowest, highest, categoryColours);
+        AppendProps(props, byMaterial, area, categoryColours);
 
         ViewerLog.Write(
             "render",
@@ -186,7 +189,7 @@ internal static class MapWorldBuilder
         }
 
         List<WorldBatch> decals = AppendDecals(
-            all, overlays, surfaces, atlas, area, lowest, highest);
+            all, overlays, materials, surfaces, atlas, area);
 
         return new MapWorld(all, batches, decals);
     }
@@ -210,11 +213,10 @@ internal static class MapWorldBuilder
     private static List<WorldBatch> AppendDecals(
         List<WorldVertex> all,
         IReadOnlyList<BspOverlay>? overlays,
+        IReadOnlyList<BspMaterial> materials,
         IReadOnlyList<BspSurface> surfaces,
         LightmapAtlas atlas,
-        MapBounds? area,
-        float lowest,
-        float highest)
+        MapBounds? area)
     {
         List<WorldBatch> decals = [];
 
@@ -277,14 +279,28 @@ internal static class MapWorldBuilder
                 ? atlas.Rectangles[on.FaceIndex]
                 : default;
 
-            // The overlay's own texture coordinates: its quad spans StartU..EndU across and
-            // StartV..EndV down, corner by corner in the order vbsp wrote them.
+            // **The corner order is measured, not assumed, because the SDK cannot answer it.**
+            // vbsp copies uv0-uv3 through from the VMF untouched (utils/vbsp/overlay.cpp) and
+            // nothing in the released source reads them back: the overlay renderer is engine-side.
+            //
+            // The map answers it instead, because a decal's texture and its quad are the same
+            // shape. On cp_process_f12, measuring each quad along BasisU against BasisV:
+            //
+            //   signs/capture_zone       512x128 (4.000)   quad 128x32   (4.000)
+            //   signs/sign069            256x512 (0.500)   quad  36x70   (0.511)
+            //   signs/factory_label02    256x256 (1.000)   quad  43x43   (1.007)
+            //   overlays/floor_stain003  512x512 (1.000)   quad 128x128  (1.000)
+            //
+            // So U runs along the corners' first component and V along their second, and the
+            // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
+            // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
+            // ninety degrees out and squeezed into a narrow column.
             (float U, float V)[] texture =
             [
                 (overlay.U.Start, overlay.V.Start),
-                (overlay.U.End, overlay.V.Start),
-                (overlay.U.End, overlay.V.End),
                 (overlay.U.Start, overlay.V.End),
+                (overlay.U.End, overlay.V.End),
+                (overlay.U.End, overlay.V.Start),
             ];
 
             List<WorldVertex> corners = [];
@@ -297,7 +313,10 @@ internal static class MapWorldBuilder
                 corners.Add(new WorldVertex(
                     x,
                     y,
-                    1f - Math.Clamp((z - lowest) / (highest - lowest), 0f, 1f),
+
+                    // **World height, not a depth.** D21: the camera projects it, so the same
+                    // geometry serves an overhead view, a free camera and a first-person one.
+                    z,
                     texture[index].U,
                     texture[index].V,
                     rectangle.U + (Math.Clamp(lightU, 0f, 1f) * rectangle.Width),
@@ -332,6 +351,18 @@ internal static class MapWorldBuilder
             "map",
             $"{placed} decals placed across {decals.Count} materials, {unlit} lying flat on nothing");
 
+        // **Named with their transparency, because a decal drawn opaque is a square of paint.**
+        // An overlay blends onto the surface it marks; if its material is not carrying alpha, the
+        // blend has nothing to work with and the quad's whole extent is painted.
+        foreach (int material in decals.Select(batch => batch.MaterialIndex))
+        {
+            string name = material >= 0 && material < materials.Count
+                ? materials[material].Name
+                : "none";
+
+            ViewerLog.Write("map", $"  decal material {material} {name}");
+        }
+
         return decals;
     }
 
@@ -357,8 +388,6 @@ internal static class MapWorldBuilder
         IReadOnlyList<PropVertex> props,
         Dictionary<int, List<WorldVertex>> byMaterial,
         MapBounds? area,
-        float lowest,
-        float highest,
         bool categoryColours)
     {
         for (int corner = 0; corner + 2 < props.Count; corner += 3)
@@ -410,8 +439,6 @@ internal static class MapWorldBuilder
                     // A prop takes its light from its own baked vertex colours, not from a
                     // lightmap, so it never steps along the atlas.
                     0f,
-                    lowest,
-                    highest,
                     red,
                     green,
                     blue);
@@ -459,7 +486,7 @@ internal static class MapWorldBuilder
     /// That wastes seven eighths of the depth buffer's precision on empty space, and it made the
     /// height cut useless: the slice spent most of its travel above anything that exists.
     /// </remarks>
-    private static (float Lowest, float Highest) HeightRange(
+    internal static (float Lowest, float Highest) HeightRange(
         IReadOnlyList<BspSurface> surfaces, MapBounds? area)
     {
         float lowest = float.PositiveInfinity;
@@ -487,8 +514,6 @@ internal static class MapWorldBuilder
         SurfaceVertex corner,
         AtlasRect rectangle,
         float lightStep,
-        float lowest,
-        float highest,
         float red = 1f,
         float green = 1f,
         float blue = 1f)
@@ -500,11 +525,12 @@ internal static class MapWorldBuilder
         //
         (float x, float y) = (corner.X, corner.Y);
 
-        // **Height becomes depth, inverted.** Looking straight down, a higher surface is NEARER,
-        // and D3D treats smaller depth as nearer - so the tallest geometry maps to zero. Without
-        // this the draw order decides what covers what, and batching by material makes that order
-        // arbitrary: ground-level terrain painted over the buildings standing on it.
-        float depth = 1f - Math.Clamp((corner.Z - lowest) / (highest - lowest), 0f, 1f);
+        // **World height, passed through.** It used to be flattened into a depth here - looking
+        // straight down, a higher surface is nearer, and D3D treats smaller depth as nearer, so
+        // the tallest geometry mapped to zero. That arithmetic still happens and still means the
+        // same thing; it is in TopDownCamera.WithHeights now, because a projection belongs to the
+        // camera and geometry flattened for one camera cannot serve another (D21).
+        float depth = corner.Z;
 
         // Clamped before remapping: a corner can sit a fraction outside its own lightmap, and in a
         // shared atlas that fraction is another face's light rather than empty space.

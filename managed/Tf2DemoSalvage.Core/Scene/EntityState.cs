@@ -32,6 +32,25 @@ public sealed class EntityState
 
     private const string OriginProperty = "m_vecOrigin";
     private const string OriginZProperty = "m_vecOrigin[2]";
+
+    /// <summary>Everything that can be drawn at all carries these two.</summary>
+    private const string ModelIndexProperty = "m_nModelIndex";
+
+    private const string AnglesProperty = "m_angRotation";
+
+    private const string EffectsProperty = "m_fEffects";
+
+    /// <summary><c>EF_NODRAW</c> from <c>src/public/const.h</c>: "don't draw entity".</summary>
+    private const int NoDraw = 0x020;
+
+    /// <summary>Only things that animate carry the four below.</summary>
+    private const string AnimatingTable = "DT_BaseAnimating";
+
+    private const string SequenceProperty = "m_nSequence";
+    private const string CycleProperty = "m_flCycle";
+    private const string PlaybackRateProperty = "m_flPlaybackRate";
+    private const string ModelScaleProperty = "m_flModelScale";
+
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
 
@@ -91,6 +110,78 @@ public sealed class EntityState
         value.Kind == PropertyValueKind.Float
             ? value.AsFloat
             : null;
+
+    /// <summary>Whether the entity should be drawn at all right now.</summary>
+    /// <remarks>
+    /// **A taken health pack is hidden, not destroyed, because it respawns.**
+    /// <c>CTFPowerup::SetDisabled</c> calls <c>AddEffects(EF_NODRAW)</c>, and the entity carries on
+    /// existing and updating in place. A viewer that ignores the flag leaves a marker on the floor
+    /// at every pickup anyone took for the rest of the match.
+    ///
+    /// <c>EF_NODRAW</c> is <c>0x020</c> in <c>const.h</c>, and it is one bit of a field carrying a
+    /// dozen unrelated flags — bone merging, dim light, no shadow. Testing the field for non-zero
+    /// would hide entities for reasons that have nothing to do with visibility.
+    ///
+    /// The visible set matters too: <see cref="IsVisible"/> is false while an entity has left the
+    /// PVS, which is a different thing from being deleted and a different thing again from being
+    /// told not to draw.
+    /// </remarks>
+    public bool IsDrawn =>
+        IsVisible && ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & NoDraw) == 0;
+
+    /// <summary>Which model the entity is, as an index into <c>modelprecache</c>.</summary>
+    /// <returns>The index, or <c>null</c> when the entity never sent one.</returns>
+    /// <remarks>
+    /// **The number is not the model; the string table is.** Valve's client reads exactly this
+    /// property and asks <c>modelinfo</c> for the path — <c>c_baseentity.cpp:449</c>. See
+    /// <see cref="ModelPrecache"/>, which also carries the unpacking early protocols need.
+    ///
+    /// Null rather than zero, because zero is a real index that means "no model". An entity that
+    /// never sent the property is a different thing from one that sent zero, and collapsing them
+    /// hides a decode that missed a property behind a value that looks deliberate.
+    /// </remarks>
+    public int? ModelIndex() => Integer($"{BaseEntityTable}.{ModelIndexProperty}");
+
+    /// <summary>Which way the entity faces.</summary>
+    /// <returns>Pitch, yaw and roll in degrees, or <c>null</c> when never sent.</returns>
+    /// <remarks>
+    /// **A QAngle is (pitch, yaw, roll)**, which is Valve's order and not the (x, y, z) the three
+    /// components look like. Reading it positionally turns every prop in the map to face the wrong
+    /// way — a picture that cannot be checked without already knowing the map.
+    /// </remarks>
+    public (float Pitch, float Yaw, float Roll)? Angles() =>
+        _properties.TryGetValue($"{BaseEntityTable}.{AnglesProperty}", out PropertyValue angles) &&
+        angles.Kind == PropertyValueKind.Vector
+            ? angles.AsVector
+            : null;
+
+    /// <summary>Which animation the entity is playing.</summary>
+    /// <returns>The sequence number, or <c>null</c> when the entity does not animate.</returns>
+    /// <remarks>
+    /// <c>c_baseanimating.cpp:173</c>. On <c>DT_BaseAnimating</c> rather than
+    /// <c>DT_BaseEntity</c>, so only things that animate carry it — and null matters here, because
+    /// sequence zero is a real animation, usually the idle one.
+    /// </remarks>
+    public int? AnimationSequence() => Integer($"{AnimatingTable}.{SequenceProperty}");
+
+    /// <summary>How far through its animation the entity is, from 0 to 1.</summary>
+    /// <returns>The cycle, or <c>null</c> when the entity does not animate.</returns>
+    /// <remarks><c>c_baseanimating.cpp:152</c>.</remarks>
+    public float? Cycle() => Number($"{AnimatingTable}.{CycleProperty}");
+
+    /// <summary>How fast the animation runs, where 1 is its authored speed.</summary>
+    /// <returns>The rate, or <c>null</c> when never sent.</returns>
+    /// <remarks><c>c_baseanimating.cpp:186</c>.</remarks>
+    public float? PlaybackRate() => Number($"{AnimatingTable}.{PlaybackRateProperty}");
+
+    /// <summary>How much larger or smaller than authored the model is drawn.</summary>
+    /// <returns>The scale, or <c>null</c> when never sent.</returns>
+    /// <remarks>
+    /// **Null rather than 1, and the caller supplies the default.** Answering zero for an absent
+    /// property would draw the model at no size at all, which reads as a renderer that dropped it
+    /// rather than as a property that never arrived.
+    /// </remarks>
+    public float? ModelScale() => Number($"{AnimatingTable}.{ModelScaleProperty}");
 
     /// <summary>The entity's world position, if it has sent one.</summary>
     /// <returns>The position, or <c>null</c> when no origin has arrived.</returns>

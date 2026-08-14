@@ -139,6 +139,72 @@ public sealed class PropTransformTests
         MathF.Sqrt((x * x) + (y * y) + (z * z)).ShouldBe(13f, 1e-3f);
     }
 
+    [Test]
+    public void APlacedPropAndAPosedEntity_TransformIdentically()
+    {
+        // **One transform for both, because the engine has one.** A static prop from the map file
+        // and a networked entity both reduce to an origin, a QAngle and a scale, and AngleMatrix
+        // does not care which produced them. The map constructor delegates to the general one, so
+        // this is the check that the delegation is faithful rather than a second implementation
+        // that agrees today.
+        //
+        // A yaw-and-pitch case rather than a single axis: with one angle set, almost any wrong
+        // axis order still agrees.
+        PropTransform fromMap = new(Prop(x: 64f, y: -32f, z: 8f, pitch: 20f, yaw: 135f, scale: 2f));
+        PropTransform fromPose = new(64f, -32f, 8f, pitch: 20f, yaw: 135f, roll: 0f, scale: 2f);
+
+        (float mapX, float mapY, float mapZ) = fromMap.Apply(10f, 3f, -5f);
+        (float poseX, float poseY, float poseZ) = fromPose.Apply(10f, 3f, -5f);
+
+        poseX.ShouldBe(mapX, 1e-4f);
+        poseY.ShouldBe(mapY, 1e-4f);
+        poseZ.ShouldBe(mapZ, 1e-4f);
+    }
+
+    [Test]
+    public void ToMatrix_PlacesAVertexWhereApplyDoes()
+    {
+        // **The GPU and the processor must agree**, because the same model can be posed either
+        // way: a static prop is baked into the map's buffer on the processor, while an entity is
+        // posed by a matrix in the shader. A disagreement puts a model slightly wrong and reads as
+        // a bad animation rather than as a wrong formula.
+        //
+        // Rotation on all three axes, a non-unit scale and an off-origin position, because almost
+        // any transposition or axis swap survives a simpler case.
+        PropTransform transform = new(
+            Prop(x: 120f, y: -48f, z: 16f, pitch: 25f, yaw: -110f, roll: 40f, scale: 1.5f));
+
+        float[] matrix = transform.ToMatrix();
+
+        foreach ((float x, float y, float z) in
+            new[] { (1f, 0f, 0f), (0f, 1f, 0f), (0f, 0f, 1f), (7f, -3f, 12f) })
+        {
+            (float wantX, float wantY, float wantZ) = transform.Apply(x, y, z);
+
+            // Row-vector multiply, exactly as the vertex shader does it.
+            float gotX = (x * matrix[0]) + (y * matrix[4]) + (z * matrix[8]) + matrix[12];
+            float gotY = (x * matrix[1]) + (y * matrix[5]) + (z * matrix[9]) + matrix[13];
+            float gotZ = (x * matrix[2]) + (y * matrix[6]) + (z * matrix[10]) + matrix[14];
+
+            gotX.ShouldBe(wantX, 1e-3f);
+            gotY.ShouldBe(wantY, 1e-3f);
+            gotZ.ShouldBe(wantZ, 1e-3f);
+        }
+    }
+
+    [Test]
+    public void ToMatrix_KeepsTheHomogeneousDivideAtOne()
+    {
+        // No perspective in a placement. A w other than one would scale the model by an amount
+        // that depends on nothing.
+        float[] matrix = new PropTransform(Prop(yaw: 30f, scale: 2f)).ToMatrix();
+
+        matrix[3].ShouldBe(0f);
+        matrix[7].ShouldBe(0f);
+        matrix[11].ShouldBe(0f);
+        matrix[15].ShouldBe(1f);
+    }
+
     private static BspStaticProp Prop(
         float x = 0f,
         float y = 0f,

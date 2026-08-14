@@ -73,6 +73,15 @@ public sealed class PlaybackClock
     /// </remarks>
     public int Tick => (int)_position;
 
+    /// <summary>The exact position, including the part-tick between two of them.</summary>
+    /// <remarks>
+    /// **What a renderer wants, where <see cref="Tick"/> is what a readout wants.** A frame almost
+    /// never lands on a tick boundary, and interpolation is the difference between a rocket that
+    /// flies and one that steps — so the fraction the clock is already carrying has to be
+    /// reachable rather than truncated on the way out.
+    /// </remarks>
+    public double Position => _position;
+
     /// <summary>Whether playback has reached the end of the demo.</summary>
     public bool AtEnd => _position >= _lastTick;
 

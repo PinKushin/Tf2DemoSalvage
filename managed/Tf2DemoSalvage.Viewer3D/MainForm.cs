@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -127,6 +128,20 @@ internal class MainForm : Form
     /// <summary>The game's content, opened once and reused for every map.</summary>
     private GameArchives? _archives;
 
+    /// <summary>Which model each class wears, read from the game's own class scripts.</summary>
+    /// <remarks>
+    /// **Read from the install, not hardcoded.** Only <c>m_iszCustomModel</c> is networked; a
+    /// player's ordinary model is resolved locally by <c>CTFPlayerClassShared::GetModelName</c>
+    /// from <c>m_iClass</c>, so a viewer has to do the same lookup the client does.
+    /// </remarks>
+    private PlayerClassModels? _classModels;
+
+    /// <summary>Players turned into drawable models, rebuilt each frame.</summary>
+    /// <remarks>
+    /// Kept as a field so the per-frame allocation happens once rather than per tick.
+    /// </remarks>
+    private readonly List<SceneProp> _drawn = [];
+
     /// <summary>The loaded map's surfaces, kept so the world can be rebuilt on resize.</summary>
     private IReadOnlyList<BspSurface> _surfaceList = [];
 
@@ -141,7 +156,32 @@ internal class MainForm : Form
     private IReadOnlyList<BspOverlay>? _overlays;
 
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
+    /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
+    private BspLeafTree? _leaves;
+
+    /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
+    private IReadOnlyList<AmbientSamples> _ambient = [];
+
+    /// <summary>The map's sun, when it has one.</summary>
+    private BspWorldLight? _sun;
+
+    /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
+    private (float Lowest, float Highest)? _heightRange;
+
     private DemoTimeline? _timeline;
+
+    /// <summary>Reused between frames; PlayersAt and PropsAt fill them rather than allocating.</summary>
+    private readonly List<ScenePlayer> _players = [];
+
+    private readonly List<SceneProp> _props = [];
+
+    /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
+    private readonly EntityModelSet _models = new();
+
+    private readonly List<ModelInstance> _instances = [];
+
+    /// <summary>Last reported instance count, so the log records changes rather than frames.</summary>
+    private int _lastInstanceCount = -1;
 
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
@@ -261,6 +301,16 @@ internal class MainForm : Form
     /// </remarks>
     public MainForm(params string[] initialPaths)
     {
+        // **A capture flag, because the alternative was asking a person to press F12.** Several
+        // rendering defects this session were found by the owner photographing their own screen and
+        // describing it, which is slow for them and leaves the loop dependent on someone being at
+        // the machine. "--shot <file>" loads, seeks, draws, writes a PNG and exits; "--tick <n>"
+        // says when.
+        //
+        // Deliberately not a test harness: it drives the real viewer through the real renderer,
+        // which is the whole reason the offscreen target was deleted. See CaptureViewport.
+        initialPaths = ReadCaptureOptions(initialPaths);
+
         Text = "TF2 Demo Salvage";
         Name = "MainWindow";
         AccessibleName = "TF2 Demo Salvage viewer";
@@ -384,7 +434,7 @@ internal class MainForm : Form
         // has one path from "which moment" to "who is where" rather than two that can disagree.
         _transport.TickChanged += (_, tick) =>
         {
-            if (_timeline is not { } timeline)
+            if (_timeline is null)
             {
                 return;
             }
@@ -393,7 +443,7 @@ internal class MainForm : Form
             // part-tick it had accumulated, or the next tick after a drag arrives early.
             _clock?.Seek(tick);
 
-            ShowPlayers(timeline.PlayersAt(tick));
+            ShowMoment(tick);
             _viewport.Invalidate();
         };
 
@@ -815,6 +865,15 @@ internal class MainForm : Form
                     ViewerLog.Write(
                         "assets",
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
+
+                    // **The class scripts, which is where a player's model actually comes from.**
+                    // They are ICE-encrypted KeyValues in the install; nothing in the demo carries
+                    // a player's model path unless the server overrode it.
+                    _classModels = PlayerClassModels.Read(_archives.Read);
+
+                    ViewerLog.Write(
+                        "assets",
+                        $"class models: {string.Join(", ", ClassModelPaths())}");
                 }
 
                 _texturesUploaded = false;
@@ -848,7 +907,25 @@ internal class MainForm : Form
                 using (ViewerLog.Time("assets", "reading surfaces and textures"))
                 {
                     _surfaceList = BspSurfaces.Read(bytes);
-                    _assets = MapAssets.Load(bytes, _archives, (int)_settings.TextureQuality);
+
+                    // **What lights anything that moves.** A model has no lightmap, so it takes
+                    // the ambient cube of the leaf it stands in - which needs the tree to find the
+                    // leaf and the samples to light it. Read with the map, since both come from
+                    // the same file and neither changes afterwards.
+                    _leaves = BspLeafTree.Read(bytes);
+                    _ambient = BspAmbientLight.Read(bytes);
+
+                    // The direct term. The ambient cube is the shade; this is what makes daylight
+                    // bright, and it is the reason a pack outdoors looked like one indoors.
+                    _sun = BspWorldLights.Sun(BspWorldLights.Read(bytes));
+
+                    // **Every model the demo will ever show, loaded with the map.** The timeline
+                    // is already built, so the whole set is known before anything is drawn - and
+                    // loading them here means their materials join the map's table and the
+                    // textures upload once. Loading during playback would grow that table and
+                    // force a re-upload mid-match.
+                    _assets = MapAssets.Load(
+                        bytes, _archives, (int)_settings.TextureQuality, DemoModelPaths());
                 }
 
                 int displacements = 0;
@@ -1020,6 +1097,17 @@ internal class MainForm : Form
 
                 using (ViewerLog.Time("render", "building the world"))
                 {
+                    // Recorded before the build so MapCamera can project height on the very first
+                    // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
+                    _heightRange = MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds);
+
+                    // The decal bias is a fraction of the depth buffer, and the depth buffer spans
+                    // this range - so the same bias is worth a different distance on every map.
+                    if (_heightRange is { } range && range.Highest > range.Lowest)
+                    {
+                        _device.SetDecalBias(range.Highest - range.Lowest);
+                    }
+
                     built = MapWorldBuilder.Build(
                         _terrain,
                         _surfaceList,
@@ -1058,6 +1146,290 @@ internal class MainForm : Form
     /// world geometry placed far outside the playable space, and fitting to that pushed
     /// cp_process_final into a third of the viewport with an empty expanse beside it.
     /// </remarks>
+    /// <summary>The ambient light at a world position.</summary>
+    /// <remarks>
+    /// **The leaf decides, which is how the engine does it.** A model takes the light measured
+    /// inside the leaf it stands in, so two crates either side of a doorway are lit differently
+    /// without either carrying a lightmap.
+    ///
+    /// An unlit answer is returned as a default cube, which the shader reads as "no cube supplied"
+    /// and draws at full brightness rather than black - a model lit by a measurement nobody made
+    /// is worse than one that is merely too bright.
+    /// </remarks>
+    private AmbientCube LightAt(float x, float y, float z)
+    {
+        if (_leaves is not { } tree || _ambient.Count == 0)
+        {
+            return default;
+        }
+
+        int leaf = tree.LeafAt(x, y, z);
+
+        return leaf >= 0 && leaf < _ambient.Count
+            ? _ambient[leaf].Nearest(x, y, z)
+            : default;
+    }
+
+    /// <summary>The sun reaching a world position, or null when it does not.</summary>
+    /// <remarks>
+    /// **The trace is the feature, not an optimisation.** Valve describes a sky light as a
+    /// "directional light with no falloff (surface must trace to SKY texture)" — applied without
+    /// that condition it lights the inside of every building, which is worse than the shade this
+    /// is meant to fix.
+    ///
+    /// Traced towards the sun, which is against the direction its light travels.
+    /// </remarks>
+    private SunLight? SunAt(float x, float y, float z)
+    {
+        if (_sun is not { } sun || _leaves is not { } tree)
+        {
+            return null;
+        }
+
+        if (!tree.SeesSky(x, y, z, -sun.Normal.X, -sun.Normal.Y, -sun.Normal.Z))
+        {
+            return null;
+        }
+
+        return new SunLight(
+            sun.Intensity.Red,
+            sun.Intensity.Green,
+            sun.Intensity.Blue,
+            sun.Normal.X,
+            sun.Normal.Y,
+            sun.Normal.Z);
+    }
+
+    /// <summary>One model's triangles, from the set preloaded with the map.</summary>
+    /// <remarks>
+    /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
+    /// remembers rather than asking again every frame. The miss was already reported once, at
+    /// load, where a missing asset is worth reading.
+    /// </remarks>
+    private IReadOnlyList<PropVertex>? ModelGeometry(string path) =>
+        _assets is { } assets && assets.EntityModels.TryGetValue(path, out IReadOnlyList<PropVertex>? corners)
+            ? corners
+            : null;
+
+    /// <summary>The model every playable class wears.</summary>
+    /// <remarks>
+    /// **Read from the install rather than listed here.** <c>CTFPlayerClassShared::GetModelName</c>
+    /// returns <c>m_iszCustomModel</c> when a server has overridden it and otherwise
+    /// <c>GetPlayerClassData( m_iClass )-&gt;GetModelName()</c>, which is the class script - so the
+    /// class number is the only thing a demo needs to carry, and it does.
+    ///
+    /// The custom model is networked and is NOT honoured yet: nothing decodes
+    /// <c>m_iszCustomModel</c>, so a server that replaced a player's model draws the stock one.
+    /// Rare outside events and plugins, and stated rather than hidden.
+    /// </remarks>
+    private IEnumerable<string> ClassModelPaths()
+    {
+        if (_classModels is not { } models)
+        {
+            yield break;
+        }
+
+        for (int playerClass = PlayerClassModels.FirstClass;
+            playerClass <= PlayerClassModels.LastPlayingClass;
+            playerClass++)
+        {
+            if (models.Model(playerClass) is { } model)
+            {
+                yield return model;
+            }
+        }
+    }
+
+    /// <summary>The model a player is drawn as, or null when they are not drawn as one.</summary>
+    /// <param name="player">The player.</param>
+    /// <remarks>
+    /// **One predicate, used by both the model pass and the dot pass.** A player drawn as a model
+    /// must not also get a flat marker on top of it, and a player without a model must still get
+    /// one or they vanish. Asking the question in two places is how the two answers drift apart -
+    /// and they did: the markers were still being drawn over the models the moment those started
+    /// working, which hid whether the models were there at all.
+    /// </remarks>
+    private string? PlayerModel(ScenePlayer player) =>
+        player.IsPlaying && player.PlayerClass is { } playerClass
+            ? _classModels?.Model(playerClass)
+            : null;
+
+    /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
+    /// <remarks>
+    /// Brush models and sprites are excluded: a <c>*N</c> is map geometry and a sprite is a
+    /// camera-facing quad, and neither is a <c>.mdl</c> the studio loader can read.
+    /// </remarks>
+    private HashSet<string> DemoModelPaths()
+    {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        // **Every class, not only the ones standing at tick zero.** A player can switch class at
+        // any moment in a match, so a set built from who is playing now is missing whatever they
+        // change to - and a model absent from this set is never packed, so the player would simply
+        // vanish mid-round. Nine models is the whole roster and it is loaded once.
+        foreach (string model in ClassModelPaths())
+        {
+            paths.Add(model);
+        }
+
+        if (_timeline is not { } timeline)
+        {
+            return paths;
+        }
+
+        foreach (ScenePropTrack track in timeline.Props)
+        {
+            if (track.Kind == SceneModelKind.Studio)
+            {
+                paths.Add(track.ModelPath);
+            }
+        }
+
+        return paths;
+    }
+
+    /// <summary>Where to write an automatic capture, when one was asked for.</summary>
+    private string? _shotPath;
+
+    /// <summary>Which tick to show before capturing.</summary>
+    private int _shotTick;
+
+    /// <summary>Where to point the camera before capturing, in world units.</summary>
+    private (float X, float Y)? _shotLookAt;
+
+    /// <summary>How far to zoom in before capturing.</summary>
+    private float _shotZoom = 1f;
+
+    /// <summary>Whether to capture the category view rather than the textured one.</summary>
+    private bool _shotSurfaceColours;
+
+    /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
+    private int _shotDelay = 45;
+
+    /// <summary>Pulls the capture options out of the paths, returning what is left.</summary>
+    private string[] ReadCaptureOptions(string[] arguments)
+    {
+        List<string> paths = [];
+        Queue<string> pending = new(arguments);
+
+        // A queue rather than an indexed loop: an option consumes the value after it, and moving a
+        // loop counter from inside the body is the shape analyzers rightly object to.
+        while (pending.Count > 0)
+        {
+            string argument = pending.Dequeue();
+
+            if (argument == "--shot" && pending.Count > 0)
+            {
+                _shotPath = pending.Dequeue();
+                continue;
+            }
+
+            if (argument == "--look" && pending.Count > 1)
+            {
+                string x = pending.Dequeue();
+                string y = pending.Dequeue();
+
+                if (float.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldX) &&
+                    float.TryParse(y, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldY))
+                {
+                    _shotLookAt = (worldX, worldY);
+                    continue;
+                }
+
+                ViewerLog.Warn("viewer", $"--look {x} {y} is not a position; ignoring it");
+                continue;
+            }
+
+            if (argument == "--colours")
+            {
+                _shotSurfaceColours = true;
+                continue;
+            }
+
+            if (argument == "--zoom" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float zoom))
+                {
+                    _shotZoom = zoom;
+                    continue;
+                }
+
+                ViewerLog.Warn("viewer", $"--zoom {value} is not a number; ignoring it");
+                continue;
+            }
+
+            if (argument == "--tick" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (int.TryParse(
+                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
+                {
+                    _shotTick = tick;
+                    continue;
+                }
+
+                // Not silent: a mistyped tick that quietly captures tick zero is a picture of the
+                // wrong moment, which is worse than no picture.
+                ViewerLog.Warn("viewer", $"--tick {value} is not a number; capturing tick 0");
+                continue;
+            }
+
+            paths.Add(argument);
+        }
+
+        return [.. paths];
+    }
+
+    /// <summary>Takes the automatic capture once the world has settled, then closes.</summary>
+    /// <remarks>
+    /// **Counted in frames, not seconds.** The map, its textures and the entity models all load
+    /// before the first frame is drawn, so a frame count after that is a count of settled frames -
+    /// where a wall-clock wait would be a guess that fails on a slower machine or a bigger map.
+    /// </remarks>
+    private void TakeAutomaticShot()
+    {
+        if (_shotPath is not { } path)
+        {
+            return;
+        }
+
+        if (_shotDelay-- > 0)
+        {
+            if (_shotDelay == 40 && _timeline is not null)
+            {
+                // **The clock too, not just the transport.** Moving the camera marks the world
+                // stale, and the reprojection that follows re-reads the moment from the clock - so
+                // a capture that only told the transport photographed tick zero while every log
+                // line said otherwise.
+                _clock?.Seek(_shotTick);
+                _transport.ShowTick(_shotTick);
+                ShowMoment(_shotTick);
+
+                if (_shotSurfaceColours)
+                {
+                    _surfaceColours.Checked = true;
+                }
+
+                if (_shotLookAt is { } centre)
+                {
+                    _zoom = _shotZoom;
+                    _lookingAt = centre;
+                    _worldIsStale = true;
+                }
+            }
+
+            return;
+        }
+
+        _shotPath = null;
+
+        CaptureViewport(path);
+        BeginInvoke(Close);
+    }
+
     private TopDownCamera MapCamera()
     {
         TopDownCamera fitted = TopDownCamera.Fit(
@@ -1070,7 +1442,17 @@ internal class MainForm : Form
 
         TopDownCamera zoomed = _zoom > 1f ? fitted.WithZoom(_zoom) : fitted;
 
-        return _lookingAt is { } centre ? zoomed.LookingAt(centre.X, centre.Y) : zoomed;
+        TopDownCamera placed = _lookingAt is { } centre
+            ? zoomed.LookingAt(centre.X, centre.Y)
+            : zoomed;
+
+        // **D21: the camera projects height, so it has to know the range.** The geometry carries
+        // world Z now; without this the third row is a pass-through and every surface lands at a
+        // depth of its own world height in units, which is far outside the clip range and draws
+        // nothing at all.
+        return _heightRange is { } range
+            ? placed.WithHeights(range.Lowest, range.Highest)
+            : placed;
     }
 
     /// <summary>Shows a set of world positions in the viewport.</summary>
@@ -1112,6 +1494,119 @@ internal class MainForm : Form
         _scene = points;
     }
 
+    /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
+    /// <param name="tick">The moment to show, which may fall between ticks.</param>
+    /// <remarks>
+    /// **One path from "which moment" to "what is drawn".** Scrubbing and playing both come
+    /// through here, so the two cannot disagree about what a tick looks like — which they did once
+    /// before, when playback and the scrub bar each built the scene their own way.
+    ///
+    /// Takes a fractional tick rather than a whole one so the interpolation actually reaches the
+    /// picture. Truncating here would leave every pose snapped to the last packet and make the
+    /// whole interpolation layer a no-op that still passed its own tests.
+    /// </remarks>
+    public void ShowMoment(double tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return;
+        }
+
+        timeline.PlayersAt(tick, _players);
+        timeline.PropsAt(tick, _props);
+
+        // Packing is a no-op after the first sighting of each model, so this costs a dictionary
+        // lookup per entity per frame once the demo has been running for a moment.
+        // **Players become props, rather than getting a pipeline of their own.** A player is a
+        // model at a pose, which is exactly what the prop path already draws, lights and
+        // interpolates - and a second implementation would agree with the first only until one of
+        // them gained a feature. The pose comes from the timeline, so they move and turn.
+        _drawn.Clear();
+        _drawn.AddRange(_props);
+
+        foreach (ScenePlayer player in _players)
+        {
+            if (PlayerModel(player) is not { } model)
+            {
+                continue;
+            }
+
+            _drawn.Add(new SceneProp(
+                player.EntityIndex,
+                model,
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = player.X,
+                    Y = player.Y,
+                    Z = player.Z,
+
+                    // **Yaw only.** A player model stands upright however far the eyes are pitched
+                    // - the server feeds pitch to the animation state to aim the torso, not to tip
+                    // the whole body (tf_player.cpp:2689). Rolling a player by their view would
+                    // lay them on their side every time they looked up.
+                    Yaw = player.Yaw,
+                    Scale = 1f,
+                }));
+        }
+
+        if (_models.Add(_drawn, ModelGeometry) && _device is { } device)
+        {
+            device.UploadModels(_models);
+
+            // **Logged because a model that draws nothing looks exactly like one that was never
+            // uploaded.** The counts separate the two: no vertices means the packing failed, and
+            // vertices with no instances means the posing did.
+            ViewerLog.Write(
+                "render",
+                $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
+
+            // **Named, not counted.** A count says how many arrived and nothing about which are
+            // missing, and "the health packs are not drawing" is a question about names.
+            foreach (string path in _models.Paths)
+            {
+                string indices = string.Join(
+                    ", ",
+                    _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
+
+                ViewerLog.Write(
+                    "render",
+                    $"  packed {path}: {indices} of {_assets?.Textures.Count ?? 0} textures");
+            }
+        }
+
+        _models.Instances(_drawn, _instances, LightAt, SunAt);
+
+        if (_instances.Count != _lastInstanceCount)
+        {
+            _lastInstanceCount = _instances.Count;
+
+            // **Named and counted.** "Some models are missing" is a question about which, and a
+            // total cannot answer it - a demo only carries what the recorder could see, so an
+            // absent pickup may be correct rather than broken.
+            string names = string.Join(
+                ", ",
+                _instances
+                    .GroupBy(instance => instance.ModelPath, StringComparer.Ordinal)
+                    .Select(group => $"{group.Count()}x{Path.GetFileNameWithoutExtension(group.Key)}"));
+
+            // **How many were actually lit, not just how many were drawn.** A model with no cube
+            // draws at full brightness and looks like a rendering fault; the count is what says
+            // whether the leaf lookup found anything, without anyone having to judge by eye.
+            int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
+
+            ViewerLog.Write(
+                "render",
+                $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
+
+            // The first medkit's actual transform. A model posed with a zero scale collapses to a
+            // point and draws nothing, while every count above still reads correctly.
+
+        }
+
+        ShowPlayers(_players);
+    }
+
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
     /// <param name="players">The players, from the timeline.</param>
     /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
@@ -1138,7 +1633,7 @@ internal class MainForm : Form
                 Math.Max(1, _viewport.ClientSize.Width),
                 Math.Max(1, _viewport.ClientSize.Height));
 
-        List<ScenePoint> points = new(players.Count);
+        List<ScenePoint> points = new(players.Count + _props.Count);
 
         foreach (ScenePlayer player in players)
         {
@@ -1146,6 +1641,14 @@ internal class MainForm : Form
             // positions that follow the action - so drawing everything puts convincing dots on the
             // map where nobody is standing.
             if (!player.IsPlaying)
+            {
+                continue;
+            }
+
+            // **A marker only for a player with no model.** Once the class models draw, a dot on
+            // top of one hides the very thing it was standing in for - which is exactly what
+            // happened, and made a working render look like a failed one.
+            if (PlayerModel(player) is not null)
             {
                 continue;
             }
@@ -1565,6 +2068,29 @@ internal class MainForm : Form
     /// <summary>Longest frame playback will believe in, in seconds.</summary>
     private const double MaximumFrameSeconds = 0.1;
 
+    /// <summary>The colour behind everything: a dark blue, and deliberately not black.</summary>
+    /// <remarks>
+    /// **A diagnostic choice more than a cosmetic one.** This started at 0.06/0.07/0.09, which is
+    /// near enough to black that a surface drawn black and a surface not drawn at all look
+    /// identical — so a hole in the map reads as background and nobody investigates it. The owner
+    /// found a black box on cp_process's last points only after suspecting the background was
+    /// hiding it, and could not tell whether it was geometry or a gap.
+    ///
+    /// It also still does the job the near-black one was written for: a viewport that stays the
+    /// form's grey looks the same whether the device failed or simply drew nothing, so the clear
+    /// colour is the evidence that the swap chain is bound to this panel and presenting.
+    ///
+    /// Blue rather than any other hue because nothing in a TF2 map is this colour: the team blues
+    /// are far brighter, and the world is browns, greys and greens.
+    /// </remarks>
+    private const float BackgroundRed = 0.07f;
+
+    /// <inheritdoc cref="BackgroundRed"/>
+    private const float BackgroundGreen = 0.10f;
+
+    /// <inheritdoc cref="BackgroundRed"/>
+    private const float BackgroundBlue = 0.20f;
+
     /// <summary>Moves playback on by however long the last frame took.</summary>
     /// <remarks>
     /// **Nothing is invalidated here.** The idle loop this runs inside already draws every frame,
@@ -1573,7 +2099,7 @@ internal class MainForm : Form
     /// </remarks>
     private void AdvancePlayback()
     {
-        if (!_transport.Playing || _clock is not { } clock || _timeline is not { } timeline)
+        if (!_transport.Playing || _clock is not { } clock || _timeline is null)
         {
             return;
         }
@@ -1595,7 +2121,11 @@ internal class MainForm : Form
         clock.Advance(elapsed);
 
         _transport.ShowTick(clock.Tick);
-        ShowPlayers(timeline.PlayersAt(clock.Tick));
+
+        // **The clock's fractional position, not its whole tick.** Truncating here would snap
+        // every pose to the last packet and make the interpolation layer a no-op that still
+        // passed every one of its own tests.
+        ShowMoment(clock.Position);
 
         // Whichever end it is travelling towards: stopping only at the end would leave reverse
         // playback spinning against tick zero, still claiming to play.
@@ -1637,20 +2167,29 @@ internal class MainForm : Form
         {
             _worldIsStale = false;
             ProjectMap();
+
+            // **The scene is projected too, so a camera change invalidates it as well.** Points
+            // are stored in screen space while the world's vertices are not, so rebuilding one and
+            // not the other left every dot at the pixel it had before the zoom while the map moved
+            // underneath it. Playback hid this by rebuilding the scene every frame regardless; it
+            // only showed while paused.
+            //
+            // Done here rather than beside each camera change: five places already set this flag,
+            // and the next one added would have had the same bug again.
+            ReprojectScene();
         }
 
         AdvancePlayback();
+        TakeAutomaticShot();
 
-        // The clear colour is the whole picture for now, and that is deliberate: it is the
-        // evidence that the swap chain is bound to this panel and presenting. A viewport that
-        // stays the form's grey looks identical whether the device failed or simply drew nothing.
         _device?.DrawFrame(
-            0.06f,
-            0.07f,
-            0.09f,
+            BackgroundRed,
+            BackgroundGreen,
+            BackgroundBlue,
             _mapFill,
             _outline.Checked ? _mapLines : [],
-            _scene);
+            _scene,
+            _instances);
 
         if (_fullScreenClock is { } clock)
         {
@@ -1712,6 +2251,21 @@ internal class MainForm : Form
         _lookingAt = (centreX + (worldX - afterX), centreY + (worldY - afterY));
 
         _worldIsStale = true;
+    }
+
+    /// <summary>Rebuilds the projected scene after the camera has moved.</summary>
+    /// <remarks>
+    /// Uses the clock's position when there is one, so a paused viewer reprojects the moment it is
+    /// actually showing rather than jumping to the scrub bar's whole tick.
+    /// </remarks>
+    private void ReprojectScene()
+    {
+        if (_timeline is null)
+        {
+            return;
+        }
+
+        ShowMoment(_clock?.Position ?? _transport.CurrentTick);
     }
 
     /// <summary>Routes a wheel turn anywhere over the viewport to the zoom.</summary>

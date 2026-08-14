@@ -65,12 +65,17 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// <param name="Blend">The second layer of a blend material, or null.</param>
 /// <param name="Detail">The detail pattern, or null.</param>
 /// <param name="Bump">The bump map, or null.</param>
+/// <param name="Declared">Every parameter the VMT named, for reporting the unimplemented ones.</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
 /// </remarks>
 internal readonly record struct ResolvedMaterial(
-    MapTexture? Texture, MapTexture? Blend, MapDetail? Detail, MapBump? Bump);
+    MapTexture? Texture,
+    MapTexture? Blend,
+    MapDetail? Detail,
+    MapBump? Bump,
+    IReadOnlyCollection<string>? Declared = null);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -280,6 +285,15 @@ internal sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<PropVertex> Props { get; }
 
+    /// <summary>Entity models, in their own coordinates, keyed by path.</summary>
+    /// <remarks>
+    /// Model space rather than world space, unlike <see cref="Props"/>: a static prop stands where
+    /// the map put it and can be baked, while an entity moves and is posed by a matrix in the
+    /// shader.
+    /// </remarks>
+    public IReadOnlyDictionary<string, IReadOnlyList<PropVertex>> EntityModels { get; private init; } =
+        new Dictionary<string, IReadOnlyList<PropVertex>>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
 
@@ -324,12 +338,16 @@ internal sealed class MapAssets
     /// <summary>Loads a map's textures and lighting.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="archives">The game's archives.</param>
+    /// <param name="entityModels">Model paths the demo uses, loaded with the map so the textures upload once.</param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
     public static MapAssets Load(
-        ReadOnlyMemory<byte> map, GameArchives archives, int maximumTextureSize)
+        ReadOnlyMemory<byte> map,
+        GameArchives archives,
+        int maximumTextureSize,
+        IReadOnlyCollection<string>? entityModels = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -375,6 +393,28 @@ internal sealed class MapAssets
             }
         }
 
+        // **What the map asked for that this renderer does not do.** Logged unconditionally,
+        // because the alternative was measured: every material on cp_process resolved, so the log
+        // stayed silent while every control point drew as a black disc, and the one gap that
+        // mattered - $envmap on 43 of 189 materials, B55 - took an hour of throwaway probes.
+        //
+        // A report built only from failures reads clean while every instance quietly falls back.
+        IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
+            found.Select(material => material.Declared ?? []));
+
+        if (census.Count == 0)
+        {
+            ViewerLog.Write(
+                "assets", "every parameter the map's materials declare is implemented");
+        }
+        else
+        {
+            ViewerLog.Write(
+                "assets",
+                $"{census.Count} unimplemented material parameters across {materials.Count} materials: " +
+                string.Join(", ", census.Select(entry => $"{entry.Parameter} x{entry.Materials}")));
+        }
+
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
         // the end. Inserting them first would renumber every face in the map.
@@ -393,6 +433,45 @@ internal sealed class MapAssets
             path => Resolve(path, pak, archives, maximumTextureSize, report: false).Texture);
 
         propTiming.Dispose();
+
+        // **Entity models are loaded here, with the map's own props, and that is the point.**
+        // Their materials go into the same table, so the textures upload once with everything in
+        // them. Loading a model during playback instead would mean growing the texture array
+        // mid-match and re-uploading it, which is a hitch exactly where the viewer is trying to
+        // look smooth.
+        //
+        // Every model the demo uses is already known: the timeline is built before anything is
+        // drawn, which is the same trade this project makes everywhere - know it all up front,
+        // and playback costs nothing. TF2 launches a listen server to play a demo, so the budget
+        // here is generous.
+        Dictionary<string, IReadOnlyList<PropVertex>> models = new(StringComparer.OrdinalIgnoreCase);
+
+        if (entityModels is { Count: > 0 })
+        {
+            using IDisposable modelTiming = ViewerLog.Time("assets", "loading entity models");
+
+            int loaded = 0;
+
+            foreach (string path in entityModels)
+            {
+                IReadOnlyList<PropVertex>? corners = PropModels.LoadOne(
+                    path,
+                    pak,
+                    archives,
+                    materials,
+                    textures,
+                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture);
+
+                if (corners is { Count: > 0 })
+                {
+                    models[path] = corners;
+                    loaded++;
+                }
+            }
+
+            ViewerLog.Write(
+                "assets", $"{loaded} of {entityModels.Count} entity models loaded");
+        }
 
         // The blend list is indexed in step with the textures, and a prop material never has a
         // second layer - only a displacement's WorldVertexTransition does.
@@ -439,7 +518,10 @@ internal sealed class MapAssets
             PackLighting(map),
             props,
             resolved,
-            missing);
+            missing)
+        {
+            EntityModels = models,
+        };
     }
 
     private static LightmapAtlas PackLighting(ReadOnlyMemory<byte> map)
@@ -514,7 +596,10 @@ internal sealed class MapAssets
         MapTexture? second = Decode(
             material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
 
-        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump());
+        // **The parameters carried out alongside the textures**, so the caller can report what
+        // the map asked for rather than only what failed. Gathered here because this is the one
+        // place the parsed VMT exists; the census itself runs on the single-threaded side.
+        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump(), material.Keys);
 
         MapBump? ResolveBump()
         {

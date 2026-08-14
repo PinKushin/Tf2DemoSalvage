@@ -2817,3 +2817,387 @@ explanations and only the last was right:
 
 That last one is the most expensive mistake in this register: not a wrong hypothesis, but a
 measuring instrument that manufactured the defect being measured.
+
+## B47 — players are not interpolated, because their model is not networked — RESOLVED 2026-08-13
+
+**Filed 2026-08-13.** Prop poses interpolate through `ScenePropTrack` — hermite, with Valve's time
+renormalisation. Players do not, and the reason took a measurement to find.
+
+`DemoTimeline.PlayersAt(double, …)` looks a player's entity up in the track table and falls back to
+the stated frame position when there is none. On every demo in the corpus it always falls back:
+**zero** player samples differ from a stated position.
+
+The cause is in TF2's own client, not in this code. A player's model is never sent —
+`tf_playerclass_shared.cpp:136`:
+
+```cpp
+const char *CTFPlayerClassShared::GetModelName( void ) const
+{
+	if ( m_iszCustomModel[0] ) return m_iszCustomModel;
+	Q_strncpy( modelFilename, GetPlayerClassData( m_iClass )->GetModelName(), … );
+	return modelFilename;
+}
+```
+
+The client resolves it locally from `m_iClass` through the class data table; only `m_iszCustomModel`
+travels on the wire. So a `CTFPlayer` carries no `m_nModelIndex`, `RecordProp` skips it, and no
+track exists.
+
+**This is not a reason for a second interpolator.** In the engine a player's position uses exactly
+the same machinery as a rocket's: `AddVar(&m_vecOrigin, &m_iv_vecOrigin, LATCH_SIMULATION_VAR)` is
+on `C_BaseEntity` (`c_baseentity.cpp:905`), and a player is a `C_BaseEntity`. TF2 adds one
+interpolated variable of its own, `m_angEyeAngles` (`c_tf_player.cpp:3874`).
+
+**The fix** is to build player tracks from the class table rather than from a model index, which
+also supplies the player models the viewer will need anyway. `m_iszCustomModel` overrides it when
+present.
+
+**Resolved the same day.** A player is now recognised by class name and given a track with an
+empty model path, kept in `PlayerTracks` rather than in `Props`. The poses are what the
+interpolator needs; the model comes from the install through `PlayerClassModels`.
+
+Keeping the two lists apart matters: a consumer walking `Props` to draw models would otherwise find
+entries with no model and could only report them as missing assets, which is a false alarm about
+the very thing that works.
+
+The corpus test `PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains` is no longer
+`[Explicit]` and passes across the corpus. It went from measuring exactly zero to measuring the
+fix, which is the shape a regression test should have.
+
+## B48 — a hypothesis for TF2's end-of-demo freeze, from the interpolation code — UNTESTED
+
+**Filed 2026-08-13, prompted by the owner's recollection** that playing a demo in TF2 ends with
+things freezing and "kinda glitching out". Recorded as a hypothesis because it fits code that has
+been read, and nothing more — no measurement against a running client has been made.
+
+`GetInterpolationInfo` in `interpolatedvar.h` clamps the interpolation fraction:
+
+```cpp
+pInfo->frac = ( targettime - older_change_time ) / ( newer_change_time - older_change_time );
+pInfo->frac = MIN( pInfo->frac, 2.0f );
+```
+
+A fraction above 1 is **extrapolation** — the client running past its newest sample by up to a full
+interval, which during normal play covers a dropped packet.
+
+At the end of a demo the stream stops but `curtime` does not. Every entity's newest sample stays
+fixed while the target time advances, so the fraction climbs past 1, everything extrapolates on
+past where it was last seen, and then clamps at 2.0 and stops dead. Sliding-then-freezing is what
+that would look like.
+
+**What would confirm or kill it:** watching a demo end in a client with `cl_interp` set very high
+and very low. If the effect scales with the interpolation window, the mechanism is this one; if it
+is identical either way, it is something else — most likely in engine demo shutdown, which is not
+in the SDK.
+
+**Why it is worth keeping even unresolved.** This project extrapolates nothing: `ScenePropTrack.At`
+holds the last pose after the final keyframe rather than running past it. If this hypothesis is
+right, that is a case where deliberately *not* copying the engine produces the better viewer, and
+the reasoning behind that choice should be recoverable later.
+
+Not to be confused with the trailing-block quirk in `IceCipher.DecryptAll`, which was found in the
+same session and affects script files only — it has nothing to do with demo playback.
+
+## B49 — black lids over rooms in the overhead view — OPEN, and it is roof removal, not lighting
+
+**Filed 2026-08-13.** Solid black boxes sit over cp_process's last points and a few other rooms.
+Three measurements, none of which needed a guess:
+
+- **The category view (F9) says world brush.** Present, drawn, not missing, not displacement.
+- **No surface in the map is unlit.** 12,230 visible surfaces, **zero** with an all-black
+  lightmap. Lighting is not the cause.
+- **The material is `tools/toolsblack`**, whose reflectivity vbsp itself records as
+  `0.000 0.000 0.000` — 118 faces of it.
+
+So the renderer is correct and the picture is wrong. Lighting multiplies the texture, and anything
+times zero is zero: a perfectly lit black texture is black. Mappers cap rooms with `toolsblack` so
+the skybox does not show through from inside; from below it reads as dark void above, and nobody is
+ever above it to see that it is a slab.
+
+**Do not fix this by skipping the material.** That was tried and reverted, and `MapWorld.cs`
+carries the account: `toolsblack` is genuinely drawn behind windows, under grates and inside vents,
+and removing it by name left 4.8 million square units showing the background through — read as dark
+blobs, and survived four separate explanations about lighting before anyone checked.
+
+**Orientation separates the two uses, and the numbers are clean:**
+
+| Facing | Count | What it is |
+|---|---|---|
+| Up | 88 | Lids over rooms — only ever seen from above |
+| Vertical | 30 | Window voids, grates, vents — must stay |
+| Down | 0 | — |
+
+An up-facing rule would therefore keep every case that broke the last attempt. But the right fix is
+the roof-removal feature the viewer already half has (the depth cut), because the same problem
+applies to any roof and not only to black ones: an overhead camera stands where no player does, and
+what to hide is a property of the view rather than of the material.
+
+**Parked deliberately** until model rendering lands, on the owner's call. The measurements above are
+the expensive part and they are done.
+
+## B50 — the alpha-test threshold is a guess, and `$alphatestreference` is ignored — OPEN, small
+
+**Filed 2026-08-13**, while fixing the defect that hid every entity model.
+
+The shader used to clip on alpha unconditionally, which was safe only because opaque map textures
+have their alpha flattened to 255 on upload. Anything whose alpha is kept for another reason — a
+self-illuminated material, or a model texture with an unused alpha channel of zeros — had every
+pixel discarded. Entity models were drawn with correct geometry, correct transforms, correct
+batches and a correct draw call, and were invisible.
+
+**The gate is now verified against published source.** `BaseVSShader.cpp:925`:
+
+```cpp
+s_pShaderShadow->EnableAlphaTest( IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) );
+
+if( alphaTestReferenceVar != -1 && params[alphaTestReferenceVar]->GetFloatValue() > 0.0f )
+{
+    s_pShaderShadow->AlphaFunc( SHADER_ALPHAFUNC_GEQUAL, params[alphaTestReferenceVar]->GetFloatValue() );
+}
+```
+
+Alpha testing happens **only** when the material sets the flag, which is what `$alphatest 1` does.
+That much now matches.
+
+**What does not match, and cannot be read from the SDK:**
+
+- `$alphatestreference` defaults to `"0.0"` (`lightmappedgeneric_dx9.cpp:63`,
+  `vertexlitgeneric_dx9.cpp:42`), and at zero Valve never calls `AlphaFunc` — so the threshold comes
+  from the shader API's own default, which is in the closed implementation. Our hardcoded **0.5** is
+  a convention, not a measured value.
+- A material that *does* set `$alphatestreference` is cut at 0.5 by us regardless, so its foliage or
+  grate will lose or keep the wrong pixels.
+
+**The fix** is to read `$alphatestreference` in `VmtMaterial`, carry it in the material constants
+beside the alpha-test flag, and use it when it is above zero — falling back to 0.5 only when the
+material says nothing. Small, and it turns "matches the flag" into "matches the behaviour".
+
+**Worth keeping for the shape of it.** This defect was invisible to every instrument: the counts, the
+names, the matrices, the packed vertices and the batch ranges were all correct, and two probes
+(twenty-times scale, depth disabled) both came back negative because the pixels were being discarded
+after all of that. The thing that found it was reading the shader's own comment, which stated the
+assumption it depended on.
+
+## B51 — entity models draw unlit and blown out — OPEN, and it is the reason they look wrong
+
+**Filed 2026-08-13.** Entity models render at the right places with the right materials, and look
+like white blobs. Static props do not, and the difference is lighting.
+
+A static prop carries baked per-vertex lighting from the map's `.vhv`, so its vertex colour darkens
+it into the scene. An entity has none: this project gives it `1, 1, 1` and a lightmap coordinate of
+`(0, 0)`, which lands on the atlas's reserved white texel. Full-brightness vertex colour times a
+white lightmap washes the texture out — a medkit's teal case and red cross become a pale square.
+
+**The occlusion story was wrong, and the mistake is worth recording.** The category view showed a
+white square where each pickup stands, and white was read as map geometry covering it. The palette
+has no white: `Terrain` is green, `Prop` orange, `Missing` magenta, `Brush` blue-grey, and the
+diagnostic shader returns the vertex colour — so the white square *was* the model, drawn on top of
+everything. The owner's flat statement that nothing covers those packs in game is what forced the
+check, and reading `CategoryColour` took ten seconds against an hour of inference.
+
+**What the engine does.** A dynamic model is lit from the light cache rather than from a lightmap:
+`LightingState_t` in `istudiorender.h` carries `m_vecAmbientCube[6]` — "ambient, and lights that
+aren't in locallight[]" — plus an array of local lights, sampled near the model's origin. That is
+the same mechanism whether the model is a health pack or a player.
+
+**Not a lightmap lookup.** A model does not have lightmap coordinates, which is precisely why the
+engine has a separate path for it; adding one here would be inventing a mechanism Source does not
+have.
+
+Until it is implemented, every entity model in the viewer is overbright, and any judgement about a
+model's texture or material is unreliable — three separate defects were attributed to materials
+tonight before this was understood.
+
+## B52 — buried geometry is drawn, because nothing culls by visibility — OPEN, structural
+
+**Filed 2026-08-13** from an in-game comparison: the concrete around cp_process's mid point is
+buried under the ground in TF2, and this viewer draws it as a slab over the surrounding surface.
+
+**Nothing here culls by visibility.** The renderer keeps a face when its material resolves, its
+surface flags are drawable, and its normal points upward; it has no notion of whether a player could
+ever see it. The engine's answer is the BSP itself: `vvis` computes a potentially visible set per
+leaf, and geometry sealed inside solid space is never submitted at all.
+
+So a face buried under the ground is drawn, lands at nearly the same depth as the ground above it,
+and which one survives is decided by material batching order. That is the same family as B49's black
+lids — surfaces that exist in the file and are never seen in play — but the mechanism is different
+and so is the fix.
+
+**What this predicts, and is worth checking when it is fixed:** interior faces showing through
+floors, surfaces inside sealed props, and the odd patch of terrain that flickers as the view moves.
+Any of those seen now are probably this.
+
+**The fix is the visibility lump.** A BSP carries `LUMP_VISIBILITY` alongside its nodes and leaves;
+resolving each face's leaf and keeping only faces in leaves reachable from open space would remove
+buried geometry without a heuristic. It is also the foundation a free camera wants, since a
+first-person view needs the same question answered every frame.
+
+**Not to be confused with B49.** There the surface is genuinely visible in play — a `toolsblack`
+ceiling seen from below — and only an overhead camera has a problem with it. Here the surface is
+never visible at all, and drawing it is wrong from every angle.
+
+## B53 — models take ambient light only; direct lights are not applied — OPEN, named remainder
+
+**Filed 2026-08-13**, immediately on fixing B51. Entity models are now lit from their leaf's ambient
+cube and look plausible indoors, while an outdoor model stays noticeably dimmer than the same object
+in TF2.
+
+That is expected, and `istudiorender.h` says why in a comment on the field itself:
+
+```cpp
+Vector m_vecAmbientCube[6];   // ambient, and lights that aren't in locallight[]
+```
+
+**The cube is the ambient term only.** Direct lights — the sun above all — are carried separately in
+`LightingState_t::locallight[]` as `LightDesc_t` entries, and applied on top. A health pack in
+daylight gets most of its brightness from the sun, so a viewer with the cube alone renders it as
+though it were in shade.
+
+**What it would take.** `LUMP_WORLDLIGHTS` carries the map's lights, including the sun as a
+directional `emit_skylight`. Applying the sun alone would close most of the visible gap, since it is
+the one light that reaches most outdoor surfaces; point and spot lights matter far less at the scale
+this viewer draws.
+
+**Why it is filed rather than fixed now.** The ambient half is complete, tested and measured, and it
+is the half that turns a white blob into a recognisable object. Adding direct light is a separate
+piece of work with its own failure modes — shadowing above all, since an unshadowed sun lights the
+inside of every building.
+
+## B54 — colour maths happens in display space, not linear — OPEN, and it is the root of several
+
+**Filed 2026-08-13**, after the owner observed that "we keep running into problems because we are
+flattening stuff".
+
+**What the engine does.** A lightmap sample is linear light. A texture is sRGB and is linearised on
+sampling by an sRGB view. The shader multiplies them in linear space, applies the overbright factor
+(Source's shaders multiply an LDR lightmap by two), and the hardware applies gamma once when writing
+to an sRGB target.
+
+**What this project does.** `BspLightmaps` applies the exponent *and* the gamma curve at decode, so
+the lightmap arrives already in display space. Base textures are uploaded as plain `UNORM` and
+sampled raw, so they are also display space. The shader multiplies two display-space values and
+writes to a non-sRGB back buffer. Valve's doubling is then deliberately skipped, because on top of
+gamma-corrected values it blows the map out to white.
+
+Each of those compensates for the one before it. The result looks approximately right on a lit wall
+and goes wrong wherever anything new is introduced:
+
+- The ambient cube was written linear, per the format, and rendered nearly black against
+  display-space lightmaps — fixed by gamma-correcting the cube, which is the *wrong* fix in a
+  correct pipeline and the only possible one in this one.
+- Alpha was flattened at upload to survive an unconditional clip, which then cost every decal its
+  shape (fixed 2026-08-13).
+- Brightness comparisons against the game are unreliable, so "too dark" and "too bright" cannot be
+  used as evidence about anything else.
+
+**What it would take**, in order, each step checkable against a capture:
+
+1. Create the back buffer's render target view with an sRGB format, so the hardware applies gamma
+   on write. The flip-model swap chain itself stays `UNORM`.
+2. Create base-texture views with `_SRGB` formats, so sampling returns linear.
+3. Stop applying the gamma curve in `BspLightmaps`; upload linear samples, which needs more range
+   than eight bits — a half-float texture is the straightforward answer.
+4. Restore Valve's overbright multiply in the shader.
+5. Remove the gamma correction added to the ambient cube, which exists only to match step 3's
+   current behaviour.
+
+**Why it is worth doing rather than living with.** Every future lighting feature — direct lights
+(B53), self-illumination, a first-person camera's exposure — has to be reconciled against whatever
+space the pipeline is in. Doing it in the engine's space means Valve's own numbers can be used
+directly, which is the whole reason this project reads the SDK.
+
+## B55 — `$envmap` is not implemented, and 43 of 189 map materials ask for it — OPEN
+
+**Measured, not estimated.** On cp_process_f12, **42 of 189 materials declare `$envmap`** — 22% of
+the map's surfaces, including every pane of glass, the polished floor tiles at both second points,
+and the metalwork around them. The viewer implements none of it: a material's cubemap reflection
+contributes nothing, so those surfaces render with their base texture and lightmap alone.
+
+The owner identified this from the game's own behaviour before any of it was measured here:
+control points are "very reflective and shiny", and running TF2 on DirectX 8.1 takes the shine off
+control points and übercharges. That is exactly the shader-model fallback — dx8's `LightmappedGeneric`
+drops the envmap pass — so the shine is envmap-sourced by construction, not inference.
+
+**What this does NOT explain**, and the record is kept because the wrong conclusion was reached
+twice on the way:
+
+- The black disc at every control point is **not** this. It survived every check: no material
+  failed to load (the log names only two absent tool materials and four vertex-lighting checksum
+  mismatches), the category view draws that area as ordinary brush, `overlays/stain016` is the
+  wrong size for it by three times, and widening the surface query to 160 units horizontally and
+  1024 units down finds **no upward-facing world face at mid's centre at all**. Still open.
+- A first pass reasoned "dx8.1 removes the shine and the map looks fine there, so the base texture
+  is not black, so the envmap is not the cause". The owner corrected it: dx8.1 removing the *shine*
+  is not a statement that the result looks correct. The inference was about a claim never made.
+
+**Why it is worth doing properly rather than faking a specular term.** A cubemap in a Source map is
+real baked data — `LUMP_CUBEMAPS` names the sample positions and the compiled `.vtf` faces are in
+the map's own pakfile, which this project already reads for everything else. Approximating it with
+a constant highlight would put a plausible shine in the wrong places, which is the failure mode this
+project keeps finding: a result that looks like art direction rather than like a bug.
+
+**A logging gap this exposed, and it is the more general finding.** Every material resolved, so the
+log was silent while a control point drew as a black disc. The viewer logs what fails to *load* and
+nothing about what a surface resolved *to* — which shader path it took, whether it declared an
+effect that is unimplemented. A map is 189 materials; a one-line summary of the unimplemented
+parameters they ask for would have named this in the first minute instead of after an hour of
+probes. Same shape as `measure-the-output-not-the-capability`.
+
+**Corrected 2026-08-13, and the correction is the point.** The 43 above was 42. The probe that
+produced it counted materials whose VMT *text contains* `$envmap`, which is a substring — so
+`$envmaptint` (18 materials) and `$envmapcontrast` (18) matched it too. It landed one away from the
+right answer by luck, since most materials declaring the tints also declare the map itself.
+
+The instrument that replaced it, `MaterialCensus`, counts declared parameter *names* and reports
+every unimplemented one at load. Its first run named the gap this whole search missed:
+
+```
+48 unimplemented material parameters across 189 materials:
+$vertexalpha x55, $vertexcolor x55, $envmap x42, $basealphaenvmapmask x24,
+$basetexturetransform x19, $envmapcontrast x18, $envmaptint x18, $alpha x7,
+$color x7, $nocull x5, $nodecal x5, $texcenter x5, $texoffset x5, $texrot x5,
+$texscale x5, $texture2 x5, ... $AlphaTestReference x2 ...
+```
+
+**`$vertexcolor` and `$vertexalpha` are on 55 materials — more than `$envmap` — and are wholly
+unimplemented.** Every overlay VMT read while chasing the black disc declared both, and neither
+was noticed, because nothing was looking for parameters and nothing failed. That is a better
+candidate for the disc than anything the probes proposed.
+
+`$basetexturetransform` on 19 materials, plus `$texrot`/`$texscale`/`$texoffset`/`$texcenter` on 5,
+is a second unimplemented family that rotates and scales a texture — worth holding against any
+future report of a texture sitting the wrong way round, since one of those was already misdiagnosed
+three times.
+
+`$AlphaTestReference` on 2 materials is B50, now measured rather than assumed.
+
+## B56 — the POV camera has no view interpolation, and no weapon models are drawn — OPEN, decided
+
+**Two owner decisions, recorded so neither is relitigated:** the recorded view is to be
+**interpolated the way the running game does it**, and **weapon models are to be rendered**.
+
+**Where this bites already.** A POV demo does not network the recorder's own eye angles — the
+client already knew them — so of the corpus, the eight single-player POV demos still report one
+distinct yaw for their one player after the `m_angEyeAngles` fix. That is correct rather than
+broken: those angles live in `dem_usercmd` and `democmdinfo_t`, which this project already parses
+and the scene layer does not yet consume.
+
+**`demo_interpolateview` is not in the SDK.** A whole-tree grep of source-sdk-2013 returns nothing;
+it is an engine ConVar in `engine.dll`, the same category as the overlay renderer and for the same
+reason. So its exact behaviour is not readable from source and must be measured, not remembered —
+see `source-sdk-is-cloned-locally` for why an empty grep is an answer rather than a failed search.
+
+What is known and worth holding: it governs the **camera** between the per-frame `democmdinfo_t`
+samples, and a community report ties an incorrect setting to a viewmodel reload animation glitch
+(teamfortress.tv/66600). That second claim is **unverified here** — the thread was not read, and
+the bug could as easily be a viewmodel cycle problem as a view interpolation one. Do not build on
+it without checking.
+
+**Shape it must take, and this is the owner's standing rule rather than a preference.** One place
+turns recorded view samples into a camera pose, with interpolation as a flag on it. Not view logic
+in the POV path and again in the free-camera path: anything copied between two files goes out of
+sync, which is exactly how `m_angRotation` came to be read for players in one place while the
+comment naming `m_angEyeAngles` sat in another.
+
+The same rule is why the eye-angle fix is a single line at the pose rather than a field set on
+`ScenePlayer`: the pose already feeds the interpolator, so position and angle cannot drift apart.

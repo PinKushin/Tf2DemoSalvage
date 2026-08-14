@@ -17,6 +17,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Team">Which team, when the demo has said; 2 is RED and 3 is BLU.</param>
 /// <param name="Health">Current health, when known.</param>
 /// <param name="PlayerClass">Which of the nine classes, when known; 1 is Scout through 9 Engineer.</param>
+/// <param name="Yaw">Which way the body faces, in degrees, interpolated with the position.</param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -25,7 +26,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>TF_TEAM_RED = LAST_SHARED_TEAM + 1</c> makes RED 2 and BLU 3.
 /// </remarks>
 public readonly record struct ScenePlayer(
-    int EntityIndex, float X, float Y, float Z, int? Team, int? Health, int? PlayerClass)
+    int EntityIndex,
+    float X,
+    float Y,
+    float Z,
+    int? Team,
+    int? Health,
+    int? PlayerClass,
+    float Yaw = 0f)
 {
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
@@ -75,7 +83,8 @@ public readonly record struct TimelineFrame(int Tick, IReadOnlyList<ScenePlayer>
 ///
 /// **A frame per packet, not per tick.** Positions arrive with <c>svc_PacketEntities</c> and the
 /// server does not send one every tick, so the frames are irregular by nature and
-/// <see cref="PlayersAt"/> answers with the most recent one rather than requiring an exact match.
+/// <see cref="PlayersAt(int)"/> answers with the most recent one rather than requiring an exact
+/// match.
 /// </remarks>
 public sealed class DemoTimeline
 {
@@ -92,6 +101,9 @@ public sealed class DemoTimeline
     /// </remarks>
     private const string ResourceClass = "CTFPlayerResource";
 
+    /// <summary>The class every player entity has, spectators and the SourceTV camera included.</summary>
+    private const string PlayerClass = "CTFPlayer";
+
     private static readonly string[] TeamProperties =
     [
         "DT_BaseEntity.m_iTeamNum",
@@ -106,7 +118,45 @@ public sealed class DemoTimeline
 
     private readonly List<TimelineFrame> _frames;
 
-    private DemoTimeline(List<TimelineFrame> frames) => _frames = frames;
+    private readonly List<ScenePropTrack> _props;
+
+    private readonly Dictionary<int, ScenePropTrack> _trackByEntity = [];
+
+    private readonly List<ScenePropTrack> _playerTracks;
+
+    private DemoTimeline(
+        List<TimelineFrame> frames,
+        List<ScenePropTrack>? props = null,
+        List<ScenePropTrack>? playerTracks = null)
+    {
+        _frames = frames;
+        _props = props ?? [];
+        _playerTracks = playerTracks ?? [];
+
+        // Last track wins where a slot was reused: the later occupant is the one still alive at
+        // any tick a caller can ask about after it started, and At answers null before that.
+        foreach (ScenePropTrack track in _props)
+        {
+            _trackByEntity[track.EntityIndex] = track;
+        }
+
+        foreach (ScenePropTrack track in _playerTracks)
+        {
+            _trackByEntity[track.EntityIndex] = track;
+        }
+    }
+
+    /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
+    public IReadOnlyList<ScenePropTrack> Props => _props;
+
+    /// <summary>Every player, with the pose the interpolator works from.</summary>
+    /// <remarks>
+    /// **Separate from <see cref="Props"/> because these carry no model.** A player's model is
+    /// resolved from the installed game rather than from the demo — see
+    /// <c>PlayerClassModels</c> — so a consumer walking <see cref="Props"/> to draw models would
+    /// find entries it could only report as missing assets.
+    /// </remarks>
+    public IReadOnlyList<ScenePropTrack> PlayerTracks => _playerTracks;
 
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
@@ -173,6 +223,16 @@ public sealed class DemoTimeline
         List<TimelineFrame> frames = [];
         float interval = 0f;
 
+        ModelPrecache precache = new();
+        int protocol = header.NetworkProtocol;
+
+        // Live tracks by slot, plus every track ever started. A slot is reused when its occupant
+        // is destroyed, so the two are not the same list - keeping only the live ones would lose
+        // every rocket the moment the next one took its index.
+        Dictionary<int, ScenePropTrack> tracks = [];
+        List<ScenePropTrack> props = [];
+        List<ScenePropTrack> playerTracks = [];
+
         foreach (DemoCommand command in commands)
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
@@ -208,6 +268,17 @@ public sealed class DemoTimeline
                         BaselineBuilder.Apply(update.Entries, decoder);
                         continue;
 
+                    // Which model each m_nModelIndex names. Without this every entity carrying a
+                    // model resolves to nothing and the scene is players on an empty map.
+                    case CreateStringTableMessage { Name: ModelPrecache.TableName } models:
+                        precache.Apply(models.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == ModelPrecache.TableName:
+                        precache.Apply(update.Entries);
+                        continue;
+
                     default:
                         break;
                 }
@@ -221,6 +292,9 @@ public sealed class DemoTimeline
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
                     entities.Apply(entity);
+                    RecordProp(
+                        entity, entities, precache, tracks, props, playerTracks,
+                        protocol, command.Tick);
                 }
 
                 moved = true;
@@ -234,7 +308,7 @@ public sealed class DemoTimeline
             List<ScenePlayer> players = [];
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
-            foreach (EntityState player in entities.OfClass("CTFPlayer"))
+            foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 if (!player.IsVisible || player.Origin() is not { } origin)
                 {
@@ -268,7 +342,148 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames) { IntervalPerTick = interval };
+        return new DemoTimeline(frames, props, playerTracks) { IntervalPerTick = interval };
+    }
+
+    /// <summary>Records where a model-bearing entity was, if this update said anything about it.</summary>
+    /// <remarks>
+    /// **Only entities the snapshot actually mentioned.** Walking the whole entity table every
+    /// frame would ask several hundred entities to repeat themselves across a hundred thousand
+    /// frames, and produce identical keyframes that the track then discards — the same answer for
+    /// tens of millions of times the work. A demo states what changed; this records exactly that.
+    /// </remarks>
+    /// <summary>What an entity draws as, or <c>null</c> when nothing can say.</summary>
+    /// <returns>
+    /// A model path; the empty string for a player, whose model is not in the demo at all.
+    /// </returns>
+    /// <remarks>
+    /// **A player's model is never sent.** <c>CTFPlayerClassShared::GetModelName</c> looks it up
+    /// locally from <c>m_iClass</c> through the class data table, and only
+    /// <c>m_iszCustomModel</c> travels. So a player is recognised by class and given a track with
+    /// no model: the poses are what the interpolator needs, and the model is resolved from the
+    /// installed game by whoever draws it.
+    /// </remarks>
+    private static string? ModelFor(EntityState state, ModelPrecache precache, int protocol)
+    {
+        if (PlayerClass.Equals(state.ClassName, StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
+        // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
+        return state.ModelIndex() is { } rawIndex
+            ? precache.Path(ModelPrecache.Unpack(rawIndex, protocol))
+            : null;
+    }
+
+    private static void RecordProp(
+        DecodedEntity entity,
+        EntityStateTable entities,
+        ModelPrecache precache,
+        Dictionary<int, ScenePropTrack> tracks,
+        List<ScenePropTrack> props,
+        List<ScenePropTrack> players,
+        int protocol,
+        int tick)
+    {
+        if (entity.UpdateType == EntityUpdateType.Delete)
+        {
+            if (tracks.Remove(entity.EntityIndex, out ScenePropTrack? finished))
+            {
+                finished.End(tick);
+            }
+
+            return;
+        }
+
+        if (!entities.TryGet(entity.EntityIndex, out EntityState? state) ||
+            state.Origin() is not { } origin)
+        {
+            return;
+        }
+
+        // **A player's model is not on the wire, so it cannot be resolved here.**
+        // CTFPlayerClassShared::GetModelName looks it up locally from m_iClass through the class
+        // data table, and only m_iszCustomModel travels. A player therefore sends no
+        // m_nModelIndex and gets a track with no model rather than no track at all - the poses are
+        // what the interpolator needs, and the model is the viewer's to resolve from the install.
+        string? model = ModelFor(state, precache, protocol);
+
+        if (model is null)
+        {
+            return;
+        }
+
+        // **A slot is reused, so the model is what identifies the occupant.** A rocket that
+        // explodes frees its index for the next one, and appending that one's positions to the
+        // old track would draw a rocket flying between two unrelated places.
+        if (tracks.TryGetValue(entity.EntityIndex, out ScenePropTrack? track) &&
+            !string.Equals(track.ModelPath, model, StringComparison.Ordinal))
+        {
+            track.End(tick);
+            tracks.Remove(entity.EntityIndex);
+            track = null;
+        }
+
+        if (track is null)
+        {
+            track = new ScenePropTrack(entity.EntityIndex, model);
+            tracks[entity.EntityIndex] = track;
+
+            // Player tracks are kept apart from Props. They carry poses and no model, so a
+            // consumer walking Props to draw models would find one it cannot draw and could only
+            // report as a missing asset - which is exactly the false alarm this split avoids.
+            (model.Length == 0 ? players : props).Add(track);
+        }
+
+        (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
+
+        // **A player faces where its EYES point, not where m_angRotation says.** A player's
+        // m_angRotation is not networked, so reading it gives zero for every player in every demo
+        // - measured across the whole corpus as exactly one distinct yaw, twenty-four players
+        // included. What TF2 sends is m_angEyeAngles, as two independent properties
+        // (tf_player.cpp:731):
+        //
+        //   SendPropFloat( SENDINFO_VECTORELEM(m_angEyeAngles, 0), 8, SPROP_CHANGES_OFTEN, -90, 90 )
+        //   SendPropAngle( SENDINFO_VECTORELEM(m_angEyeAngles, 1), 10, SPROP_CHANGES_OFTEN )
+        //
+        // And the eye yaw is what drives the body: the server feeds its animation state from it
+        // directly, `m_PlayerAnimState->Update( m_angEyeAngles[YAW], m_angEyeAngles[PITCH] )`
+        // (tf_player.cpp:2689). So this is the engine's own source for which way a player model
+        // points, not a substitute for a value we could not find.
+        //
+        // Applied here rather than at the ScenePlayer, deliberately: this pose feeds the same
+        // ScenePropTrack a rocket uses, so the eye angles are interpolated by the same spline and
+        // the same LoopingLerp that knows 359 to 1 is two degrees. TF2 registers m_angEyeAngles as
+        // an interpolated variable of its own (c_tf_player.cpp:3874), so interpolating it is
+        // matching the client rather than embellishing it.
+        if (state.EyeAngles() is { } eyes)
+        {
+            (pitch, yaw) = (eyes.Pitch, eyes.Yaw);
+        }
+
+        track.Add(
+            tick,
+            new ScenePose
+            {
+                X = origin.X,
+                Y = origin.Y,
+                Z = origin.Z,
+                Pitch = pitch,
+                Yaw = yaw,
+                Roll = roll,
+
+                // Scale and sequence default rather than zero: an absent scale is authored size,
+                // and sequence -1 is "does not animate" where zero is a real animation.
+                Scale = state.ModelScale() ?? 1f,
+                Sequence = state.AnimationSequence() ?? -1,
+                Cycle = state.Cycle() ?? 0f,
+
+                // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
+                // than deleted because it respawns, so this is a property of the moment.
+                Hidden = !state.IsDrawn,
+            });
     }
 
     /// <summary>Gives a player their earliest known team and class before it was first stated.</summary>
@@ -347,6 +562,35 @@ public sealed class DemoTimeline
         }
     }
 
+    /// <summary>Every model that existed at a tick, with the pose it held then.</summary>
+    /// <param name="tick">The moment being shown, which may fall between ticks.</param>
+    /// <param name="into">Filled with the visible models; cleared first.</param>
+    /// <remarks>
+    /// **Fills a caller's collection rather than returning a new one.** A viewer asks this on
+    /// every frame, and a match carries over a thousand tracks on a busy map — allocating a list
+    /// per frame is garbage the renderer does not need to make. Typed as
+    /// <see cref="ICollection{T}"/> rather than <c>List</c> so callers keep their own buffer
+    /// without this API dictating which type it is (CA1002).
+    ///
+    /// Tracks are asked individually because each holds its own keyframes; a track that has not
+    /// started or has already ended simply answers nothing.
+    /// </remarks>
+    public void PropsAt(double tick, ICollection<SceneProp> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        foreach (ScenePropTrack track in _props)
+        {
+            // A hidden entity is not drawn but is still tracked: it is coming back.
+            if (track.At(tick) is { Hidden: false } pose)
+            {
+                into.Add(new SceneProp(track.EntityIndex, track.ModelPath, track.Kind, pose));
+            }
+        }
+    }
+
     /// <summary>Where everyone was at a tick, or the most recent moment before it.</summary>
     /// <param name="tick">The tick being shown.</param>
     /// <returns>The players, empty before the first recorded frame.</returns>
@@ -378,6 +622,58 @@ public sealed class DemoTimeline
 
         return found >= 0 ? _frames[found].Players : [];
     }
+
+    /// <summary>Where everyone was at a moment, with positions interpolated as the client does.</summary>
+    /// <param name="tick">The moment being shown, which may fall between ticks.</param>
+    /// <param name="into">Filled with the players; cleared first.</param>
+    /// <remarks>
+    /// **A player is interpolated by exactly the same machinery as a rocket, because in the engine
+    /// it is the same code.** <c>m_vecOrigin</c> and <c>m_angRotation</c> are registered on
+    /// <c>C_BaseEntity</c> — <c>AddVar(&amp;m_vecOrigin, &amp;m_iv_vecOrigin, LATCH_SIMULATION_VAR)</c>
+    /// at <c>c_baseentity.cpp:905</c> — and a player is a <c>C_BaseEntity</c>. There is no separate
+    /// player position path to reproduce. TF2 adds exactly one interpolated variable of its own,
+    /// <c>m_angEyeAngles</c> (<c>c_tf_player.cpp:3874</c>).
+    ///
+    /// So the position here comes from the entity's own <see cref="ScenePropTrack"/> — the same
+    /// hermite spline, the same time renormalisation — rather than from a second implementation
+    /// that would drift from the first.
+    ///
+    /// **Team, class and health are not interpolated, and that is measured rather than assumed.**
+    /// Neither appears in any <c>AddVar</c> call in the client. They are discrete facts: a player
+    /// between 125 and 68 health was never on 96, and one changing team was never on a team
+    /// between the two.
+    /// </remarks>
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
+        {
+            into.Add(
+                _trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) &&
+                track.At(tick) is { } pose
+                    // **Yaw travels with the position, from the same pose.** Taking one and
+                    // discarding the other is what left every player facing north the moment they
+                    // stopped being a dot: the number was decoded and interpolated already, and
+                    // simply not carried the last few lines.
+                    ? player with { X = pose.X, Y = pose.Y, Z = pose.Z, Yaw = pose.Yaw }
+                    : player);
+        }
+    }
+
+    /// <summary>The interpolation track for one entity, when it has one.</summary>
+    /// <param name="entityIndex">The entity's slot.</param>
+    /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
+    /// <remarks>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer})"/>
+    /// should report.** Asserting a player's yaw against a literal would test the demo rather than
+    /// the code; asserting it against the track this reads from tests the plumbing between them,
+    /// which is where the number was being dropped.
+    /// </remarks>
+    public ScenePropTrack? TrackFor(int entityIndex) =>
+        _trackByEntity.TryGetValue(entityIndex, out ScenePropTrack? track) ? track : null;
 
     private static int? First(EntityState player, string[] keys)
     {

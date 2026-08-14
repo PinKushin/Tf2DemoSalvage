@@ -144,6 +144,32 @@ recording stopped, not that the file is damaged.
 
 **Evidence class: measured**, on 370 competitive demos from an ESEA archive.
 
+**Provenance, recovered 2026-08-13 and recorded because it had already been lost once.** The
+archive is **`http://demos.igmdb.org/`**, and calling it "an ESEA archive" undersells it twice
+over. It carries per-season directories across **several leagues and regions** - ETF2L (Europe),
+RGL (North America) and ozfortress (Australia) among them, alongside the ESEA seasons **29-32**
+this project's 370 demos came from. cp_process came from it too. It is run by IGMDb, which began
+as a fragmovie and demo-render site rather than as a league, which is why it outlived the leagues'
+own hosting - and why ESEA's expiry-date problem does not apply to it.
+
+That breadth matters here specifically: the era axis is short of protocols **12-13** and
+**17-23**, and a multi-league archive spans dates and regions that one league's seasons cannot.
+Worth walking before assuming a gap needs a period client and a manufactured recording.
+
+Three things about it are worth writing down rather than rediscovering:
+
+- **It is HTTP only in practice.** The host serves a certificate valid for `igmdb.org` and
+  `www.igmdb.org` and *not* for `demos.igmdb.org`, so any client that upgrades to HTTPS fails with
+  a name mismatch rather than a 404. That reads as "the archive is gone" and it is not.
+- **It is the exception, not the rule.** ESEA's own SourceTV demos shipped with expiry dates and
+  cannot be downloaded from the league; the community's standing advice is to ask individuals who
+  kept them. So this archive is a survivor, and the same fragility applies to it - the measurement
+  above should be treated as the durable artefact, not the link.
+
+The original write-up said only "an ESEA archive", which was enough to reproduce nothing. Any
+future corpus source gets named here at the time it is used, with the season or date range and the
+retrieval method - see also the Benroads collection in `docs/TIMELINE.md`.
+
 **159 of them — 43% — end in the middle of a command.** Every one stops within four kilobytes of
 the end of the file and none fails anywhere else; the median demo is 99.995% complete. So refusing
 a truncated file meant discarding a twenty-megabyte recording over its final two hundred bytes,

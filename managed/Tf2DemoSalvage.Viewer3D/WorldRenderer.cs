@@ -7,6 +7,9 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
+using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Diagnostics;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>One corner of a world triangle, ready for the GPU.</summary>
@@ -21,6 +24,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Red">Per-vertex light, one for anything that takes its light from the lightmap.</param>
 /// <param name="Green">Per-vertex light.</param>
 /// <param name="Blue">Per-vertex light.</param>
+/// <param name="NormalX">World surface normal, east-west; lights models from the ambient cube.</param>
+/// <param name="NormalY">World surface normal, north-south.</param>
+/// <param name="NormalZ">World surface normal, vertically.</param>
 /// <param name="LightStep">How far along the atlas each directional lightmap sits, or zero.</param>
 /// <remarks>
 /// **The per-vertex colour exists for static props and nothing else.** A brush face takes its light
@@ -30,13 +36,30 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
-    float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f);
+    float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
 /// <param name="FirstVertex">Where the run starts.</param>
 /// <param name="VertexCount">How many vertices it covers.</param>
 internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, int VertexCount);
+
+/// <summary>The sun as it reaches one model.</summary>
+/// <param name="Red">Intensity, linear, from the map's own emit_skylight.</param>
+/// <param name="Green">Intensity, linear.</param>
+/// <param name="Blue">Intensity, linear.</param>
+/// <param name="DirectionX">The direction the light travels, as the map stores it.</param>
+/// <param name="DirectionY">The direction the light travels.</param>
+/// <param name="DirectionZ">The direction the light travels.</param>
+/// <remarks>
+/// Present only for a model that traced to sky. A sky light is defined with that condition in
+/// Valve's own description — "surface must trace to SKY texture" — so a model in shade carries no
+/// sun rather than a dimmed one.
+/// </remarks>
+internal readonly record struct SunLight(
+    float Red, float Green, float Blue,
+    float DirectionX, float DirectionY, float DirectionZ);
 
 /// <summary>
 /// Draws a map with its own textures and its own baked lighting.
@@ -62,8 +85,13 @@ internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, i
 /// </remarks>
 internal sealed unsafe class WorldRenderer : IDisposable
 {
-    /// <summary>Bytes per vertex: three of position, two of texture, two of lightmap, one blend.</summary>
-    private const int VertexStride = sizeof(float) * 12;
+    /// <summary>Bytes per vertex: position, texture, lightmap, blend, colour, step and normal.</summary>
+    /// <remarks>
+    /// **The normal arrived for entity lighting**, since a model has no lightmap and is lit from
+    /// its leaf's ambient cube evaluated against the surface normal. Brush surfaces carry theirs
+    /// too rather than a placeholder: they already know it, and a free camera will want it.
+    /// </remarks>
+    private const int VertexStride = sizeof(float) * 15;
 
     private const string ShaderSource = """
         struct VsIn
@@ -73,6 +101,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
+            float3 nrm : TEXCOORD5;
             float  ls  : TEXCOORD4;
         };
 
@@ -83,6 +112,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
+            float3 nrm : TEXCOORD5;
             float  ls  : TEXCOORD4;
         };
 
@@ -98,6 +128,40 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //    hallways into last on cp_process being the case that asked for it. Zero draws
             //    everything.
             float4 surfaceColours;
+        };
+
+        // **The model transform, which is Valve's own shape.** IMaterialSystem::LoadBoneMatrix
+        // hands bone matrices to the shader as constants and the GPU transforms model-space
+        // vertices - which is why the engine draws a hundred animated models without noticing.
+        // Rebuilding vertices on the processor every frame is the thing that path exists to avoid.
+        //
+        // A rigid entity is the one-bone case: one matrix for the whole model. Skinning adds more
+        // matrices and a weight per vertex; nothing about this arrangement changes.
+        //
+        // Identity for the map's own geometry, which is already in world space.
+        cbuffer Model : register(b2)
+        {
+            row_major float4x4 model;
+
+            // **The ambient cube of the leaf this model stands in**, in the shader's own order:
+            // +X, -X, +Y, -Y, +Z, -Z. A model has no lightmap, so this is the light it gets - and
+            // without it every entity draws at full brightness, which is what made a medkit a pale
+            // square instead of a teal case.
+            //
+            // w of the first entry is 1 when the cube is real. An unlit model is drawn at full
+            // brightness deliberately, since a model lit by a cube nobody measured would be black.
+            float4 ambientCube[6];
+
+            // **The sun, and whether this model can see it.** rgb is the light's own intensity,
+            // linear, straight from the map's emit_skylight; w is 1 when the model's position
+            // traced to sky. Valve's own description of a sky light carries the condition in
+            // parentheses - "surface must trace to SKY texture" - so applying it without the
+            // trace lights the inside of every building.
+            float4 sunColour;
+
+            // xyz is the direction the light TRAVELS, as the map stores it, so a surface facing
+            // into it takes the dot product against its negation.
+            float4 sunDirection;
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -117,12 +181,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // x: 1 when the material has a bump map, 0 otherwise
             // y: 1 when that bump map is self-shadowing rather than a normal map
             // z: 1 when parts of the surface light themselves
-            // w: unused
+            // w: 1 when the material is ALPHA TESTED and its alpha is a cut-out
             float4 bump;
 
             // The colour the self-illuminated part is tinted by.
             float4 selfIllumTint;
         };
+
+        // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
+        // survives eight bits, and the shader doubles it back - Source's own shaders multiply an
+        // LDR lightmap by two for exactly this reason. Both halves have to be present or the map
+        // is out by a factor of two in one direction.
+        static const float OverbrightScale = 2.0f;
 
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
@@ -201,11 +271,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **World space in, clip space out.** The vertices are uploaded once in the map's own
             // coordinates and this matrix is the only thing that changes when the view does, so a
             // resize costs 64 bytes instead of rebuilding a couple of million vertices.
-            output.pos = mul(float4(input.pos, 1.0f), viewProjection);
+            // Model space to world, then world to clip. The map's geometry passes an identity
+            // model matrix, so it costs one multiply and keeps a single path for both.
+            float4 world = mul(float4(input.pos, 1.0f), model);
+            output.pos = mul(world, viewProjection);
             output.uv = input.uv;
             output.luv = input.luv;
             output.a = input.a;
             output.vc = input.vc;
+
+            // The normal is in the model's own space, so it turns with the model. Rotation only:
+            // the translation would move a direction, and the scale cancels once it is normalised.
+            output.nrm = normalize(mul(float4(input.nrm, 0.0f), model).xyz);
             output.ls = input.ls;
             return output;
         }
@@ -291,7 +368,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **After the combine, not before.** Four of the twelve modes write alpha, and alpha is
             // what this reads - so clipping first would test a value the material never asked to be
             // tested, and cut away pixels the engine keeps.
-            clip(albedo.a - 0.5f);
+            // **Only when the material asked for it**, which is what the engine does: alpha
+            // testing happens because a VMT says $alphatest, not because a texture happens to
+            // carry an alpha channel.
+            //
+            // This used to clip unconditionally, relying on opaque textures having their alpha
+            // flattened to 255 on upload. That holds for most of the map and fails for anything
+            // whose alpha is kept for another reason - a self-illuminated material, or a model
+            // texture with an unused alpha channel full of zeros. Every entity model in the demo
+            // was discarded pixel by pixel while its geometry, transform and draw call were all
+            // correct.
+            if (bump.w > 0.5f)
+            {
+                clip(albedo.a - 0.5f);
+            }
 
             // In the category view the vertex colour IS the answer, so the texture is dropped.
             if (surfaceColours.x > 0.5f)
@@ -306,9 +396,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // engine reads sets 1, 2 and 3 - the three ARE the lighting. Treating the flat set
                 // as a base with the others adding to it gives a plausible picture that is roughly
                 // twice as bright and flat where it should be shaped.
-                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb;
-                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb;
-                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb;
+                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb * OverbrightScale;
+                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb * OverbrightScale;
+                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb * OverbrightScale;
 
                 float4 texel = bumpMap.Sample(wrapSampler, input.uv);
 
@@ -321,7 +411,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
             else
             {
-                light = lightMap.Sample(clampSampler, input.luv).rgb;
+                light = lightMap.Sample(clampSampler, input.luv).rgb * OverbrightScale;
             }
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
@@ -331,6 +421,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **The vertex colour is a static prop's lightmap.** It is white for everything that
             // has a real one, so this multiply is an identity for brushwork and the whole map goes
             // through one shader rather than two.
+            // **A model is lit by its leaf's ambient cube, not by a lightmap.** Valve's
+            // VertexShaderAmbientLight, transcribed: the squared normal weights the three axis
+            // pairs, so a surface facing along an axis takes that face alone and the sum is one
+            // for a unit normal.
+            //
+            // ambientCube[0].w says whether a cube was supplied. Without one the model keeps its
+            // full brightness rather than going black, because a model lit by a cube nobody
+            // measured is worse than a model that is merely too bright.
+            if (ambientCube[0].w > 0.5f)
+            {
+                float3 nSquared = input.nrm * input.nrm;
+                int3 isNegative = (int3)(input.nrm < 0.0f);
+
+                light = nSquared.x * ambientCube[isNegative.x].rgb +
+                        nSquared.y * ambientCube[isNegative.y + 2].rgb +
+                        nSquared.z * ambientCube[isNegative.z + 4].rgb;
+
+                // **The direct term, added to the ambient one rather than replacing it.** The cube
+                // is the shade; the sun is what makes daylight bright. istudiorender.h describes
+                // the cube as "ambient, and lights that aren't in locallight[]", so the two are
+                // meant to sum.
+                //
+                // Lambert against the surface: a face turned away from the sun takes none of it,
+                // which is what gives a model its shape instead of a flat wash.
+                if (sunColour.w > 0.5f)
+                {
+                    light += sunColour.rgb * saturate(dot(input.nrm, -sunDirection.xyz));
+                }
+            }
+
             float3 lit = albedo.rgb * light * input.vc;
 
             if (mode >= 0)
@@ -355,6 +475,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11InputLayout> _layout;
     private ComPtr<ID3D11Buffer> _vertices;
     private ComPtr<ID3D11Buffer> _camera;
+    private ComPtr<ID3D11Buffer> _model;
+
+    /// <summary>Entity model geometry, in model space, uploaded once.</summary>
+    private ComPtr<ID3D11Buffer> _modelVertices;
+
+    private Dictionary<string, IReadOnlyList<WorldBatch>> _modelBatches =
+        new(StringComparer.OrdinalIgnoreCase);
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
@@ -382,22 +509,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return default;
         }
 
-        // **Self-illuminated materials keep their alpha even though they are opaque.** That
-        // channel is the mask deciding which parts light themselves; flattened to 255 the whole
-        // surface glows rather than just the lamp in the middle of it.
-        if (present.IsTransparent || present.SelfIllum is not null)
-        {
-            return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
-        }
-
-        byte[] opaque = present.Pixels.ToArray();
-
-        for (int at = 3; at < opaque.Length; at += 4)
-        {
-            opaque[at] = 255;
-        }
-
-        return CreateTexture(device, context, present.Width, present.Height, opaque);
+        // **Alpha is uploaded as it was authored, and nothing is flattened.**
+        //
+        // This used to force alpha to 255 for anything not transparent or self-illuminated, and
+        // the reason was a workaround: the pixel shader clipped on alpha unconditionally, so an
+        // opaque material whose texture carried a stray alpha channel would have been cut away
+        // entirely.
+        //
+        // That clip is now gated on the material's own $alphatest flag, which is what the engine
+        // does - EnableAlphaTest( IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) ) - so the workaround
+        // protects nothing and costs the alpha that decals and translucent materials need to blend
+        // with. A decal drawn against a flattened alpha paints its whole quad as solid colour,
+        // which is what made the patch under a health pack look like a placeholder marker.
+        return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
     }
 
     /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
@@ -470,11 +594,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// m_DepthBias_Decal = -262144;
     /// </code>
     ///
-    /// Against a 24-bit depth buffer, -262144 is a push of 262144 / 2^24, about 1.6% of the range.
-    /// Without it a decal shares its surface's depth exactly and the two flicker against each
-    /// other as the view moves.
+    /// Against a 24-bit depth buffer, -262144 is a push of 262144 / 2^24, about **1.6% of the
+    /// range** — and that is the trap. Valve's projection is perspective, where most of the depth
+    /// range sits close to the camera, so 1.6% near the surface being decalled is a fraction of a
+    /// unit. This projection is orthographic over the whole map's height: 1.6% of a 1,600-unit
+    /// range is **twenty-five world units**, which is taller than a health pack.
+    ///
+    /// The visible result was a decal painted over the pickup standing on it, with the pack's
+    /// shape faintly showing through — reported as "the health packs are not drawing" and chased
+    /// through the model pipeline for an evening. Comparing against TF2 itself is what settled it:
+    /// in game the pack sits clearly on top of a much smaller patch.
+    ///
+    /// So the bias is computed from the map's own height range to be worth about one world unit,
+    /// which is what Valve's constant achieves in Valve's projection. Copying the number without
+    /// matching the projection copies the intent and inverts the effect.
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
+
+    /// <summary>Depth bias used until the map's height range is known.</summary>
+    /// <remarks>
+    /// Sized for a range of about 1,600 units, which is a typical TF2 map: one unit of a 24-bit
+    /// range is 2^24 / 1600, near enough ten thousand. <see cref="SetDecalBias"/> replaces it with
+    /// the real arithmetic once the map has been read.
+    /// </remarks>
+    private const int DefaultDecalBias = -10000;
 
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
@@ -600,6 +743,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 AlignedByteOffset = sizeof(float) * 11,
                 InputSlotClass = InputClassification.PerVertexData,
             },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 5,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 12,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
         ];
 
         ComPtr<ID3D11InputLayout> layout = default;
@@ -632,10 +783,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> bothSides = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in rasterizer, ref bothSides));
 
-        // The same state pulled toward the camera by Valve's own decal bias.
+        // The same state pulled toward the camera, by an amount worth about a world unit rather
+        // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
 
-        biased.DepthBias = -262144;
+        biased.DepthBias = DefaultDecalBias;
         biased.SlopeScaledDepthBias = -0.5f;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
@@ -813,6 +965,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float glowGreen = glow?.Green ?? 1f;
             float glowBlue = glow?.Blue ?? 1f;
 
+            // **Alpha testing is a material property, which is what the engine treats it as.**
+            // A material keeps its alpha channel when it is transparent or self-illuminated; only
+            // an ALPHA-TESTED one wants that channel used as a cut-out. Translucent materials keep
+            // alpha for blending and must not be clipped by it.
+            float alphaTested = surface is { IsTransparent: true, IsTranslucent: false } ? 1f : 0f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -827,7 +985,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasBump,
                     isSelfShadowing,
                     hasGlow,
-                    0f,
+                    alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
                 ]
                 :
@@ -837,13 +995,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasBump,
                     isSelfShadowing,
                     hasGlow,
-                    0f,
+                    alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
                 ]);
         }
 
+        // **Linear, not sRGB.** A lightmap is light rather than a picture: linearising it on
+        // sampling would apply the curve to values that never had it, darkening every shadow.
         _lightmap = CreateTexture(
-            device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
+            device,
+            context,
+            assets.Lightmaps.Width,
+            assets.Lightmaps.Height,
+            assets.Lightmaps.Pixels,
+            srgb: false);
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
         ViewerLog.Write(
@@ -892,7 +1057,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 12];
+        float[] data = new float[vertices.Count * 15];
         int at = 0;
 
         foreach (WorldVertex vertex in vertices)
@@ -909,6 +1074,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.Green;
             data[at++] = vertex.Blue;
             data[at++] = vertex.LightStep;
+            data[at++] = vertex.NormalX;
+            data[at++] = vertex.NormalY;
+            data[at++] = vertex.NormalZ;
         }
 
         CreateVertexBuffer(device, data);
@@ -990,6 +1158,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetShaderResources(1, 1, ref _lightmap);
 
         EnsureMaterialBuffer(context);
+
+        // The map's own geometry is already in world space, so it draws with an identity model
+        // matrix. Set every frame rather than once: an entity draw leaves its own matrix behind,
+        // and inheriting it would move the whole map to wherever the last rocket was.
+        SetModel(context, Identity);
 
         // **Opaque first, additive after.** An additive fragment brightens whatever is behind it,
         // so anything drawn later would be added to nothing.
@@ -1117,6 +1290,142 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private static readonly float[] NoDetail =
         [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f];
 
+    /// <summary>The model matrix for geometry already in world space.</summary>
+    private static readonly float[] Identity =
+    [
+        1f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        0f, 0f, 0f, 1f,
+    ];
+
+    /// <summary>Sets the transform applied to the vertices before the camera sees them.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="matrix">Sixteen floats, row major.</param>
+    /// <param name="light">The ambient cube lighting this model, or null to leave it unlit.</param>
+    /// <param name="sun">The sun reaching this model, or null when it stands in shade.</param>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
+    /// <remarks>
+    /// **Valve's arrangement, and the reason it matters here.**
+    /// <c>IMaterialSystem::LoadBoneMatrix</c> hands bone matrices to the shader as constants and
+    /// the GPU transforms model-space vertices — which is how the engine draws a great many
+    /// animated models without noticing. Rebuilding vertices on the processor each frame is
+    /// precisely what that path avoids, and a viewer that did it would feel slow where TF2 does
+    /// not.
+    ///
+    /// A rigid entity is the one-bone case. Skinning adds more matrices and a weight per vertex;
+    /// this arrangement does not change.
+    /// </remarks>
+    public void SetModel(
+        ComPtr<ID3D11DeviceContext> context,
+        float[] matrix,
+        AmbientCube? light = null,
+        SunLight? sun = null)
+    {
+        ArgumentNullException.ThrowIfNull(matrix);
+
+        if (matrix.Length != 16)
+        {
+            throw new ArgumentException("A model matrix is sixteen floats.", nameof(matrix));
+        }
+
+        EnsureModelBuffer(context);
+
+        // Sixteen for the matrix, then six float4s for the cube: the faces in the shader's own
+        // order, with w on the first saying whether a cube was supplied at all.
+        float[] contents = new float[ModelConstants];
+
+        Array.Copy(matrix, contents, 16);
+
+        if (light is { } cube)
+        {
+            WriteFace(contents, 16, cube.PositiveX);
+            WriteFace(contents, 20, cube.NegativeX);
+            WriteFace(contents, 24, cube.PositiveY);
+            WriteFace(contents, 28, cube.NegativeY);
+            WriteFace(contents, 32, cube.PositiveZ);
+            WriteFace(contents, 36, cube.NegativeZ);
+
+            contents[19] = 1f;
+        }
+
+        // The sun follows the cube: colour and "is it reaching this model", then the direction it
+        // travels. Left at zero when the map has no sun or this model stands in shade, which the
+        // shader reads as "no direct light" rather than as black.
+        if (sun is { } direct)
+        {
+            contents[40] = direct.Red;
+            contents[41] = direct.Green;
+            contents[42] = direct.Blue;
+            contents[43] = 1f;
+            contents[44] = direct.DirectionX;
+            contents[45] = direct.DirectionY;
+            contents[46] = direct.DirectionZ;
+        }
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = contents)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, sizeof(float) * ModelConstants, sizeof(float) * ModelConstants);
+        }
+
+        context.Unmap(_model, 0);
+
+        // **Both stages, because both read it now.** The vertex shader takes the matrix and the
+        // pixel shader takes the ambient cube. This was bound to the vertex stage alone, with a
+        // comment saying the pixel shader had no use for it - true when the buffer held only a
+        // matrix, and false the moment lighting arrived.
+        //
+        // The failure is silent in the worst way: D3D hands the pixel shader zeros, so the cube's
+        // "is this real" flag reads false and every model draws exactly as it did before. Two
+        // captures of the same view came back byte for byte identical, which is the only reason
+        // it was noticed. The camera buffer made this same mistake once and cost a session.
+        context.VSSetConstantBuffers(2, 1, ref _model);
+        context.PSSetConstantBuffers(2, 1, ref _model);
+    }
+
+    /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
+    private const int ModelConstants = 16 + (6 * 4) + 4 + 4;
+
+    /// <summary>Writes one cube face, leaving its w alone.</summary>
+    private static void WriteFace(float[] into, int at, (float Red, float Green, float Blue) face)
+    {
+        into[at] = face.Red;
+        into[at + 1] = face.Green;
+        into[at + 2] = face.Blue;
+    }
+
+    private void EnsureModelBuffer(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_model.Handle is not null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11Device> device = default;
+
+        context.GetDevice(ref device);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = sizeof(float) * ModelConstants,
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+        _model = buffer;
+        device.Dispose();
+    }
+
     private void EnsureMaterialBuffer(ComPtr<ID3D11DeviceContext> context)
     {
         if (_material.Handle is not null)
@@ -1234,6 +1543,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         context.RSSetState(_decalOffset);
+
+        // **Blended, because a decal is a stain on a surface rather than a surface of its own.**
+        // This pass set the depth bias and no blend state, so every overlay drew fully opaque: a
+        // flat coloured square painted over the ground instead of tinting it. The patch under a
+        // health pack looked like a placeholder marker, and was read as one for an evening.
+        //
+        // The engine blends them too - a decal material is translucent, and its alpha is the shape
+        // of the stain. Drawn opaque, the transparent surround is painted as solid colour, which
+        // is why the squares had hard edges no decal in the game has.
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        if (_alphaBlend.Handle is not null)
+        {
+            context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
+        }
 
         foreach (WorldBatch batch in _decals)
         {
@@ -1359,6 +1683,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseMap();
         _material.Dispose();
         _camera.Dispose();
+        _model.Dispose();
+        _modelVertices.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _clampSampler.Dispose();
@@ -1417,6 +1743,178 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _batches = [];
     }
 
+    /// <summary>Uploads every entity model's triangles, in model space.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="vertices">Packed model geometry; may be empty.</param>
+    /// <param name="batches">Each model's runs, keyed by its path.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="vertices"/> is null.</exception>
+    /// <remarks>
+    /// **A second buffer rather than a bigger one**, because the two have entirely different
+    /// lifetimes: the map's geometry is rebuilt when the world is, and this grows only when a
+    /// model the demo has not shown before appears. Merging them would rebuild the map every time
+    /// a new rocket type turned up.
+    ///
+    /// Uploaded whole each time a model is added, which is rare and bounded — a match uses a few
+    /// hundred distinct models and every one of them is known within a few seconds of playback.
+    /// </remarks>
+    public void UploadModels(
+        ComPtr<ID3D11Device> device,
+        IReadOnlyList<WorldVertex> vertices,
+        Dictionary<string, IReadOnlyList<WorldBatch>> batches)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        _modelBatches = batches;
+
+        _modelVertices.Dispose();
+        _modelVertices = default;
+
+        if (vertices.Count == 0)
+        {
+            return;
+        }
+
+        float[] data = new float[vertices.Count * 15];
+        int at = 0;
+
+        foreach (WorldVertex vertex in vertices)
+        {
+            data[at++] = vertex.X;
+            data[at++] = vertex.Y;
+            data[at++] = vertex.Depth;
+            data[at++] = vertex.U;
+            data[at++] = vertex.V;
+            data[at++] = vertex.LightU;
+            data[at++] = vertex.LightV;
+            data[at++] = vertex.Alpha;
+            data[at++] = vertex.Red;
+            data[at++] = vertex.Green;
+            data[at++] = vertex.Blue;
+            data[at++] = vertex.LightStep;
+            data[at++] = vertex.NormalX;
+            data[at++] = vertex.NormalY;
+            data[at++] = vertex.NormalZ;
+        }
+
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)(data.Length * sizeof(float)),
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        fixed (float* first = data)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+
+            SilkMarshal.ThrowHResult(
+                device.CreateBuffer(in description, in initial, ref _modelVertices));
+        }
+    }
+
+    /// <summary>Sizes the decal bias for the map's own height range.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="worldRange">Highest world height minus lowest, in units.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="worldRange"/> is not positive.</exception>
+    /// <remarks>
+    /// **A world unit, whatever the map.** The depth buffer spans the map's whole height, so the
+    /// same bias means different distances on different maps — a tall map would push its decals
+    /// further through whatever stands on them. One unit is enough to stop a decal fighting the
+    /// surface it lies on and far less than the smallest thing that can stand on one.
+    /// </remarks>
+    public void SetDecalBias(ComPtr<ID3D11Device> device, float worldRange)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(worldRange);
+
+        RasterizerDesc description = new()
+        {
+            FillMode = FillMode.Solid,
+            CullMode = CullMode.None,
+            DepthClipEnable = 1,
+            DepthBias = -(int)(16777216.0 / worldRange),
+            SlopeScaledDepthBias = -0.5f,
+        };
+
+        ComPtr<ID3D11RasterizerState> replacement = default;
+
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref replacement));
+
+        _decalOffset.Dispose();
+        _decalOffset = replacement;
+    }
+
+    /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <returns>Its runs, indexing into the model buffer.</returns>
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) =>
+        _modelBatches.TryGetValue(modelPath, out IReadOnlyList<WorldBatch>? batches) ? batches : [];
+
+    /// <summary>Draws one posed model.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="matrix">Where it stands: sixteen floats, row major.</param>
+    /// <param name="batches">Its runs, indexing into the model buffer.</param>
+    /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
+    /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
+    /// uploaded once and never move; only this constant changes between instances. Callers set the
+    /// map's identity matrix back afterwards — see <see cref="Draw"/>, which does so every frame
+    /// precisely because an entity draw leaves its own matrix behind.
+    /// </remarks>
+    public void DrawModel(
+        ComPtr<ID3D11DeviceContext> context,
+        float[] matrix,
+        IReadOnlyList<WorldBatch> batches,
+        AmbientCube? light = null,
+        SunLight? sun = null)
+    {
+        ArgumentNullException.ThrowIfNull(matrix);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        if (_modelVertices.Handle is null)
+        {
+            // Not silent: a caller asking to draw a model when nothing was uploaded is a wiring
+            // fault, and it looks exactly like a model that is correctly invisible.
+            DecodeLog.Lost("render", "a model was posed before any model geometry was uploaded");
+            return;
+        }
+
+        if (batches.Count == 0)
+        {
+            // Not silent either. A posed model with no batches means the renderer's copy of the
+            // packed set is older than the caller's, which draws nothing and reports nothing.
+            DecodeLog.Lost("render", "a model was posed but the renderer has no geometry for it");
+            return;
+        }
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
+
+        SetModel(context, matrix, light, sun);
+
+        foreach (WorldBatch batch in batches)
+        {
+            ComPtr<ID3D11ShaderResourceView> texture =
+                batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
+                _textures[batch.MaterialIndex].Handle is not null
+                    ? _textures[batch.MaterialIndex]
+                    : _white;
+
+            context.PSSetShaderResources(0, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(3, 1, ref _white);
+            context.PSSetShaderResources(4, 1, ref _white);
+
+            SetMaterial(context, batch.MaterialIndex);
+
+            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        }
+    }
+
     private void CreateVertexBuffer(ComPtr<ID3D11Device> device, float[] data)
     {
         BufferDesc description = new()
@@ -1452,12 +1950,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// The cost is that the texture can no longer be immutable — generating mips writes to it — so
     /// it is Default usage with a render-target bind, which is what GenerateMips requires.
     /// </remarks>
+    /// <remarks>
+    /// **The sRGB flag decides whether the hardware linearises on sampling**, which is what makes
+    /// the shader's arithmetic linear (B54). A texture is a picture and wants it; a lightmap is
+    /// light and does not, since linearising values that never carried the curve darkens every
+    /// shadow in the map.
+    /// </remarks>
     private static ComPtr<ID3D11ShaderResourceView> CreateTexture(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         int width,
         int height,
-        ReadOnlySpan<byte> pixels)
+        ReadOnlySpan<byte> pixels,
+        bool srgb = true)
     {
         Texture2DDesc description = new()
         {
@@ -1467,7 +1972,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // Zero means "every level down to 1x1", which the driver fills in.
             MipLevels = 0,
             ArraySize = 1,
-            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
+            Format = srgb
+                ? Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb
+                : Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),

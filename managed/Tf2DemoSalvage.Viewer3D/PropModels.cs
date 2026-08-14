@@ -18,11 +18,15 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="OriginY">Where the placement stands, north-south.</param>
 /// <param name="Red">Baked lighting, one where the placement has none.</param>
 /// <param name="Green">Baked lighting, one where the placement has none.</param>
+/// <param name="NormalX">Surface normal, east-west, in the model own space.</param>
+/// <param name="NormalY">Surface normal, north-south.</param>
+/// <param name="NormalZ">Surface normal, vertically.</param>
 /// <param name="Blue">Baked lighting, one where the placement has none.</param>
 internal readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
-    float Red = 1f, float Green = 1f, float Blue = 1f);
+    float Red = 1f, float Green = 1f, float Blue = 1f,
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -296,7 +300,40 @@ internal static class PropModels
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
-    private static LoadedModel? Read(
+    /// <summary>Reads one model for an entity to wear, in the model's own coordinates.</summary>
+    /// <param name="path">The model path, as modelprecache named it.</param>
+    /// <param name="pak">The map's embedded files, which override the game's.</param>
+    /// <param name="archives">The game's own archives.</param>
+    /// <param name="materials">Material table to register this model's materials in.</param>
+    /// <param name="textures">Texture list, kept in step with the materials.</param>
+    /// <param name="load">Resolves a material path to a texture.</param>
+    /// <returns>The triangles, or <c>null</c> when the model could not be read.</returns>
+    /// <remarks>
+    /// **Its materials join the map's table**, so the renderer binds them the same way it binds a
+    /// brush face's and one texture upload covers everything. That is why entity models are
+    /// loaded with the map rather than during playback: growing the table afterwards would mean
+    /// re-uploading the textures mid-match.
+    ///
+    /// Its own material index cache, because this is called once per model rather than in the loop
+    /// static props use — and sharing one across calls would keep a dictionary alive for the life
+    /// of the map to save a lookup per model.
+    /// </remarks>
+    internal static IReadOnlyList<PropVertex>? LoadOne(
+        string path,
+        PakFile pak,
+        GameArchives archives,
+        List<BspMaterial> materials,
+        List<MapTexture?> textures,
+        Func<string, MapTexture?> load) =>
+        Read(path, pak, archives, materials, textures, [], load)?.Corners;
+
+    /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
+    /// <remarks>
+    /// Internal rather than private because networked entities need the same thing: a model loaded
+    /// once, in model space, to be posed per instance. A static prop is posed by the map and an
+    /// entity is posed by the demo, and only the transform differs.
+    /// </remarks>
+    internal static LoadedModel? Read(
         string path,
         PakFile pak,
         GameArchives archives,
@@ -337,6 +374,37 @@ internal static class PropModels
             IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(vertexFile);
             IReadOnlyList<IReadOnlyList<StudioCorner>> meshes = StudioTriangles.Read(indexFile, model);
 
+            // **The skeleton, which decides whether the model stands up.** A model compiled with
+            // $staticprop has its bone transform baked into the vertices and names no bone
+            // weights, so skinning it is an identity and costs a multiply. An animated model does
+            // not, and drawing its vertices raw lays it on its side - measured as a player 84
+            // units long on Y with only 25 on Z, where a TF2 player is 83 units TALL.
+            IReadOnlyList<StudioBone> bones = StudioBones.Read(modelFile);
+
+            // **Frame zero of the model's first animation, which is what stands it up.** The rest
+            // pose of a TF2 player is lying along Y, so a skeleton with no animation applied is an
+            // identity and the model draws flat. Static props are unaffected either way: one bone,
+            // one unit weight, and no animation to find.
+            IReadOnlyList<StudioBonePose> pose =
+                StudioAnimation.Pose(modelFile, bones, animation: 0, frame: 0);
+
+            StudioSkeleton skeleton = StudioBones.Posed(bones, pose);
+
+            // **Logged for every model, because a skinning step that quietly does nothing is
+            // indistinguishable from one that is not needed.** A static prop legitimately reports
+            // no weights; an animated model reporting none means the weights were not read.
+            if (vertices.Count > 0)
+            {
+                StudioVertex sample = vertices[vertices.Count / 2];
+
+                ViewerLog.Write(
+                    "props",
+                    $"skeleton {path}: {skeleton.Count} bones, {StudioAnimation.Count(modelFile)} " +
+                    $"animations, {pose.Count} bones posed, sample vertex bones " +
+                    $"({sample.Bones.First},{sample.Bones.Second},{sample.Bones.Third}) weights " +
+                    $"({sample.Weights.First:0.###},{sample.Weights.Second:0.###},{sample.Weights.Third:0.###})");
+            }
+
             List<PropVertex> corners = [];
             List<int> cornerMeshes = [];
             List<int> cornerVertices = [];
@@ -357,8 +425,17 @@ internal static class PropModels
                 {
                     StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
 
+                    // **The normal comes along now.** A static prop is lit by baked vertex
+                    // colours and never needed it; an entity is lit from its leaf's ambient cube,
+                    // which is evaluated against the surface normal.
+                    (float x, float y, float z) = skeleton.Skin(
+                        vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
+
                     corners.Add(new PropVertex(
-                        vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, material));
+                        x, y, z, vertex.U, vertex.V, material,
+                        NormalX: vertex.NormalX,
+                        NormalY: vertex.NormalY,
+                        NormalZ: vertex.NormalZ));
 
                     // **Position by mesh vertex, colour by strip group vertex.** They are different
                     // orderings of the same surface, and using one for both speckles the prop.
@@ -448,7 +525,8 @@ internal static class PropModels
     /// the colours are looked up per placement — which needs to know, for each corner, which mesh
     /// and which vertex of it produced that corner.
     /// </remarks>
-    private sealed record LoadedModel(
+    /// <summary>One model's triangles, in model space, with its materials resolved.</summary>
+    internal sealed record LoadedModel(
         IReadOnlyList<PropVertex> Corners,
         IReadOnlyList<int> Meshes,
         IReadOnlyList<int> Vertices,

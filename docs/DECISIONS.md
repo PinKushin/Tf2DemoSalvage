@@ -1360,3 +1360,41 @@ rewriting, but it touches no application code.
 Practical consequence for anyone reading this later: **`ViewerApplication` is the only file that
 references FlaUI types.** Tests speak to it, not to the library, so the blast radius of that
 migration is one file plus whatever assertions genuinely depend on driver behaviour.
+
+## D21 — geometry is world space; the camera is the only thing that knows about the view
+
+**Decided 2026-08-13**, while wiring entity models into the viewer, and it changes what "add
+models" means.
+
+The renderer's vertex shader was already camera-agnostic:
+
+```hlsl
+output.pos = mul(float4(input.pos, 1.0f), viewProjection);
+```
+
+Two things around it were not, and both were reasonable when the only camera was an overhead one:
+
+- **The vertex's third component is a precomputed `Depth`** — world height, inverted — rather than
+  world Z.
+- **The camera matrix ignores Z**, with the row `0, 0, 1, 0` and the note "Z passes through
+  untouched". Depth is computed before the matrix ever runs.
+
+That is a top-down projection baked into the geometry. It works, and it cost nothing while nothing
+else existed, but **models must not be built on it**: a model whose vertices are already flattened
+for one camera has to be rebuilt for the next one, and the point of the top-down view is that it is
+one camera among several. The owner's framing, which decided this: the top-down view *is* a free
+camera at its core, and everything built for animation and props should work unchanged for a free
+camera and for a point-of-view camera.
+
+**So: vertices carry world X, Y, Z. The camera matrix does the projecting.** Overhead becomes an
+orthographic matrix that maps world height into the depth range; a free camera and a first-person
+camera are different matrices over the same geometry. Nothing in a model, a prop, an animation or
+an interpolated pose learns which camera is looking at it.
+
+This is also what the engine does, and following it is the whole reason to look: a studio model in
+Source is world-space geometry posed by bone matrices, and the view is a separate transform applied
+after. Flattening geometry per camera is a thing this project invented, not a thing Source does.
+
+**Consequence for the height cut.** The overhead view's "take the roof off" cutting plane currently
+works on the precomputed depth. It becomes a world-height test instead, which is what it always
+meant — and it is the mechanism B49's black lids need, so the two land together.

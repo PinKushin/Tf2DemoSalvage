@@ -38,6 +38,10 @@ it, because a second copy is a copy that goes stale.
 | [14-playback-parity.md](14-playback-parity.md) | What TF2 gives you when it plays an STV demo natively |
 | [15-detail-textures.md](15-detail-textures.md) | The `$detail` chain: twelve combine modes, and three traps in them |
 | [16-bumped-lighting.md](16-bumped-lighting.md) | `$bumpmap`: four lightmaps per face, and why set 0 is not one of them |
+| [17-translucency.md](17-translucency.md) | What makes a surface see-through, and why `$alphatest` cancels `$translucent` |
+| [18-decals.md](18-decals.md) | Overlays: a basis smuggled through unused corner components, and the published depth bias |
+| [19-model-indices.md](19-model-indices.md) | Where a networked entity's model comes from, and the packing protocol ≤ 20 applied to it |
+| [20-interpolation.md](20-interpolation.md) | Turning stored keyframes into motion: three quantities, three rules, one gap left open |
 
 ## Which of this is original
 
