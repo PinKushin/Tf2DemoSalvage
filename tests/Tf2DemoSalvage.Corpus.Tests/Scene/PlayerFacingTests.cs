@@ -129,6 +129,69 @@ public sealed class PlayerFacingTests
     }
 
     [Test]
+    public void WhatDoesADemoGiveAnAnimationStateToWorkFrom()
+    {
+        // **CTFPlayerAnimState needs three things**, and this asks the corpus for each. Horizontal
+        // speed decides standing against running (GetOuterXYSpeed against MOVING_MINIMUM_SPEED),
+        // FL_DUCKING decides crouching, and the eye yaw aims the upper body.
+        //
+        // Speed is not networked as such but positions are, so it can be differenced. Whether that
+        // produces sane numbers - a TF2 scout runs at 400 units a second, a heavy at 230 - is the
+        // measurement, because a derived quantity that comes out wrong is worse than one missing.
+        foreach (string path in Corpus.FilesWithSchema().Take(4))
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+            Dictionary<int, (float X, float Y, int Tick)> last = [];
+            float fastest = 0f;
+            int moving = 0;
+            int still = 0;
+
+            foreach (TimelineFrame frame in timeline.Frames)
+            {
+                List<ScenePlayer> players = [];
+                timeline.PlayersAt(frame.Tick, players);
+
+                foreach (ScenePlayer player in players.Where(player => player.IsPlaying))
+                {
+                    if (last.TryGetValue(player.EntityIndex, out (float X, float Y, int Tick) was) &&
+                        frame.Tick > was.Tick)
+                    {
+                        float seconds = (frame.Tick - was.Tick) * timeline.IntervalPerTick;
+
+                        if (seconds > 0f)
+                        {
+                            float speed = MathF.Sqrt(
+                                ((player.X - was.X) * (player.X - was.X)) +
+                                ((player.Y - was.Y) * (player.Y - was.Y))) / seconds;
+
+                            // Ignore teleports: a respawn moves a player across the map in a tick.
+                            if (speed < 2000f)
+                            {
+                                fastest = MathF.Max(fastest, speed);
+                                _ = speed > 10f ? moving++ : still++;
+                            }
+                        }
+                    }
+
+                    last[player.EntityIndex] = (player.X, player.Y, frame.Tick);
+                }
+            }
+
+            // **The fastest figure is an artefact and is printed as one.** It lands at 1985 to
+            // 1996 on every demo, immediately under the 2000 cutoff above - the sign of a clamped
+            // distribution rather than a measured maximum, since a respawn moves a player across
+            // the map in one tick and the filter is what those readings hit. The usable result is
+            // the split: speed separates moving from still, which is the input HandleMoving needs.
+            TestContext.Out.WriteLine(
+                $"PANIM {Path.GetFileName(path)}: {moving} moving samples, {still} still, " +
+                $"fastest under the teleport cutoff {fastest:0} (clamped, not a real maximum)");
+        }
+
+        Assert.Pass();
+    }
+
+    [Test]
     public void PlayersInAMatch_DoNotAllFaceTheSameWay()
     {
         // The control for the test above, stated as its own experiment rather than a note. Yaw
