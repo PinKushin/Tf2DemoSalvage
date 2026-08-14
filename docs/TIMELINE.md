@@ -611,3 +611,26 @@ protocol. Candidates come from `DepotDownloader` against app 440 depot 441 with 
 **Either route settles several rows at once**, which is why this is the highest-value acquisition
 left: the 5-bit message type boundary, the `SendPropType` renumbering, and both are currently
 graded *bounded* across this same gap.
+
+## Where the specimens came from
+
+**Benroads kept demos from 2013 when nobody was keeping demos.**
+
+The gap this document keeps naming — protocols 17 to 23, roughly the run-up to the Steampipe-era
+format — exists because TF2's competitive scene of that period cast over Mumble rather than
+recording, and because demos.tf did not exist yet to archive anything centrally. There was no
+institution keeping them. What survives, survives because an individual chose not to delete it.
+
+Benroads has around 53.5 GB spanning 2013 to 2017 and is sending a few per year. A few per year is
+exactly the right shape for this corpus: the committed set grows for a **new protocol**, not for
+volume, since GitHub's free Git LFS tier is 1 GiB a month and every CI job pays it. A single demo
+from early 2013 is worth more here than a hundred from 2016, because it may carry a protocol
+nothing else in the corpus exercises.
+
+Also from that scene: the ESEA seasons 29–32 archive, which is where `cp_process_f12` came from.
+Those are 2018–19 and therefore protocol 24, so they add maps and volume rather than era coverage.
+
+Worth stating plainly, because it will matter to whoever reads this later: **the era axis of this
+project is not the product of a plan.** It is the product of a handful of people who still had the
+files. Every row above that is measured rather than interpolated exists because somebody kept
+something they had no particular reason to keep.

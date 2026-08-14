@@ -45,6 +45,22 @@ internal readonly record struct WorldVertex(
 /// <param name="VertexCount">How many vertices it covers.</param>
 internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, int VertexCount);
 
+/// <summary>The sun as it reaches one model.</summary>
+/// <param name="Red">Intensity, linear, from the map's own emit_skylight.</param>
+/// <param name="Green">Intensity, linear.</param>
+/// <param name="Blue">Intensity, linear.</param>
+/// <param name="DirectionX">The direction the light travels, as the map stores it.</param>
+/// <param name="DirectionY">The direction the light travels.</param>
+/// <param name="DirectionZ">The direction the light travels.</param>
+/// <remarks>
+/// Present only for a model that traced to sky. A sky light is defined with that condition in
+/// Valve's own description — "surface must trace to SKY texture" — so a model in shade carries no
+/// sun rather than a dimmed one.
+/// </remarks>
+internal readonly record struct SunLight(
+    float Red, float Green, float Blue,
+    float DirectionX, float DirectionY, float DirectionZ);
+
 /// <summary>
 /// Draws a map with its own textures and its own baked lighting.
 /// </summary>
@@ -135,6 +151,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // w of the first entry is 1 when the cube is real. An unlit model is drawn at full
             // brightness deliberately, since a model lit by a cube nobody measured would be black.
             float4 ambientCube[6];
+
+            // **The sun, and whether this model can see it.** rgb is the light's own intensity,
+            // linear, straight from the map's emit_skylight; w is 1 when the model's position
+            // traced to sky. Valve's own description of a sky light carries the condition in
+            // parentheses - "surface must trace to SKY texture" - so applying it without the
+            // trace lights the inside of every building.
+            float4 sunColour;
+
+            // xyz is the direction the light TRAVELS, as the map stores it, so a surface facing
+            // into it takes the dot product against its negation.
+            float4 sunDirection;
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -160,6 +187,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // The colour the self-illuminated part is tinted by.
             float4 selfIllumTint;
         };
+
+        // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
+        // survives eight bits, and the shader doubles it back - Source's own shaders multiply an
+        // LDR lightmap by two for exactly this reason. Both halves have to be present or the map
+        // is out by a factor of two in one direction.
+        static const float OverbrightScale = 2.0f;
 
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
@@ -363,9 +396,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // engine reads sets 1, 2 and 3 - the three ARE the lighting. Treating the flat set
                 // as a base with the others adding to it gives a plausible picture that is roughly
                 // twice as bright and flat where it should be shaped.
-                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb;
-                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb;
-                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb;
+                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb * OverbrightScale;
+                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb * OverbrightScale;
+                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb * OverbrightScale;
 
                 float4 texel = bumpMap.Sample(wrapSampler, input.uv);
 
@@ -378,7 +411,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
             else
             {
-                light = lightMap.Sample(clampSampler, input.luv).rgb;
+                light = lightMap.Sample(clampSampler, input.luv).rgb * OverbrightScale;
             }
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
@@ -404,6 +437,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 light = nSquared.x * ambientCube[isNegative.x].rgb +
                         nSquared.y * ambientCube[isNegative.y + 2].rgb +
                         nSquared.z * ambientCube[isNegative.z + 4].rgb;
+
+                // **The direct term, added to the ambient one rather than replacing it.** The cube
+                // is the shade; the sun is what makes daylight bright. istudiorender.h describes
+                // the cube as "ambient, and lights that aren't in locallight[]", so the two are
+                // meant to sum.
+                //
+                // Lambert against the surface: a face turned away from the sun takes none of it,
+                // which is what gives a model its shape instead of a flat wash.
+                if (sunColour.w > 0.5f)
+                {
+                    light += sunColour.rgb * saturate(dot(input.nrm, -sunDirection.xyz));
+                }
             }
 
             float3 lit = albedo.rgb * light * input.vc;
@@ -955,8 +1000,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 ]);
         }
 
+        // **Linear, not sRGB.** A lightmap is light rather than a picture: linearising it on
+        // sampling would apply the curve to values that never had it, darkening every shadow.
         _lightmap = CreateTexture(
-            device, context, assets.Lightmaps.Width, assets.Lightmaps.Height, assets.Lightmaps.Pixels);
+            device,
+            context,
+            assets.Lightmaps.Width,
+            assets.Lightmaps.Height,
+            assets.Lightmaps.Pixels,
+            srgb: false);
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
         ViewerLog.Write(
@@ -1251,6 +1303,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="context">The device context.</param>
     /// <param name="matrix">Sixteen floats, row major.</param>
     /// <param name="light">The ambient cube lighting this model, or null to leave it unlit.</param>
+    /// <param name="sun">The sun reaching this model, or null when it stands in shade.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -1264,7 +1317,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// this arrangement does not change.
     /// </remarks>
     public void SetModel(
-        ComPtr<ID3D11DeviceContext> context, float[] matrix, AmbientCube? light = null)
+        ComPtr<ID3D11DeviceContext> context,
+        float[] matrix,
+        AmbientCube? light = null,
+        SunLight? sun = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -1293,6 +1349,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             contents[19] = 1f;
         }
 
+        // The sun follows the cube: colour and "is it reaching this model", then the direction it
+        // travels. Left at zero when the map has no sun or this model stands in shade, which the
+        // shader reads as "no direct light" rather than as black.
+        if (sun is { } direct)
+        {
+            contents[40] = direct.Red;
+            contents[41] = direct.Green;
+            contents[42] = direct.Blue;
+            contents[43] = 1f;
+            contents[44] = direct.DirectionX;
+            contents[45] = direct.DirectionY;
+            contents[46] = direct.DirectionZ;
+        }
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
@@ -1318,8 +1388,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetConstantBuffers(2, 1, ref _model);
     }
 
-    /// <summary>Floats in the model constant buffer: a matrix and six cube faces.</summary>
-    private const int ModelConstants = 16 + (6 * 4);
+    /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
+    private const int ModelConstants = 16 + (6 * 4) + 4 + 4;
 
     /// <summary>Writes one cube face, leaving its w alone.</summary>
     private static void WriteFace(float[] into, int at, (float Red, float Green, float Blue) face)
@@ -1785,6 +1855,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="matrix">Where it stands: sixteen floats, row major.</param>
     /// <param name="batches">Its runs, indexing into the model buffer.</param>
     /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
+    /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -1796,7 +1867,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
         IReadOnlyList<WorldBatch> batches,
-        AmbientCube? light = null)
+        AmbientCube? light = null,
+        SunLight? sun = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1822,7 +1894,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
-        SetModel(context, matrix, light);
+        SetModel(context, matrix, light, sun);
 
         foreach (WorldBatch batch in batches)
         {
@@ -1878,12 +1950,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// The cost is that the texture can no longer be immutable — generating mips writes to it — so
     /// it is Default usage with a render-target bind, which is what GenerateMips requires.
     /// </remarks>
+    /// <remarks>
+    /// **The sRGB flag decides whether the hardware linearises on sampling**, which is what makes
+    /// the shader's arithmetic linear (B54). A texture is a picture and wants it; a lightmap is
+    /// light and does not, since linearising values that never carried the curve darkens every
+    /// shadow in the map.
+    /// </remarks>
     private static ComPtr<ID3D11ShaderResourceView> CreateTexture(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         int width,
         int height,
-        ReadOnlySpan<byte> pixels)
+        ReadOnlySpan<byte> pixels,
+        bool srgb = true)
     {
         Texture2DDesc description = new()
         {
@@ -1893,7 +1972,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // Zero means "every level down to 1x1", which the driver fills in.
             MipLevels = 0,
             ArraySize = 1,
-            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
+            Format = srgb
+                ? Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb
+                : Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),

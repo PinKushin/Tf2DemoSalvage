@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -127,6 +128,20 @@ internal class MainForm : Form
     /// <summary>The game's content, opened once and reused for every map.</summary>
     private GameArchives? _archives;
 
+    /// <summary>Which model each class wears, read from the game's own class scripts.</summary>
+    /// <remarks>
+    /// **Read from the install, not hardcoded.** Only <c>m_iszCustomModel</c> is networked; a
+    /// player's ordinary model is resolved locally by <c>CTFPlayerClassShared::GetModelName</c>
+    /// from <c>m_iClass</c>, so a viewer has to do the same lookup the client does.
+    /// </remarks>
+    private PlayerClassModels? _classModels;
+
+    /// <summary>Players turned into drawable models, rebuilt each frame.</summary>
+    /// <remarks>
+    /// Kept as a field so the per-frame allocation happens once rather than per tick.
+    /// </remarks>
+    private readonly List<SceneProp> _drawn = [];
+
     /// <summary>The loaded map's surfaces, kept so the world can be rebuilt on resize.</summary>
     private IReadOnlyList<BspSurface> _surfaceList = [];
 
@@ -146,6 +161,9 @@ internal class MainForm : Form
 
     /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
     private IReadOnlyList<AmbientSamples> _ambient = [];
+
+    /// <summary>The map's sun, when it has one.</summary>
+    private BspWorldLight? _sun;
 
     /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
     private (float Lowest, float Highest)? _heightRange;
@@ -847,6 +865,15 @@ internal class MainForm : Form
                     ViewerLog.Write(
                         "assets",
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
+
+                    // **The class scripts, which is where a player's model actually comes from.**
+                    // They are ICE-encrypted KeyValues in the install; nothing in the demo carries
+                    // a player's model path unless the server overrode it.
+                    _classModels = PlayerClassModels.Read(_archives.Read);
+
+                    ViewerLog.Write(
+                        "assets",
+                        $"class models: {string.Join(", ", ClassModelPaths())}");
                 }
 
                 _texturesUploaded = false;
@@ -887,6 +914,10 @@ internal class MainForm : Form
                     // the same file and neither changes afterwards.
                     _leaves = BspLeafTree.Read(bytes);
                     _ambient = BspAmbientLight.Read(bytes);
+
+                    // The direct term. The ambient cube is the shade; this is what makes daylight
+                    // bright, and it is the reason a pack outdoors looked like one indoors.
+                    _sun = BspWorldLights.Sun(BspWorldLights.Read(bytes));
 
                     // **Every model the demo will ever show, loaded with the map.** The timeline
                     // is already built, so the whole set is known before anything is drawn - and
@@ -1139,6 +1170,36 @@ internal class MainForm : Form
             : default;
     }
 
+    /// <summary>The sun reaching a world position, or null when it does not.</summary>
+    /// <remarks>
+    /// **The trace is the feature, not an optimisation.** Valve describes a sky light as a
+    /// "directional light with no falloff (surface must trace to SKY texture)" — applied without
+    /// that condition it lights the inside of every building, which is worse than the shade this
+    /// is meant to fix.
+    ///
+    /// Traced towards the sun, which is against the direction its light travels.
+    /// </remarks>
+    private SunLight? SunAt(float x, float y, float z)
+    {
+        if (_sun is not { } sun || _leaves is not { } tree)
+        {
+            return null;
+        }
+
+        if (!tree.SeesSky(x, y, z, -sun.Normal.X, -sun.Normal.Y, -sun.Normal.Z))
+        {
+            return null;
+        }
+
+        return new SunLight(
+            sun.Intensity.Red,
+            sun.Intensity.Green,
+            sun.Intensity.Blue,
+            sun.Normal.X,
+            sun.Normal.Y,
+            sun.Normal.Z);
+    }
+
     /// <summary>One model's triangles, from the set preloaded with the map.</summary>
     /// <remarks>
     /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
@@ -1150,6 +1211,49 @@ internal class MainForm : Form
             ? corners
             : null;
 
+    /// <summary>The model every playable class wears.</summary>
+    /// <remarks>
+    /// **Read from the install rather than listed here.** <c>CTFPlayerClassShared::GetModelName</c>
+    /// returns <c>m_iszCustomModel</c> when a server has overridden it and otherwise
+    /// <c>GetPlayerClassData( m_iClass )-&gt;GetModelName()</c>, which is the class script - so the
+    /// class number is the only thing a demo needs to carry, and it does.
+    ///
+    /// The custom model is networked and is NOT honoured yet: nothing decodes
+    /// <c>m_iszCustomModel</c>, so a server that replaced a player's model draws the stock one.
+    /// Rare outside events and plugins, and stated rather than hidden.
+    /// </remarks>
+    private IEnumerable<string> ClassModelPaths()
+    {
+        if (_classModels is not { } models)
+        {
+            yield break;
+        }
+
+        for (int playerClass = PlayerClassModels.FirstClass;
+            playerClass <= PlayerClassModels.LastPlayingClass;
+            playerClass++)
+        {
+            if (models.Model(playerClass) is { } model)
+            {
+                yield return model;
+            }
+        }
+    }
+
+    /// <summary>The model a player is drawn as, or null when they are not drawn as one.</summary>
+    /// <param name="player">The player.</param>
+    /// <remarks>
+    /// **One predicate, used by both the model pass and the dot pass.** A player drawn as a model
+    /// must not also get a flat marker on top of it, and a player without a model must still get
+    /// one or they vanish. Asking the question in two places is how the two answers drift apart -
+    /// and they did: the markers were still being drawn over the models the moment those started
+    /// working, which hid whether the models were there at all.
+    /// </remarks>
+    private string? PlayerModel(ScenePlayer player) =>
+        player.IsPlaying && player.PlayerClass is { } playerClass
+            ? _classModels?.Model(playerClass)
+            : null;
+
     /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
     /// <remarks>
     /// Brush models and sprites are excluded: a <c>*N</c> is map geometry and a sprite is a
@@ -1158,6 +1262,15 @@ internal class MainForm : Form
     private HashSet<string> DemoModelPaths()
     {
         HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        // **Every class, not only the ones standing at tick zero.** A player can switch class at
+        // any moment in a match, so a set built from who is playing now is missing whatever they
+        // change to - and a model absent from this set is never packed, so the player would simply
+        // vanish mid-round. Nine models is the whole roster and it is loaded once.
+        foreach (string model in ClassModelPaths())
+        {
+            paths.Add(model);
+        }
 
         if (_timeline is not { } timeline)
         {
@@ -1404,7 +1517,40 @@ internal class MainForm : Form
 
         // Packing is a no-op after the first sighting of each model, so this costs a dictionary
         // lookup per entity per frame once the demo has been running for a moment.
-        if (_models.Add(_props, ModelGeometry) && _device is { } device)
+        // **Players become props, rather than getting a pipeline of their own.** A player is a
+        // model at a pose, which is exactly what the prop path already draws, lights and
+        // interpolates - and a second implementation would agree with the first only until one of
+        // them gained a feature. The pose comes from the timeline, so they move and turn.
+        _drawn.Clear();
+        _drawn.AddRange(_props);
+
+        foreach (ScenePlayer player in _players)
+        {
+            if (PlayerModel(player) is not { } model)
+            {
+                continue;
+            }
+
+            _drawn.Add(new SceneProp(
+                player.EntityIndex,
+                model,
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = player.X,
+                    Y = player.Y,
+                    Z = player.Z,
+
+                    // **Yaw only.** A player model stands upright however far the eyes are pitched
+                    // - the server feeds pitch to the animation state to aim the torso, not to tip
+                    // the whole body (tf_player.cpp:2689). Rolling a player by their view would
+                    // lay them on their side every time they looked up.
+                    Yaw = player.Yaw,
+                    Scale = 1f,
+                }));
+        }
+
+        if (_models.Add(_drawn, ModelGeometry) && _device is { } device)
         {
             device.UploadModels(_models);
 
@@ -1429,7 +1575,7 @@ internal class MainForm : Form
             }
         }
 
-        _models.Instances(_props, _instances, LightAt);
+        _models.Instances(_drawn, _instances, LightAt, SunAt);
 
         if (_instances.Count != _lastInstanceCount)
         {
@@ -1495,6 +1641,14 @@ internal class MainForm : Form
             // positions that follow the action - so drawing everything puts convincing dots on the
             // map where nobody is standing.
             if (!player.IsPlaying)
+            {
+                continue;
+            }
+
+            // **A marker only for a player with no model.** Once the class models draw, a dot on
+            // top of one hides the very thing it was standing in for - which is exactly what
+            // happened, and made a working render look like a failed one.
+            if (PlayerModel(player) is not null)
             {
                 continue;
             }

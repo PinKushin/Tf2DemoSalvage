@@ -3105,3 +3105,99 @@ and goes wrong wherever anything new is introduced:
 (B53), self-illumination, a first-person camera's exposure — has to be reconciled against whatever
 space the pipeline is in. Doing it in the engine's space means Valve's own numbers can be used
 directly, which is the whole reason this project reads the SDK.
+
+## B55 — `$envmap` is not implemented, and 43 of 189 map materials ask for it — OPEN
+
+**Measured, not estimated.** On cp_process_f12, **42 of 189 materials declare `$envmap`** — 22% of
+the map's surfaces, including every pane of glass, the polished floor tiles at both second points,
+and the metalwork around them. The viewer implements none of it: a material's cubemap reflection
+contributes nothing, so those surfaces render with their base texture and lightmap alone.
+
+The owner identified this from the game's own behaviour before any of it was measured here:
+control points are "very reflective and shiny", and running TF2 on DirectX 8.1 takes the shine off
+control points and übercharges. That is exactly the shader-model fallback — dx8's `LightmappedGeneric`
+drops the envmap pass — so the shine is envmap-sourced by construction, not inference.
+
+**What this does NOT explain**, and the record is kept because the wrong conclusion was reached
+twice on the way:
+
+- The black disc at every control point is **not** this. It survived every check: no material
+  failed to load (the log names only two absent tool materials and four vertex-lighting checksum
+  mismatches), the category view draws that area as ordinary brush, `overlays/stain016` is the
+  wrong size for it by three times, and widening the surface query to 160 units horizontally and
+  1024 units down finds **no upward-facing world face at mid's centre at all**. Still open.
+- A first pass reasoned "dx8.1 removes the shine and the map looks fine there, so the base texture
+  is not black, so the envmap is not the cause". The owner corrected it: dx8.1 removing the *shine*
+  is not a statement that the result looks correct. The inference was about a claim never made.
+
+**Why it is worth doing properly rather than faking a specular term.** A cubemap in a Source map is
+real baked data — `LUMP_CUBEMAPS` names the sample positions and the compiled `.vtf` faces are in
+the map's own pakfile, which this project already reads for everything else. Approximating it with
+a constant highlight would put a plausible shine in the wrong places, which is the failure mode this
+project keeps finding: a result that looks like art direction rather than like a bug.
+
+**A logging gap this exposed, and it is the more general finding.** Every material resolved, so the
+log was silent while a control point drew as a black disc. The viewer logs what fails to *load* and
+nothing about what a surface resolved *to* — which shader path it took, whether it declared an
+effect that is unimplemented. A map is 189 materials; a one-line summary of the unimplemented
+parameters they ask for would have named this in the first minute instead of after an hour of
+probes. Same shape as `measure-the-output-not-the-capability`.
+
+**Corrected 2026-08-13, and the correction is the point.** The 43 above was 42. The probe that
+produced it counted materials whose VMT *text contains* `$envmap`, which is a substring — so
+`$envmaptint` (18 materials) and `$envmapcontrast` (18) matched it too. It landed one away from the
+right answer by luck, since most materials declaring the tints also declare the map itself.
+
+The instrument that replaced it, `MaterialCensus`, counts declared parameter *names* and reports
+every unimplemented one at load. Its first run named the gap this whole search missed:
+
+```
+48 unimplemented material parameters across 189 materials:
+$vertexalpha x55, $vertexcolor x55, $envmap x42, $basealphaenvmapmask x24,
+$basetexturetransform x19, $envmapcontrast x18, $envmaptint x18, $alpha x7,
+$color x7, $nocull x5, $nodecal x5, $texcenter x5, $texoffset x5, $texrot x5,
+$texscale x5, $texture2 x5, ... $AlphaTestReference x2 ...
+```
+
+**`$vertexcolor` and `$vertexalpha` are on 55 materials — more than `$envmap` — and are wholly
+unimplemented.** Every overlay VMT read while chasing the black disc declared both, and neither
+was noticed, because nothing was looking for parameters and nothing failed. That is a better
+candidate for the disc than anything the probes proposed.
+
+`$basetexturetransform` on 19 materials, plus `$texrot`/`$texscale`/`$texoffset`/`$texcenter` on 5,
+is a second unimplemented family that rotates and scales a texture — worth holding against any
+future report of a texture sitting the wrong way round, since one of those was already misdiagnosed
+three times.
+
+`$AlphaTestReference` on 2 materials is B50, now measured rather than assumed.
+
+## B56 — the POV camera has no view interpolation, and no weapon models are drawn — OPEN, decided
+
+**Two owner decisions, recorded so neither is relitigated:** the recorded view is to be
+**interpolated the way the running game does it**, and **weapon models are to be rendered**.
+
+**Where this bites already.** A POV demo does not network the recorder's own eye angles — the
+client already knew them — so of the corpus, the eight single-player POV demos still report one
+distinct yaw for their one player after the `m_angEyeAngles` fix. That is correct rather than
+broken: those angles live in `dem_usercmd` and `democmdinfo_t`, which this project already parses
+and the scene layer does not yet consume.
+
+**`demo_interpolateview` is not in the SDK.** A whole-tree grep of source-sdk-2013 returns nothing;
+it is an engine ConVar in `engine.dll`, the same category as the overlay renderer and for the same
+reason. So its exact behaviour is not readable from source and must be measured, not remembered —
+see `source-sdk-is-cloned-locally` for why an empty grep is an answer rather than a failed search.
+
+What is known and worth holding: it governs the **camera** between the per-frame `democmdinfo_t`
+samples, and a community report ties an incorrect setting to a viewmodel reload animation glitch
+(teamfortress.tv/66600). That second claim is **unverified here** — the thread was not read, and
+the bug could as easily be a viewmodel cycle problem as a view interpolation one. Do not build on
+it without checking.
+
+**Shape it must take, and this is the owner's standing rule rather than a preference.** One place
+turns recorded view samples into a camera pose, with interpolation as a flag on it. Not view logic
+in the POV path and again in the free-camera path: anything copied between two files goes out of
+sync, which is exactly how `m_angRotation` came to be read for players in one place while the
+comment naming `m_angEyeAngles` sat in another.
+
+The same rule is why the eye-angle fix is a single line at the pose rather than a field set on
+`ScenePlayer`: the pose already feeds the interpolator, so position and angle cannot drift apart.

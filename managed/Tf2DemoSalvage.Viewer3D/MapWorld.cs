@@ -279,14 +279,28 @@ internal static class MapWorldBuilder
                 ? atlas.Rectangles[on.FaceIndex]
                 : default;
 
-            // The overlay's own texture coordinates: its quad spans StartU..EndU across and
-            // StartV..EndV down, corner by corner in the order vbsp wrote them.
+            // **The corner order is measured, not assumed, because the SDK cannot answer it.**
+            // vbsp copies uv0-uv3 through from the VMF untouched (utils/vbsp/overlay.cpp) and
+            // nothing in the released source reads them back: the overlay renderer is engine-side.
+            //
+            // The map answers it instead, because a decal's texture and its quad are the same
+            // shape. On cp_process_f12, measuring each quad along BasisU against BasisV:
+            //
+            //   signs/capture_zone       512x128 (4.000)   quad 128x32   (4.000)
+            //   signs/sign069            256x512 (0.500)   quad  36x70   (0.511)
+            //   signs/factory_label02    256x256 (1.000)   quad  43x43   (1.007)
+            //   overlays/floor_stain003  512x512 (1.000)   quad 128x128  (1.000)
+            //
+            // So U runs along the corners' first component and V along their second, and the
+            // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
+            // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
+            // ninety degrees out and squeezed into a narrow column.
             (float U, float V)[] texture =
             [
                 (overlay.U.Start, overlay.V.Start),
-                (overlay.U.End, overlay.V.Start),
-                (overlay.U.End, overlay.V.End),
                 (overlay.U.Start, overlay.V.End),
+                (overlay.U.End, overlay.V.End),
+                (overlay.U.End, overlay.V.Start),
             ];
 
             List<WorldVertex> corners = [];

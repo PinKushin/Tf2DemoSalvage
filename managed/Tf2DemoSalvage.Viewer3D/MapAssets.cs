@@ -65,12 +65,17 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// <param name="Blend">The second layer of a blend material, or null.</param>
 /// <param name="Detail">The detail pattern, or null.</param>
 /// <param name="Bump">The bump map, or null.</param>
+/// <param name="Declared">Every parameter the VMT named, for reporting the unimplemented ones.</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
 /// </remarks>
 internal readonly record struct ResolvedMaterial(
-    MapTexture? Texture, MapTexture? Blend, MapDetail? Detail, MapBump? Bump);
+    MapTexture? Texture,
+    MapTexture? Blend,
+    MapDetail? Detail,
+    MapBump? Bump,
+    IReadOnlyCollection<string>? Declared = null);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -388,6 +393,28 @@ internal sealed class MapAssets
             }
         }
 
+        // **What the map asked for that this renderer does not do.** Logged unconditionally,
+        // because the alternative was measured: every material on cp_process resolved, so the log
+        // stayed silent while every control point drew as a black disc, and the one gap that
+        // mattered - $envmap on 43 of 189 materials, B55 - took an hour of throwaway probes.
+        //
+        // A report built only from failures reads clean while every instance quietly falls back.
+        IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
+            found.Select(material => material.Declared ?? []));
+
+        if (census.Count == 0)
+        {
+            ViewerLog.Write(
+                "assets", "every parameter the map's materials declare is implemented");
+        }
+        else
+        {
+            ViewerLog.Write(
+                "assets",
+                $"{census.Count} unimplemented material parameters across {materials.Count} materials: " +
+                string.Join(", ", census.Select(entry => $"{entry.Parameter} x{entry.Materials}")));
+        }
+
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
         // the end. Inserting them first would renumber every face in the map.
@@ -569,7 +596,10 @@ internal sealed class MapAssets
         MapTexture? second = Decode(
             material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
 
-        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump());
+        // **The parameters carried out alongside the textures**, so the caller can report what
+        // the map asked for rather than only what failed. Gathered here because this is the one
+        // place the parsed VMT exists; the census itself runs on the single-threaded side.
+        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump(), material.Keys);
 
         MapBump? ResolveBump()
         {

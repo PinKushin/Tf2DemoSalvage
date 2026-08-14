@@ -403,9 +403,14 @@ public static class BspLightmaps
     /// them directly gives a map lit uniformly at full brightness, with every shadow gone. That is
     /// a picture rather than an error, which is the failure this codebase keeps meeting.
     ///
-    /// The result is clamped and gamma-corrected, because the renderer's target is sRGB. This is
-    /// the same curve that reconciles a texture's decoded average with the map's stored
-    /// reflectivity, and it is applied here for the same reason.
+    /// **Left LINEAR, and halved.** Light is not a picture: the gamma curve belongs at the end of
+    /// the pipeline, applied once by the sRGB render target, so applying it here put every later
+    /// multiply in the wrong space (B54). Halving is Valve's overbright - a lightmap holds light
+    /// brighter than white, and storing it halved is how that survives eight bits. The shader
+    /// doubles it back, which is what Source's own shaders do.
+    ///
+    /// Both halves have to move together: gamma here with doubling in the shader blows the map
+    /// out, and that is exactly the wrong turn this comment used to record.
     /// </remarks>
     private static byte[] Decode(ReadOnlySpan<byte> samples, int count)
     {
@@ -416,9 +421,9 @@ public static class BspLightmaps
             ReadOnlySpan<byte> sample = samples.Slice(index * SampleBytes, SampleBytes);
             float scale = MathF.Pow(2f, (sbyte)sample[3]);
 
-            pixels[(index * 4) + 0] = ToSrgb(sample[0] * scale);
-            pixels[(index * 4) + 1] = ToSrgb(sample[1] * scale);
-            pixels[(index * 4) + 2] = ToSrgb(sample[2] * scale);
+            pixels[(index * 4) + 0] = Overbright(sample[0] * scale);
+            pixels[(index * 4) + 1] = Overbright(sample[1] * scale);
+            pixels[(index * 4) + 2] = Overbright(sample[2] * scale);
             pixels[(index * 4) + 3] = 255;
         }
 
@@ -432,5 +437,11 @@ public static class BspLightmaps
     /// <see cref="SourceGamma"/>, because static prop vertex lighting needs the same one and two
     /// copies would drift apart.
     /// </remarks>
-    private static byte ToSrgb(float linear) => SourceGamma.ToDisplayByte(linear);
+    /// <summary>Stores one linear channel halved, so the shader's overbright restores it.</summary>
+    /// <remarks>
+    /// A sample of 255 at exponent 0 is full brightness, so the range is a byte; halving leaves
+    /// room for light above white, which is what "overbright" means and why the shader doubles.
+    /// </remarks>
+    private static byte Overbright(float linear) =>
+        (byte)Math.Clamp(linear / 2f, 0f, 255f);
 }
