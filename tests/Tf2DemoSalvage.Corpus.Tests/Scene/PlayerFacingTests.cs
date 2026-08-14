@@ -81,6 +81,54 @@ public sealed class PlayerFacingTests
     }
 
     [Test]
+    public void DoPlayersCarryASequenceAndCycle()
+    {
+        // **The measurement that decides whether an animation state has to be emulated at all.**
+        // TF2 computes a player's animation client-side in CTFPlayerAnimState, which is why the
+        // assumption has been that a demo cannot say what a player is doing. But m_nSequence and
+        // m_flCycle live on DT_BaseAnimating and a player is a CBaseAnimating, so the question is
+        // what the wire actually carries - not what the client would compute if nothing did.
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+            if (timeline.Frames.Count == 0)
+            {
+                continue;
+            }
+
+            HashSet<int> sequences = [];
+            HashSet<int> cycles = [];
+            int sampled = 0;
+
+            foreach (TimelineFrame frame in timeline.Frames)
+            {
+                List<ScenePlayer> players = [];
+                timeline.PlayersAt(frame.Tick, players);
+
+                foreach (ScenePlayer player in players.Where(player => player.IsPlaying))
+                {
+                    if (timeline.TrackFor(player.EntityIndex)?.At(frame.Tick) is not { } pose)
+                    {
+                        continue;
+                    }
+
+                    sampled++;
+                    sequences.Add(pose.Sequence);
+                    cycles.Add((int)MathF.Round(pose.Cycle * 100f));
+                }
+            }
+
+            TestContext.Out.WriteLine(
+                $"PSEQ {Path.GetFileName(path)}: {sampled} samples, " +
+                $"{sequences.Count} distinct sequences {string.Join(",", sequences.Order().Take(8))}, " +
+                $"{cycles.Count} distinct cycles");
+        }
+
+        Assert.Pass();
+    }
+
+    [Test]
     public void PlayersInAMatch_DoNotAllFaceTheSameWay()
     {
         // The control for the test above, stated as its own experiment rather than a note. Yaw

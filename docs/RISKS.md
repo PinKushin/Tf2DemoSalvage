@@ -3244,8 +3244,9 @@ the skinning in the vertex shader, which is `IMaterialSystem::LoadBoneMatrix` an
 itself does. `StudioBones` already produces the matrices and `StudioVertex` already carries the
 indices and weights; what is missing is the renderer side.
 
-**And the poses are not networked.** TF2 computes player animation client-side in
-`CTFPlayerAnimState`, driven by velocity and eye angles — nothing in the demo says which sequence
-a player is playing. So even with the data reachable and the renderer able to skin, choosing the
+**And the poses are not networked — measured, not assumed.** Across the whole committed corpus,
+2007 to 2026, every playing player reports `m_nSequence` absent and `m_flCycle` at zero: one
+distinct value each, over 244,951 samples on z1800 alone. So there is nothing on the wire to
+replay, and `CTFPlayerAnimState` has to be emulated rather than read. So even with the data reachable and the renderer able to skin, choosing the
 right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
 emulate the choice.
