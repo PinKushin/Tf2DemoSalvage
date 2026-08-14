@@ -3630,3 +3630,36 @@ Candidates, none measured yet:
 
 The third is the one to measure first: it is the only place where this project's arrangement
 deliberately differs from the engine's.
+
+### B67 — what has been eliminated, so nobody repeats it
+
+Every item below was measured, not reasoned about. The remaining fault is NOT in any of them.
+
+| Checked | Against | Result |
+|---|---|---|
+| `FromQuaternion` | `QuaternionMatrix` (`mathlib_base.cpp:1885`) | matches, all nine terms |
+| `Concatenate` | `ConcatTransforms` (`:658`) | matches, rotation and translation |
+| bone chain | `Studio_BuildMatrices` (`bone_setup.cpp:4559`) | same structure |
+| `FromEuler` | `AngleQuaternion` (`:2016`) | matches term for term |
+| `CalcBoneQuaternion` flags | `bone_setup.cpp:374` | matches |
+| `ExtractAnimValue` | `:339` | same walk, same selection |
+| `mstudiobone_t` offsets | `studio.h` | field by field |
+| `.vvd` fixup table | `vertexFileHeader_t` | handled; position offset 16 of 48 correct |
+| the blend | posing with and without pose parameters | `z 22.7` against `24.0` — not the cause |
+| bone ordering | every model probed | no parent listed after its child |
+
+**The one fact left to explain:** player model vertices AND bones are both 84.5 tall along Y, while
+static and animated PROPS read by the same code are tall along Z (`resupply_locker` 113.2,
+`cappoint_hologram` 171.5, `medkit_small` 17.2). So the difference is in the data rather than in the
+reader, and applying a real animation does not stand a player up — the posed z span is 23 where
+standing needs 83, and the shape changes from the rest pose, so an animation IS being applied.
+
+A yaw-only instance matrix cannot supply the missing rotation, and neither can
+`Studio_BuildMatrices`, whose `rotationmatrix` is built from the entity's own angles and origin —
+which for a player is yaw and a position at their feet. So the rotation comes from somewhere not yet
+found, and "port the bone setup faithfully" would not by itself produce it.
+
+**Next measurement, and it should come before any more code:** take one player model and one prop
+through the identical path, dumping the root bone's `pos` and `quat` straight from the file. The
+prop stands and the player does not, from the same reader, so the difference is visible in those
+sixteen bytes or it is not in the loader at all.
