@@ -113,6 +113,21 @@ internal sealed class EntityModelSet
     /// <summary>Skinned models whose posed extents have been reported.</summary>
     private readonly HashSet<string> _reportedPoses = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>This frame's props, wearers before the things worn on them.</summary>
+    private readonly List<SceneProp> _ordered = [];
+
+    /// <summary>This frame's worn items, held aside while their wearers are posed first.</summary>
+    private readonly List<SceneProp> _worn = [];
+
+    /// <summary>Entity indices something is worn on this frame, so only those are recorded.</summary>
+    private readonly HashSet<int> _wanted = [];
+
+    /// <summary>This frame's drawn entities that something else is merged onto, by entity index.</summary>
+    private readonly Dictionary<int, Worn> _wearerBones = [];
+
+    /// <summary>Bone name matches, keyed by worn model and wearer model together.</summary>
+    private readonly Dictionary<string, int[]> _mergeMaps = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The raw geometry of each packed model, for checking a pose against.</summary>
     private readonly Dictionary<string, IReadOnlyList<PropVertex>> _raw =
         new(StringComparer.OrdinalIgnoreCase);
@@ -445,7 +460,29 @@ internal sealed class EntityModelSet
 
         into.Clear();
 
+        // **Owners are posed before the things hanging off them.** A bone-merged entity has no
+        // pose of its own — it takes its parent's matrices for every bone they share by NAME — so
+        // the parent's must already exist when the child is reached, and nothing orders the list.
+        // So they are ordered here — wearers first, worn second — rather than the loop below being
+        // run twice or nested. One pass over a reordered list keeps the body a single block.
+        _ordered.Clear();
+        _worn.Clear();
+
         foreach (SceneProp prop in props)
+        {
+            (prop.AttachedTo is null ? _ordered : _worn).Add(prop);
+        }
+
+        _ordered.AddRange(_worn);
+        _wearerBones.Clear();
+        _wanted.Clear();
+
+        foreach (SceneProp prop in _worn)
+        {
+            _wanted.Add(prop.AttachedTo!.Value);
+        }
+
+        foreach (SceneProp prop in _ordered)
         {
             (int frame, int _, float blend) = SelectFor(prop, seconds);
 
@@ -553,6 +590,38 @@ internal sealed class EntityModelSet
                 ReportPosedExtents(prop.ModelPath, bones);
             }
 
+            // **A merged entity takes its wearer's matrices, not its own pose.** This is what
+            // EF_BONEMERGE means: the client walks the child's bones, finds the parent's bone of
+            // the same name, and uses that matrix outright. A hat has a `bip_head` bone and no
+            // animation of its own — posing it from its own rest skeleton puts it at the player's
+            // feet facing north, which is what "cosmetics do not work" looked like.
+            //
+            // Bones the parent does not have keep the child's own, which is the same fallback
+            // Remap's −1 already means: an item with a part the player has no bone for keeps the
+            // shape the artist gave it rather than collapsing to the origin.
+            if (prop.AttachedTo is { } wearer)
+            {
+                if (!_wearerBones.TryGetValue(wearer, out Worn worn))
+                {
+                    // The wearer is not being drawn — dead, out of the visible set, or a model
+                    // that failed to load. Drawing the hat anyway would leave it hanging in the
+                    // air at the map origin, which is worse than not drawing it.
+                    continue;
+                }
+
+                bones = Merge(prop.ModelPath, bones, worn);
+                transform = worn.Where;
+            }
+            else if (_wanted.Contains(prop.EntityIndex))
+            {
+                // **Recorded even with no bones, which is not a detail.** A wearer cheap enough to
+                // have been baked has no skeleton here, and requiring one would drop every item on
+                // it - silently, since the wearer itself still draws and only the hat vanishes.
+                // Merge handles the boneless case by keeping the item's own pose and taking only
+                // the transform, so it moves with the wearer even without following a bone.
+                _wearerBones[prop.EntityIndex] = new Worn(prop.ModelPath, bones ?? [], transform);
+            }
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
@@ -564,6 +633,84 @@ internal sealed class EntityModelSet
                 SkinSwap(prop.ModelPath, skin)));
         }
     }
+
+    /// <summary>Replaces a model's bone matrices with its wearer's, matched by bone name.</summary>
+    /// <param name="modelPath">The worn model, whose skeleton decides which bones are wanted.</param>
+    /// <param name="own">Its own matrices, kept for any bone the wearer has no counterpart for.</param>
+    /// <param name="wearer">The wearer's matrices, in the wearer's own bone order.</param>
+    /// <returns>Matrices in the worn model's bone order.</returns>
+    /// <remarks>
+    /// **The name match is Valve's, and it is the whole mechanism.** <c>CBoneMergeCache</c> pairs
+    /// the two skeletons by bone name and copies the parent's matrix across; the same
+    /// name-matching this project already does for animation retargeting through
+    /// <see cref="StudioBones.Remap"/>, which is Valve's <c>masterBone</c>.
+    ///
+    /// The remap is cached because it depends only on the two skeletons, never on the frame, and
+    /// a match plays a few dozen worn items at sixty frames a second.
+    /// </remarks>
+    private IReadOnlyList<float[]>? Merge(
+        string modelPath,
+        IReadOnlyList<float[]>? own,
+        Worn wearer)
+    {
+        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? entry) ||
+            entry.Skinned is not { } skinned ||
+            !_frames.TryGetValue(wearer.ModelPath, out PropModels.ModelFrames? host) ||
+            host.Skinned is not { } hostSkinned)
+        {
+            // A worn item cheap enough to have been baked has no skeleton here to merge onto. It
+            // still takes its wearer's transform, which the caller has already applied, so it
+            // moves with the player even though it cannot follow a bone.
+            return own;
+        }
+
+        // **Keyed by BOTH models.** A scout's skeleton is not a heavy's, so one remap per worn
+        // item would pose every hat with whichever class wore it first - wrong by a bone or two,
+        // which reads as a hat sitting slightly off rather than as a bug.
+        string key = modelPath + "|" + wearer.ModelPath;
+
+        if (!_mergeMaps.TryGetValue(key, out int[]? map))
+        {
+            map = StudioBones.Remap(skinned.Bones, hostSkinned.Bones);
+            _mergeMaps[key] = map;
+
+            int matched = 0;
+
+            foreach (int index in map)
+            {
+                matched += index >= 0 ? 1 : 0;
+            }
+
+            // **Counted, because a merge that matches nothing looks identical to one that works.**
+            // Both draw the item; only one puts it on the head. A zero here is the whole defect.
+            ViewerLog.Write(
+                "render",
+                $"bone merge {System.IO.Path.GetFileName(modelPath)} onto " +
+                $"{System.IO.Path.GetFileName(wearer.ModelPath)}: " +
+                $"{matched} of {map.Length} bones matched");
+        }
+
+        float[][] merged = new float[map.Length][];
+        IReadOnlyList<float[]>? rest = null;
+
+        for (int bone = 0; bone < map.Length; bone++)
+        {
+            if (map[bone] >= 0 && map[bone] < wearer.Bones.Count)
+            {
+                merged[bone] = wearer.Bones[map[bone]];
+                continue;
+            }
+
+            rest ??= StudioBones.RestPose(skinned.Bones).Matrices;
+            merged[bone] = own is not null && bone < own.Count ? own[bone] : rest[bone];
+        }
+
+        return merged;
+    }
+
+    /// <summary>A drawn entity something else hangs off: its model, its pose and where it is.</summary>
+    private readonly record struct Worn(
+        string ModelPath, IReadOnlyList<float[]> Bones, PropTransform Where);
 
     /// <summary>Which axis a model is longest along, named for the log.</summary>
     /// <remarks>
