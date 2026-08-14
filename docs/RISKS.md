@@ -4019,3 +4019,38 @@ normal crossed with the edge, and which way that points depends on the outline's
 BSP carries both of. Assuming one clipped every fragment to nothing — indistinguishable from an
 overlay missing its face, invisible in the counts, visible only as decals silently vanishing. It is
 settled per edge against the face's centroid.
+
+## B72 RESOLVED — a leaked depth state made models draw with no depth writes
+
+**The owner connected the symptoms before the code was looked at, and was right:** a medkit drawing
+over the medic from every angle, and a player's eyes drawing through the back of his head with the
+back of the head visible from the front, are one fault.
+
+`Device3D` sets the writing depth state, calls `_world.Draw`, and draws models afterwards.
+`WorldRenderer.DrawTranslucent` — the world's last pass — sets a READ-ONLY depth state and never
+restores it:
+
+```csharp
+context.OMSetDepthStencilState(_depthReadOnly, 0);
+```
+
+That is correct for what it is doing. Glass must not stop what is behind it from drawing, which is
+why the state exists. It is wrong for everything drawn after it, and models are drawn after it.
+
+With no depth writes:
+
+- **Within one model**, its own triangles stop occluding each other, so whichever was submitted last
+  wins. On a head that is the eyes through the skull and the back of the head over the face.
+- **Between models**, distance stops mattering and submission order decides, so a medkit on the
+  ground draws over a medic standing in front of it however the camera moves.
+
+Fixed by setting the writing state at the top of the model pass rather than by restoring it inside
+`DrawTranslucent`. A pass that depends on a state should establish it, not trust the previous pass
+to have tidied up — the same reasoning that made the decal bias derive from the matrix rather than
+from a caller's flag.
+
+**Worth noting how long this hid.** It has been true for as long as models have been drawn, and from
+directly overhead it is nearly invisible: a player seen from above has little of himself behind
+himself, and a medkit is small. The free camera made it obvious within minutes, which is the second
+defect of the evening that existed the whole time and only became visible once there was a camera
+that could look at things.

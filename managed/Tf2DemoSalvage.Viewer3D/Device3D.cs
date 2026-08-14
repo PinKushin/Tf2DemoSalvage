@@ -394,6 +394,23 @@ internal sealed unsafe class Device3D : IDisposable
                 // hidden by it rather than by draw order. The map's own identity matrix is set at
                 // the top of Draw each frame, which is what stops these leaving their transform
                 // behind for the world.
+
+                // **Depth writing is turned back ON, because the world's last pass turned it off.**
+                // DrawTranslucent sets a read-only depth state — correct for glass, which must not
+                // stop what is behind it from drawing — and never restores it, so every model after
+                // it inherited a state where nothing writes depth.
+                //
+                // That single leak produced every model complaint in this session. WITHIN a model
+                // its own triangles stop occluding each other, so a player's eyes draw through the
+                // back of his head and the back of his head shows from the front. BETWEEN models,
+                // submission order decides instead of distance, so a medkit draws over the medic
+                // standing in front of it from every angle.
+                //
+                // Set here rather than restored inside DrawTranslucent deliberately: this is the
+                // pass that requires it, and a pass that depends on a state should say so rather
+                // than trust the last one to have tidied up.
+                _context.OMSetDepthStencilState(_depthOn, 0);
+
                 foreach (ModelInstance instance in models ?? [])
                 {
                     if (instance.Bones is { Count: > 0 } bones)
