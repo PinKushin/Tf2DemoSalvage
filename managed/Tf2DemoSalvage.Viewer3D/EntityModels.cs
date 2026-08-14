@@ -12,8 +12,14 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Light">The ambient cube of the leaf it stands in.</param>
 /// <param name="Sun">The sun, when this model traced to sky; null when it stands in shade.</param>
 /// <param name="Frame">Which baked animation frame to draw, from the demo's sequence and cycle.</param>
+/// <param name="Blend">How far toward the next baked frame, so the shader can smooth between them.</param>
 internal readonly record struct ModelInstance(
-    string ModelPath, float[] Matrix, AmbientCube Light, SunLight? Sun, int Frame = 0);
+    string ModelPath,
+    float[] Matrix,
+    AmbientCube Light,
+    SunLight? Sun,
+    int Frame = 0,
+    float Blend = 0f);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -102,10 +108,16 @@ internal sealed class EntityModelSet
     /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
     /// <param name="seconds">Demo time, for advancing the cycle the server does not send.</param>
     /// <returns>A frame index for <see cref="Batches(string, int)"/>.</returns>
-    public int FrameFor(SceneProp prop, double seconds) =>
+    public int FrameFor(SceneProp prop, double seconds) => SelectFor(prop, seconds).Frame;
+
+    /// <summary>Which baked frames a prop falls between, and how far.</summary>
+    /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
+    /// <param name="seconds">Demo time, for advancing the cycle the server does not send.</param>
+    /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
+    public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds) =>
         _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
-            ? frames.Frame(prop.Pose.Sequence, prop.Pose.Cycle, seconds)
-            : 0;
+            ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds)
+            : (0, 0, 0f);
 
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>
@@ -147,8 +159,15 @@ internal sealed class EntityModelSet
 
             _frames[prop.ModelPath] = model;
 
-            foreach (IReadOnlyList<PropVertex> corners in model.Geometry)
+            for (int slot = 0; slot < model.Geometry.Count; slot++)
             {
+                IReadOnlyList<PropVertex> corners = model.Geometry[slot];
+
+                // **The frame this one blends toward, packed into the same vertex.** Both poses
+                // reach the shader without a second buffer or a fetch, and a model with one frame
+                // carries itself in both and blends to itself.
+                IReadOnlyList<PropVertex> onward = model.NextOf(slot);
+
                 List<WorldBatch> batches = [];
                 frames.Add(batches);
 
@@ -157,8 +176,12 @@ internal sealed class EntityModelSet
                 // identical between them and only the positions differ.
                 Dictionary<int, List<WorldVertex>> byMaterial = [];
 
-                foreach (PropVertex corner in corners)
+                for (int index = 0; index < corners.Count; index++)
                 {
+                    PropVertex corner = corners[index];
+
+                    PropVertex ahead = index < onward.Count ? onward[index] : corner;
+
                     if (!byMaterial.TryGetValue(corner.MaterialIndex, out List<WorldVertex>? into))
                     {
                         into = [];
@@ -173,7 +196,13 @@ internal sealed class EntityModelSet
                         corner.X, corner.Y, corner.Z, corner.U, corner.V, 0f, 0f, 0f,
                         NormalX: corner.NormalX,
                         NormalY: corner.NormalY,
-                        NormalZ: corner.NormalZ));
+                        NormalZ: corner.NormalZ,
+                        NextX: ahead.X,
+                        NextY: ahead.Y,
+                        NextZ: ahead.Z,
+                        NextNormalX: ahead.NormalX,
+                        NextNormalY: ahead.NormalY,
+                        NextNormalZ: ahead.NormalZ));
                 }
 
                 foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
@@ -243,7 +272,7 @@ internal sealed class EntityModelSet
 
         foreach (SceneProp prop in props)
         {
-            int frame = FrameFor(prop, seconds);
+            (int frame, int _, float blend) = SelectFor(prop, seconds);
 
             if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath, frame).Count == 0)
             {
@@ -269,7 +298,8 @@ internal sealed class EntityModelSet
                 ViewerLog.Write(
                     "render",
                     $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
-                    $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count}");
+                    $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count} " +
+                    $"blend {blend:0.###} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
             }
 
             into.Add(new ModelInstance(
@@ -277,7 +307,8 @@ internal sealed class EntityModelSet
                 transform.ToMatrix(),
                 light,
                 sunAt?.Invoke(pose.X, pose.Y, pose.Z),
-                frame));
+                frame,
+                blend));
         }
     }
 

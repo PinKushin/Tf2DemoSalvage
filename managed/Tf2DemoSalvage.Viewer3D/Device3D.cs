@@ -393,7 +393,8 @@ internal sealed unsafe class Device3D : IDisposable
                         instance.Matrix,
                         _world.ModelBatches(instance.ModelPath, instance.Frame),
                         instance.Light,
-                        instance.Sun);
+                        instance.Sun,
+                        instance.Blend);
                 }
             }
             else

@@ -638,6 +638,33 @@ internal static class PropModels
         IReadOnlyList<int> SequenceAnimation,
         IReadOnlyList<bool> SequenceLoops)
     {
+        /// <summary>The geometry one frame after a given slot, wrapping inside its animation.</summary>
+        /// <param name="slot">A frame's index in <see cref="Geometry"/>.</param>
+        /// <returns>The next frame's geometry, or the same one when it does not animate.</returns>
+        /// <remarks>
+        /// **Wrapped inside the animation that owns the slot, not across the whole list.** The
+        /// frames of several animations lie end to end, so stepping off the end of one would blend
+        /// a door's last open frame into a completely different animation's first.
+        /// </remarks>
+        public IReadOnlyList<PropVertex> NextOf(int slot)
+        {
+            foreach ((int Start, int Frames, float CyclesPerSecond) where in Layout.Values)
+            {
+                if (slot < where.Start || slot >= where.Start + where.Frames)
+                {
+                    continue;
+                }
+
+                int intervals = Math.Max(1, where.Frames - 1);
+                int offset = slot - where.Start;
+
+                return Geometry[Math.Clamp(
+                    where.Start + ((offset + 1) % intervals), 0, Geometry.Count - 1)];
+            }
+
+            return Geometry[Math.Clamp(slot, 0, Geometry.Count - 1)];
+        }
+
         /// <summary>Whether this model has anything to animate.</summary>
         public bool IsStill => Geometry.Count <= 1;
 
@@ -652,11 +679,28 @@ internal static class PropModels
         /// added in a later game version than the recording - and a prop that vanishes is a worse
         /// answer than one that stands still.
         /// </remarks>
-        public int Frame(int sequence, float cycle, double seconds)
+        public int Frame(int sequence, float cycle, double seconds) =>
+            Select(sequence, cycle, seconds).Frame;
+
+        /// <summary>Which baked frames a sequence and cycle fall between, and how far.</summary>
+        /// <param name="sequence">The networked sequence, or −1 when the demo has not said.</param>
+        /// <param name="cycle">How far through it, where one is the end.</param>
+        /// <param name="seconds">Demo time, for advancing the cycle as the client does.</param>
+        /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
+        /// <remarks>
+        /// **The fraction is the whole point.** Rounding a cycle to the nearest baked frame steps
+        /// the model at the animation's authored rate — ten times a second for a pickup, against a
+        /// display running at sixty — which reads as a stutter. Carrying the remainder lets the
+        /// shader blend, and the two frames are adjacent ranges of one buffer.
+        ///
+        /// <c>Next</c> wraps for a looping sequence and holds for a one-shot, matching what
+        /// <see cref="StudioSequences.FrameFor(float, int, bool)"/> does with the frame itself.
+        /// </remarks>
+        public (int Frame, int Next, float Blend) Select(int sequence, float cycle, double seconds)
         {
             if (Geometry.Count == 0)
             {
-                return 0;
+                return (0, 0, 0f);
             }
 
             // **A sequence the demo never mentioned is sequence zero, not an error.** A property
@@ -671,7 +715,7 @@ internal static class PropModels
                 !Layout.TryGetValue(
                     animation, out (int Start, int Frames, float CyclesPerSecond) where))
             {
-                return 0;
+                return (0, 0, 0f);
             }
 
             // **The cycle is advanced here, because the server does not advance it.** The client
@@ -682,11 +726,26 @@ internal static class PropModels
 
             bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
 
-            return Math.Clamp(
-                where.Start + StudioSequences.FrameFor(
-                    (float)(advanced - Math.Floor(advanced)), where.Frames, loops),
-                0,
-                Geometry.Count - 1);
+            float phase = (float)(advanced - Math.Floor(advanced));
+
+            int frame = StudioSequences.FrameFor(phase, where.Frames, loops);
+
+            // How far past that frame the cycle actually is. The frame count spans one fewer
+            // interval than it has frames, which is the same arithmetic the cycle rate uses.
+            int intervals = Math.Max(1, where.Frames - 1);
+            float exact = phase * intervals;
+            float blend = exact - MathF.Floor(exact);
+
+            // **The next frame wraps for a loop and holds for a one-shot.** A door that has
+            // finished opening must blend toward the pose it is already in, not back to shut.
+            int next = loops
+                ? (frame + 1) % intervals
+                : Math.Min(frame + 1, where.Frames - 1);
+
+            return (
+                Math.Clamp(where.Start + frame, 0, Geometry.Count - 1),
+                Math.Clamp(where.Start + next, 0, Geometry.Count - 1),
+                Math.Clamp(blend, 0f, 1f));
         }
     }
 }
