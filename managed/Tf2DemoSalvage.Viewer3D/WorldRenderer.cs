@@ -610,6 +610,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11Buffer> _model;
 
+    /// <summary>The bone matrices skinning the current draw.</summary>
+    private ComPtr<ID3D11Buffer> _bones;
+
     /// <summary>Entity model geometry, in model space, uploaded once.</summary>
     private ComPtr<ID3D11Buffer> _modelVertices;
 
@@ -1450,6 +1453,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="light">The ambient cube lighting this model, or null to leave it unlit.</param>
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="sun">The sun reaching this model, or null when it stands in shade.</param>
+    /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -1467,7 +1471,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] matrix,
         AmbientCube? light = null,
         SunLight? sun = null,
-        float blend = 0f)
+        float blend = 0f,
+        int bones = 0)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -1514,6 +1519,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // between packets can overshoot and a blend past one extrapolates rather than smooths.
         contents[48] = Math.Clamp(blend, 0f, 1f);
 
+        // How many bones skin this draw, or zero for a baked model. The shader reads this as the
+        // switch between the two paths, so leaving it stale would skin a health pack by whatever
+        // skeleton was last uploaded.
+        contents[52] = bones;
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
@@ -1540,7 +1550,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     }
 
     /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
-    private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4;
+    private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4 + 4;
+
+    /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
+    private const int BoneConstants = MaxBones * 3 * 4;
 
     /// <summary>Lays vertices out for the input layout.</summary>
     /// <remarks>
@@ -1624,6 +1637,86 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
 
         _model = buffer;
+        device.Dispose();
+    }
+
+    /// <summary>Uploads the bone matrices for one skinned model.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="matrices">Row-major 3x4 matrices, twelve floats each, one per bone.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="matrices"/> is null.</exception>
+    /// <remarks>
+    /// **This is the per-draw cost that baking avoids and skinning accepts.** A prop's frames are
+    /// baked once and drawn by picking a vertex range; a player has too many animations for that,
+    /// so its pose arrives as matrices instead. Roughly ninety bones is 4.3 kilobytes a draw,
+    /// against the alternative of gigabytes of baked geometry.
+    ///
+    /// Bones past the buffer's room are dropped rather than allowed to overrun it. A model with
+    /// more bones than this draws by the ones that fit, which is visibly wrong at an extremity and
+    /// far better than a corrupt constant buffer - and TF2's models are well inside it.
+    /// </remarks>
+    public void SetBones(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<float[]> matrices)
+    {
+        ArgumentNullException.ThrowIfNull(matrices);
+
+        EnsureBoneBuffer(context);
+
+        if (_bones.Handle is null)
+        {
+            return;
+        }
+
+        float[] contents = new float[BoneConstants];
+
+        for (int bone = 0; bone < matrices.Count && bone < MaxBones; bone++)
+        {
+            float[] matrix = matrices[bone];
+
+            if (matrix.Length < 12)
+            {
+                continue;
+            }
+
+            Array.Copy(matrix, 0, contents, bone * 12, 12);
+        }
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = contents)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, sizeof(float) * BoneConstants, sizeof(float) * BoneConstants);
+        }
+
+        context.Unmap(_bones, 0);
+        context.VSSetConstantBuffers(3, 1, ref _bones);
+    }
+
+    private void EnsureBoneBuffer(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_bones.Handle is not null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11Device> device = default;
+
+        context.GetDevice(ref device);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = sizeof(float) * BoneConstants,
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+        _bones = buffer;
         device.Dispose();
     }
 

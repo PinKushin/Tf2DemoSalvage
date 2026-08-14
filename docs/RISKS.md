@@ -3263,11 +3263,26 @@ So it needs no physics engine, no collision and no broadphase — it is a proced
 transforms and drops into the bone pipeline this project is building for GPU skinning. Cost is a
 handful of springs per model.
 
-**Ragdolls are a different thing and may be unfixable.** A dead player is real VPhysics, simulated
-client-side, and nothing about the resulting pose is networked. Two clients replaying one demo do
-not agree on how a corpse fell, so neither will this viewer — no amount of decoding recovers a
-simulation that was never recorded. Anyone expecting death poses to match a recording should be
-told this rather than left to discover it.
+**Ragdolls: the first version of this entry was wrong, and the correction is the useful part.** It
+claimed "nothing about the resulting pose is networked" and concluded ragdolls may be unfixable.
+That was asserted from reasoning about client-side simulation rather than from reading the wire
+format, and reading it says otherwise. `DT_TFRagdoll` (`c_tf_player.cpp:517`) sends:
 
-Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a
-physics engine", which is the wrong conclusion for the first and an incomplete one for the second.
+```
+m_vecRagdollOrigin, m_vecForce, m_vecRagdollVelocity, m_nForceBone, m_hPlayer,
+m_bGib, m_bBurning, m_bElectrocuted, m_bFeignDeath, m_bWasDisguised, m_bOnGround,
+m_bCloaked, m_bBecomeAsh, m_iDamageCustom, m_iTeam, m_iClass, m_hRagWearables,
+m_bGoldRagdoll, m_bIceRagdoll, m_bCritOnHardHit, m_flHeadScale, m_flTorsoScale
+```
+
+That is the complete initial condition — where it starts, the impulse, which bone took it, whether
+it is on the ground — plus every visual variant a death can have. Only the simulation from that
+point onward is client-side.
+
+So a ragdoll is reproducible in principle, and **it is wanted**: frag-video makers care about death
+animations, which is much of what a frag video shows. What remains unverified is whether Source's
+VPhysics reproduces the same fall from the same start, and that is a measurement rather than an
+argument.
+
+Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a physics
+engine", which is the wrong conclusion for jiggle bones and only half the question for ragdolls.
