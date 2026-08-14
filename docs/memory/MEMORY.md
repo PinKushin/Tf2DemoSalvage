@@ -57,3 +57,5 @@
 - [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land in %LOCALAPPDATA%\Tf2DemoSalvage\shot-*.png beside viewer.log.
 - [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half; open the routine that implements it before writing your own.
 - [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup returned AttackStand_PRIMARY for Stand_PRIMARY and laid every player down.
+- [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — culls and biases tuned for the top-down view broke the moment a free camera existed.
+- [Read the map before the renderer](read-the-map-before-the-renderer.md) — four renderer theories died before asking the BSP what the broken thing actually was.
