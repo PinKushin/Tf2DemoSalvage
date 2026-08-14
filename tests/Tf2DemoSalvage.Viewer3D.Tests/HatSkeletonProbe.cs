@@ -42,6 +42,7 @@ public sealed class HatSkeletonProbe
             "models/player/items/all_class/ghostly_gibus_scout.mdl",
             "models/player/items/all_class/hwn_spellbook_complete.mdl",
             "models/player/scout.mdl",
+            "models/player/soldier.mdl",
         ];
 
         foreach (string path in wanted)
@@ -85,6 +86,33 @@ public sealed class HatSkeletonProbe
 
             TestContext.Out.WriteLine(
                 $"HAT   bones whose parent is listed after them: {outOfOrder}");
+
+            // **Where the rest skeleton actually puts each bone**, which is the number the merge
+            // hands over. A scout stands about 83 units tall with their origin at their feet, so
+            // bip_head belongs near z 64. Anything close to zero means what is being passed is not
+            // a bone-to-world matrix at all.
+            StudioSkeleton rest = StudioBones.RestPose(bones);
+
+            List<string> placed = [];
+
+            for (int index = 0; index < bones.Count && placed.Count < 4; index++)
+            {
+                if (!bones[index].Name.Contains("head", StringComparison.OrdinalIgnoreCase) &&
+                    !bones[index].Name.Contains("pelvis", StringComparison.OrdinalIgnoreCase) &&
+                    !bones[index].Name.Contains("prp_hat", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                float[] world = rest.BoneToWorld[index];
+                float[] skin = rest.Matrices[index];
+
+                placed.Add(
+                    $"{bones[index].Name} boneToWorld=({world[3]:0.#},{world[7]:0.#},{world[11]:0.#})" +
+                    $" skinning=({skin[3]:0.#},{skin[7]:0.#},{skin[11]:0.#})");
+            }
+
+            TestContext.Out.WriteLine($"HAT   rest: {string.Join("  ", placed)}");
         }
 
         Assert.Pass();

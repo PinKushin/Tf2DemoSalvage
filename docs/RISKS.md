@@ -3509,3 +3509,39 @@ known mechanism: an equipped cosmetic HIDES part of the base model through bodyg
 project does not read `studiohdr_t.bodyparts` at all. The base body then draws inside the cosmetic
 and the two z-fight, which speckles. Unmeasured; LOD is the other candidate and neither has been
 ruled out.
+
+## B67 — the posed player skeleton is not upright — OPEN, and it is upstream of B64 and B63
+
+**Measured, cp_process, soldier at a mid-match tick:**
+
+```
+posed models/player/soldier.mdl: 26922 of 26922 corners weighted, 86 bones,
+  extents x 55.4 y 62.3 z 22.8 (z from -11.6 to 11.1)
+```
+
+A standing TF2 player is roughly 25 x 48 x 83. This is a blob centred on the origin. The raw
+model measures `x 47.9 y 84.5 z 24.8` and is authored lying along Y, so the pose is changing the
+shape without standing it up.
+
+Everything else being chased follows from it:
+
+- Legs bending the wrong way (B64's symptom) is a badly posed skeleton, not only a blend choice.
+- Every worn item sits at ankle height, because the bone it merges onto is itself near the origin:
+  soldier `bip_head` poses to `(-1.4, -25.8, 0.6)` when its REST position is `(0, 75.2, -1.1)`.
+  Scout is the same shape, rest `(0, 73.5, -1.4)`.
+
+**What has been ruled out**, each read against the SDK rather than assumed:
+
+- Flag handling in `CalcBoneQuaternion` (`bone_setup.cpp:374`) — matches.
+- The run-length decoder `ExtractAnimValue` (`:339`) — same walk, same selection.
+- `AngleQuaternion` (`mathlib_base.cpp:2016`) — our `FromEuler` matches it term for term.
+- Bone ordering — no model lists a parent after its child.
+
+So the fault is in how this project COMPOSES those pieces, which is homegrown: `StudioBones.RestPose`
+walks the hierarchy itself rather than porting `Studio_BuildBoneChain`/`CalcBoneToWorld`, and
+`StudioAnimation.Pose` substitutes animated values into a bone list rather than following
+`CalcAndAddPose`. Each piece was verified in isolation and the composition never was.
+
+**Recommendation, and the owner raised it first:** port the bone setup path faithfully rather than
+continuing to repair an approximation of it. The pieces already ported are correct and can be kept;
+what needs replacing is the assembly around them.
