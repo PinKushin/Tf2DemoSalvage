@@ -7,7 +7,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <summary>One of a model's sequences.</summary>
 /// <param name="Animation">The local animation it plays, for a sequence with no blending.</param>
 /// <param name="Flags">Its flags, of which looping is the one that matters here.</param>
-public readonly record struct StudioSequence(int Animation, int Flags)
+/// <param name="Label">Its name, which is what several models' sequences are merged by.</param>
+public readonly record struct StudioSequence(int Animation, int Flags, string Label = "")
 {
     /// <summary>Whether the sequence loops.</summary>
     /// <remarks>
@@ -17,8 +18,20 @@ public readonly record struct StudioSequence(int Animation, int Flags)
     /// </remarks>
     public bool Loops => (Flags & Looping) != 0;
 
+    /// <summary>Whether this is a name held open for an included model to fill in.</summary>
+    /// <remarks>
+    /// <c>STUDIO_OVERRIDE</c>, which <c>studio.h</c> describes as "a forward declared sequence
+    /// (empty)". A player model declares the name of every sequence it can play with a one-frame
+    /// animation behind it, and the real animation arrives with an included model. Treating a
+    /// declaration as real resolves every named animation a class has to a single frame.
+    /// </remarks>
+    public bool IsForwardDeclaration => (Flags & ForwardDeclared) != 0;
+
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = 0x0001;
+
+    /// <summary><c>STUDIO_OVERRIDE</c> from <c>studio.h</c>.</summary>
+    private const int ForwardDeclared = 0x0800;
 }
 
 /// <summary>
@@ -56,6 +69,7 @@ public static class StudioSequences
     /// </summary>
     private const int SequenceStride = 212;
 
+    private const int LabelOffset = 4;
     private const int FlagsOffset = 12;
     private const int AnimationIndexOffset = 60;
     private const int GroupSizeOffset = 68;
@@ -109,7 +123,9 @@ public static class StudioSequences
                 groupX > 0 && groupY > 0 && table >= 0 && table + 2 <= bytes.Length
                     ? BinaryPrimitives.ReadInt16LittleEndian(bytes[table..])
                     : 0,
-                flags));
+                flags,
+                StudioStrings.At(
+                    bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[LabelOffset..]))));
         }
 
         return sequences;
