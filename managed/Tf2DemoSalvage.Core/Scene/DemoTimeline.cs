@@ -19,6 +19,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="PlayerClass">Which of the nine classes, when known; 1 is Scout through 9 Engineer.</param>
 /// <param name="Yaw">Which way the body faces, in degrees, interpolated with the position.</param>
 /// <param name="Speed">How fast the player is moving horizontally, in units a second.</param>
+/// <param name="LifeState">0 alive, 1 dying, 2 dead; absent means alive.</param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -35,7 +36,8 @@ public readonly record struct ScenePlayer(
     int? Health,
     int? PlayerClass,
     float Yaw = 0f,
-    float Speed = 0f)
+    float Speed = 0f,
+    int? LifeState = null)
 {
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
@@ -44,6 +46,18 @@ public readonly record struct ScenePlayer(
     /// player, and it moves convincingly - it follows the action, because that is its job.
     /// </remarks>
     public bool IsPlaying => Team is SceneTeams.Red or SceneTeams.Blu;
+
+    /// <summary>Whether this player is alive and standing in the world.</summary>
+    /// <remarks>
+    /// **A dead player is still on a team and still has a position — the position of whoever they
+    /// are spectating.** So a corpse drawn as a player appears standing inside the living player
+    /// it is watching, and several of them stack into one heap. That is what "two soldiers in a
+    /// ball" was.
+    ///
+    /// **Absent means alive**, because <c>LIFE_ALIVE</c> is zero and a delta-compressed format
+    /// only sends what changed. Reading absence as unknown would hide everyone who has not died.
+    /// </remarks>
+    public bool IsAlive => LifeState is null or 0;
 }
 
 /// <summary>The engine's team numbers.</summary>
@@ -223,6 +237,10 @@ public sealed class DemoTimeline
         }
 
         List<TimelineFrame> frames = [];
+
+        // Where each player last stood while alive, so a corpse stays where it fell rather than
+        // following the player it spectates.
+        Dictionary<int, (float X, float Y, float Z)> diedAt = [];
         float interval = 0f;
 
         ModelPrecache precache = new();
@@ -320,14 +338,37 @@ public sealed class DemoTimeline
                 // The resource's arrays are keyed by entity index, zero padded to three digits.
                 string slot = player.EntityIndex.ToString("D3", CultureInfo.InvariantCulture);
 
+                // **A dead player's origin is not where they died — it is where they are
+                // WATCHING.** The entity follows whoever they spectate, so drawing a corpse at its
+                // current origin puts it standing inside a living player, and several of them
+                // stack into one heap.
+                //
+                // So the last position held while alive is kept and used until they respawn, which
+                // leaves a body roughly where it fell. TF2 leaves a ragdoll there; this is a
+                // standing stand-in for one until ragdolls are simulated (B58).
+                int? life = player.LifeState();
+                bool alive = life is null or 0;
+
+                (float X, float Y, float Z) where = origin;
+
+                if (alive)
+                {
+                    diedAt[player.EntityIndex] = origin;
+                }
+                else if (diedAt.TryGetValue(player.EntityIndex, out (float X, float Y, float Z) fell))
+                {
+                    where = fell;
+                }
+
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
-                    origin.X,
-                    origin.Y,
-                    origin.Z,
+                    where.X,
+                    where.Y,
+                    where.Z,
                     resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties),
                     resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
-                    resource?.Integer($"m_iPlayerClass.{slot}")));
+                    resource?.Integer($"m_iPlayerClass.{slot}"),
+                    LifeState: life));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
@@ -653,6 +694,15 @@ public sealed class DemoTimeline
 
         foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
         {
+            // **A dead player keeps the position recorded for them**, which is where they fell.
+            // The entity's own track follows whoever they are spectating, so interpolating it
+            // would drag the body across the map to stand inside a living player.
+            if (!player.IsAlive)
+            {
+                into.Add(player);
+                continue;
+            }
+
             into.Add(
                 _trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) &&
                 track.At(tick) is { } pose

@@ -164,6 +164,20 @@ public sealed class EntityState
     /// </remarks>
     public int? AnimationSequence() => Integer($"{AnimatingTable}.{SequenceProperty}");
 
+    /// <summary>Whether the entity is alive, when it says.</summary>
+    /// <returns><c>m_lifeState</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **<c>DT_BasePlayer</c>, not the local-player table**, so it is present for every player in
+    /// any recording — unlike <c>m_vecVelocity</c>, which only its owner receives.
+    ///
+    /// Values from <c>const.h</c>: 0 alive, 1 dying, 2 dead, 3 respawnable, 4 discard body.
+    ///
+    /// **Absent means ALIVE**, because zero is the default and a delta-compressed format only
+    /// sends what changed. Reading absence as "unknown, so do not draw" would hide every player
+    /// who had not died yet.
+    /// </remarks>
+    public int? LifeState() => Integer("DT_BasePlayer.m_lifeState");
+
     /// <summary>How far through its animation the entity is, from 0 to 1.</summary>
     /// <returns>The cycle, or <c>null</c> when the entity does not animate.</returns>
     /// <remarks><c>c_baseanimating.cpp:152</c>.</remarks>

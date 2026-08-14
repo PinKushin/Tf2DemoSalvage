@@ -6,6 +6,7 @@ using System.IO;
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One bone's rest position in a model's skeleton.</summary>
+/// <param name="Name">Its name, which is how one model's bones are matched to another's.</param>
 /// <param name="Parent">The bone this hangs off, or −1 for the root.</param>
 /// <param name="Position">Where it sits relative to its parent.</param>
 /// <param name="Rotation">How it is turned relative to its parent, as a quaternion.</param>
@@ -20,6 +21,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// (<c>bone_setup.cpp:417</c>). Adding them to the quaternion instead is meaningless.
 /// </remarks>
 public readonly record struct StudioBone(
+    string Name,
     int Parent,
     (float X, float Y, float Z) Position,
     (float X, float Y, float Z, float W) Rotation,
@@ -172,6 +174,7 @@ public static class StudioBones
     /// </summary>
     private const int BoneStride = 216;
 
+    private const int NameOffset = 0;
     private const int ParentOffset = 4;
     private const int PositionOffset = 32;
     private const int RotationOffset = 44;
@@ -230,6 +233,10 @@ public static class StudioBones
             }
 
             bones.Add(new StudioBone(
+                StudioStrings.At(
+                    bytes,
+                    at + (index * BoneStride) +
+                        BinaryPrimitives.ReadInt32LittleEndian(bone[NameOffset..])),
                 BinaryPrimitives.ReadInt32LittleEndian(bone[ParentOffset..]),
                 (
                     BinaryPrimitives.ReadSingleLittleEndian(bone[PositionOffset..]),
@@ -328,6 +335,46 @@ public static class StudioBones
         }
 
         return new StudioSkeleton(skinning);
+    }
+
+    /// <summary>Maps one model's bone numbering onto another's, by name.</summary>
+    /// <param name="from">The bones an animation's indices refer to.</param>
+    /// <param name="to">The bones a pose is to be applied to.</param>
+    /// <returns>An index into <paramref name="to"/> for each bone in <paramref name="from"/>, or −1.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **This is Valve's <c>masterBone</c>**, which <c>studio.h</c> describes as mapping a local
+    /// bone to a global one and which <c>bone_setup.cpp:966</c> applies to every animation it
+    /// reads: <c>int j = pAnimGroup-&gt;masterBone[panim-&gt;bone];</c>.
+    ///
+    /// **Without it a pose is scrambled rather than absent, which is worse.** An animation model
+    /// numbers its own bones, and applying those numbers to the base model's skeleton moves the
+    /// wrong joints by the right amounts — measured on a soldier as extents of 56 by 66 by 65,
+    /// roughly cubical, where a standing player is about 25 by 48 by 83. It looked like a model
+    /// sitting up rather than one lying down, which is exactly what a partly-correct skeleton is.
+    ///
+    /// Matched by name because that is what makes an animation model shareable in the first place.
+    /// </remarks>
+    public static int[] Remap(IReadOnlyList<StudioBone> from, IReadOnlyList<StudioBone> to)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+
+        Dictionary<string, int> byName = new(StringComparer.OrdinalIgnoreCase);
+
+        for (int index = 0; index < to.Count; index++)
+        {
+            byName.TryAdd(to[index].Name, index);
+        }
+
+        int[] remap = new int[from.Count];
+
+        for (int index = 0; index < from.Count; index++)
+        {
+            remap[index] = byName.TryGetValue(from[index].Name, out int found) ? found : -1;
+        }
+
+        return remap;
     }
 
     private static (float X, float Y, float Z) Vector(ReadOnlySpan<byte> bone, int at) =>

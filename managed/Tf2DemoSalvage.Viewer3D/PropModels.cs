@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -696,7 +697,8 @@ internal static class PropModels
                     layout,
                     sequenceAnimation,
                     sequenceLoops,
-                    skin ? new SkinnedModel(bones, groupModels, table, groups) : null));
+                    skin ? new SkinnedModel(bones, groupModels, table, groups) : null,
+                    IlluminationOf(modelFile)));
         }
         catch (InvalidDataException failure)
         {
@@ -705,6 +707,38 @@ internal static class PropModels
             ViewerLog.Warn("props", $"reading {path}", failure);
             return null;
         }
+    }
+
+    /// <summary>Where a model wants its light sampled, in its own space.</summary>
+    /// <remarks>
+    /// **<c>studiohdr_t.illumposition</c>, which studio.h calls the "illumination center".** A
+    /// model's ORIGIN is not where it should be lit: a player's origin is at its feet, and a point
+    /// resting exactly on a floor plane lands in the solid leaf beneath it, which carries no light
+    /// at all. The model then draws black - measured on a medic, a soldier, a scout and a resupply
+    /// locker, each at a real position inside the map.
+    ///
+    /// Offset 92, after <c>eyeposition</c> at 80 and before <c>hull_min</c> at 104. Pinned by the
+    /// same field chain that puts <c>numbones</c> at 156, which this project already verified
+    /// against real files.
+    ///
+    /// This is the engine's own answer to "where is this model lit", rather than a nudge upwards
+    /// chosen to make the symptom go away.
+    /// </remarks>
+    private static (float X, float Y, float Z) IlluminationOf(ReadOnlyMemory<byte> file)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        const int illuminationOffset = 92;
+
+        if (bytes.Length < illuminationOffset + 12)
+        {
+            return default;
+        }
+
+        return (
+            BinaryPrimitives.ReadSingleLittleEndian(bytes[illuminationOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(bytes[(illuminationOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(bytes[(illuminationOffset + 8)..]));
     }
 
     /// <summary>Finds or creates the combined table's entry for one of a model's materials.</summary>
@@ -837,9 +871,89 @@ internal static class PropModels
 
             int animation = Groups[where.Group].Sequences[where.Local].Animation;
 
-            return StudioBones.Posed(
-                Bones,
-                StudioAnimation.Pose(Models[where.Group], Bones, animation, frame)).Matrices;
+            // **The animation's bones are ITS model's, and must be renumbered.** An animation
+            // model has its own bone list and its own ordering; applying those indices to the base
+            // skeleton moves the wrong joints by the right amounts. Valve remap every animation
+            // through masterBone for exactly this - bone_setup.cpp:966.
+            IReadOnlyList<StudioBone> owner = BonesOf(where.Group);
+
+            IReadOnlyList<StudioBonePose> pose =
+                StudioAnimation.Pose(Models[where.Group], owner, animation, frame);
+
+            if (where.Group != 0 && Remaps(where.Group) is { } remap)
+            {
+                List<StudioBonePose> renumbered = new(pose.Count);
+
+                foreach (StudioBonePose moved in pose)
+                {
+                    int bone = moved.Bone >= 0 && moved.Bone < remap.Length ? remap[moved.Bone] : -1;
+
+                    if (bone >= 0)
+                    {
+                        renumbered.Add(moved with { Bone = bone });
+                    }
+                }
+
+                pose = renumbered;
+            }
+
+            return StudioBones.Posed(Bones, pose).Matrices;
+        }
+
+        private readonly Dictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = [];
+        private readonly Dictionary<int, int[]> _remapByGroup = [];
+
+        /// <summary>The bones an animation model numbers its own animations against.</summary>
+        private IReadOnlyList<StudioBone> BonesOf(int group)
+        {
+            if (_bonesByGroup.TryGetValue(group, out IReadOnlyList<StudioBone>? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<StudioBone> read = group == 0 || group >= Models.Count
+                ? Bones
+                : StudioBones.Read(Models[group]);
+
+            _bonesByGroup[group] = read;
+            return read;
+        }
+
+        /// <summary>How a group's bone numbering maps onto the base model's.</summary>
+        private int[]? Remaps(int group)
+        {
+            if (_remapByGroup.TryGetValue(group, out int[]? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<StudioBone> owner = BonesOf(group);
+
+            if (owner.Count == 0)
+            {
+                return null;
+            }
+
+            int[] built = StudioBones.Remap(owner, Bones);
+
+            // **How much of the skeleton actually matched.** A bone that does not map is dropped,
+            // and a dropped bone keeps its REST transform - which for a player is part of the
+            // lying-down modelling pose. So a partial remap is a partially standing player, and
+            // the count is the difference between "the pose is wrong" and "the pose is missing".
+            int matched = 0;
+
+            foreach (int bone in built)
+            {
+                matched += bone >= 0 ? 1 : 0;
+            }
+
+            ViewerLog.Write(
+                "props",
+                $"remap group {group}: {matched} of {built.Length} bones matched the base " +
+                $"skeleton's {Bones.Count}");
+
+            _remapByGroup[group] = built;
+            return built;
         }
 
         /// <summary>The merged sequence number whose label contains a name.</summary>
@@ -895,6 +1009,7 @@ internal static class PropModels
     /// <param name="SequenceAnimation">Which animation each sequence plays.</param>
     /// <param name="SequenceLoops">Whether each sequence loops, from <c>STUDIO_LOOPING</c>.</param>
     /// <param name="Skinned">Set when this model is posed on the GPU instead of having frames baked.</param>
+    /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -905,7 +1020,8 @@ internal static class PropModels
         IReadOnlyDictionary<int, (int Start, int Frames, float CyclesPerSecond)> Layout,
         IReadOnlyList<int> SequenceAnimation,
         IReadOnlyList<bool> SequenceLoops,
-        SkinnedModel? Skinned = null)
+        SkinnedModel? Skinned = null,
+        (float X, float Y, float Z) Illumination = default)
     {
         /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
         /// <remarks>

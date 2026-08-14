@@ -62,6 +62,108 @@ internal sealed class EntityModelSet
     /// <summary>Models already reported as animating, so the log states it once.</summary>
     private readonly HashSet<string> _reportedFrames = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Models already reported as drawing unlit.</summary>
+    private readonly HashSet<string> _reportedDark = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Where a model's light should be sampled, in world space.</summary>
+    private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
+    {
+        if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry))
+        {
+            return (pose.X, pose.Y, pose.Z);
+        }
+
+        (float x, float y, float z) = entry.Illumination;
+
+        if (x == 0f && y == 0f && z == 0f)
+        {
+            return (pose.X, pose.Y, pose.Z);
+        }
+
+        float radians = pose.Yaw * (MathF.PI / 180f);
+        (float sine, float cosine) = MathF.SinCos(radians);
+
+        return (
+            pose.X + (x * cosine) - (y * sine),
+            pose.Y + (x * sine) + (y * cosine),
+            pose.Z + z);
+    }
+
+    /// <summary>Whether an ambient cube carries no light at all.</summary>
+    private static bool IsUnlit(AmbientCube cube) =>
+        cube.PositiveX == (0f, 0f, 0f) &&
+        cube.NegativeX == (0f, 0f, 0f) &&
+        cube.PositiveY == (0f, 0f, 0f) &&
+        cube.NegativeY == (0f, 0f, 0f) &&
+        cube.PositiveZ == (0f, 0f, 0f) &&
+        cube.NegativeZ == (0f, 0f, 0f);
+
+    /// <summary>Skinned models whose posed extents have been reported.</summary>
+    private readonly HashSet<string> _reportedPoses = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The raw geometry of each packed model, for checking a pose against.</summary>
+    private readonly Dictionary<string, IReadOnlyList<PropVertex>> _raw =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Measures a skinned model with its pose applied on the processor.</summary>
+    private void ReportPosedExtents(string modelPath, IReadOnlyList<float[]> bones)
+    {
+        if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners))
+        {
+            return;
+        }
+
+        float minimumX = float.MaxValue, minimumY = float.MaxValue, minimumZ = float.MaxValue;
+        float maximumX = float.MinValue, maximumY = float.MinValue, maximumZ = float.MinValue;
+        int weighted = 0;
+
+        foreach (PropVertex corner in corners)
+        {
+            float total = corner.Weights.First + corner.Weights.Second + corner.Weights.Third;
+
+            if (total <= 0f)
+            {
+                continue;
+            }
+
+            weighted++;
+
+            Span<byte> which = [corner.Bones.First, corner.Bones.Second, corner.Bones.Third];
+            Span<float> howMuch =
+                [corner.Weights.First, corner.Weights.Second, corner.Weights.Third];
+
+            float x = 0f, y = 0f, z = 0f;
+
+            for (int slot = 0; slot < 3; slot++)
+            {
+                if (howMuch[slot] <= 0f || which[slot] >= bones.Count)
+                {
+                    continue;
+                }
+
+                float[] matrix = bones[which[slot]];
+                float share = howMuch[slot] / total;
+
+                x += share * ((matrix[0] * corner.X) + (matrix[1] * corner.Y) + (matrix[2] * corner.Z) + matrix[3]);
+                y += share * ((matrix[4] * corner.X) + (matrix[5] * corner.Y) + (matrix[6] * corner.Z) + matrix[7]);
+                z += share * ((matrix[8] * corner.X) + (matrix[9] * corner.Y) + (matrix[10] * corner.Z) + matrix[11]);
+            }
+
+            minimumX = MathF.Min(minimumX, x);
+            minimumY = MathF.Min(minimumY, y);
+            minimumZ = MathF.Min(minimumZ, z);
+            maximumX = MathF.Max(maximumX, x);
+            maximumY = MathF.Max(maximumY, y);
+            maximumZ = MathF.Max(maximumZ, z);
+        }
+
+        ViewerLog.Write(
+            "props",
+            $"posed {modelPath}: {weighted} of {corners.Count} corners weighted, " +
+            $"{bones.Count} bones, extents x {maximumX - minimumX:0.#} y {maximumY - minimumY:0.#} " +
+            $"z {maximumZ - minimumZ:0.#}");
+    }
+
     /// <summary>Every packed model's triangles, in model space.</summary>
     /// <remarks>
     /// Uploaded once. The vertices never move again — that is the whole point of the arrangement.
@@ -175,6 +277,7 @@ internal sealed class EntityModelSet
             }
 
             _frames[prop.ModelPath] = model;
+            _raw[prop.ModelPath] = model.Geometry[0];
 
             for (int slot = 0; slot < model.Geometry.Count; slot++)
             {
@@ -219,7 +322,22 @@ internal sealed class EntityModelSet
                         NextZ: ahead.Z,
                         NextNormalX: ahead.NormalX,
                         NextNormalY: ahead.NormalY,
-                        NextNormalZ: ahead.NormalZ));
+                        NextNormalZ: ahead.NormalZ,
+
+                        // **Without these the shader skins by nothing.** A skinned model's
+                        // geometry is uploaded unposed, so the bones are the only thing that
+                        // stands it up - and a vertex with no weights is left exactly where the
+                        // artist modelled it, which for a player is lying along Y. The fields
+                        // existed on the vertex and in the packer and were never filled in here,
+                        // so every player drew in its raw modelling pose while being lit
+                        // correctly, which reads as a lighting change rather than a missing
+                        // transform.
+                        BoneA: corner.Bones.First,
+                        BoneB: corner.Bones.Second,
+                        BoneC: corner.Bones.Third,
+                        WeightA: corner.Weights.First,
+                        WeightB: corner.Weights.Second,
+                        WeightC: corner.Weights.Third));
                 }
 
                 foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
@@ -315,9 +433,35 @@ internal sealed class EntityModelSet
             // **Lit from where it stands, which is what the engine does.** A model has no
             // lightmap, so vrad's per-leaf ambient cube is the light it gets - sampled at the
             // origin rather than per vertex, exactly as the client samples it once per model.
+            // **Lit at the model's illumination centre, not at its origin.** studiohdr_t carries
+            // an illumposition for exactly this: a player's origin is at its feet, and a point
+            // resting on a floor plane lands in the solid leaf beneath, which holds no light. The
+            // model then draws black - seen on a medic, a soldier, a scout and a resupply locker.
+            //
+            // The offset turns with the model, because it is a point on the model rather than a
+            // direction in the world.
+            (float lightX, float lightY, float lightZ) = IlluminationPoint(prop, pose);
+
             AmbientCube light = lightAt is null
                 ? default
-                : lightAt(pose.X, pose.Y, pose.Z);
+                : lightAt(lightX, lightY, lightZ);
+
+            // **A model lit by nothing draws black, and that is worth saying out loud.** The cube
+            // comes from the leaf a model stands in, and a player's origin is at its FEET - so a
+            // point resting exactly on a floor plane can land in the solid leaf below it, which
+            // carries no light at all. It shows as a player turning black in some places and
+            // recovering in others, which reads as a lighting quirk rather than a lookup landing
+            // in solid.
+            //
+            // Logged with the position, because the defect is positional and a count would not
+            // let anyone go and look at the spot.
+            if (lightAt is not null && IsUnlit(light) && _reportedDark.Add(prop.ModelPath))
+            {
+                ViewerLog.Warn(
+                    "render",
+                    $"{prop.ModelPath} is lit by nothing at ({pose.X:0},{pose.Y:0},{pose.Z:0}); " +
+                    $"its leaf carries no ambient light, so it draws black");
+            }
 
             if (!_reportedFrames.Contains(prop.ModelPath))
             {
@@ -346,11 +490,22 @@ internal sealed class EntityModelSet
                     StudioSequences.FrameFor(pose.Cycle, skinned.Frames(sequence), loops: true));
             }
 
+            // **Applies the matrices the GPU is about to use, on the processor, and reports the
+            // result.** A skinned model that draws wrong could be a bad pose or a bad shader, and
+            // an overhead camera cannot tell them apart. If these extents stand the model up, the
+            // pose is right and the fault is in the drawing; if they do not, the pose is the
+            // fault and the shader is innocent.
+            if (bones is { Count: > 0 } && !_reportedPoses.Contains(prop.ModelPath))
+            {
+                _reportedPoses.Add(prop.ModelPath);
+                ReportPosedExtents(prop.ModelPath, bones);
+            }
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
                 light,
-                sunAt?.Invoke(pose.X, pose.Y, pose.Z),
+                sunAt?.Invoke(lightX, lightY, lightZ),
                 frame,
                 blend,
                 bones));
