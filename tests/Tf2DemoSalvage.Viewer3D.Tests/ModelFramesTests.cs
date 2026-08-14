@@ -36,7 +36,8 @@ public sealed class ModelFramesTests
             {
                 [0] = (0, Frames, CyclesPerSecond),
             },
-            [0]);
+            [0],
+            [true]);
 
     [Test]
     public void OneWholePeriodLater_TheSameFrameIsDrawn()
@@ -111,7 +112,8 @@ public sealed class ModelFramesTests
             {
                 [0] = (0, 1, 0f),
             },
-            [0]);
+            [0],
+            [true]);
 
         still.IsStill.ShouldBeTrue();
         still.Frame(sequence: 0, cycle: 0f, seconds: 1000d).ShouldBe(0);

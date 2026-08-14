@@ -429,6 +429,7 @@ internal static class PropModels
             IReadOnlyList<StudioSequence> sequences = StudioSequences.Read(modelFile);
 
             List<int> sequenceAnimation = [.. sequences.Select(sequence => sequence.Animation)];
+            List<bool> sequenceLoops = [.. sequences.Select(sequence => sequence.Loops)];
             List<int> wanted = [.. sequenceAnimation.Distinct().Where(index => index >= 0)];
 
             if (wanted.Count == 0)
@@ -532,7 +533,7 @@ internal static class PropModels
                 cornerMeshes,
                 cornerVertices,
                 model.Checksum,
-                new ModelFrames(baked, layout, sequenceAnimation));
+                new ModelFrames(baked, layout, sequenceAnimation, sequenceLoops));
         }
         catch (InvalidDataException failure)
         {
@@ -625,6 +626,7 @@ internal static class PropModels
     /// <param name="Geometry">Every baked frame, animations laid end to end.</param>
     /// <param name="Layout">Where each animation starts in that list, and how long it is.</param>
     /// <param name="SequenceAnimation">Which animation each sequence plays.</param>
+    /// <param name="SequenceLoops">Whether each sequence loops, from <c>STUDIO_LOOPING</c>.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -633,7 +635,8 @@ internal static class PropModels
     internal sealed record ModelFrames(
         IReadOnlyList<IReadOnlyList<PropVertex>> Geometry,
         IReadOnlyDictionary<int, (int Start, int Frames, float CyclesPerSecond)> Layout,
-        IReadOnlyList<int> SequenceAnimation)
+        IReadOnlyList<int> SequenceAnimation,
+        IReadOnlyList<bool> SequenceLoops)
     {
         /// <summary>Whether this model has anything to animate.</summary>
         public bool IsStill => Geometry.Count <= 1;
@@ -677,8 +680,11 @@ internal static class PropModels
             // frame zero, which is what a health pack looked like.
             double advanced = cycle + (seconds * where.CyclesPerSecond);
 
+            bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
+
             return Math.Clamp(
-                where.Start + StudioSequences.FrameFor((float)(advanced - Math.Floor(advanced)), where.Frames),
+                where.Start + StudioSequences.FrameFor(
+                    (float)(advanced - Math.Floor(advanced)), where.Frames, loops),
                 0,
                 Geometry.Count - 1);
         }

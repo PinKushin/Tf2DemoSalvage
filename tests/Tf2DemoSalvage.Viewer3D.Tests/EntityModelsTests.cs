@@ -152,7 +152,8 @@ public sealed class EntityModelsTests
                     {
                         [0] = (0, 1, 0f),
                     },
-                    [0])
+                    [0],
+                    [true])
                 : OneTriangle(path));
 
         List<WorldBatch> all =
@@ -183,7 +184,8 @@ public sealed class EntityModelsTests
                 },
             ],
             new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
-            [0]);
+            [0],
+            [true]);
 
     private static SceneProp Prop(
         string model, float x = 0f, float y = 0f, float z = 0f, float yaw = 0f) =>
