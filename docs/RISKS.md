@@ -4054,3 +4054,60 @@ directly overhead it is nearly invisible: a player seen from above has little of
 himself, and a medkit is small. The free camera made it obvious within minutes, which is the second
 defect of the evening that existed the whole time and only became visible once there was a camera
 that could look at things.
+
+## B73 — bodygroups are selected at LOAD time, so every entity sharing a model gets the same one
+
+Body parts now contribute one model each rather than all of them, which stopped all three capture
+point labels drawing at once. But the selection happens when the model is read, with `m_nBody` of
+zero, so every entity sharing a `.mdl` shows the same alternative — the owner's "they are not the
+right ones, but it's only a single one".
+
+**The shape of the problem:** bodygroup varies per ENTITY and geometry is packed per model PATH.
+cp_process's three capture points share one model and need three different label meshes.
+
+**Valve does not repack.** The engine keeps every body part's meshes and chooses which to draw per
+entity, which is the same arrangement this project already uses for team skins: one copy of the
+geometry, a per-instance lookup at bind time, and a player who switches team is right on the next
+frame with nothing rebuilt.
+
+So the fix is to follow the skin pattern rather than the frame pattern:
+
+1. Pack every model of every body part again, as before, but record for each batch which
+   `(part, model)` it came from — the packing already groups by material, so this is one more field.
+2. Decode `m_nBody` from `DT_BaseAnimating` and carry it on `ScenePose` beside `Skin`.
+3. At draw time, skip any batch whose `(part, model)` is not what `(body / base) % nummodels`
+   selects for that part. `StudioModel` already computes exactly that in `Select`.
+
+`SelectedModels` and the load-time `body` parameter come out again when this lands; they were the
+cheap half of the change and they are what makes the readers agree, so the lockstep note on
+`StudioModelInfo` needs to move to wherever the per-batch tagging ends up.
+
+**Related and probably the same fix:** the owner reports the wrong points showing owned at the
+start — on 5CP two points begin owned by each team with only mid neutral. That is the control
+point's team driving which label and colour it shows, so it needs `m_nBody` and the entity's team
+together, not one of them.
+
+## B74 — the mid capture point appears close up and vanishes as the free camera backs away — OPEN
+
+Reported precisely, which makes it tractable: present in the orthographic view, present in the free
+camera when near, gone within a short distance of backing away. Distance-dependent visibility means
+something is culling against the camera, and the world is rebuilt whenever the free camera moves
+(`_worldIsStale`), so a cull evaluated at build time is re-evaluated on every move — which is
+exactly how a thing can come and go while nothing about it changes.
+
+**Where to look, in order:**
+
+1. `MapWorldBuilder.Build` takes an `area` and drops any surface not touching it (`Touches`), and
+   `AppendProps` applies the same bounds to placed props. `MainForm` passes `_map.MainBounds`,
+   which should be constant — but that is worth confirming rather than assuming, since it is the
+   only bounds test in the path and the symptom is a bounds test behaving like a frustum.
+2. Whether the capture point is a placed static prop, a `prop_dynamic` from the entity lump, or a
+   networked entity. The three take different paths and only one of them passes through `area`.
+   Note the entity lump is read by nothing (B71), so if it is a `prop_dynamic` it should be absent
+   ALWAYS rather than sometimes — which would make this a different object than assumed.
+3. The near and far planes, `NearZ` 7 and `FarZ` 28000. Far is well beyond a map, so it should not
+   be this, and saying so is cheaper than wondering later.
+
+**Not yet measured, and no theory should be committed before it is.** The last four attempts at a
+similarly-shaped symptom were all wrong, and what settled it was asking the map what the object was
+rather than reasoning about the renderer.
