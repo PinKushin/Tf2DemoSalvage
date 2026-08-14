@@ -53,10 +53,25 @@ public sealed class MapWorldTests
     }
 
     [Test]
-    public void Build_DownwardFacingSurfaces_AreDropped()
+    public void Build_DownwardFacingSurfaces_AreKept()
     {
-        // The same rule the outline view uses: a ceiling faces down into the room it encloses, and
-        // an overhead camera should not see it. This is the engine's own backface culling.
+        // **This test used to assert the opposite, and it was pinning a workaround in place.**
+        //
+        // Dropping every downward-facing surface at build time was free while the only camera
+        // looked straight down: a face pointing away from an overhead view can never be seen from
+        // one, and calling it "the engine's own backface culling" made it sound principled.
+        //
+        // It is not what the engine does. Valve culls per frame, against the view frustum and the
+        // PVS, from wherever the camera actually is. Culling once, by the sign of a normal, is
+        // equivalent only for a camera that never moves — and the moment a free camera existed it
+        // was deleting ceilings, undersides, and any wall whose normal tipped slightly below
+        // horizontal.
+        //
+        // It also produced a whole evening of chasing "floating decals": an overlay pinned to a
+        // culled face draws correctly in mid-air with the wall that belongs behind it simply gone.
+        //
+        // Backface culling still happens, in the rasteriser, per frame, which is where a decision
+        // that depends on the camera belongs.
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, normalZ: -1f)], Materials, LightmapAtlas.Pack([]),
@@ -64,7 +79,7 @@ public sealed class MapWorldTests
             Camera,
             null);
 
-        world.Vertices.ShouldBeEmpty();
+        world.Vertices.Count.ShouldBe(3);
     }
 
     [Test]

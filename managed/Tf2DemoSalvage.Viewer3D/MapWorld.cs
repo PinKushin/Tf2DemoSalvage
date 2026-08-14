@@ -84,7 +84,22 @@ internal static class MapWorldBuilder
 
         foreach (BspSurface surface in surfaces)
         {
-            if (!surface.IsVisible || surface.Normal.Z < 0f || surface.Vertices.Count < 3)
+            // **No normal cull, and its removal is the point.** This used to discard every face
+            // whose normal pointed downward, which was free when the only camera looked straight
+            // down: a face pointing away from an overhead view can never be seen from one.
+            //
+            // A camera that can go anywhere makes that assumption false, and it was deleting real
+            // geometry — ceilings, undersides, and any wall whose normal tips even slightly below
+            // horizontal. It also produced the "floating decals" chased all evening: an overlay
+            // pinned to a culled face draws correctly in mid-air, with the wall that should be
+            // behind it simply absent.
+            //
+            // **This is the deviation from the engine.** Valve culls per frame against the view
+            // frustum and the PVS, from wherever the camera actually is. Culling once, at build
+            // time, by the sign of a normal, is only equivalent for a camera that never moves.
+            // Backface culling in the rasteriser still removes what genuinely faces away, per
+            // frame, which is where that decision belongs.
+            if (!surface.IsVisible || surface.Vertices.Count < 3)
             {
                 continue;
             }
