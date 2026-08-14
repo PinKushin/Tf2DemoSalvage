@@ -85,6 +85,15 @@ internal sealed record ViewerSettings
     /// <summary>Command name for the texture detail.</summary>
     public const string TextureQualityCommand = "texture_quality";
 
+    /// <summary>Command name for the frame rate cap.</summary>
+    public const string FrameRateLimitCommand = "frame_rate_limit";
+
+    /// <summary>Command name for vertical sync.</summary>
+    public const string VerticalSyncCommand = "vertical_sync";
+
+    /// <summary>Source's own ceiling, and this viewer's default.</summary>
+    public const int SourceFrameRateLimit = 300;
+
     /// <summary>How full screen is entered.</summary>
     /// <remarks>
     /// Borderless is the default because it always works. Exclusive can be refused by DXGI — when
@@ -116,6 +125,35 @@ internal sealed record ViewerSettings
     /// cannot be seen anyway.
     /// </remarks>
     public TextureQuality TextureQuality { get; init; } = TextureQuality.Full;
+
+    /// <summary>Most frames a second to draw, or zero for no limit.</summary>
+    /// <remarks>
+    /// **Capped because the measurement said so.** The swap chain presents asking for vertical
+    /// sync, and the viewer was still measured at about 600 frames a second — a driver forcing
+    /// vsync off outranks the present call, so a program that wants a ceiling has to apply one
+    /// itself. Six hundred frames a second is ten times what any display shows, and every one of
+    /// them allocates.
+    ///
+    /// **300 is Source's own <c>fps_max</c> ceiling**, which is the number to match when the point
+    /// of the project is to behave the way the game does.
+    ///
+    /// Lower values are for recording rather than for weak hardware: 24 gives film cadence, 30 and
+    /// 60 are the ordinary video rates. A viewer that can only run flat out forces a capture tool
+    /// to resample, which is where judder comes from.
+    ///
+    /// Zero is uncapped, kept expressible because measuring how fast the renderer can go is a real
+    /// question — it is how the 600 was found.
+    /// </remarks>
+    public int FrameRateLimit { get; init; } = SourceFrameRateLimit;
+
+    /// <summary>Whether to present in step with the display's refresh.</summary>
+    /// <remarks>
+    /// **Off by default, deliberately.** It adds latency, and a machine whose driver disables it
+    /// globally will ignore the request anyway — so a default of on would be a setting that
+    /// silently does nothing on the machine this was built on. The frame limit above is the
+    /// mechanism that actually holds.
+    /// </remarks>
+    public bool VerticalSync { get; init; }
 
     /// <summary>Where the settings file lives.</summary>
     public static string Path => System.IO.Path.Combine(
@@ -195,6 +233,19 @@ internal sealed record ViewerSettings
             settings = settings with { TextureQuality = (TextureQuality)quality };
         }
 
+        // **Negative is ignored rather than obeyed.** A hand-edited file can say anything, and a
+        // negative budget makes every frame overdue - which is not "uncapped", it is a cap that
+        // looks broken. Zero is the way to say uncapped and is accepted.
+        if (Read(values, FrameRateLimitCommand) is { } limit && limit >= 0)
+        {
+            settings = settings with { FrameRateLimit = limit };
+        }
+
+        if (Read(values, VerticalSyncCommand) is { } sync)
+        {
+            settings = settings with { VerticalSync = sync != 0 };
+        }
+
         return settings;
     }
 
@@ -241,6 +292,16 @@ internal sealed record ViewerSettings
         text.AppendLine("// Largest texture edge to load, in pixels. 0 loads them at full size.");
         text.AppendLine(string.Create(
             CultureInfo.InvariantCulture, $"{TextureQualityCommand} {(int)TextureQuality}"));
+        text.AppendLine();
+        text.AppendLine("// Most frames a second to draw. 0 is uncapped; 300 is Source's ceiling.");
+        text.AppendLine("// 24 gives film cadence and 30 or 60 the ordinary video rates.");
+        text.AppendLine(string.Create(
+            CultureInfo.InvariantCulture, $"{FrameRateLimitCommand} {FrameRateLimit}"));
+        text.AppendLine();
+        text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
+        text.AppendLine("// and a driver that disables it globally ignores the request anyway.");
+        text.AppendLine(string.Create(
+            CultureInfo.InvariantCulture, $"{VerticalSyncCommand} {(VerticalSync ? 1 : 0)}"));
 
         return text.ToString();
     }

@@ -299,7 +299,7 @@ internal sealed class EntityModelSet
                     "render",
                     $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
                     $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count} " +
-                    $"blend {blend:0.###} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
+                    $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
             }
 
             into.Add(new ModelInstance(
