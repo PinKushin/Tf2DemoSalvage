@@ -989,6 +989,37 @@ internal static class PropModels
             return -1;
         }
 
+        /// <summary>How fast the animation behind a sequence advances, in cycles a second.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Cycles a second, or zero when it does not animate.</returns>
+        /// <remarks>
+        /// **A player's cycle is not networked either**, so it is advanced from elapsed time the
+        /// same way a health pack's is - the client does it in FrameAdvance and treats a sent
+        /// cycle as a correction. Without this every player holds one frame of a real animation,
+        /// which looks like a very convincing statue.
+        /// </remarks>
+        public float CyclesPerSecond(int sequence)
+        {
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return 0f;
+            }
+
+            return StudioAnimation.CyclesPerSecond(
+                Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
+        }
+
+        /// <summary>Whether the sequence loops.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns><c>true</c> when it carries <c>STUDIO_LOOPING</c>.</returns>
+        public bool Loops(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].Loops;
+
         /// <summary>How many frames the animation behind a sequence has.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>The frame count, or one when the sequence does not resolve.</returns>

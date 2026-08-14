@@ -485,9 +485,30 @@ internal sealed class EntityModelSet
             {
                 int sequence = Math.Max(0, pose.Sequence);
 
-                bones = skinned.Pose(
-                    sequence,
-                    StudioSequences.FrameFor(pose.Cycle, skinned.Frames(sequence), loops: true));
+                // **Advanced from demo time, because nothing networks a player's cycle.** The
+                // client runs its own in C_BaseAnimating::FrameAdvance and treats any sent cycle
+                // as a correction; a player's is never sent at all, so replaying it holds one
+                // frame of a real animation - a convincing statue.
+                double advanced = pose.Cycle + (seconds * skinned.CyclesPerSecond(sequence));
+                float phase = (float)(advanced - Math.Floor(advanced));
+
+                int posedFrame = StudioSequences.FrameFor(
+                    phase, skinned.Frames(sequence), skinned.Loops(sequence));
+
+                bones = skinned.Pose(sequence, posedFrame);
+
+                // **Report the frame actually applied, not the baked one.** A skinned model has a
+                // single baked slot, so the baked-frame line below says "frame 0 of 1" for every
+                // player however they are moving - true, and about the wrong quantity.
+                if (_reportedFrames.Add(prop.ModelPath + "#skin"))
+                {
+                    ViewerLog.Write(
+                        "render",
+                        $"skinned {prop.ModelPath}: sequence {sequence}, " +
+                        $"{skinned.Frames(sequence)} frames at " +
+                        $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
+                        $"phase {phase:0.###} -> frame {posedFrame}");
+                }
             }
 
             // **Applies the matrices the GPU is about to use, on the processor, and reports the

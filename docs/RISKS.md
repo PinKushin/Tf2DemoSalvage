@@ -3202,7 +3202,7 @@ comment naming `m_angEyeAngles` sat in another.
 The same rule is why the eye-angle fix is a single line at the pose rather than a field set on
 `ScenePlayer`: the pose already feeds the interpolator, so position and angle cannot drift apart.
 
-## B57 — player animation lives in included models, and cannot be baked — OPEN, measured
+## B57 — player animation lives in included models, and cannot be baked — RESOLVED 2026-08-14
 
 **Where it is.** A player model carries almost no animation of its own. Measured:
 
@@ -3287,6 +3287,14 @@ argument.
 Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a physics
 engine", which is the wrong conclusion for jiggle bones and only half the question for ragdolls.
 
+**B57 resolved 2026-08-14.** Players are skinned on the GPU from the merged sequence table, posed
+through Valve's bone remap, lit at their illumination centre, and advanced from demo time. The full
+account is `docs/findings/21-player-animation.md`, including the two wrong turns — an illumination
+hypothesis dropped on a blind experiment, and a bone remap whose absence produced a plausible pose
+rather than an obvious failure.
+
+What remains is not decoding but emulation, and is tracked as B61.
+
 ## B59 — what "useful to frag video makers" actually means, in 2026 — OPEN, scoping
 
 Recorded because the owner named ragdolls as wanted "for frag vid makers", and the right scope for
@@ -3370,3 +3378,27 @@ fix, and would explain why only this model shows it.
 
 The owner has deprioritised it until players are done. Filed with the numbers so it restarts from
 one measurement rather than from nothing.
+
+
+## B61 — the rest of CTFPlayerAnimState — OPEN, emulation rather than decode
+
+Players stand and run. Everything else about what they are doing is still computed wrongly, and
+none of it is a decoding problem: the demo says nothing about any of it by design, so each is a
+piece of `CTFPlayerAnimState` to port.
+
+In rough order of how visible each is:
+
+- **Per-class playback rate.** Every class plays the same run sequence at its authored rate.
+  `m_flMaxGroundSpeed`, from `GetCurrentMaxGroundSpeed`, scales it — so a heavy at 230 units and a
+  scout at 400 should not have the same footfalls. Currently they do, and a heavy looks light-footed.
+- **Ducking.** `HandleDucking` reads `FL_DUCKING` out of `m_fFlags`, which this project does not
+  decode at all yet. A crouching player is drawn standing.
+- **Upper-body aim layering.** The engine composes a lower-body sequence with an aim layer driven by
+  pose parameters; this plays one sequence whole, so nobody points where they are shooting.
+- **Jumping, swimming, taunting, the loser state**, and the weapon-specific variants — a demoman
+  holding a shield has different sequences from one holding a launcher, and `m_hActiveWeapon` is
+  another decode not done here.
+
+The measurement that closed B57 also bounds this one: speed separates moving from still cleanly
+across the era demos, so the inputs an animation state needs are derivable even where they are not
+sent. What is missing is the state machine, not the data.
