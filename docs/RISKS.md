@@ -3307,7 +3307,22 @@ GAME and records its output, which is why they need gameinfo installs, VDM scrip
 swapping at all. A standalone parser has a different shape: it already has the camera, already
 decodes the events a demo scanner is looking for, and needs no game running to do either.
 
-So the capabilities worth aiming at, in order of how well they fit what exists here:
+**The owner's priority is render output first**, then element isolation, then camera, then
+automation — SVR, SparklyFX, HLAE, Méliès. Implementation need not follow that order, but the
+value does, and it is not the order this entry first proposed.
+
+Worth knowing how close the first one is. A recorder needs three things this project already has:
+an offscreen target, a capture path (`--shot`), and a frame rate it can be pinned to — 24, 30 and
+60 all exist as of the frame-limit work. The fourth is the one that is usually got wrong and is
+right here by construction: **animation advances from DEMO time, never from frame time**, so
+rendering at 24 frames a second produces correct motion rather than slow motion. A recorder built
+on a viewer that advanced per rendered frame would need resampling, which is where judder comes
+from.
+
+What is missing for it is an encoder and a frame-sequence loop, not a renderer.
+
+So the capabilities worth aiming at, ordered by fit with what exists here rather than by the
+owner's value ordering above:
 
 - **Camera paths and smoothing.** HLAE's `mirv_campath` exists because a SourceTV camera snaps
   between players. This viewer owns its camera outright (D21) and interpolates already.
