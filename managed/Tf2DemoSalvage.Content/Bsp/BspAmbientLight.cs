@@ -357,7 +357,23 @@ public static class BspAmbientLight
     /// </remarks>
     private static (float Red, float Green, float Blue) Colour(ReadOnlySpan<byte> sample)
     {
-        float scale = MathF.Pow(2f, (sbyte)sample[3]) / 255f;
+        // **Valve's TexLightToLinear and nothing else** (mathlib.h:975), which their own comment
+        // describes as converting a texture light to a linear nought-to-one value. It is the
+        // mantissa multiplied by two raised to the exponent, and that is all of it.
+        //
+        // There is no division by 255 in it. One was here, and it made every ambient cube 255
+        // times too dark - measured at 0.001 for a player standing in a lit corridor, which drew
+        // every player model as a black silhouette.
+        //
+        // **The 255 was not invented, which is why it survived review.** ColorRGBExp32ToVector
+        // (color_conversion.cpp:454) does carry one, as a MULTIPLY into a nought-to-255 scale for
+        // a different consumer, and the comment Valve left above it asks why that factor is there
+        // at all. A constant the engine's own authors flag as unexplained is not one to copy, and
+        // this copied it inverted as well.
+        //
+        // Props hid it for as long as they did because they are lit by their baked .vhv vertex
+        // colours and barely consult the cube; a player has no .vhv and has nothing else.
+        float scale = MathF.Pow(2f, (sbyte)sample[3]);
 
         return (sample[0] * scale, sample[1] * scale, sample[2] * scale);
     }

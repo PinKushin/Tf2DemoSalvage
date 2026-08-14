@@ -17,6 +17,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Team">Which team, when the demo has said; 2 is RED and 3 is BLU.</param>
 /// <param name="Health">Current health, when known.</param>
 /// <param name="PlayerClass">Which of the nine classes, when known; 1 is Scout through 9 Engineer.</param>
+/// <param name="Yaw">Which way the body faces, in degrees, interpolated with the position.</param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -25,7 +26,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>TF_TEAM_RED = LAST_SHARED_TEAM + 1</c> makes RED 2 and BLU 3.
 /// </remarks>
 public readonly record struct ScenePlayer(
-    int EntityIndex, float X, float Y, float Z, int? Team, int? Health, int? PlayerClass)
+    int EntityIndex,
+    float X,
+    float Y,
+    float Z,
+    int? Team,
+    int? Health,
+    int? PlayerClass,
+    float Yaw = 0f)
 {
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
@@ -431,6 +439,30 @@ public sealed class DemoTimeline
 
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
 
+        // **A player faces where its EYES point, not where m_angRotation says.** A player's
+        // m_angRotation is not networked, so reading it gives zero for every player in every demo
+        // - measured across the whole corpus as exactly one distinct yaw, twenty-four players
+        // included. What TF2 sends is m_angEyeAngles, as two independent properties
+        // (tf_player.cpp:731):
+        //
+        //   SendPropFloat( SENDINFO_VECTORELEM(m_angEyeAngles, 0), 8, SPROP_CHANGES_OFTEN, -90, 90 )
+        //   SendPropAngle( SENDINFO_VECTORELEM(m_angEyeAngles, 1), 10, SPROP_CHANGES_OFTEN )
+        //
+        // And the eye yaw is what drives the body: the server feeds its animation state from it
+        // directly, `m_PlayerAnimState->Update( m_angEyeAngles[YAW], m_angEyeAngles[PITCH] )`
+        // (tf_player.cpp:2689). So this is the engine's own source for which way a player model
+        // points, not a substitute for a value we could not find.
+        //
+        // Applied here rather than at the ScenePlayer, deliberately: this pose feeds the same
+        // ScenePropTrack a rocket uses, so the eye angles are interpolated by the same spline and
+        // the same LoopingLerp that knows 359 to 1 is two degrees. TF2 registers m_angEyeAngles as
+        // an interpolated variable of its own (c_tf_player.cpp:3874), so interpolating it is
+        // matching the client rather than embellishing it.
+        if (state.EyeAngles() is { } eyes)
+        {
+            (pitch, yaw) = (eyes.Pitch, eyes.Yaw);
+        }
+
         track.Add(
             tick,
             new ScenePose
@@ -622,10 +654,26 @@ public sealed class DemoTimeline
             into.Add(
                 _trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) &&
                 track.At(tick) is { } pose
-                    ? player with { X = pose.X, Y = pose.Y, Z = pose.Z }
+                    // **Yaw travels with the position, from the same pose.** Taking one and
+                    // discarding the other is what left every player facing north the moment they
+                    // stopped being a dot: the number was decoded and interpolated already, and
+                    // simply not carried the last few lines.
+                    ? player with { X = pose.X, Y = pose.Y, Z = pose.Z, Yaw = pose.Yaw }
                     : player);
         }
     }
+
+    /// <summary>The interpolation track for one entity, when it has one.</summary>
+    /// <param name="entityIndex">The entity's slot.</param>
+    /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
+    /// <remarks>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer})"/>
+    /// should report.** Asserting a player's yaw against a literal would test the demo rather than
+    /// the code; asserting it against the track this reads from tests the plumbing between them,
+    /// which is where the number was being dropped.
+    /// </remarks>
+    public ScenePropTrack? TrackFor(int entityIndex) =>
+        _trackByEntity.TryGetValue(entityIndex, out ScenePropTrack? track) ? track : null;
 
     private static int? First(EntityState player, string[] keys)
     {
