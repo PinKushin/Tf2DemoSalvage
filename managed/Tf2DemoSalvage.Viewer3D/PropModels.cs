@@ -379,7 +379,16 @@ internal static class PropModels
             // weights, so skinning it is an identity and costs a multiply. An animated model does
             // not, and drawing its vertices raw lays it on its side - measured as a player 84
             // units long on Y with only 25 on Z, where a TF2 player is 83 units TALL.
-            StudioSkeleton skeleton = StudioBones.RestPose(StudioBones.Read(modelFile));
+            IReadOnlyList<StudioBone> bones = StudioBones.Read(modelFile);
+
+            // **Frame zero of the model's first animation, which is what stands it up.** The rest
+            // pose of a TF2 player is lying along Y, so a skeleton with no animation applied is an
+            // identity and the model draws flat. Static props are unaffected either way: one bone,
+            // one unit weight, and no animation to find.
+            IReadOnlyList<StudioBonePose> pose =
+                StudioAnimation.Pose(modelFile, bones, animation: 0, frame: 0);
+
+            StudioSkeleton skeleton = StudioBones.Posed(bones, pose);
 
             // **Logged for every model, because a skinning step that quietly does nothing is
             // indistinguishable from one that is not needed.** A static prop legitimately reports
@@ -390,7 +399,8 @@ internal static class PropModels
 
                 ViewerLog.Write(
                     "props",
-                    $"skeleton {path}: {skeleton.Count} bones, sample vertex bones " +
+                    $"skeleton {path}: {skeleton.Count} bones, {StudioAnimation.Count(modelFile)} " +
+                    $"animations, {pose.Count} bones posed, sample vertex bones " +
                     $"({sample.Bones.First},{sample.Bones.Second},{sample.Bones.Third}) weights " +
                     $"({sample.Weights.First:0.###},{sample.Weights.Second:0.###},{sample.Weights.Third:0.###})");
             }

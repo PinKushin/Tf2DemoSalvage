@@ -10,11 +10,23 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Position">Where it sits relative to its parent.</param>
 /// <param name="Rotation">How it is turned relative to its parent, as a quaternion.</param>
 /// <param name="PoseToBone">Model space into this bone's space, as a 3×4 row-major matrix.</param>
+/// <param name="Euler">The same rest rotation as radians, which animation adds its angles to.</param>
+/// <param name="PositionScale">What an animation's compressed position values are multiplied by.</param>
+/// <param name="RotationScale">What an animation's compressed rotation values are multiplied by.</param>
+/// <remarks>
+/// **The rotation is stored twice, and both are needed.** <c>quat</c> is the rest pose the renderer
+/// uses directly; <c>rot</c> is the same rotation as Euler radians, and an animation's compressed
+/// channels are added to THAT before being turned back into a quaternion
+/// (<c>bone_setup.cpp:417</c>). Adding them to the quaternion instead is meaningless.
+/// </remarks>
 public readonly record struct StudioBone(
     int Parent,
     (float X, float Y, float Z) Position,
     (float X, float Y, float Z, float W) Rotation,
-    ReadOnlyMemory<float> PoseToBone);
+    ReadOnlyMemory<float> PoseToBone,
+    (float X, float Y, float Z) Euler = default,
+    (float X, float Y, float Z) PositionScale = default,
+    (float X, float Y, float Z) RotationScale = default);
 
 /// <summary>A model's skeleton, resolved to the matrices that move its vertices.</summary>
 /// <remarks>
@@ -152,6 +164,9 @@ public static class StudioBones
     private const int PositionOffset = 32;
     private const int RotationOffset = 44;
     private const int PoseToBoneOffset = 96;
+    private const int EulerOffset = 60;
+    private const int PositionScaleOffset = 72;
+    private const int RotationScaleOffset = 84;
 
     /// <summary>Most bones a model may declare, as a guard against a malformed header.</summary>
     private const int MaximumBones = 1024;
@@ -213,15 +228,26 @@ public static class StudioBones
                     BinaryPrimitives.ReadSingleLittleEndian(bone[(RotationOffset + 4)..]),
                     BinaryPrimitives.ReadSingleLittleEndian(bone[(RotationOffset + 8)..]),
                     BinaryPrimitives.ReadSingleLittleEndian(bone[(RotationOffset + 12)..])),
-                poseToBone));
+                poseToBone,
+                Vector(bone, EulerOffset),
+                Vector(bone, PositionScaleOffset),
+                Vector(bone, RotationScaleOffset)));
         }
 
         return bones;
     }
 
-    /// <summary>The matrix that moves each bone's vertices into the model's rest pose.</summary>
+    /// <summary>The matrices for a skeleton with an animation applied.</summary>
     /// <param name="bones">The skeleton, as <see cref="Read"/> returned it.</param>
-    /// <returns>One 3×4 row-major matrix per bone.</returns>
+    /// <param name="pose">Bone poses from an animation frame; bones it omits keep their rest value.</param>
+    /// <returns>One matrix per bone.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **This is the half that changes.** <c>poseToBone</c> is fixed by the model; what an
+    /// animation replaces is the other factor, the bone's transform relative to its parent. So
+    /// posing is the rest computation with different local transforms, not a different
+    /// computation.
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="bones"/> is null.</exception>
     /// <remarks>
     /// **<c>BoneToWorld × poseToBone</c>, which is Valve's own composition.** Each bone's world
@@ -235,6 +261,40 @@ public static class StudioBones
     /// bones already computed rather than against the whole list — a malformed skeleton then draws
     /// its own bone unmoved instead of reading a matrix that is still zeroes.
     /// </remarks>
+    public static StudioSkeleton Posed(
+        IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(pose);
+
+        if (pose.Count == 0)
+        {
+            return RestPose(bones);
+        }
+
+        // **A bone the animation does not mention keeps its rest value**, which is most of the
+        // skeleton for most animations: an animation that only turns an elbow names one bone.
+        StudioBone[] posed = [.. bones];
+
+        foreach (StudioBonePose moved in pose)
+        {
+            if (moved.Bone >= 0 && moved.Bone < posed.Length)
+            {
+                posed[moved.Bone] = posed[moved.Bone] with
+                {
+                    Position = moved.Position,
+                    Rotation = moved.Rotation,
+                };
+            }
+        }
+
+        return RestPose(posed);
+    }
+
+    /// <summary>The matrix that moves each bone's vertices into the model's rest pose.</summary>
+    /// <param name="bones">The skeleton, as <see cref="Read"/> returned it.</param>
+    /// <returns>One matrix per bone.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bones"/> is null.</exception>
     public static StudioSkeleton RestPose(IReadOnlyList<StudioBone> bones)
     {
         ArgumentNullException.ThrowIfNull(bones);
@@ -257,6 +317,12 @@ public static class StudioBones
 
         return new StudioSkeleton(skinning);
     }
+
+    private static (float X, float Y, float Z) Vector(ReadOnlySpan<byte> bone, int at) =>
+        (
+            BinaryPrimitives.ReadSingleLittleEndian(bone[at..]),
+            BinaryPrimitives.ReadSingleLittleEndian(bone[(at + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(bone[(at + 8)..]));
 
     /// <summary>A quaternion and a position as a 3×4 row-major matrix.</summary>
     /// <remarks>
