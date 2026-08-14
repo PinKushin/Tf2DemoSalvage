@@ -1548,10 +1548,32 @@ internal class MainForm : Form
                     // lay them on their side every time they looked up.
                     Yaw = player.Yaw,
                     Scale = 1f,
+
+                    // Left unset here and chosen below, once the model is loaded. Choosing it now
+                    // asks a set that has not been given this model yet, which answers -1 - and
+                    // -1 is a real answer meaning "no such sequence", so it looks like a lookup
+                    // that failed rather than one that ran too early.
+                    Speed = player.Speed,
                 }));
         }
 
-        if (_models.Add(_drawn, ModelGeometry) && _device is { } device)
+        bool grew = _models.Add(_drawn, ModelGeometry);
+
+        // **Now the models are loaded, so a player's sequence can be chosen.** Nothing on the wire
+        // carries one, and picking it needs the model's own merged sequence table - which only
+        // exists after the model has been read.
+        for (int index = 0; index < _drawn.Count; index++)
+        {
+            SceneProp prop = _drawn[index];
+
+            if (prop.Pose.Speed is { } speed &&
+                _models.SequenceFor(prop.ModelPath, speed) is var chosen and >= 0)
+            {
+                _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+            }
+        }
+
+        if (grew && _device is { } device)
         {
             device.UploadModels(_models);
 

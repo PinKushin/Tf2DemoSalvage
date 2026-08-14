@@ -842,6 +842,39 @@ internal static class PropModels
                 StudioAnimation.Pose(Models[where.Group], Bones, animation, frame)).Matrices;
         }
 
+        /// <summary>The merged sequence number whose label contains a name.</summary>
+        /// <param name="name">Part of a sequence label, matched case-insensitively.</param>
+        /// <returns>The sequence number, or −1 when this model has no such sequence.</returns>
+        /// <remarks>
+        /// **By name because that is what a sequence IS to anyone reading a model.** TF2's own
+        /// naming is descriptive - run_PRIMARY, AttackStand_PRIMARY, PRIMARY_airwalk_reload_start -
+        /// and the numbers differ per class, so a number hardcoded for the scout means something
+        /// else on the heavy.
+        ///
+        /// Answers −1 rather than a fallback: a class that genuinely lacks a sequence should be
+        /// visibly missing it, not quietly playing a different one.
+        /// </remarks>
+        public int Find(string name)
+        {
+            for (int sequence = 0; sequence < Sequences.Count; sequence++)
+            {
+                if (Sequences.At(sequence) is not { } where ||
+                    where.Group >= Groups.Count ||
+                    where.Local >= Groups[where.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                if (Groups[where.Group].Sequences[where.Local].Label
+                    .Contains(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return sequence;
+                }
+            }
+
+            return -1;
+        }
+
         /// <summary>How many frames the animation behind a sequence has.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>The frame count, or one when the sequence does not resolve.</returns>

@@ -70,6 +70,15 @@ public readonly record struct ScenePose
     /// <summary>How far through that animation, from 0 to 1.</summary>
     public float Cycle { get; init; }
 
+    /// <summary>How fast the entity is moving horizontally, when that was worked out.</summary>
+    /// <remarks>
+    /// **Only players carry this, and only because nothing else can supply it.** A demo networks
+    /// no animation state for a player, so which sequence to play has to be computed - and the
+    /// input that decides standing from running is horizontal speed, which the engine reads from
+    /// the entity's own velocity. Null for anything whose animation the demo does state.
+    /// </remarks>
+    public float? Speed { get; init; }
+
     /// <summary>Whether the engine was told not to draw this entity at this moment.</summary>
     /// <remarks>
     /// **Part of the pose rather than an end to the track**, because a hidden entity comes back.

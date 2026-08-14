@@ -99,6 +99,20 @@ internal sealed class EntityModelSet
         return frames[Math.Clamp(frame, 0, frames.Count - 1)];
     }
 
+    /// <summary>Which sequence a player of this model should play at a given speed.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <param name="speed">Horizontal speed in units a second.</param>
+    /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
+    /// <remarks>
+    /// Asked of the set rather than of the model directly, because only the set knows whether a
+    /// model was loaded skinned - a baked model has no merged sequence table to search.
+    /// </remarks>
+    public int SequenceFor(string modelPath, float speed) =>
+        _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
+        frames.Skinned is { } skinned
+            ? PlayerAnimation.For(skinned, speed)
+            : -1;
+
     /// <summary>Every baked frame's batches for one model.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <returns>One entry per baked frame, each a list of runs.</returns>

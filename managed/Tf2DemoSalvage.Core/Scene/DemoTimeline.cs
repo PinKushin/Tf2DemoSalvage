@@ -18,6 +18,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Health">Current health, when known.</param>
 /// <param name="PlayerClass">Which of the nine classes, when known; 1 is Scout through 9 Engineer.</param>
 /// <param name="Yaw">Which way the body faces, in degrees, interpolated with the position.</param>
+/// <param name="Speed">How fast the player is moving horizontally, in units a second.</param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -33,7 +34,8 @@ public readonly record struct ScenePlayer(
     int? Team,
     int? Health,
     int? PlayerClass,
-    float Yaw = 0f)
+    float Yaw = 0f,
+    float Speed = 0f)
 {
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
@@ -658,7 +660,14 @@ public sealed class DemoTimeline
                     // discarding the other is what left every player facing north the moment they
                     // stopped being a dot: the number was decoded and interpolated already, and
                     // simply not carried the last few lines.
-                    ? player with { X = pose.X, Y = pose.Y, Z = pose.Z, Yaw = pose.Yaw }
+                    ? player with
+                    {
+                        X = pose.X,
+                        Y = pose.Y,
+                        Z = pose.Z,
+                        Yaw = pose.Yaw,
+                        Speed = SpeedAt(track, tick),
+                    }
                     : player);
         }
     }
@@ -674,6 +683,47 @@ public sealed class DemoTimeline
     /// </remarks>
     public ScenePropTrack? TrackFor(int entityIndex) =>
         _trackByEntity.TryGetValue(entityIndex, out ScenePropTrack? track) ? track : null;
+
+    /// <summary>How fast a track is moving horizontally at a moment.</summary>
+    /// <remarks>
+    /// **Differenced from the positions, because velocity is networked only to its owner.**
+    /// <c>m_vecVelocity[0..2]</c> sit inside <c>DT_LocalPlayerExclusive</c>
+    /// (<c>server/player.cpp:8117</c>), sent through <c>SendProxy_SendLocalDataTable</c> — so a
+    /// SourceTV recording carries nobody's velocity at all, because SourceTV is not any of the
+    /// players, and a point-of-view recording carries only the recorder's.
+    ///
+    /// That makes differencing the only thing that works generally rather than a workaround: it is
+    /// the sole option for every player in an STV demo and for eleven of twelve in a POV one. The
+    /// recorder's own velocity IS available in a POV demo and would be exact; using it is a refinement
+    /// this does not make yet.
+    ///
+    /// An animation state needs speed to tell standing from running — <c>MOVING_MINIMUM_SPEED</c>
+    /// is 0.5 units a second in <c>base_playeranimstate.h</c>.
+    ///
+    /// Sampled over a tenth of a second rather than one tick. A single tick is 15 milliseconds and
+    /// the positions are interpolated, so differencing two adjacent samples measures the
+    /// interpolator's noise as much as the player's motion; a tenth of a second is long enough to
+    /// be a speed and short enough to still be this moment's.
+    ///
+    /// Vertical motion is left out, which is what <c>GetOuterXYSpeed</c> does — a falling player is
+    /// not running.
+    /// </remarks>
+    private static float SpeedAt(ScenePropTrack track, double tick)
+    {
+        const double window = 0.1d;
+
+        double ticks = window / Math.Max(0.001f, 0.015f);
+
+        if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
+        {
+            return 0f;
+        }
+
+        float across = now.X - was.X;
+        float along = now.Y - was.Y;
+
+        return MathF.Sqrt((across * across) + (along * along)) / (float)window;
+    }
 
     private static int? First(EntityState player, string[] keys)
     {
