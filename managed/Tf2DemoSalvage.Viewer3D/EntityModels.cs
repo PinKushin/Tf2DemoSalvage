@@ -11,8 +11,15 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Matrix">Sixteen floats, row major, for the shader's model constant.</param>
 /// <param name="Light">The ambient cube of the leaf it stands in.</param>
 /// <param name="Sun">The sun, when this model traced to sky; null when it stands in shade.</param>
+/// <param name="Frame">Which baked animation frame to draw, from the demo's sequence and cycle.</param>
+/// <param name="Blend">How far toward the next baked frame, so the shader can smooth between them.</param>
 internal readonly record struct ModelInstance(
-    string ModelPath, float[] Matrix, AmbientCube Light, SunLight? Sun);
+    string ModelPath,
+    float[] Matrix,
+    AmbientCube Light,
+    SunLight? Sun,
+    int Frame = 0,
+    float Blend = 0f);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -36,8 +43,21 @@ internal sealed class EntityModelSet
 {
     private readonly List<WorldVertex> _vertices = [];
 
-    private readonly Dictionary<string, List<WorldBatch>> _byModel =
+    /// <summary>Every packed model's batches, one list per baked animation frame.</summary>
+    /// <remarks>
+    /// **A frame is a vertex range, not a transform.** Each of an animated model's frames is
+    /// skinned once at load and packed like a separate model, so drawing one is picking a range —
+    /// no per-frame work on either processor. A model that does not animate has exactly one entry
+    /// and costs what it always did.
+    /// </remarks>
+    private readonly Dictionary<string, List<List<WorldBatch>>> _byModel =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, PropModels.ModelFrames> _frames =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Models already reported as animating, so the log states it once.</summary>
+    private readonly HashSet<string> _reportedFrames = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Every packed model's triangles, in model space.</summary>
     /// <remarks>
@@ -54,8 +74,50 @@ internal sealed class EntityModelSet
     /// <summary>The batches for one model, or empty when it is not packed.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <returns>One run per material, indexing into <see cref="Vertices"/>.</returns>
-    public IReadOnlyList<WorldBatch> Batches(string modelPath) =>
-        _byModel.TryGetValue(modelPath, out List<WorldBatch>? batches) ? batches : [];
+    public IReadOnlyList<WorldBatch> Batches(string modelPath) => Batches(modelPath, 0);
+
+    /// <summary>The batches for one model at one baked frame.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <param name="frame">Which baked frame; clamped into what was packed.</param>
+    /// <returns>One run per material, indexing into <see cref="Vertices"/>.</returns>
+    /// <remarks>
+    /// **Clamped rather than refused.** A demo can name a sequence whose frame count differs from
+    /// the model on this machine — a later game version, or a model replaced by a mod — and
+    /// holding the last frame is a better answer than drawing nothing.
+    /// </remarks>
+    public IReadOnlyList<WorldBatch> Batches(string modelPath, int frame)
+    {
+        if (!_byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ||
+            frames.Count == 0)
+        {
+            return [];
+        }
+
+        return frames[Math.Clamp(frame, 0, frames.Count - 1)];
+    }
+
+    /// <summary>Every baked frame's batches for one model.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <returns>One entry per baked frame, each a list of runs.</returns>
+    public IReadOnlyList<IReadOnlyList<WorldBatch>> AllFrames(string modelPath) =>
+        _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames)
+            ? frames
+            : [];
+
+    /// <summary>Which baked frame a prop's sequence and cycle select.</summary>
+    /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
+    /// <param name="seconds">Demo time, for advancing the cycle the server does not send.</param>
+    /// <returns>A frame index for <see cref="Batches(string, int)"/>.</returns>
+    public int FrameFor(SceneProp prop, double seconds) => SelectFor(prop, seconds).Frame;
+
+    /// <summary>Which baked frames a prop falls between, and how far.</summary>
+    /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
+    /// <param name="seconds">Demo time, for advancing the cycle the server does not send.</param>
+    /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
+    public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds) =>
+        _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
+            ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds)
+            : (0, 0, 0f);
 
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>
@@ -71,7 +133,7 @@ internal sealed class EntityModelSet
     /// loader reports it once, and asking again sixty times a second would bury the log in the
     /// same line.
     /// </remarks>
-    public bool Add(IReadOnlyList<SceneProp> props, Func<string, IReadOnlyList<PropVertex>?> load)
+    public bool Add(IReadOnlyList<SceneProp> props, Func<string, PropModels.ModelFrames?> load)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(load);
@@ -85,46 +147,75 @@ internal sealed class EntityModelSet
                 continue;
             }
 
-            List<WorldBatch> batches = [];
+            List<List<WorldBatch>> frames = [];
 
-            _byModel[prop.ModelPath] = batches;
+            _byModel[prop.ModelPath] = frames;
             added = true;
 
-            if (load(prop.ModelPath) is not { Count: > 0 } corners)
+            if (load(prop.ModelPath) is not { Geometry.Count: > 0 } model)
             {
                 continue;
             }
 
-            // Grouped by material so one bind covers every triangle of this model that shares it.
-            Dictionary<int, List<WorldVertex>> byMaterial = [];
+            _frames[prop.ModelPath] = model;
 
-            foreach (PropVertex corner in corners)
+            for (int slot = 0; slot < model.Geometry.Count; slot++)
             {
-                if (!byMaterial.TryGetValue(corner.MaterialIndex, out List<WorldVertex>? into))
+                IReadOnlyList<PropVertex> corners = model.Geometry[slot];
+
+                // **The frame this one blends toward, packed into the same vertex.** Both poses
+                // reach the shader without a second buffer or a fetch, and a model with one frame
+                // carries itself in both and blends to itself.
+                IReadOnlyList<PropVertex> onward = model.NextOf(slot);
+
+                List<WorldBatch> batches = [];
+                frames.Add(batches);
+
+                // Grouped by material so one bind covers every triangle of this frame that shares
+                // it. Every frame carries the same corners in the same order, so the batching is
+                // identical between them and only the positions differ.
+                Dictionary<int, List<WorldVertex>> byMaterial = [];
+
+                for (int index = 0; index < corners.Count; index++)
                 {
-                    into = [];
-                    byMaterial[corner.MaterialIndex] = into;
+                    PropVertex corner = corners[index];
+
+                    PropVertex ahead = index < onward.Count ? onward[index] : corner;
+
+                    if (!byMaterial.TryGetValue(corner.MaterialIndex, out List<WorldVertex>? into))
+                    {
+                        into = [];
+                        byMaterial[corner.MaterialIndex] = into;
+                    }
+
+                    // **Model space, untouched.** The shader's model matrix places it. No lightmap
+                    // either: a studio model is lit by its own vertex colours in the engine too,
+                    // and a zero-width atlas rectangle sends every corner to the reserved white
+                    // texel so the lightmap term is an identity rather than darkness.
+                    into.Add(new WorldVertex(
+                        corner.X, corner.Y, corner.Z, corner.U, corner.V, 0f, 0f, 0f,
+                        NormalX: corner.NormalX,
+                        NormalY: corner.NormalY,
+                        NormalZ: corner.NormalZ,
+                        NextX: ahead.X,
+                        NextY: ahead.Y,
+                        NextZ: ahead.Z,
+                        NextNormalX: ahead.NormalX,
+                        NextNormalY: ahead.NormalY,
+                        NextNormalZ: ahead.NormalZ));
                 }
 
-                // **Model space, untouched.** The shader's model matrix places it. No lightmap
-                // either: a studio model is lit by its own vertex colours in the engine too, and a
-                // zero-width atlas rectangle sends every corner to the reserved white texel so the
-                // lightmap term is an identity rather than darkness.
-                into.Add(new WorldVertex(
-                    corner.X, corner.Y, corner.Z, corner.U, corner.V, 0f, 0f, 0f));
-            }
-
-            foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
-            {
-                batches.Add(new WorldBatch(group.Key, _vertices.Count, group.Value.Count));
-                _vertices.AddRange(group.Value);
+                foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
+                {
+                    batches.Add(new WorldBatch(group.Key, _vertices.Count, group.Value.Count));
+                    _vertices.AddRange(group.Value);
+                }
             }
 
             // **A model's own bounding box, logged for every model.** Whether a model stands up is
             // not answerable from an overhead camera - a squat prop looks the same lying down, so
             // the whole prop set can be tipped and read as correct. A humanoid is the first model
-            // tall enough to show it, which means the picture noticed a defect the props had been
-            // hiding since they were added.
+            // tall enough to show it.
             //
             // In Source's model space a player is about 83 units tall and far narrower, so an
             // upright model has Z much the largest extent. If Z is the smallest, the model is on
@@ -132,7 +223,7 @@ internal sealed class EntityModelSet
             float minimumX = float.MaxValue, minimumY = float.MaxValue, minimumZ = float.MaxValue;
             float maximumX = float.MinValue, maximumY = float.MinValue, maximumZ = float.MinValue;
 
-            foreach (PropVertex corner in corners)
+            foreach (PropVertex corner in model.Geometry[0])
             {
                 minimumX = MathF.Min(minimumX, corner.X);
                 minimumY = MathF.Min(minimumY, corner.Y);
@@ -148,10 +239,9 @@ internal sealed class EntityModelSet
 
             ViewerLog.Write(
                 "props",
-                $"extents {prop.ModelPath}: " +
-                $"x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
+                $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
                 $"(z from {minimumZ:0.#} to {maximumZ:0.#}), " +
-                $"tallest axis {Tallest(spanX, spanY, spanZ)}");
+                $"tallest axis {Tallest(spanX, spanY, spanZ)}, {frames.Count} baked frames");
         }
 
         return added;
@@ -162,6 +252,7 @@ internal sealed class EntityModelSet
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
     /// <param name="lightAt">The ambient cube at a world position, or null to leave models unlit.</param>
     /// <param name="sunAt">The sun at a world position, or null to apply no direct light.</param>
+    /// <param name="seconds">Demo time, for advancing animation cycles.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
@@ -171,7 +262,8 @@ internal sealed class EntityModelSet
         IReadOnlyList<SceneProp> props,
         ICollection<ModelInstance> into,
         Func<float, float, float, AmbientCube>? lightAt = null,
-        Func<float, float, float, SunLight?>? sunAt = null)
+        Func<float, float, float, SunLight?>? sunAt = null,
+        double seconds = 0d)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -180,7 +272,9 @@ internal sealed class EntityModelSet
 
         foreach (SceneProp prop in props)
         {
-            if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath).Count == 0)
+            (int frame, int _, float blend) = SelectFor(prop, seconds);
+
+            if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath, frame).Count == 0)
             {
                 continue;
             }
@@ -197,11 +291,24 @@ internal sealed class EntityModelSet
                 ? default
                 : lightAt(pose.X, pose.Y, pose.Z);
 
+            if (!_reportedFrames.Contains(prop.ModelPath))
+            {
+                _reportedFrames.Add(prop.ModelPath);
+
+                ViewerLog.Write(
+                    "render",
+                    $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
+                    $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count} " +
+                    $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
+            }
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
                 light,
-                sunAt?.Invoke(pose.X, pose.Y, pose.Z)));
+                sunAt?.Invoke(pose.X, pose.Y, pose.Z),
+                frame,
+                blend));
         }
     }
 
@@ -217,6 +324,11 @@ internal sealed class EntityModelSet
             return "z, upright";
         }
 
-        return spanX >= spanY ? "x, ON ITS SIDE" : "y, ON ITS SIDE";
+        // **Only flagged when the model is clearly long in the wrong direction.** A medkit is
+        // 24 by 17 by 23 and legitimately near-cubic; calling that "on its side" cries wolf on a
+        // correct model, which is how a real warning stops being read.
+        string axis = spanX >= spanY ? "x" : "y";
+
+        return MathF.Max(spanX, spanY) > spanZ * 1.5f ? axis + ", ON ITS SIDE" : axis;
     }
 }

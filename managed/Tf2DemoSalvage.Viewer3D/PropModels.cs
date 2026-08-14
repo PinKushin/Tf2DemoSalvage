@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
@@ -52,6 +53,30 @@ internal readonly record struct PropVertex(
 /// </remarks>
 internal static class PropModels
 {
+    /// <summary>Most animation frames to bake for one model.</summary>
+    /// <remarks>
+    /// **A budget, not a format limit.** Baking trades memory for playback cost, and the trade is
+    /// only good while the frame count is small: TF2's animated props are tens of frames over a
+    /// few thousand vertices. A model claiming hundreds is drawn from what fits rather than
+    /// allowed to allocate without bound, and the owner's stated ceiling is an eight-gigabyte
+    /// machine.
+    /// </remarks>
+    private const int MaximumBakedFrames = 64;
+
+    /// <summary>Most baked corners to hold for one model, across every animation it has.</summary>
+    /// <remarks>
+    /// **Frames alone do not bound the cost; frames times corners do.** sentry3_heavy has 51,492
+    /// corners and six animations totalling 113 frames, which a frames-only cap happily allowed -
+    /// about 490 megabytes of vertex data for a single model, measured. At twenty-one floats a
+    /// corner this budget is roughly 170 megabytes for the worst case and far less for anything
+    /// ordinary, since a health pack is 1,608 corners and thirty frames.
+    ///
+    /// A model too large to bake draws from however many frames fit, which for a big one is its
+    /// first. Standing still is a worse animation than moving and a much better one than a machine
+    /// swapping.
+    /// </remarks>
+    private const int MaximumBakedCorners = 2_000_000;
+
     /// <summary>The most placements to draw from one map.</summary>
     /// <remarks>
     /// A map is untrusted input (D32). Real maps place a few thousand props; the ceiling is well
@@ -327,6 +352,35 @@ internal static class PropModels
         Func<string, MapTexture?> load) =>
         Read(path, pak, archives, materials, textures, [], load)?.Corners;
 
+    /// <summary>Reads one model once per frame of its animation.</summary>
+    /// <param name="path">The model path, as modelprecache named it.</param>
+    /// <param name="pak">The map's embedded files, which override the game's.</param>
+    /// <param name="archives">The game's own archives.</param>
+    /// <param name="materials">Material table to register this model's materials in.</param>
+    /// <param name="textures">Texture list, kept in step with the materials.</param>
+    /// <param name="load">Resolves a material path to a texture.</param>
+    /// <returns>One geometry per frame, or <c>null</c> when the model could not be read.</returns>
+    /// <remarks>
+    /// **Every frame is skinned once, at load, rather than per frame of playback.** A health pack's
+    /// animation is thirty frames and its geometry is small, so baking all of them costs a few
+    /// megabytes and makes playback free: the renderer picks a vertex range and draws it, with no
+    /// per-frame work on either processor.
+    ///
+    /// **This does not generalise to players and is not meant to.** A player has hundreds of
+    /// frames over ninety bones, and baking those would be gigabytes. Those need the bone matrices
+    /// in a constant buffer and the transform in the vertex shader, which is what the engine does
+    /// and what this project will do for them - the two strategies coexist because the models
+    /// differ by two orders of magnitude, not because one is a stopgap.
+    /// </remarks>
+    internal static ModelFrames? LoadFrames(
+        string path,
+        PakFile pak,
+        GameArchives archives,
+        List<BspMaterial> materials,
+        List<MapTexture?> textures,
+        Func<string, MapTexture?> load) =>
+        Read(path, pak, archives, materials, textures, [], load)?.Frames;
+
     /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
     /// <remarks>
     /// Internal rather than private because networked entities need the same thing: a model loaded
@@ -381,70 +435,185 @@ internal static class PropModels
             // units long on Y with only 25 on Z, where a TF2 player is 83 units TALL.
             IReadOnlyList<StudioBone> bones = StudioBones.Read(modelFile);
 
-            // **Frame zero of the model's first animation, which is what stands it up.** The rest
-            // pose of a TF2 player is lying along Y, so a skeleton with no animation applied is an
-            // identity and the model draws flat. Static props are unaffected either way: one bone,
-            // one unit weight, and no animation to find.
-            IReadOnlyList<StudioBonePose> pose =
-                StudioAnimation.Pose(modelFile, bones, animation: 0, frame: 0);
+            // **Which animations this model can actually play.** A sequence names an animation
+            // and the animation says how long it is. Every distinct animation any sequence
+            // references gets baked, rather than only sequence zero's - a door has an opening
+            // sequence and a closing one, and baking the first would draw it shut while the demo
+            // says otherwise.
+            IReadOnlyList<StudioSequence> sequences = StudioSequences.Read(modelFile);
 
-            StudioSkeleton skeleton = StudioBones.Posed(bones, pose);
+            List<int> sequenceAnimation = [.. sequences.Select(sequence => sequence.Animation)];
+            List<bool> sequenceLoops = [.. sequences.Select(sequence => sequence.Loops)];
+            // **Looping animations get the budget first.** A loop is the one that plays
+            // continuously, so starving it is the most visible way to spend a limited bake - and a
+            // greedy pass did exactly that on sentry3_heavy, giving 38 frames to a one-shot and a
+            // single frame to the idle it actually shows.
+            HashSet<int> looping =
+            [
+                .. sequences.Where(entry => entry.Loops && entry.Animation >= 0)
+                    .Select(entry => entry.Animation),
+            ];
 
-            // **Logged for every model, because a skinning step that quietly does nothing is
-            // indistinguishable from one that is not needed.** A static prop legitimately reports
-            // no weights; an animated model reporting none means the weights were not read.
-            if (vertices.Count > 0)
+            List<int> wanted =
+            [
+                .. sequenceAnimation
+                    .Distinct()
+                    .Where(index => index >= 0)
+                    .OrderByDescending(looping.Contains),
+            ];
+
+            if (wanted.Count == 0)
             {
-                StudioVertex sample = vertices[vertices.Count / 2];
-
-                ViewerLog.Write(
-                    "props",
-                    $"skeleton {path}: {skeleton.Count} bones, {StudioAnimation.Count(modelFile)} " +
-                    $"animations, {pose.Count} bones posed, sample vertex bones " +
-                    $"({sample.Bones.First},{sample.Bones.Second},{sample.Bones.Third}) weights " +
-                    $"({sample.Weights.First:0.###},{sample.Weights.Second:0.###},{sample.Weights.Third:0.###})");
+                wanted.Add(0);
             }
 
-            List<PropVertex> corners = [];
-            List<int> cornerMeshes = [];
-            List<int> cornerVertices = [];
+            Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> layout = [];
+            List<StudioSkeleton> skeletons = [];
+
+            // **The budget is per MODEL, not per animation, and that distinction is measured.**
+            // A per-animation cap let sentry3_heavy bake 113 frames across six animations of
+            // 51,492 corners - roughly 490 megabytes for one model, on a project whose stated
+            // ceiling is an eight gigabyte machine. The cost is frames TIMES corners, so a cap
+            // counting only frames does not bound it.
+            int cornersPerFrame = 0;
 
             for (int index = 0; index < meshes.Count && index < model.Meshes.Count; index++)
             {
-                StudioMesh mesh = model.Meshes[index];
+                cornersPerFrame += meshes[index].Count;
+            }
 
-                if (mesh.FirstVertex + mesh.VertexCount > vertices.Count)
+            int affordable = Math.Clamp(
+                MaximumBakedCorners / Math.Max(1, cornersPerFrame), 1, MaximumBakedFrames);
+
+            foreach (int index in wanted)
+            {
+                int frames = Math.Clamp(
+                    StudioAnimation.Frames(modelFile, index),
+                    1,
+                    Math.Max(1, affordable - skeletons.Count));
+
+                layout[index] = (
+                    skeletons.Count, frames, StudioAnimation.CyclesPerSecond(modelFile, index));
+
+                for (int frame = 0; frame < frames; frame++)
+                {
+                    skeletons.Add(StudioBones.Posed(
+                        bones, StudioAnimation.Pose(modelFile, bones, index, frame)));
+                }
+            }
+
+            List<int> cornerMeshes = [];
+            List<int> cornerVertices = [];
+            List<IReadOnlyList<PropVertex>> baked = new(skeletons.Count);
+
+            // The material indices are resolved once and reused for every frame. Registering them
+            // inside the bake would append the same materials to the shared table once per frame.
+            int[] materialByMesh = new int[Math.Min(meshes.Count, model.Meshes.Count)];
+
+            for (int index = 0; index < materialByMesh.Length; index++)
+            {
+                materialByMesh[index] = Register(
+                    model, model.Meshes[index].MaterialIndex, materials, textures, materialIndices, load);
+            }
+
+            for (int slot = 0; slot < skeletons.Count; slot++)
+            {
+                StudioSkeleton posed = skeletons[slot];
+                List<PropVertex> frame = [];
+
+                for (int index = 0; index < materialByMesh.Length; index++)
+                {
+                    StudioMesh mesh = model.Meshes[index];
+
+                    if (mesh.FirstVertex + mesh.VertexCount > vertices.Count)
+                    {
+                        continue;
+                    }
+
+                    foreach (StudioCorner corner in meshes[index])
+                    {
+                        StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
+
+                        (float x, float y, float z) = posed.Skin(
+                            vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
+
+                        // **The normal comes along now.** A static prop is lit by baked vertex
+                        // colours and never needed it; an entity is lit from its leaf's ambient
+                        // cube, which is evaluated against the surface normal.
+                        frame.Add(new PropVertex(
+                            x, y, z, vertex.U, vertex.V, materialByMesh[index],
+                            NormalX: vertex.NormalX,
+                            NormalY: vertex.NormalY,
+                            NormalZ: vertex.NormalZ));
+
+                        // **Position by mesh vertex, colour by strip group vertex.** They are
+                        // different orderings of the same surface, and using one for both speckles
+                        // the prop. Only the first frame fills these: every frame has the same
+                        // corners in the same order, and only their positions differ.
+                        if (slot == 0)
+                        {
+                            cornerMeshes.Add(corner.LightingGroup);
+                            cornerVertices.Add(corner.LightingVertex);
+                        }
+                    }
+                }
+
+                baked.Add(frame);
+            }
+
+            // **Is the last frame really a duplicate of the first?** STUDIO_LOOPING says it
+            // "should be", and dropping it is what removes a one frame stall at the loop seam.
+            // But if an artist authored the frames as distinct steps covering the whole turn,
+            // dropping one skips real motion - which reads as a hitch just the same, from the
+            // opposite cause. Measured rather than assumed either way.
+            foreach ((int animation, (int Start, int Frames, float CyclesPerSecond) where) in layout)
+            {
+                if (where.Frames < 2)
                 {
                     continue;
                 }
 
-                int material = Register(
-                    model, mesh.MaterialIndex, materials, textures, materialIndices, load);
+                IReadOnlyList<PropVertex> opening = baked[where.Start];
+                IReadOnlyList<PropVertex> closing = baked[where.Start + where.Frames - 1];
 
-                foreach (StudioCorner corner in meshes[index])
+                float apart = 0f;
+
+                for (int corner = 0; corner < opening.Count && corner < closing.Count; corner++)
                 {
-                    StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
-
-                    // **The normal comes along now.** A static prop is lit by baked vertex
-                    // colours and never needed it; an entity is lit from its leaf's ambient cube,
-                    // which is evaluated against the surface normal.
-                    (float x, float y, float z) = skeleton.Skin(
-                        vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
-
-                    corners.Add(new PropVertex(
-                        x, y, z, vertex.U, vertex.V, material,
-                        NormalX: vertex.NormalX,
-                        NormalY: vertex.NormalY,
-                        NormalZ: vertex.NormalZ));
-
-                    // **Position by mesh vertex, colour by strip group vertex.** They are different
-                    // orderings of the same surface, and using one for both speckles the prop.
-                    cornerMeshes.Add(corner.LightingGroup);
-                    cornerVertices.Add(corner.LightingVertex);
+                    apart = MathF.Max(
+                        apart,
+                        MathF.Abs(opening[corner].X - closing[corner].X) +
+                        MathF.Abs(opening[corner].Y - closing[corner].Y) +
+                        MathF.Abs(opening[corner].Z - closing[corner].Z));
                 }
+
+                ViewerLog.Write(
+                    "props",
+                    $"seam {path} anim {animation}: first and last frame differ by {apart:0.####} " +
+                    $"units at most ({(apart < 0.01f ? "DUPLICATE, drop it" : "DISTINCT, keep it")})");
             }
 
-            return new LoadedModel(corners, cornerMeshes, cornerVertices, model.Checksum);
+            if (baked.Count > 1)
+            {
+                ViewerLog.Write(
+                    "props",
+                    $"baked {path}: {baked.Count} frames across {wanted.Count} animations, " +
+                    $"sequences [{string.Join(", ", sequences.Select(q => $"anim {q.Animation} flags 0x{q.Flags:X}{(q.Loops ? " LOOP" : string.Empty)}"))}], " +
+                    $"{baked[0].Count} vertices each, " +
+                    string.Join(
+                        " ",
+                        layout.Select(entry =>
+                            $"[anim {entry.Key}: {entry.Value.Frames}f @ " +
+                            $"{entry.Value.CyclesPerSecond:0.####} cyc/s, period " +
+                            $"{(entry.Value.CyclesPerSecond > 0f ? 1f / entry.Value.CyclesPerSecond : 0f):0.###}s]")));
+            }
+
+            return new LoadedModel(
+                baked[0],
+                cornerMeshes,
+                cornerVertices,
+                model.Checksum,
+                new ModelFrames(baked, layout, sequenceAnimation, sequenceLoops));
         }
         catch (InvalidDataException failure)
         {
@@ -525,10 +694,138 @@ internal static class PropModels
     /// the colours are looked up per placement — which needs to know, for each corner, which mesh
     /// and which vertex of it produced that corner.
     /// </remarks>
-    /// <summary>One model's triangles, in model space, with its materials resolved.</summary>
+    /// <param name="Frames">Every baked animation frame, and how to choose between them.</param>
     internal sealed record LoadedModel(
         IReadOnlyList<PropVertex> Corners,
         IReadOnlyList<int> Meshes,
         IReadOnlyList<int> Vertices,
-        int Checksum);
+        int Checksum,
+        ModelFrames Frames);
+
+    /// <summary>A model's baked animation frames, and how to choose between them.</summary>
+    /// <param name="Geometry">Every baked frame, animations laid end to end.</param>
+    /// <param name="Layout">Where each animation starts in that list, and how long it is.</param>
+    /// <param name="SequenceAnimation">Which animation each sequence plays.</param>
+    /// <param name="SequenceLoops">Whether each sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <remarks>
+    /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
+    /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
+    /// sit at the sequence's number, which is motion that looks deliberate and is wrong.
+    /// </remarks>
+    internal sealed record ModelFrames(
+        IReadOnlyList<IReadOnlyList<PropVertex>> Geometry,
+        IReadOnlyDictionary<int, (int Start, int Frames, float CyclesPerSecond)> Layout,
+        IReadOnlyList<int> SequenceAnimation,
+        IReadOnlyList<bool> SequenceLoops)
+    {
+        /// <summary>The geometry one frame after a given slot, wrapping inside its animation.</summary>
+        /// <param name="slot">A frame's index in <see cref="Geometry"/>.</param>
+        /// <returns>The next frame's geometry, or the same one when it does not animate.</returns>
+        /// <remarks>
+        /// **Wrapped inside the animation that owns the slot, not across the whole list.** The
+        /// frames of several animations lie end to end, so stepping off the end of one would blend
+        /// a door's last open frame into a completely different animation's first.
+        /// </remarks>
+        public IReadOnlyList<PropVertex> NextOf(int slot)
+        {
+            foreach ((int Start, int Frames, float CyclesPerSecond) where in Layout.Values)
+            {
+                if (slot < where.Start || slot >= where.Start + where.Frames)
+                {
+                    continue;
+                }
+
+                int intervals = Math.Max(1, where.Frames - 1);
+                int offset = slot - where.Start;
+
+                return Geometry[Math.Clamp(
+                    where.Start + ((offset + 1) % intervals), 0, Geometry.Count - 1)];
+            }
+
+            return Geometry[Math.Clamp(slot, 0, Geometry.Count - 1)];
+        }
+
+        /// <summary>Whether this model has anything to animate.</summary>
+        public bool IsStill => Geometry.Count <= 1;
+
+        /// <summary>Which baked frame a sequence and cycle land on.</summary>
+        /// <param name="sequence">The networked sequence, or −1 when the demo has not said.</param>
+        /// <param name="cycle">How far through it, where one is the end.</param>
+        /// <param name="seconds">Demo time, for advancing the cycle as the client does.</param>
+        /// <returns>An index into <see cref="Geometry"/>, always in range.</returns>
+        /// <remarks>
+        /// **An unknown sequence draws the first frame rather than nothing.** A demo can name a
+        /// sequence this model does not have - a wrong model resolved for an entity, or a sequence
+        /// added in a later game version than the recording - and a prop that vanishes is a worse
+        /// answer than one that stands still.
+        /// </remarks>
+        public int Frame(int sequence, float cycle, double seconds) =>
+            Select(sequence, cycle, seconds).Frame;
+
+        /// <summary>Which baked frames a sequence and cycle fall between, and how far.</summary>
+        /// <param name="sequence">The networked sequence, or −1 when the demo has not said.</param>
+        /// <param name="cycle">How far through it, where one is the end.</param>
+        /// <param name="seconds">Demo time, for advancing the cycle as the client does.</param>
+        /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
+        /// <remarks>
+        /// **The fraction is the whole point.** Rounding a cycle to the nearest baked frame steps
+        /// the model at the animation's authored rate — ten times a second for a pickup, against a
+        /// display running at sixty — which reads as a stutter. Carrying the remainder lets the
+        /// shader blend, and the two frames are adjacent ranges of one buffer.
+        ///
+        /// <c>Next</c> wraps for a looping sequence and holds for a one-shot, matching what
+        /// <see cref="StudioSequences.FrameFor(float, int, bool)"/> does with the frame itself.
+        /// </remarks>
+        public (int Frame, int Next, float Blend) Select(int sequence, float cycle, double seconds)
+        {
+            if (Geometry.Count == 0)
+            {
+                return (0, 0, 0f);
+            }
+
+            // **A sequence the demo never mentioned is sequence zero, not an error.** A property
+            // that never changes from its default is never sent, so an absent m_nSequence means
+            // the entity is still on its first sequence - which is why every health pack in the
+            // corpus reports -1 and every one of them is animating in game.
+            int wanted = sequence < 0 ? 0 : sequence;
+
+            int animation = wanted < SequenceAnimation.Count ? SequenceAnimation[wanted] : -1;
+
+            if (animation < 0 ||
+                !Layout.TryGetValue(
+                    animation, out (int Start, int Frames, float CyclesPerSecond) where))
+            {
+                return (0, 0, 0f);
+            }
+
+            // **The cycle is advanced here, because the server does not advance it.** The client
+            // does it every frame in C_BaseAnimating::FrameAdvance and treats a networked cycle as
+            // an occasional correction; replaying only what was sent leaves every prop frozen on
+            // frame zero, which is what a health pack looked like.
+            double advanced = cycle + (seconds * where.CyclesPerSecond);
+
+            bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
+
+            float phase = (float)(advanced - Math.Floor(advanced));
+
+            int frame = StudioSequences.FrameFor(phase, where.Frames, loops);
+
+            // How far past that frame the cycle actually is. The frame count spans one fewer
+            // interval than it has frames, which is the same arithmetic the cycle rate uses.
+            int intervals = Math.Max(1, where.Frames - 1);
+            float exact = phase * intervals;
+            float blend = exact - MathF.Floor(exact);
+
+            // **The next frame wraps for a loop and holds for a one-shot.** A door that has
+            // finished opening must blend toward the pose it is already in, not back to shut.
+            int next = loops
+                ? (frame + 1) % intervals
+                : Math.Min(frame + 1, where.Frames - 1);
+
+            return (
+                Math.Clamp(where.Start + frame, 0, Geometry.Count - 1),
+                Math.Clamp(where.Start + next, 0, Geometry.Count - 1),
+                Math.Clamp(blend, 0f, 1f));
+        }
+    }
 }

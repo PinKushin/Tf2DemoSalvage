@@ -146,7 +146,14 @@ public sealed class EntityModelsTests
         models.Add(
             props,
             path => path.Contains("barrel", StringComparison.Ordinal)
-                ? [new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 7)]
+                ? new PropModels.ModelFrames(
+                    [new PropVertex[] { new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 7) }],
+                    new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)>
+                    {
+                        [0] = (0, 1, 0f),
+                    },
+                    [0],
+                    [true])
                 : OneTriangle(path));
 
         List<WorldBatch> all =
@@ -162,12 +169,23 @@ public sealed class EntityModelsTests
     }
 
     /// <summary>A triangle whose first corner sits one unit along the model's own X.</summary>
-    private static IReadOnlyList<PropVertex>? OneTriangle(string path) =>
-    [
-        new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
-        new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
-        new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
-    ];
+    /// <remarks>
+    /// One baked frame, which is what a model that does not animate has. The frame machinery is
+    /// exercised against real models in the content tests; here it should stay out of the way.
+    /// </remarks>
+    private static PropModels.ModelFrames? OneTriangle(string path) =>
+        new(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true]);
 
     private static SceneProp Prop(
         string model, float x = 0f, float y = 0f, float z = 0f, float yaw = 0f) =>

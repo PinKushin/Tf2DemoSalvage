@@ -25,6 +25,14 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal sealed unsafe class Device3D : IDisposable
 {
+    /// <summary>Whether to present in step with the display's refresh.</summary>
+    /// <remarks>
+    /// Off by default, matching the setting: it adds latency, and a driver that disables it
+    /// globally ignores the request anyway.
+    /// </remarks>
+    public bool VerticalSync { get; set; }
+
+
     /// <summary>Back buffers. Two is the minimum a flip-model swap chain accepts.</summary>
     private const uint BufferCount = 2;
 
@@ -195,12 +203,12 @@ internal sealed unsafe class Device3D : IDisposable
         // empty buffer, with every count in the log looking correct.
         _world ??= WorldRenderer.Create(_device);
 
-        Dictionary<string, IReadOnlyList<WorldBatch>> batches =
+        Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches =
             new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string path in models.Paths)
         {
-            batches[path] = models.Batches(path);
+            batches[path] = models.AllFrames(path);
         }
 
         _world.UploadModels(_device, models.Vertices, batches);
@@ -391,9 +399,10 @@ internal sealed unsafe class Device3D : IDisposable
                     _world.DrawModel(
                         _context,
                         instance.Matrix,
-                        _world.ModelBatches(instance.ModelPath),
+                        _world.ModelBatches(instance.ModelPath, instance.Frame),
                         instance.Light,
-                        instance.Sun);
+                        instance.Sun,
+                        instance.Blend);
                 }
             }
             else
@@ -416,7 +425,11 @@ internal sealed unsafe class Device3D : IDisposable
         //
         // It does not pace playback: the clock is told how long the frame took, so a 60 Hz display
         // and a 144 Hz one play the same demo at the same speed.
-        SilkMarshal.ThrowHResult(_swapChain.Present(SyncInterval: 1u, Flags: 0u));
+        // **Asked for, not guaranteed.** A driver set to force vertical sync off ignores this
+        // entirely - measured at about 600 frames a second with an interval of one - which is why
+        // the frame limit in MainForm exists and is the ceiling that actually holds.
+        SilkMarshal.ThrowHResult(
+            _swapChain.Present(SyncInterval: VerticalSync ? 1u : 0u, Flags: 0u));
 
         if (_captureTo is { } file)
         {
