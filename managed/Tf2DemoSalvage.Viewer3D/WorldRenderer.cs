@@ -40,12 +40,20 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="NextNormalX">Its normal one animation frame later.</param>
 /// <param name="NextNormalY">Its normal one animation frame later.</param>
 /// <param name="NextNormalZ">Its normal one animation frame later.</param>
+/// <param name="BoneA">Which bone moves this vertex most, for a model skinned on the GPU.</param>
+/// <param name="BoneB">The second bone moving it.</param>
+/// <param name="BoneC">The third bone moving it.</param>
+/// <param name="WeightA">How much the first bone moves it.</param>
+/// <param name="WeightB">How much the second moves it.</param>
+/// <param name="WeightC">How much the third moves it.</param>
 internal readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
     float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
     float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f,
     float NextX = 0f, float NextY = 0f, float NextZ = 0f,
-    float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f);
+    float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f,
+    float BoneA = 0f, float BoneB = 0f, float BoneC = 0f,
+    float WeightA = 0f, float WeightB = 0f, float WeightC = 0f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -104,9 +112,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// the NEXT animation frame, so the shader can blend between two baked frames. A model that
     /// does not animate carries its own position in both and blends to itself.
     /// </remarks>
-    private const int VertexStride = sizeof(float) * 21;
+    private const int VertexStride = sizeof(float) * 27;
 
-    private const string ShaderSource = """
+    /// <summary>Most bones one model may be skinned by.</summary>
+    /// <remarks>
+    /// TF2's player models carry between 73 and 92 bones, so 128 covers them with room to spare.
+    /// Three float4 rows each is 384 constants, well inside a constant buffer's 4,096.
+    /// </remarks>
+    private const int MaxBones = 128;
+
+    private static readonly string ShaderSource = ShaderText.Replace(
+        "MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+
+    private const string ShaderText = """
         struct VsIn
         {
             float3 pos : POSITION;
@@ -121,6 +139,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // turns thirty baked poses a second into continuous motion.
             float3 nextPos : TEXCOORD6;
             float3 nextNrm : TEXCOORD7;
+
+            // Which bones move this vertex and by how much, for a model the GPU skins rather than
+            // one whose frames were baked. A baked model carries zeroes and is not skinned.
+            float3 bones   : TEXCOORD8;
+            float3 weights : TEXCOORD9;
         };
 
         struct VsOut
@@ -191,6 +214,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // bone turns far enough in one frame for the chord to cut the arc, and a pickup
             // spinning at ten frames a second turns twelve degrees between frames.
             float4 frameBlend;
+
+            // **How many bones this draw is skinned by, or zero for a model that is not.** A prop
+            // has its frames baked and blends between them; a player has hundreds of animations
+            // over ninety bones, which is gigabytes baked, so the GPU transforms it instead. Both
+            // paths share one shader because the alternative is two that agree until one gains a
+            // feature.
+            float4 skinning;
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -294,6 +324,59 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return lit;
         }
 
+        // **Bone matrices, which is Valve's own arrangement.** IMaterialSystem::LoadBoneMatrix
+        // hands these to the shader as constants and the GPU moves model-space vertices by them -
+        // the reason the engine draws a hundred animated players without noticing. Three rows of
+        // four, row major, the same 3x4 the studio format stores.
+        cbuffer Bones : register(b3)
+        {
+            float4 boneRows[MaxBones * 3];
+        };
+
+        float3 SkinPosition(float3 position, float3 bones, float3 weights, float count)
+        {
+            if (count < 1.0f)
+            {
+                return position;
+            }
+
+            float3 moved = float3(0.0f, 0.0f, 0.0f);
+            float total = weights.x + weights.y + weights.z;
+
+            if (total <= 0.0f)
+            {
+                return position;
+            }
+
+            [unroll]
+            for (int slot = 0; slot < 3; slot++)
+            {
+                float weight = slot == 0 ? weights.x : (slot == 1 ? weights.y : weights.z);
+
+                if (weight <= 0.0f)
+                {
+                    continue;
+                }
+
+                int bone = (int)(slot == 0 ? bones.x : (slot == 1 ? bones.y : bones.z));
+
+                if (bone < 0 || bone >= (int)count)
+                {
+                    continue;
+                }
+
+                float4 wide = float4(position, 1.0f);
+                int row = bone * 3;
+
+                moved += (weight / total) * float3(
+                    dot(boneRows[row], wide),
+                    dot(boneRows[row + 1], wide),
+                    dot(boneRows[row + 2], wide));
+            }
+
+            return moved;
+        }
+
         VsOut VsMain(VsIn input)
         {
             VsOut output;
@@ -309,6 +392,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // both and blends to itself.
             float3 posed = lerp(input.pos, input.nextPos, frameBlend.x);
             float3 posedNormal = lerp(input.nrm, input.nextNrm, frameBlend.x);
+
+            // A skinned model is moved by its bones instead of blended between baked frames. The
+            // two are exclusive: a model is either baked or skinned, never both.
+            if (skinning.x >= 1.0f)
+            {
+                posed = SkinPosition(input.pos, input.bones, input.weights, skinning.x);
+
+                // The normal turns with the bones but is not translated by them, so it is skinned
+                // about the origin and normalised afterwards.
+                posedNormal = normalize(SkinPosition(
+                    input.nrm, input.bones, input.weights, skinning.x)
+                    - SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x));
+            }
 
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
@@ -802,6 +898,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 SemanticIndex = 7,
                 Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
                 AlignedByteOffset = sizeof(float) * 18,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 8,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 21,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 9,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 24,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -1469,6 +1581,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.NextNormalX;
             data[at++] = vertex.NextNormalY;
             data[at++] = vertex.NextNormalZ;
+            data[at++] = vertex.BoneA;
+            data[at++] = vertex.BoneB;
+            data[at++] = vertex.BoneC;
+            data[at++] = vertex.WeightA;
+            data[at++] = vertex.WeightB;
+            data[at++] = vertex.WeightC;
         }
 
         return data;

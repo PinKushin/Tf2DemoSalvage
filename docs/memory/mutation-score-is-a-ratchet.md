@@ -13,6 +13,10 @@ the run happens daily or weekly, new code lands in between, and a week's work al
 mutants nothing kills yet. So the score dropping is expected and routine — what is not optional is
 **noticing and fixing it** rather than letting it drift down run after run.
 
+**And the baseline itself is provisional.** The owner set it while iterating hard on features, and
+said plainly that a large feature landing can drop it a long way — in which case the number gets
+re-set rather than defended. What is being ratcheted is attention, not a specific figure.
+
 That means the number is a thing to check after each run and act on, not a threshold to fail a
 build against. Treating it as a hard gate would either block ordinary work or, worse, invite
 whatever change makes the number go up fastest.

@@ -23,11 +23,15 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="NormalY">Surface normal, north-south.</param>
 /// <param name="NormalZ">Surface normal, vertically.</param>
 /// <param name="Blue">Baked lighting, one where the placement has none.</param>
+/// <param name="Bones">Which bones move this vertex, for a model skinned on the GPU.</param>
+/// <param name="Weights">How much each of those bones moves it.</param>
 internal readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
     float Red = 1f, float Green = 1f, float Blue = 1f,
-    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f);
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f,
+    (byte First, byte Second, byte Third) Bones = default,
+    (float First, float Second, float Third) Weights = default);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.

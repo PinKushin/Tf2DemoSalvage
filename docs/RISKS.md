@@ -3250,3 +3250,24 @@ distinct value each, over 244,951 samples on z1800 alone. So there is nothing on
 replay, and `CTFPlayerAnimState` has to be emulated rather than read. So even with the data reachable and the renderer able to skin, choosing the
 right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
 emulate the choice.
+
+## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — OPEN, not urgent
+
+**Dangling cosmetics and the floppy fish are jiggle bones, not physics.** `studio.h` defines
+`STUDIO_PROC_JIGGLE` (5) with `mstudiojigglebone_t` and the `JIGGLE_IS_FLEXIBLE` /
+`JIGGLE_IS_RIGID` flags: a per-bone spring whose stiffness, damping, length and angular
+constraints are baked into the model. The client solves it every frame in `CJiggleBones`, after
+ordinary bone setup and on the same matrices.
+
+So it needs no physics engine, no collision and no broadphase — it is a procedural pass over bone
+transforms and drops into the bone pipeline this project is building for GPU skinning. Cost is a
+handful of springs per model.
+
+**Ragdolls are a different thing and may be unfixable.** A dead player is real VPhysics, simulated
+client-side, and nothing about the resulting pose is networked. Two clients replaying one demo do
+not agree on how a corpse fell, so neither will this viewer — no amount of decoding recovers a
+simulation that was never recorded. Anyone expecting death poses to match a recording should be
+told this rather than left to discover it.
+
+Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a
+physics engine", which is the wrong conclusion for the first and an incomplete one for the second.
