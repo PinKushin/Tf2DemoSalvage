@@ -79,6 +79,16 @@ public sealed class BspModelsTests
                 $"model {index} starts after model {index - 1} ends");
         }
 
+        int placed = 0;
+
+        foreach (BspModel model in models)
+        {
+            placed += model.Origin != (0f, 0f, 0f) ? 1 : 0;
+        }
+
+        TestContext.Out.WriteLine(
+            $"MODELS {placed} of {models.Count} carry a non-zero origin");
+
         TestContext.Out.WriteLine(
             $"MODELS {models.Count} models; world has {models[0].FaceCount} faces, " +
             $"the other {models.Count - 1} have {models.Skip(1).Sum(model => model.FaceCount)} between them");

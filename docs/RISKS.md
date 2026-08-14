@@ -3981,3 +3981,41 @@ entity vertex format, or the world shader used with a per-instance transform.
 
 **Estimated honestly:** steps 1 to 4 make doors appear and move. The lighting question is a separate
 decision that should be made deliberately rather than discovered.
+
+## B68 RESOLVED — an overlay's face list is what to CLIP against, not a list to choose from
+
+The map answered it, after four wrong guesses at the renderer. cp_process_f12's stripes are
+overlays — `overlays/stripe_red` 45 times and `concrete/stripe_blue` 43, the two most used in the
+map — and what distinguishes them from a sign is how much they span:
+
+```
+overlays/stripe_red  names 1 to 18 faces, median 3
+signs/redstone       names 2 to 2 faces
+```
+
+The builder took the FIRST face sharing an orientation and drew a single flat quad from the
+overlay's own corners. Correct for a sign on one wall, which is why the lettering and the arrows
+always looked right. For a stripe wrapping a building the quad is a flat plane cutting straight
+through it where the wall turns, hanging in the air on both sides.
+
+The engine clips the overlay polygon against every face it names and draws a fragment per face.
+Now so does this: Sutherland-Hodgman against each face's edge planes, the fragment dropped onto
+that face's plane, textured from the overlay's orthonormal basis — clipping makes points that were
+never corners, so the four corner UVs cannot be interpolated — and lit from that face's own lightmap
+rectangle.
+
+`222 decals placed across 54 materials, 0 lying flat on nothing`, against a previous run that
+skipped every overlay whose first orientation match was the wrong wall.
+
+**The wrong guesses, kept, because four is worth remembering:** a decal offset in the reader, the
+depth bias, faces removed by the normal cull, and entity brushwork placed without its origin. Each
+was plausible, each was committed or nearly committed, and each was killed by a measurement —
+`median 0.00 units from the face plane`, no z-fighting at zero bias, and no model in the map
+carrying a non-zero origin. The answer was in the BSP the whole time, in a face list being reduced
+to one entry.
+
+**And a bug inside the fix, caught by the existing tests:** the inward normal of an edge is the face
+normal crossed with the edge, and which way that points depends on the outline's winding, which a
+BSP carries both of. Assuming one clipped every fragment to nothing — indistinguishable from an
+overlay missing its face, invisible in the counts, visible only as decals silently vanishing. It is
+settled per edge against the face's centroid.
