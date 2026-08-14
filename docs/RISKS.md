@@ -3471,3 +3471,41 @@ Work needed, none of it in the decoder:
 
 Full account, including two wrong diagnoses that survived a round of work each, in
 `docs/findings/22-bone-merged-attachments.md`.
+
+## B64 — a player's movement sequence is a blend grid we take the corner of — OPEN, emulation
+
+**The legs run one fixed direction whatever way the body faces**, reported as "the model faces
+right, but the feet and legs bend 180 degrees the wrong way".
+
+Not a decode fault. `CalcBoneQuaternion` and `ExtractAnimValue` were checked against
+`bone_setup.cpp:374` and `:339` and `StudioAnimation` matches both. The gap is a layer up:
+`StudioSequences` reads `mstudioseqdesc_t::anim` at `y * groupsize[0] + x` and takes the corner,
+which is the whole grid for a prop and one extreme direction for a player's nine-way movement
+blend.
+
+TF2 sets `move_x`/`move_y` (`multiplayer_animstate.cpp:1413`) in `ComputePoseParam_MoveYaw`
+(`:1575`) as the unit vector of travel in the body's own frame, snapped to eight compass points by
+`SnapYawTo` (`:1443`). Both inputs are already available here — travel direction by differentiating
+position as `SpeedAt` does, body facing from `m_angEyeAngles`.
+
+Work: read `mstudioposeparamdesc_t` for the parameter ranges, map the pair to grid coordinates,
+blend the four surrounding animations rather than taking `anim[0]`, and compute the pair per player
+per frame. Related to B61, which covers the rest of `CTFPlayerAnimState`.
+
+Account in `docs/findings/21-player-animation.md`.
+
+## B65 — one player on BLU draws in RED — OPEN, not yet measured
+
+Reported 2026-08-14 with cosmetics working: a single player on the blue team draws red. Skin comes
+from the team (`m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`) and the team is read from the player
+resource's `m_iTeam.<slot>` with a fallback to the entity's own team property. One wrong player out
+of twelve is the signature of that fallback firing for one slot, but this has not been measured and
+the alternative — a stale resource entry — would look identical.
+
+## B66 — speckling on player models — OPEN, bodygroups are not applied
+
+Reported as "weird glitchy dots on them, but that maybe the lod or something". A candidate with a
+known mechanism: an equipped cosmetic HIDES part of the base model through bodygroups, and this
+project does not read `studiohdr_t.bodyparts` at all. The base body then draws inside the cosmetic
+and the two z-fight, which speckles. Unmeasured; LOD is the other candidate and neither has been
+ruled out.

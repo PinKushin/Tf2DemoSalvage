@@ -180,3 +180,55 @@ is `IMaterialSystem::LoadBoneMatrix` and what the engine does for everything.
 The engine has only that second path. Baking is this project's own optimisation and the divergence
 is deliberate; the cost is two paths that can drift, and the mitigation is that the choice between
 them is made by measurement in one place rather than by classifying models.
+
+## The legs run the wrong way, and it is the blend grid rather than the decode
+
+*Reported by the owner, 2026-08-14: "the bones of the models allow the model to be facing right,
+but the feet and legs to bend 180 degrees the wrong way — you actually see it ingame with scout
+sometimes on their double jump, but the other characters basically never get crazy legs in game."*
+
+The body facing correctly while the legs do not rules out an orientation fault: one transform
+places the whole model, so if it were wrong the torso would be wrong too.
+
+The animation decode was checked against the SDK first and is faithful. `CalcBoneQuaternion`
+(`bone_setup.cpp:374`) branches `STUDIO_ANIM_RAWROT` → `Quaternion48`, `RAWROT2` → `Quaternion64`,
+`ANIMROT` → three run-length Euler channels scaled by `rotscale` and added to the bone's `rot`
+unless the animation is a delta — which is what `StudioAnimation` does. `ExtractAnimValue`
+(`bone_setup.cpp:339`) is
+
+```cpp
+while (panimvalue->num.total <= k) { k -= panimvalue->num.total; panimvalue += panimvalue->num.valid + 1; ... }
+if (panimvalue->num.valid > k) v1 = panimvalue[k+1].value * scale;
+else                          v1 = panimvalue[panimvalue->num.valid].value * scale;
+```
+
+and ours is the same walk with the same `remaining < valid ? remaining + 1 : valid` selection.
+
+**What is missing is a layer above: pose parameters.** `StudioSequences` says so outright — it
+reads `mstudioseqdesc_t::anim` at index `y * groupsize[0] + x` with both clamped, and takes the
+CORNER. For a health pack bobbing or a door sliding that is the whole grid. A player's movement
+sequence is a nine-way blend, and its corner is one fixed direction — so the legs run that
+direction no matter which way the body faces, which is exactly the reported picture.
+
+TF2 drives it from two parameters, `move_x` and `move_y`
+(`Multiplayer/multiplayer_animstate.cpp:1413`), computed in `ComputePoseParam_MoveYaw` (:1575):
+
+```cpp
+float flYaw = flAngle - m_PoseParameterData.m_flEstimateYaw;
+flYaw = AngleNormalize( -flYaw );
+flYaw = SnapYawTo( flYaw );
+vecCurrentMoveYaw.x =  cos( DEG2RAD( flYaw ) );
+vecCurrentMoveYaw.y = -sin( DEG2RAD( flYaw ) );
+```
+
+`flAngle` is the direction of travel and `m_flEstimateYaw` the body's facing, so the pair is the
+unit vector of movement **in the body's own frame** — and TF2 snaps it to eight compass points
+first (`SnapYawTo`, :1443, thresholds 23/67/113/157).
+
+**Both inputs are recoverable from a demo.** Direction of travel comes from consecutive positions,
+which `DemoTimeline.SpeedAt` already differentiates for speed; the body's facing is
+`m_angEyeAngles`, which is decoded. Nothing new has to come off the wire — this is emulation, like
+the rest of `CTFPlayerAnimState`.
+
+*Evidence class: read from published source, plus one owner observation of the drawn result. The
+claim that it FIXES the picture is not yet measured.*
