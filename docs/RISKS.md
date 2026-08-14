@@ -3945,3 +3945,39 @@ Worth noting the entity lump is separately unused: `BspEntities` is referenced b
 its own file, so map-placed `prop_dynamic` models are not instantiated either. That is a different
 gap with a similar smell, and it is NOT what makes the doors missing — the doors are networked and
 already in hand.
+
+### B71 amended — the brushwork IS drawn, baked into the static world at its compiled position
+
+Measured, cp_process_f12, from the world build:
+
+```
+world: 11186 brush faces, 60 terrain faces, 1222475 prop triangles, 0 faces with no material;
+1030 of the surfaces read belong to entity models rather than the world
+```
+
+`BspSurfaces` walks the whole faces lump, and a submodel's faces follow the world's in it — so all
+1030 reach the builder and are baked into the static vertex buffer like any wall.
+
+**So nothing is missing. Everything is in the wrong place and cannot move.** A door is drawn where
+it was compiled; compiled retracted, it sits inside the ceiling and reads as absent. That is why
+removing the normal cull helped the walls and did nothing for the doors.
+
+This changes the work entirely. Not a second geometry source — a separation:
+
+1. **Exclude faces above the world model's range from the static world build.** `models[0].FaceCount`
+   is the boundary and is already read.
+2. **Build each referenced submodel's faces as its own geometry**, keyed by its `*N` name, so the
+   entity path can find it — the same path health packs already take.
+3. **Place it by the entity's networked origin and angles**, which `ScenePropTrack` already carries
+   and interpolates. A door then opens because the demo says it opens.
+4. **Relax the two `Kind != SceneModelKind.Studio` guards** that currently drop `*N` at packing and
+   at drawing.
+
+The wrinkle worth stating before anyone starts: world faces are lit by LIGHTMAP and the entity path
+lights by ambient cube. Moving brushwork through the entity path as-is loses its lightmap, so a
+door would be flat-lit against a lightmapped wall. The engine lightmaps brush entities too, so this
+is a real divergence rather than a detail — it needs either lightmap coordinates carried into the
+entity vertex format, or the world shader used with a per-instance transform.
+
+**Estimated honestly:** steps 1 to 4 make doors appear and move. The lighting question is a separate
+decision that should be made deliberately rather than discovered.
