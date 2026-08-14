@@ -27,7 +27,16 @@ public sealed class ModelPrecache
     /// <remarks><c>PROTOCOL_VERSION_20</c> in the proxy's own condition.</remarks>
     public const int LastPackedIndexProtocol = 20;
 
+    /// <summary>The second table, which carries the models loaded during play.</summary>
+    /// <remarks>
+    /// **Named nowhere in the published SDK**, because the table is created engine side and the
+    /// engine is closed. The demos name it themselves: every modern recording lists
+    /// <c>DynamicModels</c> among its string tables, 60 entries on <c>cp_process</c>.
+    /// </remarks>
+    public const string DynamicTableName = "DynamicModels";
+
     private readonly Dictionary<int, string> _paths = [];
+    private readonly Dictionary<int, string> _dynamic = [];
 
     /// <summary>Records a create or update message's entries.</summary>
     /// <param name="entries">Entries from the message; later ones replace earlier ones.</param>
@@ -36,7 +45,18 @@ public sealed class ModelPrecache
     /// entries that changed, each stating where it belongs, so numbering them from zero would
     /// rewrite the front of the table with whatever happened to change.
     /// </remarks>
-    public void Apply(IReadOnlyList<StringTableEntry> entries)
+    public void Apply(IReadOnlyList<StringTableEntry> entries) => Apply(entries, _paths);
+
+    /// <summary>Records entries from the <c>DynamicModels</c> table.</summary>
+    /// <param name="entries">Entries from the message; later ones replace earlier ones.</param>
+    /// <remarks>
+    /// Kept apart from the precache rather than merged into it, because the two are indexed
+    /// independently: entry 7 of one and entry 7 of the other are different models, and a single
+    /// dictionary would have each quietly overwrite the other.
+    /// </remarks>
+    public void ApplyDynamic(IReadOnlyList<StringTableEntry> entries) => Apply(entries, _dynamic);
+
+    private static void Apply(IReadOnlyList<StringTableEntry> entries, Dictionary<int, string> into)
     {
         if (entries is null)
         {
@@ -52,7 +72,7 @@ public sealed class ModelPrecache
                 continue;
             }
 
-            _paths[entry.Index] = entry.Text;
+            into[entry.Index] = entry.Text;
         }
     }
 
@@ -60,19 +80,46 @@ public sealed class ModelPrecache
     /// <param name="modelIndex">The entity's <c>m_nModelIndex</c>, already unpacked.</param>
     /// <returns>The model path, or <c>null</c> when the table cannot name one.</returns>
     /// <remarks>
-    /// **Null rather than a guess, and the negative case is the reason.** A negative index is a
-    /// dynamic model the recording client precached for itself; a demo of somebody else's session
-    /// carries no entry for it. Treating the number as an index anyway would read an unrelated
-    /// entry and place a wrong model with complete confidence, which is the failure this project
-    /// keeps meeting: a plausible answer rather than an error.
+    /// **A negative index is a dynamic model, and half of them ARE in the demo.** An earlier
+    /// version of this comment said none were, on the reasoning that a dynamic model is one the
+    /// recording client loaded for itself — which is true of exactly the odd ones. The engine
+    /// states the split (<c>public/engine/ivmodelinfo.h:90</c>):
     ///
-    /// **No guard on the number itself**, deliberately: <see cref="Apply"/> stores nothing at zero
+    /// <code>
+    /// // If index &lt; -1, then the model is DYNAMIC and has a DYNAMIC INDEX of (-2 - index)
+    /// // - if the dynamic index is ODD, then the model is CLIENT ONLY
+    /// //   and has a m_LocalDynamicModels lookup index of (dynamic index)>>1
+    /// // - if the dynamic index is EVEN, then the model is NETWORKED
+    /// //   and has a dynamic model string table index of (dynamic index)>>1
+    /// </code>
+    ///
+    /// Believing the whole range unreachable cost every cosmetic in every modern demo: measured on
+    /// <c>cp_process</c>, 35 of 36 live <c>CTFWearable</c> entities carry a negative index, all of
+    /// them even, all of them present in <c>DynamicModels</c>. Players drew bare-headed while
+    /// every ordinary prop resolved perfectly, which is why it read as "cosmetics are not
+    /// recorded" rather than as a lookup gap.
+    ///
+    /// The odd half stays null, and that is not laziness — it is genuinely not in the file. Naive
+    /// halving would land on a real entry of the networked table and draw a wrong model with total
+    /// confidence.
+    ///
+    /// **No guard on the number itself**, deliberately: <see cref="Apply(System.Collections.Generic.IReadOnlyList{Tf2DemoSalvage.Core.Net.StringTableEntry})"/> stores nothing at zero
     /// or below, so a lookup answers those correctly on its own. An added <c>modelIndex &gt; 0</c>
     /// reads as care and is a branch no test can ever take, because no input reaches it — the kind
     /// of line that survives mutation testing forever and means nothing when it does.
     /// </remarks>
-    public string? Path(int modelIndex) =>
-        _paths.TryGetValue(modelIndex, out string? path) ? path : null;
+    public string? Path(int modelIndex)
+    {
+        if (modelIndex >= -1)
+        {
+            return _paths.TryGetValue(modelIndex, out string? path) ? path : null;
+        }
+
+        int dynamicIndex = -2 - modelIndex;
+
+        return (dynamicIndex & 1) == 0 &&
+            _dynamic.TryGetValue(dynamicIndex >> 1, out string? loaded) ? loaded : null;
+    }
 
     /// <summary>Undoes the packing early protocols applied to negative model indices.</summary>
     /// <param name="modelIndex">The value as the entity carried it.</param>

@@ -43,6 +43,32 @@ public sealed class EntityState
     /// <summary><c>EF_NODRAW</c> from <c>src/public/const.h</c>: "don't draw entity".</summary>
     private const int NoDraw = 0x020;
 
+    /// <summary>Who an entity hangs off, when it is bone-merged rather than placed.</summary>
+    private const string OwnerProperty = "m_hOwnerEntity";
+
+    /// <summary>
+    /// <c>EF_BONEMERGE</c> from <c>src/public/const.h</c>: "Performs bone merge on client side".
+    /// Set by <c>FollowEntity</c>, which is how <c>CBaseCombatWeapon::Equip</c> attaches a weapon.
+    /// </summary>
+    private const int BoneMerge = 0x001;
+
+    /// <summary>
+    /// The parent handle's WIRE name, which is not its member name. <c>DT_BaseEntity</c> declares
+    /// <c>m_hMoveParent</c> with <c>SENDINFO_NAME</c> (<c>server/baseentity.cpp:287</c>), so the
+    /// stream carries <c>moveparent</c> and a search for the member finds nothing at all.
+    /// </summary>
+    private const string ParentProperty = "moveparent";
+
+    /// <summary><c>MAX_EDICT_BITS</c> — the low bits of a handle are the entity's slot.</summary>
+    private const int EdictBits = 11;
+
+    /// <summary>
+    /// <c>INVALID_NETWORKED_EHANDLE_VALUE</c>: <c>(1 &lt;&lt; (MAX_EDICT_BITS + 10)) - 1</c>. Tested
+    /// against the WHOLE value, because its low eleven bits are 2047 and would otherwise read as a
+    /// real slot.
+    /// </summary>
+    private const int InvalidHandle = (1 << (EdictBits + 10)) - 1;
+
     /// <summary>Only things that animate carry the four below.</summary>
     private const string AnimatingTable = "DT_BaseAnimating";
 
@@ -141,6 +167,68 @@ public sealed class EntityState
     /// hides a decode that missed a property behind a value that looks deliberate.
     /// </remarks>
     public int? ModelIndex() => Integer($"{BaseEntityTable}.{ModelIndexProperty}");
+
+    /// <summary>The entity this one hangs off, when it is bone-merged onto another.</summary>
+    /// <returns>The owner's entity index, or <c>null</c> when it stands on its own.</returns>
+    /// <remarks>
+    /// **Bone merging, not parenting, and the difference decides whether there is a position to
+    /// find.** A hat or a carried weapon is attached with <c>FollowEntity</c>, which sets
+    /// <c>EF_BONEMERGE</c> (<c>0x001</c>, <c>public/const.h:284</c>) and then zeroes local origin
+    /// and angles (<c>shared/baseentity_shared.cpp:2360</c>). The client matches the child model's
+    /// bones to the parent's **by name** and takes the parent's matrices outright, so the child
+    /// never has a transform of its own and the engine sends none.
+    ///
+    /// Measured on <c>cp_process</c>: all 37 live <c>CTFWearable</c> entities carry an owner, a
+    /// model index and a skin, and no origin whatsoever. Looking for a position and giving up when
+    /// none arrived is what left every player bare-headed.
+    ///
+    /// **Ownership is not attachment, and conflating them was measured wrong.** A syringe knows
+    /// which medic fired it through the same <c>m_hOwnerEntity</c> a held weapon uses, and it is
+    /// emphatically not merged onto him — treating an owner as an attachment claimed 220 syringe
+    /// projectiles as worn items on one demo. So the owner handle is read only once something
+    /// else has said this entity is attached.
+    ///
+    /// **What says so differs by entity, so both are read.** A <c>CTFWearable</c> sends
+    /// <c>moveparent</c> and no <c>m_fEffects</c> at all; a carried <c>CTFRocketLauncher</c> sends
+    /// <c>m_fEffects</c> with <c>EF_BONEMERGE</c> and no parent. Either alone covers half the
+    /// problem and looks like it covers all of it, because whichever half is missing simply does
+    /// not draw. The wire name for the parent is <c>moveparent</c> rather than the member name,
+    /// because <c>DT_BaseEntity</c> declares it with <c>SENDINFO_NAME</c>
+    /// (<c>server/baseentity.cpp:287</c>) — searching for <c>m_hMoveParent</c> finds nothing and
+    /// reads as "demos do not carry this".
+    ///
+    /// **A handle is not an entity index.** It is an index in the low bits and a serial number
+    /// above it, so that a handle to a slot which has since been reused can be told from one to
+    /// its current occupant. <c>RecvProxy_IntToEHandle</c> (<c>client/recvproxy.cpp:90</c>) is
+    /// exactly two lines:
+    ///
+    /// <code>
+    /// int iEntity = pData->m_Value.m_Int &amp; ((1 &lt;&lt; MAX_EDICT_BITS) - 1);
+    /// int iSerialNum = pData->m_Value.m_Int >> MAX_EDICT_BITS;
+    /// </code>
+    ///
+    /// with the whole value compared against <c>INVALID_NETWORKED_EHANDLE_VALUE</c> FIRST — which
+    /// matters, because that constant is 21 bits of ones and its low 11 bits mask to 2047, a
+    /// perfectly ordinary-looking slot number. Masking before testing turns "no owner" into
+    /// "owned by entity 2047".
+    /// </remarks>
+    public int? Attachment()
+    {
+        // The parent is attachment outright - an entity only has one because something set it.
+        if (Slot(Integer($"{BaseEntityTable}.{ParentProperty}")) is { } parent)
+        {
+            return parent;
+        }
+
+        // The owner is attachment only for something that also asked to be merged.
+        return ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & BoneMerge) == 0
+            ? null
+            : Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
+    }
+
+    /// <summary>The entity slot a networked handle names, or null when it names nothing.</summary>
+    private static int? Slot(int? handle) =>
+        handle is not { } raw || raw == InvalidHandle ? null : raw & ((1 << EdictBits) - 1);
 
     /// <summary>Which way the entity faces.</summary>
     /// <returns>Pitch, yaw and roll in degrees, or <c>null</c> when never sent.</returns>

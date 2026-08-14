@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-14T17:54:43.380Z
+  modified: 2026-08-14T18:11:08.966Z
 ---
 
 **An entity attached to a player carries no position on the wire, and that is correct rather than
@@ -20,11 +20,24 @@ m_iBuildState`.
 matches the child model's bones to the parent's **by name** and uses the parent's matrices. Sending
 an origin would be sending zero.
 
-**How to apply:** do not look for `m_hMoveParent`/`moveparent` on these — it is absent, and chasing
-it cost a round of work. The owner is `m_hOwnerEntity`. The merge itself is what `StudioBones.Remap`
-already does. What is genuinely missing is model resolution for the ones that send no
-`m_nModelIndex` (41 of the origin-less entities do send it) and picking which carried weapon is
-active. Filed as B63; account in `docs/findings/22-bone-merged-attachments.md`.
+**How to apply — and which field says so depends on what the entity is.** A `CTFWearable` sends
+`moveparent` (the WIRE name; the member is `m_hMoveParent`, declared with `SENDINFO_NAME`) and no
+`m_fEffects` at all. A carried `CTFRocketLauncher` sends `m_fEffects` with `EF_BONEMERGE` and no
+parent. Either rule alone covers half the problem while looking complete, because the half it misses
+simply does not draw.
+
+**Ownership is not attachment.** A syringe knows which medic fired it through the same
+`m_hOwnerEntity`; treating that as attachment claimed 220 syringe projectiles as worn items. Read
+the owner handle only once `EF_BONEMERGE` has said the entity is merged.
+
+Handles are not entity indices: index is the low `MAX_EDICT_BITS` (11) bits, and
+`INVALID_NETWORKED_EHANDLE_VALUE` must be tested against the WHOLE value first — its low 11 bits are
+2047, an ordinary-looking slot (`client/recvproxy.cpp:90`).
+
+The merge itself is what `StudioBones.Remap` already does. Filed as B63; account in
+`docs/findings/22-bone-merged-attachments.md`.
+
+Model resolution is a second, separate gap: see [[negative-model-indices-are-dynamic]].
 
 Related: [[read-the-encoder-not-the-decoder]] — the encoder states that the zero is deliberate,
 which no amount of staring at absent fields would have.

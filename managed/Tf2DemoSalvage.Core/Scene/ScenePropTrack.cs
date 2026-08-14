@@ -106,8 +106,15 @@ public readonly record struct ScenePose
 /// <param name="ModelPath">What to draw, as <c>modelprecache</c> named it.</param>
 /// <param name="Kind">Which loader the path belongs to.</param>
 /// <param name="Pose">Where it is and what it is doing.</param>
+/// <param name="AttachedTo">
+/// The entity whose skeleton carries this one, or <c>null</c> when it stands on its own origin.
+/// </param>
 public readonly record struct SceneProp(
-    int EntityIndex, string ModelPath, SceneModelKind Kind, ScenePose Pose);
+    int EntityIndex,
+    string ModelPath,
+    SceneModelKind Kind,
+    ScenePose Pose,
+    int? AttachedTo = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -143,6 +150,25 @@ public sealed class ScenePropTrack
 
     /// <summary>The model this entity draws as.</summary>
     public string ModelPath { get; }
+
+    /// <summary>The entity whose skeleton carries this one, when it has no place of its own.</summary>
+    /// <remarks>
+    /// **A bone-merged entity has no transform, by design.** A hat, a badge and a carried weapon
+    /// are attached with <c>FollowEntity</c>, which sets <c>EF_BONEMERGE</c> and then zeroes local
+    /// origin and angles (<c>shared/baseentity_shared.cpp:2360</c>) — the client matches the child
+    /// model's bones to the parent's **by name** and uses the parent's matrices outright, so a
+    /// position would never be read and is not sent.
+    ///
+    /// Which is why this is a property of the track rather than of the pose: it does not change
+    /// tick to tick, and there is no pose to put it in. A track with an owner keeps its keyframes
+    /// for the sequence and skin it does carry, and its position stays at zero because zero is
+    /// literally what the engine set.
+    ///
+    /// Settable rather than fixed at construction: the owner arrives on a later delta than the
+    /// model on some entities, and refusing the track until both have landed would lose the
+    /// cosmetic for however long that takes.
+    /// </remarks>
+    public int? AttachedTo { get; internal set; }
 
     /// <summary>Which of Valve's model types this reference names.</summary>
     /// <remarks>

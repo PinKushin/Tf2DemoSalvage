@@ -120,6 +120,57 @@ two skeletons, which is exactly what a bone merge is. What is genuinely new:
 
 Filed as B63.
 
+## The second half: the models were in a table nobody was reading
+
+Recording the attachment was not enough. With attachments recorded, **29 of the demo's cosmetics
+still failed to produce a track**, and the reason had nothing to do with attachment:
+
+```
+WEAP wearable models: 1 resolve, 35 do not (index -48; index -52; index -12; index -16; index -92)
+```
+
+Every cosmetic's `m_nModelIndex` is **negative**. That looked like a decode bug — a signed read of an
+unsigned field — and it is not. `SendPropModelIndex` (`public/dt_send.h:715`) is
+
+```cpp
+return SendPropInt( pVarName, offset, sizeofVar, SP_MODEL_INDEX_BITS, 0 );
+```
+
+flags `0`, so the field is genuinely **signed**, 13 bits. And `ivmodelinfo.h:90` says what a negative
+one means:
+
+```cpp
+// If index >= 0, then index references the precached model string table
+// If index == -1, then the model is invalid
+// If index < -1, then the model is DYNAMIC and has a DYNAMIC INDEX of (-2 - index)
+// - if the dynamic index is ODD, then the model is CLIENT ONLY
+//   and has a m_LocalDynamicModels lookup index of (dynamic index)>>1
+// - if the dynamic index is EVEN, then the model is NETWORKED
+//   and has a dynamic model string table index of (dynamic index)>>1
+```
+
+So `-48` is dynamic index 46, even, therefore **networked**, therefore entry 23 of a second string
+table. This project had recorded the opposite conclusion in `ModelPrecache.Path`: that a negative
+index is a model the recording client loaded for itself and is therefore absent from a demo of
+someone else's session. That is true of the odd half and false of the even half, and the even half
+is where every cosmetic lives.
+
+The table's name is in no published header, because it is created engine side. The demos name it
+themselves — every modern recording lists its own string tables:
+
+```
+decalprecache(133) downloadables(1) DynamicModels(60) EffectDispatch(3) GameRulesCreation(1)
+genericprecache(1) InfoPanel(2) instancebaseline(63) lightstyles(64) Materials(8)
+modelprecache(1212) ParticleEffectNames(5870) Scenes(4414) ...
+```
+
+`DynamicModels`, 60 entries. Reading it turns 3 attached props at the midpoint tick into **29**, with
+names that settle the question by themselves: `hwn_spellbook_complete`, `short2014_ninja_boots`,
+`dec21_festive_frames_Scout`, `all_domination_Sniper`, `brasil_fortress_6v6_primeiro_lugar_Sniper`.
+
+The odd, client-only half stays unresolved deliberately. Halving it anyway lands on a real entry of
+the networked table and draws a confidently wrong model.
+
 ## The wrong turns, kept
 
 1. **"The demo does not carry cosmetics."** It carries thirty-seven of them at one tick.
@@ -128,6 +179,16 @@ Filed as B63.
    parenting works in Source, and parenting does work that way — for entities that are parented
    rather than merged. The distinction is `EF_BONEMERGE`.
 3. **"1 weapon is present mid-match."** Measured at a tick the demo does not contain.
+4. **"An owner handle means the entity is attached."** A syringe knows which medic fired it through
+   the same `m_hOwnerEntity` a held weapon uses. Reading ownership as attachment claimed 220
+   syringe projectiles as worn items. Attachment is `moveparent`, or `m_hOwnerEntity` *and*
+   `EF_BONEMERGE` — and which of the two an entity sends depends on what it is: a `CTFWearable`
+   sends a parent and no effects field at all, a carried `CTFRocketLauncher` sends the effects flag
+   and no parent. Either rule alone covers half the problem while looking complete, because the
+   half it misses simply does not draw.
+5. **"A negative model index is a client-only model absent from the demo."** True of the odd half
+   only. This one had been written down as settled, in a doc comment, with reasoning — which is
+   exactly the kind that gets repeated.
 
 The pattern across all three: each was a confident answer to a question the measurement had not
 been pointed at. Only the property dump — asking the entity what it holds rather than asking

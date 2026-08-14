@@ -299,6 +299,18 @@ public sealed class DemoTimeline
                         precache.Apply(update.Entries);
                         continue;
 
+                    // The second model table, which is where every cosmetic lives. A negative
+                    // m_nModelIndex is a dynamic model, and the even ones are networked through
+                    // here - see ModelPrecache.Path.
+                    case CreateStringTableMessage { Name: ModelPrecache.DynamicTableName } dynamic:
+                        precache.ApplyDynamic(dynamic.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == ModelPrecache.DynamicTableName:
+                        precache.ApplyDynamic(update.Entries);
+                        continue;
+
                     default:
                         break;
                 }
@@ -440,8 +452,34 @@ public sealed class DemoTimeline
             return;
         }
 
-        if (!entities.TryGet(entity.EntityIndex, out EntityState? state) ||
-            state.Origin() is not { } origin)
+        if (!entities.TryGet(entity.EntityIndex, out EntityState? state))
+        {
+            return;
+        }
+
+        // **No origin is an answer for an attached entity, not a gap.** A hat, a badge and a
+        // carried weapon are attached with FollowEntity, which sets EF_BONEMERGE and then zeroes
+        // local origin and angles (shared/baseentity_shared.cpp:2360) — the client matches the
+        // child model's bones to the parent's BY NAME and takes the parent's matrices, so the
+        // child never has a transform and the engine sends none.
+        //
+        // Requiring one therefore dropped every cosmetic in every demo: measured on cp_process,
+        // all 37 live CTFWearable entities carry a model, an owner, a skin and a team, and no
+        // position whatsoever. They are recorded at the origin because that is literally what
+        // SetLocalOrigin( vec3_origin ) put there; the owner is what says where to draw them.
+        int? attachedTo = null;
+        (float X, float Y, float Z) origin;
+
+        if (state.Origin() is { } placed)
+        {
+            origin = placed;
+        }
+        else if (state.Attachment() is { } owner)
+        {
+            attachedTo = owner;
+            origin = (0f, 0f, 0f);
+        }
+        else
         {
             return;
         }
@@ -479,6 +517,10 @@ public sealed class DemoTimeline
             // report as a missing asset - which is exactly the false alarm this split avoids.
             (model.Length == 0 ? players : props).Add(track);
         }
+
+        // Kept current rather than set once: a wearable can arrive before its owner handle does,
+        // and a track stuck on the first answer would draw the hat on whoever wore it last.
+        track.AttachedTo = attachedTo;
 
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
 
@@ -629,7 +671,8 @@ public sealed class DemoTimeline
             // A hidden entity is not drawn but is still tracked: it is coming back.
             if (track.At(tick) is { Hidden: false } pose)
             {
-                into.Add(new SceneProp(track.EntityIndex, track.ModelPath, track.Kind, pose));
+                into.Add(new SceneProp(
+                    track.EntityIndex, track.ModelPath, track.Kind, pose, track.AttachedTo));
             }
         }
     }

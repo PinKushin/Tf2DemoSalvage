@@ -55,6 +55,7 @@ public sealed class WeaponEntityProbe
 
         ModelPrecache precache = new();
         int processed = 0;
+        SortedSet<string> tableNames = [];
 
         // **The demo's own mid-match tick, not a number that looks like one.** demos.tf recordings
         // start at whatever tick the server was on, which on this file is past 20000 — so stopping
@@ -80,6 +81,14 @@ public sealed class WeaponEntityProbe
             foreach (INetMessage message in
                 NetMessageReader.Read(command.Payload.Span, state).Messages)
             {
+                // **What the tables are actually called.** The dynamic-model table is engine side
+                // and named nowhere in the published SDK, so the demo is the only source for it —
+                // and every recording lists its own tables by name.
+                if (message is CreateStringTableMessage named)
+                {
+                    tableNames.Add($"{named.Name}({named.Entries.Count})");
+                }
+
                 switch (message)
                 {
                     // Without these an entering entity is decoded against nothing and the stream
@@ -218,6 +227,73 @@ public sealed class WeaponEntityProbe
             $"{withoutOrigin} without, {withModelIndex} with a model index");
 
         TestContext.Out.WriteLine($"WEAP {string.Join("; ", examples)}");
+
+        // **Do the wearables' model indices actually resolve?** A track is only made for an entity
+        // whose model can be named, so a precache miss loses the cosmetic exactly as thoroughly as
+        // a missing owner would — and the two are indistinguishable from the drawn scene.
+        int resolved = 0;
+        int unresolved = 0;
+        List<string> missing = [];
+
+        foreach (EntityState wearable in entities.All.Where(
+            entity => string.Equals(entity.ClassName, "CTFWearable", StringComparison.Ordinal)))
+        {
+            if (wearable.ModelIndex() is not { } raw)
+            {
+                missing.Add("no index");
+                continue;
+            }
+
+            string? resolvedPath = precache.Path(
+                ModelPrecache.Unpack(raw, header.NetworkProtocol));
+
+            if (resolvedPath is null)
+            {
+                unresolved++;
+
+                if (missing.Count < 5)
+                {
+                    missing.Add($"index {raw.ToString(CultureInfo.InvariantCulture)} unknown");
+                }
+            }
+            else
+            {
+                resolved++;
+            }
+        }
+
+        TestContext.Out.WriteLine($"WEAP string tables: {string.Join(" ", tableNames)}");
+
+        TestContext.Out.WriteLine(
+            $"WEAP wearable models: {resolved} resolve, {unresolved} do not " +
+            $"({string.Join("; ", missing)})");
+
+        TestContext.Out.WriteLine(
+            "WEAP wearable attachment: " + string.Join(
+                ", ",
+                entities.All
+                    .Where(entity => string.Equals(entity.ClassName, "CTFWearable", StringComparison.Ordinal))
+                    .Take(6)
+                    .Select(entity =>
+                        $"#{entity.EntityIndex}->{entity.Attachment()?.ToString(CultureInfo.InvariantCulture) ?? "NO"}")));
+
+        // **A wearable and a weapon separately**, because they reach their owner by different
+        // members in the SDK and assuming one answer for both is the shape of mistake this whole
+        // investigation has been made of.
+        foreach (string wanted in new[] { "CTFWearable", "CTFRocketLauncher", "CTFShovel" })
+        {
+            EntityState? one = entities.All.FirstOrDefault(
+                entity => string.Equals(entity.ClassName, wanted, StringComparison.Ordinal));
+
+            if (one is null)
+            {
+                continue;
+            }
+
+            TestContext.Out.WriteLine(
+                $"WEAP {wanted}#{one.EntityIndex}: " +
+                string.Join(", ", one.Properties.Keys.OrderBy(name => name, StringComparer.Ordinal)));
+        }
 
         // Which properties one of them actually holds — the point being that guessing the name of
         // the parent property is exactly the mistake that made this take two attempts already.
