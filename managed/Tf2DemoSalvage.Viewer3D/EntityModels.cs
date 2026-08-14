@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Content.Assets;
@@ -133,7 +134,8 @@ internal sealed class EntityModelSet
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Measures a skinned model with its pose applied on the processor.</summary>
-    private void ReportPosedExtents(string modelPath, IReadOnlyList<float[]> bones)
+    private void ReportPosedExtents(
+        string modelPath, IReadOnlyList<float[]> bones, string? label = null)
     {
         if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners))
         {
@@ -184,11 +186,15 @@ internal sealed class EntityModelSet
             maximumZ = MathF.Max(maximumZ, z);
         }
 
+        // **The z range, not just the z span.** A hat is a few inches tall wherever it is, so its
+        // SIZE says nothing about whether it is on a head; where it sits does. A scout's origin is
+        // at their feet and their head is around 64 units up, so a worn item spanning z 0 to 6 is
+        // on the floor and one spanning 60 to 70 is on the head.
         ViewerLog.Write(
             "props",
-            $"posed {modelPath}: {weighted} of {corners.Count} corners weighted, " +
+            $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
             $"{bones.Count} bones, extents x {maximumX - minimumX:0.#} y {maximumY - minimumY:0.#} " +
-            $"z {maximumZ - minimumZ:0.#}");
+            $"z {maximumZ - minimumZ:0.#} (z from {minimumZ:0.#} to {maximumZ:0.#})");
     }
 
     /// <summary>Every packed model's triangles, in model space.</summary>
@@ -620,6 +626,17 @@ internal sealed class EntityModelSet
                 bones = Merge(prop.ModelPath, bones, worn);
                 transform = worn.Where;
 
+                // **Measured AFTER the merge, which is the only measurement that answers it.** The
+                // extents reported above are of the item's own pose, before it was put on anybody
+                // - so they say nothing about where it ends up. What decides whether a hat is on a
+                // head is its height in the WEARER's space: a scout's head is around 64 units up
+                // and their origin is at their feet, so a hat reporting a z near zero is a hat on
+                // the floor however well its bones matched.
+                if (bones is { Count: > 0 } && _reportedPoses.Add(prop.ModelPath + "#worn"))
+                {
+                    ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
+                }
+
                 // **Lit where its wearer stands, not where its own pose says.** A merged item's
                 // pose is (0,0,0) by construction, so sampling the ambient cube from it asks the
                 // leaf at the map origin - which is usually solid, carries no light, and draws
@@ -709,7 +726,11 @@ internal sealed class EntityModelSet
                 $"bone merge {System.IO.Path.GetFileName(modelPath)} onto " +
                 $"{System.IO.Path.GetFileName(wearer.ModelPath)}: " +
                 $"{matched} of {map.Length} bones matched" +
-                (matched == map.Length ? "" : $"; missing {Unmatched(skinned.Bones, map)}"));
+                (matched == map.Length
+                    ? ""
+                    : $"; matched {Matched(skinned.Bones, map)}" +
+                      $"; missing {Unmatched(skinned.Bones, map)}") +
+                $"; {WearerBoneAt(skinned.Bones, hostSkinned.Bones, map, wearer.Bones)}");
         }
 
         // **The unmatched bones are built from their parents, not left where they were.** Valve
@@ -760,6 +781,65 @@ internal sealed class EntityModelSet
         return values;
     }
 
+    /// <summary>Where the wearer's matched bone actually is, in the wearer's own space.</summary>
+    /// <remarks>
+    /// **The one number that separates a merge problem from a space problem.** A scout's head sits
+    /// around sixty-four units above their origin, which is at their feet. If the bone this item
+    /// merges onto reports that height then the wearer's side is right and any remaining fault is
+    /// in the item; if it reports nearly zero then the matrices being handed over are not in the
+    /// space they are assumed to be, and every worn item in the game will be at ankle height
+    /// regardless of which bone it found.
+    /// </remarks>
+    private static string WearerBoneAt(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<StudioBone> hostBones,
+        int[] map,
+        IReadOnlyList<float[]> wearer)
+    {
+        for (int index = 0; index < bones.Count && index < map.Length; index++)
+        {
+            int host = map[index];
+
+            if (host < 0 || host >= wearer.Count)
+            {
+                continue;
+            }
+
+            float[] matrix = wearer[host];
+            string name = host < hostBones.Count ? hostBones[host].Name : "?";
+
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"{name} is at ({matrix[3]:0.#},{matrix[7]:0.#},{matrix[11]:0.#}) in wearer space");
+        }
+
+        return "no matched bone to place it by";
+    }
+
+    /// <summary>The names of the worn bones that DID find a counterpart on the wearer.</summary>
+    /// <remarks>
+    /// **Which bone matched decides where the item hangs, and the count cannot say.** An item
+    /// matching one bone of eight is correct when that one is <c>bip_head</c> and its seven
+    /// children are the jiggle joints hanging off it; it is an item lying on the floor when the
+    /// one is a root both skeletons happen to share and the head is not among them. Both print
+    /// "1 of 8", which is the same shape of mistake as reporting a count without the walked-command
+    /// total.
+    /// </remarks>
+    private static string Matched(IReadOnlyList<StudioBone> bones, int[] map)
+    {
+        List<string> found = [];
+
+        for (int index = 0; index < bones.Count && found.Count < 6; index++)
+        {
+            if (index < map.Length && map[index] >= 0)
+            {
+                found.Add(bones[index].Name);
+            }
+        }
+
+        return found.Count == 0 ? "nothing" : string.Join(", ", found);
+    }
+
     /// <summary>The names of the worn bones the wearer had no counterpart for.</summary>
     /// <remarks>
     /// **A count says how bad it is; the names say what it means.** A hat matching 1 bone of 8 is
@@ -773,10 +853,21 @@ internal sealed class EntityModelSet
 
         for (int index = 0; index < bones.Count && missing.Count < 6; index++)
         {
-            if (index >= map.Length || map[index] < 0)
+            if (index < map.Length && map[index] >= 0)
             {
-                missing.Add(bones[index].Name);
+                continue;
             }
+
+            // **With its parent, because that is what decides where it ends up.** An unmatched
+            // bone is built by walking down from its parent, so one whose parent is the merged
+            // head rides the head correctly and one with no parent at all sits at the wearer's
+            // origin - which on a player is their feet. Both print the same name without this.
+            int parent = bones[index].Parent;
+
+            missing.Add(
+                parent >= 0 && parent < bones.Count
+                    ? $"{bones[index].Name}<-{bones[parent].Name}"
+                    : $"{bones[index].Name}<-ROOT");
         }
 
         return string.Join(", ", missing);

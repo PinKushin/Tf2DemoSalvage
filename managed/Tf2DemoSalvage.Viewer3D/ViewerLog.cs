@@ -36,29 +36,48 @@ internal static class ViewerLog
     private static string? _path;
     private static bool _failed;
 
-    /// <summary>Where the log is written.</summary>
-    public static string Path => _path ??= System.IO.Path.Combine(
+    /// <summary>The folder every run's log is written into.</summary>
+    public static string Folder => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Tf2DemoSalvage",
-        "viewer.log");
+        "Tf2DemoSalvage");
 
-    /// <summary>Where the previous run's log is kept.</summary>
-    public static string Previous => System.IO.Path.ChangeExtension(Path, ".previous.log");
+    /// <summary>Where this run's log is written.</summary>
+    /// <remarks>
+    /// **One file per run, stamped, and none of them overwritten.** This kept exactly two
+    /// generations, and that was not enough: relaunching to look at one thing destroys the record
+    /// of another, and the runs worth comparing are often several apart — a merge count from four
+    /// launches ago against the same count now is what says whether a change did anything.
+    ///
+    /// Losing that costs a rebuild and a relaunch to recover something that was already measured,
+    /// which is the expensive kind of mistake here because each cycle needs the machine's desktop.
+    /// </remarks>
+    public static string Path => _path ??= System.IO.Path.Combine(
+        Folder,
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"viewer-{DateTime.Now:yyyyMMdd-HHmmss}.log"));
+
+    /// <summary>How many runs' logs to keep before the oldest are deleted.</summary>
+    /// <remarks>
+    /// **Pruned by count rather than by age**, because a quiet week should not throw away the last
+    /// thing measured. Fifty runs of an ordinary session is a few megabytes.
+    /// </remarks>
+    private const int RunsKept = 50;
 
     /// <summary>Starts a new log for this run.</summary>
     /// <param name="version">What is running, for the header.</param>
     /// <remarks>
-    /// **One run per file, and the previous run kept beside it.** A log covering one session
-    /// answers "what happened just now", which is the question anyone actually asks; a growing file
-    /// answers it worse.
+    /// **One file per run, named for when the run started, and nothing overwritten.** A log
+    /// covering one session answers "what happened just now", which is the question anyone
+    /// actually asks; a single growing file answers it worse.
     ///
-    /// But truncating outright destroys evidence, and it did: an owner stress-tested full screen,
-    /// the viewer was relaunched to look at something else, and the measurements were gone. The
-    /// interesting run is very often the one BEFORE the current one, because noticing something
-    /// worth investigating is what prompts the relaunch.
+    /// This kept two generations and rotated, which destroyed evidence twice. Once when an owner
+    /// stress-tested full screen and a relaunch to look at something else took the measurements
+    /// with it. Again while chasing a bone merge, where the useful comparison was against a run
+    /// four launches back and the file holding it had long since been rotated out.
     ///
-    /// One generation is enough. Two files answer "what happened just now" and "what happened the
-    /// time before", and nothing beyond that has ever been wanted here.
+    /// A stamped name also removes a second problem: a reader with the current log open can no
+    /// longer collide with the next run, because the next run writes somewhere else.
     /// </remarks>
     public static void Begin(string version)
     {
@@ -68,13 +87,8 @@ internal static class ViewerLog
 
             try
             {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-
-                if (File.Exists(Path))
-                {
-                    // Overwrites the older generation, which is the one nobody has asked for.
-                    File.Copy(Path, Previous, overwrite: true);
-                }
+                Directory.CreateDirectory(Folder);
+                Prune();
 
                 File.WriteAllText(
                     Path,
@@ -88,6 +102,42 @@ internal static class ViewerLog
             {
                 _failed = true;
             }
+        }
+    }
+
+    /// <summary>Deletes the oldest runs' logs once there are more than are kept.</summary>
+    /// <remarks>
+    /// **By this program's own naming, not by a wildcard over the folder.** The captures written
+    /// by F12 live here too, and a sweep that deleted "old files" would take the screenshots
+    /// somebody pressed a key to keep — the same class of mistake as pruning a shared measurement
+    /// directory by a name glob and deleting a neighbour's run.
+    ///
+    /// A failure to prune is not a failure to log: an undeletable old file is a tidiness problem
+    /// and losing this run's output is not, so it is swallowed deliberately rather than allowed to
+    /// abort <see cref="Begin"/>.
+    /// </remarks>
+    private static void Prune()
+    {
+        try
+        {
+            string[] older = Directory.GetFiles(Folder, "viewer-*.log");
+
+            if (older.Length < RunsKept)
+            {
+                return;
+            }
+
+            Array.Sort(older, StringComparer.Ordinal);
+
+            for (int index = 0; index <= older.Length - RunsKept; index++)
+            {
+                File.Delete(older[index]);
+            }
+        }
+        catch (Exception failure) when (
+            failure is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Tidiness only. Say nothing, because the log itself is not open yet.
         }
     }
 
