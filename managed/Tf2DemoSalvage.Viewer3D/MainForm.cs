@@ -234,7 +234,21 @@ internal class MainForm : Form
     private (float Pitch, float Yaw) _freeAngles = (35f, 0f);
 
     /// <summary>How far the free camera sits from what it is looking at, in world units.</summary>
-    private float _freeDistance = 800f;
+    /// <remarks>Only used to place the camera when the free view is first entered.</remarks>
+    private const float FreeEntryDistance = 800f;
+
+    /// <summary>Where the free camera is, once it has been placed.</summary>
+    /// <remarks>
+    /// **A position, not an orbit.** Orbiting a point was the first version and it could not do the
+    /// one thing the view was added for: a side-on look at a player. The orbit centre sat at the
+    /// middle of the map's height range, so levelling the camera looked out well above everybody's
+    /// heads, and there was no way to bring it down — the owner's "not low enough for actual side
+    /// on, and the camera doesn't move".
+    ///
+    /// So the camera flies. The orbit maths is still what PLACES it on entry, which keeps whatever
+    /// the map view was centred on in the middle of the first frame.
+    /// </remarks>
+    private (float X, float Y, float Z)? _freeOrigin;
 
     /// <summary>Degrees the free camera turns per pixel dragged.</summary>
     /// <remarks>
@@ -1512,20 +1526,74 @@ internal class MainForm : Form
     /// </remarks>
     private FreeCamera FreeLookCamera()
     {
+        float aspect = Math.Max(1, _viewport.ClientSize.Width) /
+            (float)Math.Max(1, _viewport.ClientSize.Height);
+
+        // Placed the first time by orbiting what the map view was centred on, so entering the free
+        // view does not move the subject. After that it is a position and it flies.
+        _freeOrigin ??= FreeCamera.Orbiting(
+            FreeFocus(), _freeAngles.Pitch, _freeAngles.Yaw, FreeEntryDistance, aspect).Origin;
+
+        return new FreeCamera
+        {
+            Origin = _freeOrigin.Value,
+            Angles = (_freeAngles.Pitch, _freeAngles.Yaw, 0f),
+            Aspect = aspect,
+        };
+    }
+
+    /// <summary>What the free camera is aimed at when it is first entered.</summary>
+    private (float X, float Y, float Z) FreeFocus()
+    {
         (float centreX, float centreY) = _lookingAt ?? MapCamera().Centre;
 
-        float height = _heightRange is { } range
-            ? (range.Lowest + range.Highest) / 2f
-            : 0f;
+        // **The players' height, not the middle of the map.** A map's vertical range includes its
+        // skybox and its basements, so its midpoint is nowhere anybody stands; entering the free
+        // view there put the camera above the rooftops. The lowest drawn geometry plus an eye
+        // height is where the action is.
+        float ground = _heightRange is { } range ? range.Lowest : 0f;
 
-        return FreeCamera.Orbiting(
-            (centreX, centreY, height),
-            _freeAngles.Pitch,
-            _freeAngles.Yaw,
-            _freeDistance,
-            Math.Max(1, _viewport.ClientSize.Width) /
-                (float)Math.Max(1, _viewport.ClientSize.Height));
+        return (centreX, centreY, ground + PlayerEyeHeight);
     }
+
+    /// <summary>How far one key press moves the free camera, along each of its axes.</summary>
+    /// <param name="keyData">The key, with its modifiers.</param>
+    /// <returns>The step, or null when the key is not a movement key.</returns>
+    /// <remarks>
+    /// **Returns null rather than a zero step for anything else**, so the caller can tell "not a
+    /// movement key" from "a movement key that happened to move nothing" and let every other
+    /// binding through. Swallowing unknown keys here would quietly break the transport.
+    /// </remarks>
+    private static (float Forward, float Right, float Up)? FlyStep(Keys keyData)
+    {
+        Keys key = keyData & Keys.KeyCode;
+        float step = (keyData & Keys.Shift) != 0 ? FlySpeed * 4f : FlySpeed;
+
+        return key switch
+        {
+            Keys.W => (step, 0f, 0f),
+            Keys.S => (-step, 0f, 0f),
+            Keys.A => (0f, -step, 0f),
+            Keys.D => (0f, step, 0f),
+            Keys.Space => (0f, 0f, step),
+            Keys.ControlKey => (0f, 0f, -step),
+            _ => null,
+        };
+    }
+
+    /// <summary>World units the free camera moves per key press.</summary>
+    /// <remarks>
+    /// Thirty-two units is half a player's height, which is small enough to line a shot up and
+    /// large enough to cross a room without holding a key down for a minute. Shift quadruples it.
+    /// </remarks>
+    private const float FlySpeed = 32f;
+
+    /// <summary>Roughly where a player's eyes are above the floor, in world units.</summary>
+    /// <remarks>
+    /// <c>VEC_VIEW</c> is 64 for a standing Source player, which is what a demo is usually watched
+    /// from and a sensible height to arrive at.
+    /// </remarks>
+    private const float PlayerEyeHeight = 64f;
 
     private TopDownCamera MapCamera()
     {
@@ -2509,9 +2577,21 @@ internal class MainForm : Form
         // In the free view the wheel moves the camera in and out instead of magnifying a flat map.
         // The near limit is a little over a player's height, so a model can be filled the frame
         // with without the near plane cutting into it.
+        // In the free view the wheel flies forward and back, which is what a wheel does in every
+        // editor and is far quicker than tapping W across a map.
         if (_freeLook)
         {
-            _freeDistance = Math.Clamp(_freeDistance / step, 100f, 20_000f);
+            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
+            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+
+            float travel = e.Delta > 0 ? FlySpeed * 4f : -FlySpeed * 4f;
+            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
+
+            _freeOrigin = (
+                where.X + (cosPitch * cosYaw * travel),
+                where.Y + (cosPitch * sinYaw * travel),
+                where.Z + (-sinPitch * travel));
+
             _worldIsStale = true;
             _viewport.Invalidate();
             return;
@@ -2670,12 +2750,49 @@ internal class MainForm : Form
             return true;
         }
 
+        // **Flying the camera.** W and S run along the way it is looking, A and D strafe, and
+        // Space and Control lift and drop it along the world's up axis rather than the camera's —
+        // which is what every editor does, because rising along a pitched view drifts sideways and
+        // feels broken.
+        //
+        // Shift multiplies the step. Held keys arrive here as auto-repeat, which is coarse; smooth
+        // movement wants the frame tick and is worth doing once the view has earned its keep.
+        if (_freeLook && FlyStep(keyData) is { } fly)
+        {
+            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
+            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+
+            // AngleVectors' forward and right, the same pair the camera itself builds.
+            (float X, float Y, float Z) forward = (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+            (float X, float Y, float Z) right = (sinYaw, -cosYaw, 0f);
+
+            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
+
+            _freeOrigin = (
+                where.X + (forward.X * fly.Forward) + (right.X * fly.Right),
+                where.Y + (forward.Y * fly.Forward) + (right.Y * fly.Right),
+                where.Z + (forward.Z * fly.Forward) + fly.Up);
+
+            _worldIsStale = true;
+            _viewport.Invalidate();
+
+            return true;
+        }
+
         // **F toggles the free camera.** The map view is what a demo is normally watched from, so
         // this is a mode rather than a replacement — and switching keeps the same subject in the
-        // middle, since the free camera orbits whatever the map view was centred on.
+        // middle, since the free camera starts where the map view was looking.
         if (keyData == Keys.F)
         {
             _freeLook = !_freeLook;
+
+            // Forgotten on the way out, so entering again places the camera at whatever the map
+            // view is looking at NOW rather than where it was flown to half a match ago.
+            if (!_freeLook)
+            {
+                _freeOrigin = null;
+            }
+
             _worldIsStale = true;
             _viewport.Invalidate();
 
@@ -2683,7 +2800,7 @@ internal class MainForm : Form
                 "render",
                 _freeLook
                     ? $"free camera on: pitch {_freeAngles.Pitch:0.#}, yaw {_freeAngles.Yaw:0.#}, " +
-                      $"distance {_freeDistance:0}"
+                      $"distance {FreeEntryDistance:0}"
                     : "free camera off, back to the map view");
 
             return true;

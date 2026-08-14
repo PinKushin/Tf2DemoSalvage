@@ -3786,3 +3786,46 @@ rewriting wholesale, and the blend grid. Each was filed with evidence; each was 
 later measurement. What finally worked was comparing a player against a prop through the same
 reader, then asking the lookup what it actually returned rather than assuming it returned what was
 asked for.
+
+## B68 — decals hover off the walls at a large offset — OPEN, found by the free camera
+
+Visible the moment a perspective view existed: cp_process's red wall bands are drawn floating in
+front of the brickwork rather than on it, by enough to read as a separate object. From the top-down
+view this was invisible, which is why it survived every screenshot until now.
+
+**Not the depth bias.** The rasteriser state that pulls a decal toward the camera changes depth
+only; a decal standing off its wall in space is geometry placed wrongly, not sorted wrongly.
+
+Most likely in how the overlay's plane is positioned — the offset along the face normal, or the
+basis origin being applied in the wrong units or the wrong space. `MapWorld` builds the quad from
+the overlay's basis, and the corner order there was already wrong once (settled by matching texture
+aspect to quad aspect).
+
+**The owner's hypothesis, recorded because it is a good one:** that this and the worn item still
+sitting on the floor share a cause, both being things placed relative to something else and landing
+at an offset. Worth checking before assuming two separate faults, though the two paths are
+different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
+
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN
+
+Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
+
+```
+ghostly_gibus_Scout   z 62.8..74.6   (a scout's head)
+soldier_pot           z 61.4..71.1
+bargain_britches      z  6.7..50.2
+ninja_boots           z -0.5..15.1
+```
+
+But `hwn_spellbook_complete.mdl` has exactly ONE bone, named `mvm`, with no parent. It can match
+nothing on a player, so the merge contributes nothing and the item is placed by the wearer's
+transform alone — which is the player's ORIGIN, at their feet. Seven of them exist in this demo.
+
+**The engine almost certainly does not bone-merge these.** `m_iParentAttachment` travels beside
+`moveparent` (`server/baseentity.cpp:287`), and Source parents an entity to a named ATTACHMENT POINT
+on the parent's model — `mstudioattachment_t`, a named transform relative to a bone — rather than
+merging skeletons. That is the mechanism this project has not implemented, and it is what a
+single-bone item needs.
+
+Next step is to read `mstudioattachment_t` and check whether these items' owners carry an attachment
+whose index matches what the entity sends.
