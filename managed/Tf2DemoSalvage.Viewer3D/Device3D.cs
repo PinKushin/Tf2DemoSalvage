@@ -195,12 +195,12 @@ internal sealed unsafe class Device3D : IDisposable
         // empty buffer, with every count in the log looking correct.
         _world ??= WorldRenderer.Create(_device);
 
-        Dictionary<string, IReadOnlyList<WorldBatch>> batches =
+        Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches =
             new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string path in models.Paths)
         {
-            batches[path] = models.Batches(path);
+            batches[path] = models.AllFrames(path);
         }
 
         _world.UploadModels(_device, models.Vertices, batches);
@@ -391,7 +391,7 @@ internal sealed unsafe class Device3D : IDisposable
                     _world.DrawModel(
                         _context,
                         instance.Matrix,
-                        _world.ModelBatches(instance.ModelPath),
+                        _world.ModelBatches(instance.ModelPath, instance.Frame),
                         instance.Light,
                         instance.Sun);
                 }

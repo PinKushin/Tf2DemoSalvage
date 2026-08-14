@@ -291,8 +291,8 @@ internal sealed class MapAssets
     /// the map put it and can be baked, while an entity moves and is posed by a matrix in the
     /// shader.
     /// </remarks>
-    public IReadOnlyDictionary<string, IReadOnlyList<PropVertex>> EntityModels { get; private init; } =
-        new Dictionary<string, IReadOnlyList<PropVertex>>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, PropModels.ModelFrames> EntityModels { get; private init; } =
+        new Dictionary<string, PropModels.ModelFrames>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
@@ -444,7 +444,7 @@ internal sealed class MapAssets
         // drawn, which is the same trade this project makes everywhere - know it all up front,
         // and playback costs nothing. TF2 launches a listen server to play a demo, so the budget
         // here is generous.
-        Dictionary<string, IReadOnlyList<PropVertex>> models = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PropModels.ModelFrames> models = new(StringComparer.OrdinalIgnoreCase);
 
         if (entityModels is { Count: > 0 })
         {
@@ -454,7 +454,7 @@ internal sealed class MapAssets
 
             foreach (string path in entityModels)
             {
-                IReadOnlyList<PropVertex>? corners = PropModels.LoadOne(
+                PropModels.ModelFrames? frames = PropModels.LoadFrames(
                     path,
                     pak,
                     archives,
@@ -462,9 +462,9 @@ internal sealed class MapAssets
                     textures,
                     file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture);
 
-                if (corners is { Count: > 0 })
+                if (frames is { Geometry.Count: > 0 } && frames.Geometry[0].Count > 0)
                 {
-                    models[path] = corners;
+                    models[path] = frames;
                     loaded++;
                 }
             }

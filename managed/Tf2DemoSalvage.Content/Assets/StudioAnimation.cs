@@ -65,6 +65,7 @@ public static class StudioAnimation
     /// </summary>
     private const int AnimationDescriptionStride = 100;
 
+    private const int FramesPerSecondOffset = 8;
     private const int FrameCountOffset = 16;
     private const int AnimationBlockOffset = 52;
     private const int AnimationDataOffset = 56;
@@ -86,6 +87,71 @@ public static class StudioAnimation
         return bytes.Length < AnimationIndexOffset + 4
             ? 0
             : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationCountOffset..]));
+    }
+
+    /// <summary>How many frames one animation has.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <returns>The frame count, or zero when the animation does not exist.</returns>
+    /// <remarks>
+    /// **Needed to turn a cycle into a frame**, since a cycle is a fraction of the whole sequence
+    /// and means nothing without knowing how long that is. One frame means the model does not
+    /// animate at all, which is worth being able to state rather than infer from a still picture.
+    /// </remarks>
+    public static int Frames(ReadOnlyMemory<byte> file, int animation)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file))
+        {
+            return 0;
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationIndexOffset..]) +
+            (animation * AnimationDescriptionStride);
+
+        return at < 0 || at + AnimationDescriptionStride > bytes.Length
+            ? 0
+            : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + FrameCountOffset)..]));
+    }
+
+    /// <summary>How many cycles a second an animation advances at.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <returns>Cycles per second, or zero when it cannot advance.</returns>
+    /// <remarks>
+    /// **Valve's <c>GetSequenceCycleRate</c>, and it is why a health pack looks static without
+    /// it.** The server does not send a cycle every tick; the client advances its own every frame
+    /// in <c>C_BaseAnimating::FrameAdvance</c> — <c>addcycle = flInterval * cyclerate *
+    /// m_flPlaybackRate</c> — and treats any networked value as an occasional correction rather
+    /// than as the source. A viewer that only replays the networked cycle therefore sees it never
+    /// change, which is exactly what was measured: every prop reporting cycle zero forever.
+    ///
+    /// A cycle spans the whole animation, so the rate is its frames per second divided by the
+    /// intervals between its frames — one fewer than the frame count.
+    /// </remarks>
+    public static float CyclesPerSecond(ReadOnlyMemory<byte> file, int animation)
+    {
+        int frames = Frames(file, animation);
+
+        if (frames <= 1 || animation < 0 || animation >= Count(file))
+        {
+            return 0f;
+        }
+
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationIndexOffset..]) +
+            (animation * AnimationDescriptionStride);
+
+        if (at < 0 || at + AnimationDescriptionStride > bytes.Length)
+        {
+            return 0f;
+        }
+
+        float fps = BinaryPrimitives.ReadSingleLittleEndian(bytes[(at + FramesPerSecondOffset)..]);
+
+        return float.IsFinite(fps) && fps > 0f ? fps / (frames - 1) : 0f;
     }
 
     /// <summary>Reads one animation's bone poses at one frame.</summary>

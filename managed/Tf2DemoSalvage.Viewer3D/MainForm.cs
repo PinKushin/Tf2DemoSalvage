@@ -1206,9 +1206,10 @@ internal class MainForm : Form
     /// remembers rather than asking again every frame. The miss was already reported once, at
     /// load, where a missing asset is worth reading.
     /// </remarks>
-    private IReadOnlyList<PropVertex>? ModelGeometry(string path) =>
-        _assets is { } assets && assets.EntityModels.TryGetValue(path, out IReadOnlyList<PropVertex>? corners)
-            ? corners
+    private PropModels.ModelFrames? ModelGeometry(string path) =>
+        _assets is { } assets &&
+        assets.EntityModels.TryGetValue(path, out PropModels.ModelFrames? frames)
+            ? frames
             : null;
 
     /// <summary>The model every playable class wears.</summary>
@@ -1575,7 +1576,15 @@ internal class MainForm : Form
             }
         }
 
-        _models.Instances(_drawn, _instances, LightAt, SunAt);
+        // **Demo time, from the demo's own tick interval rather than an assumed 66.67.** The
+        // cycle of an animation is advanced by elapsed time, the way the client advances it in
+        // C_BaseAnimating::FrameAdvance - the server never sends one, so a viewer replaying only
+        // what was networked leaves every health pack frozen on its first frame.
+        double seconds = tick * (_timeline.IntervalPerTick > 0f
+            ? _timeline.IntervalPerTick
+            : PlaybackClock.DefaultIntervalPerTick);
+
+        _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
 
         if (_instances.Count != _lastInstanceCount)
         {
