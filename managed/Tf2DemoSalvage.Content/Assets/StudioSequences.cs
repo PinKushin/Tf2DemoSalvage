@@ -8,7 +8,9 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Animation">The local animation it plays, for a sequence with no blending.</param>
 /// <param name="Flags">Its flags, of which looping is the one that matters here.</param>
 /// <param name="Label">Its name, which is what several models' sequences are merged by.</param>
-public readonly record struct StudioSequence(int Animation, int Flags, string Label = "")
+/// <param name="Blend">The grid of animations it blends between, or null for a plain sequence.</param>
+public readonly record struct StudioSequence(
+    int Animation, int Flags, string Label = "", StudioBlendGrid? Blend = null)
 {
     /// <summary>Whether the sequence loops.</summary>
     /// <remarks>
@@ -77,6 +79,33 @@ public static class StudioSequences
     /// <summary>Most sequences a model may declare, as a guard against a malformed header.</summary>
     private const int MaximumSequences = 4096;
 
+    /// <summary><c>paramindex[2]</c>, <c>paramstart[2]</c> and <c>paramend[2]</c>.</summary>
+    /// <remarks>
+    /// Straight after <c>groupsize[2]</c> at 68, which this file already reads — the run is
+    /// <c>animindexindex</c> 60, <c>movementindex</c> 64, <c>groupsize</c> 68, <c>paramindex</c>
+    /// 76, <c>paramstart</c> 84, <c>paramend</c> 92.
+    /// </remarks>
+    private const int ParameterIndexOffset = 76;
+
+    private const int ParameterStartOffset = 84;
+    private const int ParameterEndOffset = 92;
+
+    /// <summary><c>studiohdr_t.numlocalposeparameters</c> and <c>localposeparamindex</c>.</summary>
+    /// <remarks>
+    /// Counted from <c>numbodyparts</c> at 232 through the attachment, node, flex descriptor, flex
+    /// controller, flex rule, ik chain and mouth pairs — nineteen ints in all, the last two being
+    /// these.
+    /// </remarks>
+    private const int PoseParameterCountOffset = 300;
+
+    private const int PoseParameterIndexOffset = 304;
+
+    /// <summary><c>mstudioposeparamdesc_t</c>: name index, flags, start, end, loop.</summary>
+    private const int PoseParameterStride = 20;
+
+    /// <summary>A model is untrusted input; TF2's classes declare about two dozen.</summary>
+    private const int MaximumPoseParameters = 256;
+
     /// <summary>Reads a model's sequences.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <returns>The sequences in order, so <c>m_nSequence</c> indexes this list directly.</returns>
@@ -125,10 +154,102 @@ public static class StudioSequences
                     : 0,
                 flags,
                 StudioStrings.At(
-                    bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[LabelOffset..]))));
+                    bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[LabelOffset..])),
+                GridOf(bytes, sequence, table, groupX, groupY)));
         }
 
         return sequences;
+    }
+
+    /// <summary>Reads a sequence's whole blend grid, or null when it has only one animation.</summary>
+    /// <remarks>
+    /// **Null for the ordinary case on purpose.** A map places thousands of props and almost every
+    /// one has a one-by-one grid; allocating a grid object for each would be a per-prop cost for a
+    /// structure that says nothing. The single animation is already carried on the sequence itself.
+    /// </remarks>
+    private static StudioBlendGrid? GridOf(
+        ReadOnlySpan<byte> bytes,
+        ReadOnlySpan<byte> sequence,
+        int table,
+        int groupX,
+        int groupY)
+    {
+        if (groupX <= 0 || groupY <= 0 || (groupX == 1 && groupY == 1))
+        {
+            return null;
+        }
+
+        int cells = groupX * groupY;
+
+        if (table < 0 || table + (cells * 2) > bytes.Length)
+        {
+            return null;
+        }
+
+        int[] animations = new int[cells];
+
+        for (int cell = 0; cell < cells; cell++)
+        {
+            animations[cell] = BinaryPrimitives.ReadInt16LittleEndian(bytes[(table + (cell * 2))..]);
+        }
+
+        return new StudioBlendGrid(
+            groupX,
+            groupY,
+            animations,
+            BinaryPrimitives.ReadInt32LittleEndian(sequence[ParameterIndexOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(sequence[(ParameterIndexOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[ParameterStartOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[ParameterEndOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[(ParameterStartOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[(ParameterEndOffset + 4)..]));
+    }
+
+    /// <summary>Every pose parameter a model declares, in the order its sequences index them.</summary>
+    /// <param name="file">The whole <c>.mdl</c>.</param>
+    /// <returns>The parameters, empty when the model has none.</returns>
+    /// <remarks>
+    /// <c>numlocalposeparameters</c> and <c>localposeparamindex</c> at 300 and 304, each entry a
+    /// <c>mstudioposeparamdesc_t</c>: name index, flags, start, end, loop.
+    /// </remarks>
+    public static IReadOnlyList<StudioPoseParameter> PoseParameters(ReadOnlyMemory<byte> file)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (bytes.Length < PoseParameterIndexOffset + 4)
+        {
+            return [];
+        }
+
+        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[PoseParameterCountOffset..]);
+        int index = BinaryPrimitives.ReadInt32LittleEndian(bytes[PoseParameterIndexOffset..]);
+
+        if (count <= 0 || count > MaximumPoseParameters || index <= 0)
+        {
+            return [];
+        }
+
+        List<StudioPoseParameter> parameters = new(count);
+
+        for (int entry = 0; entry < count; entry++)
+        {
+            int start = index + (entry * PoseParameterStride);
+
+            if (start < 0 || start + PoseParameterStride > bytes.Length)
+            {
+                break;
+            }
+
+            ReadOnlySpan<byte> pose = bytes.Slice(start, PoseParameterStride);
+
+            parameters.Add(new StudioPoseParameter(
+                StudioStrings.At(bytes, start + BinaryPrimitives.ReadInt32LittleEndian(pose)),
+                BinaryPrimitives.ReadSingleLittleEndian(pose[8..]),
+                BinaryPrimitives.ReadSingleLittleEndian(pose[12..]),
+                BinaryPrimitives.ReadSingleLittleEndian(pose[16..])));
+        }
+
+        return parameters;
     }
 
     /// <summary>Which frame a cycle lands on.</summary>

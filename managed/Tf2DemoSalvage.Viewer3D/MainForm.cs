@@ -1590,6 +1590,12 @@ internal class MainForm : Form
                     // that failed rather than one that ran too early.
                     Speed = player.Speed,
 
+                    // **Which way the legs run.** A movement sequence is a blend grid and these
+                    // are its coordinates; without them the grid's corner is taken, which is one
+                    // fixed direction regardless of facing.
+                    MoveX = player.MoveX,
+                    MoveY = player.MoveY,
+
                     // **RED is skin 0 and BLU is skin 1**, which is the game's own convention:
                     // m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1. Without it every player draws in
                     // the model's first family, which is red - both teams in red.

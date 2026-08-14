@@ -20,6 +20,8 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Yaw">Which way the body faces, in degrees, interpolated with the position.</param>
 /// <param name="Speed">How fast the player is moving horizontally, in units a second.</param>
 /// <param name="LifeState">0 alive, 1 dying, 2 dead; absent means alive.</param>
+/// <param name="MoveX">The <c>move_x</c> pose parameter: how much of the motion is forward.</param>
+/// <param name="MoveY">The <c>move_y</c> pose parameter: how much of it is sideways.</param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -37,7 +39,9 @@ public readonly record struct ScenePlayer(
     int? PlayerClass,
     float Yaw = 0f,
     float Speed = 0f,
-    int? LifeState = null)
+    int? LifeState = null,
+    float MoveX = 0f,
+    float MoveY = 0f)
 {
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
@@ -746,22 +750,29 @@ public sealed class DemoTimeline
                 continue;
             }
 
-            into.Add(
-                _trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) &&
-                track.At(tick) is { } pose
-                    // **Yaw travels with the position, from the same pose.** Taking one and
-                    // discarding the other is what left every player facing north the moment they
-                    // stopped being a dot: the number was decoded and interpolated already, and
-                    // simply not carried the last few lines.
-                    ? player with
-                    {
-                        X = pose.X,
-                        Y = pose.Y,
-                        Z = pose.Z,
-                        Yaw = pose.Yaw,
-                        Speed = SpeedAt(track, tick),
-                    }
-                    : player);
+            if (!_trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) ||
+                track.At(tick) is not { } pose)
+            {
+                into.Add(player);
+                continue;
+            }
+
+            (float moveX, float moveY) = MoveParameters(track, tick, pose.Yaw);
+
+            // **Yaw travels with the position, from the same pose.** Taking one and discarding the
+            // other is what left every player facing north the moment they stopped being a dot:
+            // the number was decoded and interpolated already, and simply not carried the last few
+            // lines.
+            into.Add(player with
+            {
+                X = pose.X,
+                Y = pose.Y,
+                Z = pose.Z,
+                Yaw = pose.Yaw,
+                Speed = SpeedAt(track, tick),
+                MoveX = moveX,
+                MoveY = moveY,
+            });
         }
     }
 
@@ -816,6 +827,116 @@ public sealed class DemoTimeline
         float along = now.Y - was.Y;
 
         return MathF.Sqrt((across * across) + (along * along)) / (float)window;
+    }
+
+    /// <summary>Which way a track is travelling, in degrees, or null when it is still.</summary>
+    /// <remarks>
+    /// Differenced over the same window as <see cref="SpeedAt"/> and for the same reason: velocity
+    /// is inside <c>DT_LocalPlayerExclusive</c>, so a SourceTV demo carries nobody's.
+    ///
+    /// Null rather than zero when stationary, because zero degrees is due east and a player
+    /// standing still is not facing east — it is a different question with no answer, and
+    /// answering it anyway makes every idle player run on the spot toward the same corner of the
+    /// map.
+    /// </remarks>
+    private static float? HeadingAt(ScenePropTrack track, double tick)
+    {
+        const double window = 0.1d;
+
+        double ticks = window / Math.Max(0.001f, 0.015f);
+
+        if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
+        {
+            return null;
+        }
+
+        float across = now.X - was.X;
+        float along = now.Y - was.Y;
+
+        // Below this the direction is numerical noise in the position rather than movement:
+        // MOVING_MINIMUM_SPEED is 0.5 units a second (base_playeranimstate.h), which over a tenth
+        // of a second is 0.05 units.
+        return ((across * across) + (along * along)) < 0.0025f
+            ? null
+            : MathF.Atan2(along, across) * (180f / MathF.PI);
+    }
+
+    /// <summary>The <c>move_x</c> and <c>move_y</c> pose parameters for a moving player.</summary>
+    /// <param name="track">The player's own track, which is differenced for a heading.</param>
+    /// <param name="tick">The moment being drawn.</param>
+    /// <param name="bodyYaw">Which way the player is facing, in degrees.</param>
+    /// <returns>The unit vector of travel in the body's frame, or zero when standing still.</returns>
+    /// <remarks>
+    /// **Ported from <c>CMultiPlayerAnimState::ComputePoseParam_MoveYaw</c>**
+    /// (<c>multiplayer_animstate.cpp:1575</c>):
+    ///
+    /// <code>
+    /// float flYaw = flAngle - m_PoseParameterData.m_flEstimateYaw;
+    /// flYaw = AngleNormalize( -flYaw );
+    /// flYaw = SnapYawTo( flYaw );
+    /// vecCurrentMoveYaw.x =  cos( DEG2RAD( flYaw ) );
+    /// vecCurrentMoveYaw.y = -sin( DEG2RAD( flYaw ) );
+    /// </code>
+    ///
+    /// **The snap is Valve's and it is not a rounding convenience.** <c>SnapYawTo</c>
+    /// (<c>:1443</c>) forces the direction to the nearest of eight compass points using thresholds
+    /// of 23, 67, 113 and 157 degrees, so a player strafing slightly off true still plays the
+    /// clean sideways animation rather than a permanent blend of two. Leaving it out makes every
+    /// player's legs waver between animations as the differenced heading jitters.
+    ///
+    /// **<c>m_flEstimateYaw</c> is approximated by the body yaw**, which is what this project has.
+    /// The engine tracks a separate estimate that lags the eyes while turning on the spot, so a
+    /// player spinning in place will differ slightly here. Recorded rather than hidden; it needs
+    /// the rest of the turn-in-place state (B61) to do properly.
+    /// </remarks>
+    private static (float X, float Y) MoveParameters(
+        ScenePropTrack track, double tick, float bodyYaw)
+    {
+        if (HeadingAt(track, tick) is not { } heading)
+        {
+            return (0f, 0f);
+        }
+
+        float yaw = SnapYaw(Normalize(-(heading - bodyYaw)));
+        (float sine, float cosine) = MathF.SinCos(yaw * (MathF.PI / 180f));
+
+        return (cosine, -sine);
+    }
+
+    /// <summary>Brings an angle into −180 to 180.</summary>
+    private static float Normalize(float degrees)
+    {
+        float wrapped = degrees % 360f;
+
+        if (wrapped > 180f)
+        {
+            wrapped -= 360f;
+        }
+        else if (wrapped < -180f)
+        {
+            wrapped += 360f;
+        }
+
+        return wrapped;
+    }
+
+    /// <summary>Forces an angle to the nearest of eight compass points.</summary>
+    /// <remarks><c>SnapYawTo</c>, <c>multiplayer_animstate.cpp:1443</c>, thresholds included.</remarks>
+    private static float SnapYaw(float degrees)
+    {
+        float sign = degrees < 0f ? -1f : 1f;
+        float size = MathF.Abs(degrees);
+
+        float snapped = size switch
+        {
+            < 23f => 0f,
+            < 67f => 45f,
+            < 113f => 90f,
+            < 157f => 135f,
+            _ => 180f,
+        };
+
+        return snapped * sign;
     }
 
     private static int? First(EntityState player, string[] keys)

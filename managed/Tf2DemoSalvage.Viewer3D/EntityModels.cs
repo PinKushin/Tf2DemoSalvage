@@ -564,7 +564,8 @@ internal sealed class EntityModelSet
                 int posedFrame = StudioSequences.FrameFor(
                     phase, skinned.Frames(sequence), skinned.Loops(sequence));
 
-                StudioSkeleton posed = skinned.Skeleton(sequence, posedFrame);
+                StudioSkeleton posed = skinned.Skeleton(
+                    sequence, posedFrame, PoseValues(skinned, pose));
 
                 bones = posed.Matrices;
 
@@ -719,6 +720,44 @@ internal sealed class EntityModelSet
         // other seven stayed at the model origin, and the triangles between them stretched from
         // the scout's head to his feet as a flat sheet.
         return StudioBones.MergeOnto(skinned.Bones, wearer.Bones, map);
+    }
+
+    /// <summary>A value for each pose parameter the model declares, in its own order.</summary>
+    /// <remarks>
+    /// **Matched by NAME rather than by position**, because a pose parameter's index is a property
+    /// of the model: a scout and a heavy declare their own lists and there is no guarantee
+    /// <c>move_x</c> lands at the same index in both. Filling an array positionally works right up
+    /// until a class orders them differently, and then that class alone animates from the wrong
+    /// input — the kind of defect that looks like a bad animation rather than a bad lookup.
+    ///
+    /// Anything this project does not compute stays at zero, which is what the engine leaves an
+    /// unset parameter at.
+    /// </remarks>
+    private static float[] PoseValues(PropModels.SkinnedModel model, ScenePose pose)
+    {
+        IReadOnlyList<StudioPoseParameter> parameters = model.PoseParameters;
+
+        if (parameters.Count == 0)
+        {
+            return [];
+        }
+
+        float[] values = new float[parameters.Count];
+
+        for (int index = 0; index < parameters.Count; index++)
+        {
+            float raw = parameters[index].Name switch
+            {
+                "move_x" => pose.MoveX,
+                "move_y" => pose.MoveY,
+                _ => 0f,
+            };
+
+            // Stored normalised, as the engine stores it - see StudioBlendGrid.Normalize.
+            values[index] = StudioBlendGrid.Normalize(parameters[index], raw);
+        }
+
+        return values;
     }
 
     /// <summary>The names of the worn bones the wearer had no counterpart for.</summary>

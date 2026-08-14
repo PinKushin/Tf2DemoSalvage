@@ -760,7 +760,14 @@ internal static class PropModels
                     layout,
                     sequenceAnimation,
                     sequenceLoops,
-                    skin ? new SkinnedModel(bones, groupModels, table, groups) : null,
+                    skin
+                        ? new SkinnedModel(
+                            bones,
+                            groupModels,
+                            table,
+                            groups,
+                            StudioSequences.PoseParameters(modelFile))
+                        : null,
                     IlluminationOf(modelFile),
                     byFamily));
         }
@@ -895,6 +902,7 @@ internal static class PropModels
     /// <param name="Models">The base model and every animation model it includes, in group order.</param>
     /// <param name="Sequences">The merged sequence table a networked sequence number indexes.</param>
     /// <param name="Groups">Each group's own sequences, for resolving a merged number back.</param>
+    /// <param name="PoseParameters">The model's pose parameters, which its blend grids index.</param>
     /// <remarks>
     /// **One copy of the geometry and a pose per draw.** Baking trades memory for draw cost and
     /// only pays while the frame count is small: a health pack is one animation of thirty frames,
@@ -916,7 +924,8 @@ internal static class PropModels
         IReadOnlyList<StudioBone> Bones,
         IReadOnlyList<byte[]> Models,
         StudioSequenceTable Sequences,
-        IReadOnlyList<(int Group, IReadOnlyList<StudioSequence> Sequences)> Groups)
+        IReadOnlyList<(int Group, IReadOnlyList<StudioSequence> Sequences)> Groups,
+        IReadOnlyList<StudioPoseParameter> PoseParameters)
     {
         /// <summary>The bone matrices for one sequence at one frame.</summary>
         /// <param name="sequence">The merged sequence number, as a demo would network it.</param>
@@ -942,8 +951,32 @@ internal static class PropModels
         /// Bone merging needs <see cref="StudioSkeleton.BoneToWorld"/> and skinning matrices cannot
         /// supply it, since they already have the wearer's bind pose folded in.
         /// </remarks>
-        public StudioSkeleton Skeleton(int sequence, int frame)
+        public StudioSkeleton Skeleton(int sequence, int frame) =>
+            Skeleton(sequence, frame, []);
+
+        /// <summary>The whole skeleton for one sequence at one frame, blend resolved.</summary>
+        /// <param name="sequence">The merged sequence number, as a demo would network it.</param>
+        /// <param name="frame">Which frame of the animation it names.</param>
+        /// <param name="poseValues">
+        /// A value for each of the model's pose parameters, in <see cref="PoseParameters"/> order.
+        /// </param>
+        /// <returns>The posed skeleton.</returns>
+        /// <remarks>
+        /// **A sequence names a grid of animations, not one animation.** Taking the corner is
+        /// right for a prop and wrong for a player: a nine-way movement blend's corner is one
+        /// extreme direction, so the legs run that way whatever the body is doing.
+        ///
+        /// The engine locates a point in the grid from two pose parameters
+        /// (<c>Studio_LocalPoseParameter</c>), splits the surrounding square along a diagonal and
+        /// blends the three corners of the triangle the point falls in
+        /// (<c>Calc3WayBlendIndices</c>, reached because <c>anim_3wayblend</c> defaults to on).
+        /// This does the same, in <c>CalcPoseSingle</c>'s own order — the pairwise blend first at
+        /// <c>weight[1] / (weight[0] + weight[1])</c>, then the third corner at <c>weight[2]</c>.
+        /// </remarks>
+        public StudioSkeleton Skeleton(int sequence, int frame, IReadOnlyList<float> poseValues)
         {
+            ArgumentNullException.ThrowIfNull(poseValues);
+
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
@@ -951,35 +984,81 @@ internal static class PropModels
                 return StudioBones.RestPose(Bones);
             }
 
-            int animation = Groups[where.Group].Sequences[where.Local].Animation;
+            StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
 
-            // **The animation's bones are ITS model's, and must be renumbered.** An animation
-            // model has its own bone list and its own ordering; applying those indices to the base
-            // skeleton moves the wrong joints by the right amounts. Valve remap every animation
-            // through masterBone for exactly this - bone_setup.cpp:966.
-            IReadOnlyList<StudioBone> owner = BonesOf(where.Group);
-
-            IReadOnlyList<StudioBonePose> pose =
-                StudioAnimation.Pose(Models[where.Group], owner, animation, frame);
-
-            if (where.Group != 0 && Remaps(where.Group) is { } remap)
+            if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
             {
-                List<StudioBonePose> renumbered = new(pose.Count);
-
-                foreach (StudioBonePose moved in pose)
-                {
-                    int bone = moved.Bone >= 0 && moved.Bone < remap.Length ? remap[moved.Bone] : -1;
-
-                    if (bone >= 0)
-                    {
-                        renumbered.Add(moved with { Bone = bone });
-                    }
-                }
-
-                pose = renumbered;
+                return StudioBones.Posed(Bones, PoseOf(where.Group, chosen.Animation, frame));
             }
 
+            (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues);
+            (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues);
+
+            (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
+
+            IReadOnlyList<StudioBonePose> pose = PoseOf(where.Group, animations[0], frame);
+
+            // **On the diagonal the middle corner drops out**, and the remaining two are blended
+            // by their share of what is left rather than by weight[2] outright.
+            if (weights[1] < 0.001f)
+            {
+                float share = weights[0] + weights[2];
+
+                return StudioBones.Posed(
+                    Bones,
+                    share <= 0f
+                        ? pose
+                        : StudioPoseBlend.Blend(
+                            Bones, pose, PoseOf(where.Group, animations[2], frame),
+                            weights[2] / share));
+            }
+
+            float pair = weights[0] + weights[1];
+
+            if (pair > 0f)
+            {
+                pose = StudioPoseBlend.Blend(
+                    Bones, pose, PoseOf(where.Group, animations[1], frame), weights[1] / pair);
+            }
+
+            pose = StudioPoseBlend.Blend(
+                Bones, pose, PoseOf(where.Group, animations[2], frame), weights[2]);
+
             return StudioBones.Posed(Bones, pose);
+        }
+
+        /// <summary>One animation's pose, renumbered onto the base model's bones.</summary>
+        /// <remarks>
+        /// **The animation's bones are ITS model's, and must be renumbered.** An animation model
+        /// has its own bone list and its own ordering; applying those indices to the base skeleton
+        /// moves the wrong joints by the right amounts. Valve remap every animation through
+        /// <c>masterBone</c> for exactly this — <c>bone_setup.cpp:966</c>.
+        /// </remarks>
+        private IReadOnlyList<StudioBonePose> PoseOf(int group, int animation, int frame)
+        {
+            IReadOnlyList<StudioBone> owner = BonesOf(group);
+
+            IReadOnlyList<StudioBonePose> pose =
+                StudioAnimation.Pose(Models[group], owner, animation, frame);
+
+            if (group == 0 || Remaps(group) is not { } remap)
+            {
+                return pose;
+            }
+
+            List<StudioBonePose> renumbered = new(pose.Count);
+
+            foreach (StudioBonePose moved in pose)
+            {
+                int bone = moved.Bone >= 0 && moved.Bone < remap.Length ? remap[moved.Bone] : -1;
+
+                if (bone >= 0)
+                {
+                    renumbered.Add(moved with { Bone = bone });
+                }
+            }
+
+            return renumbered;
         }
 
         private readonly Dictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = [];

@@ -79,6 +79,33 @@ public readonly record struct ScenePose
     /// </remarks>
     public float? Speed { get; init; }
 
+    /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
+    /// <remarks>
+    /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
+    /// engine's own lookup takes the grid's corner, which is one fixed direction — the legs then
+    /// run that way however the body is turned.
+    ///
+    /// Ported from <c>CMultiPlayerAnimState::ComputePoseParam_MoveYaw</c>
+    /// (<c>multiplayer_animstate.cpp:1575</c>):
+    ///
+    /// <code>
+    /// float flYaw = flAngle - m_PoseParameterData.m_flEstimateYaw;
+    /// flYaw = AngleNormalize( -flYaw );
+    /// flYaw = SnapYawTo( flYaw );
+    /// vecCurrentMoveYaw.x =  cos( DEG2RAD( flYaw ) );
+    /// vecCurrentMoveYaw.y = -sin( DEG2RAD( flYaw ) );
+    /// </code>
+    ///
+    /// so the pair is the unit vector of travel expressed in the body's own frame — <c>(1, 0)</c>
+    /// running straight forward, <c>(-1, 0)</c> backpedalling.
+    ///
+    /// Zero for a player standing still, which is what the engine leaves them at.
+    /// </remarks>
+    public float MoveX { get; init; }
+
+    /// <summary>The <c>move_y</c> pose parameter: how much of the motion is sideways.</summary>
+    public float MoveY { get; init; }
+
     /// <summary>Which skin family paints this entity, where zero is the model's own.</summary>
     /// <remarks>
     /// **A team colour is a different material rather than a tint.** TF2's player models carry two
