@@ -216,6 +216,34 @@ internal class MainForm : Form
     /// <summary>Where the view is centred, or null to keep it on the whole map.</summary>
     private (float X, float Y)? _lookingAt;
 
+    /// <summary>Whether the view is the free camera rather than the map's top-down one.</summary>
+    /// <remarks>
+    /// **Off by default, because the top-down view is what this viewer is for.** A demo is watched
+    /// from above; the free camera is for looking AT something — which until now was impossible,
+    /// and is why a player model lying on its back survived a day of screenshots taken from
+    /// directly overhead.
+    /// </remarks>
+    private bool _freeLook;
+
+    /// <summary>Pitch and yaw of the free camera, in degrees.</summary>
+    /// <remarks>
+    /// Starts at a shallow angle rather than at zero: a camera on the horizon looking across a map
+    /// shows mostly wall, and the first thing anyone wants from this view is to see whether the
+    /// players are standing up.
+    /// </remarks>
+    private (float Pitch, float Yaw) _freeAngles = (35f, 0f);
+
+    /// <summary>How far the free camera sits from what it is looking at, in world units.</summary>
+    private float _freeDistance = 800f;
+
+    /// <summary>Degrees the free camera turns per pixel dragged.</summary>
+    /// <remarks>
+    /// A quarter of a degree, so a full turn is about a screen and a half of dragging. Source's own
+    /// mouse sensitivity is a different quantity — it scales a raw device count rather than a
+    /// pixel — so this is chosen for the drag rather than taken from the engine.
+    /// </remarks>
+    private const float DegreesPerPixel = 0.25f;
+
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private Point? _dragFrom;
 
@@ -1082,7 +1110,14 @@ internal class MainForm : Form
                 // vertices are in map coordinates and never move; only the view does. This is what
                 // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
                 // reason a free camera or a per-player view can exist at all.
-                _device.SetCamera(camera.ToMatrix(), _surfaceColours.Checked, _heightCut);
+                // **One matrix either way**, which is the whole reason this could be added without
+                // touching the renderer: the geometry is in map coordinates and only the view
+                // changes, so a free camera is a different sixty-four bytes rather than a
+                // different pipeline.
+                _device.SetCamera(
+                    (_freeLook ? FreeLookCamera().ToMatrix() : camera.ToMatrix()),
+                    _surfaceColours.Checked,
+                    _heightCut);
 
                 // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
                 // Counting these against "building the world" lines is what proves the geometry
@@ -1464,6 +1499,32 @@ internal class MainForm : Form
 
         CaptureViewport(path);
         BeginInvoke(Close);
+    }
+
+    /// <summary>The free camera, orbiting whatever the top-down view is centred on.</summary>
+    /// <remarks>
+    /// **Orbits the same point the map view is looking at**, so toggling between them does not
+    /// move the subject — drag the map to a player, switch, and that player is still in the middle.
+    ///
+    /// The height it orbits is the middle of the map's own vertical range rather than the ground:
+    /// a focus at floor level puts half the picture below the world, and the range is already known
+    /// because the depth projection needs it.
+    /// </remarks>
+    private FreeCamera FreeLookCamera()
+    {
+        (float centreX, float centreY) = _lookingAt ?? MapCamera().Centre;
+
+        float height = _heightRange is { } range
+            ? (range.Lowest + range.Highest) / 2f
+            : 0f;
+
+        return FreeCamera.Orbiting(
+            (centreX, centreY, height),
+            _freeAngles.Pitch,
+            _freeAngles.Yaw,
+            _freeDistance,
+            Math.Max(1, _viewport.ClientSize.Width) /
+                (float)Math.Max(1, _viewport.ClientSize.Height));
     }
 
     private TopDownCamera MapCamera()
@@ -2444,6 +2505,18 @@ internal class MainForm : Form
         }
 
         float step = e.Delta > 0 ? 1.25f : 1f / 1.25f;
+
+        // In the free view the wheel moves the camera in and out instead of magnifying a flat map.
+        // The near limit is a little over a player's height, so a model can be filled the frame
+        // with without the near plane cutting into it.
+        if (_freeLook)
+        {
+            _freeDistance = Math.Clamp(_freeDistance / step, 100f, 20_000f);
+            _worldIsStale = true;
+            _viewport.Invalidate();
+            return;
+        }
+
         float zoomed = Math.Clamp(_zoom * step, 1f, 64f);
 
         if (Math.Abs(zoomed - _zoom) < float.Epsilon)
@@ -2506,6 +2579,20 @@ internal class MainForm : Form
     {
         if (_dragFrom is not { } from || _map is null || _map.IsEmpty)
         {
+            return;
+        }
+
+        // **In the free view a drag turns the camera rather than moving the map.** Pitch is
+        // clamped by the camera itself, at the same 89 degrees the engine clamps a player to,
+        // because the basis is degenerate looking exactly along the world's up axis.
+        if (_freeLook)
+        {
+            _freeAngles = (
+                Math.Clamp(_freeAngles.Pitch + ((e.Location.Y - from.Y) * DegreesPerPixel), -89f, 89f),
+                _freeAngles.Yaw - ((e.Location.X - from.X) * DegreesPerPixel));
+
+            _dragFrom = e.Location;
+            _worldIsStale = true;
             return;
         }
 
@@ -2579,6 +2666,25 @@ internal class MainForm : Form
                 : "Showing the whole map.";
 
             _worldIsStale = true;
+
+            return true;
+        }
+
+        // **F toggles the free camera.** The map view is what a demo is normally watched from, so
+        // this is a mode rather than a replacement — and switching keeps the same subject in the
+        // middle, since the free camera orbits whatever the map view was centred on.
+        if (keyData == Keys.F)
+        {
+            _freeLook = !_freeLook;
+            _worldIsStale = true;
+            _viewport.Invalidate();
+
+            ViewerLog.Write(
+                "render",
+                _freeLook
+                    ? $"free camera on: pitch {_freeAngles.Pitch:0.#}, yaw {_freeAngles.Yaw:0.#}, " +
+                      $"distance {_freeDistance:0}"
+                    : "free camera off, back to the map view");
 
             return true;
         }

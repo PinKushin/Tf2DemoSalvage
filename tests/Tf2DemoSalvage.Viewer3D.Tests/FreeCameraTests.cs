@@ -111,6 +111,41 @@ public sealed class FreeCameraTests
     }
 
     [Test]
+    public void AnOrbitingCamera_KeepsItsFocusInTheMiddle()
+    {
+        // Whatever angle it is swung to, the thing being orbited stays dead centre -- that is what
+        // makes it usable for looking at a player from the side.
+        foreach (float pitch in new[] { 0f, 30f, 60f, 89f })
+        {
+            foreach (float yaw in new[] { 0f, 90f, 180f, 270f })
+            {
+                FreeCamera camera = FreeCamera.Orbiting((300f, -200f, 64f), pitch, yaw, 600f, 1.5f);
+
+                (float x, float y, float depth) = Project(camera, 300f, -200f, 64f);
+
+                x.ShouldBe(0f, 1e-3f);
+                y.ShouldBe(0f, 1e-3f);
+                depth.ShouldBeGreaterThan(0f);
+                depth.ShouldBeLessThan(1f);
+            }
+        }
+    }
+
+    [Test]
+    public void OrbitingAtNinetyDegrees_DoesNotCollapse()
+    {
+        // **Straight down is the degenerate case**, where forward is parallel to the world up axis
+        // and the basis has no meaning. Clamped just inside it, as the engine clamps player pitch,
+        // so the picture stays finite rather than vanishing at the one angle a map view wants.
+        FreeCamera camera = FreeCamera.Orbiting((0f, 0f, 0f), 90f, 0f, 500f, 1.5f);
+
+        (float x, float y, float _) = Project(camera, 0f, 0f, 0f);
+
+        float.IsFinite(x).ShouldBeTrue();
+        float.IsFinite(y).ShouldBeTrue();
+    }
+
+    [Test]
     public void AWiderFieldOfView_ShrinksWhatIsOnScreen()
     {
         // The control on the projection: the same point must move TOWARD the middle as the view

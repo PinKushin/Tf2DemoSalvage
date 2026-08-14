@@ -64,6 +64,48 @@ internal sealed class FreeCamera
     /// <summary>Viewport width over height.</summary>
     public float Aspect { get; init; } = 16f / 9f;
 
+    /// <summary>A camera a fixed distance from a point, looking at it.</summary>
+    /// <param name="focus">What to look at, in world units.</param>
+    /// <param name="pitch">Degrees below horizontal; 90 looks straight down.</param>
+    /// <param name="yaw">Degrees counterclockwise about Z.</param>
+    /// <param name="distance">How far back to sit.</param>
+    /// <param name="aspect">Viewport width over height.</param>
+    /// <returns>A camera placed so that <paramref name="focus"/> is dead centre.</returns>
+    /// <remarks>
+    /// **Orbiting is placement, not a second kind of camera.** The position is the focus pushed
+    /// backwards along the view direction, so everything below is the same
+    /// <see cref="Angles"/>/<see cref="Origin"/> pair the engine's own camera takes — which keeps
+    /// one thing to be wrong about instead of two, and lets a future free-fly camera set the same
+    /// two properties directly.
+    ///
+    /// Pitch is clamped just inside vertical. At exactly 90 the forward vector is parallel to the
+    /// world's up axis, the basis becomes degenerate and the picture collapses; the engine has the
+    /// same limit and clamps player pitch to 89.
+    /// </remarks>
+    public static FreeCamera Orbiting(
+        (float X, float Y, float Z) focus, float pitch, float yaw, float distance, float aspect)
+    {
+        float limited = Math.Clamp(pitch, -89f, 89f);
+
+        (float sinPitch, float cosPitch) = MathF.SinCos(limited * (MathF.PI / 180f));
+        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * (MathF.PI / 180f));
+
+        // AngleVectors' forward, which is where the camera looks; stepping back along it puts the
+        // focus in the middle of the picture.
+        (float X, float Y, float Z) forward =
+            (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+
+        return new FreeCamera
+        {
+            Origin = (
+                focus.X - (forward.X * distance),
+                focus.Y - (forward.Y * distance),
+                focus.Z - (forward.Z * distance)),
+            Angles = (limited, yaw, 0f),
+            Aspect = aspect,
+        };
+    }
+
     /// <summary>The view-projection the shader wants, row-major, translation in the last row.</summary>
     /// <returns>Sixteen floats for the camera constant buffer.</returns>
     public float[] ToMatrix()
