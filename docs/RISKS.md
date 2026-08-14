@@ -3170,3 +3170,34 @@ future report of a texture sitting the wrong way round, since one of those was a
 three times.
 
 `$AlphaTestReference` on 2 materials is B50, now measured rather than assumed.
+
+## B56 — the POV camera has no view interpolation, and no weapon models are drawn — OPEN, decided
+
+**Two owner decisions, recorded so neither is relitigated:** the recorded view is to be
+**interpolated the way the running game does it**, and **weapon models are to be rendered**.
+
+**Where this bites already.** A POV demo does not network the recorder's own eye angles — the
+client already knew them — so of the corpus, the eight single-player POV demos still report one
+distinct yaw for their one player after the `m_angEyeAngles` fix. That is correct rather than
+broken: those angles live in `dem_usercmd` and `democmdinfo_t`, which this project already parses
+and the scene layer does not yet consume.
+
+**`demo_interpolateview` is not in the SDK.** A whole-tree grep of source-sdk-2013 returns nothing;
+it is an engine ConVar in `engine.dll`, the same category as the overlay renderer and for the same
+reason. So its exact behaviour is not readable from source and must be measured, not remembered —
+see `source-sdk-is-cloned-locally` for why an empty grep is an answer rather than a failed search.
+
+What is known and worth holding: it governs the **camera** between the per-frame `democmdinfo_t`
+samples, and a community report ties an incorrect setting to a viewmodel reload animation glitch
+(teamfortress.tv/66600). That second claim is **unverified here** — the thread was not read, and
+the bug could as easily be a viewmodel cycle problem as a view interpolation one. Do not build on
+it without checking.
+
+**Shape it must take, and this is the owner's standing rule rather than a preference.** One place
+turns recorded view samples into a camera pose, with interpolation as a flag on it. Not view logic
+in the POV path and again in the free-camera path: anything copied between two files goes out of
+sync, which is exactly how `m_angRotation` came to be read for players in one place while the
+comment naming `m_angEyeAngles` sat in another.
+
+The same rule is why the eye-angle fix is a single line at the pose rather than a field set on
+`ScenePlayer`: the pose already feeds the interpolator, so position and angle cannot drift apart.
