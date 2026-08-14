@@ -2153,6 +2153,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
     /// <param name="skin">Which material replaces which for a team colour; null for the model's own.</param>
+    /// <param name="blended">Draw the blended materials rather than the opaque ones.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2168,7 +2169,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SunLight? sun = null,
         float blend = 0f,
         int bones = 0,
-        IReadOnlyDictionary<int, int>? skin = null)
+        IReadOnlyDictionary<int, int>? skin = null,
+        bool blended = false)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2192,6 +2194,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         uint stride = VertexStride;
         uint offset = 0;
 
+        // Hoisted out of the batch loop: one blend factor serves every batch, and allocating it
+        // per iteration grows the stack frame without bound (CA2014).
+        float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
         SetModel(context, matrix, light, sun, blend, bones);
@@ -2210,6 +2216,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 ? swapped
                 : batch.MaterialIndex;
 
+            // **A model's materials are sorted into the same two passes the world's are.** Until
+            // now every model batch drew opaque, whatever its material said, which is why a capture
+            // point's hologram came out as a solid ribbed slab rather than something to see
+            // through. The classification is already done, at upload, for the map's textures — a
+            // model's materials live in the same table, so it is the same lookup.
+            bool wantsBlending = _additive.Contains(material) || _translucent.Contains(material);
+
+            if (wantsBlending != blended)
+            {
+                continue;
+            }
+
+            if (blended)
+            {
+                // Per batch, because a model can carry both kinds: additive ADDS light to what is
+                // behind it, which is what a hologram does, and alpha blends against it.
+                context.OMSetBlendState(
+                    _additive.Contains(material) ? _addBlend : _alphaBlend,
+                    blendFactor,
+                    0xFFFFFFFF);
+            }
+
 
             ComPtr<ID3D11ShaderResourceView> texture =
                 material >= 0 && material < _textures.Count &&
@@ -2226,6 +2254,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+    }
+
+    /// <summary>Puts blending back to opaque after a blended pass.</summary>
+    /// <param name="context">The device context.</param>
+    /// <remarks>
+    /// **Because a leaked state is what caused the last defect.** DrawTranslucent left a read-only
+    /// depth state set and every model after it drew without depth writes, which put a medkit over
+    /// a medic and a player's eyes through the back of his head. A pass that changes a state hands
+    /// it back rather than leaving the next one to discover it.
+    /// </remarks>
+    public static void ResetBlend(ComPtr<ID3D11DeviceContext> context)
+    {
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
     }
 
     private void CreateVertexBuffer(ComPtr<ID3D11Device> device, float[] data)

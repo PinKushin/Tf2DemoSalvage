@@ -19,12 +19,24 @@ public readonly record struct StudioMesh(int MaterialIndex, int FirstVertex, int
 /// <param name="Materials">Material names, without a directory.</param>
 /// <param name="MaterialFolders">Where to look for them, relative to <c>materials/</c>.</param>
 /// <param name="Meshes">The runs, in the order the index data walks them.</param>
+/// <param name="SelectedModels">
+/// Which model each body part contributed, chosen by the entity's <c>m_nBody</c>.
+/// </param>
+/// <remarks>
+/// **The bodygroup selection has to travel, because the <c>.vtx</c> mirrors this structure.** A
+/// model's triangles are stored body part by body part and model by model in step with the
+/// <c>.mdl</c>, so a reader that picks one model here and walks all of them there desynchronises
+/// the two. The symptom is not a wrong picture but "an index file's strip groups do not fit either
+/// known layout" — which reads as a corrupt file rather than as two walks disagreeing, and is
+/// exactly what the tests reported when this was changed in one place only.
+/// </remarks>
 public sealed record StudioModelInfo(
     string Name,
     int Checksum,
     IReadOnlyList<string> Materials,
     IReadOnlyList<string> MaterialFolders,
-    IReadOnlyList<StudioMesh> Meshes)
+    IReadOnlyList<StudioMesh> Meshes,
+    IReadOnlyList<int> SelectedModels)
 {
     /// <summary>Where a material might be, in the order worth trying.</summary>
     /// <param name="materialIndex">Which of <see cref="Materials"/>.</param>
@@ -182,6 +194,10 @@ public static class StudioModel
     private const int MeshStride = 116;
 
     private const int BodyPartModelCountOffset = 4;
+
+    /// <summary><c>mstudiobodyparts_t.base</c>: this part's place value within <c>m_nBody</c>.</summary>
+    private const int BodyPartBaseOffset = 8;
+
     private const int BodyPartModelIndexOffset = 12;
 
     private const int ModelMeshCountOffset = 72;
@@ -202,9 +218,13 @@ public static class StudioModel
 
     /// <summary>Reads a model's structure.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="body">
+    /// The entity's <c>m_nBody</c>, which selects one model from each body part. Zero takes each
+    /// part's first, which is what the engine shows for an entity that never sets it.
+    /// </param>
     /// <returns>Its materials and the runs of vertices they paint.</returns>
     /// <exception cref="InvalidDataException">The file is not a readable model.</exception>
-    public static StudioModelInfo Read(ReadOnlyMemory<byte> file)
+    public static StudioModelInfo Read(ReadOnlyMemory<byte> file, int body = 0)
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
@@ -229,12 +249,15 @@ public static class StudioModel
                 $"{MaximumVersion} this reader knows.");
         }
 
+        (List<StudioMesh> meshes, List<int> chosen) = ReadMeshes(bytes, body);
+
         return new StudioModelInfo(
             ReadFixedString(bytes.Slice(NameOffset, NameBytes)),
             BinaryPrimitives.ReadInt32LittleEndian(bytes[8..]),
             ReadMaterials(bytes),
             ReadFolders(bytes),
-            ReadMeshes(bytes));
+            meshes,
+            chosen);
     }
 
     private static List<string> ReadMaterials(ReadOnlySpan<byte> file)
@@ -281,8 +304,24 @@ public static class StudioModel
         return folders;
     }
 
-    private static List<StudioMesh> ReadMeshes(ReadOnlySpan<byte> file)
+    /// <summary>Which of a body part's models the packed body number selects.</summary>
+    /// <remarks>
+    /// <c>GetBodygroup</c>, <c>shared/animation.cpp:876</c>. A part with a zero or negative base
+    /// would divide by zero, so it takes its first model — a malformed part should cost itself and
+    /// nothing else.
+    /// </remarks>
+    private static int Select(ReadOnlySpan<byte> file, int partAt, int models, int body)
     {
+        int place = BinaryPrimitives.ReadInt32LittleEndian(file[(partAt + BodyPartBaseOffset)..]);
+
+        return place <= 0 || models <= 0 ? 0 : (body / place) % models;
+    }
+
+    private static (List<StudioMesh> Meshes, List<int> Chosen) ReadMeshes(
+        ReadOnlySpan<byte> file, int body)
+    {
+        List<int> chosen = [];
+
         int parts = Count(file, BodyPartCountOffset, "body parts");
         int partsAt = Offset(file, BodyPartIndexOffset, parts, BodyPartStride, "body parts");
 
@@ -296,13 +335,27 @@ public static class StudioModel
             int modelsAt = Relative(
                 file, partAt, partAt + BodyPartModelIndexOffset, models, ModelStride, "models");
 
-            for (int model = 0; model < models; model++)
-            {
-                ReadModelMeshes(file, modelsAt + (model * ModelStride), meshes);
-            }
+            // **A body part contributes ONE of its models, not all of them.** This is what a
+            // bodygroup is: a part offers alternatives — a head with a hat and a head without, a
+            // control point sign reading A, B or C — and the entity's m_nBody picks one per part.
+            //
+            // Reading them all draws every alternative at once. Measured on cp_process, that is
+            // all three capture point labels stacked in the same place, which also makes the
+            // hologram they sit in read as far more opaque than it should, because three
+            // translucent signs are blended where one belongs.
+            //
+            // Valve's selection, from GetBodygroup in shared/animation.cpp:876, is the body number
+            // divided by that part's base, modulo how many models the part has.
+            //
+            // A part's base is the place value it occupies in the packed number, so the parts
+            // divide m_nBody between them like digits of a mixed-radix integer.
+            int selected = Select(file, partAt, models, body);
+
+            chosen.Add(selected);
+            ReadModelMeshes(file, modelsAt + (selected * ModelStride), meshes);
         }
 
-        return meshes;
+        return (meshes, chosen);
     }
 
     private static void ReadModelMeshes(ReadOnlySpan<byte> file, int modelAt, List<StudioMesh> into)

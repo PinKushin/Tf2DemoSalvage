@@ -63,6 +63,9 @@ internal sealed unsafe class Device3D : IDisposable
     private ComPtr<ID3D11Texture2D> _depthBuffer;
     private ComPtr<ID3D11DepthStencilState> _depthOn;
     private ComPtr<ID3D11DepthStencilState> _depthOff;
+
+    /// <summary>Depth tested but not written, for the pass that blends model materials.</summary>
+    private ComPtr<ID3D11DepthStencilState> _depthReadOnly;
     private bool _disposed;
 
     private Device3D(
@@ -428,6 +431,36 @@ internal sealed unsafe class Device3D : IDisposable
                         instance.Bones?.Count ?? 0,
                         instance.SkinSwap);
                 }
+
+                // **The see-through parts of models, after every solid one.** A hologram, a glass
+                // visor and a cloaked spy all have to blend against what is behind them, so they
+                // can only be drawn once that has been drawn — which is the same reason the world
+                // keeps its translucent surfaces to the end.
+                //
+                // Depth is still TESTED so a hologram behind a wall stays hidden, and no longer
+                // WRITTEN so it does not erase whatever is meant to show through it.
+                _context.OMSetDepthStencilState(_depthReadOnly, 0);
+
+                foreach (ModelInstance instance in models ?? [])
+                {
+                    if (instance.Bones is { Count: > 0 } bones)
+                    {
+                        _world.SetBones(_context, bones);
+                    }
+
+                    _world.DrawModel(
+                        _context,
+                        instance.Matrix,
+                        _world.ModelBatches(instance.ModelPath, instance.Frame),
+                        instance.Light,
+                        instance.Sun,
+                        instance.Blend,
+                        instance.Bones?.Count ?? 0,
+                        instance.SkinSwap,
+                        blended: true);
+                }
+
+                WorldRenderer.ResetBlend(_context);
             }
             else
             {
@@ -734,6 +767,7 @@ internal sealed unsafe class Device3D : IDisposable
         if (_depthOn.Handle is null)
         {
             _depthOn = DepthState(enabled: true);
+            _depthReadOnly = DepthState(enabled: true, writes: false);
             _depthOff = DepthState(enabled: false);
         }
     }
@@ -744,13 +778,18 @@ internal sealed unsafe class Device3D : IDisposable
     /// the players draw with it OFF, because they are annotations on the world rather than part of
     /// it - a player marker must not disappear behind the roof they are standing on.
     /// </remarks>
-    private ComPtr<ID3D11DepthStencilState> DepthState(bool enabled)
+    /// <param name="enabled">Whether depth is tested at all.</param>
+    /// <param name="writes">Whether it is also written; ignored when depth is off.</param>
+    private ComPtr<ID3D11DepthStencilState> DepthState(bool enabled, bool writes = true)
     {
         DepthStencilDesc description = new()
         {
             DepthEnable = new Silk.NET.Core.Bool32(enabled),
-            DepthWriteMask = enabled ? DepthWriteMask.All : DepthWriteMask.Zero,
-            DepthFunc = ComparisonFunc.Less,
+            DepthWriteMask = enabled && writes ? DepthWriteMask.All : DepthWriteMask.Zero,
+
+            // LessEqual rather than Less for the read-only state: a blended pass redraws geometry
+            // at exactly the depth an earlier pass wrote, and Less rejects all of it.
+            DepthFunc = writes ? ComparisonFunc.Less : ComparisonFunc.LessEqual,
         };
 
         ComPtr<ID3D11DepthStencilState> state = default;
