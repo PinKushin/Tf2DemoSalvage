@@ -34,10 +34,18 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// different light, so the compiler bakes a colour per vertex per placement. Brush faces carry
 /// white here, which multiplies to no change, so one shader serves both.
 /// </remarks>
+/// <param name="NextX">Where this vertex sits one animation frame later.</param>
+/// <param name="NextY">Where this vertex sits one animation frame later.</param>
+/// <param name="NextZ">Where this vertex sits one animation frame later.</param>
+/// <param name="NextNormalX">Its normal one animation frame later.</param>
+/// <param name="NextNormalY">Its normal one animation frame later.</param>
+/// <param name="NextNormalZ">Its normal one animation frame later.</param>
 internal readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
     float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
-    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f);
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f,
+    float NextX = 0f, float NextY = 0f, float NextZ = 0f,
+    float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
@@ -91,7 +99,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// its leaf's ambient cube evaluated against the surface normal. Brush surfaces carry theirs
     /// too rather than a placeholder: they already know it, and a free camera will want it.
     /// </remarks>
-    private const int VertexStride = sizeof(float) * 15;
+    /// <remarks>
+    /// Twenty-one floats: fifteen for the vertex itself and six for where the same vertex sits in
+    /// the NEXT animation frame, so the shader can blend between two baked frames. A model that
+    /// does not animate carries its own position in both and blends to itself.
+    /// </remarks>
+    private const int VertexStride = sizeof(float) * 21;
 
     private const string ShaderSource = """
         struct VsIn
@@ -103,6 +116,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float3 vc  : TEXCOORD3;
             float3 nrm : TEXCOORD5;
             float  ls  : TEXCOORD4;
+
+            // Where this same vertex sits one animation frame later. Blending toward it is what
+            // turns thirty baked poses a second into continuous motion.
+            float3 nextPos : TEXCOORD6;
+            float3 nextNrm : TEXCOORD7;
         };
 
         struct VsOut
@@ -162,6 +180,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // xyz is the direction the light TRAVELS, as the map stores it, so a surface facing
             // into it takes the dot product against its negation.
             float4 sunDirection;
+
+            // **How far between this baked frame and the next.** x is the blend, nought at the
+            // frame itself and approaching one at the next. Baking gives a pose per frame and an
+            // animation authored at ten frames a second would otherwise step ten times a second
+            // against a sixty hertz display, which reads as a stutter rather than as animation.
+            //
+            // Valve blends in BONE space, slerping quaternions in CalcBoneQuaternion. This blends
+            // positions, which is what a vertex-baked format can do; the two differ only where a
+            // bone turns far enough in one frame for the chord to cut the arc, and a pickup
+            // spinning at ten frames a second turns twelve degrees between frames.
+            float4 frameBlend;
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -273,7 +302,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // resize costs 64 bytes instead of rebuilding a couple of million vertices.
             // Model space to world, then world to clip. The map's geometry passes an identity
             // model matrix, so it costs one multiply and keeps a single path for both.
-            float4 world = mul(float4(input.pos, 1.0f), model);
+            // **Blend toward the next baked frame before anything else.** Baking stores a pose
+            // per animation frame; without this the model steps between them at the animation's
+            // own frame rate, which for a pickup authored at ten frames a second is a visible
+            // stutter against a sixty hertz display. A still model carries the same position in
+            // both and blends to itself.
+            float3 posed = lerp(input.pos, input.nextPos, frameBlend.x);
+            float3 posedNormal = lerp(input.nrm, input.nextNrm, frameBlend.x);
+
+            float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
             output.uv = input.uv;
             output.luv = input.luv;
@@ -282,7 +319,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // The normal is in the model's own space, so it turns with the model. Rotation only:
             // the translation would move a direction, and the scale cancels once it is normalised.
-            output.nrm = normalize(mul(float4(input.nrm, 0.0f), model).xyz);
+            output.nrm = normalize(mul(float4(posedNormal, 0.0f), model).xyz);
             output.ls = input.ls;
             return output;
         }
@@ -751,6 +788,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 AlignedByteOffset = sizeof(float) * 12,
                 InputSlotClass = InputClassification.PerVertexData,
             },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 6,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 15,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 7,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 18,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
         ];
 
         ComPtr<ID3D11InputLayout> layout = default;
@@ -1057,27 +1110,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 15];
-        int at = 0;
-
-        foreach (WorldVertex vertex in vertices)
-        {
-            data[at++] = vertex.X;
-            data[at++] = vertex.Y;
-            data[at++] = vertex.Depth;
-            data[at++] = vertex.U;
-            data[at++] = vertex.V;
-            data[at++] = vertex.LightU;
-            data[at++] = vertex.LightV;
-            data[at++] = vertex.Alpha;
-            data[at++] = vertex.Red;
-            data[at++] = vertex.Green;
-            data[at++] = vertex.Blue;
-            data[at++] = vertex.LightStep;
-            data[at++] = vertex.NormalX;
-            data[at++] = vertex.NormalY;
-            data[at++] = vertex.NormalZ;
-        }
+        float[] data = Pack(vertices);
 
         CreateVertexBuffer(device, data);
 
@@ -1303,6 +1336,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="context">The device context.</param>
     /// <param name="matrix">Sixteen floats, row major.</param>
     /// <param name="light">The ambient cube lighting this model, or null to leave it unlit.</param>
+    /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="sun">The sun reaching this model, or null when it stands in shade.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
@@ -1320,7 +1354,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
         AmbientCube? light = null,
-        SunLight? sun = null)
+        SunLight? sun = null,
+        float blend = 0f)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -1363,6 +1398,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             contents[46] = direct.DirectionZ;
         }
 
+        // How far between this baked frame and the next, clamped because a cycle interpolated
+        // between packets can overshoot and a blend past one extrapolates rather than smooths.
+        contents[48] = Math.Clamp(blend, 0f, 1f);
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
@@ -1389,7 +1428,51 @@ internal sealed unsafe class WorldRenderer : IDisposable
     }
 
     /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
-    private const int ModelConstants = 16 + (6 * 4) + 4 + 4;
+    private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4;
+
+    /// <summary>Lays vertices out for the input layout.</summary>
+    /// <remarks>
+    /// **One writer, because there were two and they drifted.** The world buffer and the model
+    /// buffer each had their own copy of this loop, and adding the next-frame fields to the vertex
+    /// updated the stride and neither loop — so every vertex was written fifteen floats into a
+    /// twenty-one float layout and the whole map sheared. Caught by the offscreen render tests
+    /// rather than by anything reading this code.
+    ///
+    /// The order here IS the input layout above; the two are one decision written twice, and this
+    /// is the half that can be checked by counting.
+    /// </remarks>
+    private static float[] Pack(IReadOnlyList<WorldVertex> vertices)
+    {
+        float[] data = new float[vertices.Count * (VertexStride / sizeof(float))];
+        int at = 0;
+
+        foreach (WorldVertex vertex in vertices)
+        {
+            data[at++] = vertex.X;
+            data[at++] = vertex.Y;
+            data[at++] = vertex.Depth;
+            data[at++] = vertex.U;
+            data[at++] = vertex.V;
+            data[at++] = vertex.LightU;
+            data[at++] = vertex.LightV;
+            data[at++] = vertex.Alpha;
+            data[at++] = vertex.Red;
+            data[at++] = vertex.Green;
+            data[at++] = vertex.Blue;
+            data[at++] = vertex.LightStep;
+            data[at++] = vertex.NormalX;
+            data[at++] = vertex.NormalY;
+            data[at++] = vertex.NormalZ;
+            data[at++] = vertex.NextX;
+            data[at++] = vertex.NextY;
+            data[at++] = vertex.NextZ;
+            data[at++] = vertex.NextNormalX;
+            data[at++] = vertex.NextNormalY;
+            data[at++] = vertex.NextNormalZ;
+        }
+
+        return data;
+    }
 
     /// <summary>Writes one cube face, leaving its w alone.</summary>
     private static void WriteFace(float[] into, int at, (float Red, float Green, float Blue) face)
@@ -1775,27 +1858,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] data = new float[vertices.Count * 15];
-        int at = 0;
-
-        foreach (WorldVertex vertex in vertices)
-        {
-            data[at++] = vertex.X;
-            data[at++] = vertex.Y;
-            data[at++] = vertex.Depth;
-            data[at++] = vertex.U;
-            data[at++] = vertex.V;
-            data[at++] = vertex.LightU;
-            data[at++] = vertex.LightV;
-            data[at++] = vertex.Alpha;
-            data[at++] = vertex.Red;
-            data[at++] = vertex.Green;
-            data[at++] = vertex.Blue;
-            data[at++] = vertex.LightStep;
-            data[at++] = vertex.NormalX;
-            data[at++] = vertex.NormalY;
-            data[at++] = vertex.NormalZ;
-        }
+        float[] data = Pack(vertices);
 
         BufferDesc description = new()
         {
@@ -1876,6 +1939,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="batches">Its runs, indexing into the model buffer.</param>
     /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
     /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
+    /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -1888,7 +1952,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] matrix,
         IReadOnlyList<WorldBatch> batches,
         AmbientCube? light = null,
-        SunLight? sun = null)
+        SunLight? sun = null,
+        float blend = 0f)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1914,7 +1979,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
-        SetModel(context, matrix, light, sun);
+        SetModel(context, matrix, light, sun, blend);
 
         foreach (WorldBatch batch in batches)
         {

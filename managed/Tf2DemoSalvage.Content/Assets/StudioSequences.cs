@@ -7,7 +7,19 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <summary>One of a model's sequences.</summary>
 /// <param name="Animation">The local animation it plays, for a sequence with no blending.</param>
 /// <param name="Flags">Its flags, of which looping is the one that matters here.</param>
-public readonly record struct StudioSequence(int Animation, int Flags);
+public readonly record struct StudioSequence(int Animation, int Flags)
+{
+    /// <summary>Whether the sequence loops.</summary>
+    /// <remarks>
+    /// <c>STUDIO_LOOPING</c>, which <c>studio.h</c> documents as "ending frame should be the same
+    /// as the starting frame". That duplicate is the whole reason this matters: playing every
+    /// frame of a looping animation shows one pose twice and stalls for a frame each loop.
+    /// </remarks>
+    public bool Loops => (Flags & Looping) != 0;
+
+    /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
+    private const int Looping = 0x0001;
+}
 
 /// <summary>
 /// A model's sequences, and which animation each one plays.
@@ -122,7 +134,28 @@ public static class StudioSequences
     /// divisor and a static prop has exactly one frame — that division would send every vertex of
     /// it to NaN and lose the model.
     /// </remarks>
-    public static int FrameFor(float cycle, int frames)
+    public static int FrameFor(float cycle, int frames) => FrameFor(cycle, frames, loops: false);
+
+    /// <summary>Which frame a cycle lands on.</summary>
+    /// <param name="cycle">How far through the sequence, where one is the end.</param>
+    /// <param name="frames">How many frames the animation has.</param>
+    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <returns>A frame index inside the animation.</returns>
+    /// <remarks>
+    /// **A looping animation has one fewer distinct pose than it has frames.** <c>studio.h</c>
+    /// says so directly: <c>STUDIO_LOOPING</c> means "ending frame should be the same as the
+    /// starting frame". Playing all of them therefore draws one pose twice in a row, which is a
+    /// single frame of hesitation once per loop - measured on cp_process's ammo boxes, which
+    /// stalled briefly after every rotation.
+    ///
+    /// So a loop is mapped onto <c>frames - 1</c> poses and wraps, while a one-shot sequence keeps
+    /// its final frame. A door opening genuinely ends on its last frame and must hold it; dropping
+    /// that for everything would leave every door a frame short of shut.
+    ///
+    /// **Floored rather than rounded for a loop**, because rounding at the top of the range lands
+    /// back on the duplicate this exists to avoid.
+    /// </remarks>
+    public static int FrameFor(float cycle, int frames, bool loops)
     {
         if (frames <= 1)
         {
@@ -140,6 +173,16 @@ public static class StudioSequences
         // interpolation wraps it below one first - so the two cases do not collide.
         float wrapped = cycle is >= 0f and <= 1f ? cycle : cycle - MathF.Floor(cycle);
 
-        return Math.Clamp((int)MathF.Round(wrapped * (frames - 1)), 0, frames - 1);
+        if (!loops)
+        {
+            return Math.Clamp((int)MathF.Round(wrapped * (frames - 1)), 0, frames - 1);
+        }
+
+        int distinct = frames - 1;
+        int frame = (int)MathF.Floor(wrapped * distinct);
+
+        // Modulo rather than clamp: cycle exactly one is the start of the next loop, not the
+        // duplicate end of this one.
+        return ((frame % distinct) + distinct) % distinct;
     }
 }

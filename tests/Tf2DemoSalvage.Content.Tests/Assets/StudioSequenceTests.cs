@@ -90,6 +90,43 @@ public sealed class StudioSequenceTests
     }
 
     [Test]
+    public void ALoopingAnimation_NeverDrawsItsDuplicateLastFrame()
+    {
+        // **STUDIO_LOOPING means "ending frame should be the same as the starting frame"**, in
+        // Valve's own words. So a looping animation of 31 frames holds 30 DISTINCT poses, and
+        // playing all 31 shows one pose twice - a single frame of hesitation once per loop, which
+        // is exactly what an ammo box did after every rotation.
+        HashSet<int> seen = [];
+
+        for (int step = 0; step < 600; step++)
+        {
+            seen.Add(StudioSequences.FrameFor(step / 600f, frames: 31, loops: true));
+        }
+
+        seen.ShouldNotContain(30, "frame 30 repeats frame 0, so it must never be drawn");
+        seen.Count.ShouldBe(30, "a 31 frame loop holds 30 distinct poses");
+    }
+
+    [Test]
+    public void ALoopingCycle_ReturnsToItsFirstFrame()
+    {
+        // The seam itself: the pose just before the end must be followed by the first, with no
+        // repeat between them.
+        StudioSequences.FrameFor(cycle: 0f, frames: 31, loops: true).ShouldBe(0);
+        StudioSequences.FrameFor(cycle: 29f / 30f, frames: 31, loops: true).ShouldBe(29);
+        StudioSequences.FrameFor(cycle: 1f, frames: 31, loops: true).ShouldBe(0);
+    }
+
+    [Test]
+    public void ANonLoopingAnimation_StillEndsOnItsLastFrame()
+    {
+        // **The control.** A one-shot sequence - a door opening - genuinely ends on its final
+        // frame and must hold it. Dropping the last frame for everything would leave every door
+        // one frame short of shut.
+        StudioSequences.FrameFor(cycle: 1f, frames: 31, loops: false).ShouldBe(30);
+    }
+
+    [Test]
     public void AModelWithNoSequences_ReadsAsNone()
     {
         StudioSequences.Read(new byte[512]).ShouldBeEmpty();

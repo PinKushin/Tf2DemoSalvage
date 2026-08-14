@@ -2037,6 +2037,12 @@ internal class MainForm : Form
         try
         {
             _device = Device3D.Create(_viewport.Handle, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
+            _device.VerticalSync = _settings.VerticalSync;
+
+            ViewerLog.Write(
+                "render",
+                $"frame rate limit {(_settings.FrameRateLimit > 0 ? _settings.FrameRateLimit + " a second" : "none")}, " +
+                $"vertical sync {(_settings.VerticalSync ? "on" : "off")}");
             ViewerLog.Write(
                 "render",
                 $"device created for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
@@ -2161,9 +2167,139 @@ internal class MainForm : Form
     {
         do
         {
+            if (!FrameIsDue())
+            {
+                WaitForTheNextFrame();
+                continue;
+            }
+
             RenderFrame();
+            CountFrame();
         }
         while (!MessageQueue.HasWork());
+    }
+
+    /// <summary>When the last frame was presented.</summary>
+    private long _lastFrameAt;
+
+    /// <summary>Whether enough time has passed to draw another frame.</summary>
+    /// <remarks>
+    /// **The cap has to be applied here, because asking for vertical sync does not work.** The
+    /// swap chain presents with a sync interval of one and the viewer was still measured at about
+    /// 600 frames a second: a driver forcing vsync off globally outranks the present call. So the
+    /// only ceiling that holds is one this program keeps itself.
+    ///
+    /// **This does not affect what is drawn, only how often.** The animation cycle is advanced
+    /// from DEMO time - the tick and the demo's own interval - never from frame time, so a demo
+    /// looks identical at 24 frames a second and at 300. That separation is the thing GoldSrc got
+    /// wrong: tying movement to frame time made a player's speed depend on their frame rate, and
+    /// advancing a cycle per rendered frame here would have made every animation slow down the
+    /// moment a cap was applied.
+    /// </remarks>
+    private bool FrameIsDue()
+    {
+        if (_settings.FrameRateLimit <= 0)
+        {
+            return true;
+        }
+
+        long now = Stopwatch.GetTimestamp();
+
+        if (_lastFrameAt == 0)
+        {
+            _lastFrameAt = now;
+            return true;
+        }
+
+        double budget = 1d / _settings.FrameRateLimit;
+
+        if ((now - _lastFrameAt) / (double)Stopwatch.Frequency < budget)
+        {
+            return false;
+        }
+
+        _lastFrameAt = now;
+        return true;
+    }
+
+    /// <summary>How long a sleep of one millisecond actually takes, near enough.</summary>
+    /// <remarks>
+    /// **Windows does not sleep for a millisecond when asked.** The default timer granularity is
+    /// about 15.6 milliseconds, so <c>Thread.Sleep(1)</c> returns after a whole tick of it - and a
+    /// frame limiter built on that caps at about 64 frames a second whatever it was asked for.
+    /// Measured exactly that way: a limit of 300 produced 63 to 66.
+    /// </remarks>
+    private const double SleepGranularitySeconds = 0.016;
+
+    /// <summary>Waits until the next frame is due, without burning a core doing it.</summary>
+    /// <remarks>
+    /// **Sleep when there is time to spare, yield when there is not.** A low cap - 24 or 30 for
+    /// recording - has tens of milliseconds of budget and can afford a real sleep, which keeps the
+    /// processor idle. A high cap has less budget than the clock's own granularity, so sleeping
+    /// overshoots it entirely and the only accurate wait is to give up the timeslice and check
+    /// again.
+    ///
+    /// This is a wait on a CLOCK, which is the one thing a frame limiter can legitimately do:
+    /// there is no condition to synchronise on, because the condition is the passage of time.
+    /// </remarks>
+    private void WaitForTheNextFrame()
+    {
+        if (_settings.FrameRateLimit <= 0)
+        {
+            return;
+        }
+
+        double budget = 1d / _settings.FrameRateLimit;
+        double waited = (Stopwatch.GetTimestamp() - _lastFrameAt) / (double)Stopwatch.Frequency;
+
+        if (budget - waited > SleepGranularitySeconds)
+        {
+            Thread.Sleep(1);
+            return;
+        }
+
+        Thread.Yield();
+    }
+
+    /// <summary>How many frames were drawn since the rate was last reported.</summary>
+    private int _framesDrawn;
+
+    /// <summary>When the frame rate was last reported.</summary>
+    private long _rateReportedAt;
+
+    /// <summary>Reports the frame rate once a second.</summary>
+    /// <remarks>
+    /// **Measured rather than assumed, because the answer is a claim about this machine.** The
+    /// swap chain presents with a sync interval of one, so the rate should sit at the display's
+    /// refresh - and "should" is exactly the kind of statement this project keeps finding wrong.
+    /// A rate well under refresh means a frame is costing more than its slice, which is worth
+    /// knowing before anyone starts optimising by guesswork.
+    ///
+    /// Once a second, so a log covering a whole session stays readable.
+    /// </remarks>
+    private void CountFrame()
+    {
+        _framesDrawn++;
+
+        long now = Stopwatch.GetTimestamp();
+
+        if (_rateReportedAt == 0)
+        {
+            _rateReportedAt = now;
+            return;
+        }
+
+        double elapsed = (now - _rateReportedAt) / (double)Stopwatch.Frequency;
+
+        if (elapsed < 1d)
+        {
+            return;
+        }
+
+        ViewerLog.Write("render", $"{_framesDrawn / elapsed:0.#} frames a second");
+
+        _framesDrawn = 0;
+        _rateReportedAt = now;
     }
 
     private void RenderFrame()
