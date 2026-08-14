@@ -3286,3 +3286,38 @@ argument.
 
 Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a physics
 engine", which is the wrong conclusion for jiggle bones and only half the question for ragdolls.
+
+## B59 — what "useful to frag video makers" actually means, in 2026 — OPEN, scoping
+
+Recorded because the owner named ragdolls as wanted "for frag vid makers", and the right scope for
+that depends on what those people already use rather than on what sounds impressive.
+
+**Lawena is no longer viable** — the tool this project already cites in its texture-quality notes,
+alongside Chris' maxquality and mastercomfig. The current workflow is several tools together:
+
+| tool | what it does |
+|---|---|
+| HLAE | camera control, `mirv_campath` for smoothing SourceTV demos |
+| SparklyFX | depth, per-element visibility and colour, several streams in one take, FFMPEG encode |
+| Méliès | automation: VDM generation, demo scanning, gameinfo installs |
+| SVR / Source Demo Render | fast recording straight to uncompressed AVI |
+
+**Read as a list of gaps, the interesting ones are not rendering.** Every tool above drives the
+GAME and records its output, which is why they need gameinfo installs, VDM scripts and config
+swapping at all. A standalone parser has a different shape: it already has the camera, already
+decodes the events a demo scanner is looking for, and needs no game running to do either.
+
+So the capabilities worth aiming at, in order of how well they fit what exists here:
+
+- **Camera paths and smoothing.** HLAE's `mirv_campath` exists because a SourceTV camera snaps
+  between players. This viewer owns its camera outright (D21) and interpolates already.
+- **Demo scanning.** Finding the kills is what Méliès automates; the event stream is already
+  decoded here.
+- **Element isolation.** SparklyFX records separate streams so an editor can composite. A renderer
+  that draws from a scene graph can do this without recording twice.
+
+Ragdolls sit under the first two rather than beside them: a death animation is what a frag clip is
+of, so getting one wrong is visible in exactly the footage this would be used for.
+
+None of this is committed scope. It is here so "relevant to frag video makers" is a statement about
+measured tooling rather than a guess, and so the next person does not rebuild Lawena.
