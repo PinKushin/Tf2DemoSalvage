@@ -480,7 +480,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Entity model geometry, in model space, uploaded once.</summary>
     private ComPtr<ID3D11Buffer> _modelVertices;
 
-    private Dictionary<string, IReadOnlyList<WorldBatch>> _modelBatches =
+    private Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> _modelBatches =
         new(StringComparer.OrdinalIgnoreCase);
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
@@ -1760,7 +1760,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     public void UploadModels(
         ComPtr<ID3D11Device> device,
         IReadOnlyList<WorldVertex> vertices,
-        Dictionary<string, IReadOnlyList<WorldBatch>> batches)
+        Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1847,8 +1847,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <returns>Its runs, indexing into the model buffer.</returns>
-    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) =>
-        _modelBatches.TryGetValue(modelPath, out IReadOnlyList<WorldBatch>? batches) ? batches : [];
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) => ModelBatches(modelPath, 0);
+
+    /// <summary>The runs for one model at one baked animation frame.</summary>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="frame">Which baked frame; clamped into what was uploaded.</param>
+    /// <returns>Its runs, or empty when the model is not packed.</returns>
+    /// <remarks>
+    /// **A frame is a different range of the same buffer.** Every frame of an animated model was
+    /// skinned at load and packed end to end, so choosing one costs an index rather than any
+    /// transform work at draw time.
+    /// </remarks>
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath, int frame)
+    {
+        if (!_modelBatches.TryGetValue(
+                modelPath, out IReadOnlyList<IReadOnlyList<WorldBatch>>? frames) ||
+            frames.Count == 0)
+        {
+            return [];
+        }
+
+        return frames[Math.Clamp(frame, 0, frames.Count - 1)];
+    }
 
     /// <summary>Draws one posed model.</summary>
     /// <param name="context">The device context.</param>
