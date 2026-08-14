@@ -107,5 +107,12 @@ public sealed class TransportUiTests
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "Jumping to the start did not return to tick zero.");
+
+        // **Stated rather than left to the retry.** Waiting for a condition and asserting one are
+        // different things: the retry says when to stop looking, and this says what the answer had
+        // to be. An analyser reads only the second, and so does anyone deciding what this test
+        // claims - the timeout message is not a prediction, it is an excuse prepared in advance.
+        ((double)_viewer.Find(TransportBar.ScrubBarId).Patterns.RangeValue.Pattern.Value)
+            .ShouldBe(0d, "the start button seeks to tick zero");
     }
 }
