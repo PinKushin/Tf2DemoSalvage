@@ -3336,3 +3336,28 @@ of, so getting one wrong is visible in exactly the footage this would be used fo
 
 None of this is committed scope. It is here so "relevant to frag video makers" is a statement about
 measured tooling rather than a guess, and so the next person does not rebuild Lawena.
+
+
+## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — OPEN, lead
+
+The owner reported the small ammo pack pausing once per rotation, and reported the health packs as
+perfect. Measured across every pickup variant, including the ones cp_process does not contain:
+
+```
+medkit_small 30    medkit_medium 30    medkit_large 30
+ammopack_medium 30 ammopack_large 30   ammopack_small 31
+```
+
+**The one model with a different frame count is the one misbehaving.** That is a correlation rather
+than a cause, and four checks on the arithmetic came back clean: its last frame really is identical
+to its first (measured at zero units apart), its sequence really carries `STUDIO_LOOPING`, the phase
+advances uniformly to one part in 1e14 with no discontinuity at the wrap, and its entity yaw never
+changes so the spin is animation-driven.
+
+Worth knowing before chasing it further: a full 360 degree turn returns every vertex to where it
+started, so "the last frame equals the first" cannot distinguish a duplicated endpoint from a
+complete revolution. If the ammo pack's 31 frames are 31 intervals of a full turn rather than 30
+intervals plus a repeat, dropping the last frame removes real motion — which would read as a hitch
+from the opposite cause to the one it was meant to fix.
+
+The owner has deprioritised it. Filed with the numbers so it does not restart from nothing.

@@ -43,6 +43,18 @@ public sealed class StudioSkeleton
     /// <summary>How many bones the model has.</summary>
     public int Count => _skinning.Length;
 
+    /// <summary>The matrices themselves, for a renderer that skins on the GPU.</summary>
+    /// <remarks>
+    /// **Exposed because the transform can happen in two places.** <see cref="Skin"/> applies them
+    /// here, which is what a model with its frames baked wants — the work happens once at load. A
+    /// model too large to bake is skinned per draw instead, and then the matrices themselves are
+    /// what the shader needs, as constants.
+    ///
+    /// Row-major three-by-four, twelve floats each, which is the studio format's own layout and
+    /// the one the shader reads.
+    /// </remarks>
+    public IReadOnlyList<float[]> Matrices => _skinning;
+
     /// <summary>Whether the model has a skeleton at all.</summary>
     /// <remarks>
     /// A model compiled with <c>$staticprop</c> still declares one bone, so this being false is

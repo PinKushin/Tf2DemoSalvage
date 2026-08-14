@@ -27,6 +27,13 @@ public sealed class StudioSequenceTests
     [Test]
     [TestCase("models/items/medkit_small.mdl")]
     [TestCase("models/items/medkit_medium.mdl")]
+    // **The variants cp_process does not contain.** Every measurement of pack animation so far
+    // came from one map, which carries only the small and medium medkit and the small ammo pack.
+    // Generalising a bake budget from that is generalising from a sample of three.
+    [TestCase("models/items/medkit_large.mdl")]
+    [TestCase("models/items/ammopack_small.mdl")]
+    [TestCase("models/items/ammopack_medium.mdl")]
+    [TestCase("models/items/ammopack_large.mdl")]
     [TestCase("models/player/scout.mdl")]
     public void AModelsSequences_EachNameARealAnimation(string path)
     {

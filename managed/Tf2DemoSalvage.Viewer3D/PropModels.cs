@@ -706,11 +706,37 @@ internal static class PropModels
         int Checksum,
         ModelFrames Frames);
 
+    /// <summary>A model posed by its bones at draw time instead of having its frames baked.</summary>
+    /// <param name="Bones">Its skeleton, which the pose is computed against.</param>
+    /// <param name="Model">The model's bytes, which carry the animation data.</param>
+    /// <remarks>
+    /// **One copy of the geometry and a pose per draw.** Baking trades memory for draw cost and
+    /// only pays while the frame count is small: a health pack is one animation of thirty frames,
+    /// a scout is 1,012 animations over 23,442 corners. So a player's vertices are uploaded once
+    /// with their bone indices and weights and the matrices arrive per draw, which is what
+    /// IMaterialSystem::LoadBoneMatrix does in the engine.
+    /// </remarks>
+    internal sealed record SkinnedModel(IReadOnlyList<StudioBone> Bones, ReadOnlyMemory<byte> Model)
+    {
+        /// <summary>The bone matrices for one animation at one frame.</summary>
+        /// <param name="animation">Which local animation to pose from.</param>
+        /// <param name="frame">Which frame of it.</param>
+        /// <returns>One row-major three-by-four matrix per bone.</returns>
+        /// <remarks>
+        /// Computed per draw rather than stored. A scout's animation data is five megabytes and
+        /// its skeleton is ninety-odd matrices, so recomputing a pose costs far less than keeping
+        /// every pose it could take.
+        /// </remarks>
+        public IReadOnlyList<float[]> Pose(int animation, int frame) =>
+            StudioBones.Posed(Bones, StudioAnimation.Pose(Model, Bones, animation, frame)).Matrices;
+    }
+
     /// <summary>A model's baked animation frames, and how to choose between them.</summary>
     /// <param name="Geometry">Every baked frame, animations laid end to end.</param>
     /// <param name="Layout">Where each animation starts in that list, and how long it is.</param>
     /// <param name="SequenceAnimation">Which animation each sequence plays.</param>
     /// <param name="SequenceLoops">Whether each sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <param name="Skinned">Set when this model is posed on the GPU instead of having frames baked.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -720,8 +746,27 @@ internal static class PropModels
         IReadOnlyList<IReadOnlyList<PropVertex>> Geometry,
         IReadOnlyDictionary<int, (int Start, int Frames, float CyclesPerSecond)> Layout,
         IReadOnlyList<int> SequenceAnimation,
-        IReadOnlyList<bool> SequenceLoops)
+        IReadOnlyList<bool> SequenceLoops,
+        SkinnedModel? Skinned = null)
     {
+        /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
+        /// <remarks>
+        /// **The bake budget decides this, not a list of paths.** A model whose animations fit the
+        /// corner budget is baked, which is cheaper to draw; one whose animations do not is skinned
+        /// instead, which is the only thing that works at a player's scale. Deciding by measurement
+        /// means a model nobody has classified still takes the right path.
+        ///
+        /// **A large PROP gains from this rather than losing.** Before, a model over budget kept
+        /// however many frames fitted and silently lost the rest — sentry3_heavy has 113 frames
+        /// across six animations and was truncated to 43, so most of what it can do never played.
+        /// Skinned, it has no frame limit at all. Nothing that used to be baked stops being drawn;
+        /// the ones that change are the ones that were being drawn incompletely.
+        ///
+        /// Static props are untouched either way. They have a single frame, are never over budget,
+        /// and name no bone weights to be skinned by.
+        /// </remarks>
+        public bool IsSkinned => Skinned is not null;
+
         /// <summary>The geometry one frame after a given slot, wrapping inside its animation.</summary>
         /// <param name="slot">A frame's index in <see cref="Geometry"/>.</param>
         /// <returns>The next frame's geometry, or the same one when it does not animate.</returns>
