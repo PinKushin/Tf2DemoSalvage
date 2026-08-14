@@ -43,12 +43,15 @@ internal static class MapWorldBuilder
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
     /// <param name="overlays">The map decals, or null to draw none.</param>
     /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
+    /// <param name="models">The map's models, so entity brushwork can be counted apart from the world.</param>
     /// <returns>The triangles and their batches.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// Only upward-facing, visible surfaces are kept, which is the same rule the outline view uses:
-    /// it is the engine's own backface culling for a camera looking straight down, so a ceiling
-    /// disappears and the roof a soldier stands on does not.
+    /// Every visible surface is kept. This used to drop downward-facing ones and call it "the
+    /// engine's own backface culling for a camera looking straight down", which was a workaround
+    /// wearing a principle's clothes: the engine culls per frame against the frustum and the PVS,
+    /// and culling once by the sign of a normal only matches that for a camera that never moves.
+    /// Backface culling still happens, in the rasteriser, per frame.
     /// </remarks>
     public static MapWorld Build(
         BspTerrain? terrain,
@@ -59,7 +62,8 @@ internal static class MapWorldBuilder
         TopDownCamera camera,
         MapBounds? area,
         bool categoryColours = false,
-        IReadOnlyList<BspOverlay>? overlays = null)
+        IReadOnlyList<BspOverlay>? overlays = null,
+        IReadOnlyList<BspModel>? models = null)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
@@ -184,10 +188,28 @@ internal static class MapWorldBuilder
 
         AppendProps(props, byMaterial, area, categoryColours);
 
+        // **How many of those faces belong to a moving entity rather than to the world.** A door,
+        // a lift and a payload cart are each their own BSP model, and their faces sit in the same
+        // lump after the world's — so a reader that walks the whole lump draws them, STATICALLY, at
+        // whatever position they were compiled in. That is a completely different defect from not
+        // drawing them at all, and the two are indistinguishable from a picture: a door compiled
+        // retracted is invisible either way.
+        //
+        // Counted rather than assumed, because the question decided what to build next and the
+        // answer was not in evidence.
+        int worldFaces = models is { Count: > 0 } ? models[0].FaceCount : int.MaxValue;
+        int movingFaces = 0;
+
+        foreach (BspSurface surface in surfaces)
+        {
+            movingFaces += surface.FaceIndex >= worldFaces ? 1 : 0;
+        }
+
         ViewerLog.Write(
             "render",
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
-            $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material");
+            $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material; " +
+            $"{movingFaces} of the surfaces read belong to entity models rather than the world");
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];

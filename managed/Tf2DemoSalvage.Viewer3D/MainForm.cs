@@ -155,6 +155,9 @@ internal class MainForm : Form
     /// <summary>The map's decals, read once and reused across every rebuild.</summary>
     private IReadOnlyList<BspOverlay>? _overlays;
 
+    /// <summary>The map's models: the world, then one per piece of moving brushwork.</summary>
+    private IReadOnlyList<BspModel>? _brushModels;
+
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
     /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
     private BspLeafTree? _leaves;
@@ -937,6 +940,7 @@ internal class MainForm : Form
                 try
                 {
                     _overlays = BspOverlays.Read(bytes);
+                    _brushModels = BspModels.Read(bytes);
                 }
                 catch (InvalidDataException failure)
                 {
@@ -1170,7 +1174,8 @@ internal class MainForm : Form
                         camera,
                         _map.MainBounds,
                         _surfaceColours.Checked,
-                        _overlays);
+                        _overlays,
+                        _brushModels);
                 }
 
                 ViewerLog.Write(
