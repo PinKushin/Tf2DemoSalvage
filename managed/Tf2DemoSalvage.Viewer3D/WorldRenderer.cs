@@ -2151,6 +2151,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
     /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
+    /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2164,7 +2165,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyList<WorldBatch> batches,
         AmbientCube? light = null,
         SunLight? sun = null,
-        float blend = 0f)
+        float blend = 0f,
+        int bones = 0)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2190,7 +2192,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
-        SetModel(context, matrix, light, sun, blend);
+        SetModel(context, matrix, light, sun, blend, bones);
 
         foreach (WorldBatch batch in batches)
         {

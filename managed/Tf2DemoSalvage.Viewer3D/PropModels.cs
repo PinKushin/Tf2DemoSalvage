@@ -446,6 +446,30 @@ internal static class PropModels
             // says otherwise.
             IReadOnlyList<StudioSequence> sequences = StudioSequences.Read(modelFile);
 
+            // **A player model holds almost none of its own animation.** scout.mdl declares 306
+            // sequences and two local animations of one frame each - the reference pose. The 1,012
+            // animations it plays are in the models it INCLUDES, so a budget computed from the
+            // local ones alone says a player is cheap to bake, which is how this first measured.
+            List<byte[]> groupModels = [modelFile];
+            List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+                [(0, sequences)];
+
+            foreach (string included in StudioModelGroups.Read(modelFile))
+            {
+                if (Find(included) is not { } animations)
+                {
+                    // Reported rather than skipped: a missing animation model is why a class would
+                    // stand still, and it looks exactly like an animation state that never ran.
+                    ViewerLog.Warn("props", $"{path} includes {included}, which was not found");
+                    continue;
+                }
+
+                groups.Add((groupModels.Count, StudioSequences.Read(animations)));
+                groupModels.Add(animations);
+            }
+
+            StudioSequenceTable table = StudioSequenceTable.Merge(groups);
+
             List<int> sequenceAnimation = [.. sequences.Select(sequence => sequence.Animation)];
             List<bool> sequenceLoops = [.. sequences.Select(sequence => sequence.Loops)];
             // **Looping animations get the budget first.** A loop is the one that plays
@@ -489,6 +513,29 @@ internal static class PropModels
             int affordable = Math.Clamp(
                 MaximumBakedCorners / Math.Max(1, cornersPerFrame), 1, MaximumBakedFrames);
 
+            // **What baking this model completely would cost, against what it may spend.** A model
+            // that cannot afford all of its frames is skinned on the GPU rather than baked short:
+            // truncating leaves it drawing a fraction of what it can do, silently.
+            // Counted across every sequence the merged table can reach, not the base model's own
+            // animations - which is the whole point of merging it.
+            long wantedFrames = 0;
+
+            for (int sequence = 0; sequence < table.Count; sequence++)
+            {
+                if (table.At(sequence) is not { } where)
+                {
+                    continue;
+                }
+
+                wantedFrames += Math.Max(
+                    1,
+                    StudioAnimation.Frames(
+                        groupModels[where.Group],
+                        groups[where.Group].Sequences[where.Local].Animation));
+            }
+
+            bool skin = wantedFrames > affordable && bones.Count > 1;
+
             foreach (int index in wanted)
             {
                 int frames = Math.Clamp(
@@ -520,7 +567,12 @@ internal static class PropModels
                     model, model.Meshes[index].MaterialIndex, materials, textures, materialIndices, load);
             }
 
-            for (int slot = 0; slot < skeletons.Count; slot++)
+            // **A skinned model keeps ONE copy of its geometry, and unposed.** The shader applies
+            // the bone matrices, so skinning here as well would transform every vertex twice - by
+            // the rest pose on the processor and by the real pose on the card.
+            int slots = skin ? 1 : skeletons.Count;
+
+            for (int slot = 0; slot < slots; slot++)
             {
                 StudioSkeleton posed = skeletons[slot];
                 List<PropVertex> frame = [];
@@ -538,8 +590,10 @@ internal static class PropModels
                     {
                         StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
 
-                        (float x, float y, float z) = posed.Skin(
-                            vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
+                        (float x, float y, float z) = skin
+                            ? (vertex.X, vertex.Y, vertex.Z)
+                            : posed.Skin(
+                                vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
 
                         // **The normal comes along now.** A static prop is lit by baked vertex
                         // colours and never needed it; an entity is lit from its leaf's ambient
@@ -548,7 +602,13 @@ internal static class PropModels
                             x, y, z, vertex.U, vertex.V, materialByMesh[index],
                             NormalX: vertex.NormalX,
                             NormalY: vertex.NormalY,
-                            NormalZ: vertex.NormalZ));
+                            NormalZ: vertex.NormalZ,
+
+                            // **Carried whether or not this model is skinned.** A baked model
+                            // ignores them; a skinned one is moved by them in the shader, and the
+                            // decision between the two is made after the vertices are built.
+                            Bones: vertex.Bones,
+                            Weights: vertex.Weights));
 
                         // **Position by mesh vertex, colour by strip group vertex.** They are
                         // different orderings of the same surface, and using one for both speckles
@@ -572,7 +632,11 @@ internal static class PropModels
             // opposite cause. Measured rather than assumed either way.
             foreach ((int animation, (int Start, int Frames, float CyclesPerSecond) where) in layout)
             {
-                if (where.Frames < 2)
+                // **A skinned model has one slot of geometry and a layout describing thousands of
+                // frames, so this probe cannot index it.** It crashed the viewer outright doing
+                // exactly that - a diagnostic taking down the thing it was meant to explain, which
+                // is the sharp end of measuring the wrong quantity.
+                if (skin || where.Frames < 2 || where.Start + where.Frames > baked.Count)
                 {
                     continue;
                 }
@@ -612,12 +676,27 @@ internal static class PropModels
                             $"{(entry.Value.CyclesPerSecond > 0f ? 1f / entry.Value.CyclesPerSecond : 0f):0.###}s]")));
             }
 
+            if (skin)
+            {
+                ViewerLog.Write(
+                    "props",
+                    $"skinning {path}: {wantedFrames} frames over {table.Count} merged sequences " +
+                    $"from {groupModels.Count} models would " +
+                    $"cost {wantedFrames * cornersPerFrame:N0} corners against a budget of " +
+                    $"{(long)affordable * cornersPerFrame:N0}, so it is posed on the GPU instead");
+            }
+
             return new LoadedModel(
                 baked[0],
                 cornerMeshes,
                 cornerVertices,
                 model.Checksum,
-                new ModelFrames(baked, layout, sequenceAnimation, sequenceLoops));
+                new ModelFrames(
+                    baked,
+                    layout,
+                    sequenceAnimation,
+                    sequenceLoops,
+                    skin ? new SkinnedModel(bones, groupModels, table, groups) : null));
         }
         catch (InvalidDataException failure)
         {
@@ -708,27 +787,73 @@ internal static class PropModels
 
     /// <summary>A model posed by its bones at draw time instead of having its frames baked.</summary>
     /// <param name="Bones">Its skeleton, which the pose is computed against.</param>
-    /// <param name="Model">The model's bytes, which carry the animation data.</param>
+    /// <param name="Models">The base model and every animation model it includes, in group order.</param>
+    /// <param name="Sequences">The merged sequence table a networked sequence number indexes.</param>
+    /// <param name="Groups">Each group's own sequences, for resolving a merged number back.</param>
     /// <remarks>
     /// **One copy of the geometry and a pose per draw.** Baking trades memory for draw cost and
     /// only pays while the frame count is small: a health pack is one animation of thirty frames,
     /// a scout is 1,012 animations over 23,442 corners. So a player's vertices are uploaded once
     /// with their bone indices and weights and the matrices arrive per draw, which is what
     /// IMaterialSystem::LoadBoneMatrix does in the engine.
+    ///
+    /// **Where this follows Valve and where it does not.** The include and merge mechanism is
+    /// theirs, ported: <c>virtualmodel_t</c> merges sequences by label with forward declarations
+    /// overridden. Skinning by bone matrices held as shader constants is theirs too.
+    ///
+    /// **Baking is not.** The engine has one path and skins everything, props included; this
+    /// project bakes what is cheap to bake and skins what is not, which is an optimisation the
+    /// owner chose knowingly. The cost of the divergence is two paths that can drift apart, and
+    /// the mitigation is that the choice between them is made by measurement in one place rather
+    /// than by classifying models.
     /// </remarks>
-    internal sealed record SkinnedModel(IReadOnlyList<StudioBone> Bones, ReadOnlyMemory<byte> Model)
+    internal sealed record SkinnedModel(
+        IReadOnlyList<StudioBone> Bones,
+        IReadOnlyList<byte[]> Models,
+        StudioSequenceTable Sequences,
+        IReadOnlyList<(int Group, IReadOnlyList<StudioSequence> Sequences)> Groups)
     {
-        /// <summary>The bone matrices for one animation at one frame.</summary>
-        /// <param name="animation">Which local animation to pose from.</param>
-        /// <param name="frame">Which frame of it.</param>
-        /// <returns>One row-major three-by-four matrix per bone.</returns>
+        /// <summary>The bone matrices for one sequence at one frame.</summary>
+        /// <param name="sequence">The merged sequence number, as a demo would network it.</param>
+        /// <param name="frame">Which frame of the animation it names.</param>
+        /// <returns>One row-major three-by-four matrix per bone, or the rest pose.</returns>
         /// <remarks>
-        /// Computed per draw rather than stored. A scout's animation data is five megabytes and
-        /// its skeleton is ninety-odd matrices, so recomputing a pose costs far less than keeping
-        /// every pose it could take.
+        /// **The skeleton is the BASE model's and the animation is the included model's.** An
+        /// animation model carries the same bones by design - that is what makes it shareable - so
+        /// a pose computed from one applies to the other. Taking the skeleton from the animation
+        /// model instead would work until a model shipped a skeleton that differed.
+        ///
+        /// Computed per draw rather than stored: a scout's animation data is five megabytes, and
+        /// recomputing one pose costs far less than keeping every pose it could take.
         /// </remarks>
-        public IReadOnlyList<float[]> Pose(int animation, int frame) =>
-            StudioBones.Posed(Bones, StudioAnimation.Pose(Model, Bones, animation, frame)).Matrices;
+        public IReadOnlyList<float[]> Pose(int sequence, int frame)
+        {
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return StudioBones.RestPose(Bones).Matrices;
+            }
+
+            int animation = Groups[where.Group].Sequences[where.Local].Animation;
+
+            return StudioBones.Posed(
+                Bones,
+                StudioAnimation.Pose(Models[where.Group], Bones, animation, frame)).Matrices;
+        }
+
+        /// <summary>How many frames the animation behind a sequence has.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>The frame count, or one when the sequence does not resolve.</returns>
+        public int Frames(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? Math.Max(
+                    1,
+                    StudioAnimation.Frames(
+                        Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation))
+                : 1;
     }
 
     /// <summary>A model's baked animation frames, and how to choose between them.</summary>

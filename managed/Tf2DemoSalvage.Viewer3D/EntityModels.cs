@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Viewer3D;
@@ -13,13 +14,15 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Sun">The sun, when this model traced to sky; null when it stands in shade.</param>
 /// <param name="Frame">Which baked animation frame to draw, from the demo's sequence and cycle.</param>
 /// <param name="Blend">How far toward the next baked frame, so the shader can smooth between them.</param>
+/// <param name="Bones">Bone matrices for a model skinned on the GPU, or null when it is baked.</param>
 internal readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
     AmbientCube Light,
     SunLight? Sun,
     int Frame = 0,
-    float Blend = 0f);
+    float Blend = 0f,
+    IReadOnlyList<float[]>? Bones = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -237,11 +240,22 @@ internal sealed class EntityModelSet
             float spanY = maximumY - minimumY;
             float spanZ = maximumZ - minimumZ;
 
+            // **Say which pose this measures, or the number lies.** A baked model's geometry is
+            // posed already, so "on its side" means something is wrong. A skinned model's is
+            // stored unposed and is SUPPOSED to be lying along Y - the shader stands it up - so
+            // the same warning about the same numbers would be false.
+            //
+            // This is the overlogging failure in miniature: a line that measured the right thing
+            // for one kind of model and kept its wording when a second kind arrived.
             ViewerLog.Write(
                 "props",
-                $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
-                $"(z from {minimumZ:0.#} to {maximumZ:0.#}), " +
-                $"tallest axis {Tallest(spanX, spanY, spanZ)}, {frames.Count} baked frames");
+                model.IsSkinned
+                    ? $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
+                      $"UNPOSED, skinned on the GPU - the shader poses it, so these are the " +
+                      $"artist's coordinates rather than how it is drawn"
+                    : $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
+                      $"(z from {minimumZ:0.#} to {maximumZ:0.#}), " +
+                      $"tallest axis {Tallest(spanX, spanY, spanZ)}, {frames.Count} baked frames");
         }
 
         return added;
@@ -302,13 +316,30 @@ internal sealed class EntityModelSet
                     $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
             }
 
+            // **A skinned model is posed here, per instance.** Its geometry was uploaded once and
+            // unposed, so the matrices are what puts it in a pose at all - without them it draws
+            // in whatever position the artist modelled it, which for a player is lying on its
+            // side.
+            IReadOnlyList<float[]>? bones = null;
+
+            if (_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) &&
+                entry.Skinned is { } skinned)
+            {
+                int sequence = Math.Max(0, pose.Sequence);
+
+                bones = skinned.Pose(
+                    sequence,
+                    StudioSequences.FrameFor(pose.Cycle, skinned.Frames(sequence), loops: true));
+            }
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
                 light,
                 sunAt?.Invoke(pose.X, pose.Y, pose.Z),
                 frame,
-                blend));
+                blend,
+                bones));
         }
     }
 

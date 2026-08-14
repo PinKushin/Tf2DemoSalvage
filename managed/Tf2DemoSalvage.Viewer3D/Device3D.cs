@@ -396,13 +396,19 @@ internal sealed unsafe class Device3D : IDisposable
                 // behind for the world.
                 foreach (ModelInstance instance in models ?? [])
                 {
+                    if (instance.Bones is { Count: > 0 } bones)
+                    {
+                        _world.SetBones(_context, bones);
+                    }
+
                     _world.DrawModel(
                         _context,
                         instance.Matrix,
                         _world.ModelBatches(instance.ModelPath, instance.Frame),
                         instance.Light,
                         instance.Sun,
-                        instance.Blend);
+                        instance.Blend,
+                        instance.Bones?.Count ?? 0);
                 }
             }
             else

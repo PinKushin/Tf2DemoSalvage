@@ -3360,4 +3360,13 @@ complete revolution. If the ammo pack's 31 frames are 31 intervals of a full tur
 intervals plus a repeat, dropping the last frame removes real motion — which would read as a hitch
 from the opposite cause to the one it was meant to fix.
 
-The owner has deprioritised it. Filed with the numbers so it does not restart from nothing.
+**One measurement settles it**, and it is the angle between consecutive frames rather than the
+identity of the endpoints. Take a vertex well off the axis and measure the turn from frame to
+frame. If the step is 360/30 = 12 degrees, there are thirty intervals and frame 30 is a duplicate
+endpoint, so dropping it is right and the stall is elsewhere. If the step is 360/31 = 11.6 degrees,
+there are thirty-one intervals, frame 30 is real motion, and dropping it removes a frame's worth of
+rotation once per turn — which is a stall from the opposite cause to the one the drop was meant to
+fix, and would explain why only this model shows it.
+
+The owner has deprioritised it until players are done. Filed with the numbers so it restarts from
+one measurement rather than from nothing.
