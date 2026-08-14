@@ -242,6 +242,18 @@ public sealed class VmtMaterial
         return _values.TryGetValue(key, out string? value) ? value : null;
     }
 
+    /// <summary>Every parameter this material declares.</summary>
+    /// <remarks>
+    /// **For reporting what a material asked for**, which is a different question from what it
+    /// got. A viewer that logs only failures reads clean while every material quietly falls back
+    /// on an effect nobody implemented — the case that hid <c>$envmap</c> on a quarter of a map
+    /// (B55) behind an hour of searching.
+    ///
+    /// The shader name is deliberately not in here: it is <see cref="Shader"/>, and folding it in
+    /// would make a census of parameters count something that is not one.
+    /// </remarks>
+    public IReadOnlyCollection<string> Keys => _values.Keys;
+
     /// <summary>Parses a VMT.</summary>
     /// <param name="content">The file's bytes.</param>
     /// <returns>The material.</returns>
