@@ -3108,7 +3108,7 @@ directly, which is the whole reason this project reads the SDK.
 
 ## B55 — `$envmap` is not implemented, and 43 of 189 map materials ask for it — OPEN
 
-**Measured, not estimated.** On cp_process_f12, **43 of 189 materials declare `$envmap`** — 23% of
+**Measured, not estimated.** On cp_process_f12, **42 of 189 materials declare `$envmap`** — 22% of
 the map's surfaces, including every pane of glass, the polished floor tiles at both second points,
 and the metalwork around them. The viewer implements none of it: a material's cubemap reflection
 contributes nothing, so those surfaces render with their base texture and lightmap alone.
@@ -3142,3 +3142,31 @@ nothing about what a surface resolved *to* — which shader path it took, whethe
 effect that is unimplemented. A map is 189 materials; a one-line summary of the unimplemented
 parameters they ask for would have named this in the first minute instead of after an hour of
 probes. Same shape as `measure-the-output-not-the-capability`.
+
+**Corrected 2026-08-13, and the correction is the point.** The 43 above was 42. The probe that
+produced it counted materials whose VMT *text contains* `$envmap`, which is a substring — so
+`$envmaptint` (18 materials) and `$envmapcontrast` (18) matched it too. It landed one away from the
+right answer by luck, since most materials declaring the tints also declare the map itself.
+
+The instrument that replaced it, `MaterialCensus`, counts declared parameter *names* and reports
+every unimplemented one at load. Its first run named the gap this whole search missed:
+
+```
+48 unimplemented material parameters across 189 materials:
+$vertexalpha x55, $vertexcolor x55, $envmap x42, $basealphaenvmapmask x24,
+$basetexturetransform x19, $envmapcontrast x18, $envmaptint x18, $alpha x7,
+$color x7, $nocull x5, $nodecal x5, $texcenter x5, $texoffset x5, $texrot x5,
+$texscale x5, $texture2 x5, ... $AlphaTestReference x2 ...
+```
+
+**`$vertexcolor` and `$vertexalpha` are on 55 materials — more than `$envmap` — and are wholly
+unimplemented.** Every overlay VMT read while chasing the black disc declared both, and neither
+was noticed, because nothing was looking for parameters and nothing failed. That is a better
+candidate for the disc than anything the probes proposed.
+
+`$basetexturetransform` on 19 materials, plus `$texrot`/`$texscale`/`$texoffset`/`$texcenter` on 5,
+is a second unimplemented family that rotates and scales a texture — worth holding against any
+future report of a texture sitting the wrong way round, since one of those was already misdiagnosed
+three times.
+
+`$AlphaTestReference` on 2 materials is B50, now measured rather than assumed.
