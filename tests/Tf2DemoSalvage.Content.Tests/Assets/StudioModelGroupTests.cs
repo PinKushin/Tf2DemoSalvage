@@ -229,7 +229,7 @@ public sealed class StudioModelGroupTests
         // Named sequences a reader would expect a class to have, with how long each really is -
         // a name resolving to a single frame would mean the merge found the label and not the
         // animation behind it.
-        foreach (string wanted in (string[])["reload", "fire", "swim", "crouch", "jump", "die"])
+        foreach (string wanted in (string[])["stand_", "run_", "crouch_", "airwalk", "idle"])
         {
             for (int sequence = 0; sequence < table.Count; sequence++)
             {
