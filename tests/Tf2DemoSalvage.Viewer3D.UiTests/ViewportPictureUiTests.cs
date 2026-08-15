@@ -27,44 +27,13 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class ViewportPictureUiTests
 {
-    private ViewerApplication _viewer = null!;
-
     /// <summary>Where the viewer writes its captures, beside its log.</summary>
     private static string ViewerFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Tf2DemoSalvage");
 
-    /// <summary>A committed demo whose map ships with the game.</summary>
-    private static string DemoPath => Path.GetFullPath(Path.Combine(
-        TestContext.CurrentContext.TestDirectory,
-        "..", "..", "..", "..", "..",
-        "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
-
-    [OneTimeSetUp]
-    public void LaunchViewerWithADemo()
-    {
-        if (!File.Exists(DemoPath))
-        {
-            Assert.Ignore($"the corpus demo is not present at {DemoPath}");
-            return;
-        }
-
-        _viewer = ViewerApplication.Launch(DemoPath);
-
-        // Synchronised on the map appearing in the log rather than on a delay: loading reads a
-        // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
-        // property of the machine.
-        Retry.WhileFalse(
-            () => _viewer.Count("building the world") > 0,
-            TimeSpan.FromSeconds(60),
-            throwOnTimeout: true,
-            timeoutMessage:
-                $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
-                $"in {ViewerApplication.Folder}.");
-    }
-
-    [OneTimeTearDown]
-    public void CloseViewer() => _viewer?.Dispose();
+    /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
+    private static ViewerApplication _viewer => ViewerSession.App;
 
     [Test]
     public void F12WritesAPictureOfWhatTheViewerDrew()

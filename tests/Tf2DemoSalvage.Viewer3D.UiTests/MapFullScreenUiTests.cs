@@ -38,45 +38,8 @@ public sealed class MapFullScreenUiTests
     /// <summary>What it logs on every viewport change, which is now the whole cost of one.</summary>
     private const string CameraLine = "camera set for a";
 
-    private ViewerApplication _viewer = null!;
-
-    /// <summary>A committed demo whose map ships with the game.</summary>
-    private static string DemoPath => Path.GetFullPath(Path.Combine(
-        TestContext.CurrentContext.TestDirectory,
-        "..", "..", "..", "..", "..",
-        "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
-
-    [OneTimeSetUp]
-    public void LaunchViewerWithADemo()
-    {
-        if (!File.Exists(DemoPath))
-        {
-            Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
-            return;
-        }
-
-        _viewer = ViewerApplication.Launch(DemoPath);
-
-        // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
-        // hundred megabytes and decodes two hundred textures, and how long that takes is a
-        // property of the machine.
-        Retry.WhileFalse(
-            () => Count(WorldBuildLine) > 0 && Count(TextureUploadLine) > 0,
-            TimeSpan.FromSeconds(60),
-            throwOnTimeout: true,
-
-            // **Says which of the two cases it is in.** "The map did not load" was reported for a
-            // fortnight by a reader pointed at a log file that no longer exists, and the sentence
-            // was believed because it names a plausible defect. Naming the log it read, or saying
-            // it found none, makes a broken instrument look broken.
-            timeoutMessage:
-                $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
-                $"in {ViewerApplication.Folder}; worlds {Count(WorldBuildLine)}, " +
-                $"textures {Count(TextureUploadLine)} (−1 means no log was read).");
-    }
-
-    [OneTimeTearDown]
-    public void CloseViewer() => _viewer?.Dispose();
+    /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
+    private static ViewerApplication _viewer => ViewerSession.App;
 
     [Test]
     public void EnteringFullScreen_RepointsTheCameraWithoutRebuildingOrReuploading()
@@ -165,5 +128,5 @@ public sealed class MapFullScreenUiTests
     }
 
     /// <summary>How many times this run's viewer log contains a line.</summary>
-    private int Count(string line) => _viewer.Count(line);
+    private static int Count(string line) => _viewer.Count(line);
 }

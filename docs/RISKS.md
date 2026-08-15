@@ -4210,3 +4210,40 @@ bar is free to change, and the only assertion in the method that is not loose. T
 below it is `Contains("reversed")`, which is why the comment's off-by-one (five slower steps from 2x
 land on −0.5x, not the −0.25x it claims) never showed up as a failure. Both need rewriting against
 the ladder in `TransportBar.Speeds` rather than against strings.
+
+### B77 — a player's yaw is stored twice and the copies disagree
+
+Found by running the whole solution in one command (1597 tests), which is now possible.
+
+`PlayersAt` builds `ScenePlayer` positionally and the argument list stopped at `LifeState`, so
+**`Yaw` took the record's default of zero**: every player in a frame faced due east, whatever they
+were looking at. The track path gained eye angles and this one never did. That is the shape a
+default takes whenever it is also a legitimate value — nothing can report a missing yaw, because
+zero IS a yaw.
+
+Two fixes landed, each exposing the next:
+
+1. Carry the yaw at all. It then read **220.997** where the track held **−139.003** — the same
+   direction, a full turn apart, because the wire sends 0..360 and everything else here normalises
+   to (−180, 180]. Anything comparing or interpolating the two is wrong by 360 at the wrap.
+2. Normalise it. Still mismatched, and now by an amount that is not a whole turn.
+
+**The remaining difference looks like interpolation against instantaneous.** `track.At(tick)`
+interpolates between keyframes; the frame path reads the entity's value at that tick. Both are
+defensible and they are not the same number, which means the real defect is that **the yaw is
+recorded in two places at all**. The fix is for `PlayersAt` to read the track rather than keep its
+own copy — one source, as with everything else here — but that is a change to the shape of the
+scene layer and wants doing deliberately, not at the end of a session.
+
+Note the feedback loop: this test takes 7.5 minutes on the corpus, so guessing costs far more than
+reading. `docs/memory/two-recordings-of-one-value.md` is the entry that predicted this class.
+
+### B78 — the shell's status test asserts an empty viewer's status line
+
+`TheDeviceComesUpAgainstARealAdapter` expects the status bar to read exactly `Direct3D ready.`. It
+passed while the fixture launched with no demo. Now that every UI test shares one viewer with a map
+open, the status line has moved on to what it last reported about loading, and the test fails
+against a viewer that is working perfectly.
+
+The device coming up is worth asserting; the status bar at one instant is not the way to do it. The
+viewer logs the device creation, so the log is the durable instrument.

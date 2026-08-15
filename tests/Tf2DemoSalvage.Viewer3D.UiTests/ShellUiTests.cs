@@ -27,17 +27,8 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class ShellUiTests
 {
-    private ViewerApplication _viewer = null!;
-
-    [OneTimeSetUp]
-    public void LaunchViewer()
-    {
-        _viewer = ViewerApplication.Launch();
-        TestContext.Out.WriteLine($"launched: window '{_viewer.Window.Title}'");
-    }
-
-    [OneTimeTearDown]
-    public void CloseViewer() => _viewer?.Dispose();
+    /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
+    private static ViewerApplication _viewer => ViewerSession.App;
 
     [TearDown]
     public void ReturnToWindowed()
@@ -95,15 +86,6 @@ public sealed class ShellUiTests
         TestContext.Out.WriteLine($"status bar reads: '{status}'");
 
         _viewer.StatusText().ShouldBe("Direct3D ready.");
-    }
-
-    [Test]
-    public void PlaybackControlsAreDisabledUntilADemoIsOpen()
-    {
-        // A Play button that looks pressable with nothing loaded invites a click that does
-        // nothing, and "nothing happened" is indistinguishable from a bug in playback.
-        _viewer.Find("PlayPauseButton").IsEnabled.ShouldBeFalse();
-        _viewer.Find("ScrubBar").IsEnabled.ShouldBeFalse();
     }
 
     [Test]

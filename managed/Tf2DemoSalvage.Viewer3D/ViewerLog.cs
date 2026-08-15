@@ -51,11 +51,20 @@ internal static class ViewerLog
     /// Losing that costs a rebuild and a relaunch to recover something that was already measured,
     /// which is the expensive kind of mistake here because each cycle needs the machine's desktop.
     /// </remarks>
+    /// <remarks>
+    /// **The process id is in the name because more than one viewer can be running.** A UI run
+    /// launches one per fixture, and anything reading "the newest viewer log" then reads whichever
+    /// instance happened to write last — which during a suite is somebody else's. The stamp alone
+    /// cannot separate them, and two viewers started in the same second share it exactly.
+    ///
+    /// With the id in the name a reader can ask for the log belonging to the process it launched
+    /// instead of guessing from timestamps, and that answer stays right however many are alive.
+    /// </remarks>
     public static string Path => _path ??= System.IO.Path.Combine(
         Folder,
         string.Create(
             CultureInfo.InvariantCulture,
-            $"viewer-{DateTime.Now:yyyyMMdd-HHmmss}.log"));
+            $"viewer-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.log"));
 
     /// <summary>How many runs' logs to keep before the oldest are deleted.</summary>
     /// <remarks>

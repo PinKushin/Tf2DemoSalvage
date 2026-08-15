@@ -376,6 +376,22 @@ public sealed class DemoTimeline
                     where = fell;
                 }
 
+                // **The yaw has to be carried here too, and was not.** Every argument below is
+                // positional and the list stopped at LifeState, so Yaw took the record's default of
+                // zero — every player in a frame faced due east regardless of where they were
+                // looking. The track path gained eye angles and this one did not, which is the
+                // shape a default has whenever it is also a legitimate value: nothing reports a
+                // missing yaw, because zero IS a yaw.
+                //
+                // Read from the same place the track reads it, so the two cannot disagree: the eye
+                // angles when the demo sends them, and m_angRotation when it does not.
+                // Normalised to (−180, 180] like everything else that stores an angle here. The
+                // wire carries this one as 0..360, so without it the same direction is held as two
+                // different numbers — 220.997 and −139.003 for one player, measured — and anything
+                // comparing or interpolating them is wrong by a full turn at the wrap.
+                float facing = Normalize(
+                    player.EyeAngles() is { } eyes ? eyes.Yaw : player.Angles()?.Yaw ?? 0f);
+
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
                     where.X,
@@ -384,7 +400,8 @@ public sealed class DemoTimeline
                     resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties),
                     resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
                     resource?.Integer($"m_iPlayerClass.{slot}"),
-                    LifeState: life));
+                    LifeState: life,
+                    Yaw: facing));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a

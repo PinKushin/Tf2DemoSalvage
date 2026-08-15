@@ -32,6 +32,28 @@ internal sealed partial class ViewerApplication : IDisposable
     /// <summary>How long to wait for an element before failing the test.</summary>
     private static readonly TimeSpan FindTimeout = TimeSpan.FromSeconds(20);
 
+    /// <summary>How long to wait for the viewer's window to appear.</summary>
+    /// <remarks>
+    /// **Separate from FindTimeout, and much longer, because it measures something else.** Finding
+    /// an element in a window that already exists is quick or it is a defect. Getting a cold
+    /// process to the point of showing a window is not: it starts a runtime, creates a Direct3D
+    /// device against a real adapter, and — when a demo is passed — reads a hundred megabytes and
+    /// decodes a couple of hundred textures.
+    ///
+    /// The two were the same 20 seconds, which is the reason a whole-solution run failed while the
+    /// same project passed alone. `dotnet test` on a solution starts one testhost per project at
+    /// once, so the corpus suite is reading 774 MB of demos while this one waits for a window, and
+    /// under that load it does not make it. The failure said "the viewer's main window did not
+    /// appear", which reads as a viewer that will not start.
+    ///
+    /// This is not a slow test papered over. **How long an observation takes to become available
+    /// is the one genuinely uncertain thing about a UI test** — the program is deterministic, the
+    /// acquisition is not — and the rule is to synchronise on the condition with a budget wide
+    /// enough for a loaded machine, never on a clock. Nothing here waits out the budget when the
+    /// window is ready; it costs only when it would otherwise have failed for being busy.
+    /// </remarks>
+    private static readonly TimeSpan LaunchTimeout = TimeSpan.FromMinutes(2);
+
     /// <summary>Where the viewer keeps its logs and screenshots.</summary>
     public static string Folder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -39,14 +61,12 @@ internal sealed partial class ViewerApplication : IDisposable
 
     private readonly UIA3Automation _automation;
     private readonly Application _application;
-    private readonly DateTime _launched;
 
     private ViewerApplication(Application application, UIA3Automation automation, Window window)
     {
         _application = application;
         _automation = automation;
         Window = window;
-        _launched = DateTime.Now;
     }
 
     /// <summary>The viewer's main window.</summary>
@@ -67,10 +87,10 @@ internal sealed partial class ViewerApplication : IDisposable
     /// about a quantity it was not measuring.** A log reader that cannot find its log must not be
     /// able to look like a log with nothing in it, so this returns null and the callers say so.
     ///
-    /// Newest wins, but only among files written since this instance launched — the folder is full
-    /// of previous runs, and the newest of those would answer questions about a viewer that exited
-    /// minutes ago. The one-second slack covers the log being created a moment before the
-    /// constructor runs, since the window has to exist before this object does.
+    /// **Matched on the process id, which the viewer puts in the file name.** The rule before it
+    /// was "newest written since I launched", and that is wrong the moment two viewers overlap —
+    /// which they did, three at a time, each writing its own log. It would have answered with
+    /// somebody else's instance, showing a different demo, in numbers that look entirely reasonable.
     /// </remarks>
     public string? LogPath
     {
@@ -81,21 +101,21 @@ internal sealed partial class ViewerApplication : IDisposable
                 return null;
             }
 
-            string? newest = null;
-            DateTime newestAt = _launched.AddSeconds(-30);
+            // **Matched on the viewer's process id, not on which file is newest.** A run launches
+            // one viewer per fixture, and they were observed alive three at a time — so "the newest
+            // log written since I started" is somebody else's the moment two overlap, and it points
+            // at a viewer showing a different demo. The counts read off it are then perfectly
+            // plausible and about the wrong window.
+            //
+            // The id is in the file name, so this is exact rather than a heuristic that is usually
+            // right.
+            string[] mine = Directory.GetFiles(
+                Folder,
+                string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"viewer-*-{_application.ProcessId}.log"));
 
-            foreach (string candidate in Directory.GetFiles(Folder, "viewer-*.log"))
-            {
-                DateTime written = File.GetLastWriteTime(candidate);
-
-                if (written >= newestAt)
-                {
-                    newest = candidate;
-                    newestAt = written;
-                }
-            }
-
-            return newest;
+            return mine.Length > 0 ? mine[^1] : null;
         }
     }
 
@@ -176,9 +196,9 @@ internal sealed partial class ViewerApplication : IDisposable
 
         // GetMainWindow polls until the window exists rather than assuming it is up, which
         // matters most on the first run after a build when the process starts cold.
-        Window window = application.GetMainWindow(automation, FindTimeout)
+        Window window = application.GetMainWindow(automation, LaunchTimeout)
             ?? throw new InvalidOperationException(
-                $"The viewer's main window did not appear within {FindTimeout}.");
+                $"The viewer's main window did not appear within {LaunchTimeout}.");
 
         return new ViewerApplication(application, automation, window);
     }
@@ -518,6 +538,21 @@ internal sealed partial class ViewerApplication : IDisposable
         try
         {
             _application.Close();
+
+            // **Waited for, because Close only asks.** It posts the close and returns at once, so
+            // a fixture that disposed here went straight on to launch the next viewer while this
+            // one was still up. Three were observed alive together during a single run — every one
+            // of them still writing to its own log, still holding a Direct3D device, and still
+            // showing a window.
+            //
+            // Killed if it will not go. That loses the clean swap-chain release the Close is for,
+            // so it is reported rather than done quietly: a viewer that does not exit on request is
+            // a defect worth seeing, and leaving it running hides it while breaking the next test.
+            if (!Retry.WhileFalse(() => _application.HasExited, TimeSpan.FromSeconds(15)).Result)
+            {
+                Log($"WARNING: viewer {_application.ProcessId} did not exit when asked; killing it");
+                _application.Kill();
+            }
         }
         catch (InvalidOperationException)
         {
