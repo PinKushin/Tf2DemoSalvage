@@ -437,37 +437,40 @@ internal sealed class MapAssets
         // mattered - $envmap on 43 of 189 materials, B55 - took an hour of throwaway probes.
         //
         // A report built only from failures reads clean while every instance quietly falls back.
-        IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
-            found.Select(material => material.Declared ?? []));
-
-        if (census.Count == 0)
-        {
-            ViewerLog.Write(
-                "assets", "every parameter the map's materials declare is implemented");
-        }
-        else
-        {
-            ViewerLog.Write(
-                "assets",
-                $"{census.Count} unimplemented material parameters across {materials.Count} materials: " +
-                string.Join(", ", census.Select(entry => $"{entry.Parameter} x{entry.Materials}")));
-        }
-
         // **And the SHADERS, which the census never counted.** A material's shader decides what its
         // parameters mean, so a shader this project does not reproduce is a bigger gap than any
         // single parameter — and it hides better, because it need not declare anything unfamiliar.
         // Modulate is the case that proved it: it multiplies the framebuffer purely by being
         // Modulate, passed the parameter census in silence, and drew every capture point as a dark
         // slab until someone stood in front of one.
-        IReadOnlyList<(string Shader, int Materials)> shaders = MaterialCensus.UnimplementedShaders(
-            found.Select(material => material.Shader));
+        //
+        // Both halves are reported per SOURCE — brushwork, then props and models — because they are
+        // drawn by different paths and a combined number would hide which of them is missing what.
+        static void ReportCensus(string source, IReadOnlyCollection<ResolvedMaterial> resolved)
+        {
+            IReadOnlyList<(string Parameter, int Materials)> parameters = MaterialCensus.Unimplemented(
+                resolved.Select(material => material.Declared ?? []));
 
-        ViewerLog.Write(
-            "assets",
-            shaders.Count == 0
-                ? "every shader the map's materials name is implemented"
-                : $"{shaders.Count} unimplemented shaders across {materials.Count} materials: " +
-                    string.Join(", ", shaders.Select(entry => $"{entry.Shader} x{entry.Materials}")));
+            ViewerLog.Write(
+                "assets",
+                parameters.Count == 0
+                    ? $"every parameter the {source} materials declare is implemented"
+                    : $"{parameters.Count} unimplemented parameters across {resolved.Count} " +
+                        $"{source} materials: " +
+                        string.Join(", ", parameters.Select(entry => $"{entry.Parameter} x{entry.Materials}")));
+
+            IReadOnlyList<(string Shader, int Materials)> shaders = MaterialCensus.UnimplementedShaders(
+                resolved.Select(material => material.Shader));
+
+            ViewerLog.Write(
+                "assets",
+                shaders.Count == 0
+                    ? $"every shader the {source} materials name is implemented"
+                    : $"{shaders.Count} unimplemented shaders across {resolved.Count} " +
+                        $"{source} materials: " +
+                        string.Join(", ", shaders.Select(entry => $"{entry.Shader} x{entry.Materials}")));
+        }
+        ReportCensus("brushwork", found);
 
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
@@ -475,6 +478,30 @@ internal sealed class MapAssets
         int brushMaterials = materials.Count;
 
         materialTiming.Dispose();
+
+        // **Every material a prop or a model resolves, gathered for the census.** The census above
+        // covers the BRUSHWORK only, because props register their materials afterwards through
+        // their own path — and the two shaders that cost this project a session and a half,
+        // Modulate and UnLitTwoTexture, are prop materials on cappoint_hologram.mdl. The report
+        // therefore read clean while a capture point drew as a dark slab, which is the one failure
+        // a census exists to prevent (B81).
+        //
+        // Collected in the closure rather than by threading a list through five signatures: the
+        // resolver already returns the shader and the declared keys, and this is the one place both
+        // prop paths pass through.
+        List<ResolvedMaterial> propMaterials = [];
+
+        ResolvedMaterial? ResolveProp(string path)
+        {
+            ResolvedMaterial? resolved = Resolve(path, pak, archives, maximumTextureSize, report: false);
+
+            if (resolved is { } material)
+            {
+                propMaterials.Add(material);
+            }
+
+            return resolved;
+        }
 
         IDisposable propTiming = ViewerLog.Time("assets", "loading props");
 
@@ -485,7 +512,7 @@ internal sealed class MapAssets
             materials,
             textures,
             blendTextures,
-            path => Resolve(path, pak, archives, maximumTextureSize, report: false));
+            ResolveProp);
 
         propTiming.Dispose();
 
@@ -516,7 +543,7 @@ internal sealed class MapAssets
                     materials,
                     textures,
                     blendTextures,
-                    file => Resolve(file, pak, archives, maximumTextureSize, report: false),
+                    ResolveProp,
 
                     // **Worn models are skinned regardless of how cheap they are.** A bone-merged
                     // item has no transform of its own; it is placed entirely by its wearer's
@@ -533,6 +560,12 @@ internal sealed class MapAssets
             ViewerLog.Write(
                 "assets", $"{loaded} of {entityModels.Count} entity models loaded");
         }
+
+        // **And now the props and models, which the census could not see (B81).** Reported
+        // separately from the brushwork rather than merged into it: the two are drawn by different
+        // paths and a gap in one says nothing about the other, so a combined number would hide
+        // which half is missing what.
+        ReportCensus("prop and model", propMaterials);
 
         // The blend list is indexed in step with the textures, and a prop material never has a
         // second layer - only a displacement's WorldVertexTransition does.
