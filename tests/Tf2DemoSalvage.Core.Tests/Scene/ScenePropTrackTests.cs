@@ -280,6 +280,40 @@ public sealed class ScenePropTrackTests
         ScenePropTrack.Classify(modelPath).ShouldBe(expected);
     }
 
+    [Test]
+    public void EveryDiscreteFieldSurvivesInterpolation()
+    {
+        // **The test that was missing, and the bug it would have caught.** At rebuilds the pose
+        // field by field, and m_nBody was simply not in the list — so between two keyframes the
+        // body number reverted to the record's default of zero, and every capture point drew the
+        // "?" sign while the demo, the model and the packer all measured correct.
+        //
+        // Asked BETWEEN keyframes deliberately. On a keyframe the earlier pose is returned whole
+        // and every field is right by construction, so the one condition where a rebuilt pose can
+        // differ from a copied one is the only condition that can fail. A test sampling on the
+        // keyframe passes against the defect.
+        //
+        // Discrete rather than blended, all of them: there is no halfway between one sign and
+        // another, and none between hidden and shown.
+        ScenePropTrack track = new(entityIndex: 7, "models/effects/cappoint_hologram.mdl");
+
+        track.Add(0, new ScenePose { X = 0f, Y = 0f, Z = 0f, Body = 3, Sequence = 5, Hidden = true });
+        track.Add(10, new ScenePose { X = 100f, Y = 0f, Z = 0f, Body = 3, Sequence = 5, Hidden = true });
+
+        ScenePose? between = track.At(5d);
+
+        between.ShouldNotBeNull();
+
+        // The position must actually have moved, or the case is not between keyframes at all and
+        // the assertions below are being made about a returned keyframe.
+        between.Value.X.ShouldBeGreaterThan(0f);
+        between.Value.X.ShouldBeLessThan(100f);
+
+        between.Value.Body.ShouldBe(3, "the body number selects which alternative is drawn");
+        between.Value.Sequence.ShouldBe(5);
+        between.Value.Hidden.ShouldBeTrue();
+    }
+
     private static ScenePose Pose(float x, float y, float z) =>
         new() { X = x, Y = y, Z = z };
 }

@@ -4266,3 +4266,32 @@ assembly now shares one viewer with a map open, so a device that failed to creat
 assembly down. `ViewportPictureUiTests` reads the swap chain back and counts lit pixels, which is a
 strictly stronger claim than a status string — and the status string had stopped being true anyway,
 since it is a live readout that moves on once a demo loads.
+
+### B73 closed — the pose was rebuilt without the body number
+
+The hop nobody had measured was the last one, and it was `ScenePropTrack.At`. Asked for a pose
+*between* keyframes it constructs a new `ScenePose` field by field — and `Body` was not in the list,
+so it took the record's default of zero. Every capture point drew alternative zero, the "?" sign,
+while the demo (bodies 0, 2, 3), the model (4 alternatives) and the packer (9 tagged batches) all
+measured correct. On a keyframe the stored pose is returned whole, so the value was right at every
+instant anyone had checked it and wrong at every instant anyone had *looked* at it.
+
+Measured before and after, at the draw:
+
+```
+before:  drawing cappoint_hologram.mdl: body 0, 1 parts, 9 batches spanning 3 alternatives
+after:   drawing cappoint_hologram.mdl: body 3 … body 0 … body 2
+```
+
+**Second instance of this exact shape today.** `ScenePlayer.Yaw` was the other: a record built field
+by field, one field forgotten, and a default that is itself a legitimate value — so nothing can
+report the omission, because zero IS a body and zero IS a yaw. Worth stating as a rule: **when a
+type is rebuilt rather than copied, the rebuild is a list that must be checked against the type, and
+a defaulted field is silent by construction.**
+
+`ScenePropTrackTests.EveryDiscreteFieldSurvivesInterpolation` now covers every discrete field, and
+samples strictly between keyframes because on one the defect is invisible. Verified by manipulation:
+red with `Body = from.Body` removed, green with it restored.
+
+The `[render] drawing …` line stays. It costs one log line per model per distinct body and it is the
+instrument that would have found this in minutes rather than across two sessions.

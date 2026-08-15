@@ -777,6 +777,14 @@ internal class MainForm : Form
     /// <summary>Environment variable pinning the window position, as X,Y.</summary>
     public const string WindowPositionVariable = "TF2VIEW_WINDOW_POS";
 
+    /// <summary>Environment variable that starts playback as soon as a demo is loaded.</summary>
+    /// <remarks>
+    /// For measurement runs. A demo's first tick is before the match starts, so a viewer launched
+    /// and logged without this one draws a scene with no capture points, no holograms and no
+    /// carried weapons in it — and every question about those models comes back "never drawn".
+    /// </remarks>
+    public const string AutoPlayVariable = "TF2VIEW_AUTOPLAY";
+
     /// <summary>
     /// Applies a window geometry override, so a developer can reproduce CI's tiny screen.
     /// </summary>
@@ -1995,6 +2003,25 @@ internal class MainForm : Form
                 // a box left at its default runs 33 where a configured one runs 66, and replaying
                 // at the wrong rate reads as a slow or fast server rather than as a defect.
                 _clock = new PlaybackClock(_timeline.IntervalPerTick, _demo.LastTick);
+
+                // **Playback can be started by the environment, for measurement — and it has to
+                // happen HERE, after the clock exists.** A demo's first tick is before the match
+                // begins: no capture points, no holograms, nobody carrying anything. A
+                // launch-and-log run, which is the only way to ask the renderer a question with
+                // nobody driving it, therefore measures an almost empty scene and reports "never
+                // drawn" for models that simply had not appeared yet.
+                //
+                // Set before this line it does nothing but look right, which is exactly what it
+                // did: PlayingChanged starts the stopwatch only `if (playing && _clock is not
+                // null)`, so the button showed playing while no time was fed to a clock that did
+                // not exist, and the demo sat still until the user paused and played again.
+                if (Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 })
+                {
+                    _transport.Playing = true;
+
+                    ViewerLog.Write(
+                        "demo", $"{AutoPlayVariable} is set; playback started at load");
+                }
 
                 float interval = _timeline.IntervalPerTick > 0f
                     ? _timeline.IntervalPerTick

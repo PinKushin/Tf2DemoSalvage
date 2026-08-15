@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
@@ -421,6 +423,8 @@ internal sealed unsafe class Device3D : IDisposable
                         _world.SetBones(_context, bones);
                     }
 
+                    ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
+
                     _world.DrawModel(
                         _context,
                         instance.Matrix,
@@ -666,6 +670,45 @@ internal sealed unsafe class Device3D : IDisposable
         IsExclusiveFullScreen = enabled;
         return true;
     }
+
+    /// <summary>Which alternatives a model offers the draw, and which one it was told to show.</summary>
+    /// <param name="instance">The model about to be drawn.</param>
+    /// <param name="batches">The runs it will draw from.</param>
+    /// <remarks>
+    /// **The last unmeasured hop in B73.** The model offers four capture-point signs, the demo says
+    /// which each point wants, and the packer keeps all four in separate tagged batches — every one
+    /// of those was measured and every one was right, while the picture kept showing "?" on all
+    /// three points. Three correct measurements only prove the fault is in the hop nobody looked at,
+    /// and this is that hop: what the draw call actually receives.
+    ///
+    /// Reported once per model rather than per frame, because this runs sixty times a second.
+    /// </remarks>
+    private void ReportBodySelection(ModelInstance instance, IReadOnlyList<WorldBatch> batches)
+    {
+        if (!_reportedBodies.Add($"{instance.ModelPath}#{instance.Body}"))
+        {
+            return;
+        }
+
+        int alternatives = batches
+            .Select(batch => batch.BodyModel)
+            .Distinct()
+            .Count();
+
+        // **Every model, not only the interesting ones.** The first version of this reported only
+        // models with a choice to make, and it printed nothing at all for the run — which is the
+        // one outcome that cannot be read, because "no model had alternatives" and "the model was
+        // never drawn" produce the same silence. Naming everything drawn separates them: if the
+        // hologram is absent from this list, the body number was never the problem.
+        ViewerLog.Write(
+            "render",
+            $"drawing {instance.ModelPath}: body {instance.Body}, " +
+            $"{instance.BodyParts?.Count.ToString(CultureInfo.InvariantCulture) ?? "NO"} parts, " +
+            $"{batches.Count} batches spanning {alternatives} alternatives");
+    }
+
+    /// <summary>Models already reported on, so the log carries one line each.</summary>
+    private readonly HashSet<string> _reportedBodies = [];
 
     /// <inheritdoc />
     public void Dispose()
