@@ -163,6 +163,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             float4 pos : SV_POSITION;
             float2 uv  : TEXCOORD0;
+
+            // **The second texture's own coordinate**, because a material transforms its two
+            // textures independently over one incoming coordinate — Valve's vertex shader writes
+            // baseTexCoord and baseTexCoord2 from the same v.vTexCoord0 through different matrices
+            // (unlittwotexture_vs20.fxc:63). A capture point beam holds its colour still while the
+            // stripes scroll across it, which one shared coordinate cannot express.
+            float2 uv2 : TEXCOORD6;
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
@@ -258,6 +265,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // The colour the self-illuminated part is tinted by.
             float4 selfIllumTint;
+
+            // **The two texture coordinate transforms, two rows each.** Uploaded exactly as the
+            // engine does — CBaseVSShader::SetVertexShaderTextureTransform sends mat[0] and mat[1]
+            // (BaseVSShader.cpp:307) and the vertex shader dots each against the incoming
+            // coordinate. The fourth component is the translation, which is what a scrolling
+            // material writes and why the coordinate is extended to a float4 below.
+            //
+            // Identity is (1,0,0,0) and (0,1,0,0), which is Valve's own fallback for a material
+            // with no transform. A zeroed row would send every coordinate to the first texel.
+            float4 baseTransform0;
+            float4 baseTransform1;
+            float4 secondTransform0;
+            float4 secondTransform1;
+
+            // **The modulation colour**, which is $color and $alpha after their proxies have run.
+            // Valve's pixel shader multiplies by g_DiffuseModulation; without it the capture point
+            // signs never pulse, which reads as a dead scene rather than a missing feature.
+            float4 modulation;
 
             // x: how the material's two textures combine.
             //    0 mixes them by the vertex alpha, which is what a WorldVertexTransition
@@ -433,7 +458,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
-            output.uv = input.uv;
+            // **Both coordinate sets, from one incoming pair, exactly as the engine builds them.**
+            // The coordinate is extended to a float4 with w = 1 so the transform's fourth column
+            // translates — that is what a scrolling material writes into, and with an identity
+            // transform this is the coordinate unchanged.
+            float4 coordinate = float4(input.uv, 0.0f, 1.0f);
+
+            output.uv = float2(dot(coordinate, baseTransform0), dot(coordinate, baseTransform1));
+            output.uv2 = float2(dot(coordinate, secondTransform0), dot(coordinate, secondTransform1));
             output.luv = input.luv;
             output.a = input.a;
             output.vc = input.vc;
@@ -496,7 +528,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // say how much of each. Where a material has only one texture the second is bound to
             // the same image, so the mix is an identity and costs a sample.
             float4 first = albedoMap.Sample(wrapSampler, input.uv);
-            float4 second = blendMap.Sample(wrapSampler, input.uv);
+
+            // Sampled with its OWN coordinate, which is the point of carrying two: the beam's
+            // stripes scroll across a colour that stays put.
+            float4 second = blendMap.Sample(wrapSampler, input.uv2);
             // **The cut is on depth, which is height.** Discarding here rather than dropping the
             // geometry means the slice moves without rebuilding anything - the camera matrix work
             // is what makes that free.
@@ -507,8 +542,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // is exactly that: scrolling stripes times a team colour. Mixed by alpha instead, the
             // beam is whichever of the two the vertices ask for — which is how it came out as a
             // grey striped column on BLU, whose material happens to name the stripes first.
+            // Valve's line is `baseColor * baseColor2 * g_DiffuseModulation`, so the modulation
+            // colour belongs on the multiply — it is what $color and $alpha drive, and what a Sine
+            // proxy pulses.
             float4 albedo = combine.x > 0.5f
-                ? first * second
+                ? first * second * modulation
                 : lerp(first, second, saturate(input.a));
 
             // **The detail goes in before the lighting, as Valve's shader does it.** It modifies
@@ -1294,6 +1332,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasGlow,
                     alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
+
+                    // The two texture transforms and the modulation colour, at rest. A material
+                    // whose proxies move them has them overwritten per frame by SetMaterial; these
+                    // are the values for one that does not, and they have to be the identity rather
+                    // than zero.
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 1f, 1f, 1f,
+
                     multiplies, 0f, 0f, 0f,
                 ]
                 :
@@ -1305,6 +1354,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasGlow,
                     alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
+
+                    // The two texture transforms and the modulation colour, at rest. A material
+                    // whose proxies move them has them overwritten per frame by SetMaterial; these
+                    // are the values for one that does not, and they have to be the identity rather
+                    // than zero.
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 1f, 1f, 1f,
+
                     multiplies, 0f, 0f, 0f,
                 ]);
         }
@@ -1576,8 +1636,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Mode -1, which is the value the shader tests to skip the combine entirely. The tint is white
     /// so that a stale sample can never darken anything even if the mode were somehow read.
     /// </remarks>
+    /// <remarks>
+    /// **The tail is not padding and cannot be zeroed.** After the detail, tint, bump and
+    /// self-illum groups come the two texture transforms, the modulation colour and the combine
+    /// mode — and each has a non-zero resting value. Identity rows are (1,0,0,0) and (0,1,0,0);
+    /// zeroing them sends every coordinate to the texture's first texel, and zeroing the modulation
+    /// multiplies every surface by black.
+    /// </remarks>
     private static readonly float[] NoDetail =
-        [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f];
+    [
+        0f, 0f, -1f, 0f,
+        1f, 1f, 1f, 1f,
+        0f, 0f, 0f, 0f,
+        1f, 1f, 1f, 1f,
+
+        // baseTransform0, baseTransform1, secondTransform0, secondTransform1: identity.
+        1f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f,
+        1f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f,
+
+        // modulation: white, opaque.
+        1f, 1f, 1f, 1f,
+
+        // combine: mixed by vertex alpha rather than multiplied.
+        0f, 0f, 0f, 0f,
+    ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>
     private static readonly float[] Identity =
@@ -1874,7 +1958,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BufferDesc description = new()
         {
-            ByteWidth = sizeof(float) * 16,
+            // **Sized from the resting values, so the buffer and the shader cannot disagree.** The
+            // struct is detail, tint, bump, self-illum, two texture transforms, modulation and the
+            // combine mode — and a literal here would have to be edited every time one is added,
+            // which is the edit that gets forgotten. NoDetail is that struct, so its length IS the
+            // size.
+            ByteWidth = (uint)(sizeof(float) * NoDetail.Length),
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,
             CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -1925,13 +2014,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         SilkMarshal.ThrowHResult(context.Map(_material, 0, Map.WriteDiscard, 0, ref mapped));
 
+        // **Sized from the array rather than from a literal.** It was a hardcoded sixteen floats,
+        // which silently truncates the moment the buffer grows — and it grew, by five float4s of
+        // texture transform and modulation. A short copy leaves the tail as whatever the previous
+        // material wrote, which is the kind of fault that looks like one surface borrowing
+        // another's scroll.
         fixed (float* source = contents)
         {
-            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
+            System.Buffer.MemoryCopy(
+                source,
+                mapped.PData,
+                sizeof(float) * contents.Length,
+                sizeof(float) * contents.Length);
         }
 
         context.Unmap(_material, 0);
         context.PSSetConstantBuffers(1, 1, ref _material);
+
+        // **And to the vertex stage, which now reads it too.** The texture transforms are applied
+        // to the coordinate in the vertex shader, as they are in the engine. The remark above this
+        // method said this buffer was pixel-only and named the session that cost — so it is bound
+        // to both rather than left to be discovered again.
+        context.VSSetConstantBuffers(1, 1, ref _material);
     }
 
     /// <summary>Draws the additive materials over everything already painted.</summary>

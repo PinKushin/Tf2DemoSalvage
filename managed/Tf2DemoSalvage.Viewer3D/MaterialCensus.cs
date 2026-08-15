@@ -106,15 +106,20 @@ internal static class MaterialCensus
     /// is actually reproduced rather than every string TF2 ships.
     /// </remarks>
     public static IReadOnlyList<(string Shader, int Materials)> UnimplementedShaders(
-        IEnumerable<string> shaders)
+        IEnumerable<string?> shaders)
     {
         ArgumentNullException.ThrowIfNull(shaders);
 
         Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string shader in shaders)
+        foreach (string? shader in shaders)
         {
-            if (shader.Length == 0 || ImplementedShaders.Contains(shader))
+            // **Null, not just empty.** ResolvedMaterial is a record STRUCT, so a defaulted one has
+            // a null Shader however the positional parameter's `= ""` reads — a material that could
+            // not be resolved at all arrives that way. Same shape as every other default this
+            // project has been bitten by: the value is legal, nothing reports it, and here it threw
+            // rather than lying, which is the better half of the bargain.
+            if (string.IsNullOrEmpty(shader) || ImplementedShaders.Contains(shader))
             {
                 continue;
             }
