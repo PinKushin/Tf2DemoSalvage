@@ -4324,3 +4324,31 @@ model, and needs `TF2_FOLDER` set to run.
 
 Note for whoever picks this up: the probe answers with no viewer and no desktop, in seconds. Do that
 before launching anything.
+
+**B79, first measurement — the tag-collision hypothesis is dead.** The model's meshes carry:
+
+```
+9 meshes: [0,1,2] alt 0   [3,4,5] alt 2   [6,7,8] alt 3
+```
+
+Alternative **1 has no meshes** — an empty bodygroup, the "blank" option a mapper uses for "show
+nothing". So four alternatives across three tags is correct and complete rather than a collision,
+and it lines up exactly with the bodies the demo sends (0, 2, 3). Alt 0 is the "?" sign, 2 and 3 are
+the team signs.
+
+That also means **each sign is three meshes by construction**, and `Shows` selects exactly one
+alternative's three. So the extra beams cannot be another alternative of this model leaking through,
+which is what the previous entry guessed.
+
+What is left, in the order worth checking:
+
+1. **A different model.** The scene draws `5xcappoint_hologram` and `5xcap_point_base`; the beams may
+   belong to the base, or to a light/sprite entity that is drawn regardless of ownership.
+2. **The three meshes of one alternative are not all sign.** If one of them is the beam and it is
+   authored per-state, all three drawing together is correct and the fault is elsewhere entirely.
+3. **`m_nSkin`, not `m_nBody`.** A team colour in TF2 is usually a skin family rather than a
+   bodygroup, and the pose carries `Skin` separately.
+
+The probe now dumps this in seconds with `TF2_FOLDER` set and `--logger "console;verbosity=detailed"`
+— without the logger the output is swallowed and the test merely passes, which is how this looked
+like "the probe did not run".
