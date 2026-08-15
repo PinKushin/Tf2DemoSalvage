@@ -132,6 +132,20 @@ public sealed class HatSkeletonProbe
                         (part, index) => $"[{index}] base {part.Base}, {part.Count} alternatives")) +
                 $"; {structure.Meshes.Count} meshes");
 
+            // **Every mesh with the alternative it belongs to.** The capture point now shows the
+            // right sign for each team and the BLU one draws all of its beams at once, so the
+            // question has moved from "which alternative" to "what is IN each alternative". A mesh
+            // tagged to the wrong part, or one that belongs to no alternative and is therefore
+            // always drawn, looks exactly like this.
+            //
+            // The draw reported nine batches spanning THREE alternatives while the model offers
+            // four, and that discrepancy has not been explained. This lists the source of truth.
+            TestContext.Out.WriteLine(
+                "HAT   meshes: " + string.Join(
+                    ", ",
+                    structure.Meshes.Select(
+                        (mesh, index) => $"[{index}] part {mesh.BodyPart} alt {mesh.BodyModel}")));
+
             StudioSkeleton rest = StudioBones.RestPose(bones);
 
             List<string> placed = [];

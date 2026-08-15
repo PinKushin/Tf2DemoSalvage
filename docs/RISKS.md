@@ -4295,3 +4295,32 @@ red with `Body = from.Body` removed, green with it restored.
 
 The `[render] drawing …` line stays. It costs one log line per model per distinct body and it is the
 instrument that would have found this in minutes rather than across two sessions.
+
+### B79 — the BLU point draws every beam at once, and it is a regression
+
+Confirmed by eye after B73: each point now shows the RIGHT sign, and the BLU one draws all of its
+lighting tails/spotlights simultaneously. The owner reports this was fixed earlier in the session,
+so it is a regression rather than an unfinished piece — and the only change between those two states
+is B73 itself.
+
+That narrows it usefully. Before B73, `At` returned body zero for every interpolated pose, so every
+point drew alternative zero and nothing else: one label each, and no way to see a fault in any other
+alternative. Carrying the real body number is what made alternatives 2 and 3 visible for the first
+time, so **this is most likely a pre-existing fault in those alternatives that was previously
+unreachable**, not damage done by the fix. Stated as a hypothesis, not a finding.
+
+The measurement that has NOT been explained, and is the place to start:
+
+```
+model (probe):  cappoint_hologram.mdl — 1 part, base 1, 4 alternatives, 9 meshes
+draw (log):     9 batches spanning 3 alternatives
+```
+
+**Four alternatives, three distinct tags across nine batches.** If two alternatives' meshes carry
+the same `(part, model)` tag, then selecting one draws the other's geometry too — which is exactly
+"all the beams at once" for whichever team collides. `StudioModel.ReadMeshes` assigns those tags and
+is where to look; `HatSkeletonProbe` now dumps every mesh's `part`/`alt` for comparison against the
+model, and needs `TF2_FOLDER` set to run.
+
+Note for whoever picks this up: the probe answers with no viewer and no desktop, in seconds. Do that
+before launching anything.
