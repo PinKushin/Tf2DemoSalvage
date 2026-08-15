@@ -312,6 +312,8 @@ public sealed class HatSkeletonProbe
             "materials/models/effects/cappoint_logo_red.vmt",
             "materials/models/effects/cappoint_logo_red_dark.vmt",
             "materials/models/effects/cappoint_beam_blue.vmt",
+            "materials/models/effects/cappoint_beam_red.vmt",
+            "materials/models/effects/cappoint_beam_neutral.vmt",
         })
         {
             if (archives.Read(material) is not { } vmt)

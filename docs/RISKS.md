@@ -4555,3 +4555,25 @@ subject.
    (.8 to 1) and the dark one a Sine on `$alpha`, and both beams run TextureScroll on a transform.
    Nothing pulses or scrolls without them, which is why the owner reported "the CP brightness didn't
    seem to change at all". Proxies are a general mechanism, not a capture-point feature.
+
+**B80, why only BLU — Valve authored the blue beam with its two textures the other way round.**
+
+```
+blue:    $basetexture cappoint_beam_lines    $texture2 cappoint_beam_blue     scroll $basetexturetransform
+red:     $basetexture cappoint_beam_red      $texture2 cappoint_beam_lines    scroll $texture2transform
+neutral: $basetexture cappoint_beam_neutral  $texture2 cappoint_beam_lines    scroll $texture2transform
+```
+
+Red and neutral name the COLOUR as `$basetexture`; blue names the STRIPES. Since this project draws
+`$basetexture` and ignores `$texture2`, red and neutral come out right **by accident** and blue comes
+out as the grey striped column the owner reported. The scroll proxy follows the swap — whichever
+transform belongs to the lines texture — so the authoring is internally consistent.
+
+**In the engine the difference cannot be seen**, because the shader multiplies:
+`baseColor * baseColor2`, and multiplication is commutative. Valve's inconsistency is therefore
+harmless there and becomes a one-team defect only in a renderer that drops one of the two textures.
+
+That is the whole shape of this class of bug, and it is worth stating plainly: **a gap in what this
+project implements is invisible until it meets an asset that leans on the part we skipped.** Two of
+the three beams leaned the other way, which is why this looked like a blue-specific mystery for a
+session and a half rather than a missing shader.
