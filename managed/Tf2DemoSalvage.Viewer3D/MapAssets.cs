@@ -85,6 +85,10 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// <param name="Detail">The detail pattern, or null.</param>
 /// <param name="Bump">The bump map, or null.</param>
 /// <param name="Declared">Every parameter the VMT named, for reporting the unimplemented ones.</param>
+/// <param name="Shader">
+/// The shader the material names. Carried for the census: a shader decides what its parameters
+/// MEAN, and Modulate declared nothing unfamiliar while drawing entirely differently.
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -94,7 +98,8 @@ internal readonly record struct ResolvedMaterial(
     MapTexture? Blend,
     MapDetail? Detail,
     MapBump? Bump,
-    IReadOnlyCollection<string>? Declared = null);
+    IReadOnlyCollection<string>? Declared = null,
+    string Shader = "");
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -448,6 +453,22 @@ internal sealed class MapAssets
                 string.Join(", ", census.Select(entry => $"{entry.Parameter} x{entry.Materials}")));
         }
 
+        // **And the SHADERS, which the census never counted.** A material's shader decides what its
+        // parameters mean, so a shader this project does not reproduce is a bigger gap than any
+        // single parameter — and it hides better, because it need not declare anything unfamiliar.
+        // Modulate is the case that proved it: it multiplies the framebuffer purely by being
+        // Modulate, passed the parameter census in silence, and drew every capture point as a dark
+        // slab until someone stood in front of one.
+        IReadOnlyList<(string Shader, int Materials)> shaders = MaterialCensus.UnimplementedShaders(
+            found.Select(material => material.Shader));
+
+        ViewerLog.Write(
+            "assets",
+            shaders.Count == 0
+                ? "every shader the map's materials name is implemented"
+                : $"{shaders.Count} unimplemented shaders across {materials.Count} materials: " +
+                    string.Join(", ", shaders.Select(entry => $"{entry.Shader} x{entry.Materials}")));
+
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
         // the end. Inserting them first would renumber every face in the map.
@@ -651,7 +672,8 @@ internal sealed class MapAssets
         // **The parameters carried out alongside the textures**, so the caller can report what
         // the map asked for rather than only what failed. Gathered here because this is the one
         // place the parsed VMT exists; the census itself runs on the single-threaded side.
-        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump(), material.Keys);
+        return new ResolvedMaterial(
+            first, second, ResolveDetail(), ResolveBump(), material.Keys, material.Shader);
 
         MapBump? ResolveBump()
         {
