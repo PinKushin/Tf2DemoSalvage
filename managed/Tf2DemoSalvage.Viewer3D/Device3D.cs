@@ -416,6 +416,8 @@ internal sealed unsafe class Device3D : IDisposable
                 // than trust the last one to have tidied up.
                 _context.OMSetDepthStencilState(_depthOn, 0);
 
+                ReportRepeatedModels(models);
+
                 foreach (ModelInstance instance in models ?? [])
                 {
                     if (instance.Bones is { Count: > 0 } bones)
@@ -685,7 +687,7 @@ internal sealed unsafe class Device3D : IDisposable
     /// </remarks>
     private void ReportBodySelection(ModelInstance instance, IReadOnlyList<WorldBatch> batches)
     {
-        if (!_reportedBodies.Add($"{instance.ModelPath}#{instance.Body}"))
+        if (!_reportedBodies.Add($"{instance.ModelPath}#{instance.Body}#{instance.Frame}"))
         {
             return;
         }
@@ -712,15 +714,69 @@ internal sealed unsafe class Device3D : IDisposable
             ? batches.Count(batch => WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
             : batches.Count;
 
+        // **Which materials the kept batches use, and which pass each lands in.** RED and neutral
+        // are right and BLU is not, on one model with the same three meshes per team and a
+        // selection measured as keeping three of nine for every one of them — so the difference is
+        // ours and it is downstream of the choice. Naming the materials makes red and blue directly
+        // comparable, which is the whole value of having a control that works.
+        string drawn = _world is null
+            ? "no renderer"
+            : string.Join(
+                ", ",
+                batches
+                    .Where(batch => instance.BodyParts is not { Count: > 0 } parts ||
+                        WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
+                    .Select(batch =>
+                        $"{batch.MaterialIndex}:{_world.DescribeMaterial(batch.MaterialIndex)}"));
+
         ViewerLog.Write(
             "render",
             $"drawing {instance.ModelPath}: body {instance.Body}, " +
             $"{instance.BodyParts?.Count.ToString(CultureInfo.InvariantCulture) ?? "NO"} parts, " +
-            $"drawing {kept} of {batches.Count} batches spanning {alternatives} alternatives");
+            $"drawing {kept} of {batches.Count} batches spanning {alternatives} alternatives" +
+            $" — kept [{drawn}]");
     }
 
     /// <summary>Models already reported on, so the log carries one line each.</summary>
     private readonly HashSet<string> _reportedBodies = [];
+
+    /// <summary>Whether the repeated-model census has been written.</summary>
+    private bool _reportedRepeats;
+
+    /// <summary>Every model drawn more than once, with the body number of each instance.</summary>
+    /// <param name="models">This frame's instances.</param>
+    /// <remarks>
+    /// **Because the remaining suspect is a second instance, not a second mesh.** Everything about
+    /// the capture point hologram measured symmetric across the three teams — the same three meshes
+    /// per alternative, the same three of nine batches kept, and materials classified identically
+    /// (two additive and one opaque for each). Nothing our chain does distinguishes BLU, yet BLU is
+    /// the one drawing every beam.
+    ///
+    /// That rules out the shading and leaves the count. Five points on a five-point map should be
+    /// five holograms carrying two RED, two BLU and one neutral at the start; anything else — a
+    /// duplicate entity, or one point holding two — shows up here and nowhere else.
+    /// </remarks>
+    private void ReportRepeatedModels(IReadOnlyList<ModelInstance>? models)
+    {
+        if (_reportedRepeats || models is not { Count: > 0 })
+        {
+            return;
+        }
+
+        _reportedRepeats = true;
+
+        foreach (IGrouping<string, ModelInstance> group in models
+            .GroupBy(instance => instance.ModelPath)
+            .Where(group => group.Count() > 1))
+        {
+            ViewerLog.Write(
+                "render",
+                $"census {group.Key}: {group.Count()} instances, bodies " +
+                string.Join(
+                    ", ",
+                    group.Select(instance => instance.Body).Order()));
+        }
+    }
 
     /// <inheritdoc />
     public void Dispose()

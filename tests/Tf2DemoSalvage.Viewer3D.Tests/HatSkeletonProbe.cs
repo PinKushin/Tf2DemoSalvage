@@ -147,6 +147,42 @@ public sealed class HatSkeletonProbe
                     structure.Meshes.Select(
                         (mesh, index) => $"[{index}] part {mesh.BodyPart} alt {mesh.BodyModel}")));
 
+            // **What the model CALLS each alternative**, which is the question the numbers cannot
+            // answer. The capture point shows the right sign for RED and neutral and draws every
+            // beam for BLU — and BLU is the last alternative, which is exactly where a mapper puts
+            // an "all" or "preview" variant. If alternative 3 is named for every light rather than
+            // for BLU, nothing in the renderer is wrong and the body number means something other
+            // than what this project assumed.
+            //
+            // Read straight from the file: mstudiobodyparts_t is sznameindex/nummodels/base/
+            // modelindex at stride 16, and each mstudiomodel_t begins with char name[64] at stride
+            // 148. Both offsets are already used by StudioModel; this only reads the names, which
+            // nothing else needed until now.
+            int partCount = BitConverter.ToInt32(bytes, 232);
+            int partIndex = BitConverter.ToInt32(bytes, 236);
+
+            for (int part = 0; part < partCount; part++)
+            {
+                int at = partIndex + (part * 16);
+                int models = BitConverter.ToInt32(bytes, at + 4);
+                int modelAt = at + BitConverter.ToInt32(bytes, at + 12);
+
+                List<string> named = [];
+
+                for (int model = 0; model < models; model++)
+                {
+                    int entry = modelAt + (model * 148);
+                    int end = Array.IndexOf(bytes, (byte)0, entry, 64);
+
+                    named.Add(
+                        $"[{model}] '{System.Text.Encoding.UTF8.GetString(bytes, entry, (end < 0 ? entry + 64 : end) - entry)}'" +
+                        $" {BitConverter.ToInt32(bytes, entry + 72)} meshes");
+                }
+
+                TestContext.Out.WriteLine(
+                    $"HAT   part {part} alternatives: {string.Join(", ", named)}");
+            }
+
             // **How many skin families, which decides whether m_nSkin can do anything here.** A
             // model with one family cannot change appearance however faithfully the skin is
             // decoded — so if the capture point has one, the team colour is not carried that way

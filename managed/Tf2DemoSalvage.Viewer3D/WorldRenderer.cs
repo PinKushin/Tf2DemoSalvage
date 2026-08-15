@@ -2285,6 +2285,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
     /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>
+    /// <summary>How a material was classified, for the log.</summary>
+    /// <param name="material">Its index in the uploaded table.</param>
+    /// <returns>"additive", "translucent" or "opaque".</returns>
+    /// <remarks>
+    /// **Because which PASS a batch lands in decides whether it is seen.** The capture point shows
+    /// the right sign for RED and neutral and every beam for BLU, while the selection was measured
+    /// as keeping exactly three of nine batches for every team — so the difference is not which
+    /// meshes are drawn but how the three that are drawn are shaded, and that is this table.
+    /// </remarks>
+    internal string DescribeMaterial(int material)
+    {
+        if (_additive.Contains(material))
+        {
+            return "additive";
+        }
+
+        return _translucent.Contains(material) ? "translucent" : "opaque";
+    }
+
     internal static bool Shows(
         IReadOnlyList<(int Base, int Count)> parts, int part, int model, int body)
     {

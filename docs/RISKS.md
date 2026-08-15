@@ -4387,3 +4387,40 @@ bodygroup-driven and correct. Still unexplained, and the next thing to look at: 
 meshes of one alternative are sign-plus-beams by construction (in which case there is no defect in
 the hologram at all and the doubled beams belong to a light or sprite entity), or whether two
 hologram entities are being drawn at one point.
+
+**B79, fourth measurement — everything about the SELECTION is correct, so the geometry is next.**
+
+The model names its own alternatives, which settles what they are:
+
+```
+[0] cappoint_hologram_neutral_reference.smd   3 meshes
+[1] ''                                        0 meshes   (blank bodygroup)
+[2] cappoint_hologram_redteam_reference.smd   3 meshes
+[3] cappoint_hologram_blueteam_reference.smd  3 meshes
+```
+
+And at the draw, across every baked frame and every body:
+
+```
+body 0: drawing 3 of 9 batches — kept [550:additive, 551:additive, 552:opaque]   ×30 frames
+body 2: drawing 3 of 9 batches — kept [553:additive, 554:additive, 555:opaque]   ×30 frames
+body 3: drawing 3 of 9 batches — kept [556:additive, 557:additive, 558:opaque]   ×30 frames
+census models/effects/cappoint_hologram.mdl: 5 instances, bodies 0, 2, 2, 3, 3
+```
+
+Five instances for a five-point map, two RED, two BLU, one neutral. Three of nine kept for every
+body on every frame. Materials classified identically for all three teams — two additive and one
+opaque each. **Nothing in this project's chain distinguishes BLU from RED**, and the owner reports
+RED and neutral correct with BLU drawing the neutral sign and its own at once, and the BLU point
+rendering dark.
+
+Correct batch count, correct materials, wrong picture leaves the **vertex ranges**. A batch names a
+span of the packed model buffer; if those spans are computed wrong the draw renders another
+alternative's triangles while reporting itself as blue's. Offsets accumulate through the pack, so
+the LAST alternative is where drift appears first — and blue is alternative 3, the last one with
+geometry. It also explains "dark", since the wrong span brings the wrong texture coordinates with it.
+
+**Next measurement, and it needs no viewer:** log each kept batch's start and count alongside its
+material, and check that alternative 3's span begins where alternative 2's ends and covers exactly
+its own three meshes' vertices. `EntityModels` packs them; the seam to check is where a mesh's
+vertex offset is turned into a batch range for a baked frame.
