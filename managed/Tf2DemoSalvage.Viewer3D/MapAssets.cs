@@ -463,7 +463,8 @@ internal sealed class MapAssets
             archives,
             materials,
             textures,
-            path => Resolve(path, pak, archives, maximumTextureSize, report: false).Texture);
+            blendTextures,
+            path => Resolve(path, pak, archives, maximumTextureSize, report: false));
 
         propTiming.Dispose();
 
@@ -493,7 +494,8 @@ internal sealed class MapAssets
                     archives,
                     materials,
                     textures,
-                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture,
+                    blendTextures,
+                    file => Resolve(file, pak, archives, maximumTextureSize, report: false),
 
                     // **Worn models are skinned regardless of how cheap they are.** A bone-merged
                     // item has no transform of its own; it is placed entirely by its wearer's

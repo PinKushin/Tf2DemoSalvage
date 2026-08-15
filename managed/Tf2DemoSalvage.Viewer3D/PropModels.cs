@@ -102,7 +102,11 @@ internal static class PropModels
     /// <param name="archives">The game's archives and folders.</param>
     /// <param name="materials">The map's material table, extended in place with the props'.</param>
     /// <param name="textures">The decoded textures, extended in step with the table.</param>
-    /// <param name="load">Loads a material's texture, or returns null.</param>
+/// <param name="blendTextures">
+/// Each material's SECOND texture, kept in step with <paramref name="textures"/>. A material with
+/// none contributes null, because the renderer indexes both lists by one number.
+/// </param>
+    /// <param name="load">Resolves a material to its textures, or returns null.</param>
     /// <returns>Every placed triangle corner, three per triangle.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static IReadOnlyList<PropVertex> Load(
@@ -111,7 +115,8 @@ internal static class PropModels
         GameArchives archives,
         List<BspMaterial> materials,
         List<MapTexture?> textures,
-        Func<string, MapTexture?> load)
+        List<MapTexture?> blendTextures,
+        Func<string, ResolvedMaterial?> load)
     {
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
@@ -169,7 +174,7 @@ internal static class PropModels
             if (!loaded.TryGetValue(placement.Model, out LoadedModel? model))
             {
                 model = Read(
-                    placement.Model, pak, archives, materials, textures, materialIndices, load);
+                    placement.Model, pak, archives, materials, textures, blendTextures, materialIndices, load);
                 loaded[placement.Model] = model;
             }
 
@@ -340,6 +345,10 @@ internal static class PropModels
     /// <param name="archives">The game's own archives.</param>
     /// <param name="materials">Material table to register this model's materials in.</param>
     /// <param name="textures">Texture list, kept in step with the materials.</param>
+/// <param name="blendTextures">
+/// Each material's SECOND texture, kept in step with <paramref name="textures"/>. A material with
+/// none contributes null, because the renderer indexes both lists by one number.
+/// </param>
     /// <param name="load">Resolves a material path to a texture.</param>
     /// <returns>The triangles, or <c>null</c> when the model could not be read.</returns>
     /// <remarks>
@@ -358,8 +367,9 @@ internal static class PropModels
         GameArchives archives,
         List<BspMaterial> materials,
         List<MapTexture?> textures,
-        Func<string, MapTexture?> load) =>
-        Read(path, pak, archives, materials, textures, [], load)?.Corners;
+        List<MapTexture?> blendTextures,
+        Func<string, ResolvedMaterial?> load) =>
+        Read(path, pak, archives, materials, textures, blendTextures, [], load)?.Corners;
 
     /// <summary>Reads one model once per frame of its animation.</summary>
     /// <param name="path">The model path, as modelprecache named it.</param>
@@ -367,6 +377,10 @@ internal static class PropModels
     /// <param name="archives">The game's own archives.</param>
     /// <param name="materials">Material table to register this model's materials in.</param>
     /// <param name="textures">Texture list, kept in step with the materials.</param>
+/// <param name="blendTextures">
+/// Each material's SECOND texture, kept in step with <paramref name="textures"/>. A material with
+/// none contributes null, because the renderer indexes both lists by one number.
+/// </param>
     /// <param name="load">Resolves a material path to a texture.</param>
     /// <returns>One geometry per frame, or <c>null</c> when the model could not be read.</returns>
     /// <remarks>
@@ -388,9 +402,10 @@ internal static class PropModels
         GameArchives archives,
         List<BspMaterial> materials,
         List<MapTexture?> textures,
-        Func<string, MapTexture?> load,
+        List<MapTexture?> blendTextures,
+        Func<string, ResolvedMaterial?> load,
         bool mustSkin = false) =>
-        Read(path, pak, archives, materials, textures, [], load, mustSkin)?.Frames;
+        Read(path, pak, archives, materials, textures, blendTextures, [], load, mustSkin)?.Frames;
 
     /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
     /// <remarks>
@@ -404,8 +419,9 @@ internal static class PropModels
         GameArchives archives,
         List<BspMaterial> materials,
         List<MapTexture?> textures,
+        List<MapTexture?> blendTextures,
         Dictionary<string, int> materialIndices,
-        Func<string, MapTexture?> load,
+        Func<string, ResolvedMaterial?> load,
         bool mustSkin = false)
     {
         byte[]? Find(string file)
@@ -583,7 +599,13 @@ internal static class PropModels
             for (int index = 0; index < materialByMesh.Length; index++)
             {
                 materialByMesh[index] = Register(
-                    model, model.Meshes[index].MaterialIndex, materials, textures, materialIndices, load);
+                    model,
+                    model.Meshes[index].MaterialIndex,
+                    materials,
+                    textures,
+                    blendTextures,
+                    materialIndices,
+                    load);
             }
 
             // **Team colours are a SKIN FAMILY, not a tint.** A TF2 player model carries two: skin
@@ -616,7 +638,7 @@ internal static class PropModels
                     }
 
                     int swapped = Register(
-                        model, skinTable[at], materials, textures, materialIndices, load);
+                        model, skinTable[at], materials, textures, blendTextures, materialIndices, load);
 
                     if (swapped >= 0 && materialByMesh[index] >= 0)
                     {
@@ -856,8 +878,9 @@ internal static class PropModels
         int materialIndex,
         List<BspMaterial> materials,
         List<MapTexture?> textures,
+        List<MapTexture?> blendTextures,
         Dictionary<string, int> indices,
-        Func<string, MapTexture?> load)
+        Func<string, ResolvedMaterial?> load)
     {
         if (materialIndex < 0 || materialIndex >= model.Materials.Count)
         {
@@ -875,7 +898,7 @@ internal static class PropModels
                 return existing;
             }
 
-            if (load(candidate) is not { } texture)
+            if (load(candidate) is not { Texture: { } painted } texture)
             {
                 continue;
             }
@@ -885,8 +908,20 @@ internal static class PropModels
             // that point on with the wrong image.
             int index = materials.Count;
 
-            materials.Add(new BspMaterial(candidate, (0.5f, 0.5f, 0.5f), texture.Width, texture.Height));
-            textures.Add(texture);
+            materials.Add(new BspMaterial(candidate, (0.5f, 0.5f, 0.5f), painted.Width, painted.Height));
+            textures.Add(painted);
+
+            // **Three lists, not two, and for the same reason the comment above gives.** A material
+            // with a second texture is indexed by the same number as its first, so a prop that
+            // appends to one list and not the other leaves the renderer reading another material's
+            // second texture — or, as it did, nothing at all: the slots were padded with null and
+            // every prop fell back to sampling its base twice.
+            //
+            // That is invisible for a vertex-alpha mix, which is an identity against itself, and
+            // very visible for UnLitTwoTexture, which squares it instead of multiplying by the
+            // texture the material named. It is why a capture point beam kept its stripes only for
+            // BLU, whose base texture IS the stripes.
+            blendTextures.Add(texture.Blend);
             indices[candidate] = index;
 
             return index;
