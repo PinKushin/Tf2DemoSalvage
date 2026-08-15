@@ -4424,3 +4424,34 @@ geometry. It also explains "dark", since the wrong span brings the wrong texture
 material, and check that alternative 3's span begins where alternative 2's ends and covers exactly
 its own three meshes' vertices. `EntityModels` packs them; the seam to check is where a mesh's
 vertex offset is turned into a batch range for a baked frame.
+
+**B79, fifth measurement — the pairing is sound and alternative 2's mesh sizes are not.**
+
+The `.vtx` and `.mdl` were suspected of disagreeing about the empty bodygroup, which would pair each
+mesh's corners with another mesh's vertex range. They do not: corner counts track vertex counts
+consistently across all nine meshes, so the two walks agree.
+
+What the same log shows instead:
+
+```
+alt 0 (neutral):  74v/204c,  50v/144c,  74v/204c
+alt 2 (red):      50v/144c, 436v/1728c, 436v/1728c
+alt 3 (blue):     92v/306c,  50v/144c,  92v/306c
+```
+
+Every alternative carries a 50-vertex mesh, which is presumably the shared beam. The signs are 74
+for neutral and 92 for blue — and **436 for red**, five times either. Three signs of the same shape
+do not differ by that much.
+
+And the arithmetic is suggestive: 74 + 50 + 74 + 92 + 50 + 92 = **432**, four short of 436. That is
+what a mesh looks like when its vertex count spans the WHOLE model's vertex array rather than its
+own slice — it would draw every alternative's triangles from one batch, which is the symptom.
+
+Alternative 2 is also the one immediately after the empty bodygroup, so the empty model remains the
+prime suspect for whatever produces the wrong count — just not through the pairing.
+
+**Next:** read `mstudiomodel_t.vertexindex` and `numvertices` for each of the four alternatives, and
+each mesh's `vertexoffset`/`numvertices` under them, straight from the file in the probe. If
+alternative 2's model claims the whole array, the fault is in what this project reads for a model
+that follows an empty one. If the file really says 436, the fault is not in the reading at all and
+the sign genuinely is that dense.

@@ -727,7 +727,8 @@ internal sealed unsafe class Device3D : IDisposable
                     .Where(batch => instance.BodyParts is not { Count: > 0 } parts ||
                         WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
                     .Select(batch =>
-                        $"{batch.MaterialIndex}:{_world.DescribeMaterial(batch.MaterialIndex)}"));
+                        $"{batch.MaterialIndex}:{_world.DescribeMaterial(batch.MaterialIndex)}" +
+                        $"@{batch.FirstVertex}+{batch.VertexCount}"));
 
         ViewerLog.Write(
             "render",

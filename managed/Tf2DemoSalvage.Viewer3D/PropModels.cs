@@ -645,6 +645,25 @@ internal static class PropModels
                 StudioSkeleton posed = skeletons[slot];
                 List<PropVertex> frame = [];
 
+                // **The two files paired mesh by mesh, said once per model.** `meshes` comes from
+                // the .vtx and `model.Meshes` from the .mdl, and they are matched by POSITION — so
+                // if the two walks ever disagree about a model, every mesh after it takes another
+                // mesh's corners against its own vertex range. The result is a batch that reports
+                // the right material and alternative while drawing someone else's triangles, which
+                // is precisely what a capture point showing the neutral sign inside the blue one
+                // looks like. Both counts are equal by construction, so only a per-mesh comparison
+                // can show it.
+                if (slot == 0)
+                {
+                    ViewerLog.Write(
+                        "props",
+                        $"pairing {path}: " + string.Join(
+                            ", ",
+                            model.Meshes.Select((mesh, at) =>
+                                $"[{at}] part {mesh.BodyPart} alt {mesh.BodyModel} " +
+                                $"mdl {mesh.VertexCount}v vtx {(at < meshes.Count ? meshes[at].Count : -1)}c")));
+                }
+
                 for (int index = 0; index < materialByMesh.Length; index++)
                 {
                     StudioMesh mesh = model.Meshes[index];
