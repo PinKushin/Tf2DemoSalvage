@@ -727,6 +727,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Materials blended with what is behind them, drawn last and sorted.</summary>
     private readonly HashSet<int> _translucent = [];
 
+    /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
+    private readonly Dictionary<int, bool> _modulate = [];
+
     /// <summary>The translucent batches, farthest first.</summary>
     private IReadOnlyList<WorldBatch> _sortedTranslucent = [];
 
@@ -793,6 +796,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Source-alpha blending, for translucent materials.</summary>
     private ComPtr<ID3D11BlendState> _alphaBlend;
+
+    /// <summary>Multiplies the framebuffer by the texture, for Source's Modulate shader.</summary>
+    private ComPtr<ID3D11BlendState> _modulateBlend;
+
+    /// <summary>The same, doubled, for $mod2x.</summary>
+    private ComPtr<ID3D11BlendState> _modulateTwiceBlend;
 
     /// <summary>Depth tested but not written, so a blended surface does not occlude.</summary>
     private ComPtr<ID3D11DepthStencilState> _depthReadOnly;
@@ -1076,6 +1085,53 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _alphaBlend = blend;
         }
 
+        if (_modulateBlend.Handle is null)
+        {
+            // **DEST_COLOR times zero-source: the framebuffer multiplied by the texture.** That is
+            // what Source's Modulate shader does, and it is the one blend mode this project had no
+            // state for — so every Modulate material was drawn opaque and covered what it was meant
+            // to shade. White leaves the destination alone and black blacks it out.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.DestColor;
+            description.RenderTarget[0].DestBlend = Blend.Zero;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.Zero;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> blend = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
+
+            _modulateBlend = blend;
+        }
+
+        if (_modulateTwiceBlend.Handle is null)
+        {
+            // **$mod2x, which doubles the product.** DEST_COLOR against SRC_COLOR sums to twice the
+            // product, so a texel of mid grey leaves the destination unchanged and the material can
+            // brighten as well as darken — which is the whole reason a mapper reaches for it.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.DestColor;
+            description.RenderTarget[0].DestBlend = Blend.SrcColor;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.Zero;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> blend = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
+
+            _modulateTwiceBlend = blend;
+        }
+
         if (_depthReadOnly.Handle is null)
         {
             // **Test against depth, do not write it.** A translucent surface must not stop what is
@@ -1110,6 +1166,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (texture is { IsAdditive: true })
             {
                 _additive.Add(index);
+            }
+            else if (texture is { IsModulate: true })
+            {
+                // **Its own kind, not translucency.** A Modulate material declares neither
+                // $translucent nor $additive, so it fell through every test here and was drawn
+                // opaque — a shader whose entire job is to darken what is behind it, painting over
+                // it instead. It belongs in the blended pass with a blend state of its own.
+                _modulate[index] = texture.Value.IsModulateTwice;
             }
             else if (texture is { IsTranslucent: true })
             {
@@ -2238,7 +2302,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // point's hologram came out as a solid ribbed slab rather than something to see
             // through. The classification is already done, at upload, for the map's textures — a
             // model's materials live in the same table, so it is the same lookup.
-            bool wantsBlending = _additive.Contains(material) || _translucent.Contains(material);
+            bool wantsBlending = _additive.Contains(material) ||
+                _translucent.Contains(material) ||
+                _modulate.ContainsKey(material);
 
             if (wantsBlending != blended)
             {
@@ -2259,10 +2325,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 // Per batch, because a model can carry both kinds: additive ADDS light to what is
                 // behind it, which is what a hologram does, and alpha blends against it.
-                context.OMSetBlendState(
-                    _additive.Contains(material) ? _addBlend : _alphaBlend,
-                    blendFactor,
-                    0xFFFFFFFF);
+                // Three kinds now, chosen per batch: add, multiply, or blend by alpha.
+                ComPtr<ID3D11BlendState> blending = _addBlend;
+
+                if (_modulate.TryGetValue(material, out bool twice))
+                {
+                    blending = twice ? _modulateTwiceBlend : _modulateBlend;
+                }
+                else if (!_additive.Contains(material))
+                {
+                    blending = _alphaBlend;
+                }
+
+                context.OMSetBlendState(blending, blendFactor, 0xFFFFFFFF);
             }
 
 
@@ -2299,6 +2374,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         if (_additive.Contains(material))
         {
             return "additive";
+        }
+
+        if (_modulate.TryGetValue(material, out bool twice))
+        {
+            return twice ? "modulate2x" : "modulate";
         }
 
         return _translucent.Contains(material) ? "translucent" : "opaque";

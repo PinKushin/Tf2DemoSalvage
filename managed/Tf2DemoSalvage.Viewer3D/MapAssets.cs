@@ -17,6 +17,12 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
 /// <param name="IsTranslucent">Whether it is BLENDED with what is behind it instead.</param>
 /// <param name="SelfIllum">Tint for the self-illuminated part, or null when there is none.</param>
+/// <param name="IsModulate">
+/// Whether the material MULTIPLIES what is behind it rather than covering it — Source's Modulate
+/// shader, which declares neither $translucent nor $additive and so was read as opaque, painting
+/// over exactly what it exists to shade.
+/// </param>
+/// <param name="IsModulateTwice">Whether that multiply doubles, so mid grey changes nothing.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -29,7 +35,10 @@ internal readonly record struct MapTexture(
     bool IsTransparent,
     bool IsAdditive = false,
     bool IsTranslucent = false,
-    (float Red, float Green, float Blue)? SelfIllum = null);
+    (float Red, float Green, float Blue)? SelfIllum = null,
+
+    bool IsModulate = false,
+    bool IsModulateTwice = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -759,7 +768,9 @@ internal sealed class MapAssets
                     transparent,
                     additive,
                     material.IsTranslucent,
-                    material.IsSelfIlluminated ? material.SelfIllumTint : null);
+                    material.IsSelfIlluminated ? material.SelfIllumTint : null,
+                    material.IsModulate,
+                    material.IsModulateTwice);
             }
             catch (InvalidDataException failure)
             {

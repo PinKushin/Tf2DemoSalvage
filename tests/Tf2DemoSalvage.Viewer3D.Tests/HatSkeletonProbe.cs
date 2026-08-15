@@ -301,6 +301,35 @@ public sealed class HatSkeletonProbe
             }
         }
 
+        // **Valve's own materials for the coincident pair.** Every capture point alternative is a
+        // lit logo and a _dark logo in the same place, and six passes over the model found nothing
+        // wrong with it — so what decides which of the two shows is in the material, not the mesh.
+        // Reading published material files is not decompilation and answers this outright.
+        foreach (string material in new[]
+        {
+            "materials/models/effects/cappoint_logo_blue.vmt",
+            "materials/models/effects/cappoint_logo_blue_dark.vmt",
+            "materials/models/effects/cappoint_logo_red.vmt",
+            "materials/models/effects/cappoint_logo_red_dark.vmt",
+            "materials/models/effects/cappoint_beam_blue.vmt",
+        })
+        {
+            if (archives.Read(material) is not { } vmt)
+            {
+                TestContext.Out.WriteLine($"VMT {material}: not found");
+                continue;
+            }
+
+            // Collapsed onto one line: a VMT is small, and the differences between a pair are what
+            // matter rather than the formatting.
+            TestContext.Out.WriteLine(
+                $"VMT {Path.GetFileName(material)}: " +
+                string.Join(
+                    " | ",
+                    System.Text.Encoding.UTF8.GetString(vmt)
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
+        }
+
         Assert.Pass();
     }
 }

@@ -4486,3 +4486,35 @@ lit counterparts in the game files and find what separates them — `$selfillum`
 `$ignorez`, or a proxy driving alpha from the point's state. Whatever Valve uses to decide which of
 the pair shows is what this project is missing, and it will be in the material rather than in the
 model, which is why six measurements against the model found nothing wrong with it.
+
+### B79 answered — `Modulate` was being drawn opaque
+
+Valve's own materials, read from the game files:
+
+```
+cappoint_logo_blue.vmt       "UnLitTwoTexture" { $additive 1 … }
+cappoint_logo_blue_dark.vmt  "Modulate"        { $modblend .63  $mod2x 1 … }
+cappoint_logo_red_dark.vmt   "Modulate"        { $modblend .43  $mod2x 1 … }
+```
+
+**`Modulate` declares neither `$translucent` nor `$additive`**, and its `$alpha` is written by a Sine
+proxy rather than being a constant below one — so every predicate this project had said "opaque". A
+shader whose entire purpose is to multiply what is behind it was therefore painted as solid
+geometry, directly over the lit sign it exists to shade. That is the dark slab.
+
+It explains the asymmetry that made this so hard to place: **blue's `$modblend` is .63 against red's
+.43**, so the same defect is far more visible on BLU — which is why six measurements of a perfectly
+symmetric model, selection, span and material mapping found nothing, and why the owner saw one team
+broken and the other fine.
+
+Fixed as its own blend kind rather than folded into translucency, because the factors differ:
+`Modulate` is `DEST_COLOR × ZERO` and `$mod2x` is `DEST_COLOR + SRC_COLOR`, which doubles the
+product so mid grey leaves the destination unchanged. Both now classify into the blended pass and
+pick their state per batch alongside additive and alpha.
+
+Measured after: `558:modulate2x` where it previously read `558:opaque`, for all three teams.
+
+**The general lesson, and it is the third time this session:** a predicate that answers a question
+about a material by looking only for the flags this project already knew about will call anything
+unfamiliar by the default — and "opaque" is a legitimate answer, so nothing can report it. The
+material's SHADER NAME is a declaration in its own right and was never being read.

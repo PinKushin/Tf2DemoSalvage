@@ -69,5 +69,62 @@ public sealed class VmtPrimaryTextureTests
         tool.PrimaryTexture.ShouldBeNull();
     }
 
+    [Test]
+    public void AModulateMaterialIsNotOpaque()
+    {
+        // **The exact material that made a capture point a dark slab**, reduced to the keys that
+        // decide it. Modulate declares neither $translucent nor $additive and its $alpha is a
+        // proxy result rather than a constant below one, so every predicate this project had
+        // answered "opaque" — and a shader whose whole purpose is to multiply what is behind it was
+        // painted as solid geometry over the sign it was meant to shade.
+        //
+        // The control is the lit half of the same pair: it must stay additive, or fixing the dark
+        // one would simply move the fault.
+        VmtMaterial dark = Parse(
+            """
+            "Modulate"
+            {
+                "$basetexture" "models/effects/cappoint_logo_blue"
+                "$modblend" ".63"
+                "$model" "1"
+                "$mod2x" "1"
+            }
+            """);
+
+        dark.IsModulate.ShouldBeTrue();
+        dark.IsModulateTwice.ShouldBeTrue();
+        dark.IsAdditive.ShouldBeFalse();
+
+        VmtMaterial lit = Parse(
+            """
+            "UnLitTwoTexture"
+            {
+                "$basetexture" "models/effects/cappoint_logo_blue"
+                "$additive" "1"
+                "$model" "1"
+            }
+            """);
+
+        lit.IsModulate.ShouldBeFalse();
+        lit.IsAdditive.ShouldBeTrue();
+    }
+
+    [Test]
+    public void AModulateMaterialWithoutModTwiceDoesNotDouble()
+    {
+        // $mod2x is what lets a modulating material brighten as well as darken, so the two want
+        // different blend factors and cannot be collapsed into one flag.
+        VmtMaterial once = Parse(
+            """
+            "Modulate"
+            {
+                "$basetexture" "models/effects/smoke"
+            }
+            """);
+
+        once.IsModulate.ShouldBeTrue();
+        once.IsModulateTwice.ShouldBeFalse();
+    }
+
     private static VmtMaterial Parse(string text) => VmtMaterial.Parse(Encoding.UTF8.GetBytes(text));
 }
