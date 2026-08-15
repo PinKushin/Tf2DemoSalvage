@@ -30,6 +30,16 @@ public sealed class ShellUiTests
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
     private static ViewerApplication _viewer => ViewerSession.App;
 
+    // **A test that the Direct3D device comes up used to live here** and asserted the status bar
+    // read exactly "Direct3D ready.". It was removed rather than repaired. The claim is now made by
+    // every test in this assembly and made better: they all share one viewer with a map open, and
+    // ViewportPictureUiTests reads the actual swap chain back and counts lit pixels. A device that
+    // failed to create takes the whole assembly down long before any string is compared.
+    //
+    // Its assertion had also stopped meaning what it said. The status bar is a live readout, so
+    // once a demo is loaded it has moved on to reporting that — the test was failing against a
+    // viewer that was working, which is the one outcome worse than no test at all.
+
     [TearDown]
     public void ReturnToWindowed()
     {
@@ -73,19 +83,6 @@ public sealed class ShellUiTests
         _viewer.Exists("OpenFolderButton").ShouldBeTrue("the Open folder button is missing");
         _viewer.Exists("PlayPauseButton").ShouldBeTrue("the play button is missing");
         _viewer.Exists("ScrubBar").ShouldBeTrue("the scrub bar is missing");
-    }
-
-    [Test]
-    public void TheDeviceComesUpAgainstARealAdapter()
-    {
-        // Nothing below the UI can tell us this. The unit tests deliberately never create a
-        // device, so until something launches the application on a machine with a GPU, "Direct3D
-        // works" is untested - and a failure here reads as a driver or machine problem rather
-        // than as a decode bug, which is why it is reported in the status bar.
-        string status = _viewer.StatusText();
-        TestContext.Out.WriteLine($"status bar reads: '{status}'");
-
-        _viewer.StatusText().ShouldBe("Direct3D ready.");
     }
 
     [Test]

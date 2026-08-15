@@ -4247,3 +4247,22 @@ against a viewer that is working perfectly.
 
 The device coming up is worth asserting; the status bar at one instant is not the way to do it. The
 viewer logs the device creation, so the log is the durable instrument.
+
+**B77 and B78 closed.**
+
+B77's remaining difference was **dead players**. Their entity follows whoever they are spectating,
+so the track holds that player's position and that player's facing — and the scene layer already
+knew this for position, keeping the last pose held while alive so a body stays where it fell. Yaw
+was simply not included in that, which is one idea applied to half its data. `diedAt` now records
+the facing alongside the position, and the test asserts only living players, because demanding a
+corpse match its track is demanding that bodies swing round to face whatever the camera watches.
+
+Worth keeping: **the yaw is still recorded in two places**, and the reason that is tolerable now is
+that they mean different things — the track is where the entity is, the frame is where the player
+was left. That distinction is the design, not a duplication, and the comments say so at both ends.
+
+B78 was deleted rather than repaired, on the owner's read, which was right: every test in the UI
+assembly now shares one viewer with a map open, so a device that failed to create takes the whole
+assembly down. `ViewportPictureUiTests` reads the swap chain back and counts lit pixels, which is a
+strictly stronger claim than a status string — and the status string had stopped being true anyway,
+since it is a live readout that moves on once a demo loads.

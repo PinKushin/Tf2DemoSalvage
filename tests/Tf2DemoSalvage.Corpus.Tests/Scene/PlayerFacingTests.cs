@@ -54,7 +54,15 @@ public sealed class PlayerFacingTests
 
             // **The prediction is the track's own number**, so this measures the plumbing rather
             // than the decode: whatever the pose says, the player must report.
-            foreach (ScenePlayer player in playing)
+            //
+            // **Living players only, and that is a statement about the design rather than a way to
+            // dodge a failure.** A dead player's entity follows whoever they are spectating, so its
+            // track holds that player's position and that player's facing. The scene layer
+            // deliberately does not use it for them: the last pose held while alive is kept
+            // instead, leaving a body roughly where it fell and facing the way it was facing.
+            // Asserting a corpse matches its track would be demanding that bodies swing round to
+            // face whatever the camera is watching.
+            foreach (ScenePlayer player in playing.Where(player => player.IsAlive))
             {
                 ScenePropTrack? track = timeline.TrackFor(player.EntityIndex);
 

@@ -244,7 +244,7 @@ public sealed class DemoTimeline
 
         // Where each player last stood while alive, so a corpse stays where it fell rather than
         // following the player it spectates.
-        Dictionary<int, (float X, float Y, float Z)> diedAt = [];
+        Dictionary<int, (float X, float Y, float Z, float Yaw)> diedAt = [];
         float interval = 0f;
 
         ModelPrecache precache = new();
@@ -365,17 +365,6 @@ public sealed class DemoTimeline
                 int? life = player.LifeState();
                 bool alive = life is null or 0;
 
-                (float X, float Y, float Z) where = origin;
-
-                if (alive)
-                {
-                    diedAt[player.EntityIndex] = origin;
-                }
-                else if (diedAt.TryGetValue(player.EntityIndex, out (float X, float Y, float Z) fell))
-                {
-                    where = fell;
-                }
-
                 // **The yaw has to be carried here too, and was not.** Every argument below is
                 // positional and the list stopped at LifeState, so Yaw took the record's default of
                 // zero — every player in a frame faced due east regardless of where they were
@@ -384,13 +373,31 @@ public sealed class DemoTimeline
                 // missing yaw, because zero IS a yaw.
                 //
                 // Read from the same place the track reads it, so the two cannot disagree: the eye
-                // angles when the demo sends them, and m_angRotation when it does not.
-                // Normalised to (−180, 180] like everything else that stores an angle here. The
-                // wire carries this one as 0..360, so without it the same direction is held as two
-                // different numbers — 220.997 and −139.003 for one player, measured — and anything
-                // comparing or interpolating them is wrong by a full turn at the wrap.
+                // angles when the demo sends them, and m_angRotation when it does not. Normalised
+                // to (−180, 180] like every other angle here, because the wire carries this one as
+                // 0..360 — without it the same direction is held as two numbers a full turn apart,
+                // measured as 220.997 against −139.003, and anything comparing or interpolating
+                // them is wrong by 360 at the wrap.
                 float facing = Normalize(
                     player.EyeAngles() is { } eyes ? eyes.Yaw : player.Angles()?.Yaw ?? 0f);
+
+                (float X, float Y, float Z) where = origin;
+
+                // **The facing is kept with the position, for the same reason.** A dead player's
+                // entity follows whoever they are spectating, so its yaw is that player's — a body
+                // left on the ground would swing round to match whatever the camera is watching.
+                // Position was already held from the last living tick and yaw was not, which is the
+                // half-applied version of one idea.
+                if (alive)
+                {
+                    diedAt[player.EntityIndex] = (origin.X, origin.Y, origin.Z, facing);
+                }
+                else if (diedAt.TryGetValue(
+                    player.EntityIndex, out (float X, float Y, float Z, float Yaw) fell))
+                {
+                    where = (fell.X, fell.Y, fell.Z);
+                    facing = fell.Yaw;
+                }
 
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
