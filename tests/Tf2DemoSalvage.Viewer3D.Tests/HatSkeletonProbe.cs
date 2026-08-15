@@ -42,6 +42,11 @@ public sealed class HatSkeletonProbe
         [
             "models/player/items/all_class/ghostly_gibus_scout.mdl",
             "models/player/items/all_class/hwn_spellbook_complete.mdl",
+
+            // The owner reports this one not rooting to its wearer. A cosmetic rides bones matched
+            // BY NAME, so the question is simply which bones it has — and a model whose bones no
+            // player shares cannot be merged at all and must be placed some other way.
+            "models/player/items/all_class/mvm_flask_generic.mdl",
             "models/player/scout.mdl",
             "models/player/soldier.mdl",
             "models/effects/cappoint_hologram.mdl",

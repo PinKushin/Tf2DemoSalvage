@@ -4600,3 +4600,32 @@ Cheap, and it turns a report that reads clean into one that is.
 Note the shape, since it is now familiar: **an instrument that covers most of its subject reads
 exactly like one that covers all of it.** Same as a report built only from failures, and same as a
 predicate that answers "opaque" for everything it does not recognise.
+
+### B82 — items parented to an ATTACHMENT are not implemented, so they sit at the wearer's feet
+
+The owner reports a halo at a medic's feet and an MvM canteen not rooting to its player. Measured
+from the model rather than guessed:
+
+```
+hwn_spellbook_complete.mdl: 1 bones; [0]mvm<-ROOT
+```
+
+**One bone, named `mvm`, and it is a root.** No player skeleton has a bone by that name, so
+`MergeMatchingBones` matches nothing and the item is placed by the wearer's transform alone — which
+on a player is their feet. The gibus and other head cosmetics work because their bones DO share
+names with the player's.
+
+So this is not a bone-merge defect. These items are not bone-merged at all: the engine parents them
+to a named attachment point on the wearer, which is `mstudioattachment_t` in the model and
+`m_iParentAttachment` on the entity. Neither is read here, so every such item falls back to the
+origin, and it will be every "all class" cosmetic of this shape — halos, canteens, spellbooks.
+
+**Read before implementing**, per the rule this session earned: `mstudioattachment_t` carries a name,
+the bone it hangs off and a local matrix; `CBaseEntity::SetParent` takes an attachment index and
+`C_BaseAnimating::GetAttachment` composes it against the bone's world matrix. Confirm both against
+the SDK before writing any of it — the attachment's matrix is stored relative to its bone, and
+applying it in world space instead puts the item somewhere plausible and wrong.
+
+Note the tell: a single-bone model whose bone name matches nothing is diagnostic on its own. Worth a
+log line when a worn item merges ZERO bones, since that is exactly the case that cannot work and
+currently draws in silence.
