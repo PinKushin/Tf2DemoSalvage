@@ -4656,3 +4656,46 @@ looking at" answerable instead of assumed.
 
 Still open in B80: material proxies. The transforms and modulation are plumbed and sit at identity,
 so nothing scrolls and nothing pulses.
+
+### B83 — the capture point base draws almost black, worst under BLU
+
+Not the hologram and not the sign: the DISC, `cap_point_base.mdl`. The owner allows that models are
+dull until specular exists, and reports this as almost black rather than dull.
+
+Measured, so the lookup is not the suspect. The model is one mesh with three skin families, and they
+resolve exactly as they should — `(family * references) + reference` matches Valve's
+`pSkinref(skin * numskinref + material)`:
+
+```
+skin family 0: cap_point_base, cap_point_base_red, cap_point_base_blue
+skin family 1: cap_point_base_red, …
+skin family 2: cap_point_base_blue, …
+```
+
+All three materials are `VertexLitGeneric` with `$bumpmap`, `$envmap env_cubemap`,
+`$normalmapalphaenvmapmask 1`, `$envmaptint [1 1 1]`, and:
+
+```
+cap_point_base.vmt        $selfillum 0
+cap_point_base_red.vmt    $selfillum 1
+cap_point_base_blue.vmt   $selfillum 1
+```
+
+**The teams' materials are the SELF-ILLUMINATED ones and they are the dark ones**, which is the
+wrong way round and is the strongest clue here. `$selfillumtint` is absent from all three and this
+project defaults it to (1,1,1), matching the engine, so the tint is not it.
+
+**What to compare, in this order:**
+
+1. `$normalmapalphaenvmapmask 1` says the envmap mask is in the NORMAL map's alpha — which means the
+   BASE texture's alpha is free to be the self-illum mask. If this project reads base alpha as
+   something else, or feeds the wrong channel into the self-illum lerp, a self-illuminated surface
+   goes dark exactly where it should glow.
+2. `$envmap` is unimplemented (B55, 42 of 189 materials). Missing specular explains dull, not black —
+   unless the envmap mask channel is being consumed by another path.
+3. Read `stdshaders/vertexlitgeneric_dx9_helper.cpp` for how the two interact before changing
+   anything. Both features read alpha channels, and which channel belongs to which is the whole
+   question.
+
+The asymmetry is the lever: neutral and team share a mesh, a bump map and an envmap, and differ only
+in `$selfillum` and the base texture. Anything that treats those two identically cannot be the cause.

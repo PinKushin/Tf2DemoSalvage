@@ -217,6 +217,31 @@ public sealed class HatSkeletonProbe
                 $"HAT   skins: {StudioSkins.Families(bytes)} families of " +
                 $"{StudioSkins.References(bytes)} references");
 
+            // **And WHICH materials, per family.** The capture point base is one mesh with three
+            // families — neutral, RED and BLU — and the owner reports the disc drawing dark, worst
+            // when BLU holds it. Whether that is a material this project mis-classifies or a skin
+            // resolving to the wrong entry is answerable only by naming them.
+            short[] table = StudioSkins.Read(bytes);
+            int references = StudioSkins.References(bytes);
+
+            for (int family = 0; family < StudioSkins.Families(bytes) && family < 4; family++)
+            {
+                List<string> painted = [];
+
+                for (int reference = 0; reference < references; reference++)
+                {
+                    int at = (family * references) + reference;
+
+                    painted.Add(at >= 0 && at < table.Length &&
+                        table[at] >= 0 && table[at] < structure.Materials.Count
+                            ? structure.Materials[table[at]]
+                            : "?");
+                }
+
+                TestContext.Out.WriteLine(
+                    $"HAT   skin family {family}: {string.Join(", ", painted)}");
+            }
+
             StudioSkeleton rest = StudioBones.RestPose(bones);
 
             List<string> placed = [];
@@ -316,6 +341,13 @@ public sealed class HatSkeletonProbe
             "materials/models/effects/cappoint_logo_blue_dark.vmt",
             "materials/models/effects/cappoint_logo_red.vmt",
             "materials/models/effects/cappoint_logo_red_dark.vmt",
+            // The disc under the hologram, which the owner reports drawing dark and darkest under
+            // BLU. Its skins resolve correctly to these three, so whatever is dark is in the
+            // material rather than in the lookup.
+            "materials/models/props_gameplay/cap_point_base.vmt",
+            "materials/models/props_gameplay/cap_point_base_blue.vmt",
+            "materials/models/props_gameplay/cap_point_base_red.vmt",
+
             "materials/models/effects/cappoint_beam_blue.vmt",
             "materials/models/effects/cappoint_beam_red.vmt",
             "materials/models/effects/cappoint_beam_neutral.vmt",
