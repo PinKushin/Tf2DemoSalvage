@@ -4577,3 +4577,26 @@ That is the whole shape of this class of bug, and it is worth stating plainly: *
 project implements is invisible until it meets an asset that leans on the part we skipped.** Two of
 the three beams leaned the other way, which is why this looked like a blue-specific mystery for a
 session and a half rather than a missing shader.
+
+### B81 — the material census covers the world and not the props
+
+The shader census prints `every shader the map's materials name is implemented` for cp_process, and
+that is true of the WORLD's materials only. Props and entity models register their materials through
+a separate path (`PropModels.Register`) after the census has run, so they are never counted.
+
+**The materials behind the whole capture point investigation are prop materials.** `Modulate` and
+`UnLitTwoTexture` live on `cappoint_hologram.mdl`, so the census would have reported a clean map
+while a capture point drew as a dark slab — the exact failure the census exists to prevent, in the
+one place it does not look.
+
+The parameter census has the same hole, which is worth stating because its output looked complete:
+the `$texture2 x5, $nocull x5` line that answered this session came from the world pass over a map
+whose brushwork happens to use those materials too. A model-only parameter would have been silent.
+
+**Fix:** accumulate each prop material's shader name and declared keys as `Register` resolves them —
+the resolver already returns both — and census the combined set after props load rather than before.
+Cheap, and it turns a report that reads clean into one that is.
+
+Note the shape, since it is now familiar: **an instrument that covers most of its subject reads
+exactly like one that covers all of it.** Same as a report built only from failures, and same as a
+predicate that answers "opaque" for everything it does not recognise.
