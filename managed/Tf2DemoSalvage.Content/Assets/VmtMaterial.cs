@@ -193,6 +193,29 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsNoCull => Value("$nocull") is "1";
 
+    /// <summary>Whether the material draws TWO textures multiplied together.</summary>
+    /// <remarks>
+    /// **Valve's UnLitTwoTexture, whose pixel shader is one line**
+    /// (<c>stdshaders/unlittwotexture_ps2x.fxc</c>):
+    ///
+    /// <code>
+    /// HALF4 result = baseColor * baseColor2 * g_DiffuseModulation;
+    /// float alpha = 1.0f;
+    /// </code>
+    ///
+    /// Two textures, each with its own coordinates, multiplied — and alpha forced to one. A
+    /// renderer that samples only the base draws half the material, and because multiplication is
+    /// commutative the AUTHOR is free to put either one first. TF2's capture point beams do exactly
+    /// that: red and neutral name the colour first, blue names the stripes, so dropping the second
+    /// texture is invisible on two of them and turns the third into a grey column.
+    /// </remarks>
+    public bool IsTwoTexture =>
+        Shader.Equals("UnLitTwoTexture", StringComparison.OrdinalIgnoreCase) &&
+        SecondTexture is { Length: > 0 };
+
+    /// <summary>The material's second texture, without extension, or null.</summary>
+    public string? SecondTexture => Value("$texture2");
+
     /// <summary>Whether a modulating material doubles its result.</summary>
     public bool IsModulateTwice => IsModulate && Value("$mod2x") is "1";
 

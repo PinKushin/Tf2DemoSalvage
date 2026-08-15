@@ -258,6 +258,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // The colour the self-illuminated part is tinted by.
             float4 selfIllumTint;
+
+            // x: how the material's two textures combine.
+            //    0 mixes them by the vertex alpha, which is what a WorldVertexTransition
+            //      displacement is: dirt under grass, the vertices saying how much of each.
+            //    1 MULTIPLIES them, which is UnLitTwoTexture — Valve's own pixel shader is
+            //      `baseColor * baseColor2 * g_DiffuseModulation` with alpha forced to one
+            //      (stdshaders/unlittwotexture_ps2x.fxc).
+            //
+            // The distinction has to reach the shader because the two look nothing alike: a
+            // capture point's beam is stripes TIMES a colour, and mixed by alpha instead it is
+            // whichever of the two the vertices happen to ask for.
+            float4 combine;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -490,7 +502,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // is what makes that free.
             clip(input.pos.z - surfaceColours.y);
 
-            float4 albedo = lerp(first, second, saturate(input.a));
+            // **Multiplied for UnLitTwoTexture, mixed by vertex alpha for everything else.** Valve's
+            // shader is `baseColor * baseColor2 * g_DiffuseModulation`, and a capture point's beam
+            // is exactly that: scrolling stripes times a team colour. Mixed by alpha instead, the
+            // beam is whichever of the two the vertices ask for — which is how it came out as a
+            // grey striped column on BLU, whose material happens to name the stripes first.
+            float4 albedo = combine.x > 0.5f
+                ? first * second
+                : lerp(first, second, saturate(input.a));
 
             // **The detail goes in before the lighting, as Valve's shader does it.** It modifies
             // the albedo - the surface's own colour - and the lightmap then multiplies the result.
@@ -1254,6 +1273,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // alpha for blending and must not be clipped by it.
             float alphaTested = surface is { IsTransparent: true, IsTranslucent: false } ? 1f : 0f;
 
+            // **Which of the two combines the shader should use.** UnLitTwoTexture multiplies its
+            // two textures; a WorldVertexTransition displacement mixes them by vertex alpha. Both
+            // arrive in the same slot, so the material has to say which it is.
+            float multiplies = surface is { MultipliesTextures: true } ? 1f : 0f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -1270,6 +1294,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasGlow,
                     alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
+                    multiplies, 0f, 0f, 0f,
                 ]
                 :
                 [
@@ -1280,6 +1305,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasGlow,
                     alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
+                    multiplies, 0f, 0f, 0f,
                 ]);
         }
 
@@ -1982,8 +2008,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             SetMaterial(context, batch.MaterialIndex);
 
+            // A decal's second texture, on the same rule as everything else: the real one when the
+            // material names it, and the base otherwise so a mix stays an identity.
+            ComPtr<ID3D11ShaderResourceView> second =
+                batch.MaterialIndex < _blendTextures.Count &&
+                _blendTextures[batch.MaterialIndex].Handle is not null
+                    ? _blendTextures[batch.MaterialIndex]
+                    : texture;
+
             context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref second);
             context.PSSetShaderResources(3, 1, ref _white);
             context.PSSetShaderResources(4, 1, ref _white);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
@@ -2393,8 +2427,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _textures[material]
                     : _white;
 
+            // **The material's second texture, where it has one.** Binding the base to both slots
+            // was right while the only combine was a vertex-alpha mix, since mixing a texture with
+            // itself is an identity — but UnLitTwoTexture MULTIPLIES, and multiplying a texture by
+            // itself squares it. A model with a real $texture2 needs the real one.
+            ComPtr<ID3D11ShaderResourceView> second =
+                material >= 0 && material < _blendTextures.Count &&
+                _blendTextures[material].Handle is not null
+                    ? _blendTextures[material]
+                    : texture;
+
             context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref second);
             context.PSSetShaderResources(3, 1, ref _white);
             context.PSSetShaderResources(4, 1, ref _white);
 

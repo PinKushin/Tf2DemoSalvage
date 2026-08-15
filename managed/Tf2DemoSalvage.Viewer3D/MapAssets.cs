@@ -27,6 +27,10 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// Whether the material draws from both sides. $nocull sets MATERIAL_VAR_NOCULL in the engine
 /// (imaterial.h:369) and shaders test it per material; everything else culls back faces.
 /// </param>
+/// <param name="MultipliesTextures">
+/// Whether the material's two textures are MULTIPLIED rather than mixed by vertex alpha. That is
+/// UnLitTwoTexture, whose pixel shader is baseColor * baseColor2 * g_DiffuseModulation.
+/// </param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -43,7 +47,8 @@ internal readonly record struct MapTexture(
 
     bool IsModulate = false,
     bool IsModulateTwice = false,
-    bool IsNoCull = false);
+    bool IsNoCull = false,
+    bool MultipliesTextures = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -631,8 +636,15 @@ internal sealed class MapAssets
         MapTexture? first = Decode(
             material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive);
 
+        // **Two shaders reach this slot and they combine differently.** A WorldVertexTransition
+        // names $basetexture2 and MIXES by vertex alpha; UnLitTwoTexture names $texture2 and
+        // MULTIPLIES. Both are "the material's second texture", so they share the slot, and the
+        // material carries which operation to use — a capture point's beam is stripes times a
+        // colour, and mixed by alpha instead it is whichever the vertices happen to ask for.
         MapTexture? second = Decode(
-            material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
+            material.Value("$basetexture2") ?? material.SecondTexture,
+            material.IsAlphaTested,
+            material.IsAdditive);
 
         // **The parameters carried out alongside the textures**, so the caller can report what
         // the map asked for rather than only what failed. Gathered here because this is the one
@@ -776,7 +788,8 @@ internal sealed class MapAssets
                     material.IsSelfIlluminated ? material.SelfIllumTint : null,
                     material.IsModulate,
                     material.IsModulateTwice,
-                    material.IsNoCull);
+                    material.IsNoCull,
+                    material.IsTwoTexture);
             }
             catch (InvalidDataException failure)
             {
