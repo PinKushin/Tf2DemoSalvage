@@ -80,6 +80,41 @@ internal class MainForm : Form
     /// <summary>Automation id of the brush outline toggle.</summary>
     public const string OutlineItemId = "OutlineMenuItem";
 
+    /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
+    public const string ViewMenuId = "ViewMenu";
+
+    /// <summary>Accessible names of the menu entries, which is how automation reaches them.</summary>
+    /// <remarks>
+    /// **A WinForms menu item exposes no AutomationId.** Its accessible object does not implement
+    /// the property at all, so a search by id does not come back empty — it throws
+    /// "The requested property 'AutomationId' is not supported" on the first item it inspects. The
+    /// Name assigned in code reaches the designer and nothing else.
+    ///
+    /// The accessible name is the identifier a menu item genuinely has, and it is also the thing a
+    /// screen reader announces, so tying tests to it means a rename that would confuse a user
+    /// breaks a test rather than passing silently. Named here so the two sides cannot drift.
+    /// </remarks>
+    public const string ViewMenuName = "View menu";
+
+    /// <summary>Accessible name of the full screen item.</summary>
+    public const string FullScreenItemName = "Full screen";
+
+    /// <summary>Accessible name of the screenshot item.</summary>
+    public const string ScreenshotItemName = "Save a screenshot";
+
+    /// <summary>Automation id of the screenshot item.</summary>
+    /// <remarks>
+    /// **Added because F12 was the only way to reach it.** A function key is not a route for
+    /// someone driving the program by keyboard-navigation or a screen reader — there is nothing to
+    /// find, nothing that announces itself, and nothing in any menu that says the feature exists.
+    /// A UI test hit the same wall from the other side and reached for synthesized key presses,
+    /// which go to whatever window holds the foreground and twice landed in the tester's browser.
+    ///
+    /// Both problems have the same fix, and that is the useful part: **anything a test can only do
+    /// by faking input is something a person may have no way to do at all.**
+    /// </remarks>
+    public const string ScreenshotItemId = "ScreenshotMenuItem";
+
     /// <summary>Automation id of the borderless full-screen mode item.</summary>
     public const string BorderlessItemId = "BorderlessModeMenuItem";
 
@@ -568,7 +603,7 @@ internal class MainForm : Form
         _fullScreen = new ToolStripMenuItem("&Full screen")
         {
             Name = FullScreenItemId,
-            AccessibleName = "Full screen",
+            AccessibleName = FullScreenItemName,
             ShortcutKeys = Keys.F11,
             CheckOnClick = true,
         };
@@ -632,7 +667,7 @@ internal class MainForm : Form
             textureQuality.DropDownItems.Add(item);
         }
 
-        ToolStripMenuItem view = new("&View") { Name = "ViewMenu", AccessibleName = "View menu" };
+        ToolStripMenuItem view = new("&View") { Name = ViewMenuId, AccessibleName = ViewMenuName };
         // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
         // and what kind of thing is it", which a textured picture cannot - and which cost hours
         // this session when terrain, a material and a prop each went missing while the map still
@@ -664,6 +699,17 @@ internal class MainForm : Form
         _outline.CheckedChanged += (_, _) => ViewerLog.Write(
             "render", $"brush outline {(_outline.Checked ? "on" : "off")}");
 
+        ToolStripMenuItem screenshot = new("Save a &screenshot")
+        {
+            Name = ScreenshotItemId,
+            ShortcutKeys = Keys.F12,
+            AccessibleName = ScreenshotItemName,
+            AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
+        };
+
+        screenshot.Click += (_, _) => CaptureViewportToFile();
+
+        view.DropDownItems.Add(screenshot);
         view.DropDownItems.Add(_outline);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
@@ -1897,6 +1943,16 @@ internal class MainForm : Form
         _viewport.Invalidate();
     }
 
+    /// <summary>Captures the viewport to a stamped file beside the log.</summary>
+    /// <remarks>
+    /// The one place that decides where a screenshot goes, so the menu item and F12 cannot
+    /// disagree about it. They were one copied expression apart, which is exactly how the viewer's
+    /// two drawing paths drifted until one of them stopped showing decals.
+    /// </remarks>
+    public void CaptureViewportToFile() => CaptureViewport(Path.Combine(
+        Path.GetDirectoryName(ViewerLog.Path) ?? ".",
+        string.Create(CultureInfo.InvariantCulture, $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
+
     /// <summary>The points the viewport is currently drawing.</summary>
     public IReadOnlyList<ScenePoint> Scene => _scene;
 
@@ -2126,6 +2182,17 @@ internal class MainForm : Form
                 hidden.Visible = false;
             }
 
+            // **Focus has to be moved before the control holding it disappears.** The playlist
+            // takes focus when the window opens and the playlist is hidden by full screen, which
+            // leaves the form with no focused child at all — and every binding lives on
+            // ProcessCmdKey, so the next F11 or Escape went nowhere and full screen could not be
+            // left until the user alt-tabbed away and back. That restored a focused child, which
+            // is why it looked like an intermittent glitch instead of what it was.
+            //
+            // Reasserted at the window level rather than on the viewport, which is a plain Panel
+            // and therefore not selectable — Select() on it is a no-op that would have looked like
+            // a fix. Activate() puts this form back as the active window whichever of the two took
+            // it, the hidden child or the overlay appearing.
             Controls.Remove(_transport);
 
             FormBorderStyle = FormBorderStyle.None;
@@ -2192,7 +2259,14 @@ internal class MainForm : Form
             // border style and window state but has not re-laid-out, so the viewport still reports
             // its windowed rectangle - and the overlay lands wherever the bottom of the small
             // viewport used to be, which on a maximised window is the middle of the screen.
-            BeginInvoke(() => _overlay?.PositionOver(_viewport));
+            BeginInvoke(() =>
+            {
+                _overlay?.PositionOver(_viewport);
+
+                // Last thing, after every window has settled. Without it the keys stopped landing
+                // on entering full screen and there was no way back out but alt-tab.
+                Activate();
+            });
 
             // **And again on every layout while full screen.** One shot is not enough: the form is
             // still settling after this - border style, bounds and topmost each re-lay-out the
@@ -2827,12 +2901,7 @@ internal class MainForm : Form
 
         if (keyData == Keys.F12)
         {
-            CaptureViewport(Path.Combine(
-                Path.GetDirectoryName(ViewerLog.Path) ?? ".",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
-
+            CaptureViewportToFile();
             return true;
         }
 

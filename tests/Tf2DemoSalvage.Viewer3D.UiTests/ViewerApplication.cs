@@ -6,7 +6,9 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Exceptions;
+using FlaUI.Core.Input;
 using FlaUI.Core.Tools;
+using FlaUI.Core.WindowsAPI;
 using FlaUI.UIA3;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
@@ -25,7 +27,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// enough to waste minutes across a suite - and it converts a deterministic failure into a
 /// probabilistic one. Everything here waits for an element to exist.
 /// </remarks>
-internal sealed class ViewerApplication : IDisposable
+internal sealed partial class ViewerApplication : IDisposable
 {
     /// <summary>How long to wait for an element before failing the test.</summary>
     private static readonly TimeSpan FindTimeout = TimeSpan.FromSeconds(20);
@@ -179,6 +181,170 @@ internal sealed class ViewerApplication : IDisposable
                 $"The viewer's main window did not appear within {FindTimeout}.");
 
         return new ViewerApplication(application, automation, window);
+    }
+
+    /// <summary>Presses a key at the viewer, refusing to press it anywhere else.</summary>
+    /// <param name="key">The key to type.</param>
+    /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
+    /// <remarks>
+    /// **Synthesized input is the last resort, and full screen is where it is genuinely needed.**
+    /// Everything reachable through UI Automation goes that way instead — no focus, no foreground,
+    /// nothing that can land in another application. But full screen hides the menu strip, so the
+    /// item that would leave it is not in the automation tree while it is there, and expanding a
+    /// menu over a Direct3D full-screen window is its own way to hang. A real F11 or Escape is the
+    /// only route out.
+    ///
+    /// **So the press is guarded rather than hoped about.** A synthesized key goes to whichever
+    /// window holds the foreground, which is how earlier runs typed into the tester's browser. This
+    /// takes the foreground first, verifies it arrived, and throws if it did not — the one thing
+    /// that must never happen is pressing a key while some other window would receive it, and a
+    /// test that fails is enormously better than a keystroke delivered into somebody's work.
+    ///
+    /// It deliberately does NOT fall back to clicking. A click is synthesized at screen
+    /// coordinates, so if something is covering the viewer the click lands in that instead — the
+    /// fallback would do the very thing the guard exists to prevent.
+    /// </remarks>
+    public void PressKey(VirtualKeyShort key)
+    {
+        Window.SetForeground();
+
+        if (!HasFocus())
+        {
+            TakeForeground();
+        }
+
+        if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
+        {
+            throw new InvalidOperationException(
+                $"Refusing to press {key}: the viewer did not come to the foreground, so the " +
+                "keystroke would be delivered to whatever window is in front of it.");
+        }
+
+        Keyboard.Type(key);
+
+        // Checked again afterwards, because focus can be taken between the check and the press and
+        // that is precisely the race worth knowing about. It reports rather than throws: the key
+        // has already gone somewhere by this point, and the test's own assertions will say whether
+        // it arrived.
+        if (!HasFocus())
+        {
+            Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer");
+        }
+    }
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint attaching, uint attachTo, [MarshalAs(UnmanagedType.Bool)] bool attach);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool BringWindowToTop(IntPtr window);
+
+    /// <summary>Takes the foreground the way Windows actually allows.</summary>
+    /// <remarks>
+    /// **SetForegroundWindow alone is refused and reports nothing.** Windows grants a foreground
+    /// change only to a process that already owns the foreground or the input queue, and a test
+    /// host launched from a terminal owns neither — the call returns and the window stays where it
+    /// was, which is why the guard above kept refusing to press anything.
+    ///
+    /// Attaching to the foreground thread's input queue is the documented way round it: for the
+    /// duration of the attachment the two threads share input state, so the request comes from a
+    /// thread that is allowed to make it. Detached again immediately, in a finally, because leaving
+    /// two input queues joined affects focus handling for both.
+    ///
+    /// **This is a deliberate foreground steal and it is confined to the UI suite**, which holds
+    /// the machine-wide lock precisely so nothing else — human or agent — is using the desktop
+    /// while it runs. The caller still verifies afterwards and refuses to send the keystroke if it
+    /// did not work, so a failure here costs a failed test and never a key in someone's window.
+    /// </remarks>
+    private void TakeForeground()
+    {
+        IntPtr window = new(Window.Properties.NativeWindowHandle.Value.ToInt64());
+        IntPtr foreground = GetForegroundWindow();
+
+        uint theirs = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+        uint ours = GetCurrentThreadId();
+
+        bool attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true);
+
+        try
+        {
+            _ = SetForegroundWindow(window);
+            _ = BringWindowToTop(window);
+        }
+        finally
+        {
+            if (attached)
+            {
+                _ = AttachThreadInput(ours, theirs, false);
+            }
+        }
+    }
+
+    /// <summary>Invokes a menu item, opening the menu that holds it first.</summary>
+    /// <param name="menuId">Automation id of the top-level menu.</param>
+    /// <param name="itemId">Automation id of the item inside it.</param>
+    /// <remarks>
+    /// **A closed WinForms menu has no children in the automation tree.** The drop-down items are
+    /// built when it opens, so searching for one while the menu is shut walks a tree that does not
+    /// contain it and fails on an element that does not carry an AutomationId at all — reported as
+    /// "The requested property 'AutomationId' is not supported", which names the property rather
+    /// than the situation and reads like the item is missing.
+    ///
+    /// Expanding through the ExpandCollapse pattern keeps this free of synthesized input: no
+    /// focus, no clicks, nothing that can land in another application's window.
+    /// </remarks>
+    public void InvokeMenuItem(string menuId, string itemId)
+    {
+        // **By NAME, because a menu item has no AutomationId to search by.** WinForms does not
+        // surface one for ToolStripMenuItem, and asking for it does not return nothing — it throws
+        // on the first item inspected, which reads as "the menu is missing" rather than "you asked
+        // the wrong question".
+        AutomationElement? menu = Retry.WhileNull(
+            () => Window.FindFirstDescendant(search => search.ByName(menuId)),
+            FindTimeout,
+            throwOnTimeout: true,
+            timeoutMessage: $"No menu named '{menuId}' appeared.").Result;
+
+        Assert.That(menu, Is.Not.Null, $"no menu named '{menuId}'");
+
+        menu!.Patterns.ExpandCollapse.Pattern.Expand();
+
+        AutomationElement? item = Retry.WhileNull(
+            () => menu.FindFirstDescendant(search => search.ByName(itemId)),
+            FindTimeout,
+            throwOnTimeout: true,
+            timeoutMessage: $"{itemId} never appeared under {menuId}.").Result;
+
+        // Retry throws on timeout, so a null here is impossible; the compiler cannot see that
+        // through the Result property, and asserting it is cheaper than a null-forgiving operator
+        // that would hide a real change to Retry's contract.
+        Assert.That(item, Is.Not.Null, $"{itemId} was not found under {menuId}");
+
+        item!.Patterns.Invoke.Pattern.Invoke();
+
+        // Closed again so the next expand starts from a known state, and so an open menu is not
+        // left covering the viewport a later test is about to measure.
+        menu.Patterns.ExpandCollapse.Pattern.Collapse();
     }
 
     /// <summary>Finds a control by the automation id the shell gives it.</summary>

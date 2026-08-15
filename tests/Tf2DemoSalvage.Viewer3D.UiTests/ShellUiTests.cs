@@ -2,9 +2,8 @@ using System;
 using System.IO;
 
 using FlaUI.Core.AutomationElements;
-using FlaUI.Core.Input;
-using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
+using FlaUI.Core.Tools;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -64,8 +63,7 @@ public sealed class ShellUiTests
         }
 
         ViewerApplication.Log("still full screen after the test; pressing Escape");
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        _viewer.PressKey(VirtualKeyShort.ESCAPE);
 
         Retry.WhileTrue(
             () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
@@ -124,15 +122,14 @@ public sealed class ShellUiTests
         // Relative to the window's own starting width, not to pixel constants: these run at CI's
         // 754x512 as well as on a developer's screen, and a hard-coded 1000 would be wrong on one
         // of them.
-        _viewer.Focus();
         int beforeFullScreen = _viewer.Find("Viewport").BoundingRectangle.Width;
 
-        Keyboard.Type(VirtualKeyShort.F11);
+        _viewer.PressKey(VirtualKeyShort.F11);
         Retry.WhileFalse(
             () => _viewer.Find("Viewport").BoundingRectangle.Width > beforeFullScreen,
             TimeSpan.FromSeconds(10));
 
-        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        _viewer.PressKey(VirtualKeyShort.ESCAPE);
         Retry.WhileFalse(
             () => _viewer.Find("Viewport").BoundingRectangle.Width == beforeFullScreen,
             TimeSpan.FromSeconds(10));
@@ -152,12 +149,16 @@ public sealed class ShellUiTests
         // The full-screen transition is the one piece of this shell that unit tests can only
         // approximate: they assert where controls live, not whether the window actually resizes
         // or whether the key even reaches the form past a focused viewport panel.
-        // Focus first: synthesized keys go to the foreground window, and the launched viewer is
-        // not necessarily it. Without this the F11 lands in whatever was in front.
-        _viewer.Focus();
-        TestContext.Out.WriteLine(
-            $"focused: hasFocus={_viewer.Window.Properties.HasKeyboardFocus.ValueOrDefault}, " +
-            $"offscreen={_viewer.Window.Properties.IsOffscreen.ValueOrDefault}");
+        // **No focus, and no synthesized input.** This used to focus the window and press F11,
+        // because synthesized keys go to the FOREGROUND window and the launched viewer is not
+        // necessarily it. That is true, and it is the reason not to use them at all: a test that
+        // needs the foreground is a test that fights the person at the machine for it, and twice
+        // here the keystrokes went into a browser. Invoking the menu item through UIA needs no
+        // focus, no window ordering and no real input.
+        //
+        // Escape's binding is not covered here any more, and does not need to be: FullScreenTests
+        // exercises ProcessCmdKey directly, without a display, which is a better place to ask
+        // whether a key is handled than a launched application is.
 
         AutomationElement viewport = _viewer.Find("Viewport");
         int windowedWidth = viewport.BoundingRectangle.Width;
@@ -166,7 +167,7 @@ public sealed class ShellUiTests
 
         // Type, not Press: FlaUI's Press holds the key DOWN and never releases it, so a shortcut
         // that fires on the complete keystroke never sees one.
-        Keyboard.Type(VirtualKeyShort.F11);
+        _viewer.PressKey(VirtualKeyShort.F11);
         Retry.WhileFalse(
             () => _viewer.Find("Viewport").BoundingRectangle.Width > windowedWidth,
             TimeSpan.FromSeconds(10));
@@ -180,7 +181,7 @@ public sealed class ShellUiTests
 
         // Escape, not F11, so the second binding is covered too - it is the one a user reaches
         // for by habit and the one most likely to be missed by a form-level key handler.
-        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        _viewer.PressKey(VirtualKeyShort.ESCAPE);
 
         Retry.WhileFalse(
             () => Math.Abs(_viewer.Find("Viewport").BoundingRectangle.Width - windowedWidth) < 2,
@@ -209,12 +210,11 @@ public sealed class ShellUiTests
         // **The playlist's panel stayed docked.** The code hid the playlist and the search box
         // after those two moved inside a container, so 280 pixels of empty panel kept its place
         // and the viewport came out that much narrower.
-        _viewer.Focus();
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
         int windowedWidth = _viewer.Find("Viewport").BoundingRectangle.Width;
 
-        Keyboard.Type(VirtualKeyShort.F11);
+        _viewer.PressKey(VirtualKeyShort.F11);
         Retry.WhileFalse(
             () => _viewer.Find("Viewport").BoundingRectangle.Width > windowedWidth,
             TimeSpan.FromSeconds(10));
@@ -234,7 +234,7 @@ public sealed class ShellUiTests
         viewport.Width.ShouldBe(screen.Width, "something is still docked beside the viewport");
         viewport.Height.ShouldBe(screen.Height, "something is still docked above or below the viewport");
 
-        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        _viewer.PressKey(VirtualKeyShort.ESCAPE);
         Retry.WhileFalse(
             () => Math.Abs(_viewer.Find("Viewport").BoundingRectangle.Width - windowedWidth) < 2,
             TimeSpan.FromSeconds(10));

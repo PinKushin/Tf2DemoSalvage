@@ -2,9 +2,8 @@ using System;
 using System.IO;
 
 using FlaUI.Core.AutomationElements;
-using FlaUI.Core.Input;
-using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
+using FlaUI.Core.Tools;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -103,8 +102,17 @@ public sealed class MapFullScreenUiTests
         texturesBefore.ShouldBe(1, "the map's textures should have been uploaded once at load");
         buildsBefore.ShouldBe(1, "the world should have been built once at load");
 
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.F11);
+        // **Through the automation pattern, never through synthesized input.** Keyboard.Type and
+        // Window.Click send real system input, which goes to whatever holds the FOREGROUND — so a
+        // test using them is racing the person at the machine and will lose. Measured twice here:
+        // key presses and clicks landing in a browser mid-run.
+        //
+        // Nothing about this needs focus. UIA invokes the menu item directly, the same way a screen
+        // reader would, and the application does not have to be in front for it to arrive. If a
+        // control cannot be driven that way, that is an accessibility defect in the application
+        // worth fixing rather than a reason to reach for the mouse — every route this suite needs
+        // is one a keyboard-only user needs too.
+        _viewer.PressKey(VirtualKeyShort.F11);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
@@ -149,8 +157,7 @@ public sealed class MapFullScreenUiTests
             return;
         }
 
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        _viewer.PressKey(VirtualKeyShort.ESCAPE);
 
         Retry.WhileTrue(
             () => _viewer.Window.BoundingRectangle.Width >= screen.Width,

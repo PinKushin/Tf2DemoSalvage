@@ -3,8 +3,6 @@ using System.IO;
 using System.Linq;
 
 using FlaUI.Core.Tools;
-using FlaUI.Core.WindowsAPI;
-using FlaUI.Core.Input;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -73,8 +71,14 @@ public sealed class ViewportPictureUiTests
     {
         string[] before = Shots();
 
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.F12);
+        // Invoked through the menu item rather than by faking F12. Synthesized keys go to whichever
+        // window holds the foreground, so the press lands wherever the tester happens to be looking
+        // — measured, twice, as keystrokes arriving in a browser. UIA needs no focus at all.
+        //
+        // The menu item did not exist until this test needed it, and that is the finding rather
+        // than an inconvenience: the screenshot had no route except a function key, so anyone
+        // driving the viewer by keyboard navigation or a screen reader had no way to reach it.
+        _viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.ScreenshotItemName);
 
         // The capture happens on the next presented frame, so it arrives when the viewer next
         // draws rather than when the key is released.
