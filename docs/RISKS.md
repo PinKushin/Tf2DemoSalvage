@@ -4202,3 +4202,11 @@ genuine launch failure cost more.
 **Still failing after that, and open:** `TransportUiTests` — the speed readout does not follow the
 shuttle buttons into reverse (2 tests). `TransportBar.cs` is untouched on this branch, so this is
 not a regression from the work merged here; it needs its own look.
+
+**The two survivors are the test's fault, not the bar's** (owner's read, and the evidence agrees).
+`TheSpeedReadoutFollowsTheShuttleButtonsIntoReverse` fails at its second step, where it demands the
+label read exactly `speed 2x` after one press of faster — an exact-string coupling to a format the
+bar is free to change, and the only assertion in the method that is not loose. The reverse check
+below it is `Contains("reversed")`, which is why the comment's off-by-one (five slower steps from 2x
+land on −0.5x, not the −0.25x it claims) never showed up as a failure. Both need rewriting against
+the ladder in `TransportBar.Speeds` rather than against strings.
