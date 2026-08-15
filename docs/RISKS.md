@@ -4172,7 +4172,12 @@ or a console allocation during the suite.
 
 ### B76 — the UI suite loses to the rest of the suite for the machine
 
-`dotnet test` on the solution runs test projects **in parallel**. The corpus suite reads 774 MB of
+**Not a parallelism setting inside the UI assembly — that is already serial, and correctly so.**
+`dotnet test` on a solution starts one `testhost` process **per project, concurrently**, and no
+`[NonParallelizable]` reaches across process boundaries. Measured: four testhosts — Corpus, Content,
+Viewer3D and UiTests — all created between 20:40:21 and 20:40:23.
+
+The corpus suite reads 774 MB of
 local demos while the UI suite launches the viewer, loads a 100 MB map and waits 20 seconds for a
 window. Under that load the window does not make it, and `GetMainWindow` fails with
 
