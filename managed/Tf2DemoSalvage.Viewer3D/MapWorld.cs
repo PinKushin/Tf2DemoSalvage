@@ -43,12 +43,15 @@ internal static class MapWorldBuilder
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
     /// <param name="overlays">The map decals, or null to draw none.</param>
     /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
+    /// <param name="models">The map's models, so entity brushwork can be counted apart from the world.</param>
     /// <returns>The triangles and their batches.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// Only upward-facing, visible surfaces are kept, which is the same rule the outline view uses:
-    /// it is the engine's own backface culling for a camera looking straight down, so a ceiling
-    /// disappears and the roof a soldier stands on does not.
+    /// Every visible surface is kept. This used to drop downward-facing ones and call it "the
+    /// engine's own backface culling for a camera looking straight down", which was a workaround
+    /// wearing a principle's clothes: the engine culls per frame against the frustum and the PVS,
+    /// and culling once by the sign of a normal only matches that for a camera that never moves.
+    /// Backface culling still happens, in the rasteriser, per frame.
     /// </remarks>
     public static MapWorld Build(
         BspTerrain? terrain,
@@ -59,7 +62,8 @@ internal static class MapWorldBuilder
         TopDownCamera camera,
         MapBounds? area,
         bool categoryColours = false,
-        IReadOnlyList<BspOverlay>? overlays = null)
+        IReadOnlyList<BspOverlay>? overlays = null,
+        IReadOnlyList<BspModel>? models = null)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
@@ -84,7 +88,22 @@ internal static class MapWorldBuilder
 
         foreach (BspSurface surface in surfaces)
         {
-            if (!surface.IsVisible || surface.Normal.Z < 0f || surface.Vertices.Count < 3)
+            // **No normal cull, and its removal is the point.** This used to discard every face
+            // whose normal pointed downward, which was free when the only camera looked straight
+            // down: a face pointing away from an overhead view can never be seen from one.
+            //
+            // A camera that can go anywhere makes that assumption false, and it was deleting real
+            // geometry — ceilings, undersides, and any wall whose normal tips even slightly below
+            // horizontal. It also produced the "floating decals" chased all evening: an overlay
+            // pinned to a culled face draws correctly in mid-air, with the wall that should be
+            // behind it simply absent.
+            //
+            // **This is the deviation from the engine.** Valve culls per frame against the view
+            // frustum and the PVS, from wherever the camera actually is. Culling once, at build
+            // time, by the sign of a normal, is only equivalent for a camera that never moves.
+            // Backface culling in the rasteriser still removes what genuinely faces away, per
+            // frame, which is where that decision belongs.
+            if (!surface.IsVisible || surface.Vertices.Count < 3)
             {
                 continue;
             }
@@ -169,10 +188,28 @@ internal static class MapWorldBuilder
 
         AppendProps(props, byMaterial, area, categoryColours);
 
+        // **How many of those faces belong to a moving entity rather than to the world.** A door,
+        // a lift and a payload cart are each their own BSP model, and their faces sit in the same
+        // lump after the world's — so a reader that walks the whole lump draws them, STATICALLY, at
+        // whatever position they were compiled in. That is a completely different defect from not
+        // drawing them at all, and the two are indistinguishable from a picture: a door compiled
+        // retracted is invisible either way.
+        //
+        // Counted rather than assumed, because the question decided what to build next and the
+        // answer was not in evidence.
+        int worldFaces = models is { Count: > 0 } ? models[0].FaceCount : int.MaxValue;
+        int movingFaces = 0;
+
+        foreach (BspSurface surface in surfaces)
+        {
+            movingFaces += surface.FaceIndex >= worldFaces ? 1 : 0;
+        }
+
         ViewerLog.Write(
             "render",
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
-            $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material");
+            $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material; " +
+            $"{movingFaces} of the surfaces read belong to entity models rather than the world");
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];
@@ -275,10 +312,6 @@ internal static class MapWorldBuilder
                 continue;
             }
 
-            AtlasRect rectangle = on.FaceIndex < atlas.Rectangles.Count
-                ? atlas.Rectangles[on.FaceIndex]
-                : default;
-
             // **The corner order is measured, not assumed, because the SDK cannot answer it.**
             // vbsp copies uv0-uv3 through from the VMF untouched (utils/vbsp/overlay.cpp) and
             // nothing in the released source reads them back: the overlay renderer is engine-side.
@@ -295,48 +328,89 @@ internal static class MapWorldBuilder
             // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
             // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
             // ninety degrees out and squeezed into a narrow column.
-            (float U, float V)[] texture =
-            [
-                (overlay.U.Start, overlay.V.Start),
-                (overlay.U.Start, overlay.V.End),
-                (overlay.U.End, overlay.V.End),
-                (overlay.U.End, overlay.V.Start),
-            ];
-
-            List<WorldVertex> corners = [];
-
-            for (int index = 0; index < 4; index++)
-            {
-                (float x, float y, float z) = quad[index];
-                (float lightU, float lightV) = on.Lighting.Project(x, y, z);
-
-                corners.Add(new WorldVertex(
-                    x,
-                    y,
-
-                    // **World height, not a depth.** D21: the camera projects it, so the same
-                    // geometry serves an overhead view, a free camera and a first-person one.
-                    z,
-                    texture[index].U,
-                    texture[index].V,
-                    rectangle.U + (Math.Clamp(lightU, 0f, 1f) * rectangle.Width),
-                    rectangle.V + (Math.Clamp(lightV, 0f, 1f) * rectangle.Height),
-                    0f));
-            }
-
             if (!byMaterial.TryGetValue(overlay.MaterialIndex, out List<WorldVertex>? into))
             {
                 into = [];
                 byMaterial[overlay.MaterialIndex] = into;
             }
 
-            // Two triangles from the quad, wound as the corners are given.
-            into.Add(corners[0]);
-            into.Add(corners[1]);
-            into.Add(corners[2]);
-            into.Add(corners[0]);
-            into.Add(corners[2]);
-            into.Add(corners[3]);
+            // **An overlay's face list is the set of surfaces to CLIP against, not a list of
+            // candidates to pick one from.** This used to take the first face sharing an
+            // orientation and draw a single flat quad from the overlay's own corners.
+            //
+            // For a sign on one wall that is right, and cp_process's REDSTONE CARGO lettering and
+            // its arrows have always looked correct. For anything spanning a corner it is not: an
+            // `overlays/stripe_red` names up to EIGHTEEN faces (median three), so its quad is a
+            // flat plane cutting straight through the building where the wall turns, hanging in
+            // the air on both sides of it. Forty-five red stripes and forty-three blue ones on
+            // this map alone.
+            //
+            // The engine clips the overlay polygon against each face it names and draws a fragment
+            // per face, which is why its stripes follow the geometry around corners. Same here:
+            // clip to the face's own edges, drop the fragment onto that face's plane, and light it
+            // from that face's lightmap rectangle.
+            int fragments = 0;
+
+            foreach (int face in overlay.Faces)
+            {
+                if (!byFace.TryGetValue(face, out BspSurface? piece) ||
+                    Math.Abs(
+                        (overlay.BasisNormal.X * piece.Normal.X) +
+                        (overlay.BasisNormal.Y * piece.Normal.Y) +
+                        (overlay.BasisNormal.Z * piece.Normal.Z)) <= 0.9f)
+                {
+                    continue;
+                }
+
+                List<(float X, float Y, float Z)> fragment = ClipToFace(quad, piece);
+
+                if (fragment.Count < 3)
+                {
+                    continue;
+                }
+
+                AtlasRect onFace = piece.FaceIndex < atlas.Rectangles.Count
+                    ? atlas.Rectangles[piece.FaceIndex]
+                    : default;
+
+                List<WorldVertex> corners = new(fragment.Count);
+
+                foreach ((float x, float y, float z) in fragment)
+                {
+                    (float lightU, float lightV) = piece.Lighting.Project(x, y, z);
+                    (float u, float v) = TextureAt(overlay, x, y, z);
+
+                    corners.Add(new WorldVertex(
+                        x,
+                        y,
+
+                        // **World height, not a depth.** D21: the camera projects it, so the same
+                        // geometry serves an overhead view, a free camera and a first-person one.
+                        z,
+                        u,
+                        v,
+                        onFace.U + (Math.Clamp(lightU, 0f, 1f) * onFace.Width),
+                        onFace.V + (Math.Clamp(lightV, 0f, 1f) * onFace.Height),
+                        0f));
+                }
+
+                // A fan, because clipping a convex quad against convex edges stays convex.
+                for (int corner = 1; corner + 1 < corners.Count; corner++)
+                {
+                    into.Add(corners[0]);
+                    into.Add(corners[corner]);
+                    into.Add(corners[corner + 1]);
+                }
+
+                fragments++;
+            }
+
+            if (fragments == 0)
+            {
+                // Named faces it shares a plane with, and clipped to nothing on all of them.
+                unlit++;
+                continue;
+            }
 
             placed++;
         }
@@ -620,6 +694,194 @@ internal static class MapWorldBuilder
 
     /// <summary>A surface's material, or -1 when it names one the map does not have.</summary>
     private static int materialIndex(BspSurface surface) => surface.MaterialIndex;
+
+    /// <summary>Clips an overlay's quad to one face, and drops it onto that face's plane.</summary>
+    /// <param name="quad">The overlay's four world corners.</param>
+    /// <param name="face">The face to clip against.</param>
+    /// <returns>The surviving polygon, empty when the overlay misses this face entirely.</returns>
+    /// <remarks>
+    /// **Sutherland and Hodgman, against the face's own edges.** Each edge of a convex polygon
+    /// defines a half-space in the plane of the face — the plane through that edge whose normal is
+    /// the edge crossed with the face normal — and clipping the quad against all of them in turn
+    /// leaves the part that lies within the face's outline.
+    ///
+    /// **Then the result is dropped onto the face's plane**, which is what makes a stripe follow a
+    /// building around a corner. Without it every fragment stays in the overlay's own plane and the
+    /// pieces on the far side of the corner still hang in the air, only smaller.
+    ///
+    /// The offset applied is the face's own distance along its normal, so a fragment sits exactly
+    /// on the surface it marks and the depth bias handles the rest.
+    /// </remarks>
+    private static List<(float X, float Y, float Z)> ClipToFace(
+        IReadOnlyList<(float X, float Y, float Z)> quad, BspSurface face)
+    {
+        IReadOnlyList<SurfaceVertex> outline = face.Vertices;
+
+        if (outline.Count < 3)
+        {
+            return [];
+        }
+
+        List<(float X, float Y, float Z)> polygon = [.. quad];
+
+        // **The face's own centre, because the winding cannot be assumed.** The inward normal of an
+        // edge is the face normal crossed with the edge, but which way that points depends on
+        // whether the outline runs clockwise or anticlockwise as seen from the front — and a BSP
+        // carries both. Getting it backwards clips every fragment away to nothing, which looks
+        // exactly like an overlay that missed its face, so it would have been invisible in the
+        // count and obvious only as decals silently disappearing.
+        //
+        // A point known to be inside settles it per edge and costs one dot product.
+        (float X, float Y, float Z) middle = (0f, 0f, 0f);
+
+        foreach (SurfaceVertex corner in outline)
+        {
+            middle = (middle.X + corner.X, middle.Y + corner.Y, middle.Z + corner.Z);
+        }
+
+        middle = (middle.X / outline.Count, middle.Y / outline.Count, middle.Z / outline.Count);
+
+        for (int edge = 0; edge < outline.Count && polygon.Count > 0; edge++)
+        {
+            SurfaceVertex edgeStart = outline[edge];
+            SurfaceVertex edgeEnd = outline[(edge + 1) % outline.Count];
+
+            (float X, float Y, float Z) from = (edgeStart.X, edgeStart.Y, edgeStart.Z);
+            (float X, float Y, float Z) to = (edgeEnd.X, edgeEnd.Y, edgeEnd.Z);
+
+            // The inward normal of this edge, in the plane of the face.
+            (float X, float Y, float Z) along = (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
+
+            (float X, float Y, float Z) inward = (
+                (face.Normal.Y * along.Z) - (face.Normal.Z * along.Y),
+                (face.Normal.Z * along.X) - (face.Normal.X * along.Z),
+                (face.Normal.X * along.Y) - (face.Normal.Y * along.X));
+
+            float length = MathF.Sqrt(
+                (inward.X * inward.X) + (inward.Y * inward.Y) + (inward.Z * inward.Z));
+
+            if (length < 1e-6f)
+            {
+                continue;
+            }
+
+            inward = (inward.X / length, inward.Y / length, inward.Z / length);
+
+            float offset =
+                (inward.X * from.X) + (inward.Y * from.Y) + (inward.Z * from.Z);
+
+            // Flipped when the face is wound the other way, so "inward" always means inward.
+            if ((inward.X * middle.X) + (inward.Y * middle.Y) + (inward.Z * middle.Z) < offset)
+            {
+                inward = (-inward.X, -inward.Y, -inward.Z);
+                offset = -offset;
+            }
+
+            // **A unit of slack, because a decal is authored to reach its face's edge.** Clipping
+            // exactly on the boundary shaves a hairline off every fragment, and the seams between
+            // them then show as gaps along every corner the stripe wraps.
+            polygon = ClipToHalfSpace(polygon, inward, offset - 1f);
+        }
+
+        if (polygon.Count < 3)
+        {
+            return [];
+        }
+
+        // Onto the face's plane. Its distance is taken from a point known to be on it.
+        float plane =
+            (face.Normal.X * outline[0].X) +
+            (face.Normal.Y * outline[0].Y) +
+            (face.Normal.Z * outline[0].Z);
+
+        for (int corner = 0; corner < polygon.Count; corner++)
+        {
+            (float x, float y, float z) = polygon[corner];
+
+            float above =
+                (face.Normal.X * x) + (face.Normal.Y * y) + (face.Normal.Z * z) - plane;
+
+            polygon[corner] = (
+                x - (face.Normal.X * above),
+                y - (face.Normal.Y * above),
+                z - (face.Normal.Z * above));
+        }
+
+        return polygon;
+    }
+
+    /// <summary>Keeps the part of a polygon on the inward side of one plane.</summary>
+    private static List<(float X, float Y, float Z)> ClipToHalfSpace(
+        List<(float X, float Y, float Z)> polygon,
+        (float X, float Y, float Z) normal,
+        float offset)
+    {
+        List<(float X, float Y, float Z)> kept = new(polygon.Count + 1);
+
+        for (int index = 0; index < polygon.Count; index++)
+        {
+            (float X, float Y, float Z) current = polygon[index];
+            (float X, float Y, float Z) next = polygon[(index + 1) % polygon.Count];
+
+            float here =
+                (normal.X * current.X) + (normal.Y * current.Y) + (normal.Z * current.Z) - offset;
+
+            float there =
+                (normal.X * next.X) + (normal.Y * next.Y) + (normal.Z * next.Z) - offset;
+
+            if (here >= 0f)
+            {
+                kept.Add(current);
+            }
+
+            // Crossing the plane in either direction adds the point where it crosses.
+            if ((here >= 0f) != (there >= 0f) && MathF.Abs(here - there) > 1e-9f)
+            {
+                float step = here / (here - there);
+
+                kept.Add((
+                    current.X + ((next.X - current.X) * step),
+                    current.Y + ((next.Y - current.Y) * step),
+                    current.Z + ((next.Z - current.Z) * step)));
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>Where a point on an overlay falls in its texture.</summary>
+    /// <remarks>
+    /// **Recovered from the basis rather than carried on the corners**, because clipping creates
+    /// points that were never corners. An overlay is planar and its basis is orthonormal, so the
+    /// distance along each axis from the origin IS the position in the overlay's own space, and the
+    /// texture range maps linearly onto the corners' extent in that space.
+    /// </remarks>
+    private static (float U, float V) TextureAt(BspOverlay overlay, float x, float y, float z)
+    {
+        (float X, float Y, float Z) from = (
+            x - overlay.Origin.X, y - overlay.Origin.Y, z - overlay.Origin.Z);
+
+        float along =
+            (from.X * overlay.BasisU.X) + (from.Y * overlay.BasisU.Y) + (from.Z * overlay.BasisU.Z);
+
+        float down =
+            (from.X * overlay.BasisV.X) + (from.Y * overlay.BasisV.Y) + (from.Z * overlay.BasisV.Z);
+
+        float leftmost = overlay.Corners.Min(corner => corner.X);
+        float rightmost = overlay.Corners.Max(corner => corner.X);
+        float topmost = overlay.Corners.Min(corner => corner.Y);
+        float bottommost = overlay.Corners.Max(corner => corner.Y);
+
+        return (
+            Lerp(overlay.U.Start, overlay.U.End, Fraction(along, leftmost, rightmost)),
+            Lerp(overlay.V.Start, overlay.V.End, Fraction(down, topmost, bottommost)));
+    }
+
+    private static float Fraction(float value, float start, float end) =>
+        MathF.Abs(end - start) < 1e-6f ? 0f : (value - start) / (end - start);
+
+    private static float Lerp(float start, float end, float fraction) =>
+        start + ((end - start) * fraction);
 
     private static bool Touches(BspSurface surface, MapBounds bounds)
     {

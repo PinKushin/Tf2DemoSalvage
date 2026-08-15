@@ -70,6 +70,61 @@ public readonly record struct ScenePose
     /// <summary>How far through that animation, from 0 to 1.</summary>
     public float Cycle { get; init; }
 
+    /// <summary>How fast the entity is moving horizontally, when that was worked out.</summary>
+    /// <remarks>
+    /// **Only players carry this, and only because nothing else can supply it.** A demo networks
+    /// no animation state for a player, so which sequence to play has to be computed - and the
+    /// input that decides standing from running is horizontal speed, which the engine reads from
+    /// the entity's own velocity. Null for anything whose animation the demo does state.
+    /// </remarks>
+    public float? Speed { get; init; }
+
+    /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
+    /// <remarks>
+    /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
+    /// engine's own lookup takes the grid's corner, which is one fixed direction — the legs then
+    /// run that way however the body is turned.
+    ///
+    /// Ported from <c>CMultiPlayerAnimState::ComputePoseParam_MoveYaw</c>
+    /// (<c>multiplayer_animstate.cpp:1575</c>):
+    ///
+    /// <code>
+    /// float flYaw = flAngle - m_PoseParameterData.m_flEstimateYaw;
+    /// flYaw = AngleNormalize( -flYaw );
+    /// flYaw = SnapYawTo( flYaw );
+    /// vecCurrentMoveYaw.x =  cos( DEG2RAD( flYaw ) );
+    /// vecCurrentMoveYaw.y = -sin( DEG2RAD( flYaw ) );
+    /// </code>
+    ///
+    /// so the pair is the unit vector of travel expressed in the body's own frame — <c>(1, 0)</c>
+    /// running straight forward, <c>(-1, 0)</c> backpedalling.
+    ///
+    /// Zero for a player standing still, which is what the engine leaves them at.
+    /// </remarks>
+    /// <summary>Which alternative each of the model's body parts shows.</summary>
+    /// <remarks>
+    /// **A capture point's label and a player's drawn weapon are the same mechanism.** A model's
+    /// body parts each offer alternatives and this packs one choice per part; the renderer draws
+    /// the selected mesh of each part rather than all of them.
+    ///
+    /// Zero when the entity never sent one, which selects every part's first alternative — what the
+    /// engine shows for an entity that never sets it.
+    /// </remarks>
+    public int Body { get; init; }
+
+    public float MoveX { get; init; }
+
+    /// <summary>The <c>move_y</c> pose parameter: how much of the motion is sideways.</summary>
+    public float MoveY { get; init; }
+
+    /// <summary>Which skin family paints this entity, where zero is the model's own.</summary>
+    /// <remarks>
+    /// **A team colour is a different material rather than a tint.** TF2's player models carry two
+    /// skin families and the game picks by team - RED is 0 and BLU is 1. Left at zero for anything
+    /// that has no team.
+    /// </remarks>
+    public int Skin { get; init; }
+
     /// <summary>Whether the engine was told not to draw this entity at this moment.</summary>
     /// <remarks>
     /// **Part of the pose rather than an end to the track**, because a hidden entity comes back.
@@ -89,8 +144,15 @@ public readonly record struct ScenePose
 /// <param name="ModelPath">What to draw, as <c>modelprecache</c> named it.</param>
 /// <param name="Kind">Which loader the path belongs to.</param>
 /// <param name="Pose">Where it is and what it is doing.</param>
+/// <param name="AttachedTo">
+/// The entity whose skeleton carries this one, or <c>null</c> when it stands on its own origin.
+/// </param>
 public readonly record struct SceneProp(
-    int EntityIndex, string ModelPath, SceneModelKind Kind, ScenePose Pose);
+    int EntityIndex,
+    string ModelPath,
+    SceneModelKind Kind,
+    ScenePose Pose,
+    int? AttachedTo = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -126,6 +188,25 @@ public sealed class ScenePropTrack
 
     /// <summary>The model this entity draws as.</summary>
     public string ModelPath { get; }
+
+    /// <summary>The entity whose skeleton carries this one, when it has no place of its own.</summary>
+    /// <remarks>
+    /// **A bone-merged entity has no transform, by design.** A hat, a badge and a carried weapon
+    /// are attached with <c>FollowEntity</c>, which sets <c>EF_BONEMERGE</c> and then zeroes local
+    /// origin and angles (<c>shared/baseentity_shared.cpp:2360</c>) — the client matches the child
+    /// model's bones to the parent's **by name** and uses the parent's matrices outright, so a
+    /// position would never be read and is not sent.
+    ///
+    /// Which is why this is a property of the track rather than of the pose: it does not change
+    /// tick to tick, and there is no pose to put it in. A track with an owner keeps its keyframes
+    /// for the sequence and skin it does carry, and its position stays at zero because zero is
+    /// literally what the engine set.
+    ///
+    /// Settable rather than fixed at construction: the owner arrives on a later delta than the
+    /// model on some entities, and refusing the track until both have landed would lose the
+    /// cosmetic for however long that takes.
+    /// </remarks>
+    public int? AttachedTo { get; internal set; }
 
     /// <summary>Which of Valve's model types this reference names.</summary>
     /// <remarks>

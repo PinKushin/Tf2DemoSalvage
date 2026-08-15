@@ -1,11 +1,9 @@
 using System;
 using System.IO;
-using System.Linq;
 
 using FlaUI.Core.AutomationElements;
-using FlaUI.Core.Input;
-using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
+using FlaUI.Core.Tools;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -40,43 +38,8 @@ public sealed class MapFullScreenUiTests
     /// <summary>What it logs on every viewport change, which is now the whole cost of one.</summary>
     private const string CameraLine = "camera set for a";
 
-    private ViewerApplication _viewer = null!;
-
-    /// <summary>Where the viewer writes what it did.</summary>
-    private static string LogPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Tf2DemoSalvage",
-        "viewer.log");
-
-    /// <summary>A committed demo whose map ships with the game.</summary>
-    private static string DemoPath => Path.GetFullPath(Path.Combine(
-        TestContext.CurrentContext.TestDirectory,
-        "..", "..", "..", "..", "..",
-        "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
-
-    [OneTimeSetUp]
-    public void LaunchViewerWithADemo()
-    {
-        if (!File.Exists(DemoPath))
-        {
-            Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
-            return;
-        }
-
-        _viewer = ViewerApplication.Launch(DemoPath);
-
-        // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
-        // hundred megabytes and decodes two hundred textures, and how long that takes is a
-        // property of the machine.
-        Retry.WhileFalse(
-            () => Count(WorldBuildLine) > 0 && Count(TextureUploadLine) > 0,
-            TimeSpan.FromSeconds(60),
-            throwOnTimeout: true,
-            timeoutMessage: "The viewer never reported building a world; the map did not load.");
-    }
-
-    [OneTimeTearDown]
-    public void CloseViewer() => _viewer?.Dispose();
+    /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
+    private static ViewerApplication _viewer => ViewerSession.App;
 
     [Test]
     public void EnteringFullScreen_RepointsTheCameraWithoutRebuildingOrReuploading()
@@ -102,8 +65,17 @@ public sealed class MapFullScreenUiTests
         texturesBefore.ShouldBe(1, "the map's textures should have been uploaded once at load");
         buildsBefore.ShouldBe(1, "the world should have been built once at load");
 
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.F11);
+        // **Through the automation pattern, never through synthesized input.** Keyboard.Type and
+        // Window.Click send real system input, which goes to whatever holds the FOREGROUND — so a
+        // test using them is racing the person at the machine and will lose. Measured twice here:
+        // key presses and clicks landing in a browser mid-run.
+        //
+        // Nothing about this needs focus. UIA invokes the menu item directly, the same way a screen
+        // reader would, and the application does not have to be in front for it to arrive. If a
+        // control cannot be driven that way, that is an accessibility defect in the application
+        // worth fixing rather than a reason to reach for the mouse — every route this suite needs
+        // is one a keyboard-only user needs too.
+        _viewer.PressKey(VirtualKeyShort.F11);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
@@ -148,42 +120,13 @@ public sealed class MapFullScreenUiTests
             return;
         }
 
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.ESCAPE);
+        _viewer.PressKey(VirtualKeyShort.ESCAPE);
 
         Retry.WhileTrue(
             () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
             TimeSpan.FromSeconds(10));
     }
 
-    /// <summary>How many times the viewer has logged a line.</summary>
-    /// <remarks>
-    /// Opened shared, because the viewer holds the file open and appends to it while this reads.
-    /// A plain <c>File.ReadAllText</c> throws an IOException here, intermittently, which reads as
-    /// flake and is not.
-    /// </remarks>
-    private static int Count(string line)
-    {
-        if (!File.Exists(LogPath))
-        {
-            return 0;
-        }
-
-        try
-        {
-            using FileStream file = new(
-                LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using StreamReader reader = new(file);
-
-            return reader.ReadToEnd()
-                .Split('\n')
-                .Count(entry => entry.Contains(line, StringComparison.Ordinal));
-        }
-        catch (IOException)
-        {
-            // The viewer was mid-write. Reporting nothing lets the retry loop ask again, which is
-            // the only correct answer available at this instant.
-            return 0;
-        }
-    }
+    /// <summary>How many times this run's viewer log contains a line.</summary>
+    private static int Count(string line) => _viewer.Count(line);
 }

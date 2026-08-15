@@ -40,18 +40,39 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="NextNormalX">Its normal one animation frame later.</param>
 /// <param name="NextNormalY">Its normal one animation frame later.</param>
 /// <param name="NextNormalZ">Its normal one animation frame later.</param>
+/// <param name="BoneA">Which bone moves this vertex most, for a model skinned on the GPU.</param>
+/// <param name="BoneB">The second bone moving it.</param>
+/// <param name="BoneC">The third bone moving it.</param>
+/// <param name="WeightA">How much the first bone moves it.</param>
+/// <param name="WeightB">How much the second moves it.</param>
+/// <param name="WeightC">How much the third moves it.</param>
 internal readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
     float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
     float NormalX = 0f, float NormalY = 0f, float NormalZ = 1f,
     float NextX = 0f, float NextY = 0f, float NextZ = 0f,
-    float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f);
+    float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f,
+    float BoneA = 0f, float BoneB = 0f, float BoneC = 0f,
+    float WeightA = 0f, float WeightB = 0f, float WeightC = 0f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>
 /// <param name="FirstVertex">Where the run starts.</param>
 /// <param name="VertexCount">How many vertices it covers.</param>
-internal readonly record struct WorldBatch(int MaterialIndex, int FirstVertex, int VertexCount);
+/// <param name="BodyPart">Which body part this run belongs to, for a model batch.</param>
+/// <param name="BodyModel">Which of that part's alternatives, so one can be chosen per entity.</param>
+/// <remarks>
+/// **A batch never spans two body parts**, which is what makes the choice possible at draw time. The
+/// grouping key is the material AND the part and alternative it came from, so a run can be skipped
+/// whole when the entity's <c>m_nBody</c> did not select it. Merging on material alone would put a
+/// capture point's three signs in one run, and then no per-entity decision could separate them.
+/// </remarks>
+internal readonly record struct WorldBatch(
+    int MaterialIndex,
+    int FirstVertex,
+    int VertexCount,
+    int BodyPart = 0,
+    int BodyModel = 0);
 
 /// <summary>The sun as it reaches one model.</summary>
 /// <param name="Red">Intensity, linear, from the map's own emit_skylight.</param>
@@ -104,9 +125,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// the NEXT animation frame, so the shader can blend between two baked frames. A model that
     /// does not animate carries its own position in both and blends to itself.
     /// </remarks>
-    private const int VertexStride = sizeof(float) * 21;
+    private const int VertexStride = sizeof(float) * 27;
 
-    private const string ShaderSource = """
+    /// <summary>Most bones one model may be skinned by.</summary>
+    /// <remarks>
+    /// TF2's player models carry between 73 and 92 bones, so 128 covers them with room to spare.
+    /// Three float4 rows each is 384 constants, well inside a constant buffer's 4,096.
+    /// </remarks>
+    private const int MaxBones = 128;
+
+    private static readonly string ShaderSource = ShaderText.Replace(
+        "MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+
+    private const string ShaderText = """
         struct VsIn
         {
             float3 pos : POSITION;
@@ -121,6 +152,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // turns thirty baked poses a second into continuous motion.
             float3 nextPos : TEXCOORD6;
             float3 nextNrm : TEXCOORD7;
+
+            // Which bones move this vertex and by how much, for a model the GPU skins rather than
+            // one whose frames were baked. A baked model carries zeroes and is not skinned.
+            float3 bones   : TEXCOORD8;
+            float3 weights : TEXCOORD9;
         };
 
         struct VsOut
@@ -191,6 +227,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // bone turns far enough in one frame for the chord to cut the arc, and a pickup
             // spinning at ten frames a second turns twelve degrees between frames.
             float4 frameBlend;
+
+            // **How many bones this draw is skinned by, or zero for a model that is not.** A prop
+            // has its frames baked and blends between them; a player has hundreds of animations
+            // over ninety bones, which is gigabytes baked, so the GPU transforms it instead. Both
+            // paths share one shader because the alternative is two that agree until one gains a
+            // feature.
+            float4 skinning;
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -294,6 +337,59 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return lit;
         }
 
+        // **Bone matrices, which is Valve's own arrangement.** IMaterialSystem::LoadBoneMatrix
+        // hands these to the shader as constants and the GPU moves model-space vertices by them -
+        // the reason the engine draws a hundred animated players without noticing. Three rows of
+        // four, row major, the same 3x4 the studio format stores.
+        cbuffer Bones : register(b3)
+        {
+            float4 boneRows[MaxBones * 3];
+        };
+
+        float3 SkinPosition(float3 position, float3 bones, float3 weights, float count)
+        {
+            if (count < 1.0f)
+            {
+                return position;
+            }
+
+            float3 moved = float3(0.0f, 0.0f, 0.0f);
+            float total = weights.x + weights.y + weights.z;
+
+            if (total <= 0.0f)
+            {
+                return position;
+            }
+
+            [unroll]
+            for (int slot = 0; slot < 3; slot++)
+            {
+                float weight = slot == 0 ? weights.x : (slot == 1 ? weights.y : weights.z);
+
+                if (weight <= 0.0f)
+                {
+                    continue;
+                }
+
+                int bone = (int)(slot == 0 ? bones.x : (slot == 1 ? bones.y : bones.z));
+
+                if (bone < 0 || bone >= (int)count)
+                {
+                    continue;
+                }
+
+                float4 wide = float4(position, 1.0f);
+                int row = bone * 3;
+
+                moved += (weight / total) * float3(
+                    dot(boneRows[row], wide),
+                    dot(boneRows[row + 1], wide),
+                    dot(boneRows[row + 2], wide));
+            }
+
+            return moved;
+        }
+
         VsOut VsMain(VsIn input)
         {
             VsOut output;
@@ -309,6 +405,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // both and blends to itself.
             float3 posed = lerp(input.pos, input.nextPos, frameBlend.x);
             float3 posedNormal = lerp(input.nrm, input.nextNrm, frameBlend.x);
+
+            // A skinned model is moved by its bones instead of blended between baked frames. The
+            // two are exclusive: a model is either baked or skinned, never both.
+            if (skinning.x >= 1.0f)
+            {
+                posed = SkinPosition(input.pos, input.bones, input.weights, skinning.x);
+
+                // The normal turns with the bones but is not translated by them, so it is skinned
+                // about the origin and normalised afterwards.
+                posedNormal = normalize(SkinPosition(
+                    input.nrm, input.bones, input.weights, skinning.x)
+                    - SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x));
+            }
 
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
@@ -513,6 +622,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11Buffer> _vertices;
     private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11Buffer> _model;
+
+    /// <summary>The bone matrices skinning the current draw.</summary>
+    private ComPtr<ID3D11Buffer> _bones;
 
     /// <summary>Entity model geometry, in model space, uploaded once.</summary>
     private ComPtr<ID3D11Buffer> _modelVertices;
@@ -802,6 +914,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 SemanticIndex = 7,
                 Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
                 AlignedByteOffset = sizeof(float) * 18,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 8,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 21,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 9,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 24,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -1338,6 +1466,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="light">The ambient cube lighting this model, or null to leave it unlit.</param>
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="sun">The sun reaching this model, or null when it stands in shade.</param>
+    /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -1355,7 +1484,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] matrix,
         AmbientCube? light = null,
         SunLight? sun = null,
-        float blend = 0f)
+        float blend = 0f,
+        int bones = 0)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -1402,6 +1532,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // between packets can overshoot and a blend past one extrapolates rather than smooths.
         contents[48] = Math.Clamp(blend, 0f, 1f);
 
+        // How many bones skin this draw, or zero for a baked model. The shader reads this as the
+        // switch between the two paths, so leaving it stale would skin a health pack by whatever
+        // skeleton was last uploaded.
+        contents[52] = bones;
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
@@ -1428,7 +1563,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     }
 
     /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
-    private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4;
+    private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4 + 4;
+
+    /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
+    private const int BoneConstants = MaxBones * 3 * 4;
 
     /// <summary>Lays vertices out for the input layout.</summary>
     /// <remarks>
@@ -1469,6 +1607,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             data[at++] = vertex.NextNormalX;
             data[at++] = vertex.NextNormalY;
             data[at++] = vertex.NextNormalZ;
+            data[at++] = vertex.BoneA;
+            data[at++] = vertex.BoneB;
+            data[at++] = vertex.BoneC;
+            data[at++] = vertex.WeightA;
+            data[at++] = vertex.WeightB;
+            data[at++] = vertex.WeightC;
         }
 
         return data;
@@ -1506,6 +1650,86 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
 
         _model = buffer;
+        device.Dispose();
+    }
+
+    /// <summary>Uploads the bone matrices for one skinned model.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="matrices">Row-major 3x4 matrices, twelve floats each, one per bone.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="matrices"/> is null.</exception>
+    /// <remarks>
+    /// **This is the per-draw cost that baking avoids and skinning accepts.** A prop's frames are
+    /// baked once and drawn by picking a vertex range; a player has too many animations for that,
+    /// so its pose arrives as matrices instead. Roughly ninety bones is 4.3 kilobytes a draw,
+    /// against the alternative of gigabytes of baked geometry.
+    ///
+    /// Bones past the buffer's room are dropped rather than allowed to overrun it. A model with
+    /// more bones than this draws by the ones that fit, which is visibly wrong at an extremity and
+    /// far better than a corrupt constant buffer - and TF2's models are well inside it.
+    /// </remarks>
+    public void SetBones(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<float[]> matrices)
+    {
+        ArgumentNullException.ThrowIfNull(matrices);
+
+        EnsureBoneBuffer(context);
+
+        if (_bones.Handle is null)
+        {
+            return;
+        }
+
+        float[] contents = new float[BoneConstants];
+
+        for (int bone = 0; bone < matrices.Count && bone < MaxBones; bone++)
+        {
+            float[] matrix = matrices[bone];
+
+            if (matrix.Length < 12)
+            {
+                continue;
+            }
+
+            Array.Copy(matrix, 0, contents, bone * 12, 12);
+        }
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = contents)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, sizeof(float) * BoneConstants, sizeof(float) * BoneConstants);
+        }
+
+        context.Unmap(_bones, 0);
+        context.VSSetConstantBuffers(3, 1, ref _bones);
+    }
+
+    private void EnsureBoneBuffer(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_bones.Handle is not null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11Device> device = default;
+
+        context.GetDevice(ref device);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = sizeof(float) * BoneConstants,
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref buffer));
+
+        _bones = buffer;
         device.Dispose();
     }
 
@@ -1914,14 +2138,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>The runs for one model at one baked animation frame.</summary>
     /// <param name="modelPath">Which model.</param>
-    /// <param name="frame">Which baked frame; clamped into what was uploaded.</param>
+    /// <param name="index">Which baked frame; clamped into what was uploaded.</param>
     /// <returns>Its runs, or empty when the model is not packed.</returns>
     /// <remarks>
     /// **A frame is a different range of the same buffer.** Every frame of an animated model was
     /// skinned at load and packed end to end, so choosing one costs an index rather than any
     /// transform work at draw time.
     /// </remarks>
-    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath, int frame)
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath, int index)
     {
         if (!_modelBatches.TryGetValue(
                 modelPath, out IReadOnlyList<IReadOnlyList<WorldBatch>>? frames) ||
@@ -1930,7 +2154,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return [];
         }
 
-        return frames[Math.Clamp(frame, 0, frames.Count - 1)];
+        return frames[Math.Clamp(index, 0, frames.Count - 1)];
     }
 
     /// <summary>Draws one posed model.</summary>
@@ -1940,6 +2164,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
     /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
+    /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
+    /// <param name="skin">Which material replaces which for a team colour; null for the model's own.</param>
+    /// <param name="blended">Draw the blended materials rather than the opaque ones.</param>
+    /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
+    /// <param name="body">Which alternative each part shows, packed as m_nBody.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -1953,7 +2182,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyList<WorldBatch> batches,
         AmbientCube? light = null,
         SunLight? sun = null,
-        float blend = 0f)
+        float blend = 0f,
+        int bones = 0,
+        IReadOnlyDictionary<int, int>? skin = null,
+        bool blended = false,
+        IReadOnlyList<(int Base, int Count)>? bodyParts = null,
+        int body = 0)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1977,16 +2211,65 @@ internal sealed unsafe class WorldRenderer : IDisposable
         uint stride = VertexStride;
         uint offset = 0;
 
+        // Hoisted out of the batch loop: one blend factor serves every batch, and allocating it
+        // per iteration grows the stack frame without bound (CA2014).
+        float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
-        SetModel(context, matrix, light, sun, blend);
+        SetModel(context, matrix, light, sun, blend, bones);
 
         foreach (WorldBatch batch in batches)
         {
+            // **A skin is one lookup at draw time, which is how the engine does it.** Valve resolve
+            // a mesh's material through the skin table - pSkinref(skin * numskinref + material) -
+            // rather than keeping a second copy of anything. A RED player and a BLU one share their
+            // geometry, their batching and their vertex ranges exactly; only which material paints
+            // each run differs, so duplicating batches per team would be memory spent for nothing.
+            //
+            // Resolving here also means a player who switches teams is right on the very next
+            // frame, with nothing repacked.
+            int material = skin is not null && skin.TryGetValue(batch.MaterialIndex, out int swapped)
+                ? swapped
+                : batch.MaterialIndex;
+
+            // **A model's materials are sorted into the same two passes the world's are.** Until
+            // now every model batch drew opaque, whatever its material said, which is why a capture
+            // point's hologram came out as a solid ribbed slab rather than something to see
+            // through. The classification is already done, at upload, for the map's textures — a
+            // model's materials live in the same table, so it is the same lookup.
+            bool wantsBlending = _additive.Contains(material) || _translucent.Contains(material);
+
+            if (wantsBlending != blended)
+            {
+                continue;
+            }
+
+            // **The body part's chosen alternative, per entity.** Every alternative is packed once
+            // and the choice is made here, which is how three capture points sharing one model show
+            // three different signs. Batches never span two alternatives, so skipping is whole runs
+            // rather than triangles.
+            if (bodyParts is { Count: > 0 } &&
+                !Shows(bodyParts, batch.BodyPart, batch.BodyModel, body))
+            {
+                continue;
+            }
+
+            if (blended)
+            {
+                // Per batch, because a model can carry both kinds: additive ADDS light to what is
+                // behind it, which is what a hologram does, and alpha blends against it.
+                context.OMSetBlendState(
+                    _additive.Contains(material) ? _addBlend : _alphaBlend,
+                    blendFactor,
+                    0xFFFFFFFF);
+            }
+
+
             ComPtr<ID3D11ShaderResourceView> texture =
-                batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
-                _textures[batch.MaterialIndex].Handle is not null
-                    ? _textures[batch.MaterialIndex]
+                material >= 0 && material < _textures.Count &&
+                _textures[material].Handle is not null
+                    ? _textures[material]
                     : _white;
 
             context.PSSetShaderResources(0, 1, ref texture);
@@ -1994,10 +2277,40 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.PSSetShaderResources(3, 1, ref _white);
             context.PSSetShaderResources(4, 1, ref _white);
 
-            SetMaterial(context, batch.MaterialIndex);
+            SetMaterial(context, material);
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+    }
+
+    /// <summary>Whether a batch is the alternative its body part shows.</summary>
+    /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>
+    private static bool Shows(
+        IReadOnlyList<(int Base, int Count)> parts, int part, int model, int body)
+    {
+        if (part < 0 || part >= parts.Count)
+        {
+            return model == 0;
+        }
+
+        (int place, int count) = parts[part];
+
+        return place <= 0 || count <= 0 ? model == 0 : model == (body / place) % count;
+    }
+
+    /// <summary>Puts blending back to opaque after a blended pass.</summary>
+    /// <param name="context">The device context.</param>
+    /// <remarks>
+    /// **Because a leaked state is what caused the last defect.** DrawTranslucent left a read-only
+    /// depth state set and every model after it drew without depth writes, which put a medkit over
+    /// a medic and a player's eyes through the back of his head. A pass that changes a state hands
+    /// it back rather than leaving the next one to discover it.
+    /// </remarks>
+    public static void ResetBlend(ComPtr<ID3D11DeviceContext> context)
+    {
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
     }
 
     private void CreateVertexBuffer(ComPtr<ID3D11Device> device, float[] data)

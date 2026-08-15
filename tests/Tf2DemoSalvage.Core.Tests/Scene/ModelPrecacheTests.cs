@@ -113,6 +113,66 @@ public sealed class ModelPrecacheTests
         ModelPrecache.Unpack(-3, protocol: 24).ShouldBe(-3);
     }
 
+    [Test]
+    public void Path_ForANetworkedDynamicIndex_ReadsTheDynamicTable()
+    {
+        // **A negative index is a dynamic model, and the engine states the arithmetic exactly**
+        // (`public/engine/ivmodelinfo.h:90`):
+        //
+        //   If index < -1, then the model is DYNAMIC and has a DYNAMIC INDEX of (-2 - index)
+        //   - if the dynamic index is ODD, then the model is CLIENT ONLY
+        //   - if the dynamic index is EVEN, then the model is NETWORKED
+        //     and has a dynamic model string table index of (dynamic index)>>1
+        //
+        // So -48 is dynamic index 46, even, entry 23 of the DynamicModels table. Measured on
+        // cp_process: every cosmetic in the demo arrives this way, which is why players drew
+        // bare-headed while modelprecache resolved everything else fine.
+        ModelPrecache precache = new();
+
+        precache.ApplyDynamic([Entry(23, "models/player/items/all_class/hwn_spellbook.mdl")]);
+
+        precache.Path(-48).ShouldBe("models/player/items/all_class/hwn_spellbook.mdl");
+    }
+
+    [Test]
+    public void Path_ForAClientOnlyDynamicIndex_NamesNothing()
+    {
+        // **The odd case is genuinely absent, not merely unread.** A client-only dynamic model
+        // lives in the recording client's own m_LocalDynamicModels and is never networked, so a
+        // demo of somebody else's session cannot name it. Halving it anyway would land on a real
+        // entry of the networked table and draw a confidently wrong model — this is the control
+        // that keeps the shift from being applied to both parities.
+        ModelPrecache precache = new();
+
+        precache.ApplyDynamic([Entry(23, "models/player/items/all_class/hwn_spellbook.mdl")]);
+
+        // -49 is dynamic index 47, odd, client only. Its naive halving is also 23.
+        precache.Path(-49).ShouldBeNull();
+    }
+
+    [Test]
+    public void Path_ForMinusOne_IsStillNothing()
+    {
+        // -1 means "no model" and is not a dynamic index: IsDynamicModelIndex is `< -1`.
+        ModelPrecache precache = new();
+
+        precache.ApplyDynamic([Entry(0, "models/should/not/win.mdl")]);
+
+        precache.Path(-1).ShouldBeNull();
+    }
+
+    [Test]
+    public void Path_ForAPrecachedIndex_IgnoresTheDynamicTable()
+    {
+        // **The bystander.** Adding a second table must not change what the first one answers.
+        ModelPrecache precache = new();
+
+        precache.Apply([Entry(7, "models/props/door.mdl")]);
+        precache.ApplyDynamic([Entry(7, "models/player/items/hat.mdl")]);
+
+        precache.Path(7).ShouldBe("models/props/door.mdl");
+    }
+
     private static StringTableEntry Entry(int index, string text) =>
         new(index, text, Array.Empty<byte>());
 }

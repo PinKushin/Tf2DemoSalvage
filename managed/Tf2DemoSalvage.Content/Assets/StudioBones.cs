@@ -6,6 +6,7 @@ using System.IO;
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One bone's rest position in a model's skeleton.</summary>
+/// <param name="Name">Its name, which is how one model's bones are matched to another's.</param>
 /// <param name="Parent">The bone this hangs off, or −1 for the root.</param>
 /// <param name="Position">Where it sits relative to its parent.</param>
 /// <param name="Rotation">How it is turned relative to its parent, as a quaternion.</param>
@@ -20,6 +21,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// (<c>bone_setup.cpp:417</c>). Adding them to the quaternion instead is meaningless.
 /// </remarks>
 public readonly record struct StudioBone(
+    string Name,
     int Parent,
     (float X, float Y, float Z) Position,
     (float X, float Y, float Z, float W) Rotation,
@@ -37,11 +39,44 @@ public readonly record struct StudioBone(
 public sealed class StudioSkeleton
 {
     private readonly float[][] _skinning;
+    private readonly float[][] _boneToWorld;
 
-    internal StudioSkeleton(float[][] skinning) => _skinning = skinning;
+    internal StudioSkeleton(float[][] skinning)
+        : this(skinning, skinning)
+    {
+    }
+
+    internal StudioSkeleton(float[][] skinning, float[][] boneToWorld)
+    {
+        _skinning = skinning;
+        _boneToWorld = boneToWorld;
+    }
+
+    /// <summary>Where each bone itself is, before the bind pose is undone.</summary>
+    /// <remarks>
+    /// **Bone merging needs this and skinning matrices cannot supply it.** A skinning matrix is
+    /// <c>boneToWorld * poseToBone</c> — the bind pose is already folded in, and it is the WEARER's
+    /// bind pose. Copying one into a worn item's slot is right only where the two models were bound
+    /// identically, which is why a fully-matched hat looks fine and a partly-matched one tears: an
+    /// unmatched bone has to be built from its parent's position, and a skinning matrix does not
+    /// say where its bone is.
+    /// </remarks>
+    public IReadOnlyList<float[]> BoneToWorld => _boneToWorld;
 
     /// <summary>How many bones the model has.</summary>
     public int Count => _skinning.Length;
+
+    /// <summary>The matrices themselves, for a renderer that skins on the GPU.</summary>
+    /// <remarks>
+    /// **Exposed because the transform can happen in two places.** <see cref="Skin"/> applies them
+    /// here, which is what a model with its frames baked wants — the work happens once at load. A
+    /// model too large to bake is skinned per draw instead, and then the matrices themselves are
+    /// what the shader needs, as constants.
+    ///
+    /// Row-major three-by-four, twelve floats each, which is the studio format's own layout and
+    /// the one the shader reads.
+    /// </remarks>
+    public IReadOnlyList<float[]> Matrices => _skinning;
 
     /// <summary>Whether the model has a skeleton at all.</summary>
     /// <remarks>
@@ -160,6 +195,7 @@ public static class StudioBones
     /// </summary>
     private const int BoneStride = 216;
 
+    private const int NameOffset = 0;
     private const int ParentOffset = 4;
     private const int PositionOffset = 32;
     private const int RotationOffset = 44;
@@ -218,6 +254,10 @@ public static class StudioBones
             }
 
             bones.Add(new StudioBone(
+                StudioStrings.At(
+                    bytes,
+                    at + (index * BoneStride) +
+                        BinaryPrimitives.ReadInt32LittleEndian(bone[NameOffset..])),
                 BinaryPrimitives.ReadInt32LittleEndian(bone[ParentOffset..]),
                 (
                     BinaryPrimitives.ReadSingleLittleEndian(bone[PositionOffset..]),
@@ -315,7 +355,110 @@ public static class StudioBones
             skinning[index] = Concatenate(boneToWorld[index], bone.PoseToBone.Span);
         }
 
-        return new StudioSkeleton(skinning);
+        return new StudioSkeleton(skinning, boneToWorld);
+    }
+
+    /// <summary>Poses one model's bones from another's, the way a bone merge does.</summary>
+    /// <param name="bones">The worn model's skeleton, which decides the numbering of the result.</param>
+    /// <param name="wearer">Where the wearer's bones are, as <see cref="StudioSkeleton.BoneToWorld"/>.</param>
+    /// <param name="map">
+    /// For each of <paramref name="bones"/>, the wearer bone it matches, or −1. <see cref="Remap"/>
+    /// produces it.
+    /// </param>
+    /// <returns>Skinning matrices in the worn model's bone order.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Valve copies only the bones that match, and the rest are NOT left alone.** <c>
+    /// CBoneMergeCache::MergeMatchingBones</c> runs after the worn model has done its own full
+    /// <c>SetupBones</c>, so an unmatched bone already holds a position built by walking the worn
+    /// model's own hierarchy — from its parent, which may itself have been merged. Copying the
+    /// matches and leaving everything else at its rest position in the model's OWN space is a
+    /// different thing entirely, and it tears the model apart: measured on a scout, a
+    /// <c>ghostly_gibus</c> matched 1 bone of 8 and the other seven stayed at the model origin
+    /// while the matched one sat at head height, so the triangles between them stretched from the
+    /// player's head to their feet as a large flat sheet.
+    ///
+    /// So the chain is walked here, in bone-to-world space, and only then folded with the WORN
+    /// model's own <c>poseToBone</c> — its bind pose, not the wearer's.
+    ///
+    /// **Bones are in hierarchy order and a parent's index is below its child's.** The studio
+    /// format guarantees it, and <see cref="RestPose"/> already relies on the same thing, so one
+    /// pass suffices.
+    /// </remarks>
+    public static IReadOnlyList<float[]> MergeOnto(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<float[]> wearer,
+        IReadOnlyList<int> map)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(wearer);
+        ArgumentNullException.ThrowIfNull(map);
+
+        float[][] boneToWorld = new float[bones.Count][];
+        float[][] skinning = new float[bones.Count][];
+
+        for (int index = 0; index < bones.Count; index++)
+        {
+            StudioBone bone = bones[index];
+            int matched = index < map.Count ? map[index] : -1;
+
+            if (matched >= 0 && matched < wearer.Count)
+            {
+                boneToWorld[index] = wearer[matched];
+            }
+            else
+            {
+                float[] local = FromQuaternion(bone.Rotation, bone.Position);
+
+                boneToWorld[index] = bone.Parent >= 0 && bone.Parent < index
+                    ? Concatenate(boneToWorld[bone.Parent], local)
+                    : local;
+            }
+
+            skinning[index] = Concatenate(boneToWorld[index], bone.PoseToBone.Span);
+        }
+
+        return skinning;
+    }
+
+    /// <summary>Maps one model's bone numbering onto another's, by name.</summary>
+    /// <param name="from">The bones an animation's indices refer to.</param>
+    /// <param name="to">The bones a pose is to be applied to.</param>
+    /// <returns>An index into <paramref name="to"/> for each bone in <paramref name="from"/>, or −1.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **This is Valve's <c>masterBone</c>**, which <c>studio.h</c> describes as mapping a local
+    /// bone to a global one and which <c>bone_setup.cpp:966</c> applies to every animation it
+    /// reads: <c>int j = pAnimGroup-&gt;masterBone[panim-&gt;bone];</c>.
+    ///
+    /// **Without it a pose is scrambled rather than absent, which is worse.** An animation model
+    /// numbers its own bones, and applying those numbers to the base model's skeleton moves the
+    /// wrong joints by the right amounts — measured on a soldier as extents of 56 by 66 by 65,
+    /// roughly cubical, where a standing player is about 25 by 48 by 83. It looked like a model
+    /// sitting up rather than one lying down, which is exactly what a partly-correct skeleton is.
+    ///
+    /// Matched by name because that is what makes an animation model shareable in the first place.
+    /// </remarks>
+    public static int[] Remap(IReadOnlyList<StudioBone> from, IReadOnlyList<StudioBone> to)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+
+        Dictionary<string, int> byName = new(StringComparer.OrdinalIgnoreCase);
+
+        for (int index = 0; index < to.Count; index++)
+        {
+            byName.TryAdd(to[index].Name, index);
+        }
+
+        int[] remap = new int[from.Count];
+
+        for (int index = 0; index < from.Count; index++)
+        {
+            remap[index] = byName.TryGetValue(from[index].Name, out int found) ? found : -1;
+        }
+
+        return remap;
     }
 
     private static (float X, float Y, float Z) Vector(ReadOnlySpan<byte> bone, int at) =>

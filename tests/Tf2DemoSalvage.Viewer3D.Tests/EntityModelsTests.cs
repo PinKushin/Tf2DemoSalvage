@@ -187,11 +187,62 @@ public sealed class EntityModelsTests
             [0],
             [true]);
 
+    [Test]
+    public void AWornItem_IsDrawnWhereItsWearerIs()
+    {
+        // **A bone-merged entity has no position of its own and is not sent one.** FollowEntity
+        // zeroes local origin and angles, because the client takes the parent's bone matrices
+        // outright (shared/baseentity_shared.cpp:2360). So a hat recorded at (0,0,0) must end up
+        // wherever the player is, and drawing it at its own pose puts every cosmetic in the match
+        // in one heap at the map origin.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            Prop("models/player/scout.mdl", x: 500f, entity: 7),
+            Prop("models/player/items/hat.mdl", entity: 40, attachedTo: 7),
+        ];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.Count.ShouldBe(2);
+
+        // The hat's own pose is the origin; its wearer stands at 500.
+        instances[1].Matrix[12].ShouldBe(500f, 1e-4f);
+    }
+
+    [Test]
+    public void AWornItemWhoseWearerIsNotDrawn_IsNotDrawnEither()
+    {
+        // **The control, and it is the one that decides where the failure shows.** Without it a
+        // hat whose wearer is dead, out of the visible set or failed to load keeps the only pose
+        // it has — the world origin — and hangs in mid-air near the middle of the map. That reads
+        // as a stray prop rather than as a missing player.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/player/items/hat.mdl", entity: 40, attachedTo: 7)];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.ShouldBeEmpty();
+    }
+
     private static SceneProp Prop(
-        string model, float x = 0f, float y = 0f, float z = 0f, float yaw = 0f) =>
+        string model,
+        float x = 0f,
+        float y = 0f,
+        float z = 0f,
+        float yaw = 0f,
+        int entity = 1,
+        int? attachedTo = null) =>
         new(
-            EntityIndex: 1,
+            entity,
             model,
             ScenePropTrack.Classify(model),
-            new ScenePose { X = x, Y = y, Z = z, Yaw = yaw });
+            new ScenePose { X = x, Y = y, Z = z, Yaw = yaw },
+            attachedTo);
 }

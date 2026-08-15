@@ -195,7 +195,9 @@ public static class Snappy
         length++;
         Need(compressed, read, length);
 
-        if (written + length > output.Length)
+        // Long for the same reason as Need: written plus a length near int.MaxValue wraps
+        // negative, and a negative is never greater than the output's length.
+        if ((long)written + length > output.Length)
         {
             throw TooLong(output.Length);
         }
@@ -259,7 +261,16 @@ public static class Snappy
 
     private static void Need(ReadOnlySpan<byte> compressed, int read, int count)
     {
-        if (read + count > compressed.Length)
+        // **Widened to long, because the sum is what overflowed.** A length read from the stream
+        // can be int.MaxValue, and int.MaxValue plus a read offset wraps to a negative - which is
+        // not greater than the buffer length, so this guard passed and the value went on to die
+        // in Slice's argument validation instead.
+        //
+        // Every guard here is written as "is this number too large", and that shape cannot catch
+        // a number that becomes small by wrapping. Doing the comparison in a type the sum fits in
+        // is the fix, and it belongs here rather than at any one call site: this is the check all
+        // of them share.
+        if ((long)read + count > compressed.Length)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,

@@ -18,6 +18,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Health">Current health, when known.</param>
 /// <param name="PlayerClass">Which of the nine classes, when known; 1 is Scout through 9 Engineer.</param>
 /// <param name="Yaw">Which way the body faces, in degrees, interpolated with the position.</param>
+/// <param name="Speed">How fast the player is moving horizontally, in units a second.</param>
+/// <param name="LifeState">0 alive, 1 dying, 2 dead; absent means alive.</param>
+/// <param name="MoveX">The <c>move_x</c> pose parameter: how much of the motion is forward.</param>
+/// <param name="MoveY">The <c>move_y</c> pose parameter: how much of it is sideways.</param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -33,7 +37,11 @@ public readonly record struct ScenePlayer(
     int? Team,
     int? Health,
     int? PlayerClass,
-    float Yaw = 0f)
+    float Yaw = 0f,
+    float Speed = 0f,
+    int? LifeState = null,
+    float MoveX = 0f,
+    float MoveY = 0f)
 {
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
@@ -42,6 +50,18 @@ public readonly record struct ScenePlayer(
     /// player, and it moves convincingly - it follows the action, because that is its job.
     /// </remarks>
     public bool IsPlaying => Team is SceneTeams.Red or SceneTeams.Blu;
+
+    /// <summary>Whether this player is alive and standing in the world.</summary>
+    /// <remarks>
+    /// **A dead player is still on a team and still has a position — the position of whoever they
+    /// are spectating.** So a corpse drawn as a player appears standing inside the living player
+    /// it is watching, and several of them stack into one heap. That is what "two soldiers in a
+    /// ball" was.
+    ///
+    /// **Absent means alive**, because <c>LIFE_ALIVE</c> is zero and a delta-compressed format
+    /// only sends what changed. Reading absence as unknown would hide everyone who has not died.
+    /// </remarks>
+    public bool IsAlive => LifeState is null or 0;
 }
 
 /// <summary>The engine's team numbers.</summary>
@@ -221,6 +241,10 @@ public sealed class DemoTimeline
         }
 
         List<TimelineFrame> frames = [];
+
+        // Where each player last stood while alive, so a corpse stays where it fell rather than
+        // following the player it spectates.
+        Dictionary<int, (float X, float Y, float Z, float Yaw)> diedAt = [];
         float interval = 0f;
 
         ModelPrecache precache = new();
@@ -279,6 +303,18 @@ public sealed class DemoTimeline
                         precache.Apply(update.Entries);
                         continue;
 
+                    // The second model table, which is where every cosmetic lives. A negative
+                    // m_nModelIndex is a dynamic model, and the even ones are networked through
+                    // here - see ModelPrecache.Path.
+                    case CreateStringTableMessage { Name: ModelPrecache.DynamicTableName } dynamic:
+                        precache.ApplyDynamic(dynamic.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage update
+                        when state.StringTableName(update.TableId) == ModelPrecache.DynamicTableName:
+                        precache.ApplyDynamic(update.Entries);
+                        continue;
+
                     default:
                         break;
                 }
@@ -318,14 +354,61 @@ public sealed class DemoTimeline
                 // The resource's arrays are keyed by entity index, zero padded to three digits.
                 string slot = player.EntityIndex.ToString("D3", CultureInfo.InvariantCulture);
 
+                // **A dead player's origin is not where they died — it is where they are
+                // WATCHING.** The entity follows whoever they spectate, so drawing a corpse at its
+                // current origin puts it standing inside a living player, and several of them
+                // stack into one heap.
+                //
+                // So the last position held while alive is kept and used until they respawn, which
+                // leaves a body roughly where it fell. TF2 leaves a ragdoll there; this is a
+                // standing stand-in for one until ragdolls are simulated (B58).
+                int? life = player.LifeState();
+                bool alive = life is null or 0;
+
+                // **The yaw has to be carried here too, and was not.** Every argument below is
+                // positional and the list stopped at LifeState, so Yaw took the record's default of
+                // zero — every player in a frame faced due east regardless of where they were
+                // looking. The track path gained eye angles and this one did not, which is the
+                // shape a default has whenever it is also a legitimate value: nothing reports a
+                // missing yaw, because zero IS a yaw.
+                //
+                // Read from the same place the track reads it, so the two cannot disagree: the eye
+                // angles when the demo sends them, and m_angRotation when it does not. Normalised
+                // to (−180, 180] like every other angle here, because the wire carries this one as
+                // 0..360 — without it the same direction is held as two numbers a full turn apart,
+                // measured as 220.997 against −139.003, and anything comparing or interpolating
+                // them is wrong by 360 at the wrap.
+                float facing = Normalize(
+                    player.EyeAngles() is { } eyes ? eyes.Yaw : player.Angles()?.Yaw ?? 0f);
+
+                (float X, float Y, float Z) where = origin;
+
+                // **The facing is kept with the position, for the same reason.** A dead player's
+                // entity follows whoever they are spectating, so its yaw is that player's — a body
+                // left on the ground would swing round to match whatever the camera is watching.
+                // Position was already held from the last living tick and yaw was not, which is the
+                // half-applied version of one idea.
+                if (alive)
+                {
+                    diedAt[player.EntityIndex] = (origin.X, origin.Y, origin.Z, facing);
+                }
+                else if (diedAt.TryGetValue(
+                    player.EntityIndex, out (float X, float Y, float Z, float Yaw) fell))
+                {
+                    where = (fell.X, fell.Y, fell.Z);
+                    facing = fell.Yaw;
+                }
+
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
-                    origin.X,
-                    origin.Y,
-                    origin.Z,
+                    where.X,
+                    where.Y,
+                    where.Z,
                     resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties),
                     resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
-                    resource?.Integer($"m_iPlayerClass.{slot}")));
+                    resource?.Integer($"m_iPlayerClass.{slot}"),
+                    LifeState: life,
+                    Yaw: facing));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
@@ -397,8 +480,34 @@ public sealed class DemoTimeline
             return;
         }
 
-        if (!entities.TryGet(entity.EntityIndex, out EntityState? state) ||
-            state.Origin() is not { } origin)
+        if (!entities.TryGet(entity.EntityIndex, out EntityState? state))
+        {
+            return;
+        }
+
+        // **No origin is an answer for an attached entity, not a gap.** A hat, a badge and a
+        // carried weapon are attached with FollowEntity, which sets EF_BONEMERGE and then zeroes
+        // local origin and angles (shared/baseentity_shared.cpp:2360) — the client matches the
+        // child model's bones to the parent's BY NAME and takes the parent's matrices, so the
+        // child never has a transform and the engine sends none.
+        //
+        // Requiring one therefore dropped every cosmetic in every demo: measured on cp_process,
+        // all 37 live CTFWearable entities carry a model, an owner, a skin and a team, and no
+        // position whatsoever. They are recorded at the origin because that is literally what
+        // SetLocalOrigin( vec3_origin ) put there; the owner is what says where to draw them.
+        int? attachedTo = null;
+        (float X, float Y, float Z) origin;
+
+        if (state.Origin() is { } placed)
+        {
+            origin = placed;
+        }
+        else if (state.Attachment() is { } owner)
+        {
+            attachedTo = owner;
+            origin = (0f, 0f, 0f);
+        }
+        else
         {
             return;
         }
@@ -436,6 +545,10 @@ public sealed class DemoTimeline
             // report as a missing asset - which is exactly the false alarm this split avoids.
             (model.Length == 0 ? players : props).Add(track);
         }
+
+        // Kept current rather than set once: a wearable can arrive before its owner handle does,
+        // and a track stuck on the first answer would draw the hat on whoever wore it last.
+        track.AttachedTo = attachedTo;
 
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
 
@@ -478,6 +591,7 @@ public sealed class DemoTimeline
                 // and sequence -1 is "does not animate" where zero is a real animation.
                 Scale = state.ModelScale() ?? 1f,
                 Sequence = state.AnimationSequence() ?? -1,
+                Body = state.Body() ?? 0,
                 Cycle = state.Cycle() ?? 0f,
 
                 // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
@@ -586,7 +700,8 @@ public sealed class DemoTimeline
             // A hidden entity is not drawn but is still tracked: it is coming back.
             if (track.At(tick) is { Hidden: false } pose)
             {
-                into.Add(new SceneProp(track.EntityIndex, track.ModelPath, track.Kind, pose));
+                into.Add(new SceneProp(
+                    track.EntityIndex, track.ModelPath, track.Kind, pose, track.AttachedTo));
             }
         }
     }
@@ -651,15 +766,38 @@ public sealed class DemoTimeline
 
         foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
         {
-            into.Add(
-                _trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) &&
-                track.At(tick) is { } pose
-                    // **Yaw travels with the position, from the same pose.** Taking one and
-                    // discarding the other is what left every player facing north the moment they
-                    // stopped being a dot: the number was decoded and interpolated already, and
-                    // simply not carried the last few lines.
-                    ? player with { X = pose.X, Y = pose.Y, Z = pose.Z, Yaw = pose.Yaw }
-                    : player);
+            // **A dead player keeps the position recorded for them**, which is where they fell.
+            // The entity's own track follows whoever they are spectating, so interpolating it
+            // would drag the body across the map to stand inside a living player.
+            if (!player.IsAlive)
+            {
+                into.Add(player);
+                continue;
+            }
+
+            if (!_trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) ||
+                track.At(tick) is not { } pose)
+            {
+                into.Add(player);
+                continue;
+            }
+
+            (float moveX, float moveY) = MoveParameters(track, tick, pose.Yaw);
+
+            // **Yaw travels with the position, from the same pose.** Taking one and discarding the
+            // other is what left every player facing north the moment they stopped being a dot:
+            // the number was decoded and interpolated already, and simply not carried the last few
+            // lines.
+            into.Add(player with
+            {
+                X = pose.X,
+                Y = pose.Y,
+                Z = pose.Z,
+                Yaw = pose.Yaw,
+                Speed = SpeedAt(track, tick),
+                MoveX = moveX,
+                MoveY = moveY,
+            });
         }
     }
 
@@ -674,6 +812,157 @@ public sealed class DemoTimeline
     /// </remarks>
     public ScenePropTrack? TrackFor(int entityIndex) =>
         _trackByEntity.TryGetValue(entityIndex, out ScenePropTrack? track) ? track : null;
+
+    /// <summary>How fast a track is moving horizontally at a moment.</summary>
+    /// <remarks>
+    /// **Differenced from the positions, because velocity is networked only to its owner.**
+    /// <c>m_vecVelocity[0..2]</c> sit inside <c>DT_LocalPlayerExclusive</c>
+    /// (<c>server/player.cpp:8117</c>), sent through <c>SendProxy_SendLocalDataTable</c> — so a
+    /// SourceTV recording carries nobody's velocity at all, because SourceTV is not any of the
+    /// players, and a point-of-view recording carries only the recorder's.
+    ///
+    /// That makes differencing the only thing that works generally rather than a workaround: it is
+    /// the sole option for every player in an STV demo and for eleven of twelve in a POV one. The
+    /// recorder's own velocity IS available in a POV demo and would be exact; using it is a refinement
+    /// this does not make yet.
+    ///
+    /// An animation state needs speed to tell standing from running — <c>MOVING_MINIMUM_SPEED</c>
+    /// is 0.5 units a second in <c>base_playeranimstate.h</c>.
+    ///
+    /// Sampled over a tenth of a second rather than one tick. A single tick is 15 milliseconds and
+    /// the positions are interpolated, so differencing two adjacent samples measures the
+    /// interpolator's noise as much as the player's motion; a tenth of a second is long enough to
+    /// be a speed and short enough to still be this moment's.
+    ///
+    /// Vertical motion is left out, which is what <c>GetOuterXYSpeed</c> does — a falling player is
+    /// not running.
+    /// </remarks>
+    private static float SpeedAt(ScenePropTrack track, double tick)
+    {
+        const double window = 0.1d;
+
+        double ticks = window / Math.Max(0.001f, 0.015f);
+
+        if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
+        {
+            return 0f;
+        }
+
+        float across = now.X - was.X;
+        float along = now.Y - was.Y;
+
+        return MathF.Sqrt((across * across) + (along * along)) / (float)window;
+    }
+
+    /// <summary>Which way a track is travelling, in degrees, or null when it is still.</summary>
+    /// <remarks>
+    /// Differenced over the same window as <see cref="SpeedAt"/> and for the same reason: velocity
+    /// is inside <c>DT_LocalPlayerExclusive</c>, so a SourceTV demo carries nobody's.
+    ///
+    /// Null rather than zero when stationary, because zero degrees is due east and a player
+    /// standing still is not facing east — it is a different question with no answer, and
+    /// answering it anyway makes every idle player run on the spot toward the same corner of the
+    /// map.
+    /// </remarks>
+    private static float? HeadingAt(ScenePropTrack track, double tick)
+    {
+        const double window = 0.1d;
+
+        double ticks = window / Math.Max(0.001f, 0.015f);
+
+        if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
+        {
+            return null;
+        }
+
+        float across = now.X - was.X;
+        float along = now.Y - was.Y;
+
+        // Below this the direction is numerical noise in the position rather than movement:
+        // MOVING_MINIMUM_SPEED is 0.5 units a second (base_playeranimstate.h), which over a tenth
+        // of a second is 0.05 units.
+        return ((across * across) + (along * along)) < 0.0025f
+            ? null
+            : MathF.Atan2(along, across) * (180f / MathF.PI);
+    }
+
+    /// <summary>The <c>move_x</c> and <c>move_y</c> pose parameters for a moving player.</summary>
+    /// <param name="track">The player's own track, which is differenced for a heading.</param>
+    /// <param name="tick">The moment being drawn.</param>
+    /// <param name="bodyYaw">Which way the player is facing, in degrees.</param>
+    /// <returns>The unit vector of travel in the body's frame, or zero when standing still.</returns>
+    /// <remarks>
+    /// **Ported from <c>CMultiPlayerAnimState::ComputePoseParam_MoveYaw</c>**
+    /// (<c>multiplayer_animstate.cpp:1575</c>):
+    ///
+    /// <code>
+    /// float flYaw = flAngle - m_PoseParameterData.m_flEstimateYaw;
+    /// flYaw = AngleNormalize( -flYaw );
+    /// flYaw = SnapYawTo( flYaw );
+    /// vecCurrentMoveYaw.x =  cos( DEG2RAD( flYaw ) );
+    /// vecCurrentMoveYaw.y = -sin( DEG2RAD( flYaw ) );
+    /// </code>
+    ///
+    /// **The snap is Valve's and it is not a rounding convenience.** <c>SnapYawTo</c>
+    /// (<c>:1443</c>) forces the direction to the nearest of eight compass points using thresholds
+    /// of 23, 67, 113 and 157 degrees, so a player strafing slightly off true still plays the
+    /// clean sideways animation rather than a permanent blend of two. Leaving it out makes every
+    /// player's legs waver between animations as the differenced heading jitters.
+    ///
+    /// **<c>m_flEstimateYaw</c> is approximated by the body yaw**, which is what this project has.
+    /// The engine tracks a separate estimate that lags the eyes while turning on the spot, so a
+    /// player spinning in place will differ slightly here. Recorded rather than hidden; it needs
+    /// the rest of the turn-in-place state (B61) to do properly.
+    /// </remarks>
+    private static (float X, float Y) MoveParameters(
+        ScenePropTrack track, double tick, float bodyYaw)
+    {
+        if (HeadingAt(track, tick) is not { } heading)
+        {
+            return (0f, 0f);
+        }
+
+        float yaw = SnapYaw(Normalize(-(heading - bodyYaw)));
+        (float sine, float cosine) = MathF.SinCos(yaw * (MathF.PI / 180f));
+
+        return (cosine, -sine);
+    }
+
+    /// <summary>Brings an angle into −180 to 180.</summary>
+    private static float Normalize(float degrees)
+    {
+        float wrapped = degrees % 360f;
+
+        if (wrapped > 180f)
+        {
+            wrapped -= 360f;
+        }
+        else if (wrapped < -180f)
+        {
+            wrapped += 360f;
+        }
+
+        return wrapped;
+    }
+
+    /// <summary>Forces an angle to the nearest of eight compass points.</summary>
+    /// <remarks><c>SnapYawTo</c>, <c>multiplayer_animstate.cpp:1443</c>, thresholds included.</remarks>
+    private static float SnapYaw(float degrees)
+    {
+        float sign = degrees < 0f ? -1f : 1f;
+        float size = MathF.Abs(degrees);
+
+        float snapped = size switch
+        {
+            < 23f => 0f,
+            < 67f => 45f,
+            < 113f => 90f,
+            < 157f => 135f,
+            _ => 180f,
+        };
+
+        return snapped * sign;
+    }
 
     private static int? First(EntityState player, string[] keys)
     {

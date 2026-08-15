@@ -181,6 +181,12 @@ public static class StudioTriangles
 
                 for (int index = 0; index < models; index++)
                 {
+                    // **Every model of every part, matching the .mdl.** The two files mirror each
+                    // other part by part and model by model, so both readers walk all of them and
+                    // the bodygroup choice is made later, per entity, at draw time. Picking here
+                    // desynchronises them, and it surfaces as "strip groups do not fit either known
+                    // layout" — a corrupt-file message for two walks disagreeing about a structure
+                    // they both read correctly.
                     int modelAt = At(file, modelsAt, index, ModelBytes);
 
                     // **The most detailed level only**, which is level zero. The rest exist to

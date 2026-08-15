@@ -80,6 +80,41 @@ internal class MainForm : Form
     /// <summary>Automation id of the brush outline toggle.</summary>
     public const string OutlineItemId = "OutlineMenuItem";
 
+    /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
+    public const string ViewMenuId = "ViewMenu";
+
+    /// <summary>Accessible names of the menu entries, which is how automation reaches them.</summary>
+    /// <remarks>
+    /// **A WinForms menu item exposes no AutomationId.** Its accessible object does not implement
+    /// the property at all, so a search by id does not come back empty — it throws
+    /// "The requested property 'AutomationId' is not supported" on the first item it inspects. The
+    /// Name assigned in code reaches the designer and nothing else.
+    ///
+    /// The accessible name is the identifier a menu item genuinely has, and it is also the thing a
+    /// screen reader announces, so tying tests to it means a rename that would confuse a user
+    /// breaks a test rather than passing silently. Named here so the two sides cannot drift.
+    /// </remarks>
+    public const string ViewMenuName = "View menu";
+
+    /// <summary>Accessible name of the full screen item.</summary>
+    public const string FullScreenItemName = "Full screen";
+
+    /// <summary>Accessible name of the screenshot item.</summary>
+    public const string ScreenshotItemName = "Save a screenshot";
+
+    /// <summary>Automation id of the screenshot item.</summary>
+    /// <remarks>
+    /// **Added because F12 was the only way to reach it.** A function key is not a route for
+    /// someone driving the program by keyboard-navigation or a screen reader — there is nothing to
+    /// find, nothing that announces itself, and nothing in any menu that says the feature exists.
+    /// A UI test hit the same wall from the other side and reached for synthesized key presses,
+    /// which go to whatever window holds the foreground and twice landed in the tester's browser.
+    ///
+    /// Both problems have the same fix, and that is the useful part: **anything a test can only do
+    /// by faking input is something a person may have no way to do at all.**
+    /// </remarks>
+    public const string ScreenshotItemId = "ScreenshotMenuItem";
+
     /// <summary>Automation id of the borderless full-screen mode item.</summary>
     public const string BorderlessItemId = "BorderlessModeMenuItem";
 
@@ -155,6 +190,9 @@ internal class MainForm : Form
     /// <summary>The map's decals, read once and reused across every rebuild.</summary>
     private IReadOnlyList<BspOverlay>? _overlays;
 
+    /// <summary>The map's models: the world, then one per piece of moving brushwork.</summary>
+    private IReadOnlyList<BspModel>? _brushModels;
+
     /// <summary>Where every player stood, for every moment the demo recorded.</summary>
     /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
     private BspLeafTree? _leaves;
@@ -215,6 +253,48 @@ internal class MainForm : Form
 
     /// <summary>Where the view is centred, or null to keep it on the whole map.</summary>
     private (float X, float Y)? _lookingAt;
+
+    /// <summary>Whether the view is the free camera rather than the map's top-down one.</summary>
+    /// <remarks>
+    /// **Off by default, because the top-down view is what this viewer is for.** A demo is watched
+    /// from above; the free camera is for looking AT something — which until now was impossible,
+    /// and is why a player model lying on its back survived a day of screenshots taken from
+    /// directly overhead.
+    /// </remarks>
+    private bool _freeLook;
+
+    /// <summary>Pitch and yaw of the free camera, in degrees.</summary>
+    /// <remarks>
+    /// Starts at a shallow angle rather than at zero: a camera on the horizon looking across a map
+    /// shows mostly wall, and the first thing anyone wants from this view is to see whether the
+    /// players are standing up.
+    /// </remarks>
+    private (float Pitch, float Yaw) _freeAngles = (35f, 0f);
+
+    /// <summary>How far the free camera sits from what it is looking at, in world units.</summary>
+    /// <remarks>Only used to place the camera when the free view is first entered.</remarks>
+    private const float FreeEntryDistance = 800f;
+
+    /// <summary>Where the free camera is, once it has been placed.</summary>
+    /// <remarks>
+    /// **A position, not an orbit.** Orbiting a point was the first version and it could not do the
+    /// one thing the view was added for: a side-on look at a player. The orbit centre sat at the
+    /// middle of the map's height range, so levelling the camera looked out well above everybody's
+    /// heads, and there was no way to bring it down — the owner's "not low enough for actual side
+    /// on, and the camera doesn't move".
+    ///
+    /// So the camera flies. The orbit maths is still what PLACES it on entry, which keeps whatever
+    /// the map view was centred on in the middle of the first frame.
+    /// </remarks>
+    private (float X, float Y, float Z)? _freeOrigin;
+
+    /// <summary>Degrees the free camera turns per pixel dragged.</summary>
+    /// <remarks>
+    /// A quarter of a degree, so a full turn is about a screen and a half of dragging. Source's own
+    /// mouse sensitivity is a different quantity — it scales a raw device count rather than a
+    /// pixel — so this is chosen for the drag rather than taken from the engine.
+    /// </remarks>
+    private const float DegreesPerPixel = 0.25f;
 
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private Point? _dragFrom;
@@ -523,7 +603,7 @@ internal class MainForm : Form
         _fullScreen = new ToolStripMenuItem("&Full screen")
         {
             Name = FullScreenItemId,
-            AccessibleName = "Full screen",
+            AccessibleName = FullScreenItemName,
             ShortcutKeys = Keys.F11,
             CheckOnClick = true,
         };
@@ -587,7 +667,7 @@ internal class MainForm : Form
             textureQuality.DropDownItems.Add(item);
         }
 
-        ToolStripMenuItem view = new("&View") { Name = "ViewMenu", AccessibleName = "View menu" };
+        ToolStripMenuItem view = new("&View") { Name = ViewMenuId, AccessibleName = ViewMenuName };
         // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
         // and what kind of thing is it", which a textured picture cannot - and which cost hours
         // this session when terrain, a material and a prop each went missing while the map still
@@ -619,6 +699,17 @@ internal class MainForm : Form
         _outline.CheckedChanged += (_, _) => ViewerLog.Write(
             "render", $"brush outline {(_outline.Checked ? "on" : "off")}");
 
+        ToolStripMenuItem screenshot = new("Save a &screenshot")
+        {
+            Name = ScreenshotItemId,
+            ShortcutKeys = Keys.F12,
+            AccessibleName = ScreenshotItemName,
+            AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
+        };
+
+        screenshot.Click += (_, _) => CaptureViewportToFile();
+
+        view.DropDownItems.Add(screenshot);
         view.DropDownItems.Add(_outline);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
@@ -895,6 +986,7 @@ internal class MainForm : Form
                 try
                 {
                     _overlays = BspOverlays.Read(bytes);
+                    _brushModels = BspModels.Read(bytes);
                 }
                 catch (InvalidDataException failure)
                 {
@@ -925,7 +1017,11 @@ internal class MainForm : Form
                     // textures upload once. Loading during playback would grow that table and
                     // force a re-upload mid-match.
                     _assets = MapAssets.Load(
-                        bytes, _archives, (int)_settings.TextureQuality, DemoModelPaths());
+                        bytes,
+                        _archives,
+                        (int)_settings.TextureQuality,
+                        DemoModelPaths(),
+                        WornModelPaths());
                 }
 
                 int displacements = 0;
@@ -1078,7 +1174,14 @@ internal class MainForm : Form
                 // vertices are in map coordinates and never move; only the view does. This is what
                 // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
                 // reason a free camera or a per-player view can exist at all.
-                _device.SetCamera(camera.ToMatrix(), _surfaceColours.Checked, _heightCut);
+                // **One matrix either way**, which is the whole reason this could be added without
+                // touching the renderer: the geometry is in map coordinates and only the view
+                // changes, so a free camera is a different sixty-four bytes rather than a
+                // different pipeline.
+                _device.SetCamera(
+                    (_freeLook ? FreeLookCamera().ToMatrix() : camera.ToMatrix()),
+                    _surfaceColours.Checked,
+                    _heightCut);
 
                 // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
                 // Counting these against "building the world" lines is what proves the geometry
@@ -1117,7 +1220,8 @@ internal class MainForm : Form
                         camera,
                         _map.MainBounds,
                         _surfaceColours.Checked,
-                        _overlays);
+                        _overlays,
+                        _brushModels);
                 }
 
                 ViewerLog.Write(
@@ -1289,6 +1393,37 @@ internal class MainForm : Form
         return paths;
     }
 
+    /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
+    /// <remarks>
+    /// **These must be skinned rather than baked, and the reason is not performance.** A
+    /// bone-merged item is placed entirely by its wearer's bones, so baking - which pre-transforms
+    /// the vertices by one pose and throws the bone indices away - leaves nothing to attach it by.
+    /// It then draws at the wearer's origin, which on a player is their FEET.
+    ///
+    /// Measured on cp_process: every cosmetic is a few thousand corners and a single sequence, so
+    /// the corner budget baked all of them and the hats sat at ankle height while the merge
+    /// reported nothing at all.
+    /// </remarks>
+    private HashSet<string> WornModelPaths()
+    {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        if (_timeline is not { } timeline)
+        {
+            return paths;
+        }
+
+        foreach (ScenePropTrack track in timeline.Props)
+        {
+            if (track.AttachedTo is not null && track.Kind == SceneModelKind.Studio)
+            {
+                paths.Add(track.ModelPath);
+            }
+        }
+
+        return paths;
+    }
+
     /// <summary>Where to write an automatic capture, when one was asked for.</summary>
     private string? _shotPath;
 
@@ -1431,6 +1566,86 @@ internal class MainForm : Form
         BeginInvoke(Close);
     }
 
+    /// <summary>The free camera, orbiting whatever the top-down view is centred on.</summary>
+    /// <remarks>
+    /// **Orbits the same point the map view is looking at**, so toggling between them does not
+    /// move the subject — drag the map to a player, switch, and that player is still in the middle.
+    ///
+    /// The height it orbits is the middle of the map's own vertical range rather than the ground:
+    /// a focus at floor level puts half the picture below the world, and the range is already known
+    /// because the depth projection needs it.
+    /// </remarks>
+    private FreeCamera FreeLookCamera()
+    {
+        float aspect = Math.Max(1, _viewport.ClientSize.Width) /
+            (float)Math.Max(1, _viewport.ClientSize.Height);
+
+        // Placed the first time by orbiting what the map view was centred on, so entering the free
+        // view does not move the subject. After that it is a position and it flies.
+        _freeOrigin ??= FreeCamera.Orbiting(
+            FreeFocus(), _freeAngles.Pitch, _freeAngles.Yaw, FreeEntryDistance, aspect).Origin;
+
+        return new FreeCamera
+        {
+            Origin = _freeOrigin.Value,
+            Angles = (_freeAngles.Pitch, _freeAngles.Yaw, 0f),
+            Aspect = aspect,
+        };
+    }
+
+    /// <summary>What the free camera is aimed at when it is first entered.</summary>
+    private (float X, float Y, float Z) FreeFocus()
+    {
+        (float centreX, float centreY) = _lookingAt ?? MapCamera().Centre;
+
+        // **The players' height, not the middle of the map.** A map's vertical range includes its
+        // skybox and its basements, so its midpoint is nowhere anybody stands; entering the free
+        // view there put the camera above the rooftops. The lowest drawn geometry plus an eye
+        // height is where the action is.
+        float ground = _heightRange is { } range ? range.Lowest : 0f;
+
+        return (centreX, centreY, ground + PlayerEyeHeight);
+    }
+
+    /// <summary>How far one key press moves the free camera, along each of its axes.</summary>
+    /// <param name="keyData">The key, with its modifiers.</param>
+    /// <returns>The step, or null when the key is not a movement key.</returns>
+    /// <remarks>
+    /// **Returns null rather than a zero step for anything else**, so the caller can tell "not a
+    /// movement key" from "a movement key that happened to move nothing" and let every other
+    /// binding through. Swallowing unknown keys here would quietly break the transport.
+    /// </remarks>
+    private static (float Forward, float Right, float Up)? FlyStep(Keys keyData)
+    {
+        Keys key = keyData & Keys.KeyCode;
+        float step = (keyData & Keys.Shift) != 0 ? FlySpeed * 4f : FlySpeed;
+
+        return key switch
+        {
+            Keys.W => (step, 0f, 0f),
+            Keys.S => (-step, 0f, 0f),
+            Keys.A => (0f, -step, 0f),
+            Keys.D => (0f, step, 0f),
+            Keys.Space => (0f, 0f, step),
+            Keys.ControlKey => (0f, 0f, -step),
+            _ => null,
+        };
+    }
+
+    /// <summary>World units the free camera moves per key press.</summary>
+    /// <remarks>
+    /// Thirty-two units is half a player's height, which is small enough to line a shot up and
+    /// large enough to cross a room without holding a key down for a minute. Shift quadruples it.
+    /// </remarks>
+    private const float FlySpeed = 32f;
+
+    /// <summary>Roughly where a player's eyes are above the floor, in world units.</summary>
+    /// <remarks>
+    /// <c>VEC_VIEW</c> is 64 for a standing Source player, which is what a demo is usually watched
+    /// from and a sensible height to arrive at.
+    /// </remarks>
+    private const float PlayerEyeHeight = 64f;
+
     private TopDownCamera MapCamera()
     {
         TopDownCamera fitted = TopDownCamera.Fit(
@@ -1548,10 +1763,43 @@ internal class MainForm : Form
                     // lay them on their side every time they looked up.
                     Yaw = player.Yaw,
                     Scale = 1f,
+
+                    // Left unset here and chosen below, once the model is loaded. Choosing it now
+                    // asks a set that has not been given this model yet, which answers -1 - and
+                    // -1 is a real answer meaning "no such sequence", so it looks like a lookup
+                    // that failed rather than one that ran too early.
+                    Speed = player.Speed,
+
+                    // **Which way the legs run.** A movement sequence is a blend grid and these
+                    // are its coordinates; without them the grid's corner is taken, which is one
+                    // fixed direction regardless of facing.
+                    MoveX = player.MoveX,
+                    MoveY = player.MoveY,
+
+                    // **RED is skin 0 and BLU is skin 1**, which is the game's own convention:
+                    // m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1. Without it every player draws in
+                    // the model's first family, which is red - both teams in red.
+                    Skin = player.Team == SceneTeams.Blu ? 1 : 0,
                 }));
         }
 
-        if (_models.Add(_drawn, ModelGeometry) && _device is { } device)
+        bool grew = _models.Add(_drawn, ModelGeometry);
+
+        // **Now the models are loaded, so a player's sequence can be chosen.** Nothing on the wire
+        // carries one, and picking it needs the model's own merged sequence table - which only
+        // exists after the model has been read.
+        for (int index = 0; index < _drawn.Count; index++)
+        {
+            SceneProp prop = _drawn[index];
+
+            if (prop.Pose.Speed is { } speed &&
+                _models.SequenceFor(prop.ModelPath, speed) is var chosen and >= 0)
+            {
+                _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+            }
+        }
+
+        if (grew && _device is { } device)
         {
             device.UploadModels(_models);
 
@@ -1694,6 +1942,16 @@ internal class MainForm : Form
         _device?.CaptureNextFrame(path);
         _viewport.Invalidate();
     }
+
+    /// <summary>Captures the viewport to a stamped file beside the log.</summary>
+    /// <remarks>
+    /// The one place that decides where a screenshot goes, so the menu item and F12 cannot
+    /// disagree about it. They were one copied expression apart, which is exactly how the viewer's
+    /// two drawing paths drifted until one of them stopped showing decals.
+    /// </remarks>
+    public void CaptureViewportToFile() => CaptureViewport(Path.Combine(
+        Path.GetDirectoryName(ViewerLog.Path) ?? ".",
+        string.Create(CultureInfo.InvariantCulture, $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
 
     /// <summary>The points the viewport is currently drawing.</summary>
     public IReadOnlyList<ScenePoint> Scene => _scene;
@@ -1924,6 +2182,17 @@ internal class MainForm : Form
                 hidden.Visible = false;
             }
 
+            // **Focus has to be moved before the control holding it disappears.** The playlist
+            // takes focus when the window opens and the playlist is hidden by full screen, which
+            // leaves the form with no focused child at all — and every binding lives on
+            // ProcessCmdKey, so the next F11 or Escape went nowhere and full screen could not be
+            // left until the user alt-tabbed away and back. That restored a focused child, which
+            // is why it looked like an intermittent glitch instead of what it was.
+            //
+            // Reasserted at the window level rather than on the viewport, which is a plain Panel
+            // and therefore not selectable — Select() on it is a no-op that would have looked like
+            // a fix. Activate() puts this form back as the active window whichever of the two took
+            // it, the hidden child or the overlay appearing.
             Controls.Remove(_transport);
 
             FormBorderStyle = FormBorderStyle.None;
@@ -1970,13 +2239,34 @@ internal class MainForm : Form
             }
 
             _overlay = new OverlayWindow(_transport);
-            _overlay.Show(this);
+
+            // **Only shown if there is something to overlay.** An overlay over a form that is not
+            // on screen is meaningless at runtime, and in a test it is worse than meaningless: it
+            // is a window that appears on the person's desktop and takes the foreground. The full
+            // screen tests construct a MainForm without ever showing it, on the stated grounds that
+            // the transition is state on controls and needs no display — which was true when they
+            // were written and stopped being true the day full screen grew an overlay window.
+            //
+            // The transport bar still MOVES to the overlay either way, so everything those tests
+            // measure is unchanged; what goes away is three windows opening and nothing happening
+            // in them.
+            if (Visible)
+            {
+                _overlay.Show(this);
+            }
 
             // Positioned AFTER the layout settles, not now. At this point the form has changed
             // border style and window state but has not re-laid-out, so the viewport still reports
             // its windowed rectangle - and the overlay lands wherever the bottom of the small
             // viewport used to be, which on a maximised window is the middle of the screen.
-            BeginInvoke(() => _overlay?.PositionOver(_viewport));
+            BeginInvoke(() =>
+            {
+                _overlay?.PositionOver(_viewport);
+
+                // Last thing, after every window has settled. Without it the keys stopped landing
+                // on entering full screen and there was no way back out but alt-tab.
+                Activate();
+            });
 
             // **And again on every layout while full screen.** One shot is not enough: the form is
             // still settling after this - border style, bounds and topmost each re-lay-out the
@@ -2376,6 +2666,30 @@ internal class MainForm : Form
         }
 
         float step = e.Delta > 0 ? 1.25f : 1f / 1.25f;
+
+        // In the free view the wheel moves the camera in and out instead of magnifying a flat map.
+        // The near limit is a little over a player's height, so a model can be filled the frame
+        // with without the near plane cutting into it.
+        // In the free view the wheel flies forward and back, which is what a wheel does in every
+        // editor and is far quicker than tapping W across a map.
+        if (_freeLook)
+        {
+            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
+            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+
+            float travel = e.Delta > 0 ? FlySpeed * 4f : -FlySpeed * 4f;
+            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
+
+            _freeOrigin = (
+                where.X + (cosPitch * cosYaw * travel),
+                where.Y + (cosPitch * sinYaw * travel),
+                where.Z + (-sinPitch * travel));
+
+            _worldIsStale = true;
+            _viewport.Invalidate();
+            return;
+        }
+
         float zoomed = Math.Clamp(_zoom * step, 1f, 64f);
 
         if (Math.Abs(zoomed - _zoom) < float.Epsilon)
@@ -2438,6 +2752,20 @@ internal class MainForm : Form
     {
         if (_dragFrom is not { } from || _map is null || _map.IsEmpty)
         {
+            return;
+        }
+
+        // **In the free view a drag turns the camera rather than moving the map.** Pitch is
+        // clamped by the camera itself, at the same 89 degrees the engine clamps a player to,
+        // because the basis is degenerate looking exactly along the world's up axis.
+        if (_freeLook)
+        {
+            _freeAngles = (
+                Math.Clamp(_freeAngles.Pitch + ((e.Location.Y - from.Y) * DegreesPerPixel), -89f, 89f),
+                _freeAngles.Yaw - ((e.Location.X - from.X) * DegreesPerPixel));
+
+            _dragFrom = e.Location;
+            _worldIsStale = true;
             return;
         }
 
@@ -2515,14 +2843,65 @@ internal class MainForm : Form
             return true;
         }
 
+        // **Flying the camera.** W and S run along the way it is looking, A and D strafe, and
+        // Space and Control lift and drop it along the world's up axis rather than the camera's —
+        // which is what every editor does, because rising along a pitched view drifts sideways and
+        // feels broken.
+        //
+        // Shift multiplies the step. Held keys arrive here as auto-repeat, which is coarse; smooth
+        // movement wants the frame tick and is worth doing once the view has earned its keep.
+        if (_freeLook && FlyStep(keyData) is { } fly)
+        {
+            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
+            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+
+            // AngleVectors' forward and right, the same pair the camera itself builds.
+            (float X, float Y, float Z) forward = (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+            (float X, float Y, float Z) right = (sinYaw, -cosYaw, 0f);
+
+            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
+
+            _freeOrigin = (
+                where.X + (forward.X * fly.Forward) + (right.X * fly.Right),
+                where.Y + (forward.Y * fly.Forward) + (right.Y * fly.Right),
+                where.Z + (forward.Z * fly.Forward) + fly.Up);
+
+            _worldIsStale = true;
+            _viewport.Invalidate();
+
+            return true;
+        }
+
+        // **F toggles the free camera.** The map view is what a demo is normally watched from, so
+        // this is a mode rather than a replacement — and switching keeps the same subject in the
+        // middle, since the free camera starts where the map view was looking.
+        if (keyData == Keys.F)
+        {
+            _freeLook = !_freeLook;
+
+            // Forgotten on the way out, so entering again places the camera at whatever the map
+            // view is looking at NOW rather than where it was flown to half a match ago.
+            if (!_freeLook)
+            {
+                _freeOrigin = null;
+            }
+
+            _worldIsStale = true;
+            _viewport.Invalidate();
+
+            ViewerLog.Write(
+                "render",
+                _freeLook
+                    ? $"free camera on: pitch {_freeAngles.Pitch:0.#}, yaw {_freeAngles.Yaw:0.#}, " +
+                      $"distance {FreeEntryDistance:0}"
+                    : "free camera off, back to the map view");
+
+            return true;
+        }
+
         if (keyData == Keys.F12)
         {
-            CaptureViewport(Path.Combine(
-                Path.GetDirectoryName(ViewerLog.Path) ?? ".",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
-
+            CaptureViewportToFile();
             return true;
         }
 

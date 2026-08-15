@@ -47,3 +47,16 @@
 - [Logs are the debugger](logs-are-the-debugger.md) — no debugger here; a failure-only log reads clean while everything falls back.
 - [One place or it drifts](one-place-or-it-drifts.md) — a fix copied between two files is two sources of truth; put it where the data is produced.
 - [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — real files take one path; sabotage each branch and write the coverage limit into the class comment.
+- [Mutation score is a ratchet](mutation-score-is-a-ratchet.md) — tf2-core's baseline is 52.16% from 2026-08-13; it may rise, never fall, and 80 was never a rule here.
+- [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md) — -1 meaning both "not known" and a real answer; on the wire, absent means the DEFAULT.
+- [A log must name what it measured](a-log-must-name-what-it-measured.md) — a log reporting the wrong quantity misdirects with authority; say which case you are in.
+- [Edit files with the file tools](edit-files-with-the-file-tools.md) — scripted edits no-op silently and mangle escaping; Read/Edit/Write fail loudly instead.
+- [Bone merge sends no position](bone-merge-sends-no-position.md) — cosmetics and carried weapons carry no origin, model index or moveparent; EF_BONEMERGE takes the owner's bones by name.
+- [Demo ticks do not start at zero](demo-ticks-do-not-start-at-zero.md) — a hardcoded probe tick can walk zero commands and still report a plausible count.
+- [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — even ones are networked in the DynamicModels table; that is where every cosmetic lives.
+- [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land in %LOCALAPPDATA%\Tf2DemoSalvage\shot-*.png beside viewer.log.
+- [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half; open the routine that implements it before writing your own.
+- [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup returned AttackStand_PRIMARY for Stand_PRIMARY and laid every player down.
+- [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — culls and biases tuned for the top-down view broke the moment a free camera existed.
+- [Read the map before the renderer](read-the-map-before-the-renderer.md) — four renderer theories died before asking the BSP what the broken thing actually was.
+- [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements only prove the fault is in the fourth hop.

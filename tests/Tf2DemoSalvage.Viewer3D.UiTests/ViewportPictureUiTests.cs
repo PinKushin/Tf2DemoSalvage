@@ -3,8 +3,6 @@ using System.IO;
 using System.Linq;
 
 using FlaUI.Core.Tools;
-using FlaUI.Core.WindowsAPI;
-using FlaUI.Core.Input;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -29,51 +27,27 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class ViewportPictureUiTests
 {
-    private ViewerApplication _viewer = null!;
-
     /// <summary>Where the viewer writes its captures, beside its log.</summary>
     private static string ViewerFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Tf2DemoSalvage");
 
-    /// <summary>A committed demo whose map ships with the game.</summary>
-    private static string DemoPath => Path.GetFullPath(Path.Combine(
-        TestContext.CurrentContext.TestDirectory,
-        "..", "..", "..", "..", "..",
-        "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
-
-    [OneTimeSetUp]
-    public void LaunchViewerWithADemo()
-    {
-        if (!File.Exists(DemoPath))
-        {
-            Assert.Ignore($"the corpus demo is not present at {DemoPath}");
-            return;
-        }
-
-        _viewer = ViewerApplication.Launch(DemoPath);
-
-        // Synchronised on the map appearing in the log rather than on a delay: loading reads a
-        // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
-        // property of the machine.
-        Retry.WhileFalse(
-            () => File.Exists(Path.Combine(ViewerFolder, "viewer.log")) &&
-                ReadLog().Contains("building the world", StringComparison.Ordinal),
-            TimeSpan.FromSeconds(60),
-            throwOnTimeout: true,
-            timeoutMessage: "The viewer never reported building a world; the map did not load.");
-    }
-
-    [OneTimeTearDown]
-    public void CloseViewer() => _viewer?.Dispose();
+    /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
+    private static ViewerApplication _viewer => ViewerSession.App;
 
     [Test]
     public void F12WritesAPictureOfWhatTheViewerDrew()
     {
         string[] before = Shots();
 
-        _viewer.Focus();
-        Keyboard.Type(VirtualKeyShort.F12);
+        // Invoked through the menu item rather than by faking F12. Synthesized keys go to whichever
+        // window holds the foreground, so the press lands wherever the tester happens to be looking
+        // — measured, twice, as keystrokes arriving in a browser. UIA needs no focus at all.
+        //
+        // The menu item did not exist until this test needed it, and that is the finding rather
+        // than an inconvenience: the screenshot had no route except a function key, so anyone
+        // driving the viewer by keyboard navigation or a screen reader had no way to reach it.
+        _viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.ScreenshotItemName);
 
         // The capture happens on the next presented frame, so it arrives when the viewer next
         // draws rather than when the key is released.
@@ -118,19 +92,6 @@ public sealed class ViewportPictureUiTests
         // A map fills a good part of the viewport. Nearly black means the world never drew, which
         // is the failure this whole exercise exists to notice.
         lit.ShouldBeGreaterThan(sampled / 20, "the viewer should be showing a map");
-    }
-
-    private static string ReadLog()
-    {
-        using FileStream stream = new(
-            Path.Combine(ViewerFolder, "viewer.log"),
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete);
-
-        using StreamReader reader = new(stream);
-
-        return reader.ReadToEnd();
     }
 
     private static string[] Shots() =>

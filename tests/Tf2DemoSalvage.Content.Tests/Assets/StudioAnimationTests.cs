@@ -130,7 +130,7 @@ public sealed class StudioAnimationTests
         // would go to infinity and stretch one triangle across the whole map.
         StudioSkeleton skeleton = StudioBones.RestPose(
         [
-            new StudioBone(-1, (0f, 0f, 0f), (0f, 0f, 0f, 1f), new float[12]),
+            new StudioBone("root", -1, (0f, 0f, 0f), (0f, 0f, 0f, 1f), new float[12]),
         ]);
 
         skeleton.Skin((0, 0, 0), (0f, 0f, 0f), 3f, 4f, 5f).ShouldBe((3f, 4f, 5f));

@@ -3201,3 +3201,1068 @@ comment naming `m_angEyeAngles` sat in another.
 
 The same rule is why the eye-angle fix is a single line at the pose rather than a field set on
 `ScenePlayer`: the pose already feeds the interpolator, so position and angle cannot drift apart.
+
+## B57 — player animation lives in included models, and cannot be baked — RESOLVED 2026-08-14
+
+**Where it is.** A player model carries almost no animation of its own. Measured:
+
+```
+scout.mdl                        306 sequences,    2 local animations of 1 frame
+  scout_user_animations.mdl        1 sequence,     1 animation
+  scout_animations.mdl           377 sequences, 1012 animations, 5.0 MB
+  scout_workshop_animations.mdl   90 sequences,   95 animations, 2.9 MB
+soldier.mdl                      361 sequences,    2 local animations
+  soldier_animations.mdl         419 sequences,  858 animations, 5.4 MB
+```
+
+Reached through `studiohdr_t.numincludemodels` at 336 and `includemodelindex` at 340, entries of
+eight bytes (`mstudiomodelgroup_t`: a label index and a name index, both relative to the entry).
+Offsets counted from `studio.h`'s field order and anchored on `numbodyparts` at 232, which this
+project had already verified against real files. **medkit_small reports zero included models**,
+which is the control that says the offsets are not landing on arbitrary data.
+
+The two local animations are the reference pose — the thing that stands a player upright (B?, see
+the animation commit). Everything a player actually does is in the included models.
+
+**How a sequence number resolves.** `virtualmodel_t::AppendSequences`
+(`public/studio_virtualmodel.cpp:142`) merges sequences **by label**: the base model's local
+sequences first, then each included model appends only those whose names are not already present.
+So `m_nSequence` indexes that merged list, and resolving it means walking the same merge.
+
+The useful consequence: a virtual sequence maps to a *(group, local sequence)* pair, and that
+group's own model holds both the sequence description and the animation it names. The virtual
+ANIMATION list never has to be built.
+
+**Baking is out for players, and the arithmetic is not close.** A health pack is one animation of
+thirty frames over 1,608 corners. A scout is 1,012 animations over 23,442 corners; baking even a
+tenth of them at thirty frames would be tens of gigabytes. The bake budget added for props
+(B?, `MaximumBakedCorners`) would silently degrade every player to one frame, which is exactly the
+state they are in now.
+
+So players need the transform done per frame on the GPU: bone matrices in a constant buffer and
+the skinning in the vertex shader, which is `IMaterialSystem::LoadBoneMatrix` and what the engine
+itself does. `StudioBones` already produces the matrices and `StudioVertex` already carries the
+indices and weights; what is missing is the renderer side.
+
+**And the poses are not networked — measured, not assumed.** Across the whole committed corpus,
+2007 to 2026, every playing player reports `m_nSequence` absent and `m_flCycle` at zero: one
+distinct value each, over 244,951 samples on z1800 alone. So there is nothing on the wire to
+replay, and `CTFPlayerAnimState` has to be emulated rather than read. So even with the data reachable and the renderer able to skin, choosing the
+right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
+emulate the choice.
+
+## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — OPEN, not urgent
+
+**Dangling cosmetics and the floppy fish are jiggle bones, not physics.** `studio.h` defines
+`STUDIO_PROC_JIGGLE` (5) with `mstudiojigglebone_t` and the `JIGGLE_IS_FLEXIBLE` /
+`JIGGLE_IS_RIGID` flags: a per-bone spring whose stiffness, damping, length and angular
+constraints are baked into the model. The client solves it every frame in `CJiggleBones`, after
+ordinary bone setup and on the same matrices.
+
+So it needs no physics engine, no collision and no broadphase — it is a procedural pass over bone
+transforms and drops into the bone pipeline this project is building for GPU skinning. Cost is a
+handful of springs per model.
+
+**Ragdolls: the first version of this entry was wrong, and the correction is the useful part.** It
+claimed "nothing about the resulting pose is networked" and concluded ragdolls may be unfixable.
+That was asserted from reasoning about client-side simulation rather than from reading the wire
+format, and reading it says otherwise. `DT_TFRagdoll` (`c_tf_player.cpp:517`) sends:
+
+```
+m_vecRagdollOrigin, m_vecForce, m_vecRagdollVelocity, m_nForceBone, m_hPlayer,
+m_bGib, m_bBurning, m_bElectrocuted, m_bFeignDeath, m_bWasDisguised, m_bOnGround,
+m_bCloaked, m_bBecomeAsh, m_iDamageCustom, m_iTeam, m_iClass, m_hRagWearables,
+m_bGoldRagdoll, m_bIceRagdoll, m_bCritOnHardHit, m_flHeadScale, m_flTorsoScale
+```
+
+That is the complete initial condition — where it starts, the impulse, which bone took it, whether
+it is on the ground — plus every visual variant a death can have. Only the simulation from that
+point onward is client-side.
+
+So a ragdoll is reproducible in principle, and **it is wanted**: frag-video makers care about death
+animations, which is much of what a frag video shows. What remains unverified is whether Source's
+VPhysics reproduces the same fall from the same start, and that is a measurement rather than an
+argument.
+
+Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a physics
+engine", which is the wrong conclusion for jiggle bones and only half the question for ragdolls.
+
+**B57 resolved 2026-08-14.** Players are skinned on the GPU from the merged sequence table, posed
+through Valve's bone remap, lit at their illumination centre, and advanced from demo time. The full
+account is `docs/findings/21-player-animation.md`, including the two wrong turns — an illumination
+hypothesis dropped on a blind experiment, and a bone remap whose absence produced a plausible pose
+rather than an obvious failure.
+
+What remains is not decoding but emulation, and is tracked as B61.
+
+## B59 — what "useful to frag video makers" actually means, in 2026 — OPEN, scoping
+
+Recorded because the owner named ragdolls as wanted "for frag vid makers", and the right scope for
+that depends on what those people already use rather than on what sounds impressive.
+
+**Lawena is no longer viable** — the tool this project already cites in its texture-quality notes,
+alongside Chris' maxquality and mastercomfig. The current workflow is several tools together:
+
+| tool | what it does |
+|---|---|
+| HLAE | camera control, `mirv_campath` for smoothing SourceTV demos |
+| SparklyFX | depth, per-element visibility and colour, several streams in one take, FFMPEG encode |
+| Méliès | automation: VDM generation, demo scanning, gameinfo installs |
+| SVR / Source Demo Render | fast recording straight to uncompressed AVI |
+
+**Read as a list of gaps, the interesting ones are not rendering.** Every tool above drives the
+GAME and records its output, which is why they need gameinfo installs, VDM scripts and config
+swapping at all. A standalone parser has a different shape: it already has the camera, already
+decodes the events a demo scanner is looking for, and needs no game running to do either.
+
+**The owner's priority is render output first**, then element isolation, then camera, then
+automation — SVR, SparklyFX, HLAE, Méliès. Implementation need not follow that order, but the
+value does, and it is not the order this entry first proposed.
+
+Worth knowing how close the first one is. A recorder needs three things this project already has:
+an offscreen target, a capture path (`--shot`), and a frame rate it can be pinned to — 24, 30 and
+60 all exist as of the frame-limit work. The fourth is the one that is usually got wrong and is
+right here by construction: **animation advances from DEMO time, never from frame time**, so
+rendering at 24 frames a second produces correct motion rather than slow motion. A recorder built
+on a viewer that advanced per rendered frame would need resampling, which is where judder comes
+from.
+
+What is missing for it is an encoder and a frame-sequence loop, not a renderer.
+
+So the capabilities worth aiming at, ordered by fit with what exists here rather than by the
+owner's value ordering above:
+
+- **Camera paths and smoothing.** HLAE's `mirv_campath` exists because a SourceTV camera snaps
+  between players. This viewer owns its camera outright (D21) and interpolates already.
+- **Demo scanning.** Finding the kills is what Méliès automates; the event stream is already
+  decoded here.
+- **Element isolation.** SparklyFX records separate streams so an editor can composite. A renderer
+  that draws from a scene graph can do this without recording twice.
+
+Ragdolls sit under the first two rather than beside them: a death animation is what a frag clip is
+of, so getting one wrong is visible in exactly the footage this would be used for.
+
+None of this is committed scope. It is here so "relevant to frag video makers" is a statement about
+measured tooling rather than a guess, and so the next person does not rebuild Lawena.
+
+
+## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — OPEN, lead
+
+The owner reported the small ammo pack pausing once per rotation, and reported the health packs as
+perfect. Measured across every pickup variant, including the ones cp_process does not contain:
+
+```
+medkit_small 30    medkit_medium 30    medkit_large 30
+ammopack_medium 30 ammopack_large 30   ammopack_small 31
+```
+
+**The one model with a different frame count is the one misbehaving.** That is a correlation rather
+than a cause, and four checks on the arithmetic came back clean: its last frame really is identical
+to its first (measured at zero units apart), its sequence really carries `STUDIO_LOOPING`, the phase
+advances uniformly to one part in 1e14 with no discontinuity at the wrap, and its entity yaw never
+changes so the spin is animation-driven.
+
+Worth knowing before chasing it further: a full 360 degree turn returns every vertex to where it
+started, so "the last frame equals the first" cannot distinguish a duplicated endpoint from a
+complete revolution. If the ammo pack's 31 frames are 31 intervals of a full turn rather than 30
+intervals plus a repeat, dropping the last frame removes real motion — which would read as a hitch
+from the opposite cause to the one it was meant to fix.
+
+**One measurement settles it**, and it is the angle between consecutive frames rather than the
+identity of the endpoints. Take a vertex well off the axis and measure the turn from frame to
+frame. If the step is 360/30 = 12 degrees, there are thirty intervals and frame 30 is a duplicate
+endpoint, so dropping it is right and the stall is elsewhere. If the step is 360/31 = 11.6 degrees,
+there are thirty-one intervals, frame 30 is real motion, and dropping it removes a frame's worth of
+rotation once per turn — which is a stall from the opposite cause to the one the drop was meant to
+fix, and would explain why only this model shows it.
+
+The owner has deprioritised it until players are done. Filed with the numbers so it restarts from
+one measurement rather than from nothing.
+
+
+## B61 — the rest of CTFPlayerAnimState — OPEN, emulation rather than decode
+
+Players stand and run. Everything else about what they are doing is still computed wrongly, and
+none of it is a decoding problem: the demo says nothing about any of it by design, so each is a
+piece of `CTFPlayerAnimState` to port.
+
+In rough order of how visible each is:
+
+- **Per-class playback rate.** Every class plays the same run sequence at its authored rate.
+  `m_flMaxGroundSpeed`, from `GetCurrentMaxGroundSpeed`, scales it — so a heavy at 230 units and a
+  scout at 400 should not have the same footfalls. Currently they do, and a heavy looks light-footed.
+- **Ducking.** `HandleDucking` reads `FL_DUCKING` out of `m_fFlags`, which this project does not
+  decode at all yet. A crouching player is drawn standing.
+- **Upper-body aim layering.** The engine composes a lower-body sequence with an aim layer driven by
+  pose parameters; this plays one sequence whole, so nobody points where they are shooting.
+- **Jumping, swimming, taunting, the loser state**, and the weapon-specific variants — a demoman
+  holding a shield has different sequences from one holding a launcher, and `m_hActiveWeapon` is
+  another decode not done here.
+
+The measurement that closed B57 also bounds this one: speed separates moving from still cleanly
+across the era demos, so the inputs an animation state needs are derivable even where they are not
+sent. What is missing is the state machine, not the data.
+
+## B62 — a material can name no `$basetexture` at all — OPEN, and the first diagnosis was wrong
+
+Player eyes draw as the missing-texture chequer. **The reason is that the eye material has no base
+texture to find**, which is not what this entry first said.
+
+```
+"EyeRefract"
+{
+    "$Iris"               "models/player/shared/eye-iris-blue"
+    "$AmbientOcclTexture" "models/player/shared/eye-extra"
+    "$CorneaTexture"      "models/player/shared/eye-cornea"
+    "$lightwarptexture"   "models/player/shared/eye_lightwarp"
+```
+
+`EyeRefract` composes an eye from an iris, a cornea normal map, an occlusion map and a light warp.
+There is no `$basetexture` in it, so a loader that asks only for that finds nothing and reports the
+material as unresolved — which it is not.
+
+**The first version of this entry blamed DirectX-level texture variants**, having noticed that
+`MODELS/PLAYER/SHARED/DXLEVEL80/EYEBALL_L.VTF` exists while the plain path does not. That
+observation is true and irrelevant: those are the low-shader-model fallbacks, and the real textures
+are the ones named above. The hypothesis was published on the strength of a suggestive filename
+rather than on reading the material, which is the same shape of mistake as the illumination one.
+
+The fix is to take the texture a shader actually uses when it names no base one — `$Iris` here,
+which is the eye's colour. Doing that generally means knowing, per shader, which parameter carries
+the thing a viewer without that shader should draw.
+
+**A wrong log cost most of the time before that.** `Register` reported "material not found, tried …"
+when every candidate came back with a null TEXTURE, which is a different failure. Corrected to say
+what it knows. Note also that neither of `Resolve`'s specific warnings fired here — no missing VMT,
+no missing VTF — and that silence was the clue: the material resolved and simply named no base
+texture.
+
+**The material census (B55) would not have caught this either.** It reports what a map's materials
+ask for, and model materials do not go through it.
+
+Also not started, and unrelated: **cosmetics and weapons are not drawn at all.** Only the base
+player model is. Wearables are separate entities (`m_hMyWearables`) and a weapon is its own model,
+so that is a feature rather than a texture defect.
+
+## B63 — bone-merged attachments are the whole of cosmetics and carried weapons — OPEN, emulation
+
+**A player draws as a bare class model** with no hat, no badge and nothing in hand. Not a decode
+gap: the entities are all present and every bit of them is being read.
+
+Measured on `demostf-cp_process_f12-2026-08-07.dem` at its own midpoint tick, live entities with no
+origin include `CTFWearable 37/37`, `CTFRocketLauncher 3/3` and `CTFShovel 3/3`. One carried
+weapon's entire property set is `m_hOuter, m_nSequence, m_iState, m_fEffects, m_flSimulationTime,
+m_flNextPrimaryAttack, m_flNextSecondaryAttack, m_iBuildState` — no origin, no model index, **and no
+`moveparent`**.
+
+That is deliberate. `CBaseCombatWeapon::Equip` calls `FollowEntity`, which sets `EF_BONEMERGE`
+(`0x001`) and zeroes local origin and angles, because a merged entity takes its parent's bone
+matrices by bone NAME rather than transforming from a position of its own
+(`shared/basecombatweapon_shared.cpp:987`, `shared/baseentity_shared.cpp:2360`,
+`public/const.h:284`). At that tick 32 entities carry the flag and 60 name an owner.
+
+Work needed, none of it in the decoder:
+
+- Owner link — `m_hOwnerEntity` for weapons; wearables to be measured separately.
+- Bone merge itself, which `StudioBones.Remap` already does by name.
+- Model resolution for the merged entities that send no `m_nModelIndex` — 41 of the origin-less
+  ones do send it, the rest presumably resolve through the attribute container's item definition.
+- Active-weapon selection, since a player carries several and holds one.
+
+Full account, including two wrong diagnoses that survived a round of work each, in
+`docs/findings/22-bone-merged-attachments.md`.
+
+## B64 — a player's movement sequence is a blend grid we take the corner of — OPEN, emulation
+
+**The legs run one fixed direction whatever way the body faces**, reported as "the model faces
+right, but the feet and legs bend 180 degrees the wrong way".
+
+Not a decode fault. `CalcBoneQuaternion` and `ExtractAnimValue` were checked against
+`bone_setup.cpp:374` and `:339` and `StudioAnimation` matches both. The gap is a layer up:
+`StudioSequences` reads `mstudioseqdesc_t::anim` at `y * groupsize[0] + x` and takes the corner,
+which is the whole grid for a prop and one extreme direction for a player's nine-way movement
+blend.
+
+TF2 sets `move_x`/`move_y` (`multiplayer_animstate.cpp:1413`) in `ComputePoseParam_MoveYaw`
+(`:1575`) as the unit vector of travel in the body's own frame, snapped to eight compass points by
+`SnapYawTo` (`:1443`). Both inputs are already available here — travel direction by differentiating
+position as `SpeedAt` does, body facing from `m_angEyeAngles`.
+
+Work: read `mstudioposeparamdesc_t` for the parameter ranges, map the pair to grid coordinates,
+blend the four surrounding animations rather than taking `anim[0]`, and compute the pair per player
+per frame. Related to B61, which covers the rest of `CTFPlayerAnimState`.
+
+Account in `docs/findings/21-player-animation.md`.
+
+## B65 — one player on BLU draws in RED — OPEN, not yet measured
+
+Reported 2026-08-14 with cosmetics working: a single player on the blue team draws red. Skin comes
+from the team (`m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`) and the team is read from the player
+resource's `m_iTeam.<slot>` with a fallback to the entity's own team property. One wrong player out
+of twelve is the signature of that fallback firing for one slot, but this has not been measured and
+the alternative — a stale resource entry — would look identical.
+
+## B66 — speckling on player models — OPEN, bodygroups are not applied
+
+Reported as "weird glitchy dots on them, but that maybe the lod or something". A candidate with a
+known mechanism: an equipped cosmetic HIDES part of the base model through bodygroups, and this
+project does not read `studiohdr_t.bodyparts` at all. The base body then draws inside the cosmetic
+and the two z-fight, which speckles. Unmeasured; LOD is the other candidate and neither has been
+ruled out.
+
+## B67 — the posed player skeleton is not upright — OPEN, and it is upstream of B64 and B63
+
+**Measured, cp_process, soldier at a mid-match tick:**
+
+```
+posed models/player/soldier.mdl: 26922 of 26922 corners weighted, 86 bones,
+  extents x 55.4 y 62.3 z 22.8 (z from -11.6 to 11.1)
+```
+
+A standing TF2 player is roughly 25 x 48 x 83. This is a blob centred on the origin. The raw
+model measures `x 47.9 y 84.5 z 24.8` and is authored lying along Y, so the pose is changing the
+shape without standing it up.
+
+Everything else being chased follows from it:
+
+- Legs bending the wrong way (B64's symptom) is a badly posed skeleton, not only a blend choice.
+- Every worn item sits at ankle height, because the bone it merges onto is itself near the origin:
+  soldier `bip_head` poses to `(-1.4, -25.8, 0.6)` when its REST position is `(0, 75.2, -1.1)`.
+  Scout is the same shape, rest `(0, 73.5, -1.4)`.
+
+**What has been ruled out**, each read against the SDK rather than assumed:
+
+- Flag handling in `CalcBoneQuaternion` (`bone_setup.cpp:374`) — matches.
+- The run-length decoder `ExtractAnimValue` (`:339`) — same walk, same selection.
+- `AngleQuaternion` (`mathlib_base.cpp:2016`) — our `FromEuler` matches it term for term.
+- Bone ordering — no model lists a parent after its child.
+
+So the fault is in how this project COMPOSES those pieces, which is homegrown: `StudioBones.RestPose`
+walks the hierarchy itself rather than porting `Studio_BuildBoneChain`/`CalcBoneToWorld`, and
+`StudioAnimation.Pose` substitutes animated values into a bone list rather than following
+`CalcAndAddPose`. Each piece was verified in isolation and the composition never was.
+
+**Recommendation, and the owner raised it first:** port the bone setup path faithfully rather than
+continuing to repair an approximation of it. The pieces already ported are correct and can be kept;
+what needs replacing is the assembly around them.
+
+### B67 amended — the evidence is contradictory and the first conclusion was overstated
+
+The commit that filed B67 asserted the posed skeleton is broken. That is not established. Two
+measurements disagree and the screenshots side with the second one.
+
+**What the extents report says**, soldier at a mid-match tick, all three axes:
+
+```
+posed soldier: x -12.9..42.5  y -48.3..14.1  z -11.6..11.1
+posed scout:   x  -9.8..46.4  y -39.3..11.9  z -19.6..9.5
+```
+
+No axis is near the 83 a standing player needs.
+
+**What the screen says:** players draw upright and recognisable, with hats on heads in several
+captures. Some limbs are splayed wider than they should be, and some worn items are on the floor —
+so something IS wrong, but not "the skeleton never stands up".
+
+**What has been eliminated, each measured rather than assumed:**
+
+- The blend is not the cause. Posing the same frame with and without pose parameters gives nearly
+  the same extents (`z 22.7` against `24.0`), so resolving the grid changed the direction the legs
+  run and not the shape of the skeleton.
+- The matrix path matches Valve throughout: `FromQuaternion` against `QuaternionMatrix`
+  (`mathlib_base.cpp:1885`), `Concatenate` against `ConcatTransforms` (`:658`) including the
+  translation column, the chain against `Studio_BuildMatrices` (`bone_setup.cpp:4559`), `FromEuler`
+  against `AngleQuaternion` (`:2016`), plus the flag handling and run-length decode checked earlier.
+  There is no approximation left to point at, which weakens the case for rewriting the composition.
+- The gibus skeleton is fine and its merge walks it correctly.
+
+**The open question is whether the extents report measures what the GPU draws.** It applies bone
+matrices to `_raw`, which is `ModelFrames.Geometry[0]` — and for a skinned model that is a BAKED
+frame produced by posing the base model's local animation, not the bind pose. For a player the
+local animation is the reference pose so the two are nearly the same, which is why this has not
+obviously exploded; but "nearly" is doing real work in an argument that concluded a skeleton was
+broken. Until the instrument is shown to measure the drawn vertices, its disagreement with the
+screen is not evidence about the skeleton.
+
+**Next step, and it is an instrument step rather than a fix:** make the report skin exactly the
+vertices uploaded to the GPU, or drop it in favour of reading back what the shader produced.
+Deciding what to rewrite before that is settled would be choosing a cause to fit a number that has
+not been shown to mean anything.
+
+### B67 amended again — vertices and bones agree, and both are Y-up
+
+Three measurements of `models/player/soldier.mdl`, read straight from the files:
+
+```
+vertices: 9626 corners, x -24..24   y -0..84.5   z -10.1..14.7
+bones:    bip_pelvis (root) at (0, 42.4, -0);  bip_head at (0, 75.2, -1.1)
+hull:     (-10.1,-25.8,-3.6) to (14.7,25.8,84.5)
+```
+
+**The vertices and the bones agree**: the model is 84.5 units tall along **Y**, and the head bone is
+75 up that axis. `bip_pelvis` is a ROOT, so its bone-to-world is its raw `pos` from the file with no
+chain and no rotation applied — the file itself says Y.
+
+That eliminates the transposition theory. There is no disagreement between the two readers that
+skinning depends on, and `mstudiobone_t`'s offsets were checked against `studio.h` field by field.
+
+The hull disagrees, and it is the least trustworthy of the three: its offsets were derived here by
+counting fields rather than verified against a known value, and its ranges are a PERMUTATION of the
+vertex ranges (`-10.1..14.7` and `84.5` both appear in both), which is what a four-byte slip would
+produce. Treat the hull line as unproven until an offset in it is confirmed the way `illumposition`
+at 92 and `numbones` at 156 already were.
+
+**So the open question is now well posed:** the model data is self-consistent and Y-up, this project
+draws it faithfully, and the result is a player lying down in the world — which is exactly the
+owner's report that "the player models feet are always facing up". Static props are unaffected and
+draw upright, so whatever supplies the standing orientation is specific to animated player models
+rather than to the loader.
+
+Candidates, none measured yet:
+
+- A `$upaxis Y` compile, with something in the engine's load path applying the correction.
+- The stand-up rotation living in an animation this project is not applying — the posed z span is
+  23 where standing needs 83, so nothing currently supplies it.
+- A root transform the engine composes that this project does not (`Studio_BuildMatrices` takes
+  `angles`/`origin` and builds a `rotationmatrix` the root bone is concatenated with; this project
+  applies its instance matrix in the shader instead, and if the two are not equivalent for a
+  Y-up model that is where it would show).
+
+The third is the one to measure first: it is the only place where this project's arrangement
+deliberately differs from the engine's.
+
+### B67 — what has been eliminated, so nobody repeats it
+
+Every item below was measured, not reasoned about. The remaining fault is NOT in any of them.
+
+| Checked | Against | Result |
+|---|---|---|
+| `FromQuaternion` | `QuaternionMatrix` (`mathlib_base.cpp:1885`) | matches, all nine terms |
+| `Concatenate` | `ConcatTransforms` (`:658`) | matches, rotation and translation |
+| bone chain | `Studio_BuildMatrices` (`bone_setup.cpp:4559`) | same structure |
+| `FromEuler` | `AngleQuaternion` (`:2016`) | matches term for term |
+| `CalcBoneQuaternion` flags | `bone_setup.cpp:374` | matches |
+| `ExtractAnimValue` | `:339` | same walk, same selection |
+| `mstudiobone_t` offsets | `studio.h` | field by field |
+| `.vvd` fixup table | `vertexFileHeader_t` | handled; position offset 16 of 48 correct |
+| the blend | posing with and without pose parameters | `z 22.7` against `24.0` — not the cause |
+| bone ordering | every model probed | no parent listed after its child |
+
+**The one fact left to explain:** player model vertices AND bones are both 84.5 tall along Y, while
+static and animated PROPS read by the same code are tall along Z (`resupply_locker` 113.2,
+`cappoint_hologram` 171.5, `medkit_small` 17.2). So the difference is in the data rather than in the
+reader, and applying a real animation does not stand a player up — the posed z span is 23 where
+standing needs 83, and the shape changes from the rest pose, so an animation IS being applied.
+
+A yaw-only instance matrix cannot supply the missing rotation, and neither can
+`Studio_BuildMatrices`, whose `rotationmatrix` is built from the entity's own angles and origin —
+which for a player is yaw and a position at their feet. So the rotation comes from somewhere not yet
+found, and "port the bone setup faithfully" would not by itself produce it.
+
+**Next measurement, and it should come before any more code:** take one player model and one prop
+through the identical path, dumping the root bone's `pos` and `quat` straight from the file. The
+prop stands and the player does not, from the same reader, so the difference is visible in those
+sixteen bytes or it is not in the loader at all.
+
+### B67 — the discriminator, measured: props carry a root up-axis rotation and players do not
+
+Same reader, four models, root bone only:
+
+```
+resupply_locker  body        quat (0.707,0,0,0.707)  euler (1.571,0,0)   exactly +90 deg about X
+medkit_small     Scene_Root  quat (0.707,0,0,0.707)  euler (1.571,0,0)   exactly +90 deg about X
+scout            bip_pelvis  quat (0.985,0,0,0.175)  euler (2.789,0,0)   159.8 deg
+soldier          bip_pelvis  quat (0.997,0,0,0.082)  euler (2.977,0,0)   170.6 deg
+```
+
+Every quaternion is unit length, which retires the "wrong offset" worry for good: these four floats
+really are the rotation.
+
+`1.571` is pi/2. A prop's root bone carries the **up-axis conversion** — the rotation studiomdl
+bakes in for a model authored Y-up — and this project applies it, which is exactly why props stand
+up and why nothing about them ever looked wrong.
+
+A player's root carries no such thing. 159.8 and 170.6 degrees are the pelvis's own bind
+orientation, not a Y-to-Z conversion, and they differ per class, which a fixed axis conversion
+never would.
+
+So the two model kinds are NOT equivalent and never were: props are self-standing because the
+correction lives in their data, and players need it from somewhere else. Every measurement in this
+entry is consistent with that — player vertices Y-tall at 84.5, player bones Y-tall at 75, props
+Z-tall after posing.
+
+**What this does NOT yet say** is where a player's correction comes from in the engine. Candidates,
+unmeasured:
+
+- The animation data supplies it and this project is applying the wrong animation, or applying it
+  to the wrong bones. Against this: the posed shape does differ from rest, so something is applied.
+- The engine's own `SetupBones` composes a transform for animated entities that this project skips.
+  `Studio_BuildMatrices` builds its `rotationmatrix` from the entity's angles and origin, which for
+  a player is yaw and a position at the feet — that alone cannot stand a Y-up skeleton up, so if it
+  is the answer, the angles being passed are not what is assumed here.
+- The player's rest skinning matrix already contains the correction, and only its TRANSLATION was
+  checked (it was ~zero, which a pure rotation about the origin also gives). **This is the cheapest
+  one left and it should be measured first:** print the 3x3 of `RestPose(scout).Matrices[0]`. If it
+  is the identity the model genuinely rests lying down; if it is a quarter turn the correction is
+  already in hand and the fault is downstream of it.
+
+### B67 RESOLVED — a substring match on a sequence name
+
+Last measurement, the 3x3 of the rest skinning matrix, which had never been looked at:
+
+```
+scout   bone 0: [1 0 0] [0 1 0] [0 -0 1]
+soldier bone 0: [1 0 0] [0 1 0] [0 -0 1]
+locker  bone 0: [1 0 0] [0 1 0] [0 -0 1]
+```
+
+The identity, for players and props alike. So `poseToBone` exactly cancels each root's rotation and
+the prop's pi/2 does nothing at rest — props stand up because their VERTICES are Z-tall, and players
+lie down because theirs are Y-tall. At rest every model draws precisely as authored.
+
+**A TF2 player's reference pose is authored lying down.** That is a normal thing in Source character
+pipelines: the reference SMD is a T-pose on its back and every real animation is authored standing.
+Nothing in the loader can or should correct it.
+
+**Therefore the standing orientation can only come from the animation, and ours does not supply
+it.** The posed z span is 23 where standing needs 83, while the posed shape DOES differ from the
+rest shape — so animation data is being read and applied, and it is either the wrong data or applied
+to the wrong bones.
+
+That is the whole of B67 now, and it is one question rather than a symptom list. The two candidates,
+in the order they should be measured:
+
+1. **The bone remap.** `masterBone` renumbers an included animation's bones onto the base skeleton,
+   and this project applies it only when `where.Group != 0`. A wrong or skipped remap moves the
+   right rotations to the wrong joints, which is "scrambled rather than absent" — the exact
+   signature here, since the shape changes without standing up. `StudioBones.Remap` is already
+   tested in isolation; what is NOT tested is that the group a sequence resolves to is the group
+   whose bones the remap was built from.
+2. **Which animation is being read.** A player's sequences live in included models; if the group or
+   local index is off, a real animation is decoded from the wrong file and produces a plausible,
+   wrong pose.
+
+Both are cheap to measure against the rest pose: pose scout with a known standing sequence and
+report the z span. Standing is 83, and nothing else is.
+
+## B67 RESOLVED — `Find` matched a sequence name by substring
+
+**One line, and it explains every player symptom in this file.**
+
+`PropModels.SkinnedModel.Find` looked a sequence up with `Contains` rather than equality, returning
+the earliest label in the merged table that merely EMBEDS the wanted name. Measured on a scout:
+
+```
+Find("Stand_PRIMARY") -> sequence 9, label "AttackStand_PRIMARY"
+real  stand_PRIMARY   -> sequence 175
+```
+
+`AttackStand_PRIMARY` contains `Stand_PRIMARY`, sorts earlier, and won every time. So an idle player
+was posed with an ATTACK animation — and a TF2 attack sequence is an upper-body layer meant to be
+ADDED to a base pose. Played alone as an absolute pose it leaves the skeleton near its reference,
+which for a player is lying on its back.
+
+That is why the evidence looked contradictory for so long: animation data really was being read and
+applied, so the posed shape differed from the rest shape, and the model still never stood up.
+
+Posed heights, scout, bones only:
+
+| Sequence | Z span |
+|---|---|
+| reference pose | 14 |
+| `AttackStand_PRIMARY` (what was being played) | 23 |
+| `stand_PRIMARY` | 59 |
+| `run_PRIMARY` | 68 |
+
+Valve's own lookup is `stricmp` — exact. The fix is one `string.Equals`.
+
+**Downstream of this, and expected to resolve with it:** B64's crazy legs, and the worn items sitting
+at ankle height, since `bip_head` was down there with the rest of the skeleton. B63's merge, B64's
+blend grid and the pose parameters were all correct and are unaffected.
+
+**The wrong turns, kept, because four separate confident conclusions were wrong before this one:**
+an up-axis conversion, an axis transposition in the readers, a broken bone composition worth
+rewriting wholesale, and the blend grid. Each was filed with evidence; each was retracted by a
+later measurement. What finally worked was comparing a player against a prop through the same
+reader, then asking the lookup what it actually returned rather than assuming it returned what was
+asked for.
+
+## B68 — decals hover off the walls at a large offset — OPEN, found by the free camera
+
+Visible the moment a perspective view existed: cp_process's red wall bands are drawn floating in
+front of the brickwork rather than on it, by enough to read as a separate object. From the top-down
+view this was invisible, which is why it survived every screenshot until now.
+
+**Not the depth bias.** The rasteriser state that pulls a decal toward the camera changes depth
+only; a decal standing off its wall in space is geometry placed wrongly, not sorted wrongly.
+
+Most likely in how the overlay's plane is positioned — the offset along the face normal, or the
+basis origin being applied in the wrong units or the wrong space. `MapWorld` builds the quad from
+the overlay's basis, and the corner order there was already wrong once (settled by matching texture
+aspect to quad aspect).
+
+**The owner's hypothesis, recorded because it is a good one:** that this and the worn item still
+sitting on the floor share a cause, both being things placed relative to something else and landing
+at an offset. Worth checking before assuming two separate faults, though the two paths are
+different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
+
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN
+
+Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
+
+```
+ghostly_gibus_Scout   z 62.8..74.6   (a scout's head)
+soldier_pot           z 61.4..71.1
+bargain_britches      z  6.7..50.2
+ninja_boots           z -0.5..15.1
+```
+
+But `hwn_spellbook_complete.mdl` has exactly ONE bone, named `mvm`, with no parent. It can match
+nothing on a player, so the merge contributes nothing and the item is placed by the wearer's
+transform alone — which is the player's ORIGIN, at their feet. Seven of them exist in this demo.
+
+**The engine almost certainly does not bone-merge these.** `m_iParentAttachment` travels beside
+`moveparent` (`server/baseentity.cpp:287`), and Source parents an entity to a named ATTACHMENT POINT
+on the parent's model — `mstudioattachment_t`, a named transform relative to a bone — rather than
+merging skeletons. That is the mechanism this project has not implemented, and it is what a
+single-bone item needs.
+
+Next step is to read `mstudioattachment_t` and check whether these items' owners carry an attachment
+whose index matches what the entity sends.
+
+### B68 REOPENED — the placement is correct, so the cause is not what was committed
+
+**The fix committed for this was wrong and has been reverted.** It changed the decal depth bias,
+and a depth bias cannot move geometry: it changes the depth value written, never the screen
+position, so it can never produce a visible offset with parallax. The owner described a spatial
+offset in the first sentence and the wrong mechanism was reached for anyway.
+
+**Measured since, and it clears the geometry outright:**
+
+```
+PLACE median 0.00 units from the face plane, 396 of 491 within 8 units
+```
+
+Overlay origins sit exactly on the faces they are pinned to. `OverlayPlacementTests` has asserted
+this all along and passes; the quads are where they belong.
+
+So what is on screen is not a decal in the wrong place. The remaining candidates:
+
+1. **A decal winning depth tests it should lose**, drawing over nearer geometry and so appearing to
+   float in front of it. The reverted change made this WORSE if so, since Valve's `-262144` is a
+   larger push than the tuned `-10000`.
+2. **The wall itself not drawing**, which the owner also reported in the same screenshot — a decal
+   correctly placed on a face whose brushwork is missing looks exactly like a floating decal.
+
+**The decisive experiment, and it should come before any more code:** set the decal bias to ZERO
+and look. Z-fighting means the geometry is coincident and the bias was only ever hiding it, which
+proves candidate 1. Decals still hanging in space with no z-fighting proves the surface behind them
+is absent, which is candidate 2 and an entirely different bug.
+
+### B70 — the decal bias is a deliberate deviation from Valve, to be undone with real cameras
+
+Recorded separately from B68 because it is a real future requirement rather than a bug.
+
+`DefaultDecalBias` is `-10000` where Valve's `m_DepthBias_Decal` is `-262144`. That retune was
+correct and necessary for the orthographic map view: a depth bias is a fraction of the depth RANGE,
+and an orthographic projection spreads that range evenly over a whole map's height, where Valve's
+constant is tens of world units.
+
+**When the viewer gains real cameras — third person, point of view, the frame-maker's free fly —
+those are perspective, and the value must return to Valve's**, because under perspective most of the
+range sits near the camera and the constant means what Valve intended.
+
+Two things learned from getting this wrong once already:
+
+- Do not gate it on a flag the caller passes. A defaulted `perspective: false` silently restores the
+  orthographic value for every camera someone forgets to annotate. Derive it from the matrix: under
+  this project's row-vector convention an orthographic projection leaves `m[3]`, `m[7]` and `m[11]`
+  zero, and a perspective one puts 1 in `m[11]`. There is no third case.
+- Verify it against a picture before calling it fixed. The first attempt was committed as a fix for
+  B68 on reasoning alone and changed nothing visible.
+
+### B68 — the experiment settles it: the decals are fine, the WALLS are missing
+
+Ran with the decal depth bias set to zero. **No z-fighting and no flicker**, confirmed by the owner
+looking at it.
+
+That kills the depth explanation outright. Coincident geometry with no bias z-fights; these do not,
+so the decals are not sitting on a surface at all — there is nothing behind them to fight with.
+
+Everything now agrees on one story:
+
+- Overlay origins measure `median 0.00 units from the face plane`, so placement is right.
+- The tail of that same measurement is the tell: only `396 of 491` pairings are within 8 units, so
+  about ninety-five sit well away from any face they name.
+- On screen, decals whose wall IS drawn look perfect — cp_process's "REDSTONE CARGO" lettering and
+  its arrow sign sit flat and correct. Only the coloured bands float.
+- The owner reported missing wall geometry in the same screenshot, independently.
+
+**So this is not a decal bug. It is a brush face bug wearing a decal's clothes:** a correctly placed
+decal on a wall that was never drawn looks exactly like a floating decal, and that is what has been
+chased all evening.
+
+Renamed in effect — the question is now "which brush faces is `MapWorld` dropping, and why", and the
+decal path is exonerated. Starting points, none measured:
+
+- The face filters in `MapWorld` — the height cut, the area bounds, and whatever discards nodraw and
+  tool textures. A filter too eager takes real walls with it.
+- Faces belonging to brush ENTITIES rather than the world model. `func_brush` and friends live in
+  other BSP models, and a reader that walks only model 0 draws the map minus every door, every
+  moving platform and a good deal of trim — which is the shape of what is missing.
+
+The second is the stronger candidate: the bands in question are team-coloured trim, exactly the kind
+of thing mapped as a separate brush entity.
+
+## B71 — brush-model entities are decoded and then skipped, so doors never draw — OPEN
+
+**The owner's observation, and it is exactly right:** the rolling doors were supposed to arrive the
+same way the health and ammo packs did, and they do. Nothing is lost on the wire.
+
+A `func_door` is a networked entity like any other. What differs is its model reference: a pack is
+`models/items/medkit_small.mdl`, a door is `*12` — an inline BSP submodel. `ScenePropTrack.Classify`
+already recognises the leading asterisk, and the probe run earlier listed `*1, *2, *5, *6, *7` among
+the props at a tick, so they reach the scene layer intact.
+
+They are dropped by the renderer, in two places:
+
+```csharp
+if (prop.Kind != SceneModelKind.Studio || _byModel.ContainsKey(prop.ModelPath))   // packing
+if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath, frame).Count == 0)   // drawing
+```
+
+So every brush-model entity in every demo is decoded, tracked, interpolated and then discarded for
+not being a `.mdl`. Doors, moving platforms, the cart on payload maps, anything mapped as brushwork
+that moves.
+
+**What it needs:** a submodel index `*N` names a range of faces in the BSP's models lump —
+`firstface`/`numfaces` — which is geometry this project already reads for the world. Drawing one is
+building those faces into a batch like any other and placing it at the entity's networked origin and
+angles, which the timeline already carries. The face reading, the material path and the lightmap are
+all done; what is missing is the models lump and a second geometry source in `EntityModelSet`.
+
+Worth noting the entity lump is separately unused: `BspEntities` is referenced by nothing outside
+its own file, so map-placed `prop_dynamic` models are not instantiated either. That is a different
+gap with a similar smell, and it is NOT what makes the doors missing — the doors are networked and
+already in hand.
+
+### B71 amended — the brushwork IS drawn, baked into the static world at its compiled position
+
+Measured, cp_process_f12, from the world build:
+
+```
+world: 11186 brush faces, 60 terrain faces, 1222475 prop triangles, 0 faces with no material;
+1030 of the surfaces read belong to entity models rather than the world
+```
+
+`BspSurfaces` walks the whole faces lump, and a submodel's faces follow the world's in it — so all
+1030 reach the builder and are baked into the static vertex buffer like any wall.
+
+**So nothing is missing. Everything is in the wrong place and cannot move.** A door is drawn where
+it was compiled; compiled retracted, it sits inside the ceiling and reads as absent. That is why
+removing the normal cull helped the walls and did nothing for the doors.
+
+This changes the work entirely. Not a second geometry source — a separation:
+
+1. **Exclude faces above the world model's range from the static world build.** `models[0].FaceCount`
+   is the boundary and is already read.
+2. **Build each referenced submodel's faces as its own geometry**, keyed by its `*N` name, so the
+   entity path can find it — the same path health packs already take.
+3. **Place it by the entity's networked origin and angles**, which `ScenePropTrack` already carries
+   and interpolates. A door then opens because the demo says it opens.
+4. **Relax the two `Kind != SceneModelKind.Studio` guards** that currently drop `*N` at packing and
+   at drawing.
+
+The wrinkle worth stating before anyone starts: world faces are lit by LIGHTMAP and the entity path
+lights by ambient cube. Moving brushwork through the entity path as-is loses its lightmap, so a
+door would be flat-lit against a lightmapped wall. The engine lightmaps brush entities too, so this
+is a real divergence rather than a detail — it needs either lightmap coordinates carried into the
+entity vertex format, or the world shader used with a per-instance transform.
+
+**Estimated honestly:** steps 1 to 4 make doors appear and move. The lighting question is a separate
+decision that should be made deliberately rather than discovered.
+
+## B68 RESOLVED — an overlay's face list is what to CLIP against, not a list to choose from
+
+The map answered it, after four wrong guesses at the renderer. cp_process_f12's stripes are
+overlays — `overlays/stripe_red` 45 times and `concrete/stripe_blue` 43, the two most used in the
+map — and what distinguishes them from a sign is how much they span:
+
+```
+overlays/stripe_red  names 1 to 18 faces, median 3
+signs/redstone       names 2 to 2 faces
+```
+
+The builder took the FIRST face sharing an orientation and drew a single flat quad from the
+overlay's own corners. Correct for a sign on one wall, which is why the lettering and the arrows
+always looked right. For a stripe wrapping a building the quad is a flat plane cutting straight
+through it where the wall turns, hanging in the air on both sides.
+
+The engine clips the overlay polygon against every face it names and draws a fragment per face.
+Now so does this: Sutherland-Hodgman against each face's edge planes, the fragment dropped onto
+that face's plane, textured from the overlay's orthonormal basis — clipping makes points that were
+never corners, so the four corner UVs cannot be interpolated — and lit from that face's own lightmap
+rectangle.
+
+`222 decals placed across 54 materials, 0 lying flat on nothing`, against a previous run that
+skipped every overlay whose first orientation match was the wrong wall.
+
+**The wrong guesses, kept, because four is worth remembering:** a decal offset in the reader, the
+depth bias, faces removed by the normal cull, and entity brushwork placed without its origin. Each
+was plausible, each was committed or nearly committed, and each was killed by a measurement —
+`median 0.00 units from the face plane`, no z-fighting at zero bias, and no model in the map
+carrying a non-zero origin. The answer was in the BSP the whole time, in a face list being reduced
+to one entry.
+
+**And a bug inside the fix, caught by the existing tests:** the inward normal of an edge is the face
+normal crossed with the edge, and which way that points depends on the outline's winding, which a
+BSP carries both of. Assuming one clipped every fragment to nothing — indistinguishable from an
+overlay missing its face, invisible in the counts, visible only as decals silently vanishing. It is
+settled per edge against the face's centroid.
+
+## B72 RESOLVED — a leaked depth state made models draw with no depth writes
+
+**The owner connected the symptoms before the code was looked at, and was right:** a medkit drawing
+over the medic from every angle, and a player's eyes drawing through the back of his head with the
+back of the head visible from the front, are one fault.
+
+`Device3D` sets the writing depth state, calls `_world.Draw`, and draws models afterwards.
+`WorldRenderer.DrawTranslucent` — the world's last pass — sets a READ-ONLY depth state and never
+restores it:
+
+```csharp
+context.OMSetDepthStencilState(_depthReadOnly, 0);
+```
+
+That is correct for what it is doing. Glass must not stop what is behind it from drawing, which is
+why the state exists. It is wrong for everything drawn after it, and models are drawn after it.
+
+With no depth writes:
+
+- **Within one model**, its own triangles stop occluding each other, so whichever was submitted last
+  wins. On a head that is the eyes through the skull and the back of the head over the face.
+- **Between models**, distance stops mattering and submission order decides, so a medkit on the
+  ground draws over a medic standing in front of it however the camera moves.
+
+Fixed by setting the writing state at the top of the model pass rather than by restoring it inside
+`DrawTranslucent`. A pass that depends on a state should establish it, not trust the previous pass
+to have tidied up — the same reasoning that made the decal bias derive from the matrix rather than
+from a caller's flag.
+
+**Worth noting how long this hid.** It has been true for as long as models have been drawn, and from
+directly overhead it is nearly invisible: a player seen from above has little of himself behind
+himself, and a medkit is small. The free camera made it obvious within minutes, which is the second
+defect of the evening that existed the whole time and only became visible once there was a camera
+that could look at things.
+
+## B73 — bodygroups are selected at LOAD time, so every entity sharing a model gets the same one
+
+Body parts now contribute one model each rather than all of them, which stopped all three capture
+point labels drawing at once. But the selection happens when the model is read, with `m_nBody` of
+zero, so every entity sharing a `.mdl` shows the same alternative — the owner's "they are not the
+right ones, but it's only a single one".
+
+**The shape of the problem:** bodygroup varies per ENTITY and geometry is packed per model PATH.
+cp_process's three capture points share one model and need three different label meshes.
+
+**Valve does not repack.** The engine keeps every body part's meshes and chooses which to draw per
+entity, which is the same arrangement this project already uses for team skins: one copy of the
+geometry, a per-instance lookup at bind time, and a player who switches team is right on the next
+frame with nothing rebuilt.
+
+So the fix is to follow the skin pattern rather than the frame pattern:
+
+1. Pack every model of every body part again, as before, but record for each batch which
+   `(part, model)` it came from — the packing already groups by material, so this is one more field.
+2. Decode `m_nBody` from `DT_BaseAnimating` and carry it on `ScenePose` beside `Skin`.
+3. At draw time, skip any batch whose `(part, model)` is not what `(body / base) % nummodels`
+   selects for that part. `StudioModel` already computes exactly that in `Select`.
+
+`SelectedModels` and the load-time `body` parameter come out again when this lands; they were the
+cheap half of the change and they are what makes the readers agree, so the lockstep note on
+`StudioModelInfo` needs to move to wherever the per-batch tagging ends up.
+
+**Related and probably the same fix:** the owner reports the wrong points showing owned at the
+start — on 5CP two points begin owned by each team with only mid neutral. That is the control
+point's team driving which label and colour it shows, so it needs `m_nBody` and the entity's team
+together, not one of them.
+
+## B74 — the mid capture point appears close up and vanishes as the free camera backs away — OPEN
+
+Reported precisely, which makes it tractable: present in the orthographic view, present in the free
+camera when near, gone within a short distance of backing away. Distance-dependent visibility means
+something is culling against the camera, and the world is rebuilt whenever the free camera moves
+(`_worldIsStale`), so a cull evaluated at build time is re-evaluated on every move — which is
+exactly how a thing can come and go while nothing about it changes.
+
+**Where to look, in order:**
+
+1. `MapWorldBuilder.Build` takes an `area` and drops any surface not touching it (`Touches`), and
+   `AppendProps` applies the same bounds to placed props. `MainForm` passes `_map.MainBounds`,
+   which should be constant — but that is worth confirming rather than assuming, since it is the
+   only bounds test in the path and the symptom is a bounds test behaving like a frustum.
+2. Whether the capture point is a placed static prop, a `prop_dynamic` from the entity lump, or a
+   networked entity. The three take different paths and only one of them passes through `area`.
+   Note the entity lump is read by nothing (B71), so if it is a `prop_dynamic` it should be absent
+   ALWAYS rather than sometimes — which would make this a different object than assumed.
+3. The near and far planes, `NearZ` 7 and `FarZ` 28000. Far is well beyond a map, so it should not
+   be this, and saying so is cheaper than wondering later.
+
+**Not yet measured, and no theory should be committed before it is.** The last four attempts at a
+similarly-shaped symptom were all wrong, and what settled it was asking the map what the object was
+rather than reasoning about the renderer.
+
+### B73 amended — the packing is right, so the fault is at the draw
+
+Measured on the last run, all three links separately:
+
+```
+model:  cappoint_hologram.mdl — 1 body part, base 1, 4 alternatives, 9 meshes
+demo:   cappoint_hologram.mdl — bodies 0, 2, 3 across the tracks
+packed: bodygroups models/effects/cappoint_hologram.mdl: 1 parts, 9 batches spanning 4 alternatives
+```
+
+So the model offers four signs, the demo says which each point wants, and the packer keeps all four
+in separate batches. `Shows` reduces to `alternative == body` for this model, because the single
+part has base 1 and four alternatives.
+
+**And every point still draws the "?" sign, which is alternative zero.** The selection is therefore
+not reaching or not being applied at the draw, and the remaining suspects are all in that last hop:
+
+- `ModelFrames.BodyParts` arriving null at the instance, which makes the
+  `bodyParts is { Count: > 0 }` guard skip the filter entirely and draw every batch. It is passed
+  positionally beside `SkinSwaps` and both are nullable, so a mis-ordered argument would compile
+  and silently disable the feature.
+- `ScenePose.Body` being lost between `PropsAt` and `ModelInstance` — the probe read it off the
+  TRACK, not off the instance, so the two have not been shown to agree.
+- The blended pass drawing the sign while the opaque pass draws all four, or the reverse. Both
+  passes were given the body, but only one has been reasoned about.
+
+**The next measurement, and it is one line:** log `bodyParts?.Count` and `body` inside `DrawModel`
+for the hologram. Every hop before that one is now measured; this is the only one that is not.
+
+### B75 — a test suite that steals the desktop, and nothing in it is a UI test
+
+`ReferenceParser.Run` started the differential oracle with both streams redirected but without
+`CreateNoWindow`. Windows allocates a console window for a console program regardless of
+redirection, and **a new console window takes the foreground**. The differential suite runs the
+oracle once per demo, so a full run fires a burst of window activations into whatever the person at
+the machine is doing — reported for real on 2026-08-14 as clicks landing in a browser mid-run.
+
+Fixed by setting `CreateNoWindow = true`.
+
+**Worth generalising: the machine-wide lock does not protect against this.** The lock serialises
+agents against each other; it does nothing about a run stealing focus from the *human*, which
+CLAUDE.md calls out as the direction that matters more. And nothing about this suite looks like a UI
+test, so nobody thought to check it. **Any `Process.Start` of a console program in a test needs
+`CreateNoWindow`**, whether or not the project has a user interface.
+
+**Second instance of B75, same day, different mechanism.** `FullScreenTests` constructs a `MainForm`
+and calls `SetFullScreen(true)`, on the stated grounds that the form is never shown so the suite
+needs no display. Full screen later grew an `OverlayWindow` for the transport bar, and `Show` puts a
+real window on the desktop regardless of whether its owner is visible — so five tests each opened a
+window that then sat there doing nothing. The overlay is now shown only when the form is visible,
+which is also the runtime-correct rule.
+
+Both halves of B75 are the same failure: **a test that was genuinely headless when written, and
+stopped being headless because of a change somewhere else that nobody thought of as touching tests.**
+The doc comment asserting headlessness is not a guard, it is a claim — and it kept being quoted long
+after it went stale. A real guard would fail the run instead: something that notices a visible window
+or a console allocation during the suite.
+
+### B76 — the UI suite loses to the rest of the suite for the machine
+
+**Not a parallelism setting inside the UI assembly — that is already serial, and correctly so.**
+`dotnet test` on a solution starts one `testhost` process **per project, concurrently**, and no
+`[NonParallelizable]` reaches across process boundaries. Measured: four testhosts — Corpus, Content,
+Viewer3D and UiTests — all created between 20:40:21 and 20:40:23.
+
+The corpus suite reads 774 MB of
+local demos while the UI suite launches the viewer, loads a 100 MB map and waits 20 seconds for a
+window. Under that load the window does not make it, and `GetMainWindow` fails with
+
+```
+The viewer's main window did not appear within 00:00:20.
+```
+
+which reads as "the viewer will not start" and is really "the machine was busy". Measured
+2026-08-14: solution-wide run **4 failed of 10**; the same project alone, same commit, **2 failed of
+10**, and neither remaining failure is a launch failure.
+
+**The machine-wide lock cannot fix this** — it serialises agents against each other, and this is one
+`dotnet test` competing with itself. Run the UI project in its own invocation:
+
+```
+run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests/...csproj
+```
+
+Raising the timeout would be the wrong fix: it hides contention behind a longer wait and makes every
+genuine launch failure cost more.
+
+**Still failing after that, and open:** `TransportUiTests` — the speed readout does not follow the
+shuttle buttons into reverse (2 tests). `TransportBar.cs` is untouched on this branch, so this is
+not a regression from the work merged here; it needs its own look.
+
+**The two survivors are the test's fault, not the bar's** (owner's read, and the evidence agrees).
+`TheSpeedReadoutFollowsTheShuttleButtonsIntoReverse` fails at its second step, where it demands the
+label read exactly `speed 2x` after one press of faster — an exact-string coupling to a format the
+bar is free to change, and the only assertion in the method that is not loose. The reverse check
+below it is `Contains("reversed")`, which is why the comment's off-by-one (five slower steps from 2x
+land on −0.5x, not the −0.25x it claims) never showed up as a failure. Both need rewriting against
+the ladder in `TransportBar.Speeds` rather than against strings.
+
+### B77 — a player's yaw is stored twice and the copies disagree
+
+Found by running the whole solution in one command (1597 tests), which is now possible.
+
+`PlayersAt` builds `ScenePlayer` positionally and the argument list stopped at `LifeState`, so
+**`Yaw` took the record's default of zero**: every player in a frame faced due east, whatever they
+were looking at. The track path gained eye angles and this one never did. That is the shape a
+default takes whenever it is also a legitimate value — nothing can report a missing yaw, because
+zero IS a yaw.
+
+Two fixes landed, each exposing the next:
+
+1. Carry the yaw at all. It then read **220.997** where the track held **−139.003** — the same
+   direction, a full turn apart, because the wire sends 0..360 and everything else here normalises
+   to (−180, 180]. Anything comparing or interpolating the two is wrong by 360 at the wrap.
+2. Normalise it. Still mismatched, and now by an amount that is not a whole turn.
+
+**The remaining difference looks like interpolation against instantaneous.** `track.At(tick)`
+interpolates between keyframes; the frame path reads the entity's value at that tick. Both are
+defensible and they are not the same number, which means the real defect is that **the yaw is
+recorded in two places at all**. The fix is for `PlayersAt` to read the track rather than keep its
+own copy — one source, as with everything else here — but that is a change to the shape of the
+scene layer and wants doing deliberately, not at the end of a session.
+
+Note the feedback loop: this test takes 7.5 minutes on the corpus, so guessing costs far more than
+reading. `docs/memory/two-recordings-of-one-value.md` is the entry that predicted this class.
+
+### B78 — the shell's status test asserts an empty viewer's status line
+
+`TheDeviceComesUpAgainstARealAdapter` expects the status bar to read exactly `Direct3D ready.`. It
+passed while the fixture launched with no demo. Now that every UI test shares one viewer with a map
+open, the status line has moved on to what it last reported about loading, and the test fails
+against a viewer that is working perfectly.
+
+The device coming up is worth asserting; the status bar at one instant is not the way to do it. The
+viewer logs the device creation, so the log is the durable instrument.
+
+**B77 and B78 closed.**
+
+B77's remaining difference was **dead players**. Their entity follows whoever they are spectating,
+so the track holds that player's position and that player's facing — and the scene layer already
+knew this for position, keeping the last pose held while alive so a body stays where it fell. Yaw
+was simply not included in that, which is one idea applied to half its data. `diedAt` now records
+the facing alongside the position, and the test asserts only living players, because demanding a
+corpse match its track is demanding that bodies swing round to face whatever the camera watches.
+
+Worth keeping: **the yaw is still recorded in two places**, and the reason that is tolerable now is
+that they mean different things — the track is where the entity is, the frame is where the player
+was left. That distinction is the design, not a duplication, and the comments say so at both ends.
+
+B78 was deleted rather than repaired, on the owner's read, which was right: every test in the UI
+assembly now shares one viewer with a map open, so a device that failed to create takes the whole
+assembly down. `ViewportPictureUiTests` reads the swap chain back and counts lit pixels, which is a
+strictly stronger claim than a status string — and the status string had stopped being true anyway,
+since it is a live readout that moves on once a demo loads.

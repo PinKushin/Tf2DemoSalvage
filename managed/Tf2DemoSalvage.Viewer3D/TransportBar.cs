@@ -106,8 +106,13 @@ internal sealed class TransportBar : UserControl
         {
             Name = SpeedLabelId,
 
-            // Live readout, so no fixed AccessibleName - UpdateSpeedLabel keeps both in step.
-            AccessibleName = "speed 1x",
+            // Live readout, so no fixed AccessibleName - UpdateSpeedLabel keeps both in step, and
+            // it is called at the end of this constructor to set the starting values. Both were
+            // written out by hand here as well, in a THIRD format ("speed 1x" against the
+            // "speed 1 times" every later update produces), so a screen reader heard one wording
+            // before the first speed change and a different one after it. A UI test asserting on
+            // the readout was written against this literal and failed the moment the speed moved,
+            // which read as a broken transport bar.
             Text = "1x",
             AutoSize = true,
             Top = 12,
@@ -161,7 +166,9 @@ internal sealed class TransportBar : UserControl
         Controls.Add(_speed);
         Controls.Add(_tick);
         Resize += (_, _) => LayoutChildren();
-        LayoutChildren();
+
+        // One source of truth for the readout, including its starting state.
+        UpdateSpeedLabel();
     }
 
     /// <summary>Raised when the user moves the scrub bar.</summary>
@@ -337,10 +344,22 @@ internal sealed class TransportBar : UserControl
         double speed = Speeds[_speedIndex];
 
         _speed.Text = string.Create(CultureInfo.InvariantCulture, $"{speed:0.##}x");
-        _speed.AccessibleName = speed < 0
-            ? string.Create(CultureInfo.InvariantCulture, $"speed {-speed:0.##} times, reversed")
-            : string.Create(CultureInfo.InvariantCulture, $"speed {speed:0.##} times");
+        _speed.AccessibleName = SpeedDescription(speed);
 
         LayoutChildren();
     }
+
+    /// <summary>What a screen reader says for a playback speed.</summary>
+    /// <param name="speed">The speed, negative for reverse, as <see cref="Speeds"/> holds it.</param>
+    /// <returns>The spoken description.</returns>
+    /// <remarks>
+    /// **Public so a test can ask rather than assume.** A UI test that types the expected wording
+    /// out by hand is asserting on a string constant it also owns, which passes until someone
+    /// rewords the label and then fails without anything being wrong. Worse here: the wording it
+    /// was written against came from a hand-written literal in the constructor that no update ever
+    /// reproduced, so the test failed against a bar that was working.
+    /// </remarks>
+    public static string SpeedDescription(double speed) => speed < 0
+        ? string.Create(CultureInfo.InvariantCulture, $"speed {-speed:0.##} times, reversed")
+        : string.Create(CultureInfo.InvariantCulture, $"speed {speed:0.##} times");
 }

@@ -191,6 +191,18 @@ internal sealed class GameArchives
             $"search path: {sources.Count} sources from gameinfo.txt " +
             $"({sources.Count(source => source.Archive is not null)} archives)");
 
+        // **Named, not counted.** "archives plus 8 folders" cannot answer which archive a
+        // missing material should have come from, and TF2 splits its content: the VTFs live in
+        // tf2_textures and the VMTs in tf2_misc, so losing one of them loses every material while
+        // the other still resolves textures.
+        ViewerLog.Write(
+            "assets",
+            "content: " + string.Join(
+                ", ",
+                sources.Select(source => source.Archive is null
+                    ? "folder " + source.Path
+                    : "archive")));
+
         return new GameArchives(sources);
     }
 
@@ -339,6 +351,7 @@ internal sealed class MapAssets
     /// <param name="map">The map's bytes.</param>
     /// <param name="archives">The game's archives.</param>
     /// <param name="entityModels">Model paths the demo uses, loaded with the map so the textures upload once.</param>
+    /// <param name="wornModels">Of those, the ones bone-merged onto another entity, which must be skinned.</param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -347,7 +360,8 @@ internal sealed class MapAssets
         ReadOnlyMemory<byte> map,
         GameArchives archives,
         int maximumTextureSize,
-        IReadOnlyCollection<string>? entityModels = null)
+        IReadOnlyCollection<string>? entityModels = null,
+        IReadOnlyCollection<string>? wornModels = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -460,7 +474,12 @@ internal sealed class MapAssets
                     archives,
                     materials,
                     textures,
-                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture);
+                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture,
+
+                    // **Worn models are skinned regardless of how cheap they are.** A bone-merged
+                    // item has no transform of its own; it is placed entirely by its wearer's
+                    // skeleton, so baking away its bones leaves nothing to hang it from.
+                    mustSkin: wornModels?.Contains(path) == true);
 
                 if (frames is { Geometry.Count: > 0 } && frames.Geometry[0].Count > 0)
                 {
@@ -591,7 +610,12 @@ internal sealed class MapAssets
             return default;
         }
 
-        MapTexture? first = Decode(material.BaseTexture, material.IsAlphaTested, material.IsAdditive);
+        // **PrimaryTexture, not BaseTexture**, because a material need not have a base one. TF2's
+        // eyes use EyeRefract, which names an iris, a cornea and an occlusion map and no
+        // $basetexture at all - so asking for the base drew the missing-texture chequer on every
+        // player's eyes while the material itself resolved perfectly (B62).
+        MapTexture? first = Decode(
+            material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive);
 
         MapTexture? second = Decode(
             material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
