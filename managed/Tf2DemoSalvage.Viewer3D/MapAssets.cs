@@ -17,6 +17,20 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
 /// <param name="IsTranslucent">Whether it is BLENDED with what is behind it instead.</param>
 /// <param name="SelfIllum">Tint for the self-illuminated part, or null when there is none.</param>
+/// <param name="IsModulate">
+/// Whether the material MULTIPLIES what is behind it rather than covering it — Source's Modulate
+/// shader, which declares neither $translucent nor $additive and so was read as opaque, painting
+/// over exactly what it exists to shade.
+/// </param>
+/// <param name="IsModulateTwice">Whether that multiply doubles, so mid grey changes nothing.</param>
+/// <param name="IsNoCull">
+/// Whether the material draws from both sides. $nocull sets MATERIAL_VAR_NOCULL in the engine
+/// (imaterial.h:369) and shaders test it per material; everything else culls back faces.
+/// </param>
+/// <param name="MultipliesTextures">
+/// Whether the material's two textures are MULTIPLIED rather than mixed by vertex alpha. That is
+/// UnLitTwoTexture, whose pixel shader is baseColor * baseColor2 * g_DiffuseModulation.
+/// </param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -29,7 +43,12 @@ internal readonly record struct MapTexture(
     bool IsTransparent,
     bool IsAdditive = false,
     bool IsTranslucent = false,
-    (float Red, float Green, float Blue)? SelfIllum = null);
+    (float Red, float Green, float Blue)? SelfIllum = null,
+
+    bool IsModulate = false,
+    bool IsModulateTwice = false,
+    bool IsNoCull = false,
+    bool MultipliesTextures = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -66,6 +85,10 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// <param name="Detail">The detail pattern, or null.</param>
 /// <param name="Bump">The bump map, or null.</param>
 /// <param name="Declared">Every parameter the VMT named, for reporting the unimplemented ones.</param>
+/// <param name="Shader">
+/// The shader the material names. Carried for the census: a shader decides what its parameters
+/// MEAN, and Modulate declared nothing unfamiliar while drawing entirely differently.
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -75,7 +98,8 @@ internal readonly record struct ResolvedMaterial(
     MapTexture? Blend,
     MapDetail? Detail,
     MapBump? Bump,
-    IReadOnlyCollection<string>? Declared = null);
+    IReadOnlyCollection<string>? Declared = null,
+    string Shader = "");
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -429,6 +453,22 @@ internal sealed class MapAssets
                 string.Join(", ", census.Select(entry => $"{entry.Parameter} x{entry.Materials}")));
         }
 
+        // **And the SHADERS, which the census never counted.** A material's shader decides what its
+        // parameters mean, so a shader this project does not reproduce is a bigger gap than any
+        // single parameter — and it hides better, because it need not declare anything unfamiliar.
+        // Modulate is the case that proved it: it multiplies the framebuffer purely by being
+        // Modulate, passed the parameter census in silence, and drew every capture point as a dark
+        // slab until someone stood in front of one.
+        IReadOnlyList<(string Shader, int Materials)> shaders = MaterialCensus.UnimplementedShaders(
+            found.Select(material => material.Shader));
+
+        ViewerLog.Write(
+            "assets",
+            shaders.Count == 0
+                ? "every shader the map's materials name is implemented"
+                : $"{shaders.Count} unimplemented shaders across {materials.Count} materials: " +
+                    string.Join(", ", shaders.Select(entry => $"{entry.Shader} x{entry.Materials}")));
+
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
         // the end. Inserting them first would renumber every face in the map.
@@ -444,7 +484,8 @@ internal sealed class MapAssets
             archives,
             materials,
             textures,
-            path => Resolve(path, pak, archives, maximumTextureSize, report: false).Texture);
+            blendTextures,
+            path => Resolve(path, pak, archives, maximumTextureSize, report: false));
 
         propTiming.Dispose();
 
@@ -474,7 +515,8 @@ internal sealed class MapAssets
                     archives,
                     materials,
                     textures,
-                    file => Resolve(file, pak, archives, maximumTextureSize, report: false).Texture,
+                    blendTextures,
+                    file => Resolve(file, pak, archives, maximumTextureSize, report: false),
 
                     // **Worn models are skinned regardless of how cheap they are.** A bone-merged
                     // item has no transform of its own; it is placed entirely by its wearer's
@@ -617,13 +659,21 @@ internal sealed class MapAssets
         MapTexture? first = Decode(
             material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive);
 
+        // **Two shaders reach this slot and they combine differently.** A WorldVertexTransition
+        // names $basetexture2 and MIXES by vertex alpha; UnLitTwoTexture names $texture2 and
+        // MULTIPLIES. Both are "the material's second texture", so they share the slot, and the
+        // material carries which operation to use — a capture point's beam is stripes times a
+        // colour, and mixed by alpha instead it is whichever the vertices happen to ask for.
         MapTexture? second = Decode(
-            material.Value("$basetexture2"), material.IsAlphaTested, material.IsAdditive);
+            material.Value("$basetexture2") ?? material.SecondTexture,
+            material.IsAlphaTested,
+            material.IsAdditive);
 
         // **The parameters carried out alongside the textures**, so the caller can report what
         // the map asked for rather than only what failed. Gathered here because this is the one
         // place the parsed VMT exists; the census itself runs on the single-threaded side.
-        return new ResolvedMaterial(first, second, ResolveDetail(), ResolveBump(), material.Keys);
+        return new ResolvedMaterial(
+            first, second, ResolveDetail(), ResolveBump(), material.Keys, material.Shader);
 
         MapBump? ResolveBump()
         {
@@ -759,7 +809,11 @@ internal sealed class MapAssets
                     transparent,
                     additive,
                     material.IsTranslucent,
-                    material.IsSelfIlluminated ? material.SelfIllumTint : null);
+                    material.IsSelfIlluminated ? material.SelfIllumTint : null,
+                    material.IsModulate,
+                    material.IsModulateTwice,
+                    material.IsNoCull,
+                    material.IsTwoTexture);
             }
             catch (InvalidDataException failure)
             {

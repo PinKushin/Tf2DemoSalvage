@@ -71,4 +71,49 @@ public sealed class MaterialCensusTests
 
         census.Single().Materials.ShouldBe(1);
     }
+
+    [Test]
+    public void AShaderTheRendererDoesNotReproduce_IsCounted()
+    {
+        // **The case the parameter census could not see.** Modulate multiplies the framebuffer
+        // purely by BEING Modulate — it declares nothing the renderer did not already know — so it
+        // passed a census of parameters in silence while every capture point drew as a dark slab
+        // for a session and a half.
+        //
+        // A material's shader decides what its parameters mean, so an unhandled shader is the
+        // larger gap and the better-hidden one.
+        IReadOnlyList<(string Shader, int Materials)> census = MaterialCensus.UnimplementedShaders(
+            ["Refract", "Refract", "Water", "LightmappedGeneric", "VertexLitGeneric"]);
+
+        census.Count.ShouldBe(2, "the two implemented shaders should not be reported");
+        census[0].ShouldBe(("Refract", 2), "commonest first");
+        census[1].ShouldBe(("Water", 1));
+    }
+
+    [Test]
+    public void TheShadersThisProjectImplements_AreNotReported()
+    {
+        // **The control, and it is the assertion that decays.** Every entry here is a shader whose
+        // behaviour is actually reproduced; when one stops being reproduced, or a new one is
+        // implemented and not added, this is what says so. Modulate and UnLitTwoTexture are in the
+        // list because they were implemented — before that they belonged in the test above.
+        MaterialCensus.UnimplementedShaders(
+        [
+            "LightmappedGeneric",
+            "VertexLitGeneric",
+            "UnlitGeneric",
+            "WorldVertexTransition",
+            "UnLitTwoTexture",
+            "Modulate",
+            "Patch",
+        ]).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void AMaterialWithNoShaderName_IsNotCounted()
+    {
+        // A material that failed to parse has no shader, and reporting it as an unimplemented one
+        // named "" would put a blank entry at the top of a log people are meant to read.
+        MaterialCensus.UnimplementedShaders([""]).ShouldBeEmpty();
+    }
 }

@@ -4266,3 +4266,436 @@ assembly now shares one viewer with a map open, so a device that failed to creat
 assembly down. `ViewportPictureUiTests` reads the swap chain back and counts lit pixels, which is a
 strictly stronger claim than a status string — and the status string had stopped being true anyway,
 since it is a live readout that moves on once a demo loads.
+
+### B73 closed — the pose was rebuilt without the body number
+
+The hop nobody had measured was the last one, and it was `ScenePropTrack.At`. Asked for a pose
+*between* keyframes it constructs a new `ScenePose` field by field — and `Body` was not in the list,
+so it took the record's default of zero. Every capture point drew alternative zero, the "?" sign,
+while the demo (bodies 0, 2, 3), the model (4 alternatives) and the packer (9 tagged batches) all
+measured correct. On a keyframe the stored pose is returned whole, so the value was right at every
+instant anyone had checked it and wrong at every instant anyone had *looked* at it.
+
+Measured before and after, at the draw:
+
+```
+before:  drawing cappoint_hologram.mdl: body 0, 1 parts, 9 batches spanning 3 alternatives
+after:   drawing cappoint_hologram.mdl: body 3 … body 0 … body 2
+```
+
+**Second instance of this exact shape today.** `ScenePlayer.Yaw` was the other: a record built field
+by field, one field forgotten, and a default that is itself a legitimate value — so nothing can
+report the omission, because zero IS a body and zero IS a yaw. Worth stating as a rule: **when a
+type is rebuilt rather than copied, the rebuild is a list that must be checked against the type, and
+a defaulted field is silent by construction.**
+
+`ScenePropTrackTests.EveryDiscreteFieldSurvivesInterpolation` now covers every discrete field, and
+samples strictly between keyframes because on one the defect is invisible. Verified by manipulation:
+red with `Body = from.Body` removed, green with it restored.
+
+The `[render] drawing …` line stays. It costs one log line per model per distinct body and it is the
+instrument that would have found this in minutes rather than across two sessions.
+
+### B79 — the BLU point draws every beam at once, and it is a regression
+
+Confirmed by eye after B73: each point now shows the RIGHT sign, and the BLU one draws all of its
+lighting tails/spotlights simultaneously. The owner reports this was fixed earlier in the session,
+so it is a regression rather than an unfinished piece — and the only change between those two states
+is B73 itself.
+
+That narrows it usefully. Before B73, `At` returned body zero for every interpolated pose, so every
+point drew alternative zero and nothing else: one label each, and no way to see a fault in any other
+alternative. Carrying the real body number is what made alternatives 2 and 3 visible for the first
+time, so **this is most likely a pre-existing fault in those alternatives that was previously
+unreachable**, not damage done by the fix. Stated as a hypothesis, not a finding.
+
+The measurement that has NOT been explained, and is the place to start:
+
+```
+model (probe):  cappoint_hologram.mdl — 1 part, base 1, 4 alternatives, 9 meshes
+draw (log):     9 batches spanning 3 alternatives
+```
+
+**Four alternatives, three distinct tags across nine batches.** If two alternatives' meshes carry
+the same `(part, model)` tag, then selecting one draws the other's geometry too — which is exactly
+"all the beams at once" for whichever team collides. `StudioModel.ReadMeshes` assigns those tags and
+is where to look; `HatSkeletonProbe` now dumps every mesh's `part`/`alt` for comparison against the
+model, and needs `TF2_FOLDER` set to run.
+
+Note for whoever picks this up: the probe answers with no viewer and no desktop, in seconds. Do that
+before launching anything.
+
+**B79, first measurement — the tag-collision hypothesis is dead.** The model's meshes carry:
+
+```
+9 meshes: [0,1,2] alt 0   [3,4,5] alt 2   [6,7,8] alt 3
+```
+
+Alternative **1 has no meshes** — an empty bodygroup, the "blank" option a mapper uses for "show
+nothing". So four alternatives across three tags is correct and complete rather than a collision,
+and it lines up exactly with the bodies the demo sends (0, 2, 3). Alt 0 is the "?" sign, 2 and 3 are
+the team signs.
+
+That also means **each sign is three meshes by construction**, and `Shows` selects exactly one
+alternative's three. So the extra beams cannot be another alternative of this model leaking through,
+which is what the previous entry guessed.
+
+What is left, in the order worth checking:
+
+1. **A different model.** The scene draws `5xcappoint_hologram` and `5xcap_point_base`; the beams may
+   belong to the base, or to a light/sprite entity that is drawn regardless of ownership.
+2. **The three meshes of one alternative are not all sign.** If one of them is the beam and it is
+   authored per-state, all three drawing together is correct and the fault is elsewhere entirely.
+3. **`m_nSkin`, not `m_nBody`.** A team colour in TF2 is usually a skin family rather than a
+   bodygroup, and the pose carries `Skin` separately.
+
+The probe now dumps this in seconds with `TF2_FOLDER` set and `--logger "console;verbosity=detailed"`
+— without the logger the output is swallowed and the test merely passes, which is how this looked
+like "the probe did not run".
+
+**B79, second and third measurements — the hologram is innocent, and the skin was being lost.**
+
+The filter was measured at the draw rather than reasoned about:
+
+```
+drawing cappoint_hologram.mdl: body 3, drawing 3 of 9 batches
+drawing cappoint_hologram.mdl: body 0, drawing 3 of 9 batches
+drawing cappoint_hologram.mdl: body 2, drawing 3 of 9 batches
+```
+
+Three of nine, for every body — exactly one alternative's three meshes. The hologram cannot be
+drawing every state's beam, so whatever is doubled is not this model's bodygroups.
+
+Asking the OTHER model at a capture point found something real:
+
+```
+cap_point_base.mdl: 1 mesh, 1 body part with 1 alternative, 3 SKIN FAMILIES
+```
+
+Three families is neutral, RED and BLU — the base disc carries its team colour as a **skin**, not a
+bodygroup. And `ScenePropTrack.At` was dropping `Skin` in exactly the way it dropped `Body`: absent
+from the rebuilt pose, defaulting to family zero, so every capture point base drew the same colour
+however the demo set it. Fixed in the same place, verified by manipulation.
+
+**Third instance of the field-forgotten shape in one session** (Yaw, Body, Skin), so the test no
+longer checks fields one at a time: `EveryDiscreteFieldSurvivesInterpolation` now asserts the whole
+pose survives with `ShouldBe(held with { X = … })`, which fails for any future field added to
+`ScenePose` and forgotten in `At` the moment it carries a non-default value.
+
+The hologram itself has **one** skin family, so `m_nSkin` can do nothing there — the sign is
+bodygroup-driven and correct. Still unexplained, and the next thing to look at: whether the three
+meshes of one alternative are sign-plus-beams by construction (in which case there is no defect in
+the hologram at all and the doubled beams belong to a light or sprite entity), or whether two
+hologram entities are being drawn at one point.
+
+**B79, fourth measurement — everything about the SELECTION is correct, so the geometry is next.**
+
+The model names its own alternatives, which settles what they are:
+
+```
+[0] cappoint_hologram_neutral_reference.smd   3 meshes
+[1] ''                                        0 meshes   (blank bodygroup)
+[2] cappoint_hologram_redteam_reference.smd   3 meshes
+[3] cappoint_hologram_blueteam_reference.smd  3 meshes
+```
+
+And at the draw, across every baked frame and every body:
+
+```
+body 0: drawing 3 of 9 batches — kept [550:additive, 551:additive, 552:opaque]   ×30 frames
+body 2: drawing 3 of 9 batches — kept [553:additive, 554:additive, 555:opaque]   ×30 frames
+body 3: drawing 3 of 9 batches — kept [556:additive, 557:additive, 558:opaque]   ×30 frames
+census models/effects/cappoint_hologram.mdl: 5 instances, bodies 0, 2, 2, 3, 3
+```
+
+Five instances for a five-point map, two RED, two BLU, one neutral. Three of nine kept for every
+body on every frame. Materials classified identically for all three teams — two additive and one
+opaque each. **Nothing in this project's chain distinguishes BLU from RED**, and the owner reports
+RED and neutral correct with BLU drawing the neutral sign and its own at once, and the BLU point
+rendering dark.
+
+Correct batch count, correct materials, wrong picture leaves the **vertex ranges**. A batch names a
+span of the packed model buffer; if those spans are computed wrong the draw renders another
+alternative's triangles while reporting itself as blue's. Offsets accumulate through the pack, so
+the LAST alternative is where drift appears first — and blue is alternative 3, the last one with
+geometry. It also explains "dark", since the wrong span brings the wrong texture coordinates with it.
+
+**Next measurement, and it needs no viewer:** log each kept batch's start and count alongside its
+material, and check that alternative 3's span begins where alternative 2's ends and covers exactly
+its own three meshes' vertices. `EntityModels` packs them; the seam to check is where a mesh's
+vertex offset is turned into a batch range for a baked frame.
+
+**B79, fifth measurement — the pairing is sound and alternative 2's mesh sizes are not.**
+
+The `.vtx` and `.mdl` were suspected of disagreeing about the empty bodygroup, which would pair each
+mesh's corners with another mesh's vertex range. They do not: corner counts track vertex counts
+consistently across all nine meshes, so the two walks agree.
+
+What the same log shows instead:
+
+```
+alt 0 (neutral):  74v/204c,  50v/144c,  74v/204c
+alt 2 (red):      50v/144c, 436v/1728c, 436v/1728c
+alt 3 (blue):     92v/306c,  50v/144c,  92v/306c
+```
+
+Every alternative carries a 50-vertex mesh, which is presumably the shared beam. The signs are 74
+for neutral and 92 for blue — and **436 for red**, five times either. Three signs of the same shape
+do not differ by that much.
+
+And the arithmetic is suggestive: 74 + 50 + 74 + 92 + 50 + 92 = **432**, four short of 436. That is
+what a mesh looks like when its vertex count spans the WHOLE model's vertex array rather than its
+own slice — it would draw every alternative's triangles from one batch, which is the symptom.
+
+Alternative 2 is also the one immediately after the empty bodygroup, so the empty model remains the
+prime suspect for whatever produces the wrong count — just not through the pairing.
+
+**Next:** read `mstudiomodel_t.vertexindex` and `numvertices` for each of the four alternatives, and
+each mesh's `vertexoffset`/`numvertices` under them, straight from the file in the probe. If
+alternative 2's model claims the whole array, the fault is in what this project reads for a model
+that follows an empty one. If the file really says 436, the fault is not in the reading at all and
+the sign genuinely is that dense.
+
+**B79, sixth measurement — every alternative is a LIT logo and a DARK logo at the same place.**
+
+The per-mesh material names, which nothing had printed until now:
+
+```
+alt 0: cappoint_logo_neutral   cappoint_beam_neutral   cappoint_logo_neutral_dark
+alt 2: cappoint_beam_red       cappoint_logo_red       cappoint_logo_red_dark
+alt 3: cappoint_logo_blue      cappoint_beam_blue      cappoint_logo_blue_dark
+```
+
+Mapping is exactly right, and so is everything else measured: the `.vvd` has **0 fixups and 1354
+vertices**, matching 198 + 0 + 922 + 234 from the four alternatives; the `.mdl` byte offsets chain
+0 → 9504 → 9504 → 53760 without a gap; red really is a denser sign at 922 vertices.
+
+So no reader is wrong. What the names reveal is the SHAPE of the thing: each sign is a coincident
+PAIR — a lit logo and a `_dark` logo occupying the same space, with vertex counts to match (74/74,
+436/436, 92/92) — plus a shared beam.
+
+This project draws the `_dark` one in the opaque pass and the lit one additively, at identical depth,
+with no bias between them. Which of the two is visible is therefore decided by z-fighting, and that
+is camera- and precision-dependent. It accounts for "the blue capture point is the only one
+rendering dark", for the appearance of two signs at once, and it is the same class as the owner's
+observation that the wall stripes sit at different distances from the wall depending on where you
+stand.
+
+**Next, and it is a reading task rather than a measurement:** open the three `_dark` VMTs and their
+lit counterparts in the game files and find what separates them — `$selfillum`, `$additive`,
+`$ignorez`, or a proxy driving alpha from the point's state. Whatever Valve uses to decide which of
+the pair shows is what this project is missing, and it will be in the material rather than in the
+model, which is why six measurements against the model found nothing wrong with it.
+
+### B79 answered — `Modulate` was being drawn opaque
+
+Valve's own materials, read from the game files:
+
+```
+cappoint_logo_blue.vmt       "UnLitTwoTexture" { $additive 1 … }
+cappoint_logo_blue_dark.vmt  "Modulate"        { $modblend .63  $mod2x 1 … }
+cappoint_logo_red_dark.vmt   "Modulate"        { $modblend .43  $mod2x 1 … }
+```
+
+**`Modulate` declares neither `$translucent` nor `$additive`**, and its `$alpha` is written by a Sine
+proxy rather than being a constant below one — so every predicate this project had said "opaque". A
+shader whose entire purpose is to multiply what is behind it was therefore painted as solid
+geometry, directly over the lit sign it exists to shade. That is the dark slab.
+
+It explains the asymmetry that made this so hard to place: **blue's `$modblend` is .63 against red's
+.43**, so the same defect is far more visible on BLU — which is why six measurements of a perfectly
+symmetric model, selection, span and material mapping found nothing, and why the owner saw one team
+broken and the other fine.
+
+Fixed as its own blend kind rather than folded into translucency, because the factors differ:
+`Modulate` is `DEST_COLOR × ZERO` and `$mod2x` is `DEST_COLOR + SRC_COLOR`, which doubles the
+product so mid grey leaves the destination unchanged. Both now classify into the blended pass and
+pick their state per batch alongside additive and alpha.
+
+Measured after: `558:modulate2x` where it previously read `558:opaque`, for all three teams.
+
+**The general lesson, and it is the third time this session:** a predicate that answers a question
+about a material by looking only for the flags this project already knew about will call anything
+unfamiliar by the default — and "opaque" is a legitimate answer, so nothing can report it. The
+material's SHADER NAME is a declaration in its own right and was never being read.
+
+### B80 — `UnLitTwoTexture` is not implemented, so the capture point beam is grey stripes
+
+Backface culling fixed the signs (owner: "the culling for the signs is working perfectly"), and what
+remained is a grey striped column standing where the beam belongs. It is not an extra light: it is
+the beam drawn with only half of its material.
+
+`cappoint_beam_blue.vmt` is `UnLitTwoTexture` with `$basetexture` = `cappoint_beam_lines` — the grey
+stripes — and `$texture2` = `cappoint_beam_blue`, which carries the colour. Valve's own pixel shader,
+`stdshaders/unlittwotexture_ps2x.fxc`:
+
+```hlsl
+HALF4 baseColor  = tex2D( BaseTextureSampler,  i.baseTexCoord.xy );
+HALF4 baseColor2 = tex2D( BaseTextureSampler2, i.baseTexCoord2.xy );
+HALF4 result = baseColor * baseColor2 * g_DiffuseModulation;
+float alpha = 1.0f;
+```
+
+Two textures MULTIPLIED, each with its own coordinates, times `$color`, and **alpha forced to one**.
+This project samples the first only, so the stripes arrive without their colour and without the
+second texture's shape.
+
+The logo materials are the same shader and look right by luck: their `$basetexture` IS the logo and
+`$texture2` is a detail overlay, so dropping the second texture loses subtlety rather than the
+subject.
+
+**To implement, in the order they matter:**
+
+1. Sample `$texture2` and multiply, per the shader above. The pieces exist — `MapAssets` already
+   decodes a second texture for world blend materials — but the operation differs: a blend material
+   LERPS by vertex alpha, this MULTIPLIES.
+2. `$texture2transform` / `$basetexturetransform` as real transforms. They are separate coordinate
+   sets in the shader, not a shared one.
+3. Material proxies, which is the other thing measured missing: the lit logo runs a Sine on `$color`
+   (.8 to 1) and the dark one a Sine on `$alpha`, and both beams run TextureScroll on a transform.
+   Nothing pulses or scrolls without them, which is why the owner reported "the CP brightness didn't
+   seem to change at all". Proxies are a general mechanism, not a capture-point feature.
+
+**B80, why only BLU — Valve authored the blue beam with its two textures the other way round.**
+
+```
+blue:    $basetexture cappoint_beam_lines    $texture2 cappoint_beam_blue     scroll $basetexturetransform
+red:     $basetexture cappoint_beam_red      $texture2 cappoint_beam_lines    scroll $texture2transform
+neutral: $basetexture cappoint_beam_neutral  $texture2 cappoint_beam_lines    scroll $texture2transform
+```
+
+Red and neutral name the COLOUR as `$basetexture`; blue names the STRIPES. Since this project draws
+`$basetexture` and ignores `$texture2`, red and neutral come out right **by accident** and blue comes
+out as the grey striped column the owner reported. The scroll proxy follows the swap — whichever
+transform belongs to the lines texture — so the authoring is internally consistent.
+
+**In the engine the difference cannot be seen**, because the shader multiplies:
+`baseColor * baseColor2`, and multiplication is commutative. Valve's inconsistency is therefore
+harmless there and becomes a one-team defect only in a renderer that drops one of the two textures.
+
+That is the whole shape of this class of bug, and it is worth stating plainly: **a gap in what this
+project implements is invisible until it meets an asset that leans on the part we skipped.** Two of
+the three beams leaned the other way, which is why this looked like a blue-specific mystery for a
+session and a half rather than a missing shader.
+
+### B81 — the material census covers the world and not the props
+
+The shader census prints `every shader the map's materials name is implemented` for cp_process, and
+that is true of the WORLD's materials only. Props and entity models register their materials through
+a separate path (`PropModels.Register`) after the census has run, so they are never counted.
+
+**The materials behind the whole capture point investigation are prop materials.** `Modulate` and
+`UnLitTwoTexture` live on `cappoint_hologram.mdl`, so the census would have reported a clean map
+while a capture point drew as a dark slab — the exact failure the census exists to prevent, in the
+one place it does not look.
+
+The parameter census has the same hole, which is worth stating because its output looked complete:
+the `$texture2 x5, $nocull x5` line that answered this session came from the world pass over a map
+whose brushwork happens to use those materials too. A model-only parameter would have been silent.
+
+**Fix:** accumulate each prop material's shader name and declared keys as `Register` resolves them —
+the resolver already returns both — and census the combined set after props load rather than before.
+Cheap, and it turns a report that reads clean into one that is.
+
+Note the shape, since it is now familiar: **an instrument that covers most of its subject reads
+exactly like one that covers all of it.** Same as a report built only from failures, and same as a
+predicate that answers "opaque" for everything it does not recognise.
+
+### B82 — items parented to an ATTACHMENT are not implemented, so they sit at the wearer's feet
+
+The owner reports a halo at a medic's feet and an MvM canteen not rooting to its player. Measured
+from the model rather than guessed:
+
+```
+hwn_spellbook_complete.mdl: 1 bones; [0]mvm<-ROOT
+```
+
+**One bone, named `mvm`, and it is a root.** No player skeleton has a bone by that name, so
+`MergeMatchingBones` matches nothing and the item is placed by the wearer's transform alone — which
+on a player is their feet. The gibus and other head cosmetics work because their bones DO share
+names with the player's.
+
+So this is not a bone-merge defect. These items are not bone-merged at all: the engine parents them
+to a named attachment point on the wearer, which is `mstudioattachment_t` in the model and
+`m_iParentAttachment` on the entity. Neither is read here, so every such item falls back to the
+origin, and it will be every "all class" cosmetic of this shape — halos, canteens, spellbooks.
+
+**Read before implementing**, per the rule this session earned: `mstudioattachment_t` carries a name,
+the bone it hangs off and a local matrix; `CBaseEntity::SetParent` takes an attachment index and
+`C_BaseAnimating::GetAttachment` composes it against the bone's world matrix. Confirm both against
+the SDK before writing any of it — the attachment's matrix is stored relative to its bone, and
+applying it in world space instead puts the item somewhere plausible and wrong.
+
+Note the tell: a single-bone model whose bone name matches nothing is diagnostic on its own. Worth a
+log line when a worn item merges ZERO bones, since that is exactly the case that cannot work and
+currently draws in silence.
+
+**B79 and the beam half of B80 are closed, confirmed on a current build.** The capture points show
+the right sign per team, the signs are readable rather than see-through, and the BLU beam no longer
+draws as a grey striped tower. Four separate defects, each found by reading Valve's files rather
+than by measuring ours:
+
+| Defect | Answer, and where it was read |
+|---|---|
+| Every point drew "?" | `ScenePropTrack.At` rebuilt the pose without `Body` |
+| Points drew as dark slabs | `Modulate` drawn opaque — `cappoint_logo_*_dark.vmt` |
+| Signs unreadable, both sides at once | back faces not culled — `imaterialsystem.h:180`, `imaterial.h:369` |
+| Grey striped tower on BLU only | `UnLitTwoTexture` half-implemented, and props had no second texture — `unlittwotexture_ps2x.fxc` |
+
+**Two process notes, both earned the hard way.**
+
+The "fixed" claim was made from a screenshot of the RED point and believed for an hour. Evidence
+about one case, conclusion about another — the same error as reading a keyframe and concluding
+about an interpolated pose. **A per-team defect needs a screenshot per team.**
+
+And the owner then looked at a STALE BUILD and reported it unfixed, which sent this back to
+theorising about geometry. Several builds were launched in a row and every screenshot lands in one
+folder distinguished only by timestamp. Cheap fix available: the viewer already logs at startup, so
+logging its own build time, and stamping captures from the same clock, would make "which build am I
+looking at" answerable instead of assumed.
+
+Still open in B80: material proxies. The transforms and modulation are plumbed and sit at identity,
+so nothing scrolls and nothing pulses.
+
+### B83 — the capture point base draws almost black, worst under BLU
+
+Not the hologram and not the sign: the DISC, `cap_point_base.mdl`. The owner allows that models are
+dull until specular exists, and reports this as almost black rather than dull.
+
+Measured, so the lookup is not the suspect. The model is one mesh with three skin families, and they
+resolve exactly as they should — `(family * references) + reference` matches Valve's
+`pSkinref(skin * numskinref + material)`:
+
+```
+skin family 0: cap_point_base, cap_point_base_red, cap_point_base_blue
+skin family 1: cap_point_base_red, …
+skin family 2: cap_point_base_blue, …
+```
+
+All three materials are `VertexLitGeneric` with `$bumpmap`, `$envmap env_cubemap`,
+`$normalmapalphaenvmapmask 1`, `$envmaptint [1 1 1]`, and:
+
+```
+cap_point_base.vmt        $selfillum 0
+cap_point_base_red.vmt    $selfillum 1
+cap_point_base_blue.vmt   $selfillum 1
+```
+
+**The teams' materials are the SELF-ILLUMINATED ones and they are the dark ones**, which is the
+wrong way round and is the strongest clue here. `$selfillumtint` is absent from all three and this
+project defaults it to (1,1,1), matching the engine, so the tint is not it.
+
+**What to compare, in this order:**
+
+1. `$normalmapalphaenvmapmask 1` says the envmap mask is in the NORMAL map's alpha — which means the
+   BASE texture's alpha is free to be the self-illum mask. If this project reads base alpha as
+   something else, or feeds the wrong channel into the self-illum lerp, a self-illuminated surface
+   goes dark exactly where it should glow.
+2. `$envmap` is unimplemented (B55, 42 of 189 materials). Missing specular explains dull, not black —
+   unless the envmap mask channel is being consumed by another path.
+3. Read `stdshaders/vertexlitgeneric_dx9_helper.cpp` for how the two interact before changing
+   anything. Both features read alpha channels, and which channel belongs to which is the whole
+   question.
+
+The asymmetry is the lever: neutral and team share a mesh, a bump map and an envmap, and differ only
+in `$selfillum` and the base texture. Anything that treats those two identically cannot be the cause.

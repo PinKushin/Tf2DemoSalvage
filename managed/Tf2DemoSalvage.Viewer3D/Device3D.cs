@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
@@ -414,12 +416,16 @@ internal sealed unsafe class Device3D : IDisposable
                 // than trust the last one to have tidied up.
                 _context.OMSetDepthStencilState(_depthOn, 0);
 
+                ReportRepeatedModels(models);
+
                 foreach (ModelInstance instance in models ?? [])
                 {
                     if (instance.Bones is { Count: > 0 } bones)
                     {
                         _world.SetBones(_context, bones);
                     }
+
+                    ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
 
                     _world.DrawModel(
                         _context,
@@ -665,6 +671,112 @@ internal sealed unsafe class Device3D : IDisposable
 
         IsExclusiveFullScreen = enabled;
         return true;
+    }
+
+    /// <summary>Which alternatives a model offers the draw, and which one it was told to show.</summary>
+    /// <param name="instance">The model about to be drawn.</param>
+    /// <param name="batches">The runs it will draw from.</param>
+    /// <remarks>
+    /// **The last unmeasured hop in B73.** The model offers four capture-point signs, the demo says
+    /// which each point wants, and the packer keeps all four in separate tagged batches — every one
+    /// of those was measured and every one was right, while the picture kept showing "?" on all
+    /// three points. Three correct measurements only prove the fault is in the hop nobody looked at,
+    /// and this is that hop: what the draw call actually receives.
+    ///
+    /// Reported once per model rather than per frame, because this runs sixty times a second.
+    /// </remarks>
+    private void ReportBodySelection(ModelInstance instance, IReadOnlyList<WorldBatch> batches)
+    {
+        if (!_reportedBodies.Add($"{instance.ModelPath}#{instance.Body}#{instance.Frame}"))
+        {
+            return;
+        }
+
+        int alternatives = batches
+            .Select(batch => batch.BodyModel)
+            .Distinct()
+            .Count();
+
+        // **Every model, not only the interesting ones.** The first version of this reported only
+        // models with a choice to make, and it printed nothing at all for the run — which is the
+        // one outcome that cannot be read, because "no model had alternatives" and "the model was
+        // never drawn" produce the same silence. Naming everything drawn separates them: if the
+        // hologram is absent from this list, the body number was never the problem.
+        // **How many batches the body number actually keeps**, which is the question the earlier
+        // version of this line could not answer. It reported what was available and not what
+        // survived the filter, so a selection that kept everything looked identical to one that
+        // kept a third — and "the BLU point draws every beam at once" is exactly that difference.
+        //
+        // Uses the renderer's own predicate rather than repeating its arithmetic here: a log that
+        // computes the answer a second way can disagree with the draw, and then it is evidence
+        // about itself.
+        int kept = instance.BodyParts is { Count: > 0 } parts
+            ? batches.Count(batch => WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
+            : batches.Count;
+
+        // **Which materials the kept batches use, and which pass each lands in.** RED and neutral
+        // are right and BLU is not, on one model with the same three meshes per team and a
+        // selection measured as keeping three of nine for every one of them — so the difference is
+        // ours and it is downstream of the choice. Naming the materials makes red and blue directly
+        // comparable, which is the whole value of having a control that works.
+        string drawn = _world is null
+            ? "no renderer"
+            : string.Join(
+                ", ",
+                batches
+                    .Where(batch => instance.BodyParts is not { Count: > 0 } parts ||
+                        WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
+                    .Select(batch =>
+                        $"{batch.MaterialIndex}:{_world.DescribeMaterial(batch.MaterialIndex)}" +
+                        $"@{batch.FirstVertex}+{batch.VertexCount}"));
+
+        ViewerLog.Write(
+            "render",
+            $"drawing {instance.ModelPath}: body {instance.Body}, " +
+            $"{instance.BodyParts?.Count.ToString(CultureInfo.InvariantCulture) ?? "NO"} parts, " +
+            $"drawing {kept} of {batches.Count} batches spanning {alternatives} alternatives" +
+            $" — kept [{drawn}]");
+    }
+
+    /// <summary>Models already reported on, so the log carries one line each.</summary>
+    private readonly HashSet<string> _reportedBodies = [];
+
+    /// <summary>Whether the repeated-model census has been written.</summary>
+    private bool _reportedRepeats;
+
+    /// <summary>Every model drawn more than once, with the body number of each instance.</summary>
+    /// <param name="models">This frame's instances.</param>
+    /// <remarks>
+    /// **Because the remaining suspect is a second instance, not a second mesh.** Everything about
+    /// the capture point hologram measured symmetric across the three teams — the same three meshes
+    /// per alternative, the same three of nine batches kept, and materials classified identically
+    /// (two additive and one opaque for each). Nothing our chain does distinguishes BLU, yet BLU is
+    /// the one drawing every beam.
+    ///
+    /// That rules out the shading and leaves the count. Five points on a five-point map should be
+    /// five holograms carrying two RED, two BLU and one neutral at the start; anything else — a
+    /// duplicate entity, or one point holding two — shows up here and nowhere else.
+    /// </remarks>
+    private void ReportRepeatedModels(IReadOnlyList<ModelInstance>? models)
+    {
+        if (_reportedRepeats || models is not { Count: > 0 })
+        {
+            return;
+        }
+
+        _reportedRepeats = true;
+
+        foreach (IGrouping<string, ModelInstance> group in models
+            .GroupBy(instance => instance.ModelPath)
+            .Where(group => group.Count() > 1))
+        {
+            ViewerLog.Write(
+                "render",
+                $"census {group.Key}: {group.Count()} instances, bodies " +
+                string.Join(
+                    ", ",
+                    group.Select(instance => instance.Body).Order()));
+        }
     }
 
     /// <inheritdoc />

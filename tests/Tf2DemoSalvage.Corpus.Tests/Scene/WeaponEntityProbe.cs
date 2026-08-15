@@ -30,8 +30,7 @@ public sealed class WeaponEntityProbe
     [Test]
     public void WhatDoWeaponEntitiesCarry()
     {
-        string path = Corpus.FilesWithSchema()
-            .First(file => Path.GetFileName(file).Contains("cp_process", StringComparison.Ordinal));
+        string path = Corpus.Demo("cp_process");
 
         ReadOnlyMemory<byte> file = File.ReadAllBytes(path);
         DemoHeader header = DemoHeader.Parse(file.Span);

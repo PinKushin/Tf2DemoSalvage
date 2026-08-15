@@ -25,8 +25,11 @@ public sealed class WearableTrackTests
     [Test]
     public void CosmeticsAreRecordedAndNameTheirWearer()
     {
-        string path = Corpus.FilesWithSchema()
-            .First(file => Path.GetFileName(file).Contains("cp_process", StringComparison.Ordinal));
+        // **A modern match, not an era specimen.** The committed demos are the owner's own solo
+        // recordings, so they carry no other players and no worn items at all — measured: 11 props
+        // and zero wearables in the 2013 badlands POV. A test pointed there would pass while
+        // measuring nothing, so this one names the demo it needs and skips when it is absent.
+        string path = Corpus.Demo("cp_process");
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
 
@@ -94,8 +97,11 @@ public sealed class WearableTrackTests
     {
         // **The bystander.** A health pack stands at its own origin, and a change that gave every
         // prop an owner would pass the test above while breaking the entire map.
-        string path = Corpus.FilesWithSchema()
-            .First(file => Path.GetFileName(file).Contains("cp_process", StringComparison.Ordinal));
+        // **A modern match, not an era specimen.** The committed demos are the owner's own solo
+        // recordings, so they carry no other players and no worn items at all — measured: 11 props
+        // and zero wearables in the 2013 badlands POV. A test pointed there would pass while
+        // measuring nothing, so this one names the demo it needs and skips when it is absent.
+        string path = Corpus.Demo("cp_process");
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
 

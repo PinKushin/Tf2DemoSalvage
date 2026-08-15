@@ -114,6 +114,37 @@ internal static class Corpus
         ];
     }
 
+    /// <summary>The one demo whose name contains a fragment, skipping the test when there is none.</summary>
+    /// <param name="fragment">Part of the file name, such as a map.</param>
+    /// <returns>The path.</returns>
+    /// <remarks>
+    /// **Because a test whose specimen is missing has not failed — it has not run.** Several probes
+    /// name a modern match that lives in the local corpus, which is git-ignored, so a
+    /// <c>TF2DEMOSALVAGE_GCOR_ONLY</c> run threw <c>InvalidOperationException</c> from
+    /// <c>First</c> and reported four failures that said nothing about the code.
+    ///
+    /// Ignoring says so in the run's own summary, where a skipped count is visible and a silently
+    /// absent test is not. It deliberately does NOT fall back to another demo: the specimens differ
+    /// enormously — the committed 2013 badlands POV carries 11 props and no wearables at all, so a
+    /// test quietly redirected there would pass while measuring nothing.
+    /// </remarks>
+    public static string Demo(string fragment)
+    {
+        string? found = FilesWithSchema()
+            .FirstOrDefault(file => Path.GetFileName(file).Contains(fragment, StringComparison.Ordinal));
+
+        if (found is null)
+        {
+            Assert.Ignore(
+                $"No demo named '{fragment}' is present. It lives in the local corpus, which is " +
+                "not committed; unset TF2DEMOSALVAGE_GCOR_ONLY and add it to run this.");
+        }
+
+        // Assert.Ignore throws, so anything past it has a value — the analyser can see that and
+        // says so, which is a better guarantee than a forgiving operator would have been.
+        return found;
+    }
+
     /// <summary>
     /// Walks up from the test binary looking for the corpus, rather than hard-coding a
     /// relative depth that breaks whenever the output path changes.

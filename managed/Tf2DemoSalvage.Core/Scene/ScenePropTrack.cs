@@ -376,6 +376,27 @@ public sealed class ScenePropTrack
             // Discrete, so it takes the earlier keyframe's value rather than being blended.
             // Half-hidden is not a state the engine has.
             Hidden = from.Hidden,
+
+            // **Discrete for the same reason, and missing for a whole session.** m_nBody selects
+            // which alternative of a body part to draw, so there is no halfway between a capture
+            // point's "?" sign and its RED one — and being absent from this list meant the
+            // interpolated pose carried the record's default of zero. Every capture point drew "?"
+            // while the demo, the model and the packer all measured correct, because the number
+            // was rebuilt without it at the last hop before the draw.
+            //
+            // Second time this exact shape has appeared: a record constructed field by field, one
+            // field forgotten, and a default that is also a legitimate value so nothing can report
+            // it. ScenePlayer.Yaw was the other.
+            Body = from.Body,
+
+            // **And the skin, which is how a team colour is carried.** TF2 paints RED and BLU as
+            // two skin families of one model rather than as a tint, so losing this draws every
+            // entity in family zero — the RED one — however the demo set it. Discrete like the
+            // others: there is no halfway between two materials.
+            //
+            // Found immediately after Body, in the same list, by asking what ELSE this rebuild
+            // forgets rather than waiting for the next symptom to arrive.
+            Skin = from.Skin,
         };
     }
 

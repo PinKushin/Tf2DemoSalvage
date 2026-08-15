@@ -42,9 +42,15 @@ public sealed class HatSkeletonProbe
         [
             "models/player/items/all_class/ghostly_gibus_scout.mdl",
             "models/player/items/all_class/hwn_spellbook_complete.mdl",
+
+            // The owner reports this one not rooting to its wearer. A cosmetic rides bones matched
+            // BY NAME, so the question is simply which bones it has — and a model whose bones no
+            // player shares cannot be merged at all and must be placed some other way.
+            "models/player/items/all_class/mvm_flask_generic.mdl",
             "models/player/scout.mdl",
             "models/player/soldier.mdl",
             "models/effects/cappoint_hologram.mdl",
+            "models/props_gameplay/cap_point_base.mdl",
             "models/props_gameplay/resupply_locker.mdl",
             "models/items/medkit_small.mdl",
         ];
@@ -131,6 +137,110 @@ public sealed class HatSkeletonProbe
                     structure.BodyParts.Select(
                         (part, index) => $"[{index}] base {part.Base}, {part.Count} alternatives")) +
                 $"; {structure.Meshes.Count} meshes");
+
+            // **Every mesh with the alternative it belongs to.** The capture point now shows the
+            // right sign for each team and the BLU one draws all of its beams at once, so the
+            // question has moved from "which alternative" to "what is IN each alternative". A mesh
+            // tagged to the wrong part, or one that belongs to no alternative and is therefore
+            // always drawn, looks exactly like this.
+            //
+            // The draw reported nine batches spanning THREE alternatives while the model offers
+            // four, and that discrepancy has not been explained. This lists the source of truth.
+            TestContext.Out.WriteLine(
+                "HAT   meshes: " + string.Join(
+                    ", ",
+                    structure.Meshes.Select(
+                        (mesh, index) => $"[{index}] part {mesh.BodyPart} alt {mesh.BodyModel}")));
+
+            // **What the model CALLS each alternative**, which is the question the numbers cannot
+            // answer. The capture point shows the right sign for RED and neutral and draws every
+            // beam for BLU — and BLU is the last alternative, which is exactly where a mapper puts
+            // an "all" or "preview" variant. If alternative 3 is named for every light rather than
+            // for BLU, nothing in the renderer is wrong and the body number means something other
+            // than what this project assumed.
+            //
+            // Read straight from the file: mstudiobodyparts_t is sznameindex/nummodels/base/
+            // modelindex at stride 16, and each mstudiomodel_t begins with char name[64] at stride
+            // 148. Both offsets are already used by StudioModel; this only reads the names, which
+            // nothing else needed until now.
+            int partCount = BitConverter.ToInt32(bytes, 232);
+            int partIndex = BitConverter.ToInt32(bytes, 236);
+
+            for (int part = 0; part < partCount; part++)
+            {
+                int at = partIndex + (part * 16);
+                int models = BitConverter.ToInt32(bytes, at + 4);
+                int modelAt = at + BitConverter.ToInt32(bytes, at + 12);
+
+                List<string> named = [];
+
+                for (int model = 0; model < models; model++)
+                {
+                    int entry = modelAt + (model * 148);
+                    int end = Array.IndexOf(bytes, (byte)0, entry, 64);
+
+                    // **What the file itself says about each alternative's vertices**, which is the
+                    // only way to tell a dense sign from a mesh this project has measured wrongly.
+                    // mstudiomodel_t: name[64], type, boundingradius, nummeshes 68, meshindex 72,
+                    // numvertices 76, vertexindex 80.
+                    int meshCount = BitConverter.ToInt32(bytes, entry + 72);
+                    int modelVertices = BitConverter.ToInt32(bytes, entry + 80);
+                    int vertexIndex = BitConverter.ToInt32(bytes, entry + 84);
+
+                    named.Add(
+                        $"[{model}] '{System.Text.Encoding.UTF8.GetString(bytes, entry, (end < 0 ? entry + 64 : end) - entry)}'" +
+                        $" {meshCount} meshes, {modelVertices}v at byte {vertexIndex}");
+                }
+
+                TestContext.Out.WriteLine(
+                    $"HAT   part {part} alternatives: {string.Join(", ", named)}");
+            }
+
+            // **The vertex file's own totals against what this project builds from it.** The .mdl
+            // indexes vertices by position, and when the .vvd carries a fixup table its array is
+            // NOT stored in that order — so a reader that returns a differently sized or ordered
+            // array leaves the first alternative right, because it starts at zero, and every later
+            // one progressively wrong. That is exactly the reported symptom.
+            if (archives.Read(Path.ChangeExtension(path, ".vvd")) is { } vvd)
+            {
+                TestContext.Out.WriteLine(
+                    $"HAT   vvd: {BitConverter.ToInt32(vvd, 48)} fixups, " +
+                    $"lod0 {BitConverter.ToInt32(vvd, 16)} vertices, " +
+                    $"reader returns {StudioVertices.Read(vvd).Count}");
+            }
+
+            // **How many skin families, which decides whether m_nSkin can do anything here.** A
+            // model with one family cannot change appearance however faithfully the skin is
+            // decoded — so if the capture point has one, the team colour is not carried that way
+            // and the beams are something else again.
+            TestContext.Out.WriteLine(
+                $"HAT   skins: {StudioSkins.Families(bytes)} families of " +
+                $"{StudioSkins.References(bytes)} references");
+
+            // **And WHICH materials, per family.** The capture point base is one mesh with three
+            // families — neutral, RED and BLU — and the owner reports the disc drawing dark, worst
+            // when BLU holds it. Whether that is a material this project mis-classifies or a skin
+            // resolving to the wrong entry is answerable only by naming them.
+            short[] table = StudioSkins.Read(bytes);
+            int references = StudioSkins.References(bytes);
+
+            for (int family = 0; family < StudioSkins.Families(bytes) && family < 4; family++)
+            {
+                List<string> painted = [];
+
+                for (int reference = 0; reference < references; reference++)
+                {
+                    int at = (family * references) + reference;
+
+                    painted.Add(at >= 0 && at < table.Length &&
+                        table[at] >= 0 && table[at] < structure.Materials.Count
+                            ? structure.Materials[table[at]]
+                            : "?");
+                }
+
+                TestContext.Out.WriteLine(
+                    $"HAT   skin family {family}: {string.Join(", ", painted)}");
+            }
 
             StudioSkeleton rest = StudioBones.RestPose(bones);
 
@@ -219,6 +329,44 @@ public sealed class HatSkeletonProbe
                     $"HAT   vertices: {corners.Count} corners, x {minX:0.#}..{maxX:0.#} " +
                     $"y {minY:0.#}..{maxY:0.#} z {minZ:0.#}..{maxZ:0.#}");
             }
+        }
+
+        // **Valve's own materials for the coincident pair.** Every capture point alternative is a
+        // lit logo and a _dark logo in the same place, and six passes over the model found nothing
+        // wrong with it — so what decides which of the two shows is in the material, not the mesh.
+        // Reading published material files is not decompilation and answers this outright.
+        foreach (string material in new[]
+        {
+            "materials/models/effects/cappoint_logo_blue.vmt",
+            "materials/models/effects/cappoint_logo_blue_dark.vmt",
+            "materials/models/effects/cappoint_logo_red.vmt",
+            "materials/models/effects/cappoint_logo_red_dark.vmt",
+            // The disc under the hologram, which the owner reports drawing dark and darkest under
+            // BLU. Its skins resolve correctly to these three, so whatever is dark is in the
+            // material rather than in the lookup.
+            "materials/models/props_gameplay/cap_point_base.vmt",
+            "materials/models/props_gameplay/cap_point_base_blue.vmt",
+            "materials/models/props_gameplay/cap_point_base_red.vmt",
+
+            "materials/models/effects/cappoint_beam_blue.vmt",
+            "materials/models/effects/cappoint_beam_red.vmt",
+            "materials/models/effects/cappoint_beam_neutral.vmt",
+        })
+        {
+            if (archives.Read(material) is not { } vmt)
+            {
+                TestContext.Out.WriteLine($"VMT {material}: not found");
+                continue;
+            }
+
+            // Collapsed onto one line: a VMT is small, and the differences between a pair are what
+            // matter rather than the formatting.
+            TestContext.Out.WriteLine(
+                $"VMT {Path.GetFileName(material)}: " +
+                string.Join(
+                    " | ",
+                    System.Text.Encoding.UTF8.GetString(vmt)
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
         }
 
         Assert.Pass();

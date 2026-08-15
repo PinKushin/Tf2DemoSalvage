@@ -23,8 +23,7 @@ public sealed class BodyGroupProbe
     [Test]
     public void WhatBodyNumbersDoesTheDemoCarry()
     {
-        string path = Corpus.FilesWithSchema()
-            .First(file => Path.GetFileName(file).Contains("cp_process", StringComparison.Ordinal));
+        string path = Corpus.Demo("cp_process");
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
 

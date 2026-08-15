@@ -33,6 +33,15 @@ internal static class MaterialCensus
     {
         "$basetexture",
         "$basetexture2",
+
+        // Implemented together with UnLitTwoTexture and the Modulate blend: the second texture is
+        // decoded and multiplied, $nocull turns culling off for its material, and $modblend and
+        // $mod2x select the modulate factors. Moved here the moment they were consumed, which is
+        // what keeps this census worth reading.
+        "$texture2",
+        "$nocull",
+        "$modblend",
+        "$mod2x",
         "$bumpmap",
         "$ssbump",
         "$detail",
@@ -78,6 +87,70 @@ internal static class MaterialCensus
         "%compileladder",
         "%compilewater",
         "%compileorigin",
+    };
+
+    /// <summary>Which SHADERS the map's materials name that this project does not implement.</summary>
+    /// <param name="shaders">Each material's shader name.</param>
+    /// <returns>Each unimplemented shader with how many materials use it, commonest first.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="shaders"/> is null.</exception>
+    /// <remarks>
+    /// **The census counted parameters and never the shader, which is a declaration in itself.**
+    /// <c>Modulate</c> names no parameter this project did not already know — it multiplies the
+    /// framebuffer purely by being <c>Modulate</c> — so it passed the parameter census in silence
+    /// while every capture point drew as a dark slab. A material's shader decides what its
+    /// parameters MEAN, so it is the first thing that should be reported as unhandled, not the one
+    /// thing that never was.
+    ///
+    /// Names only what changes the picture. A shader this project treats as its generic case is
+    /// not "unimplemented" in the sense that matters, so the list below is the set whose behaviour
+    /// is actually reproduced rather than every string TF2 ships.
+    /// </remarks>
+    public static IReadOnlyList<(string Shader, int Materials)> UnimplementedShaders(
+        IEnumerable<string?> shaders)
+    {
+        ArgumentNullException.ThrowIfNull(shaders);
+
+        Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string? shader in shaders)
+        {
+            // **Null, not just empty.** ResolvedMaterial is a record STRUCT, so a defaulted one has
+            // a null Shader however the positional parameter's `= ""` reads — a material that could
+            // not be resolved at all arrives that way. Same shape as every other default this
+            // project has been bitten by: the value is legal, nothing reports it, and here it threw
+            // rather than lying, which is the better half of the bargain.
+            if (string.IsNullOrEmpty(shader) || ImplementedShaders.Contains(shader))
+            {
+                continue;
+            }
+
+            counts[shader] = counts.TryGetValue(shader, out int seen) ? seen + 1 : 1;
+        }
+
+        return
+        [
+            .. counts
+                .Select(entry => (Shader: entry.Key, Materials: entry.Value))
+                .OrderByDescending(entry => entry.Materials)
+                .ThenBy(entry => entry.Shader, StringComparer.OrdinalIgnoreCase),
+        ];
+    }
+
+    /// <summary>The shaders whose behaviour this project actually reproduces.</summary>
+    /// <remarks>
+    /// Everything else falls back to a lit or unlit base texture, which is right often enough to
+    /// hide a wrong one — <c>Modulate</c> looked exactly like an opaque material until someone
+    /// stood in front of a capture point.
+    /// </remarks>
+    private static readonly HashSet<string> ImplementedShaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "LightmappedGeneric",
+        "VertexLitGeneric",
+        "UnlitGeneric",
+        "WorldVertexTransition",
+        "UnLitTwoTexture",
+        "Modulate",
+        "Patch",
     };
 
     /// <summary>Which unimplemented parameters a map's materials ask for, commonest first.</summary>

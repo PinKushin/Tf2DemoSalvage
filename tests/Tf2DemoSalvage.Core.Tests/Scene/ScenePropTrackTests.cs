@@ -280,6 +280,61 @@ public sealed class ScenePropTrackTests
         ScenePropTrack.Classify(modelPath).ShouldBe(expected);
     }
 
+    [Test]
+    public void EveryDiscreteFieldSurvivesInterpolation()
+    {
+        // **The test that was missing, and the bug it would have caught.** At rebuilds the pose
+        // field by field, and m_nBody was simply not in the list — so between two keyframes the
+        // body number reverted to the record's default of zero, and every capture point drew the
+        // "?" sign while the demo, the model and the packer all measured correct.
+        //
+        // Asked BETWEEN keyframes deliberately. On a keyframe the earlier pose is returned whole
+        // and every field is right by construction, so the one condition where a rebuilt pose can
+        // differ from a copied one is the only condition that can fail. A test sampling on the
+        // keyframe passes against the defect.
+        //
+        // Discrete rather than blended, all of them: there is no halfway between one sign and
+        // another, and none between hidden and shown.
+        ScenePropTrack track = new(entityIndex: 7, "models/effects/cappoint_hologram.mdl");
+
+        ScenePose held = new()
+        {
+            Body = 3,
+            Skin = 1,
+            Sequence = 5,
+            Hidden = true,
+        };
+
+        track.Add(0, held with { X = 0f });
+        track.Add(10, held with { X = 100f });
+
+        ScenePose? between = track.At(5d);
+
+        between.ShouldNotBeNull();
+
+        // The position must actually have moved, or the case is not between keyframes at all and
+        // the assertions below are being made about a returned keyframe.
+        between.Value.X.ShouldBeGreaterThan(0f);
+        between.Value.X.ShouldBeLessThan(100f);
+
+        between.Value.Body.ShouldBe(3, "the body number selects which alternative is drawn");
+        between.Value.Skin.ShouldBe(1, "the skin family is how a team colour is carried");
+        between.Value.Sequence.ShouldBe(5);
+        between.Value.Hidden.ShouldBeTrue();
+
+        // **Stated as the whole list, deliberately.** Two fields were lost from this rebuild in one
+        // session — Body, then Skin — and both were found only when something looked wrong on
+        // screen. The failure mode is silent by construction: a field left out takes the record's
+        // default, and every default here is also a legitimate value.
+        //
+        // So the test asserts the pose survives WHOLE rather than field by field. A field added to
+        // ScenePose and forgotten in At now fails this the moment it carries a non-default value,
+        // instead of waiting for someone to notice a wrong picture.
+        between.Value.ShouldBe(
+            held with { X = between.Value.X },
+            "every field except the interpolated position must survive interpolation");
+    }
+
     private static ScenePose Pose(float x, float y, float z) =>
         new() { X = x, Y = y, Z = z };
 }

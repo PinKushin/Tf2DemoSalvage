@@ -166,6 +166,59 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsAdditive => Value("$additive") is "1";
 
+    /// <summary>Whether the material MULTIPLIES what is already drawn, rather than covering it.</summary>
+    /// <remarks>
+    /// **The shader name is the whole declaration here.** <c>Modulate</c> has no
+    /// <c>$translucent</c>, no <c>$additive</c> and often no <c>$alpha</c> below one, so every
+    /// predicate this project had said "opaque" — and a material whose entire purpose is to darken
+    /// what is behind it was then painted as solid geometry.
+    ///
+    /// Measured on the capture points: each sign is a coincident pair, a lit logo drawn additively
+    /// and a <c>cappoint_logo_*_dark</c> drawn with this shader. Read as opaque, the dark one wins
+    /// and the point renders as a dark slab — worst on BLU, whose <c>$modblend</c> is .63 against
+    /// RED's .43, which is why one team looked broken and the other did not.
+    ///
+    /// <c>$mod2x</c> doubles the result, so a texel of mid grey leaves the destination unchanged
+    /// and the material can brighten as well as darken. Reported separately because the two want
+    /// different blend factors.
+    /// </remarks>
+    public bool IsModulate => Shader.Equals("Modulate", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether this material is drawn from both sides.</summary>
+    /// <remarks>
+    /// **A material flag in the engine, not a global setting.** $nocull sets MATERIAL_VAR_NOCULL
+    /// (<c>imaterial.h:369</c>, bit 13) and shaders test it per material — <c>depthwrite.cpp:93</c>
+    /// calls <c>EnableCulling</c> with it inverted. Everything else culls, with front faces wound
+    /// clockwise per MATERIAL_CULLMODE_CCW in <c>imaterialsystem.h:180</c>.
+    /// </remarks>
+    public bool IsNoCull => Value("$nocull") is "1";
+
+    /// <summary>Whether the material draws TWO textures multiplied together.</summary>
+    /// <remarks>
+    /// **Valve's UnLitTwoTexture, whose pixel shader is one line**
+    /// (<c>stdshaders/unlittwotexture_ps2x.fxc</c>):
+    ///
+    /// <code>
+    /// HALF4 result = baseColor * baseColor2 * g_DiffuseModulation;
+    /// float alpha = 1.0f;
+    /// </code>
+    ///
+    /// Two textures, each with its own coordinates, multiplied — and alpha forced to one. A
+    /// renderer that samples only the base draws half the material, and because multiplication is
+    /// commutative the AUTHOR is free to put either one first. TF2's capture point beams do exactly
+    /// that: red and neutral name the colour first, blue names the stripes, so dropping the second
+    /// texture is invisible on two of them and turns the third into a grey column.
+    /// </remarks>
+    public bool IsTwoTexture =>
+        Shader.Equals("UnLitTwoTexture", StringComparison.OrdinalIgnoreCase) &&
+        SecondTexture is { Length: > 0 };
+
+    /// <summary>The material's second texture, without extension, or null.</summary>
+    public string? SecondTexture => Value("$texture2");
+
+    /// <summary>Whether a modulating material doubles its result.</summary>
+    public bool IsModulateTwice => IsModulate && Value("$mod2x") is "1";
+
     /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
     public string? Detail => Value("$detail");
 

@@ -163,6 +163,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             float4 pos : SV_POSITION;
             float2 uv  : TEXCOORD0;
+
+            // **The second texture's own coordinate**, because a material transforms its two
+            // textures independently over one incoming coordinate — Valve's vertex shader writes
+            // baseTexCoord and baseTexCoord2 from the same v.vTexCoord0 through different matrices
+            // (unlittwotexture_vs20.fxc:63). A capture point beam holds its colour still while the
+            // stripes scroll across it, which one shared coordinate cannot express.
+            float2 uv2 : TEXCOORD6;
             float2 luv : TEXCOORD1;
             float  a   : TEXCOORD2;
             float3 vc  : TEXCOORD3;
@@ -258,6 +265,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // The colour the self-illuminated part is tinted by.
             float4 selfIllumTint;
+
+            // **The two texture coordinate transforms, two rows each.** Uploaded exactly as the
+            // engine does — CBaseVSShader::SetVertexShaderTextureTransform sends mat[0] and mat[1]
+            // (BaseVSShader.cpp:307) and the vertex shader dots each against the incoming
+            // coordinate. The fourth component is the translation, which is what a scrolling
+            // material writes and why the coordinate is extended to a float4 below.
+            //
+            // Identity is (1,0,0,0) and (0,1,0,0), which is Valve's own fallback for a material
+            // with no transform. A zeroed row would send every coordinate to the first texel.
+            float4 baseTransform0;
+            float4 baseTransform1;
+            float4 secondTransform0;
+            float4 secondTransform1;
+
+            // **The modulation colour**, which is $color and $alpha after their proxies have run.
+            // Valve's pixel shader multiplies by g_DiffuseModulation; without it the capture point
+            // signs never pulse, which reads as a dead scene rather than a missing feature.
+            float4 modulation;
+
+            // x: how the material's two textures combine.
+            //    0 mixes them by the vertex alpha, which is what a WorldVertexTransition
+            //      displacement is: dirt under grass, the vertices saying how much of each.
+            //    1 MULTIPLIES them, which is UnLitTwoTexture — Valve's own pixel shader is
+            //      `baseColor * baseColor2 * g_DiffuseModulation` with alpha forced to one
+            //      (stdshaders/unlittwotexture_ps2x.fxc).
+            //
+            // The distinction has to reach the shader because the two look nothing alike: a
+            // capture point's beam is stripes TIMES a colour, and mixed by alpha instead it is
+            // whichever of the two the vertices happen to ask for.
+            float4 combine;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -421,7 +458,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
-            output.uv = input.uv;
+            // **Both coordinate sets, from one incoming pair, exactly as the engine builds them.**
+            // The coordinate is extended to a float4 with w = 1 so the transform's fourth column
+            // translates — that is what a scrolling material writes into, and with an identity
+            // transform this is the coordinate unchanged.
+            float4 coordinate = float4(input.uv, 0.0f, 1.0f);
+
+            output.uv = float2(dot(coordinate, baseTransform0), dot(coordinate, baseTransform1));
+            output.uv2 = float2(dot(coordinate, secondTransform0), dot(coordinate, secondTransform1));
             output.luv = input.luv;
             output.a = input.a;
             output.vc = input.vc;
@@ -484,13 +528,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // say how much of each. Where a material has only one texture the second is bound to
             // the same image, so the mix is an identity and costs a sample.
             float4 first = albedoMap.Sample(wrapSampler, input.uv);
-            float4 second = blendMap.Sample(wrapSampler, input.uv);
+
+            // Sampled with its OWN coordinate, which is the point of carrying two: the beam's
+            // stripes scroll across a colour that stays put.
+            float4 second = blendMap.Sample(wrapSampler, input.uv2);
             // **The cut is on depth, which is height.** Discarding here rather than dropping the
             // geometry means the slice moves without rebuilding anything - the camera matrix work
             // is what makes that free.
             clip(input.pos.z - surfaceColours.y);
 
-            float4 albedo = lerp(first, second, saturate(input.a));
+            // **Multiplied for UnLitTwoTexture, mixed by vertex alpha for everything else.** Valve's
+            // shader is `baseColor * baseColor2 * g_DiffuseModulation`, and a capture point's beam
+            // is exactly that: scrolling stripes times a team colour. Mixed by alpha instead, the
+            // beam is whichever of the two the vertices ask for — which is how it came out as a
+            // grey striped column on BLU, whose material happens to name the stripes first.
+            // Valve's line is `baseColor * baseColor2 * g_DiffuseModulation`, so the modulation
+            // colour belongs on the multiply — it is what $color and $alpha drive, and what a Sine
+            // proxy pulses.
+            float4 albedo = combine.x > 0.5f
+                ? first * second * modulation
+                : lerp(first, second, saturate(input.a));
 
             // **The detail goes in before the lighting, as Valve's shader does it.** It modifies
             // the albedo - the surface's own colour - and the lightmap then multiplies the result.
@@ -711,6 +768,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _bothSides;
 
+    /// <summary>Back faces culled, for models — Source culls them and their materials expect it.</summary>
+    private ComPtr<ID3D11RasterizerState> _modelCull;
+
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
 
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
@@ -726,6 +786,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Materials blended with what is behind them, drawn last and sorted.</summary>
     private readonly HashSet<int> _translucent = [];
+
+    /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
+    private readonly Dictionary<int, bool> _modulate = [];
+
+    /// <summary>Materials that draw from both sides — the engine's MATERIAL_VAR_NOCULL.</summary>
+    private readonly HashSet<int> _noCull = [];
 
     /// <summary>The translucent batches, farthest first.</summary>
     private IReadOnlyList<WorldBatch> _sortedTranslucent = [];
@@ -793,6 +859,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Source-alpha blending, for translucent materials.</summary>
     private ComPtr<ID3D11BlendState> _alphaBlend;
+
+    /// <summary>Multiplies the framebuffer by the texture, for Source's Modulate shader.</summary>
+    private ComPtr<ID3D11BlendState> _modulateBlend;
+
+    /// <summary>The same, doubled, for $mod2x.</summary>
+    private ComPtr<ID3D11BlendState> _modulateTwiceBlend;
 
     /// <summary>Depth tested but not written, so a blended surface does not occlude.</summary>
     private ComPtr<ID3D11DepthStencilState> _depthReadOnly;
@@ -964,6 +1036,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> bothSides = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in rasterizer, ref bothSides));
 
+        // **Models cull their back faces, and the winding is read from the engine rather than
+        // guessed.** `imaterialsystem.h:180` defines MATERIAL_CULLMODE_CCW as "this culls polygons
+        // with counterclockwise winding", and it is the mode the engine restores to after
+        // temporarily flipping for a mirrored view (c_baseviewmodel.cpp:375-379,
+        // econ_entity.cpp:862-868). Front faces are therefore CLOCKWISE, which is D3D's default
+        // FrontCounterClockwise = false with the back faces culled.
+        //
+        // Drawn both-sided, a capture point's hologram shows the far side of its disc through the
+        // near side and the sign is unreadable — which is what remained once the blending was
+        // right.
+        //
+        // TF2VIEW_MODEL_CULL overrides it for experiments only. The default is what the engine
+        // does; the override exists to test a hypothesis by eye, never to stand in for reading
+        // what the engine does.
+        RasterizerDesc modelRasterizer = rasterizer;
+
+        modelRasterizer.CullMode = Environment.GetEnvironmentVariable("TF2VIEW_MODEL_CULL") switch
+        {
+            "none" => CullMode.None,
+            "front" => CullMode.Front,
+            _ => CullMode.Back,
+        };
+
+        ComPtr<ID3D11RasterizerState> culled = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in modelRasterizer, ref culled));
+
         // The same state pulled toward the camera, by an amount worth about a world unit rather
         // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
@@ -982,6 +1080,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             Sampler(device, TextureAddressMode.Clamp))
         {
             _bothSides = bothSides,
+            _modelCull = culled,
             _decalOffset = decalOffset,
         };
     }
@@ -1076,6 +1175,53 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _alphaBlend = blend;
         }
 
+        if (_modulateBlend.Handle is null)
+        {
+            // **DEST_COLOR times zero-source: the framebuffer multiplied by the texture.** That is
+            // what Source's Modulate shader does, and it is the one blend mode this project had no
+            // state for — so every Modulate material was drawn opaque and covered what it was meant
+            // to shade. White leaves the destination alone and black blacks it out.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.DestColor;
+            description.RenderTarget[0].DestBlend = Blend.Zero;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.Zero;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> blend = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
+
+            _modulateBlend = blend;
+        }
+
+        if (_modulateTwiceBlend.Handle is null)
+        {
+            // **$mod2x, which doubles the product.** DEST_COLOR against SRC_COLOR sums to twice the
+            // product, so a texel of mid grey leaves the destination unchanged and the material can
+            // brighten as well as darken — which is the whole reason a mapper reaches for it.
+            BlendDesc description = default;
+
+            description.RenderTarget[0].BlendEnable = 1;
+            description.RenderTarget[0].SrcBlend = Blend.DestColor;
+            description.RenderTarget[0].DestBlend = Blend.SrcColor;
+            description.RenderTarget[0].BlendOp = BlendOp.Add;
+            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+            description.RenderTarget[0].DestBlendAlpha = Blend.Zero;
+            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+            ComPtr<ID3D11BlendState> blend = default;
+
+            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
+
+            _modulateTwiceBlend = blend;
+        }
+
         if (_depthReadOnly.Handle is null)
         {
             // **Test against depth, do not write it.** A translucent surface must not stop what is
@@ -1107,9 +1253,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             _textures.Add(Upload(device, context, texture));
 
+            if (texture is { IsNoCull: true })
+            {
+                _noCull.Add(index);
+            }
+
             if (texture is { IsAdditive: true })
             {
                 _additive.Add(index);
+            }
+            else if (texture is { IsModulate: true })
+            {
+                // **Its own kind, not translucency.** A Modulate material declares neither
+                // $translucent nor $additive, so it fell through every test here and was drawn
+                // opaque — a shader whose entire job is to darken what is behind it, painting over
+                // it instead. It belongs in the blended pass with a blend state of its own.
+                _modulate[index] = texture.Value.IsModulateTwice;
             }
             else if (texture is { IsTranslucent: true })
             {
@@ -1152,6 +1311,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // alpha for blending and must not be clipped by it.
             float alphaTested = surface is { IsTransparent: true, IsTranslucent: false } ? 1f : 0f;
 
+            // **Which of the two combines the shader should use.** UnLitTwoTexture multiplies its
+            // two textures; a WorldVertexTransition displacement mixes them by vertex alpha. Both
+            // arrive in the same slot, so the material has to say which it is.
+            float multiplies = surface is { MultipliesTextures: true } ? 1f : 0f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -1168,6 +1332,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasGlow,
                     alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
+
+                    // The two texture transforms and the modulation colour, at rest. A material
+                    // whose proxies move them has them overwritten per frame by SetMaterial; these
+                    // are the values for one that does not, and they have to be the identity rather
+                    // than zero.
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 1f, 1f, 1f,
+
+                    multiplies, 0f, 0f, 0f,
                 ]
                 :
                 [
@@ -1178,6 +1354,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     hasGlow,
                     alphaTested,
                     glowRed, glowGreen, glowBlue, 1f,
+
+                    // The two texture transforms and the modulation colour, at rest. A material
+                    // whose proxies move them has them overwritten per frame by SetMaterial; these
+                    // are the values for one that does not, and they have to be the identity rather
+                    // than zero.
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    1f, 1f, 1f, 1f,
+
+                    multiplies, 0f, 0f, 0f,
                 ]);
         }
 
@@ -1448,8 +1636,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Mode -1, which is the value the shader tests to skip the combine entirely. The tint is white
     /// so that a stale sample can never darken anything even if the mode were somehow read.
     /// </remarks>
+    /// <remarks>
+    /// **The tail is not padding and cannot be zeroed.** After the detail, tint, bump and
+    /// self-illum groups come the two texture transforms, the modulation colour and the combine
+    /// mode — and each has a non-zero resting value. Identity rows are (1,0,0,0) and (0,1,0,0);
+    /// zeroing them sends every coordinate to the texture's first texel, and zeroing the modulation
+    /// multiplies every surface by black.
+    /// </remarks>
     private static readonly float[] NoDetail =
-        [0f, 0f, -1f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f];
+    [
+        0f, 0f, -1f, 0f,
+        1f, 1f, 1f, 1f,
+        0f, 0f, 0f, 0f,
+        1f, 1f, 1f, 1f,
+
+        // baseTransform0, baseTransform1, secondTransform0, secondTransform1: identity.
+        1f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f,
+        1f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f,
+
+        // modulation: white, opaque.
+        1f, 1f, 1f, 1f,
+
+        // combine: mixed by vertex alpha rather than multiplied.
+        0f, 0f, 0f, 0f,
+    ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>
     private static readonly float[] Identity =
@@ -1746,7 +1958,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BufferDesc description = new()
         {
-            ByteWidth = sizeof(float) * 16,
+            // **Sized from the resting values, so the buffer and the shader cannot disagree.** The
+            // struct is detail, tint, bump, self-illum, two texture transforms, modulation and the
+            // combine mode — and a literal here would have to be edited every time one is added,
+            // which is the edit that gets forgotten. NoDetail is that struct, so its length IS the
+            // size.
+            ByteWidth = (uint)(sizeof(float) * NoDetail.Length),
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,
             CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -1797,13 +2014,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         SilkMarshal.ThrowHResult(context.Map(_material, 0, Map.WriteDiscard, 0, ref mapped));
 
+        // **Sized from the array rather than from a literal.** It was a hardcoded sixteen floats,
+        // which silently truncates the moment the buffer grows — and it grew, by five float4s of
+        // texture transform and modulation. A short copy leaves the tail as whatever the previous
+        // material wrote, which is the kind of fault that looks like one surface borrowing
+        // another's scroll.
         fixed (float* source = contents)
         {
-            System.Buffer.MemoryCopy(source, mapped.PData, sizeof(float) * 16, sizeof(float) * 16);
+            System.Buffer.MemoryCopy(
+                source,
+                mapped.PData,
+                sizeof(float) * contents.Length,
+                sizeof(float) * contents.Length);
         }
 
         context.Unmap(_material, 0);
         context.PSSetConstantBuffers(1, 1, ref _material);
+
+        // **And to the vertex stage, which now reads it too.** The texture transforms are applied
+        // to the coordinate in the vertex shader, as they are in the engine. The remark above this
+        // method said this buffer was pixel-only and named the session that cost — so it is bound
+        // to both rather than left to be discovered again.
+        context.VSSetConstantBuffers(1, 1, ref _material);
     }
 
     /// <summary>Draws the additive materials over everything already painted.</summary>
@@ -1880,8 +2112,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             SetMaterial(context, batch.MaterialIndex);
 
+            // A decal's second texture, on the same rule as everything else: the real one when the
+            // material names it, and the base otherwise so a mix stays an identity.
+            ComPtr<ID3D11ShaderResourceView> second =
+                batch.MaterialIndex < _blendTextures.Count &&
+                _blendTextures[batch.MaterialIndex].Handle is not null
+                    ? _blendTextures[batch.MaterialIndex]
+                    : texture;
+
             context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref second);
             context.PSSetShaderResources(3, 1, ref _white);
             context.PSSetShaderResources(4, 1, ref _white);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
@@ -1994,6 +2234,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _modelVertices.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
+        _modelCull.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
         _layout.Dispose();
@@ -2233,12 +2474,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 ? swapped
                 : batch.MaterialIndex;
 
+            // **Culling per material, because that is where the engine keeps it.** $nocull sets
+            // MATERIAL_VAR_NOCULL and shaders test it per material (imaterial.h:369,
+            // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
+            // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
+            // batches of one model can disagree — a sign that culls and a flag that does not.
+            context.RSSetState(_noCull.Contains(material) ? _bothSides : _modelCull);
+
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture
             // point's hologram came out as a solid ribbed slab rather than something to see
             // through. The classification is already done, at upload, for the map's textures — a
             // model's materials live in the same table, so it is the same lookup.
-            bool wantsBlending = _additive.Contains(material) || _translucent.Contains(material);
+            bool wantsBlending = _additive.Contains(material) ||
+                _translucent.Contains(material) ||
+                _modulate.ContainsKey(material);
 
             if (wantsBlending != blended)
             {
@@ -2259,10 +2509,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 // Per batch, because a model can carry both kinds: additive ADDS light to what is
                 // behind it, which is what a hologram does, and alpha blends against it.
-                context.OMSetBlendState(
-                    _additive.Contains(material) ? _addBlend : _alphaBlend,
-                    blendFactor,
-                    0xFFFFFFFF);
+                // Three kinds now, chosen per batch: add, multiply, or blend by alpha.
+                ComPtr<ID3D11BlendState> blending = _addBlend;
+
+                if (_modulate.TryGetValue(material, out bool twice))
+                {
+                    blending = twice ? _modulateTwiceBlend : _modulateBlend;
+                }
+                else if (!_additive.Contains(material))
+                {
+                    blending = _alphaBlend;
+                }
+
+                context.OMSetBlendState(blending, blendFactor, 0xFFFFFFFF);
             }
 
 
@@ -2272,8 +2531,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _textures[material]
                     : _white;
 
+            // **The material's second texture, where it has one.** Binding the base to both slots
+            // was right while the only combine was a vertex-alpha mix, since mixing a texture with
+            // itself is an identity — but UnLitTwoTexture MULTIPLIES, and multiplying a texture by
+            // itself squares it. A model with a real $texture2 needs the real one.
+            ComPtr<ID3D11ShaderResourceView> second =
+                material >= 0 && material < _blendTextures.Count &&
+                _blendTextures[material].Handle is not null
+                    ? _blendTextures[material]
+                    : texture;
+
             context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref texture);
+            context.PSSetShaderResources(2, 1, ref second);
             context.PSSetShaderResources(3, 1, ref _white);
             context.PSSetShaderResources(4, 1, ref _white);
 
@@ -2285,7 +2554,31 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
     /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>
-    private static bool Shows(
+    /// <summary>How a material was classified, for the log.</summary>
+    /// <param name="material">Its index in the uploaded table.</param>
+    /// <returns>"additive", "translucent" or "opaque".</returns>
+    /// <remarks>
+    /// **Because which PASS a batch lands in decides whether it is seen.** The capture point shows
+    /// the right sign for RED and neutral and every beam for BLU, while the selection was measured
+    /// as keeping exactly three of nine batches for every team — so the difference is not which
+    /// meshes are drawn but how the three that are drawn are shaded, and that is this table.
+    /// </remarks>
+    internal string DescribeMaterial(int material)
+    {
+        if (_additive.Contains(material))
+        {
+            return "additive";
+        }
+
+        if (_modulate.TryGetValue(material, out bool twice))
+        {
+            return twice ? "modulate2x" : "modulate";
+        }
+
+        return _translucent.Contains(material) ? "translucent" : "opaque";
+    }
+
+    internal static bool Shows(
         IReadOnlyList<(int Base, int Count)> parts, int part, int model, int body)
     {
         if (part < 0 || part >= parts.Count)

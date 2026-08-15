@@ -28,6 +28,22 @@ Two corpora, and the distinction matters when you are told to add a demo:
 - **gcor** — `tools/corpus/demos/`, committed, one specimen per era × point of view. It grows **only for a new generation**, because GitHub's free Git LFS tier is 1 GiB/month and every CI job pays for it. Era specimens are kept to 2–4 minutes deliberately (`manifest.json` notes).
 - **lcor** — `tools/corpus/local/`, git-ignored, currently 14 demos / 774 MB. Modern matches, extra specimens, anything for volume. Tests pick it up automatically, so a local run is a superset of CI. **"Add these demos" means lcor unless the demo is a new protocol.**
 
+**`TF2DEMOSALVAGE_GCOR_ONLY=1` runs against gcor alone, and it is what you want most of the time.**
+The corpus suite over lcor takes about **30 minutes**; over gcor it takes **28 seconds**, because
+lcor is 774 MB of modern matches against 20 MB of short era specimens. Use it for any run whose
+purpose is "did I break something" — the merge gate, a quick check after an edit — and run the full
+superset when the change touches decoding itself.
+
+```bash
+TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test Tf2DemoSalvage.slnx
+```
+
+**A test that needs a specific demo asks for it with `Corpus.Demo("name")`**, which skips with a
+reason when the file is absent rather than throwing out of `First`. That distinction matters here:
+the committed era specimens are the owner's own SOLO recordings, so they carry no other players and
+no worn items at all — the 2013 badlands POV has 11 props and zero wearables. A cosmetics test
+redirected onto one would pass while measuring nothing, which is worse than skipping.
+
 Remaining gaps on the era axis: protocols **12–13** and **17–23**.
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
