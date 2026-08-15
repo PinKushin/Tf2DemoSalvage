@@ -31,6 +31,10 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// Whether the material's two textures are MULTIPLIED rather than mixed by vertex alpha. That is
 /// UnLitTwoTexture, whose pixel shader is baseColor * baseColor2 * g_DiffuseModulation.
 /// </param>
+/// <param name="IsHalfLambert">
+/// Whether DIRECT light wraps around the surface -- Valve's (N.L * 0.5 + 0.5) squared, which keeps
+/// a surface facing away from a light from going black. The ambient cube is unaffected.
+/// </param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -48,7 +52,8 @@ internal readonly record struct MapTexture(
     bool IsModulate = false,
     bool IsModulateTwice = false,
     bool IsNoCull = false,
-    bool MultipliesTextures = false);
+    bool MultipliesTextures = false,
+    bool IsHalfLambert = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -846,7 +851,8 @@ internal sealed class MapAssets
                     material.IsModulate,
                     material.IsModulateTwice,
                     material.IsNoCull,
-                    material.IsTwoTexture);
+                    material.IsTwoTexture,
+                    material.IsHalfLambert);
             }
             catch (InvalidDataException failure)
             {

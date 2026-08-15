@@ -42,6 +42,7 @@ internal static class MaterialCensus
         "$nocull",
         "$modblend",
         "$mod2x",
+        "$halflambert",
         "$bumpmap",
         "$ssbump",
         "$detail",

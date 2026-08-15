@@ -193,6 +193,25 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsNoCull => Value("$nocull") is "1";
 
+    /// <summary>Whether direct light wraps around the surface instead of stopping at the terminator.</summary>
+    /// <remarks>
+    /// **Valve's half-Lambert, from <c>common_vs_fxc.h:826</c>:**
+    ///
+    /// <code>
+    /// NDotL = NDotL * 0.5 + 0.5;
+    /// NDotL = NDotL * NDotL;
+    /// </code>
+    ///
+    /// It maps −1..1 onto 0..1 and squares it, so a surface facing directly away from a light still
+    /// receives a quarter of it rather than none. That is why TF2's characters read as solid shapes
+    /// in shade instead of going black on their unlit side — 190 of cp_process's 1,034 prop and
+    /// model materials ask for it.
+    ///
+    /// **It applies to DIRECT light only.** The routine is inside <c>DoLightInternal</c>, so the
+    /// ambient cube is unaffected; a model in shade is lit by the cube either way.
+    /// </remarks>
+    public bool IsHalfLambert => Value("$halflambert") is "1";
+
     /// <summary>Whether the material draws TWO textures multiplied together.</summary>
     /// <remarks>
     /// **Valve's UnLitTwoTexture, whose pixel shader is one line**
