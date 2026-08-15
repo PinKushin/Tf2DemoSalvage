@@ -23,6 +23,10 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// over exactly what it exists to shade.
 /// </param>
 /// <param name="IsModulateTwice">Whether that multiply doubles, so mid grey changes nothing.</param>
+/// <param name="IsNoCull">
+/// Whether the material draws from both sides. $nocull sets MATERIAL_VAR_NOCULL in the engine
+/// (imaterial.h:369) and shaders test it per material; everything else culls back faces.
+/// </param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -38,7 +42,8 @@ internal readonly record struct MapTexture(
     (float Red, float Green, float Blue)? SelfIllum = null,
 
     bool IsModulate = false,
-    bool IsModulateTwice = false);
+    bool IsModulateTwice = false,
+    bool IsNoCull = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -770,7 +775,8 @@ internal sealed class MapAssets
                     material.IsTranslucent,
                     material.IsSelfIlluminated ? material.SelfIllumTint : null,
                     material.IsModulate,
-                    material.IsModulateTwice);
+                    material.IsModulateTwice,
+                    material.IsNoCull);
             }
             catch (InvalidDataException failure)
             {

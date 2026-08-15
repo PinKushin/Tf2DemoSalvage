@@ -4518,3 +4518,40 @@ Measured after: `558:modulate2x` where it previously read `558:opaque`, for all 
 about a material by looking only for the flags this project already knew about will call anything
 unfamiliar by the default — and "opaque" is a legitimate answer, so nothing can report it. The
 material's SHADER NAME is a declaration in its own right and was never being read.
+
+### B80 — `UnLitTwoTexture` is not implemented, so the capture point beam is grey stripes
+
+Backface culling fixed the signs (owner: "the culling for the signs is working perfectly"), and what
+remained is a grey striped column standing where the beam belongs. It is not an extra light: it is
+the beam drawn with only half of its material.
+
+`cappoint_beam_blue.vmt` is `UnLitTwoTexture` with `$basetexture` = `cappoint_beam_lines` — the grey
+stripes — and `$texture2` = `cappoint_beam_blue`, which carries the colour. Valve's own pixel shader,
+`stdshaders/unlittwotexture_ps2x.fxc`:
+
+```hlsl
+HALF4 baseColor  = tex2D( BaseTextureSampler,  i.baseTexCoord.xy );
+HALF4 baseColor2 = tex2D( BaseTextureSampler2, i.baseTexCoord2.xy );
+HALF4 result = baseColor * baseColor2 * g_DiffuseModulation;
+float alpha = 1.0f;
+```
+
+Two textures MULTIPLIED, each with its own coordinates, times `$color`, and **alpha forced to one**.
+This project samples the first only, so the stripes arrive without their colour and without the
+second texture's shape.
+
+The logo materials are the same shader and look right by luck: their `$basetexture` IS the logo and
+`$texture2` is a detail overlay, so dropping the second texture loses subtlety rather than the
+subject.
+
+**To implement, in the order they matter:**
+
+1. Sample `$texture2` and multiply, per the shader above. The pieces exist — `MapAssets` already
+   decodes a second texture for world blend materials — but the operation differs: a blend material
+   LERPS by vertex alpha, this MULTIPLIES.
+2. `$texture2transform` / `$basetexturetransform` as real transforms. They are separate coordinate
+   sets in the shader, not a shared one.
+3. Material proxies, which is the other thing measured missing: the lit logo runs a Sine on `$color`
+   (.8 to 1) and the dark one a Sine on `$alpha`, and both beams run TextureScroll on a transform.
+   Nothing pulses or scrolls without them, which is why the owner reported "the CP brightness didn't
+   seem to change at all". Proxies are a general mechanism, not a capture-point feature.

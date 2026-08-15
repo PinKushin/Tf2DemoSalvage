@@ -184,6 +184,15 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsModulate => Shader.Equals("Modulate", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Whether this material is drawn from both sides.</summary>
+    /// <remarks>
+    /// **A material flag in the engine, not a global setting.** $nocull sets MATERIAL_VAR_NOCULL
+    /// (<c>imaterial.h:369</c>, bit 13) and shaders test it per material — <c>depthwrite.cpp:93</c>
+    /// calls <c>EnableCulling</c> with it inverted. Everything else culls, with front faces wound
+    /// clockwise per MATERIAL_CULLMODE_CCW in <c>imaterialsystem.h:180</c>.
+    /// </remarks>
+    public bool IsNoCull => Value("$nocull") is "1";
+
     /// <summary>Whether a modulating material doubles its result.</summary>
     public bool IsModulateTwice => IsModulate && Value("$mod2x") is "1";
 

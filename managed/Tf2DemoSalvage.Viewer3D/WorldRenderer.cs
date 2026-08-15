@@ -711,6 +711,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _bothSides;
 
+    /// <summary>Back faces culled, for models — Source culls them and their materials expect it.</summary>
+    private ComPtr<ID3D11RasterizerState> _modelCull;
+
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
 
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
@@ -729,6 +732,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
     private readonly Dictionary<int, bool> _modulate = [];
+
+    /// <summary>Materials that draw from both sides — the engine's MATERIAL_VAR_NOCULL.</summary>
+    private readonly HashSet<int> _noCull = [];
 
     /// <summary>The translucent batches, farthest first.</summary>
     private IReadOnlyList<WorldBatch> _sortedTranslucent = [];
@@ -973,6 +979,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> bothSides = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in rasterizer, ref bothSides));
 
+        // **Models cull their back faces, and the winding is read from the engine rather than
+        // guessed.** `imaterialsystem.h:180` defines MATERIAL_CULLMODE_CCW as "this culls polygons
+        // with counterclockwise winding", and it is the mode the engine restores to after
+        // temporarily flipping for a mirrored view (c_baseviewmodel.cpp:375-379,
+        // econ_entity.cpp:862-868). Front faces are therefore CLOCKWISE, which is D3D's default
+        // FrontCounterClockwise = false with the back faces culled.
+        //
+        // Drawn both-sided, a capture point's hologram shows the far side of its disc through the
+        // near side and the sign is unreadable — which is what remained once the blending was
+        // right.
+        //
+        // TF2VIEW_MODEL_CULL overrides it for experiments only. The default is what the engine
+        // does; the override exists to test a hypothesis by eye, never to stand in for reading
+        // what the engine does.
+        RasterizerDesc modelRasterizer = rasterizer;
+
+        modelRasterizer.CullMode = Environment.GetEnvironmentVariable("TF2VIEW_MODEL_CULL") switch
+        {
+            "none" => CullMode.None,
+            "front" => CullMode.Front,
+            _ => CullMode.Back,
+        };
+
+        ComPtr<ID3D11RasterizerState> culled = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in modelRasterizer, ref culled));
+
         // The same state pulled toward the camera, by an amount worth about a world unit rather
         // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
@@ -991,6 +1023,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             Sampler(device, TextureAddressMode.Clamp))
         {
             _bothSides = bothSides,
+            _modelCull = culled,
             _decalOffset = decalOffset,
         };
     }
@@ -1162,6 +1195,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             MapTexture? texture = assets.Textures[index];
 
             _textures.Add(Upload(device, context, texture));
+
+            if (texture is { IsNoCull: true })
+            {
+                _noCull.Add(index);
+            }
 
             if (texture is { IsAdditive: true })
             {
@@ -2058,6 +2096,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _modelVertices.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
+        _modelCull.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
         _layout.Dispose();
@@ -2296,6 +2335,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             int material = skin is not null && skin.TryGetValue(batch.MaterialIndex, out int swapped)
                 ? swapped
                 : batch.MaterialIndex;
+
+            // **Culling per material, because that is where the engine keeps it.** $nocull sets
+            // MATERIAL_VAR_NOCULL and shaders test it per material (imaterial.h:369,
+            // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
+            // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
+            // batches of one model can disagree — a sign that culls and a flag that does not.
+            context.RSSetState(_noCull.Contains(material) ? _bothSides : _modelCull);
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture
