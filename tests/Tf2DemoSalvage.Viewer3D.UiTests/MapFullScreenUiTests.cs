@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
@@ -42,12 +41,6 @@ public sealed class MapFullScreenUiTests
 
     private ViewerApplication _viewer = null!;
 
-    /// <summary>Where the viewer writes what it did.</summary>
-    private static string LogPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Tf2DemoSalvage",
-        "viewer.log");
-
     /// <summary>A committed demo whose map ships with the game.</summary>
     private static string DemoPath => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
@@ -72,7 +65,15 @@ public sealed class MapFullScreenUiTests
             () => Count(WorldBuildLine) > 0 && Count(TextureUploadLine) > 0,
             TimeSpan.FromSeconds(60),
             throwOnTimeout: true,
-            timeoutMessage: "The viewer never reported building a world; the map did not load.");
+
+            // **Says which of the two cases it is in.** "The map did not load" was reported for a
+            // fortnight by a reader pointed at a log file that no longer exists, and the sentence
+            // was believed because it names a plausible defect. Naming the log it read, or saying
+            // it found none, makes a broken instrument look broken.
+            timeoutMessage:
+                $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
+                $"in {ViewerApplication.Folder}; worlds {Count(WorldBuildLine)}, " +
+                $"textures {Count(TextureUploadLine)} (−1 means no log was read).");
     }
 
     [OneTimeTearDown]
@@ -156,34 +157,6 @@ public sealed class MapFullScreenUiTests
             TimeSpan.FromSeconds(10));
     }
 
-    /// <summary>How many times the viewer has logged a line.</summary>
-    /// <remarks>
-    /// Opened shared, because the viewer holds the file open and appends to it while this reads.
-    /// A plain <c>File.ReadAllText</c> throws an IOException here, intermittently, which reads as
-    /// flake and is not.
-    /// </remarks>
-    private static int Count(string line)
-    {
-        if (!File.Exists(LogPath))
-        {
-            return 0;
-        }
-
-        try
-        {
-            using FileStream file = new(
-                LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using StreamReader reader = new(file);
-
-            return reader.ReadToEnd()
-                .Split('\n')
-                .Count(entry => entry.Contains(line, StringComparison.Ordinal));
-        }
-        catch (IOException)
-        {
-            // The viewer was mid-write. Reporting nothing lets the retry loop ask again, which is
-            // the only correct answer available at this instant.
-            return 0;
-        }
-    }
+    /// <summary>How many times this run's viewer log contains a line.</summary>
+    private int Count(string line) => _viewer.Count(line);
 }

@@ -57,11 +57,12 @@ public sealed class ViewportPictureUiTests
         // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
         // property of the machine.
         Retry.WhileFalse(
-            () => File.Exists(Path.Combine(ViewerFolder, "viewer.log")) &&
-                ReadLog().Contains("building the world", StringComparison.Ordinal),
+            () => _viewer.Count("building the world") > 0,
             TimeSpan.FromSeconds(60),
             throwOnTimeout: true,
-            timeoutMessage: "The viewer never reported building a world; the map did not load.");
+            timeoutMessage:
+                $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
+                $"in {ViewerApplication.Folder}.");
     }
 
     [OneTimeTearDown]
@@ -118,19 +119,6 @@ public sealed class ViewportPictureUiTests
         // A map fills a good part of the viewport. Nearly black means the world never drew, which
         // is the failure this whole exercise exists to notice.
         lit.ShouldBeGreaterThan(sampled / 20, "the viewer should be showing a map");
-    }
-
-    private static string ReadLog()
-    {
-        using FileStream stream = new(
-            Path.Combine(ViewerFolder, "viewer.log"),
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete);
-
-        using StreamReader reader = new(stream);
-
-        return reader.ReadToEnd();
     }
 
     private static string[] Shots() =>

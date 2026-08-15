@@ -2172,7 +2172,21 @@ internal class MainForm : Form
             }
 
             _overlay = new OverlayWindow(_transport);
-            _overlay.Show(this);
+
+            // **Only shown if there is something to overlay.** An overlay over a form that is not
+            // on screen is meaningless at runtime, and in a test it is worse than meaningless: it
+            // is a window that appears on the person's desktop and takes the foreground. The full
+            // screen tests construct a MainForm without ever showing it, on the stated grounds that
+            // the transition is state on controls and needs no display — which was true when they
+            // were written and stopped being true the day full screen grew an overlay window.
+            //
+            // The transport bar still MOVES to the overlay either way, so everything those tests
+            // measure is unchanged; what goes away is three windows opening and nothing happening
+            // in them.
+            if (Visible)
+            {
+                _overlay.Show(this);
+            }
 
             // Positioned AFTER the layout settles, not now. At this point the form has changed
             // border style and window state but has not re-laid-out, so the viewport still reports

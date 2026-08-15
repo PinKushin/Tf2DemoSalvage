@@ -4111,3 +4111,89 @@ exactly how a thing can come and go while nothing about it changes.
 **Not yet measured, and no theory should be committed before it is.** The last four attempts at a
 similarly-shaped symptom were all wrong, and what settled it was asking the map what the object was
 rather than reasoning about the renderer.
+
+### B73 amended — the packing is right, so the fault is at the draw
+
+Measured on the last run, all three links separately:
+
+```
+model:  cappoint_hologram.mdl — 1 body part, base 1, 4 alternatives, 9 meshes
+demo:   cappoint_hologram.mdl — bodies 0, 2, 3 across the tracks
+packed: bodygroups models/effects/cappoint_hologram.mdl: 1 parts, 9 batches spanning 4 alternatives
+```
+
+So the model offers four signs, the demo says which each point wants, and the packer keeps all four
+in separate batches. `Shows` reduces to `alternative == body` for this model, because the single
+part has base 1 and four alternatives.
+
+**And every point still draws the "?" sign, which is alternative zero.** The selection is therefore
+not reaching or not being applied at the draw, and the remaining suspects are all in that last hop:
+
+- `ModelFrames.BodyParts` arriving null at the instance, which makes the
+  `bodyParts is { Count: > 0 }` guard skip the filter entirely and draw every batch. It is passed
+  positionally beside `SkinSwaps` and both are nullable, so a mis-ordered argument would compile
+  and silently disable the feature.
+- `ScenePose.Body` being lost between `PropsAt` and `ModelInstance` — the probe read it off the
+  TRACK, not off the instance, so the two have not been shown to agree.
+- The blended pass drawing the sign while the opaque pass draws all four, or the reverse. Both
+  passes were given the body, but only one has been reasoned about.
+
+**The next measurement, and it is one line:** log `bodyParts?.Count` and `body` inside `DrawModel`
+for the hologram. Every hop before that one is now measured; this is the only one that is not.
+
+### B75 — a test suite that steals the desktop, and nothing in it is a UI test
+
+`ReferenceParser.Run` started the differential oracle with both streams redirected but without
+`CreateNoWindow`. Windows allocates a console window for a console program regardless of
+redirection, and **a new console window takes the foreground**. The differential suite runs the
+oracle once per demo, so a full run fires a burst of window activations into whatever the person at
+the machine is doing — reported for real on 2026-08-14 as clicks landing in a browser mid-run.
+
+Fixed by setting `CreateNoWindow = true`.
+
+**Worth generalising: the machine-wide lock does not protect against this.** The lock serialises
+agents against each other; it does nothing about a run stealing focus from the *human*, which
+CLAUDE.md calls out as the direction that matters more. And nothing about this suite looks like a UI
+test, so nobody thought to check it. **Any `Process.Start` of a console program in a test needs
+`CreateNoWindow`**, whether or not the project has a user interface.
+
+**Second instance of B75, same day, different mechanism.** `FullScreenTests` constructs a `MainForm`
+and calls `SetFullScreen(true)`, on the stated grounds that the form is never shown so the suite
+needs no display. Full screen later grew an `OverlayWindow` for the transport bar, and `Show` puts a
+real window on the desktop regardless of whether its owner is visible — so five tests each opened a
+window that then sat there doing nothing. The overlay is now shown only when the form is visible,
+which is also the runtime-correct rule.
+
+Both halves of B75 are the same failure: **a test that was genuinely headless when written, and
+stopped being headless because of a change somewhere else that nobody thought of as touching tests.**
+The doc comment asserting headlessness is not a guard, it is a claim — and it kept being quoted long
+after it went stale. A real guard would fail the run instead: something that notices a visible window
+or a console allocation during the suite.
+
+### B76 — the UI suite loses to the rest of the suite for the machine
+
+`dotnet test` on the solution runs test projects **in parallel**. The corpus suite reads 774 MB of
+local demos while the UI suite launches the viewer, loads a 100 MB map and waits 20 seconds for a
+window. Under that load the window does not make it, and `GetMainWindow` fails with
+
+```
+The viewer's main window did not appear within 00:00:20.
+```
+
+which reads as "the viewer will not start" and is really "the machine was busy". Measured
+2026-08-14: solution-wide run **4 failed of 10**; the same project alone, same commit, **2 failed of
+10**, and neither remaining failure is a launch failure.
+
+**The machine-wide lock cannot fix this** — it serialises agents against each other, and this is one
+`dotnet test` competing with itself. Run the UI project in its own invocation:
+
+```
+run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests/...csproj
+```
+
+Raising the timeout would be the wrong fix: it hides contention behind a longer wait and makes every
+genuine launch failure cost more.
+
+**Still failing after that, and open:** `TransportUiTests` — the speed readout does not follow the
+shuttle buttons into reverse (2 tests). `TransportBar.cs` is untouched on this branch, so this is
+not a regression from the work merged here; it needs its own look.

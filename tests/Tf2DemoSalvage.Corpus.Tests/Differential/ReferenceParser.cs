@@ -48,6 +48,14 @@ internal static class ReferenceParser
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
+
+            // **Without this the oracle steals the foreground.** It is a console program, so
+            // Windows allocates a console window for it even though both its streams are
+            // redirected and nothing will ever be shown there — and a new console window takes
+            // focus. The differential suite runs it once per demo, so a full run fires a burst of
+            // window activations into whatever the person at the machine was typing into.
+            // Reported for real: keystrokes and clicks landing in a browser mid-run.
+            CreateNoWindow = true,
         };
         startInfo.ArgumentList.Add(demoPath);
 

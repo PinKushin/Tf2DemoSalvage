@@ -59,3 +59,4 @@
 - [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup returned AttackStand_PRIMARY for Stand_PRIMARY and laid every player down.
 - [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — culls and biases tuned for the top-down view broke the moment a free camera existed.
 - [Read the map before the renderer](read-the-map-before-the-renderer.md) — four renderer theories died before asking the BSP what the broken thing actually was.
+- [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements only prove the fault is in the fourth hop.

@@ -417,6 +417,26 @@ internal sealed class EntityModelSet
                     _vertices.AddRange(group.Value);
                 }
 
+                // **Whether the alternatives survived packing, said once per model.** A model whose
+                // batches all carry alternative zero cannot be varied per entity however faithfully
+                // m_nBody is decoded, and the picture is then identical to a body number that never
+                // arrived — which is exactly the state this was in.
+                if (slot == 0 && model.BodyParts is { Count: > 0 } &&
+                    _reportedFrames.Add(prop.ModelPath + "#body"))
+                {
+                    int alternatives = 0;
+
+                    foreach ((int _, int _, int alternative) in byMaterial.Keys)
+                    {
+                        alternatives = Math.Max(alternatives, alternative + 1);
+                    }
+
+                    ViewerLog.Write(
+                        "render",
+                        $"bodygroups {prop.ModelPath}: {model.BodyParts.Count} parts, " +
+                        $"{batches.Count} batches spanning {alternatives} alternatives");
+                }
+
 
             }
 

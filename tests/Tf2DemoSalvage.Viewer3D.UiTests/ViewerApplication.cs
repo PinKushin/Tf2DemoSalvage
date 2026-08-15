@@ -30,18 +30,119 @@ internal sealed class ViewerApplication : IDisposable
     /// <summary>How long to wait for an element before failing the test.</summary>
     private static readonly TimeSpan FindTimeout = TimeSpan.FromSeconds(20);
 
+    /// <summary>Where the viewer keeps its logs and screenshots.</summary>
+    public static string Folder => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Tf2DemoSalvage");
+
     private readonly UIA3Automation _automation;
     private readonly Application _application;
+    private readonly DateTime _launched;
 
     private ViewerApplication(Application application, UIA3Automation automation, Window window)
     {
         _application = application;
         _automation = automation;
         Window = window;
+        _launched = DateTime.Now;
     }
 
     /// <summary>The viewer's main window.</summary>
     public Window Window { get; }
+
+    /// <summary>
+    /// The log file THIS launch is writing, or null if it has not appeared yet.
+    /// </summary>
+    /// <remarks>
+    /// **The viewer stamps each run's log with the time it started**, keeping the last fifty, so
+    /// there is no fixed <c>viewer.log</c> to read. Two UI fixtures went on reading that name after
+    /// the change and counted a file that does not exist: <see cref="Count"/> answers zero for a
+    /// missing file, so every wait for "the map loaded" ran its full sixty seconds and then failed
+    /// saying the map never loaded — while the viewer sat in front of the tester with the map
+    /// plainly on screen. Three windows opened and nothing was ever done with them.
+    ///
+    /// That is the failure mode this project keeps meeting: **the instrument reported confidently
+    /// about a quantity it was not measuring.** A log reader that cannot find its log must not be
+    /// able to look like a log with nothing in it, so this returns null and the callers say so.
+    ///
+    /// Newest wins, but only among files written since this instance launched — the folder is full
+    /// of previous runs, and the newest of those would answer questions about a viewer that exited
+    /// minutes ago. The one-second slack covers the log being created a moment before the
+    /// constructor runs, since the window has to exist before this object does.
+    /// </remarks>
+    public string? LogPath
+    {
+        get
+        {
+            if (!Directory.Exists(Folder))
+            {
+                return null;
+            }
+
+            string? newest = null;
+            DateTime newestAt = _launched.AddSeconds(-30);
+
+            foreach (string candidate in Directory.GetFiles(Folder, "viewer-*.log"))
+            {
+                DateTime written = File.GetLastWriteTime(candidate);
+
+                if (written >= newestAt)
+                {
+                    newest = candidate;
+                    newestAt = written;
+                }
+            }
+
+            return newest;
+        }
+    }
+
+    /// <summary>How many times this run's log contains a line.</summary>
+    /// <param name="line">The text to count, as the viewer writes it.</param>
+    /// <returns>The number of matching lines, or −1 when no log exists yet.</returns>
+    /// <remarks>
+    /// **−1 rather than 0 for "no log", because those are different answers.** Zero is a real
+    /// measurement meaning the viewer has not done the thing yet; no log at all means nothing was
+    /// measured. Collapsing them is what let a wrong path masquerade as a viewer that never loaded
+    /// a map. Callers waiting for a count to rise are unaffected — −1 is below every threshold —
+    /// but a caller that wants to report the difference now can.
+    ///
+    /// Opened shared, because the viewer holds the file open and appends to it while this reads. A
+    /// plain <c>File.ReadAllText</c> throws an IOException here, intermittently, which reads as
+    /// flake and is not.
+    /// </remarks>
+    public int Count(string line)
+    {
+        if (LogPath is not { } path)
+        {
+            return -1;
+        }
+
+        try
+        {
+            using FileStream file = new(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using StreamReader reader = new(file);
+
+            int seen = 0;
+
+            while (reader.ReadLine() is { } entry)
+            {
+                if (entry.Contains(line, StringComparison.Ordinal))
+                {
+                    seen++;
+                }
+            }
+
+            return seen;
+        }
+        catch (IOException)
+        {
+            // The viewer was mid-write. Reporting nothing lets the retry loop ask again, which is
+            // the only correct answer available at this instant.
+            return -1;
+        }
+    }
 
     /// <summary>Launches the viewer, optionally opening paths at startup.</summary>
     /// <param name="arguments">Files or folders, as a file association would pass them.</param>

@@ -12,6 +12,13 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// The form is never shown, so these run with no display: the transition is state on controls,
 /// and asserting that state is both cheaper and more precise than looking at a screen.
 ///
+/// **That claim quietly stopped being true and had to be restored.** Full screen later grew an
+/// overlay window for the transport bar, and <c>Show</c> on it puts a real window on the desktop
+/// whether or not its owner is visible — so a suite that opens no display was opening one window
+/// per test and stealing focus from whoever was at the machine. The overlay is now shown only when
+/// the form itself is visible, which is the runtime-correct rule as well: there is nothing to
+/// overlay otherwise. Nothing measured below changed, because the bar is still MOVED either way.
+///
 /// The property under test throughout is that **the transport bar is MOVED rather than
 /// duplicated**. A second copy in the overlay would be a second piece of state to keep in step
 /// with playback, and the two would drift apart the moment anything updated only one of them.

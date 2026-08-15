@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Viewer3D;
@@ -43,6 +44,7 @@ public sealed class HatSkeletonProbe
             "models/player/items/all_class/hwn_spellbook_complete.mdl",
             "models/player/scout.mdl",
             "models/player/soldier.mdl",
+            "models/effects/cappoint_hologram.mdl",
             "models/props_gameplay/resupply_locker.mdl",
             "models/items/medkit_small.mdl",
         ];
@@ -115,6 +117,20 @@ public sealed class HatSkeletonProbe
                     $"quat ({q.X:0.###},{q.Y:0.###},{q.Z:0.###},{q.W:0.###}) length {length:0.####} " +
                     $"euler ({euler.X:0.###},{euler.Y:0.###},{euler.Z:0.###})");
             }
+
+            // **What the model says its body parts are**, which decides whether m_nBody can do
+            // anything at all. A model with one part offering one alternative has nothing to
+            // select, so a body number of 2 or 3 changes nothing however faithfully it is decoded
+            // — and the picture is then identical to a body number that never arrived.
+            StudioModelInfo structure = StudioModel.Read(bytes);
+
+            TestContext.Out.WriteLine(
+                $"HAT   body parts: {structure.BodyParts.Count} — " +
+                string.Join(
+                    ", ",
+                    structure.BodyParts.Select(
+                        (part, index) => $"[{index}] base {part.Base}, {part.Count} alternatives")) +
+                $"; {structure.Meshes.Count} meshes");
 
             StudioSkeleton rest = StudioBones.RestPose(bones);
 
