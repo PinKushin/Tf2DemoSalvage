@@ -700,11 +700,23 @@ internal sealed unsafe class Device3D : IDisposable
         // one outcome that cannot be read, because "no model had alternatives" and "the model was
         // never drawn" produce the same silence. Naming everything drawn separates them: if the
         // hologram is absent from this list, the body number was never the problem.
+        // **How many batches the body number actually keeps**, which is the question the earlier
+        // version of this line could not answer. It reported what was available and not what
+        // survived the filter, so a selection that kept everything looked identical to one that
+        // kept a third — and "the BLU point draws every beam at once" is exactly that difference.
+        //
+        // Uses the renderer's own predicate rather than repeating its arithmetic here: a log that
+        // computes the answer a second way can disagree with the draw, and then it is evidence
+        // about itself.
+        int kept = instance.BodyParts is { Count: > 0 } parts
+            ? batches.Count(batch => WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
+            : batches.Count;
+
         ViewerLog.Write(
             "render",
             $"drawing {instance.ModelPath}: body {instance.Body}, " +
             $"{instance.BodyParts?.Count.ToString(CultureInfo.InvariantCulture) ?? "NO"} parts, " +
-            $"{batches.Count} batches spanning {alternatives} alternatives");
+            $"drawing {kept} of {batches.Count} batches spanning {alternatives} alternatives");
     }
 
     /// <summary>Models already reported on, so the log carries one line each.</summary>

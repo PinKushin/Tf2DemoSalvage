@@ -388,6 +388,15 @@ public sealed class ScenePropTrack
             // field forgotten, and a default that is also a legitimate value so nothing can report
             // it. ScenePlayer.Yaw was the other.
             Body = from.Body,
+
+            // **And the skin, which is how a team colour is carried.** TF2 paints RED and BLU as
+            // two skin families of one model rather than as a tint, so losing this draws every
+            // entity in family zero — the RED one — however the demo set it. Discrete like the
+            // others: there is no halfway between two materials.
+            //
+            // Found immediately after Body, in the same list, by asking what ELSE this rebuild
+            // forgets rather than waiting for the next symptom to arrive.
+            Skin = from.Skin,
         };
     }
 

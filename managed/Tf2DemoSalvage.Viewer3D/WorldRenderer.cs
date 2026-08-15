@@ -2285,7 +2285,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
     /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>
-    private static bool Shows(
+    internal static bool Shows(
         IReadOnlyList<(int Base, int Count)> parts, int part, int model, int body)
     {
         if (part < 0 || part >= parts.Count)

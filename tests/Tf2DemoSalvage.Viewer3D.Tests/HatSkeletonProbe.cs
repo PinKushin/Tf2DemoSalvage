@@ -45,6 +45,7 @@ public sealed class HatSkeletonProbe
             "models/player/scout.mdl",
             "models/player/soldier.mdl",
             "models/effects/cappoint_hologram.mdl",
+            "models/props_gameplay/cap_point_base.mdl",
             "models/props_gameplay/resupply_locker.mdl",
             "models/items/medkit_small.mdl",
         ];
@@ -145,6 +146,14 @@ public sealed class HatSkeletonProbe
                     ", ",
                     structure.Meshes.Select(
                         (mesh, index) => $"[{index}] part {mesh.BodyPart} alt {mesh.BodyModel}")));
+
+            // **How many skin families, which decides whether m_nSkin can do anything here.** A
+            // model with one family cannot change appearance however faithfully the skin is
+            // decoded — so if the capture point has one, the team colour is not carried that way
+            // and the beams are something else again.
+            TestContext.Out.WriteLine(
+                $"HAT   skins: {StudioSkins.Families(bytes)} families of " +
+                $"{StudioSkins.References(bytes)} references");
 
             StudioSkeleton rest = StudioBones.RestPose(bones);
 

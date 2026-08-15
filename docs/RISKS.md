@@ -4352,3 +4352,38 @@ What is left, in the order worth checking:
 The probe now dumps this in seconds with `TF2_FOLDER` set and `--logger "console;verbosity=detailed"`
 — without the logger the output is swallowed and the test merely passes, which is how this looked
 like "the probe did not run".
+
+**B79, second and third measurements — the hologram is innocent, and the skin was being lost.**
+
+The filter was measured at the draw rather than reasoned about:
+
+```
+drawing cappoint_hologram.mdl: body 3, drawing 3 of 9 batches
+drawing cappoint_hologram.mdl: body 0, drawing 3 of 9 batches
+drawing cappoint_hologram.mdl: body 2, drawing 3 of 9 batches
+```
+
+Three of nine, for every body — exactly one alternative's three meshes. The hologram cannot be
+drawing every state's beam, so whatever is doubled is not this model's bodygroups.
+
+Asking the OTHER model at a capture point found something real:
+
+```
+cap_point_base.mdl: 1 mesh, 1 body part with 1 alternative, 3 SKIN FAMILIES
+```
+
+Three families is neutral, RED and BLU — the base disc carries its team colour as a **skin**, not a
+bodygroup. And `ScenePropTrack.At` was dropping `Skin` in exactly the way it dropped `Body`: absent
+from the rebuilt pose, defaulting to family zero, so every capture point base drew the same colour
+however the demo set it. Fixed in the same place, verified by manipulation.
+
+**Third instance of the field-forgotten shape in one session** (Yaw, Body, Skin), so the test no
+longer checks fields one at a time: `EveryDiscreteFieldSurvivesInterpolation` now asserts the whole
+pose survives with `ShouldBe(held with { X = … })`, which fails for any future field added to
+`ScenePose` and forgotten in `At` the moment it carries a non-default value.
+
+The hologram itself has **one** skin family, so `m_nSkin` can do nothing there — the sign is
+bodygroup-driven and correct. Still unexplained, and the next thing to look at: whether the three
+meshes of one alternative are sign-plus-beams by construction (in which case there is no defect in
+the hologram at all and the doubled beams belong to a light or sprite entity), or whether two
+hologram entities are being drawn at one point.

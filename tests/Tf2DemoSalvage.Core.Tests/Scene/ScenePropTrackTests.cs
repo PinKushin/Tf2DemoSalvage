@@ -297,8 +297,16 @@ public sealed class ScenePropTrackTests
         // another, and none between hidden and shown.
         ScenePropTrack track = new(entityIndex: 7, "models/effects/cappoint_hologram.mdl");
 
-        track.Add(0, new ScenePose { X = 0f, Y = 0f, Z = 0f, Body = 3, Sequence = 5, Hidden = true });
-        track.Add(10, new ScenePose { X = 100f, Y = 0f, Z = 0f, Body = 3, Sequence = 5, Hidden = true });
+        ScenePose held = new()
+        {
+            Body = 3,
+            Skin = 1,
+            Sequence = 5,
+            Hidden = true,
+        };
+
+        track.Add(0, held with { X = 0f });
+        track.Add(10, held with { X = 100f });
 
         ScenePose? between = track.At(5d);
 
@@ -310,8 +318,21 @@ public sealed class ScenePropTrackTests
         between.Value.X.ShouldBeLessThan(100f);
 
         between.Value.Body.ShouldBe(3, "the body number selects which alternative is drawn");
+        between.Value.Skin.ShouldBe(1, "the skin family is how a team colour is carried");
         between.Value.Sequence.ShouldBe(5);
         between.Value.Hidden.ShouldBeTrue();
+
+        // **Stated as the whole list, deliberately.** Two fields were lost from this rebuild in one
+        // session — Body, then Skin — and both were found only when something looked wrong on
+        // screen. The failure mode is silent by construction: a field left out takes the record's
+        // default, and every default here is also a legitimate value.
+        //
+        // So the test asserts the pose survives WHOLE rather than field by field. A field added to
+        // ScenePose and forgotten in At now fails this the moment it carries a non-default value,
+        // instead of waiting for someone to notice a wrong picture.
+        between.Value.ShouldBe(
+            held with { X = between.Value.X },
+            "every field except the interpolated position must survive interpolation");
     }
 
     private static ScenePose Pose(float x, float y, float z) =>
