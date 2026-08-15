@@ -4455,3 +4455,34 @@ each mesh's `vertexoffset`/`numvertices` under them, straight from the file in t
 alternative 2's model claims the whole array, the fault is in what this project reads for a model
 that follows an empty one. If the file really says 436, the fault is not in the reading at all and
 the sign genuinely is that dense.
+
+**B79, sixth measurement — every alternative is a LIT logo and a DARK logo at the same place.**
+
+The per-mesh material names, which nothing had printed until now:
+
+```
+alt 0: cappoint_logo_neutral   cappoint_beam_neutral   cappoint_logo_neutral_dark
+alt 2: cappoint_beam_red       cappoint_logo_red       cappoint_logo_red_dark
+alt 3: cappoint_logo_blue      cappoint_beam_blue      cappoint_logo_blue_dark
+```
+
+Mapping is exactly right, and so is everything else measured: the `.vvd` has **0 fixups and 1354
+vertices**, matching 198 + 0 + 922 + 234 from the four alternatives; the `.mdl` byte offsets chain
+0 → 9504 → 9504 → 53760 without a gap; red really is a denser sign at 922 vertices.
+
+So no reader is wrong. What the names reveal is the SHAPE of the thing: each sign is a coincident
+PAIR — a lit logo and a `_dark` logo occupying the same space, with vertex counts to match (74/74,
+436/436, 92/92) — plus a shared beam.
+
+This project draws the `_dark` one in the opaque pass and the lit one additively, at identical depth,
+with no bias between them. Which of the two is visible is therefore decided by z-fighting, and that
+is camera- and precision-dependent. It accounts for "the blue capture point is the only one
+rendering dark", for the appearance of two signs at once, and it is the same class as the owner's
+observation that the wall stripes sit at different distances from the wall depending on where you
+stand.
+
+**Next, and it is a reading task rather than a measurement:** open the three `_dark` VMTs and their
+lit counterparts in the game files and find what separates them — `$selfillum`, `$additive`,
+`$ignorez`, or a proxy driving alpha from the point's state. Whatever Valve uses to decide which of
+the pair shows is what this project is missing, and it will be in the material rather than in the
+model, which is why six measurements against the model found nothing wrong with it.

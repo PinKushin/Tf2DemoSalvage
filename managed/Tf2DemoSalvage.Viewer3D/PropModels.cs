@@ -661,7 +661,9 @@ internal static class PropModels
                             ", ",
                             model.Meshes.Select((mesh, at) =>
                                 $"[{at}] part {mesh.BodyPart} alt {mesh.BodyModel} " +
-                                $"mdl {mesh.VertexCount}v vtx {(at < meshes.Count ? meshes[at].Count : -1)}c")));
+                                $"mdl {mesh.VertexCount}v vtx {(at < meshes.Count ? meshes[at].Count : -1)}c " +
+                        $"mat {(at < materialByMesh.Length ? materialByMesh[at] : -1)}" +
+                        $" '{(at < materialByMesh.Length && materialByMesh[at] >= 0 && materialByMesh[at] < materials.Count ? materials[materialByMesh[at]].Name : "?")}'")));
                 }
 
                 for (int index = 0; index < materialByMesh.Length; index++)

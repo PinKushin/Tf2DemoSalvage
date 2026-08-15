@@ -174,13 +174,34 @@ public sealed class HatSkeletonProbe
                     int entry = modelAt + (model * 148);
                     int end = Array.IndexOf(bytes, (byte)0, entry, 64);
 
+                    // **What the file itself says about each alternative's vertices**, which is the
+                    // only way to tell a dense sign from a mesh this project has measured wrongly.
+                    // mstudiomodel_t: name[64], type, boundingradius, nummeshes 68, meshindex 72,
+                    // numvertices 76, vertexindex 80.
+                    int meshCount = BitConverter.ToInt32(bytes, entry + 72);
+                    int modelVertices = BitConverter.ToInt32(bytes, entry + 80);
+                    int vertexIndex = BitConverter.ToInt32(bytes, entry + 84);
+
                     named.Add(
                         $"[{model}] '{System.Text.Encoding.UTF8.GetString(bytes, entry, (end < 0 ? entry + 64 : end) - entry)}'" +
-                        $" {BitConverter.ToInt32(bytes, entry + 72)} meshes");
+                        $" {meshCount} meshes, {modelVertices}v at byte {vertexIndex}");
                 }
 
                 TestContext.Out.WriteLine(
                     $"HAT   part {part} alternatives: {string.Join(", ", named)}");
+            }
+
+            // **The vertex file's own totals against what this project builds from it.** The .mdl
+            // indexes vertices by position, and when the .vvd carries a fixup table its array is
+            // NOT stored in that order — so a reader that returns a differently sized or ordered
+            // array leaves the first alternative right, because it starts at zero, and every later
+            // one progressively wrong. That is exactly the reported symptom.
+            if (archives.Read(Path.ChangeExtension(path, ".vvd")) is { } vvd)
+            {
+                TestContext.Out.WriteLine(
+                    $"HAT   vvd: {BitConverter.ToInt32(vvd, 48)} fixups, " +
+                    $"lod0 {BitConverter.ToInt32(vvd, 16)} vertices, " +
+                    $"reader returns {StudioVertices.Read(vvd).Count}");
             }
 
             // **How many skin families, which decides whether m_nSkin can do anything here.** A
