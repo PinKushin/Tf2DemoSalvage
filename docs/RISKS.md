@@ -4629,3 +4629,30 @@ applying it in world space instead puts the item somewhere plausible and wrong.
 Note the tell: a single-bone model whose bone name matches nothing is diagnostic on its own. Worth a
 log line when a worn item merges ZERO bones, since that is exactly the case that cannot work and
 currently draws in silence.
+
+**B79 and the beam half of B80 are closed, confirmed on a current build.** The capture points show
+the right sign per team, the signs are readable rather than see-through, and the BLU beam no longer
+draws as a grey striped tower. Four separate defects, each found by reading Valve's files rather
+than by measuring ours:
+
+| Defect | Answer, and where it was read |
+|---|---|
+| Every point drew "?" | `ScenePropTrack.At` rebuilt the pose without `Body` |
+| Points drew as dark slabs | `Modulate` drawn opaque — `cappoint_logo_*_dark.vmt` |
+| Signs unreadable, both sides at once | back faces not culled — `imaterialsystem.h:180`, `imaterial.h:369` |
+| Grey striped tower on BLU only | `UnLitTwoTexture` half-implemented, and props had no second texture — `unlittwotexture_ps2x.fxc` |
+
+**Two process notes, both earned the hard way.**
+
+The "fixed" claim was made from a screenshot of the RED point and believed for an hour. Evidence
+about one case, conclusion about another — the same error as reading a keyframe and concluding
+about an interpolated pose. **A per-team defect needs a screenshot per team.**
+
+And the owner then looked at a STALE BUILD and reported it unfixed, which sent this back to
+theorising about geometry. Several builds were launched in a row and every screenshot lands in one
+folder distinguished only by timestamp. Cheap fix available: the viewer already logs at startup, so
+logging its own build time, and stamping captures from the same clock, would make "which build am I
+looking at" answerable instead of assumed.
+
+Still open in B80: material proxies. The transforms and modulation are plumbed and sit at identity,
+so nothing scrolls and nothing pulses.
