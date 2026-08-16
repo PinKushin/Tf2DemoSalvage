@@ -4743,3 +4743,38 @@ player was doing. That is the same trap as every other entry here: the wrong beh
 plausible one.
 
 Whether it now runs CORRECTLY is still a question for eyes — moving legs were never the evidence.
+
+### B85 — LINQ in the per-tick entity walk, noted rather than changed — OPEN
+
+**Not a defect, and recorded so it is not rediscovered as one.** The question was whether this
+project already spends frame time in LINQ. Measured across the repeated paths, it does not — with one
+exception worth writing down before it grows.
+
+Every LINQ call site in a path that runs more than once per file load:
+
+| Site | Runs | Cost |
+|---|---|---|
+| `EntityStateTable.cs:105` — `OfClass` is a `Where` over the dictionary's values | once per class, per moved tick | one enumerator per call |
+| `DemoTimeline.cs:360` — `entities.OfClass(ResourceClass).FirstOrDefault()` | per moved tick | the same allocation again |
+| `WorldRenderer.cs:1465` — `_sortedTranslucent` | inside `UploadGeometry`: world build and every resize | not per frame |
+| `WorldRenderer.cs:2277` — `ReleaseTextures` | teardown | irrelevant |
+| `PropModels`, `MapAssets`, `LightmapAtlas`, `MaterialCensus`, `MapWorld` | asset load | irrelevant |
+
+So the only real one is `OfClass`, at roughly two enumerators per moved tick — order 80,000 small
+allocations over a full demo. **That is a load-time cost, not a frame-budget one**, and nothing has
+profiled it, so it stays as it is. The per-frame render loop and the per-vertex world build contain
+no LINQ at all, which is the part that would have mattered.
+
+**What changed instead is the analyzer.** SonarAnalyzer's S3267 rewrites a filtering `foreach` into
+`Where`, and it is an error in this repo — which means it would push allocation into the decode and
+draw loops as they grow, with no argument available at the call site. It is now off under
+`managed/**` and left as an error everywhere else, so tests, asset loading and the SDK reference keep
+being pushed toward LINQ and the two hot paths are not.
+
+The scope is per assembly rather than per method deliberately: the boundary between hot and cold
+moves every time a method is extracted, and a rule that has to be re-argued at each refactor gets
+switched off wholesale in the end.
+
+**If this is ever revisited**, the fix is a non-allocating `OfClass` — an index of entities by class
+maintained on insert, which `EntityStateTable` is already the right place for — not a rewrite of the
+call sites. Do it behind a profile, not behind this note.

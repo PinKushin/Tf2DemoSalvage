@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One vertex of a model.</summary>
@@ -63,16 +65,8 @@ public static class StudioVertices
     private const int HeaderBytes = 64;
     private const int FixupBytes = 12;
 
-    /// <summary>Where the three bone indices sit, after three floats of weight.</summary>
-    private const int BoneIndexOffset = 12;
-    private const int VertexBytes = 48;
-
     /// <summary>How many levels of detail a model may declare, from <c>MAX_NUM_LODS</c>.</summary>
     private const int MaximumLods = 8;
-
-    private const int PositionOffset = 16;
-    private const int NormalOffset = 28;
-    private const int TexCoordOffset = 40;
 
     /// <summary>The most vertices this reader will build for one model.</summary>
     /// <remarks>
@@ -214,33 +208,33 @@ public static class StudioVertices
     /// <summary>Reads a run of vertices, checking it lies inside the data.</summary>
     private static List<StudioVertex> ReadRange(ReadOnlySpan<byte> vertices, int first, int count)
     {
-        if (first < 0 || count < 0 || (long)(first + count) * VertexBytes > vertices.Length)
+        if (first < 0 || count < 0 || (long)(first + count) * VertexStride > vertices.Length)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file names vertices {first:N0} to {first + count:N0}, beyond the " +
-                $"{vertices.Length / VertexBytes:N0} it holds."));
+                $"{vertices.Length / VertexStride:N0} it holds."));
         }
 
         List<StudioVertex> range = new(count);
 
         for (int index = 0; index < count; index++)
         {
-            ReadOnlySpan<byte> vertex = vertices.Slice((first + index) * VertexBytes, VertexBytes);
+            ReadOnlySpan<byte> vertex = vertices.Slice((first + index) * VertexStride, VertexStride);
 
             // **The bone weights, which a static prop does not need and an animated model
             // cannot do without.** mstudioboneweight_t opens the vertex: three floats of weight,
             // then three bone indices as bytes, then how many of them are used.
             range.Add(new StudioVertex(
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[PositionOffset..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[(PositionOffset + 4)..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[(PositionOffset + 8)..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[NormalOffset..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[(NormalOffset + 4)..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[(NormalOffset + 8)..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[TexCoordOffset..]),
-                BinaryPrimitives.ReadSingleLittleEndian(vertex[(TexCoordOffset + 4)..]),
-                (vertex[BoneIndexOffset], vertex[BoneIndexOffset + 1], vertex[BoneIndexOffset + 2]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[VertexPositionOffset..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[(VertexPositionOffset + 4)..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[(VertexPositionOffset + 8)..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[VertexNormalOffset..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[(VertexNormalOffset + 4)..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[(VertexNormalOffset + 8)..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[VertexTexCoordOffset..]),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[(VertexTexCoordOffset + 4)..]),
+                (vertex[VertexBoneIndexOffset], vertex[VertexBoneIndexOffset + 1], vertex[VertexBoneIndexOffset + 2]),
                 (
                     BinaryPrimitives.ReadSingleLittleEndian(vertex),
                     BinaryPrimitives.ReadSingleLittleEndian(vertex[4..]),

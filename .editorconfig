@@ -90,6 +90,25 @@ dotnet_diagnostic.CS1591.severity = none    # missing XML comment
 dotnet_diagnostic.CA1303.severity = none    # do not pass literals as localized parameters
 dotnet_diagnostic.CA1848.severity = none    # use LoggerMessage delegates
 
+# --- LINQ is right almost everywhere, and wrong in the two places this project spends its time ---
+#
+# S3267 rewrites a `foreach` with a filter or a projection into Where/Select, and for setup code,
+# asset loading, reporting and tests that is a straight improvement: the transform gets a name and
+# there is no accumulator to initialise wrongly. It stays an error there.
+#
+# It is off under managed/ because those assemblies contain the two hot paths — the per-tick,
+# per-entity decode and the per-vertex world build — where each Select allocates an enumerator on a
+# loop that runs thousands of times a frame. A rule that pushes allocation into a frame budget is a
+# rule aimed at the wrong target, and per-site suppression across a decoder would be noise rather
+# than an occasional exception.
+#
+# The scope is the assembly rather than the method deliberately: the boundary between "hot" and
+# "not" moves as code is extracted, and a rule that has to be re-argued at every refactor gets
+# switched off wholesale eventually. Prefer LINQ under managed/ anyway; this only means the
+# analyzer will not force it into a loop that draws.
+[managed/**/*.cs]
+dotnet_diagnostic.S3267.severity = none     # loops to LINQ — allocates in decode and draw paths
+
 [tests/**/*.cs]
 # Tests legitimately construct and discard, and use non-localized literals everywhere.
 dotnet_diagnostic.CA1707.severity = none    # Method_Scenario_Expected naming has underscores

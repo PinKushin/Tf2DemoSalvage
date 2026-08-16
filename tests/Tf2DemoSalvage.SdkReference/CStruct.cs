@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Tf2DemoSalvage.SdkReference;
@@ -28,6 +29,11 @@ public sealed record CLayout(string Name, IReadOnlyList<CMember> Members, int Si
             ?.Offset
         ?? throw new KeyNotFoundException($"{Name} has no member named {member}");
 }
+
+/// <summary>The result of reading a structure: a layout, or what stopped it.</summary>
+/// <param name="Layout">The layout, or null when it could not be determined.</param>
+/// <param name="Refused">The declaration that could not be resolved, or null on success.</param>
+public sealed record CLayoutAttempt(CLayout? Layout, string? Refused);
 
 /// <summary>A type's size and alignment, in bytes.</summary>
 /// <param name="Size">Bytes one value occupies.</param>
@@ -63,6 +69,9 @@ public static class CStruct
     /// <summary>How long a pattern may run before it is treated as a defect in the pattern.</summary>
     private static readonly TimeSpan PatternLimit = TimeSpan.FromSeconds(10);
 
+    /// <summary>No preprocessor symbols defined: the build a PC file format was written by.</summary>
+    private static readonly HashSet<string> Nothing = new(StringComparer.Ordinal);
+
     /// <summary>The built-in types a Source header uses in a file structure.</summary>
     /// <remarks>
     /// Sizes are the Win32/x86 ones the BSP and MDL formats were written against, which is what the
@@ -91,12 +100,45 @@ public static class CStruct
     /// <param name="name">The structure's name as declared, such as <c>dface_t</c>.</param>
     /// <param name="constants">Named integers, for array bounds written as macros.</param>
     /// <param name="composites">Sizes for types this does not know, such as <c>Vector</c>.</param>
+    /// <param name="pointerBytes">
+    /// How many bytes a pointer member occupies, or null to refuse a structure containing one.
+    /// </param>
+    /// <param name="defined">Preprocessor symbols to treat as defined; null means none.</param>
     /// <returns>The layout, or null when anything about it could not be determined.</returns>
     public static CLayout? Layout(
         string header,
         string name,
         IReadOnlyDictionary<string, int>? constants = null,
-        IReadOnlyDictionary<string, CTypeSize>? composites = null)
+        IReadOnlyDictionary<string, CTypeSize>? composites = null,
+        int? pointerBytes = null,
+        IReadOnlySet<string>? defined = null) =>
+        Attempt(header, name, constants, composites, pointerBytes, defined).Layout;
+
+    /// <summary>Reads one structure's layout, and says what stopped it when it could not.</summary>
+    /// <param name="header">The header's full text.</param>
+    /// <param name="name">The structure's name as declared.</param>
+    /// <param name="constants">Named integers, for array bounds written as macros.</param>
+    /// <param name="composites">Sizes for types this does not know.</param>
+    /// <param name="pointerBytes">Bytes per pointer member, or null to refuse one.</param>
+    /// <param name="defined">
+    /// Preprocessor symbols to treat as defined. Null means none, which is what a PC file written
+    /// by a 32-bit tool was compiled with.
+    /// </param>
+    /// <returns>The layout, or the declaration that could not be resolved.</returns>
+    /// <remarks>
+    /// **A refusal without a reason costs more than it saves.** Three studio structures came back
+    /// null at once and the only way to find out why was to guess at the declarations — which is the
+    /// exact move this whole reference exists to remove. Naming the statement turns "could not
+    /// parse" into "could not parse <c>mutable void *virtualModel</c>", and that sentence answers
+    /// itself.
+    /// </remarks>
+    public static CLayoutAttempt Attempt(
+        string header,
+        string name,
+        IReadOnlyDictionary<string, int>? constants = null,
+        IReadOnlyDictionary<string, CTypeSize>? composites = null,
+        int? pointerBytes = null,
+        IReadOnlySet<string>? defined = null)
     {
         ArgumentNullException.ThrowIfNull(header);
         ArgumentNullException.ThrowIfNull(name);
@@ -105,11 +147,16 @@ public static class CStruct
         // cosmetic. dface_t carries a commented-out union — `// union` / `// {` / `// };` — so a
         // nested-brace check run on the raw text refuses a structure that has no nested brace at
         // all, and brace matching run on it is only correct because those two happen to balance.
-        string source = Uncommented(header);
+        // Conditionals are then resolved rather than deleted; see Conditioned.
+        if (Conditioned(Uncommented(header), defined ?? Nothing, constants, out string? unhandled)
+            is not { } source)
+        {
+            return new CLayoutAttempt(null, unhandled);
+        }
 
         if (Body(source, name) is not { } body)
         {
-            return null;
+            return new CLayoutAttempt(null, $"no declaration of {name} was found");
         }
 
         List<CMember> members = [];
@@ -123,9 +170,9 @@ public static class CStruct
 
         foreach (string statement in Statements(body))
         {
-            if (Declaration(statement, constants, composites) is not { } declared)
+            if (Declaration(statement, constants, composites, pointerBytes) is not { } declared)
             {
-                return null;
+                return new CLayoutAttempt(null, statement);
             }
 
             if (declared.Declarators.Count == 0)
@@ -175,7 +222,9 @@ public static class CStruct
             }
         }
 
-        return members.Count == 0 ? null : new CLayout(name, members, Aligned(offset, widest));
+        return members.Count == 0
+            ? new CLayoutAttempt(null, $"{name} was found but declared no members")
+            : new CLayoutAttempt(new CLayout(name, members, Aligned(offset, widest)), null);
     }
 
     /// <summary>The text between a structure's braces, or null when it cannot be isolated.</summary>
@@ -206,18 +255,65 @@ public static class CStruct
 
             if (depth == 0)
             {
-                string body = header[start..at];
-
-                // A nested brace means an inner struct or union whose packing this does not model.
-                // Refusing is the point: a wrong reference is worse than an absent one.
-                return body.Contains('{', StringComparison.Ordinal) ? null : body;
+                return WithoutBlocks(header[start..at]);
             }
         }
 
         return null;
     }
 
-    /// <summary>Removes comments and preprocessor directives, leaving the code.</summary>
+    /// <summary>Replaces each braced block inside a structure body with a statement terminator.</summary>
+    /// <remarks>
+    /// **Studio headers declare members and inline methods in the same list**, and a method carries
+    /// a body: <c>inline char * const pszName( void ) const { return … }</c> sits between
+    /// <c>sznameindex</c> and <c>parent</c> in <c>mstudiobone_t</c>. Deleting the body outright would
+    /// weld the method's leftover tokens onto the next member's declaration, and since the method has
+    /// parentheses the whole run would then be skipped — losing a real member and shifting every
+    /// offset after it. A semicolon terminates the method instead, so the member behind it is still
+    /// its own statement.
+    ///
+    /// **A nested struct or union survives this as a refusal rather than a wrong number.** Its block
+    /// collapses the same way, which leaves the bare keyword <c>struct</c> or <c>union</c> as a
+    /// statement, and <see cref="Declaration"/> returns null for those. That is the intended
+    /// outcome: this models no packing rule for an inner type, so it must not produce a size for one.
+    /// </remarks>
+    private static string WithoutBlocks(string body)
+    {
+        StringBuilder kept = new(body.Length);
+        int depth = 0;
+
+        foreach (char character in body)
+        {
+            switch (character)
+            {
+                case '{':
+                    depth++;
+                    break;
+
+                case '}':
+                    depth--;
+
+                    if (depth == 0)
+                    {
+                        kept.Append(';');
+                    }
+
+                    break;
+
+                default:
+                    if (depth == 0)
+                    {
+                        kept.Append(character);
+                    }
+
+                    break;
+            }
+        }
+
+        return kept.ToString();
+    }
+
+    /// <summary>Removes comments, leaving the code.</summary>
     /// <remarks>
     /// Run on the whole header before a brace is counted or a structure is found, because a comment
     /// can contain either — <c>dface_t</c> comments out a union, braces and all.
@@ -226,9 +322,132 @@ public static class CStruct
     {
         string stripped = Regex.Replace(
             header, @"/\*.*?\*/", " ", RegexOptions.Singleline, PatternLimit);
-        stripped = Regex.Replace(stripped, @"//[^\n]*", " ", RegexOptions.None, PatternLimit);
 
-        return Regex.Replace(stripped, @"(?m)^\s*#[^\n]*", " ", RegexOptions.None, PatternLimit);
+        return Regex.Replace(stripped, @"//[^\n]*", " ", RegexOptions.None, PatternLimit);
+    }
+
+    /// <summary>Resolves preprocessor conditionals, keeping only the branch that compiles.</summary>
+    /// <param name="text">Header text with comments already removed.</param>
+    /// <param name="defined">The symbols to treat as defined.</param>
+    /// <param name="constants">Named integers, for a bare macro used as a truth value.</param>
+    /// <param name="unhandled">Set to the directive that could not be resolved, or null.</param>
+    /// <returns>The text with unselected branches and all directives removed.</returns>
+    /// <remarks>
+    /// **Deleting directive lines instead of resolving them counts both branches**, and the result
+    /// is a plausible number rather than an error. <c>mstudiotexture_t</c> ends with
+    /// <c>#ifdef PLATFORM_64BITS int unused[8]; #else int unused[10]; #endif</c>; stripping the three
+    /// directives leaves both arrays, which makes the structure 96 bytes instead of 64. It failed a
+    /// correct constant, which is the worst direction for a reference to be wrong in.
+    ///
+    /// **The default is that nothing is defined**, and for these files that is the right model
+    /// rather than a convenience: an MDL was written by 32-bit studiomdl on a PC, so
+    /// <c>PLATFORM_64BITS</c> and <c>_X360</c> are exactly the branches the file does NOT contain.
+    ///
+    /// **An expression this cannot evaluate is reported, not assumed.** Guessing a branch would
+    /// silently include or drop members.
+    /// </remarks>
+    private static string? Conditioned(
+        string text,
+        IReadOnlySet<string> defined,
+        IReadOnlyDictionary<string, int>? constants,
+        out string? unhandled)
+    {
+        unhandled = null;
+
+        StringBuilder kept = new(text.Length);
+        List<bool> regions = [];
+
+        foreach (string line in text.Split('\n'))
+        {
+            string directive = line.TrimStart();
+
+            if (!directive.StartsWith('#'))
+            {
+                if (regions.TrueForAll(taken => taken))
+                {
+                    kept.Append(line).Append('\n');
+                }
+
+                continue;
+            }
+
+            Match conditional = Regex.Match(
+                directive,
+                @"^#\s*(ifdef|ifndef|if|else|endif)\b\s*(!?)\s*(?:defined\s*\(?\s*)?([A-Za-z_][A-Za-z0-9_]*|0|1)?",
+                RegexOptions.None,
+                PatternLimit);
+
+            switch (conditional.Success ? conditional.Groups[1].Value : string.Empty)
+            {
+                case "ifdef":
+                    regions.Add(defined.Contains(conditional.Groups[3].Value));
+                    break;
+
+                case "ifndef":
+                    regions.Add(!defined.Contains(conditional.Groups[3].Value));
+                    break;
+
+                case "if":
+                    if (conditional.Groups[3].Value is "0" or "1")
+                    {
+                        regions.Add(conditional.Groups[3].Value == "1");
+                    }
+                    else if (conditional.Groups[3].Success && directive.Contains("defined", StringComparison.Ordinal))
+                    {
+                        bool present = defined.Contains(conditional.Groups[3].Value);
+                        regions.Add(conditional.Groups[2].Value == "!" ? !present : present);
+                    }
+                    else if (conditional.Groups[3].Success &&
+                        defined.Contains(conditional.Groups[3].Value))
+                    {
+                        // A bare macro the caller has stated is set, such as VALVE_LITTLE_ENDIAN.
+                        // Membership of that set means "defined and non-zero" for this purpose.
+                        regions.Add(conditional.Groups[2].Value != "!");
+                    }
+                    else if (conditional.Groups[3].Success &&
+                        constants is not null &&
+                        constants.TryGetValue(conditional.Groups[3].Value, out int value))
+                    {
+                        // A bare macro used as a truth value, such as
+                        // `#if STUDIO_SEQUENCE_ACTIVITY_LAZY_INITIALIZE`, which the same header
+                        // defines as 1. Its own declaration decides the branch.
+                        regions.Add(conditional.Groups[2].Value == "!" ? value == 0 : value != 0);
+                    }
+                    else
+                    {
+                        unhandled = directive.Trim();
+                        return null;
+                    }
+
+                    break;
+
+                case "else":
+                    if (regions.Count == 0)
+                    {
+                        unhandled = directive.Trim();
+                        return null;
+                    }
+
+                    regions[^1] = !regions[^1];
+                    break;
+
+                case "endif":
+                    if (regions.Count == 0)
+                    {
+                        unhandled = directive.Trim();
+                        return null;
+                    }
+
+                    regions.RemoveAt(regions.Count - 1);
+                    break;
+
+                default:
+                    // #pragma, #define, #include, #undef: nothing to select, nothing to keep.
+                    break;
+            }
+        }
+
+        return kept.ToString();
     }
 
     /// <summary>Splits an already-uncommented body into declarations.</summary>
@@ -262,7 +481,8 @@ public static class CStruct
     private static Declared? Declaration(
         string statement,
         IReadOnlyDictionary<string, int>? constants,
-        IReadOnlyDictionary<string, CTypeSize>? composites)
+        IReadOnlyDictionary<string, CTypeSize>? composites,
+        int? pointerBytes)
     {
         string text = statement;
 
@@ -279,16 +499,52 @@ public static class CStruct
             return new Declared(string.Empty, new CTypeSize(0, 1), []);
         }
 
-        // Anything with parentheses is a method or a macro, never a member.
-        if (text.Contains('(', StringComparison.Ordinal))
+        // Anything with parentheses is a method or a macro, never a member. A `friend` declaration
+        // grants access and occupies no bytes; studiohdr_t has one.
+        if (text.Contains('(', StringComparison.Ordinal) ||
+            text.StartsWith("friend ", StringComparison.Ordinal))
         {
             return new Declared(string.Empty, new CTypeSize(0, 1), []);
         }
 
-        // Pointers and nested type declarations are outside what a file structure contains, and a
-        // guess about either would be a number rather than a refusal.
-        if (text.Contains('*', StringComparison.Ordinal) ||
-            text.StartsWith("typedef", StringComparison.Ordinal) ||
+        // Qualifiers that change nothing about a member's size or position. `mutable` appears on
+        // mstudiobone_t::physicsbone and would otherwise read as an unknown type name.
+        foreach (string qualifier in new[] { "mutable ", "volatile ", "const " })
+        {
+            text = text.StartsWith(qualifier, StringComparison.Ordinal)
+                ? text[qualifier.Length..]
+                : text;
+        }
+
+        // **A static member occupies no bytes in an instance, so treating it as one would be
+        // silently wrong in the direction that matters.** Refuse instead.
+        if (text.StartsWith("static ", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // **A pointer member is real and occupies bytes, but how many is not in the header.** MDL
+        // headers carry several — `mutable void *virtualModel` in studiohdr_t, `void *pVertexData`
+        // in mstudiomodel_t — as runtime scratch that studiomdl still writes space for. The size is
+        // the one the FILE was authored with, not the one this process runs at, so the caller states
+        // it and the parser refuses when nobody has.
+        if (text.Contains('*', StringComparison.Ordinal))
+        {
+            if (pointerBytes is not { } bytes)
+            {
+                return null;
+            }
+
+            string pointee = text[(text.LastIndexOf('*') + 1)..].Trim();
+
+            return Declarator(pointee, constants) is { } declared
+                ? new Declared("pointer", new CTypeSize(bytes, bytes), [declared])
+                : null;
+        }
+
+        // Nested type declarations are outside what this models, and a guess about one would be a
+        // number rather than a refusal.
+        if (text.StartsWith("typedef", StringComparison.Ordinal) ||
             text.StartsWith("union", StringComparison.Ordinal) ||
             text.StartsWith("struct", StringComparison.Ordinal) ||
             text.StartsWith("class", StringComparison.Ordinal))

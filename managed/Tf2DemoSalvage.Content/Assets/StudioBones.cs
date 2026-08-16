@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One bone's rest position in a model's skeleton.</summary>
@@ -178,32 +180,6 @@ public sealed class StudioSkeleton
 /// </remarks>
 public static class StudioBones
 {
-    /// <summary><c>studiohdr_t.numbones</c>.</summary>
-    /// <remarks>
-    /// Pinned by its neighbours rather than counted by hand: <c>numtextures</c> at 204 is already
-    /// read by <see cref="StudioModel"/> and verified against real files, and the fields between
-    /// are all four bytes, so 156 follows from the published order in <c>studio.h</c>.
-    /// </remarks>
-    private const int BoneCountOffset = 156;
-
-    /// <summary><c>studiohdr_t.boneindex</c>.</summary>
-    private const int BoneIndexOffset = 160;
-
-    /// <summary>
-    /// Bytes per <c>mstudiobone_t</c>: sznameindex, parent, bonecontroller[6], pos, quat, rot,
-    /// posscale, rotscale, poseToBone, qAlignment, six ints and unused[8].
-    /// </summary>
-    private const int BoneStride = 216;
-
-    private const int NameOffset = 0;
-    private const int ParentOffset = 4;
-    private const int PositionOffset = 32;
-    private const int RotationOffset = 44;
-    private const int PoseToBoneOffset = 96;
-    private const int EulerOffset = 60;
-    private const int PositionScaleOffset = 72;
-    private const int RotationScaleOffset = 84;
-
     /// <summary>Most bones a model may declare, as a guard against a malformed header.</summary>
     private const int MaximumBones = 1024;
 
@@ -215,13 +191,13 @@ public static class StudioBones
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < BoneIndexOffset + 4)
+        if (bytes.Length < HeaderBoneIndexOffset + 4)
         {
             return [];
         }
 
-        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[BoneCountOffset..]);
-        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[BoneIndexOffset..]);
+        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderBoneCountOffset..]);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderBoneIndexOffset..]);
 
         if (count <= 0)
         {
@@ -250,28 +226,28 @@ public static class StudioBones
             for (int cell = 0; cell < 12; cell++)
             {
                 poseToBone[cell] =
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[(PoseToBoneOffset + (cell * 4))..]);
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BonePoseToBoneOffset + (cell * 4))..]);
             }
 
             bones.Add(new StudioBone(
                 StudioStrings.At(
                     bytes,
                     at + (index * BoneStride) +
-                        BinaryPrimitives.ReadInt32LittleEndian(bone[NameOffset..])),
-                BinaryPrimitives.ReadInt32LittleEndian(bone[ParentOffset..]),
+                        BinaryPrimitives.ReadInt32LittleEndian(bone[BoneNameOffset..])),
+                BinaryPrimitives.ReadInt32LittleEndian(bone[BoneParentOffset..]),
                 (
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[PositionOffset..]),
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[(PositionOffset + 4)..]),
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[(PositionOffset + 8)..])),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[BonePositionOffset..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BonePositionOffset +4)..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BonePositionOffset +8)..])),
                 (
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[RotationOffset..]),
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[(RotationOffset + 4)..]),
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[(RotationOffset + 8)..]),
-                    BinaryPrimitives.ReadSingleLittleEndian(bone[(RotationOffset + 12)..])),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[BoneRotationOffset..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BoneRotationOffset +4)..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BoneRotationOffset +8)..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BoneRotationOffset +12)..])),
                 poseToBone,
-                Vector(bone, EulerOffset),
-                Vector(bone, PositionScaleOffset),
-                Vector(bone, RotationScaleOffset)));
+                Vector(bone, BoneEulerOffset),
+                Vector(bone, BonePositionScaleOffset),
+                Vector(bone, BoneRotationScaleOffset)));
         }
 
         return bones;

@@ -118,6 +118,70 @@ own guard is dead code in that build.
 A test written to confirm something and failing instead is the cheapest discovery mechanism there
 is.
 
+## Derive the constant from the declaration, do not type it twice
+
+**Evidence class: read from published source, mechanised.** A format reader is mostly magic numbers,
+and every one of them fails the same way: a wrong lump index, stride or field offset lands on real
+bytes and yields a perfectly ordinary value of the wrong thing. Nothing throws. What surfaces is a
+map that looks subtly strange somewhere else entirely.
+
+The obvious test — assert the constant against the number from the header — tests typing. The useful
+one computes the number from the *declaration*: read `struct dface_t` out of `bspfile.h`, sum its
+members with C's alignment rules, and compare the total to the reader's stride. Offsets come out of
+the same pass, and they are the half that matters, because a stride can be right while the fields
+inside it are read from the wrong places — the sum is identical either way.
+
+It paid for itself before it was finished. `LUMP_FACES_HDR` had been written as **54** from memory;
+the real value is **58**. It sat plausibly beside `LIGHTING_HDR` at 53 and would have read another
+lump's bytes as faces.
+
+### The parser must refuse, and say what it refused
+
+An unknown type, a pointer, an unresolved array bound: return nothing rather than a plausible number.
+A reference that invents a value will fail a correct reader, or worse, agree with a wrong one.
+
+Refusing silently is not enough. Three studio structures came back empty at once and the only way to
+find out why was to guess at the declarations — the exact move the whole exercise exists to remove.
+Naming the offending line turns "could not parse" into "could not parse `mutable void
+*virtualModel`", which answers itself. Each of the four causes was a real property of Valve's headers:
+
+- **`dface_t` comments out a union, braces included.** A nested-brace check run before comment
+  removal refuses a structure that has no nested brace, and brace matching only works on it because
+  the commented `{` and `}` happen to balance.
+- **studio.h interleaves members with inline method bodies**, so a member sits between two braces
+  rather than after a semicolon. Deleting a body welds its leftover tokens onto the next member's
+  declaration; replacing it with a semicolon keeps that member visible.
+- **MDL headers carry real pointer members** — `virtualModel`, `pVertexData` — as runtime scratch the
+  file still reserves space for. Their size is a property of the tool that WROTE the file (32-bit
+  studiomdl), not of the process reading it, so it has to be stated rather than inferred.
+- **`friend` declarations occupy no bytes**, and studiohdr_t has one.
+
+### Deleting `#ifdef` lines counts both branches
+
+The one that failed a correct constant, and the most instructive. `mstudiotexture_t` ends with
+
+```c
+#ifdef PLATFORM_64BITS
+    int unused[8];
+#else
+    int unused[10];
+#endif
+```
+
+Stripping the three directives as noise leaves **both** arrays, making the structure 96 bytes instead
+of 64. The test then reported a correct reader as wrong — a reference disagreeing with the truth it
+was built to check, in the direction that wastes the most time.
+
+Resolve conditionals instead, with **nothing defined** as the model. That is not a convenience: an
+MDL was written by a 32-bit PC tool, so `PLATFORM_64BITS` and `_X360` name precisely the branches the
+file on disk does not contain. Where a symbol genuinely is set — `VALVE_LITTLE_ENDIAN`, which decides
+whether `ColorRGBExp32` runs `r,g,b,exponent` or the reverse — the caller states it and says why.
+Both branches of that one are four bytes, so a size check agrees either way and only the field ORDER
+is wrong: light of the wrong colour rather than a failure.
+
+**The general rule: a header is source for a compiler, not a description of a file.** Reading it as
+though every line contributes is the same error class as reading a demo without its schema.
+
 ## A uniform corpus manufactures invariants that look structural
 
 The single most productive day's finding, and it cost nothing but adding recordings of a *different

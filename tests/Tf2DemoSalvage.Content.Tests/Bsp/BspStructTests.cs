@@ -240,9 +240,18 @@ public sealed class BspStructTests
             }
         }
 
-        return CStruct.Layout(text, name, SourceSdk.Constants(header), composites)
+        // **A BSP on disk is a little-endian PC file**, and mathlib.h reverses ColorRGBExp32's
+        // field order for the big-endian build. Both branches are four bytes, so the size would
+        // agree either way and only the order would be wrong — which is the shape of error that
+        // shows up as light of the wrong colour rather than as a failure.
+        HashSet<string> defined = new(StringComparer.Ordinal) { "VALVE_LITTLE_ENDIAN" };
+
+        CLayoutAttempt attempt = CStruct.Attempt(
+            text, name, SourceSdk.Constants(header), composites, pointerBytes: null, defined);
+
+        return attempt.Layout
             ?? throw new InvalidOperationException(
                 $"the layout of {name} could not be derived from {header}, so its stride is " +
-                "unchecked rather than correct");
+                $"unchecked rather than correct. Stopped at: {attempt.Refused}");
     }
 }
