@@ -99,15 +99,65 @@ and deserves a deliberate decision on a project that records demos.
 These live in Steam's cloud-synced config, not in the game folder, so verifying files or reinstalling
 does not touch them.
 
-## 7. Still unverified
+## 7. `mat_picmip` below −1 is a no-op, and the reason matters for our texture path — **CONFIRMED**
 
-**`texture_quality=ultra` sets `mat_picmip -10`**, outside the −1…2 range the game normally accepts,
-while `very_high` sets −1. If the value is clamped without `sv_cheats`, the two levels produce an
-identical picture and the config's stated state is not its actual state. `mat_picmip` with no
-argument echoes the effective value; that check has not been run yet.
+*Evidence class: measured in game 2026-08-16, then explained from published source.*
 
-Until it is, treat `-10` as "requested" rather than "in effect" — which is exactly the class of
-silent divergence this document exists to prevent.
+mastercomfig's `texture_quality=ultra` sets **`mat_picmip -10`**, outside the −1…2 range TF2's own
+options offer, while `very_high` sets −1. Whether that was doing anything was an open question, and
+it is the kind that has to be answered rather than assumed: a config claiming a state it does not
+have is the exact failure this document exists to prevent.
+
+Measured, in this order:
+
+1. **Not clamped on set.** `mat_picmip -10` then `mat_picmip` echoes back `-10`.
+2. **No visible difference.** Flipped between `-1` and `-10` live at red last on Badlands. Nothing
+   changed on screen. (Owner observation — the right instrument for an appearance claim.)
+
+So the value is stored and does nothing, which is the worst-looking combination until the mechanism
+explains it. `vtf.h` does:
+
+```c
+#define VTF_RSRC_TEXTURE_LOD_SETTINGS ( MK_VTF_RSRC_ID( 'L','O','D' ) )
+struct TextureLODControlSettings_t
+{
+    // keeps texture from exceeding (1<<m_ResolutionClamp) at picmip 0.
+    // at picmip 1, it won't exceed (1<<(m_ResolutionClamp-1)), etc.
+    uint8 m_ResolutionClampX;
+    uint8 m_ResolutionClampY;
+    ...
+};
+```
+
+The cap is a **power of two, and picmip subtracts from its exponent**. Positive picmip lowers the
+cap; negative raises it. But a texture's own mip 0 is a hard ceiling no exponent can climb past, so
+once `-1` reaches native size there is nothing left for `-10` to unlock. That is also why TF2's own
+UI stops at `-1`.
+
+**Consequence for this project, and it is already true rather than planned.** "Render better than
+TF2" is not `mat_picmip -10` — implementing that would faithfully reproduce a no-op. The real lever
+is the `LOD` resource: a VTF carrying `m_ResolutionClampX/Y` renders *smaller* in TF2 than the file
+actually contains.
+
+`VtfTexture` reads the header through `lowResHeight` and goes straight to the image data. It never
+walks the 7.3+ resource-entry table, so `m_ResolutionClamp` is never read and **this viewer already
+loads at native size where TF2 would clamp**. That is a real divergence from TF2, currently in our
+favour, arrived at by omission rather than intent — the shape `23-drawing-what-the-entity-says.md`
+is about, with the sign flipped.
+
+It is also deliberate policy from here: the owner's position is to leave it unclamped so video
+makers can exceed the game's own look. Which means **reference capture is a parity mode, not the
+ceiling** — see below.
+
+## 8. Parity is a mode, not the goal
+
+Items 1 through 6 pin TF2 so a capture is comparable. They do not say the viewer must never exceed
+what TF2 draws, and item 7 is a case where it already does.
+
+Both hold at once, on one condition: **a parity check is only meaningful with the viewer's own
+enhancements off.** A capture compared against a viewer running unclamped textures measures the
+enhancement, not the renderer. Whatever "better than TF2" features accumulate, each needs a switch
+that the parity path turns off.
 
 ---
 
