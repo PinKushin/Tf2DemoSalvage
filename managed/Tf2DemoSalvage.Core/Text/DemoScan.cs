@@ -47,6 +47,11 @@ internal static class DemoScan
     /// User messages whose body decoded, in stream order. Types with no known layout are not
     /// collected — a type name and a bit count is not something a consumer can compute over.
     /// </param>
+    /// <param name="Kills">
+    /// Every <c>player_death</c>, in order and NOT subject to the event sample cap. A kill feed is
+    /// a sequence, and the first entry of a sequence is not a summary of it — the modern corpus
+    /// demo fires 407 of these and the cap showed one.
+    /// </param>
     internal sealed record Result(
         SortedDictionary<int, PlayerInfo> Players,
         Dictionary<string, int> EventCounts,
@@ -56,7 +61,8 @@ internal static class DemoScan
         List<EntityEvent> EntityEvents,
         List<(int Tick, UserMessage Message)> UserMessages,
         List<(int Tick, DecodedSound Sound)> Sounds,
-        List<(int Tick, string ClassName, DecodedTempEntity Effect)> Effects);
+        List<(int Tick, string ClassName, DecodedTempEntity Effect)> Effects,
+        List<(int Tick, IReadOnlyList<KeyValuePair<string, object?>> Fields)> Kills);
 
     /// <summary>One entity entering, leaving or being deleted.</summary>
     /// <param name="Tick">The command tick it happened on.</param>
@@ -100,6 +106,7 @@ internal static class DemoScan
         SortedDictionary<int, PlayerInfo> players = [];
         Dictionary<string, int> counts = [];
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> sample = [];
+        List<(int Tick, IReadOnlyList<KeyValuePair<string, object?>> Fields)> kills = [];
         List<(int Tick, ChatMessage Chat)> chat = [];
         List<EntityEvent> entityEvents = [];
         List<(int Tick, UserMessage Message)> userMessages = [];
@@ -164,6 +171,18 @@ internal static class DemoScan
                             sample.Add((command.Tick, name, [.. gameEvent.Values]));
                         }
 
+                        // **Deaths are kept in full, past the sample cap**, because the kill feed is
+                        // a sequence and a sample of one is not a sequence. The modern corpus demo
+                        // fires player_death 407 times and the cap printed the first.
+                        //
+                        // Uncapped deliberately: this is bounded by how much killing happened, which
+                        // is the quantity a reader is asking about. A 30-minute match is a few
+                        // thousand entries of a handful of fields each.
+                        if (string.Equals(name, "player_death", StringComparison.Ordinal))
+                        {
+                            kills.Add((command.Tick, [.. gameEvent.Values]));
+                        }
+
                         break;
                     }
 
@@ -202,7 +221,8 @@ internal static class DemoScan
         }
 
         return new Result(
-            players, counts, sample, total, chat, entityEvents, userMessages, sounds, effects);
+            players, counts, sample, total, chat, entityEvents, userMessages, sounds, effects,
+            kills);
     }
 
     /// <summary>Decodes a sounds body, skipping one that will not read.</summary>
