@@ -138,17 +138,14 @@ public sealed class SdkCoverageTests
 
     /// <summary>The material parameters this project reads.</summary>
     /// <remarks>
-    /// Mirrors <c>MaterialCensus.Implemented</c>, which is private to the renderer. Duplicated
-    /// deliberately and checked against it by the census's own tests rather than exposed: making a
-    /// renderer's internals public so a test can read them is the tail wagging the dog.
+    /// **The renderer's own set, not a copy of it.** A mirror maintained here would be a second
+    /// source of truth for the same claim, and the two would drift the first time one was edited —
+    /// leaving a coverage report that describes a renderer nobody is running. The census exposes it
+    /// internally for exactly this, and the diff that matters is against the SDK rather than
+    /// against another list of ours.
     /// </remarks>
-    private static string[] ImplementedParameters() =>
-    [
-        "$basetexture", "$basetexture2", "$texture2", "$nocull", "$mod2x",
-        "$halflambert", "$bumpmap", "$ssbump", "$detail", "$detailscale", "$detailblendfactor",
-        "$detailblendmode", "$detailtint", "$translucent", "$alphatest", "$additive",
-        "$selfillum", "$selfillumtint", "$decal", "%compilenodraw", "include",
-    ];
+    private static IReadOnlyCollection<string> ImplementedParameters() =>
+        MaterialCensus.ImplementedParameters;
 
     /// <summary>The BSP lumps this project reads.</summary>
     private static string[] ImplementedLumps() =>

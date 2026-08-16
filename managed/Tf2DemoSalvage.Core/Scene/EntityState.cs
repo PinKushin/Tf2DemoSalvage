@@ -22,6 +22,33 @@ namespace Tf2DemoSalvage.Core.Scene;
 public sealed class EntityState
 {
     /// <summary>Where TF2 sends the recording client's own position.</summary>
+    /// <summary>Every networked property this decoder looks for, by the table it lives in.</summary>
+    /// <remarks>
+    /// **Exposed so the names can be checked against the ones Source actually sends.** A property
+    /// name that no send table declares is not an error here — the lookup simply finds nothing and
+    /// the value takes its default, which is a legal value for every one of these. That is the same
+    /// silence that hid <c>m_nBody</c>, <c>m_nSkin</c> and the player's yaw, one layer further down:
+    /// a typo in a string is indistinguishable from an entity that never sent the property.
+    ///
+    /// Valve declares them in the send tables — <c>SendPropInt( SENDINFO(m_nBody), …)</c> in
+    /// <c>server/baseanimating.cpp:237</c> and its neighbours — so a conformance test can read the
+    /// engine's list and confirm every name here appears in it.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>> NetworkedProperties =>
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            [BaseEntityTable] =
+            [
+                OriginProperty, AnglesProperty, EffectsProperty, ModelIndexProperty,
+                OwnerProperty,
+            ],
+            [AnimatingTable] =
+            [
+                SequenceProperty, BodyProperty, CycleProperty, PlaybackRateProperty,
+                ModelScaleProperty,
+            ],
+        };
+
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
 
     /// <summary>Where TF2 sends every other player's position.</summary>

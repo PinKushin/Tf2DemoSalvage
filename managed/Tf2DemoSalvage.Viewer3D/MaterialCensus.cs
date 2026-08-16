@@ -143,6 +143,19 @@ internal static class MaterialCensus
         ];
     }
 
+    /// <summary>The parameters this project reads, for a test that checks the claim.</summary>
+    /// <remarks>
+    /// **Exposed because a wrong entry in this set silences the report meant to catch it.** A name
+    /// listed here stops being censused, so a parameter claimed and never read is invisible for
+    /// ever — which is exactly what happened to <c>$modblend</c> and <c>$decalscale</c>, both listed
+    /// and read by nothing. They were caught by diffing this set against the SDK's own declarations,
+    /// and that diff needs to see the set.
+    /// </remarks>
+    internal static IReadOnlyCollection<string> ImplementedParameters => Implemented;
+
+    /// <summary>The shaders this project reproduces, for the same check.</summary>
+    internal static IReadOnlyCollection<string> ImplementedShaderNames => ImplementedShaders;
+
     /// <summary>The shaders whose behaviour this project actually reproduces.</summary>
     /// <remarks>
     /// Everything else falls back to a lit or unlit base texture, which is right often enough to
