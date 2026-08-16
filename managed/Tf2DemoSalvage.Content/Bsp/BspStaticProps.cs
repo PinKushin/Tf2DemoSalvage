@@ -59,7 +59,6 @@ public readonly record struct BspStaticProp(
 /// </remarks>
 public static class BspStaticProps
 {
-    private const int LumpGame = 35;
 
     /// <summary>'sprp', as it appears in the game lump directory.</summary>
     private const int StaticPropId = 0x73707270;
@@ -94,7 +93,7 @@ public static class BspStaticProps
     public static IReadOnlyList<BspStaticProp> Read(ReadOnlyMemory<byte> file)
     {
         BspHeader header = BspHeader.Parse(file.Span);
-        BspLump game = header.Lump(LumpGame);
+        BspLump game = header.Lump(BspLumpIndex.GameLump);
 
         if (game.Length == 0)
         {

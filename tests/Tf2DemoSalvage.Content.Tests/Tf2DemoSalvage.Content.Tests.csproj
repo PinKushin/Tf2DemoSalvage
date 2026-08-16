@@ -37,6 +37,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+    <!-- Reads source-sdk-2013 so conformance tests check this project's constants against the
+         engine's own declarations rather than against numbers typed a second time. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
     
          
   </ItemGroup>

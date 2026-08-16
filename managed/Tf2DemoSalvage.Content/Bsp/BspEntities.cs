@@ -187,7 +187,7 @@ public static class BspEntities
     }
 
     /// <summary>Index of the entity lump in the directory.</summary>
-    private const int EntityLump = 0;
+    private const int EntityLump = BspLumpIndex.Entities;
 
     private static bool TryReadQuoted(ReadOnlySpan<byte> span, ref int position, out string token)
     {

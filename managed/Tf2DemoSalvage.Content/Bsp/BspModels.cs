@@ -3,6 +3,8 @@ using System.IO;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One of a map's models: the world, or a piece of brushwork an entity moves.</summary>
@@ -47,13 +49,7 @@ public readonly record struct BspModel(
 public static class BspModels
 {
     /// <summary>The lump models live in.</summary>
-    public const int Lump = 14;
-
-    /// <summary>Bytes per <c>dmodel_t</c>.</summary>
-    private const int Stride = 48;
-
-    /// <summary>Where <c>firstface</c> sits: after mins, maxs, origin and headnode.</summary>
-    private const int FirstFaceOffset = 40;
+    public const int Lump = BspLumpIndex.Models;
 
     /// <summary>A map is untrusted input; real ones have a few hundred models at most.</summary>
     private const int Maximum = 16_384;
@@ -79,7 +75,7 @@ public static class BspModels
         }
 
         ReadOnlySpan<byte> bytes = lump.Span;
-        int count = bytes.Length / Stride;
+        int count = bytes.Length / ModelStride;
 
         if (count <= 0 || count > Maximum)
         {
@@ -90,15 +86,15 @@ public static class BspModels
 
         for (int index = 0; index < count; index++)
         {
-            ReadOnlySpan<byte> model = bytes.Slice(index * Stride, Stride);
+            ReadOnlySpan<byte> model = bytes.Slice(index * ModelStride, ModelStride);
 
             models.Add(new BspModel(
                 Vector(model, 0),
                 Vector(model, 12),
                 Vector(model, 24),
                 BinaryPrimitives.ReadInt32LittleEndian(model[36..]),
-                BinaryPrimitives.ReadInt32LittleEndian(model[FirstFaceOffset..]),
-                BinaryPrimitives.ReadInt32LittleEndian(model[(FirstFaceOffset + 4)..])));
+                BinaryPrimitives.ReadInt32LittleEndian(model[ModelFirstFaceOffset..]),
+                BinaryPrimitives.ReadInt32LittleEndian(model[(ModelFirstFaceOffset + 4)..])));
         }
 
         return models;

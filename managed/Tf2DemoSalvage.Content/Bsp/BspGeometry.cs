@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One drawable surface: its outline, in Source world units, and which way it faces.</summary>
@@ -57,26 +59,6 @@ public sealed record BspFace(
 /// </remarks>
 public sealed class BspGeometry
 {
-    private const int LumpPlanes = 1;
-    private const int LumpVertexes = 3;
-    private const int LumpFaces = 7;
-    private const int LumpTexinfo = 6;
-    private const int LumpEdges = 12;
-    private const int LumpSurfedges = 13;
-
-    private const int PlaneStride = 20;
-    private const int VertexStride = 12;
-    private const int EdgeStride = 4;
-    private const int SurfedgeStride = 4;
-    private const int FaceStride = 56;
-    private const int TexinfoStride = 72;
-
-    /// <summary>Byte offset of the flags field inside a texinfo record.</summary>
-    private const int TexinfoFlagsOffset = 64;
-
-    /// <summary>Byte offset of the texinfo index inside a face record.</summary>
-    private const int FaceTexinfoOffset = 10;
-
     private BspGeometry(IReadOnlyList<BspFace> faces)
     {
         Faces = faces;
@@ -119,12 +101,12 @@ public sealed class BspGeometry
 
         // Read rather than sliced: a shipped TF2 map stores every one of these lumps LZMA
         // compressed, and nothing in the lump directory says so. See BspLumpData.
-        ReadOnlySpan<byte> planes = Lump(file, header, LumpPlanes, PlaneStride, "planes");
-        ReadOnlySpan<byte> vertexes = Lump(file, header, LumpVertexes, VertexStride, "vertexes");
-        ReadOnlySpan<byte> edges = Lump(file, header, LumpEdges, EdgeStride, "edges");
-        ReadOnlySpan<byte> surfedges = Lump(file, header, LumpSurfedges, SurfedgeStride, "surfedges");
-        ReadOnlySpan<byte> faces = Lump(file, header, LumpFaces, FaceStride, "faces");
-        ReadOnlySpan<byte> texinfo = Lump(file, header, LumpTexinfo, TexinfoStride, "texinfo");
+        ReadOnlySpan<byte> planes = Lump(file, header, BspLumpIndex.Planes, PlaneStride, "planes");
+        ReadOnlySpan<byte> vertexes = Lump(file, header, BspLumpIndex.Vertexes, VertexStride, "vertexes");
+        ReadOnlySpan<byte> edges = Lump(file, header, BspLumpIndex.Edges, EdgeStride, "edges");
+        ReadOnlySpan<byte> surfedges = Lump(file, header, BspLumpIndex.Surfedges, SurfedgeStride, "surfedges");
+        ReadOnlySpan<byte> faces = Lump(file, header, BspLumpIndex.Faces, FaceStride, "faces");
+        ReadOnlySpan<byte> texinfo = Lump(file, header, BspLumpIndex.Texinfo, TexinfoStride, "texinfo");
 
         // Counts come from lump LENGTH, never from a count stored in the data. A length is at
         // least cross-checkable against the file; a declared count is not.

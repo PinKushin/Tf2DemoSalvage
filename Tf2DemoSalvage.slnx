@@ -15,5 +15,6 @@
     <Project Path="tests/Tf2DemoSalvage.Content.Tests/Tf2DemoSalvage.Content.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Audio.Tests/Tf2DemoSalvage.Audio.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.SdkReference/Tf2DemoSalvage.SdkReference.csproj" />
   </Folder>
 </Solution>

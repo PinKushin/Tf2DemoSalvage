@@ -6,6 +6,8 @@ using System.IO;
 
 using Tf2DemoSalvage.Core.Diagnostics;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>
@@ -160,24 +162,6 @@ public readonly record struct AmbientSamples(
 /// </remarks>
 public static class BspAmbientLight
 {
-    /// <summary>Leaves, whose bounds place the samples.</summary>
-    private const int LumpLeafs = 10;
-
-    /// <summary>Where each leaf's samples start, and how many it has.</summary>
-    private const int LumpLeafAmbientIndex = 52;
-
-    /// <summary>The samples themselves.</summary>
-    private const int LumpLeafAmbientLighting = 56;
-
-    /// <summary>A leaf with the cube moved out, as every modern map has it.</summary>
-    private const int LeafStride = 32;
-
-    /// <summary>A leaf with the cube still inline, as maps before version 1 have it.</summary>
-    private const int LeafStrideWithCube = 56;
-
-    private const int AmbientSampleStride = 28;
-    private const int AmbientIndexStride = 4;
-
     /// <summary>Reads every ambient sample, grouped by the leaf that holds it.</summary>
     /// <param name="file">The whole map file.</param>
     /// <returns>The samples per leaf, in leaf order; empty when the map carries none.</returns>
@@ -198,10 +182,10 @@ public static class BspAmbientLight
         BspHeader header = BspHeader.Parse(file.Span);
 
         ReadOnlySpan<byte> samples = BspLumpData
-            .Read(file, header.Lump(LumpLeafAmbientLighting)).Span;
+            .Read(file, header.Lump(BspLumpIndex.LeafAmbientLighting)).Span;
 
         ReadOnlySpan<byte> indices = BspLumpData
-            .Read(file, header.Lump(LumpLeafAmbientIndex)).Span;
+            .Read(file, header.Lump(BspLumpIndex.LeafAmbientIndex)).Span;
 
         if (samples.IsEmpty)
         {
@@ -215,8 +199,8 @@ public static class BspAmbientLight
             return [];
         }
 
-        ReadOnlySpan<byte> leaves = BspLumpData.Read(file, header.Lump(LumpLeafs)).Span;
-        int leafStride = header.Lump(LumpLeafs).Version >= 1 ? LeafStride : LeafStrideWithCube;
+        ReadOnlySpan<byte> leaves = BspLumpData.Read(file, header.Lump(BspLumpIndex.Leafs)).Span;
+        int leafStride = header.Lump(BspLumpIndex.Leafs).Version >= 1 ? LeafStride : LeafStrideWithCube;
 
         // **No index lump means one sample per leaf, in leaf order.** Some maps carry the lighting
         // without the index; the engine treats the samples as leaf-ordered, and so does this.
@@ -326,7 +310,7 @@ public static class BspAmbientLight
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        return header.Lump(LumpLeafs).Version >= 1 ? LeafStride : LeafStrideWithCube;
+        return header.Lump(BspLumpIndex.Leafs).Version >= 1 ? LeafStride : LeafStrideWithCube;
     }
 
     /// <summary>Reads a <c>CompressedLightCube</c>: six ColorRGBExp32 in shader order.</summary>

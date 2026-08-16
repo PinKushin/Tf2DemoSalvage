@@ -39,7 +39,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 public sealed class PakFile
 {
     /// <summary>Index of the pakfile lump.</summary>
-    public const int LumpIndex = 40;
+    public const int LumpIndex = BspLumpIndex.PakFile;
 
     /// <summary>Largest file this will extract, in bytes.</summary>
     /// <remarks>

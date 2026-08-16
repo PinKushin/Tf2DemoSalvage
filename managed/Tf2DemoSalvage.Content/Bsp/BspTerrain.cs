@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>
@@ -26,15 +28,6 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// </remarks>
 public sealed class BspTerrain
 {
-    private const int LumpDispInfo = 26;
-    private const int LumpDispVerts = 33;
-
-    private const int DispInfoStride = 176;
-    private const int DispVertStride = 20;
-
-    private const int StartPositionOffset = 0;
-    private const int VertexStartOffset = 12;
-    private const int PowerOffset = 20;
 
     /// <summary>Smallest and largest subdivision a displacement may declare.</summary>
     /// <remarks>
@@ -65,8 +58,10 @@ public sealed class BspTerrain
         BspHeader header = BspHeader.Parse(file.Span);
 
         return new BspTerrain(
-            BspLumpData.ReadStructures(file, header.Lump(LumpDispInfo), DispInfoStride, "dispinfo"),
-            BspLumpData.ReadStructures(file, header.Lump(LumpDispVerts), DispVertStride, "dispverts"));
+            BspLumpData.ReadStructures(
+                file, header.Lump(BspLumpIndex.DispInfo), DispInfoStride, "dispinfo"),
+            BspLumpData.ReadStructures(
+                file, header.Lump(BspLumpIndex.DispVerts), DispVertStride, "dispverts"));
     }
 
     /// <summary>Reads one face's terrain, if it has any.</summary>
@@ -103,12 +98,12 @@ public sealed class BspTerrain
             surface.DisplacementIndex * DispInfoStride, DispInfoStride);
 
         (float X, float Y, float Z) start = (
-            BinaryPrimitives.ReadSingleLittleEndian(info[StartPositionOffset..]),
-            BinaryPrimitives.ReadSingleLittleEndian(info[(StartPositionOffset + 4)..]),
-            BinaryPrimitives.ReadSingleLittleEndian(info[(StartPositionOffset + 8)..]));
+            BinaryPrimitives.ReadSingleLittleEndian(info[DispStartPositionOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(DispStartPositionOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(DispStartPositionOffset + 8)..]));
 
-        int vertexStart = BinaryPrimitives.ReadInt32LittleEndian(info[VertexStartOffset..]);
-        int power = BinaryPrimitives.ReadInt32LittleEndian(info[PowerOffset..]);
+        int vertexStart = BinaryPrimitives.ReadInt32LittleEndian(info[DispVertexStartOffset..]);
+        int power = BinaryPrimitives.ReadInt32LittleEndian(info[DispPowerOffset..]);
 
         if (power is < MinimumPower or > MaximumPower)
         {

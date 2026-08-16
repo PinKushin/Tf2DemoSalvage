@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One entry of a map's texture table.</summary>
@@ -39,16 +41,6 @@ public readonly record struct BspMaterial(
 /// </remarks>
 public static class BspMaterials
 {
-    private const int LumpTexdata = 2;
-    private const int LumpTexdataStringData = 43;
-    private const int LumpTexdataStringTable = 44;
-
-    /// <summary>Bytes per <c>dtexdata_t</c>.</summary>
-    private const int TexdataStride = 32;
-
-    /// <summary>Bytes per entry in the string table: one int offset.</summary>
-    private const int StringTableStride = 4;
-
     /// <summary>Reads the whole texture table.</summary>
     /// <param name="file">The map's bytes.</param>
     /// <returns>One entry per texture, in file order.</returns>
@@ -58,13 +50,16 @@ public static class BspMaterials
         BspHeader header = BspHeader.Parse(file.Span);
 
         ReadOnlySpan<byte> texdata = BspLumpData
-            .ReadStructures(file, header.Lump(LumpTexdata), TexdataStride, "texdata").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Texdata), TexdataStride, "texdata").Span;
         ReadOnlySpan<byte> table = BspLumpData
             .ReadStructures(
-                file, header.Lump(LumpTexdataStringTable), StringTableStride, "texdata string table")
+                file,
+                header.Lump(BspLumpIndex.TexdataStringTable),
+                StringTableStride,
+                "texdata string table")
             .Span;
         ReadOnlySpan<byte> names = BspLumpData
-            .Read(file, header.Lump(LumpTexdataStringData)).Span;
+            .Read(file, header.Lump(BspLumpIndex.TexdataStringData)).Span;
 
         int count = texdata.Length / TexdataStride;
         int nameCount = table.Length / StringTableStride;
