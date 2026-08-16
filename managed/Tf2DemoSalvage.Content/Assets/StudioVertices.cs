@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 
 using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+using static Tf2DemoSalvage.Content.Assets.VertexFileLayout;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -56,17 +57,6 @@ public readonly record struct StudioVertex(
 /// </remarks>
 public static class StudioVertices
 {
-    /// <summary>'IDSV', the identifier at the front of a vertex file.</summary>
-    private const int Identifier = 0x56534449;
-
-    /// <summary>The version every Source game writes.</summary>
-    private const int SupportedVersion = 4;
-
-    private const int HeaderBytes = 64;
-    private const int FixupBytes = 12;
-
-    /// <summary>How many levels of detail a model may declare, from <c>MAX_NUM_LODS</c>.</summary>
-    private const int MaximumLods = 8;
 
     /// <summary>The most vertices this reader will build for one model.</summary>
     /// <remarks>
@@ -98,24 +88,24 @@ public static class StudioVertices
 
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < HeaderBytes)
+        if (bytes.Length < VvdHeaderStride)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file of {bytes.Length:N0} bytes is too short to hold its header."));
         }
 
-        if (BinaryPrimitives.ReadInt32LittleEndian(bytes) != Identifier)
+        if (BinaryPrimitives.ReadInt32LittleEndian(bytes) != VvdIdentifier)
         {
             throw new InvalidDataException("This is not a vertex file: it does not begin 'IDSV'.");
         }
 
         int version = BinaryPrimitives.ReadInt32LittleEndian(bytes[4..]);
 
-        if (version != SupportedVersion)
+        if (version != VvdVersion)
         {
             throw new InvalidDataException(
-                $"A vertex file declares version {version}, and only {SupportedVersion} is known.");
+                $"A vertex file declares version {version}, and only {VvdVersion} is known.");
         }
 
         int lods = BinaryPrimitives.ReadInt32LittleEndian(bytes[12..]);
@@ -177,7 +167,7 @@ public static class StudioVertices
 
         ReadOnlySpan<byte> table = Region(file, fixupStart, "fixup table");
 
-        if ((long)fixups * FixupBytes > table.Length)
+        if ((long)fixups * FixupStride > table.Length)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
@@ -188,7 +178,7 @@ public static class StudioVertices
 
         for (int index = 0; index < fixups; index++)
         {
-            ReadOnlySpan<byte> fixup = table.Slice(index * FixupBytes, FixupBytes);
+            ReadOnlySpan<byte> fixup = table.Slice(index * FixupStride, FixupStride);
 
             int fixupLod = BinaryPrimitives.ReadInt32LittleEndian(fixup);
             int source = BinaryPrimitives.ReadInt32LittleEndian(fixup[4..]);
@@ -247,7 +237,7 @@ public static class StudioVertices
     /// <summary>The rest of the file from a declared start, checked to be inside it.</summary>
     private static ReadOnlySpan<byte> Region(ReadOnlySpan<byte> file, int start, string what)
     {
-        if (start < HeaderBytes || start > file.Length)
+        if (start < VvdHeaderStride || start > file.Length)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,

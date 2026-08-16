@@ -19,6 +19,38 @@ Run them with `dotnet test --filter Conformance`. The skipped count IS the score
 shaders a real map asks for that this project does not implement — and then checked one at a time
 against `source-sdk-2013`.
 
+## The derived half: numbers computed from the SDK, not typed twice
+
+The suites above name behaviour. A second group checks the **numbers**, and it does not hold a copy
+of them — each value is computed from Valve's own declaration and compared against the constant the
+readers actually use.
+
+| Suite | Derives | From |
+|---|---|---|
+| `BspLumpTests` | 29 lump indices | `public/bspfile.h` |
+| `BspStructTests` | 19 strides and 20 field offsets | structure declarations in `bspfile.h`, `mathlib.h` |
+| `StudioStructTests` | 55 header offsets and strides | `public/studio.h` |
+| `VertexFileStructTests` | VTX and VVD strides, byte-packed | `public/optimize.h`, `public/studio.h` |
+| `SurfaceFlagTests` | 12 `SURF_*` bits, and names the 4 ignored | `public/bspflags.h` |
+| `EngineConstantConformanceTests` | `EF_NODRAW`, `EF_BONEMERGE`, handle widths | `public/const.h` |
+| `UserCommandConformanceTests` | the usercmd field order and 14 widths | `WriteUsercmd` in `game/shared/usercmd.cpp` |
+
+**Why derived rather than compared.** A test asserting `56 == 56` against a header tests typing.
+`CStruct` reads `struct dface_t`, sums its members under C's alignment rules, and asserts that total
+against the reader's stride — so it also produces the field offsets, which is the half that matters:
+a stride can be right while the fields inside it are read from the wrong places, and the sum is
+identical either way.
+
+**It caught its own author twice.** `LUMP_FACES_HDR` was written as 54 from memory (it is 58), and
+the parser initially counted both branches of `#ifdef PLATFORM_64BITS`, which made
+`mstudiotexture_t` 96 bytes and failed a correct constant. Both are written up in
+[`findings/08-method.md`](findings/08-method.md).
+
+**Known gaps, stated rather than implied**: `ddispinfo_t`'s stride (it embeds classes, not structs),
+the static prop game lump (per-version layout in `gamebspfile.h`), and the VTX topology-field
+variants (added under a define the published SDK does not carry — only the eight-byte difference is
+checkable).
+
 ## Why the census counts are not the priority order
 
 The census is honest about what a map *declares* and says nothing about what a map *shows*. Three

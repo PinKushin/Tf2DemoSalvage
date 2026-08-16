@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Tf2DemoSalvage.Core.Primitives;
@@ -101,6 +102,39 @@ public sealed record UserCommand(
     private const int ImpulseBits = 8;
     private const int ShortBits = 16;
     private const int BitsPerByte = 8;
+
+    /// <summary>Every field this reads, in order, with the width it reads it at.</summary>
+    /// <remarks>
+    /// **The order IS the format.** Each field is one presence bit followed by its payload, with
+    /// nothing to resynchronise on — so transposing two fields, or reading one at the wrong width,
+    /// shifts everything after it and still decodes. What comes back is a full command with
+    /// plausible numbers in the wrong members, which for a recorded run means a falsified input
+    /// trace rather than a parse error.
+    ///
+    /// Named with the engine's own member names so <c>UserCommandConformanceTests</c> can extract
+    /// the same list from <c>WriteUsercmd</c> and compare position by position, rather than
+    /// checking a transcription of it against another transcription.
+    ///
+    /// <c>viewangles</c> is three separate writes in Valve's source, and this reads three fields, so
+    /// they are listed as three.
+    /// </remarks>
+    internal static IReadOnlyList<(string Name, int Bits)> WireFields =>
+    [
+        ("command_number", Int32Bits),
+        ("tick_count", Int32Bits),
+        ("viewangles", Int32Bits),
+        ("viewangles", Int32Bits),
+        ("viewangles", Int32Bits),
+        ("forwardmove", Int32Bits),
+        ("sidemove", Int32Bits),
+        ("upmove", Int32Bits),
+        ("buttons", Int32Bits),
+        ("impulse", ImpulseBits),
+        ("weaponselect", WeaponSelectBits),
+        ("weaponsubtype", WeaponSubtypeBits),
+        ("mousedx", ShortBits),
+        ("mousedy", ShortBits),
+    ];
 
     /// <summary>
     /// The command number the engine would use: what the wire carried, or the steady-increment

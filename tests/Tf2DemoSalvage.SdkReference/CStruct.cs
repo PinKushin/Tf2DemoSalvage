@@ -104,6 +104,7 @@ public static class CStruct
     /// How many bytes a pointer member occupies, or null to refuse a structure containing one.
     /// </param>
     /// <param name="defined">Preprocessor symbols to treat as defined; null means none.</param>
+    /// <param name="pack">The <c>#pragma pack</c> in force; null means natural alignment.</param>
     /// <returns>The layout, or null when anything about it could not be determined.</returns>
     public static CLayout? Layout(
         string header,
@@ -111,8 +112,9 @@ public static class CStruct
         IReadOnlyDictionary<string, int>? constants = null,
         IReadOnlyDictionary<string, CTypeSize>? composites = null,
         int? pointerBytes = null,
-        IReadOnlySet<string>? defined = null) =>
-        Attempt(header, name, constants, composites, pointerBytes, defined).Layout;
+        IReadOnlySet<string>? defined = null,
+        int? pack = null) =>
+        Attempt(header, name, constants, composites, pointerBytes, defined, pack).Layout;
 
     /// <summary>Reads one structure's layout, and says what stopped it when it could not.</summary>
     /// <param name="header">The header's full text.</param>
@@ -123,6 +125,10 @@ public static class CStruct
     /// <param name="defined">
     /// Preprocessor symbols to treat as defined. Null means none, which is what a PC file written
     /// by a 32-bit tool was compiled with.
+    /// </param>
+    /// <param name="pack">
+    /// The <c>#pragma pack</c> in force, capping every member's alignment. Null means natural
+    /// alignment.
     /// </param>
     /// <returns>The layout, or the declaration that could not be resolved.</returns>
     /// <remarks>
@@ -138,7 +144,8 @@ public static class CStruct
         IReadOnlyDictionary<string, int>? constants = null,
         IReadOnlyDictionary<string, CTypeSize>? composites = null,
         int? pointerBytes = null,
-        IReadOnlySet<string>? defined = null)
+        IReadOnlySet<string>? defined = null,
+        int? pack = null)
     {
         ArgumentNullException.ThrowIfNull(header);
         ArgumentNullException.ThrowIfNull(name);
@@ -148,7 +155,7 @@ public static class CStruct
         // nested-brace check run on the raw text refuses a structure that has no nested brace at
         // all, and brace matching run on it is only correct because those two happen to balance.
         // Conditionals are then resolved rather than deleted; see Conditioned.
-        if (Conditioned(Uncommented(header), defined ?? Nothing, constants, out string? unhandled)
+        if (Conditioned(Uncommented(header), defined, constants, out string? unhandled)
             is not { } source)
         {
             return new CLayoutAttempt(null, unhandled);
@@ -190,13 +197,13 @@ public static class CStruct
 
                     if (!sameUnit)
                     {
-                        offset = Aligned(offset, declared.Type.Alignment);
+                        offset = Aligned(offset, Capped(declared.Type.Alignment, pack));
                         bitfieldType = declared.TypeName;
                         bitfieldBits = 0;
 
                         members.Add(new CMember(member, offset, declared.Type.Size, 1));
                         offset += declared.Type.Size;
-                        widest = Math.Max(widest, declared.Type.Alignment);
+                        widest = Math.Max(widest, Capped(declared.Type.Alignment, pack));
                     }
                     else
                     {
@@ -212,19 +219,20 @@ public static class CStruct
                 bitfieldType = null;
                 bitfieldBits = 0;
 
-                offset = Aligned(offset, declared.Type.Alignment);
+                offset = Aligned(offset, Capped(declared.Type.Alignment, pack));
                 int size = declared.Type.Size * elements;
 
                 members.Add(new CMember(member, offset, size, elements));
 
                 offset += size;
-                widest = Math.Max(widest, declared.Type.Alignment);
+                widest = Math.Max(widest, Capped(declared.Type.Alignment, pack));
             }
         }
 
         return members.Count == 0
             ? new CLayoutAttempt(null, $"{name} was found but declared no members")
-            : new CLayoutAttempt(new CLayout(name, members, Aligned(offset, widest)), null);
+            : new CLayoutAttempt(
+                new CLayout(name, members, Aligned(offset, Capped(widest, pack))), null);
     }
 
     /// <summary>The text between a structure's braces, or null when it cannot be isolated.</summary>
@@ -313,13 +321,15 @@ public static class CStruct
         return kept.ToString();
     }
 
-    /// <summary>Removes comments, leaving the code.</summary>
+    /// <summary>Removes comments from a header or a source file.</summary>
     /// <remarks>
     /// Run on the whole header before a brace is counted or a structure is found, because a comment
     /// can contain either — <c>dface_t</c> comments out a union, braces and all.
     /// </remarks>
-    private static string Uncommented(string header)
+    public static string Uncommented(string header)
     {
+        ArgumentNullException.ThrowIfNull(header);
+
         string stripped = Regex.Replace(
             header, @"/\*.*?\*/", " ", RegexOptions.Singleline, PatternLimit);
 
@@ -346,12 +356,16 @@ public static class CStruct
     /// **An expression this cannot evaluate is reported, not assumed.** Guessing a branch would
     /// silently include or drop members.
     /// </remarks>
-    private static string? Conditioned(
+    public static string? Conditioned(
         string text,
-        IReadOnlySet<string> defined,
+        IReadOnlySet<string>? defined,
         IReadOnlyDictionary<string, int>? constants,
         out string? unhandled)
     {
+        ArgumentNullException.ThrowIfNull(text);
+
+        defined ??= Nothing;
+
         unhandled = null;
 
         StringBuilder kept = new(text.Length);
@@ -647,6 +661,17 @@ public static class CStruct
 
         return (parsed.Groups[1].Value, elements, bits);
     }
+
+    /// <summary>An alignment, capped by whatever <c>#pragma pack</c> is in force.</summary>
+    /// <remarks>
+    /// **VTX is byte-packed and that is the whole reason its numbers look wrong.** optimize.h
+    /// wraps its declarations in <c>#pragma pack(1)</c>, so <c>StripHeader_t</c> is 27 bytes —
+    /// four ints, a short, a byte, two more ints — where natural alignment would pad it to 28.
+    /// Every strip after the first would then be read one byte late, and the indices that come
+    /// back are real numbers pointing at the wrong vertices.
+    /// </remarks>
+    private static int Capped(int alignment, int? pack) =>
+        pack is { } limit ? Math.Min(alignment, limit) : alignment;
 
     /// <summary>Rounds an offset up to an alignment boundary.</summary>
     private static int Aligned(int offset, int alignment) =>

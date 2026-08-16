@@ -41,6 +41,9 @@
     <!-- D8's cheap layer drives the same property definitions the coverage-guided runner does,
          so the two cannot disagree about what a valid parse is. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Fuzz\Tf2DemoSalvage.Fuzz.csproj" />
+    <!-- Reads source-sdk-2013 so conformance tests check this project's constants against the
+         engine's own declarations rather than against numbers typed a second time. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
 </Project>

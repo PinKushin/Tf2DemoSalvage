@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Assets.VertexFileLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
@@ -72,23 +74,6 @@ public readonly record struct StudioCorner(int Vertex, int LightingGroup, int Li
 
 public static class StudioTriangles
 {
-    private const int SupportedVersion = 7;
-
-    private const int HeaderBytes = 36;
-    private const int BodyPartBytes = 8;
-    private const int ModelBytes = 8;
-    private const int LodBytes = 12;
-    private const int MeshBytes = 9;
-    private const int VertexBytes = 9;
-
-    /// <summary>Strip and strip-group sizes, classic first and CS:GO's larger pair second.</summary>
-    private const int StripGroupBytes = 25;
-    private const int StripBytes = 27;
-    private const int StripGroupBytesWithTopology = 33;
-    private const int StripBytesWithTopology = 35;
-
-    private const int VertexOriginalIdOffset = 4;
-
     /// <summary>The strip flags that say how its indices are arranged.</summary>
     private const byte TriangleList = 1;
 
@@ -113,7 +98,7 @@ public static class StudioTriangles
 
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < HeaderBytes)
+        if (bytes.Length < VtxHeaderStride)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
@@ -122,10 +107,10 @@ public static class StudioTriangles
 
         int version = BinaryPrimitives.ReadInt32LittleEndian(bytes);
 
-        if (version != SupportedVersion)
+        if (version != VtxVersion)
         {
             throw new InvalidDataException(
-                $"An index file declares version {version}, and only {SupportedVersion} is known.");
+                $"An index file declares version {version}, and only {VtxVersion} is known.");
         }
 
         int checksum = BinaryPrimitives.ReadInt32LittleEndian(bytes[16..]);
@@ -157,8 +142,11 @@ public static class StudioTriangles
         bool topology,
         out List<List<StudioCorner>> meshes)
     {
-        int stripGroupStride = topology ? StripGroupBytesWithTopology : StripGroupBytes;
-        int stripStride = topology ? StripBytesWithTopology : StripBytes;
+        int stripGroupStride = topology
+            ? VtxStripGroupStrideWithTopology
+            : VtxStripGroupStride;
+
+        int stripStride = topology ? VtxStripStrideWithTopology : VtxStripStride;
 
         meshes = [];
 
@@ -174,7 +162,7 @@ public static class StudioTriangles
 
             for (int part = 0; part < parts; part++)
             {
-                int partAt = At(file, partsAt, part, BodyPartBytes);
+                int partAt = At(file, partsAt, part, VtxBodyPartStride);
 
                 int models = BinaryPrimitives.ReadInt32LittleEndian(file[partAt..]);
                 int modelsAt = partAt + BinaryPrimitives.ReadInt32LittleEndian(file[(partAt + 4)..]);
@@ -187,7 +175,7 @@ public static class StudioTriangles
                     // desynchronises them, and it surfaces as "strip groups do not fit either known
                     // layout" — a corrupt-file message for two walks disagreeing about a structure
                     // they both read correctly.
-                    int modelAt = At(file, modelsAt, index, ModelBytes);
+                    int modelAt = At(file, modelsAt, index, VtxModelStride);
 
                     // **The most detailed level only**, which is level zero. The rest exist to
                     // save work at a distance an overhead camera is not paying anyway.
@@ -204,7 +192,7 @@ public static class StudioTriangles
                         file,
                         modelAt + BinaryPrimitives.ReadInt32LittleEndian(file[(modelAt + 4)..]),
                         0,
-                        LodBytes);
+                        VtxLodStride);
 
                     ReadLod(file, lodAt, stripGroupStride, stripStride, meshes, ref group);
                 }
@@ -236,7 +224,7 @@ public static class StudioTriangles
 
         for (int mesh = 0; mesh < meshes; mesh++)
         {
-            int meshAt = At(file, meshesAt, mesh, MeshBytes);
+            int meshAt = At(file, meshesAt, mesh, VtxMeshStride);
 
             List<StudioCorner> corners = [];
 
@@ -273,7 +261,7 @@ public static class StudioTriangles
         int strips = BinaryPrimitives.ReadInt32LittleEndian(file[(groupAt + 16)..]);
         int stripsAt = groupAt + BinaryPrimitives.ReadInt32LittleEndian(file[(groupAt + 20)..]);
 
-        Check(file, verticesAt, vertices, VertexBytes);
+        Check(file, verticesAt, vertices, VtxVertexStride);
         Check(file, indicesAt, indices, sizeof(ushort));
 
         for (int strip = 0; strip < strips; strip++)
@@ -383,7 +371,7 @@ public static class StudioTriangles
         }
 
         int original = BinaryPrimitives.ReadUInt16LittleEndian(
-            file[(verticesAt + (index * VertexBytes) + VertexOriginalIdOffset)..]);
+            file[(verticesAt + (index * VtxVertexStride) + VtxVertexOriginalIdOffset)..]);
 
         // The strip group index is kept alongside, because baked lighting is stored in that
         // order while positions are stored in the mesh's.
@@ -395,7 +383,7 @@ public static class StudioTriangles
     {
         long at = (long)start + ((long)index * stride);
 
-        if (start < HeaderBytes || at < 0 || at + stride > file.Length)
+        if (start < VtxHeaderStride || at < 0 || at + stride > file.Length)
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
@@ -408,7 +396,7 @@ public static class StudioTriangles
     /// <summary>Checks an array lies inside the file without addressing an element of it.</summary>
     private static void Check(ReadOnlySpan<byte> file, int start, int count, int stride)
     {
-        if (count < 0 || start < HeaderBytes ||
+        if (count < 0 || start < VtxHeaderStride ||
             (long)start + ((long)count * stride) > file.Length)
         {
             throw new InvalidDataException(string.Create(

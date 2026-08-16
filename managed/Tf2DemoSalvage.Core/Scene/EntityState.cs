@@ -90,11 +90,18 @@ public sealed class EntityState
     private const int EdictBits = 11;
 
     /// <summary>
-    /// <c>INVALID_NETWORKED_EHANDLE_VALUE</c>: <c>(1 &lt;&lt; (MAX_EDICT_BITS + 10)) - 1</c>. Tested
+    /// <c>NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS</c> — the high part of a handle, which
+    /// distinguishes a slot's current occupant from the one that used to be there.
+    /// </summary>
+    private const int SerialBits = 10;
+
+    /// <summary>
+    /// <c>INVALID_NETWORKED_EHANDLE_VALUE</c>:
+    /// <c>(1 &lt;&lt; (MAX_EDICT_BITS + NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS)) - 1</c>. Tested
     /// against the WHOLE value, because its low eleven bits are 2047 and would otherwise read as a
     /// real slot.
     /// </summary>
-    private const int InvalidHandle = (1 << (EdictBits + 10)) - 1;
+    private const int InvalidHandle = (1 << (EdictBits + SerialBits)) - 1;
 
     /// <summary>Only things that animate carry the four below.</summary>
     private const string AnimatingTable = "DT_BaseAnimating";
@@ -280,6 +287,27 @@ public sealed class EntityState
     /// is NOT.
     /// </remarks>
     internal static int NoHandle => InvalidHandle;
+
+    /// <summary>The engine constants this decoder acts on, by their names in the SDK.</summary>
+    /// <remarks>
+    /// **Exposed so a conformance test can read the values the code uses, not copies of them.** A
+    /// test asserting <c>0x020 == 0x020</c> against <c>const.h</c> proves nothing about this class;
+    /// asserting <em>this</em> dictionary does. The names are the engine's, so the test needs no
+    /// translation table and a rename here fails there.
+    ///
+    /// Every one of them is a value whose corruption is silent: a wrong <c>EF_NODRAW</c> bit hides
+    /// or shows entities, a wrong <c>EF_BONEMERGE</c> parents a weapon to nothing, and a wrong
+    /// <c>MAX_EDICT_BITS</c> masks a handle to the wrong slot — which resolves to a real, existing,
+    /// different entity.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, int> EngineConstants =>
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["EF_NODRAW"] = NoDraw,
+            ["EF_BONEMERGE"] = BoneMerge,
+            ["MAX_EDICT_BITS"] = EdictBits,
+            ["NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS"] = SerialBits,
+        };
 
     /// <summary>Which way the entity faces.</summary>
     /// <returns>Pitch, yaw and roll in degrees, or <c>null</c> when never sent.</returns>
