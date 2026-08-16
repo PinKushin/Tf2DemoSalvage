@@ -142,9 +142,30 @@ property of the reader, and it goes unexamined because it is written in the same
 everything around it. Both of these had been recorded, correctly-sounding, in the file they excluded.
 
 **Still genuinely outside the SDK**, and pinned by other means: the `svc_` message numbering and the
-netmessages field widths (binary scanning, held up by the corpus decoding), and the game event type
-numbering (`GameEventManager` is closed — pinned by arithmetic instead, seven documented types plus
-absent being exactly three bits).
+netmessages field widths (binary scanning, held up by the corpus decoding).
+
+> **Correction, 2026-08-16.** This paragraph also listed the game event type numbering as outside the
+> SDK, "pinned by arithmetic instead". It is not, and it was not when that was written.
+>
+> **The ordering is stated in `igameevents.h:52`** — *"Valid data types are string, float, long,
+> short, byte & bool. If a data field should not be broadcasted to clients, use the type `local`"* —
+> which is 1 through 6, then 7. The enum in `GameEventDefinition.cs` had been citing that line the
+> whole time; only this document was out of date.
+>
+> **The widths and signedness were genuinely missing, and they are published too** — in the comment
+> block at the top of a shipped game resource file, `game/mod_hl2mp/resource/modevents.res`:
+> `bool` is 1 bit unsigned, `byte` 8 unsigned, `short` **16 signed**, `long` **32 signed**, `float`
+> 32. Signedness was previously assumed, and getting it backwards yields a plausible number rather
+> than an error — a negative score reading as 65,000-odd.
+>
+> **The transferable part is where the answer was.** The source menu in `CLAUDE.md` lists the SDK,
+> the Rust parser, the wiki and a decompiler. A comment block in a `.res` file is in none of those
+> categories, and it settled a question filed as closed. When a question is about a *format the game
+> reads*, the game's own data files are a source — and they ship with prose explaining themselves.
+>
+> Arithmetic is still what rules out the rival hypothesis (CS:GO's protobuf ordering needs four
+> bits), so it remains in `GameEventTypeWidthConformanceTests` as corroboration rather than as the
+> whole case.
 
 ## Why the census counts are not the priority order
 
