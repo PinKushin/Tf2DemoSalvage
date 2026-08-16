@@ -5046,3 +5046,26 @@ follows the point's owner is a different question and is not currently tested.
 read the demo's capture point entities, read the skin each one is sent, and check the model draws
 that family. Both halves of that are already implemented — `m_nSkin` is decoded (B73 era) and
 `StudioSkins` reads the table — so the question is only whether they are connected.
+
+### B88 — a static written by every map load, and the real signal it obscured
+
+**Found by the full-suite gate, not by any individual run**, which is the only way this class of
+defect surfaces. `PropModels.RejectedPropLighting` was a static property assigned on every
+`MapAssets.Load`. Viewer3D.Tests runs its fixtures in parallel (B87), so with several maps loading at
+once the value belonged to whichever finished last — and a test asserting on it was reading another
+test's map. It passed alone and failed in the gate.
+
+Now carried on the load's own result as `MapAssets.RefusedPropLighting`. The general rule it violated
+is older than this project: **a static is a variable shared with every future caller, including the
+ones running at the same time.** The parallelism policy warns about exactly this and the static was
+added anyway, three commits after that policy was written.
+
+**The signal it obscured is worth keeping.** The failing run reported **two** refused prop lighting
+files. `cp_process_final` has none, so those two came from a different map loaded by another fixture
+in the same run — meaning some map in the test set does ship baked prop lighting this project
+declines. That is the same phenomenon B55 recorded as "four vertex-lighting checksum mismatches" and
+which B83 then chased.
+
+Which map is not known, because the number arrived through the very static that made it
+unattributable. Recorded so the observation is not lost: **a refusal exists somewhere in the test
+corpus**, and the per-load list now makes it attributable the moment anyone looks.

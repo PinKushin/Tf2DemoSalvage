@@ -110,9 +110,10 @@ public sealed class AssetCoverageConformanceTests
         //
         // Zero is the target and the assertion. If this goes red, the names are the finding — go
         // and look at those props rather than relaxing the test.
-        Load();
-
-        IReadOnlyList<string> refused = PropModels.RejectedPropLighting;
+        // **Read from the load's own result, not from a static.** The first version of this test
+        // asked PropModels for a process-global list, passed alone, and failed in the full gate
+        // because the fixtures run in parallel and it was reading another test's map.
+        IReadOnlyList<string> refused = Load().RefusedPropLighting;
 
         foreach (string rejection in refused)
         {

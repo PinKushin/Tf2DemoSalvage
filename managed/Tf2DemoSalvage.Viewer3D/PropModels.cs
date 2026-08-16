@@ -62,19 +62,6 @@ internal readonly record struct PropVertex(
 /// </remarks>
 internal static class PropModels
 {
-    /// <summary>Every placement whose baked lighting existed and was refused, from the last build.</summary>
-    /// <remarks>
-    /// **Empty is the only acceptable state, and a test says so rather than a log.** A refusal means
-    /// a map shipped baked lighting for a prop and this project would not apply it, so the prop
-    /// draws with white vertex colours and looks like one the compiler never lit. That is a wrong
-    /// picture with no error attached, which is the failure mode this whole project keeps finding.
-    ///
-    /// Exposed rather than only logged because B55 recorded four of these in passing and B83 then
-    /// spent four hypotheses on capture points that draw wrong. A number in a log is not a signal
-    /// until something reads it; an assertion is.
-    /// </remarks>
-    public static IReadOnlyList<string> RejectedPropLighting { get; private set; } = [];
-
     /// <summary>Most animation frames to bake for one model.</summary>
     /// <remarks>
     /// **A budget, not a format limit.** Baking trades memory for playback cost, and the trade is
@@ -120,6 +107,11 @@ internal static class PropModels
 /// none contributes null, because the renderer indexes both lists by one number.
 /// </param>
     /// <param name="load">Resolves a material to its textures, or returns null.</param>
+    /// <param name="refusedLighting">
+    /// Collects the placements whose baked lighting existed and was refused, when supplied. Passed
+    /// in rather than returned through a static: a static written by every map load is meaningless
+    /// once two loads overlap, which is exactly what the parallel test suite does.
+    /// </param>
     /// <returns>Every placed triangle corner, three per triangle.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static IReadOnlyList<PropVertex> Load(
@@ -129,7 +121,8 @@ internal static class PropModels
         List<BspMaterial> materials,
         List<MapTexture?> textures,
         List<MapTexture?> blendTextures,
-        Func<string, ResolvedMaterial?> load)
+        Func<string, ResolvedMaterial?> load,
+        List<string>? refusedLighting = null)
     {
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
@@ -259,7 +252,7 @@ internal static class PropModels
             }
         }
 
-        RejectedPropLighting = refused;
+        refusedLighting?.AddRange(refused);
 
         // **Four categories, not one.** A log that reports only failures reads clean while
         // everything quietly falls back, which is how four refused lighting files sat inside an

@@ -384,6 +384,20 @@ internal sealed class MapAssets
     /// <remarks>Everything past this index is a prop or model material, appended after them.</remarks>
     public int BrushMaterialCount { get; private init; }
 
+    /// <summary>Placements whose baked lighting existed and this project would not apply.</summary>
+    /// <remarks>
+    /// **Empty is the only acceptable state, and a test says so rather than a log.** A refusal means
+    /// a map shipped baked lighting for a prop and this project declined it, so the prop draws with
+    /// white vertex colours and is indistinguishable from one the compiler never lit.
+    ///
+    /// **On the result rather than in a static, and that was a real bug.** The first version was a
+    /// static on <c>PropModels</c> written by every load. The full-suite run has these fixtures in
+    /// parallel, so the value belonged to whichever map finished last and a test asserting on it
+    /// was reading another test's map — passing alone and failing in the gate, which is the shape
+    /// of every shared-mutable-state defect.
+    /// </remarks>
+    public IReadOnlyList<string> RefusedPropLighting { get; private init; } = [];
+
     /// <summary>Every face's baked lighting, packed into one image.</summary>
     public LightmapAtlas Lightmaps { get; }
 
@@ -548,6 +562,14 @@ internal sealed class MapAssets
 
         IDisposable propTiming = ViewerLog.Time("assets", "loading props");
 
+        // **Carried on the result rather than in a static**, which is the second time that
+        // distinction has bitten in this file. A static written by every map load is meaningless
+        // the moment two loads overlap: the full suite runs these fixtures in parallel and the
+        // value belonged to whichever load finished last, so a test asserting on it was reading
+        // another test's map. Found by the gate rather than by any individual run, which is what a
+        // full-suite run is for.
+        List<string> refusedLighting = [];
+
         IReadOnlyList<PropVertex> props = PropModels.Load(
             map,
             pak,
@@ -555,7 +577,8 @@ internal sealed class MapAssets
             materials,
             textures,
             blendTextures,
-            ResolveProp);
+            ResolveProp,
+            refusedLighting);
 
         propTiming.Dispose();
 
@@ -684,6 +707,7 @@ internal sealed class MapAssets
             UnimplementedParameters = census,
             UnimplementedShaders = shaderCensus,
             BrushMaterialCount = brushMaterials,
+            RefusedPropLighting = refusedLighting,
         };
     }
 
