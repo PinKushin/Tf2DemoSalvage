@@ -85,6 +85,33 @@ jobs:
       - name: Publish the harness
         run: dotnet publish tests/Tf2DemoSalvage.Fuzz -c Release -o publish
 
+      - name: Seed the container target
+        # Without a seed the corpus starts empty, and the container target's input has an
+        # 8-byte magic and a 1072-byte fixed header before anything varies - mutation from
+        # nothing never crosses that reliably. Not a demo from the corpus: lfs is disabled
+        # above and this workflow never reads tools/corpus/demos. TF2FUZZ_SEED_PATH makes the
+        # harness generate its own valid demo from DemoWriter instead.
+        #
+        # **This step MUST run before instrumentation, and it used to run after.** SharpFuzz
+        # rewrites Core.dll to record coverage into a shared memory region that libFuzzer creates;
+        # run that instrumented assembly under a plain `dotnet` with no fuzzer around it and the
+        # writes land nowhere valid:
+        #
+        #   Fatal error. System.AccessViolationException: Attempted to read or write protected
+        #   memory. ... Process completed with exit code 134
+        #
+        # The seed generator is an ordinary program run, not a fuzz iteration, so it needs the
+        # harness and not the instrumentation. Moving it above the instrument step is the whole fix.
+        #
+        # **It failed this way every night from at least 2026-08-13 to 2026-08-16 and read as a
+        # finding.** A fuzz workflow going red is what a crash looks like, so a crash in the SEED
+        # step wears the same clothes as the thing the workflow exists to detect - and the container
+        # target, the one with the most surface, was not fuzzed at all for those four days.
+        if: matrix.target == 'container'
+        run: |
+          mkdir -p corpus-container
+          TF2FUZZ_SEED_PATH=corpus-container/seed dotnet publish/Tf2DemoSalvage.Fuzz.dll
+
       - name: Instrument the code under test
         run: |
           dotnet tool install --global SharpFuzz.CommandLine
@@ -131,17 +158,6 @@ jobs:
           else
             echo "nothing published yet, or the fetch failed; using the cache only"
           fi
-
-      - name: Seed the container target
-        # Without a seed the corpus starts empty, and the container target's input has an
-        # 8-byte magic and a 1072-byte fixed header before anything varies - mutation from
-        # nothing never crosses that reliably. Not a demo from the corpus: lfs is disabled
-        # above and this workflow never reads tools/corpus/demos. TF2FUZZ_SEED_PATH makes the
-        # harness generate its own valid demo from DemoWriter instead.
-        if: matrix.target == 'container'
-        run: |
-          mkdir -p corpus-container
-          TF2FUZZ_SEED_PATH=corpus-container/seed dotnet publish/Tf2DemoSalvage.Fuzz.dll
 
       - name: Fuzz
         env:
