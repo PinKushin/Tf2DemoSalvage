@@ -81,6 +81,49 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>includemodelindex</c>.</summary>
     public const int HeaderIncludeIndexOffset = 340;
 
+    /// <summary>Byte offset of <c>numlocalattachments</c>.</summary>
+    /// <remarks>
+    /// **These five are declared ahead of the reader that will use them, deliberately.** B82 is
+    /// open: items parented to an attachment are not implemented, so a halo or a canteen sits at the
+    /// wearer's feet. The standing order of work here is the conformance test first, then the
+    /// ordinary tests, then the implementation — so the layout is pinned against
+    /// <c>public/studio.h</c> now, and whatever reads it later starts from numbers that were checked
+    /// before anything depended on them.
+    ///
+    /// That is the opposite of how the BSP lump constants began, which sat unread long enough that
+    /// their test guarded a file nothing used. The difference is that this is one step of a sequence
+    /// with the next step named, rather than a table someone forgot to wire up.
+    /// </remarks>
+    public const int HeaderAttachmentCountOffset = 240;
+
+    /// <summary>Byte offset of <c>localattachmentindex</c>.</summary>
+    public const int HeaderAttachmentIndexOffset = 244;
+
+    /// <summary>Bytes per <c>mstudioattachment_t</c>.</summary>
+    public const int AttachmentStride = 92;
+
+    /// <summary>Byte offset of <c>sznameindex</c>: the attachment's name, such as <c>head</c>.</summary>
+    /// <remarks>
+    /// **Attachments are matched by NAME, not by index**, which is why this field is the one that
+    /// matters. A cosmetic asks for <c>partyhat</c> or <c>eyeglow_L</c>; the index it happens to
+    /// occupy differs between models.
+    /// </remarks>
+    public const int AttachmentNameOffset = 0;
+
+    /// <summary>Byte offset of <c>flags</c>.</summary>
+    public const int AttachmentFlagsOffset = 4;
+
+    /// <summary>Byte offset of <c>localbone</c>: which bone the point hangs off.</summary>
+    public const int AttachmentBoneOffset = 8;
+
+    /// <summary>Byte offset of <c>local</c>: a 3×4 matrix, the offset from that bone.</summary>
+    /// <remarks>
+    /// **The half that makes an attachment different from a bone.** Taking the bone's transform
+    /// alone puts the item at the bone rather than at the point — close for a hat, visibly wrong for
+    /// anything offset from the head, and identical to the bone-merge path this project already has.
+    /// </remarks>
+    public const int AttachmentMatrixOffset = 12;
+
     /// <summary>Bytes per <c>mstudiobone_t</c>.</summary>
     public const int BoneStride = 216;
 

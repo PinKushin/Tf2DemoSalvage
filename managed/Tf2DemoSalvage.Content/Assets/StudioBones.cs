@@ -181,7 +181,7 @@ public sealed class StudioSkeleton
 public static class StudioBones
 {
     /// <summary>Most bones a model may declare, as a guard against a malformed header.</summary>
-    private const int MaximumBones = 1024;
+    private const int MaximumBones = StudioReaderLimits.Bones;
 
     /// <summary>Reads a model's skeleton.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>

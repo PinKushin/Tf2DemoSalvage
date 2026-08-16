@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 public static class StudioModelGroups
 {
     /// <summary>Most models one may include, as a guard against a malformed header.</summary>
-    private const int MaximumGroups = 64;
+    private const int MaximumGroups = StudioReaderLimits.IncludedModels;
 
     /// <summary>Reads the paths of the models this one includes.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
