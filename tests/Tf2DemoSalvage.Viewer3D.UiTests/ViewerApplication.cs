@@ -196,7 +196,32 @@ internal sealed partial class ViewerApplication : IDisposable
 
         // GetMainWindow polls until the window exists rather than assuming it is up, which
         // matters most on the first run after a build when the process starts cold.
-        Window window = application.GetMainWindow(automation, LaunchTimeout)
+        //
+        // **Its own budget is not the whole story, because UI Automation has a second one.** Once a
+        // window handle exists, FlaUI asks UIA to turn it into an element, and UIA's ElementFromHandle
+        // requires the OWNING THREAD to pump messages. The viewer opens its demo and loads the map
+        // synchronously on the UI thread (MainForm, "bool haveMap = LoadMap(...)"), so between the
+        // window being created and the load finishing there is a window handle attached to a thread
+        // that answers nothing. UIA gives up on that after a few seconds of its own and throws
+        // COMException 0x80131505 — which escapes GetMainWindow's wait rather than being retried by
+        // it, so a two-minute budget expired in five seconds.
+        //
+        // Measured on CI 2026-08-16: this suite passed taking 2 m 30 s, then failed at 5 s after a
+        // change added work to map loading. Nothing about the viewer's ability to start had changed;
+        // the load simply crossed UIA's patience, and the report — "UIA Timeout" at the launch — reads
+        // like a viewer that will not start.
+        //
+        // **Retrying the COM timeout is synchronising on the condition, not on the clock.** The
+        // condition is "the process is answering", the budget is the same LaunchTimeout, and a
+        // responsive viewer pays nothing. What is NOT acceptable is treating this as flake and
+        // rerunning the suite: the failure is deterministic given a slow enough load.
+        //
+        // The real fix is in the application — loading a map on the UI thread also freezes the window
+        // for a human — and is deliberately not made here. See B90.
+        Window window = Retry.WhileException(
+            () => application.GetMainWindow(automation, LaunchTimeout),
+            LaunchTimeout,
+            throwOnTimeout: true).Result
             ?? throw new InvalidOperationException(
                 $"The viewer's main window did not appear within {LaunchTimeout}.");
 
