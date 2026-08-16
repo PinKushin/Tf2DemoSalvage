@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 
 using FlaUI.Core.Tools;
 
@@ -32,7 +33,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// of another suite's way.
 /// </remarks>
 [SetUpFixture]
-internal sealed class ViewerSession
+internal sealed partial class ViewerSession
 {
     private static ViewerApplication? _viewer;
 
@@ -56,6 +57,8 @@ internal sealed class ViewerSession
     [OneTimeSetUp]
     public void LaunchTheViewer()
     {
+        RefuseIfAGameHasTheDesktop();
+
         if (!File.Exists(DemoPath))
         {
             Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
@@ -94,6 +97,83 @@ internal sealed class ViewerSession
         // that shutting down did not.
         KillStrayViewers();
     }
+
+    /// <summary>Games that capture input, and must not be in front when this suite runs.</summary>
+    /// <remarks>
+    /// **Deliberately a short list rather than "anything that is not us".** The owner having an
+    /// editor or a browser focused while tests run is normal and harmless — these tests drive their
+    /// own window and a stolen click lands somewhere recoverable. A GAME is different: it captures
+    /// the mouse, so synthesized input goes into it as movement and fire commands, and the owner's
+    /// session is what pays.
+    ///
+    /// A broader check would be safer and would also refuse most of the time, which is how a guard
+    /// gets deleted.
+    /// </remarks>
+    private static readonly string[] InputCapturingGames =
+    [
+        "tf_win64", "tf", "hl2", "csgo", "cs2", "portal2", "left4dead2",
+    ];
+
+    /// <summary>Refuses to run while a game holds the foreground.</summary>
+    /// <remarks>
+    /// **One P/Invoke pair, microseconds, once per assembly** — the cost had to be nil or this would
+    /// not be worth having, and the owner said so directly.
+    ///
+    /// Why it exists: <c>run-exclusive.ps1</c> serialises this machine against other AGENTS and
+    /// knows nothing about the owner's own running game. A UI phase firing while TF2 is focused does
+    /// not fail; it delivers clicks and keystrokes into TF2. That hazard is written down in the
+    /// global rules for two agents sharing a desktop and had never been written down for the human
+    /// case — it was found on 2026-08-16, after a whole session of UI runs with nothing checking it.
+    ///
+    /// Ignores rather than fails, because the owner being mid-game is not a defect in this code and
+    /// a red suite would train someone to rerun it until it passed.
+    /// </remarks>
+    private static void RefuseIfAGameHasTheDesktop()
+    {
+        nint window = GetForegroundWindow();
+
+        if (window == 0)
+        {
+            return;
+        }
+
+        _ = GetWindowThreadProcessId(window, out uint owner);
+
+        string? name = null;
+
+        try
+        {
+            using Process process = Process.GetProcessById((int)owner);
+            name = process.ProcessName;
+        }
+        catch (Exception failure) when (failure is ArgumentException or InvalidOperationException)
+        {
+            // The window's process ended between the two calls, which is not a reason to stop.
+            return;
+        }
+
+        if (InputCapturingGames.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            Assert.Ignore(
+                $"{name} has the foreground. This suite drives the desktop with synthesized input, " +
+                "so running now would deliver clicks and keystrokes into the game. Close it or " +
+                "alt-tab away and run again.");
+        }
+    }
+
+    // **Pinned to System32, which is CA5392 and is a real rule rather than ceremony.** An unqualified
+    // P/Invoke searches the application directory first, so a user32.dll dropped beside the test
+    // binaries would be loaded in preference to Windows' own. That matters more here than in most
+    // places: this assembly runs from a build output directory that tooling writes to.
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(
+        System.Runtime.InteropServices.DllImportSearchPath.System32)]
+    private static partial nint GetForegroundWindow();
+
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(
+        System.Runtime.InteropServices.DllImportSearchPath.System32)]
+    private static partial uint GetWindowThreadProcessId(nint window, out uint processId);
 
     /// <summary>Ends any viewer left behind by an earlier run.</summary>
     private static void KillStrayViewers()
