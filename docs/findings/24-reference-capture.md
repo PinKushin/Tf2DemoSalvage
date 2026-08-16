@@ -114,8 +114,17 @@ Measured, in this order:
 2. **No visible difference.** Flipped between `-1` and `-10` live at red last on Badlands. Nothing
    changed on screen. (Owner observation — the right instrument for an appearance claim.)
 
-So the value is stored and does nothing, which is the worst-looking combination until the mechanism
-explains it. `vtf.h` does:
+3. **It does crash the client, but only through `mat_texture_list`** — the texture dump panel, which
+   is `sv_cheats` gated. Map load and normal play are unaffected. So `ultra` is safe to ship; it is
+   the *measuring* command that dies.
+
+That third point is worth its own note, because `mat_texture_list` is what this document originally
+proposed as the instrument for settling item 7. **It crashes at exactly the value it was meant to
+measure.** Same family as the unescaped-`%` crontab trap in `CLAUDE.md`: a mechanism that fails the
+same way as the thing under test tells you nothing either way.
+
+So the value is stored and does nothing visible, which is the worst-looking combination until the
+mechanism explains it. `vtf.h` does:
 
 ```c
 #define VTF_RSRC_TEXTURE_LOD_SETTINGS ( MK_VTF_RSRC_ID( 'L','O','D' ) )
@@ -171,6 +180,14 @@ lightmap set. A setting can be presented as an aesthetic and still change which 
 displays by roughly a decade — it is high range in the *lighting computation*, tonemapped to ordinary
 8-bit output. It displays on any panel. The reason to avoid it here is items 1 and 2, not the
 hardware.
+
+**A test procedure written to be convenient, and insensitive because of it.** The `-1` versus `-10`
+comparison was specified as a *live* flip mid-playback, explicitly to avoid a map reload. Textures
+were therefore already resident, so nothing about texture loading was exercised — and the crash that
+does exist went unseen until it turned up by other means. The convenience was the defect: an input
+was chosen for which working and broken predict the same observation. Then the *first* instinct on
+hearing "it crashes" was to change the config, before asking what condition produced the crash; it
+was `mat_texture_list`, not map load, and the config needed no change at all.
 
 **"`bandwidth=6.0Mbps` is not a valid mastercomfig level."** Claimed while enumerating module levels
 with a pattern that excluded `.` from level names, which silently truncated the list at `762Kbps`.
