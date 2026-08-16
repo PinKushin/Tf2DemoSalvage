@@ -5092,3 +5092,29 @@ synchronisation or in the app and never noise, so "it was busy" is a description
 diagnosis. The two-phase split removes the contention; if a failure survives it, the test is waiting
 on the clock somewhere instead of on a condition. Which test failed was not captured, because the
 gate's output was filtered to summary lines — itself worth fixing before the next run.
+
+**B89 amended, 2026-08-16 — the diagnosis was confounded and should not stand as written.**
+
+The owner was running TF2 in the background, testing a config in another session, throughout the
+runs above. That was not known when the conclusion was drawn, and it breaks it.
+
+What was claimed: the UI suite failed because `dotnet test` runs assemblies concurrently, and
+"it survives the split, so it was starved rather than waiting on a clock". What is actually
+supported: the UI suite failed in one run and passed in another, with an uncontrolled variable
+between them. The game was using 30-45% CPU in the owner's own screenshots, so the machine load was
+not the test suite's alone and the two runs are not comparable.
+
+**The two-phase gate is still right**, because the reasoning for it does not depend on that failure:
+`dotnet test` on a solution genuinely does run assemblies concurrently, and a UI suite genuinely
+should not share. That argument stands on its own. What does not stand is calling the observed
+failure evidence for it.
+
+**And a hazard this exposed that matters more than the diagnosis.** A UI suite drives the real
+desktop with synthesized input. `run-exclusive.ps1` serialises this machine against other AGENTS; it
+knows nothing about the owner's own running game. A UI phase firing while TF2 is focused does not
+fail — it delivers clicks and keystrokes into TF2, which is the same failure the global rules
+already describe for two agents and has simply never been written down for the human case.
+
+So the UI phase needs the desktop free of the owner too, and there is currently nothing that checks
+it. Whether the right answer is a foreground check, a prompt, or simply not running UI tests
+unattended is open.
