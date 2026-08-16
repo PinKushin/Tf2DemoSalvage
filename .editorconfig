@@ -62,6 +62,29 @@ dotnet_diagnostic.CS8603.severity = error   # possible null reference return
 dotnet_diagnostic.CS8618.severity = error   # non-nullable field uninitialized
 dotnet_diagnostic.CS8933.severity = error   # using directive already global
 
+# --- Quoting the engine is the point, not dead code ---
+#
+# S125 flags "commented out code", and in this repository it fires on TRUE POSITIVES that are
+# exactly what the codebase is for: a comment carrying the line of Valve's source that a piece of
+# code was ported from.
+#
+#     NDotL = NDotL * 0.5 + 0.5;              common_vs_fxc.h:826
+#     baseColor * baseColor2 * g_DiffuseModulation   unlittwotexture_ps2x.fxc
+#     pSkinref(skin * numskinref + material)
+#
+# Those citations are the single most valuable convention here — they are how "read the SDK first"
+# survives into a session that has forgotten why. Because every firing is a true positive by the
+# rule's own definition, per-site suppression would be permanent noise rather than an occasional
+# escape hatch, and the pressure would be to reword citations until they stop looking like code,
+# which destroys the thing being kept.
+#
+# Dead code is still guarded, by rules that measure it directly: unused members, unreachable code,
+# and the standing ban on stubs. Turning this off costs a weak signal and keeps a strong one.
+#
+# The known trade: `rg` for a formula now matches comments as well as code. That is wanted here —
+# finding where an equation is CITED is usually the question, not where it is evaluated.
+dotnet_diagnostic.S125.severity = none      # "commented out code" — engine citations, deliberate
+
 # --- Noise: documentation and localization rules off, this is not a public API surface yet ---
 dotnet_diagnostic.CS1591.severity = none    # missing XML comment
 dotnet_diagnostic.CA1303.severity = none    # do not pass literals as localized parameters
