@@ -303,6 +303,16 @@ public static class SourceSdk
             RegexOptions.Multiline,
             PatternLimit);
 
+        // **`(1 << n)` is how Valve writes most flag sets**, and skipping it left whole headers
+        // looking empty. soundflags.h declares every SND_* that way, so an extraction that only
+        // understood literals reported no sound flags at all — which reads as "the header moved"
+        // rather than "the pattern is too narrow". Only this one shape is evaluated; anything built
+        // from other constants is still skipped rather than half-computed.
+        Regex shifted = new(
+            @"(?:^\s*#define\s+|^\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=?\s*\(\s*1\s*<<\s*(\d+)\s*\)",
+            RegexOptions.Multiline,
+            PatternLimit);
+
         static int Number(string text) =>
             text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
                 ? Convert.ToInt32(text[2..], 16)
@@ -310,7 +320,12 @@ public static class SourceSdk
 
         IEnumerable<(string Name, int Value)> declarations = new[] { defined, enumerated }
             .SelectMany(pattern => pattern.Matches(text))
-            .Select(hit => (hit.Groups[1].Value, Number(hit.Groups[2].Value)));
+            .Select(hit => (hit.Groups[1].Value, Number(hit.Groups[2].Value)))
+            .Concat(shifted
+                .Matches(text)
+                .Select(hit => (
+                    hit.Groups[1].Value,
+                    1 << int.Parse(hit.Groups[2].Value, CultureInfo.InvariantCulture))));
 
         foreach ((string name, int value) in declarations)
         {

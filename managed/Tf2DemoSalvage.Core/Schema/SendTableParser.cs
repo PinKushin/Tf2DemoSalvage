@@ -22,7 +22,12 @@ namespace Tf2DemoSalvage.Core.Schema;
 public static class SendTableParser
 {
     /// <summary>Flags width on the wire: <c>SPROP_NUMFLAGBITS_NETWORKED</c>.</summary>
-    private const int FlagBits = 16;
+    /// <remarks>
+    /// Internal so <c>WireEncodingConformanceTests</c> checks the value this parser uses rather than
+    /// a copy of it. Sixteen, not the seventeen of <c>SPROP_NUMFLAGBITS</c> — reading one bit too
+    /// many here consumes part of the next field and takes the whole schema with it.
+    /// </remarks>
+    internal const int FlagBits = 16;
 
     private const int TypeBits = 5;
     private const int PropCountBits = 10;

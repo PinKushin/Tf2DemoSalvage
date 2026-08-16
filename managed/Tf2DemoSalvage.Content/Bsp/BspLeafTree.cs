@@ -37,7 +37,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 public sealed class BspLeafTree
 {
     /// <summary><c>CONTENTS_SOLID</c> from <c>bspflags.h</c>: "an eye is never valid in a solid".</summary>
-    private const int ContentsSolid = 0x1;
+    /// <remarks>Internal so <c>SurfaceFlagTests</c> checks this value rather than a copy of it.</remarks>
+    internal const int ContentsSolid = 0x1;
 
     /// <summary>How far to look for the sky before giving up, in world units.</summary>
     /// <remarks>

@@ -89,7 +89,7 @@ public sealed class VtfTexture
     /// <remarks>
     /// <c>TEXTUREFLAGS_SSBUMP</c> from <c>src/public/vtf/vtf.h</c>.
     /// </remarks>
-    private const uint SelfShadowBumpFlag = 0x08000000;
+    internal const uint SelfShadowBumpFlag = 0x08000000;
 
     private VtfTexture(
         int width, int height, VtfFormat format, int mipCount, byte[] pixels, int level, uint flags)
