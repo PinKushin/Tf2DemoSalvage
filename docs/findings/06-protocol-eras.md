@@ -225,3 +225,43 @@ For any era whose client runs, **a missing message is a recording task rather th
 That is the cheapest evidence on this axis and it generalises to every message type. What it
 cannot do is fill protocols 12–13 and 17–23, where the problem is finding the *build*, not finding
 the gameplay.
+
+---
+
+## An enum value inserted into the MIDDLE, and Valve says why
+
+Evidence class: **read from published source**, `game/shared/shareddefs.h:499`.
+
+```c
+OBS_MODE_POI,   // PASSTIME point of interest - game objective, big fight, anything
+                // interesting; added in the middle of the enum due to tons of
+                // hard-coded "<ROAMING" enum compares
+```
+
+**A value was added to the middle of a networked enumeration on purpose**, because the surrounding
+code compares `< OBS_MODE_ROAMING` and appending would have broken every one of those comparisons.
+The cost did not disappear — it moved onto the wire. `OBS_MODE_ROAMING`, and everything else at or
+after `POI`, is a **different integer before and after PASSTIME shipped**.
+
+**This is the era axis appearing somewhere other than the protocol number.** Everything else on this
+page is about the container and message layer changing between builds. This is a *value's meaning*
+changing while the protocol version, the message id, the field width and the send table all stay
+exactly the same. Nothing about the demo announces it.
+
+The failure it produces is the worst-behaved kind: a decoder with a hardcoded `7` for roaming reports
+an ordinary, legal camera mode on the wrong era. No exception, no impossible value, nothing to
+notice — and for a POV or SourceTV demo the observer mode is precisely what the recording *was*.
+
+**Two things follow for this project.**
+
+1. **An enum is not automatically era-stable, and appending is not the only thing that can happen to
+   one.** The working assumption had been that values are appended, so old values keep their meaning.
+   That holds until a maintainer values source compatibility over wire compatibility, and here one
+   did — and documented it in a comment rather than anywhere a parser author would look.
+2. **The comment is the only evidence.** Nothing in `proto_version.h` marks this, because the
+   protocol did not change. That makes it a class of era hazard that the boundary list cannot
+   enumerate: it has to be found by reading the code that uses the value.
+
+Worth a sweep of the other networked enums for the same shape before anything depends on their
+numbering. `UnimplementedGameplayEntityConformanceTests` pins this one, including Valve's comment —
+if it ever disappears, the fact it describes does not.
