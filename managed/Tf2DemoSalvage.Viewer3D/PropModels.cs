@@ -62,6 +62,19 @@ internal readonly record struct PropVertex(
 /// </remarks>
 internal static class PropModels
 {
+    /// <summary>Every placement whose baked lighting existed and was refused, from the last build.</summary>
+    /// <remarks>
+    /// **Empty is the only acceptable state, and a test says so rather than a log.** A refusal means
+    /// a map shipped baked lighting for a prop and this project would not apply it, so the prop
+    /// draws with white vertex colours and looks like one the compiler never lit. That is a wrong
+    /// picture with no error attached, which is the failure mode this whole project keeps finding.
+    ///
+    /// Exposed rather than only logged because B55 recorded four of these in passing and B83 then
+    /// spent four hypotheses on capture points that draw wrong. A number in a log is not a signal
+    /// until something reads it; an assertion is.
+    /// </remarks>
+    public static IReadOnlyList<string> RejectedPropLighting { get; private set; } = [];
+
     /// <summary>Most animation frames to bake for one model.</summary>
     /// <remarks>
     /// **A budget, not a format limit.** Baking trades memory for playback cost, and the trade is
@@ -160,6 +173,10 @@ internal static class PropModels
         int skipped = 0;
         int unlit = 0;
 
+        // Every placement whose baked lighting existed and was refused, named. Empty is the only
+        // acceptable state on a map this project claims to read; see RejectedPropLighting.
+        List<string> refused = [];
+
         for (int index = 0; index < placements.Count; index++)
         {
             BspStaticProp placement = placements[index];
@@ -186,12 +203,20 @@ internal static class PropModels
 
             PropTransform transform = new(placement);
 
-            IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? lighting =
-                Lighting(pak, placed: index, model.Checksum);
+            PropLighting lighting = Lighting(pak, placed: index, model.Checksum);
 
-            if (lighting is null)
+            if (lighting.Colours is null)
             {
                 unlit++;
+            }
+
+            if (lighting.Rejected is { } reason)
+            {
+                // **Counted apart from "has none", because they are not the same event.** A prop
+                // with no baked lighting is ordinary; a prop whose baked lighting was READ and
+                // refused is this project failing on data the game uses. Folding them together is
+                // what let four refusals sit inside a plausible "without baked lighting" total.
+                refused.Add($"prop {index} ({placement.Model}): {reason}");
             }
 
             for (int at = 0; at < model.Corners.Count; at++)
@@ -201,7 +226,7 @@ internal static class PropModels
                 (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
 
                 (float red, float green, float blue) = Colour(
-                    lighting, model.Meshes[at], model.Vertices[at]);
+                    lighting.Colours, model.Meshes[at], model.Vertices[at]);
 
                 // **The placement's own origin rides along**, so a prop can be kept or dropped as
                 // one thing. Judging its triangles individually cannot tell a 3D skybox prop from
@@ -234,13 +259,57 @@ internal static class PropModels
             }
         }
 
+        RejectedPropLighting = refused;
+
+        // **Four categories, not one.** A log that reports only failures reads clean while
+        // everything quietly falls back, which is how four refused lighting files sat inside an
+        // ordinary-looking total. What is asked for, what was found, what was produced and what is
+        // still missing are different questions, and only the last of them used to be written down.
         ViewerLog.Write(
             "props",
-            $"{placed} props placed from {loaded.Count} models ({skipped} skipped, " +
-            $"{unlit} without baked lighting), {world.Count / 3} triangles, " +
-            $"{transparent} of {textures.Count - brushMaterialCount} prop materials alpha tested");
+            $"ASKED FOR {placed} placements across {loaded.Count} models; " +
+            $"HAVE baked lighting for {placed - unlit}; " +
+            $"PRODUCED {world.Count / 3} triangles, {transparent} of " +
+            $"{textures.Count - brushMaterialCount} prop materials alpha tested; " +
+            $"MISSING {skipped} models that would not load, {unlit - refused.Count} placements the " +
+            $"compiler never lit, {refused.Count} whose baked lighting exists and was REFUSED");
+
+        foreach (string rejection in refused)
+        {
+            // Named individually, because a count tells you something is wrong and a name tells you
+            // which prop to go and look at. Four of these hid inside an aggregate for weeks.
+            ViewerLog.Write("props", $"refused baked lighting: {rejection}");
+        }
 
         return world;
+    }
+
+    /// <summary>What reading one placement's baked lighting produced.</summary>
+    /// <param name="Colours">The baked colours, or null when there are none to apply.</param>
+    /// <param name="Rejected">
+    /// Why lighting that DID exist was refused, or null when nothing was refused.
+    /// </param>
+    /// <remarks>
+    /// **This type exists because one <c>null</c> used to mean two unrelated things.** A prop with
+    /// no baked lighting is ordinary — a map compiled without static prop lighting has none for any
+    /// of them — while a prop whose lighting was found, read, and then refused on a checksum is this
+    /// project failing on data the game uses happily. Both returned null, both drew the prop with
+    /// white vertex colours, and only a warning line separated them.
+    ///
+    /// The cost was concrete: B55 recorded "four vertex-lighting checksum mismatches" in passing,
+    /// inside a total that read as ordinary, and B83 spent four hypotheses on capture points that
+    /// draw wrong. Absence and refusal are now different values, counted separately, and the refusal
+    /// count is asserted by a test rather than logged.
+    /// </remarks>
+    private readonly record struct PropLighting(
+        IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? Colours,
+        string? Rejected)
+    {
+        /// <summary>No baked lighting exists for this placement, which is ordinary.</summary>
+        public static PropLighting None => new(null, null);
+
+        /// <summary>Baked lighting exists and this project would not use it.</summary>
+        public static PropLighting Refused(string reason) => new(null, reason);
     }
 
     /// <summary>Reads one placement's baked lighting, or nothing when it has none.</summary>
@@ -250,8 +319,7 @@ internal static class PropModels
     /// prop lighting has none for any of them - so this reports absence quietly and the caller
     /// counts it.
     /// </remarks>
-    private static IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? Lighting(
-        PakFile pak, int placed, int checksum)
+    private static PropLighting Lighting(PakFile pak, int placed, int checksum)
     {
         foreach (string path in StudioVertexLighting.PathsFor(placed))
         {
@@ -263,7 +331,9 @@ internal static class PropModels
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
-                return null;
+                // The pakfile itself would not give up the entry. That is a refusal, not an
+                // absence: the map says the lighting is there and this could not read it.
+                return PropLighting.Refused($"{path} could not be read: {failure.Message}");
             }
 
             if (file is null)
@@ -273,18 +343,20 @@ internal static class PropModels
 
             try
             {
-                return StudioVertexLighting.Read(file, checksum);
+                return new PropLighting(StudioVertexLighting.Read(file, checksum), null);
             }
             catch (InvalidDataException failure)
             {
                 // Includes the checksum guard: lighting baked against a different build of the
-                // model would light the wrong parts of it. Unlit is the honest fallback.
+                // model would light the wrong parts of it, so refusing to apply it is right.
+                // Refusing SILENTLY was not - the prop then draws with white vertex colours and
+                // nothing distinguishes it from one the compiler never lit.
                 ViewerLog.Warn("props", $"reading {path}", failure);
-                return null;
+                return PropLighting.Refused($"{path}: {failure.Message}");
             }
         }
 
-        return null;
+        return PropLighting.None;
     }
 
     /// <summary>One vertex's baked colour, or white where there is none to apply.</summary>

@@ -4946,6 +4946,70 @@ markedly lower cube than the ones that look acceptable, the substitution above i
 closes into B55 — the fix being to implement `$envmap` rather than to adjust any lighting. If the
 cubes are all similar, this explanation is wrong and the difference is in the material after all.
 
+**Falsified within the hour, by the owner: BLU's second point is OUTSIDE, exactly like RED's.** So
+"under cover gets a dark ambient cube" cannot be the explanation either — two outdoor points on the
+same map, one dark and one not. That is the second hypothesis in this entry killed by an observation
+rather than by a measurement, and both died to the same kind of fact: what the owner can see and the
+code cannot.
+
+**The remaining lead is per-prop and comes from this entry's own log.** B55 recorded "four
+vertex-lighting checksum mismatches" in passing. A static prop is lit by baked per-prop vertex
+colours in a `.vhv`, and `PropModels.Lighting` guards them with the model's checksum:
+
+```csharp
+catch (InvalidDataException failure)
+{
+    // Includes the checksum guard: lighting baked against a different build of the
+    // model would light the wrong parts of it. Unlit is the honest fallback.
+    ViewerLog.Warn("props", $"reading {path}", failure);
+    return null;
+}
+```
+
+That fits every constraint the other two failed. It is **per prop**, so it hits particular capture
+points and not others; it is independent of team, because ownership does not change which file was
+baked; and it is independent of indoor or outdoor, because a checksum is not a place. Four
+mismatches is the right order of magnitude for "the second and last points on one side".
+
+**What it does not yet explain** is the direction: the fallback returns null and the colour path
+uses **white** where there is no lighting, which should make a prop too BRIGHT rather than too dark.
+So either the fallback is not what these props take, or something downstream multiplies that white
+by a term that is itself dark. Recorded as an open question rather than smoothed over, because the
+last two theories were both plausible and both wrong.
+
+**Then the constraint that makes it tractable: the map is SYMMETRIC.** The owner's point is that
+nothing is built on one side and not the other — so RED's second point and BLU's second point are
+mirror images with the same model, the same materials and the same surroundings. That eliminates
+every material explanation at a stroke: identical materials cannot render differently.
+
+**But a symmetric map is not symmetrically LIT, and that is the resolution.** Geometry mirrors; the
+sun does not. `LUMP_WORLDLIGHTS` carries one sun direction for the whole map, so vrad bakes one side
+brighter than the other and the baked result is asymmetric even where the brushwork is identical.
+Everything fits:
+
+| Constraint | Sun-direction asymmetry |
+|---|---|
+| symmetric map, identical materials | baked light differs anyway — geometry mirrors, the sun does not |
+| both points outdoors | irrelevant; what matters is which way the sun faces |
+| ownership does not change it | vrad baked it long before anyone capped |
+| only some points affected | the ones on the shaded side |
+| the real game looks fine | the disc's brightness there is a reflection, so its lighting barely matters |
+
+So the earlier framing was the right variable with the wrong reason: not "indoors versus outdoors"
+but "toward the sun versus away from it". This project substitutes a lighting term for a reflective
+one (B55), and that substitution is only invisible where the lighting happens to be generous.
+
+**The measurement is unchanged and the prediction is now sharper**: sample the ambient cube and the
+baked prop lighting at each capture point's origin. The dark points should be the ones on the side
+the sun faces away from, and the sun's direction is readable from the map's own worldlights rather
+than guessed.
+
+**Four hypotheses, three dead, and the pattern in how they died is worth more than any of them**:
+every one was falsified by something the owner could see and no instrument here reports — the
+fullbright behaviour, the team independence, the second point being outdoors, the map's symmetry.
+That is the argument for the conformance tests added alongside this entry. A fallback that fires on
+real corpus data should fail a test, not write a line in a log that gets read an hour later.
+
 **Confound to control for before comparing any screenshot.** The reference captures come from the
 owner's own in-game config, which is NOT the highest-settings target this renderer aims at — modern
 TF2 config files ship inside VPKs rather than as `.cfg`, so the owner's custom config tooling cannot
