@@ -81,3 +81,36 @@ Found because one demo's recording player has a non-ASCII character in their nam
 printed it two different ways in one output: mangled from the header, correct from the userinfo
 table. **The disagreement between two decoders was the only signal**; either alone looked fine.
 Every string decoder in the project is UTF-8 as a result.
+
+## Valve's header contradicts itself about the table id, and arithmetic settles it
+
+`networkstringtabledefs.h:20`, one line, both halves published:
+
+```c
+#define MAX_TABLES	32  // Table id is 4 bits
+```
+
+**Thirty-two identifiers need five bits. Four bits address sixteen.** The constant and its comment
+cannot both describe the wire, and no new evidence is needed to decide which one is wrong — the
+arithmetic excludes four outright.
+
+Five is what this project reads, and it decodes every era in the corpus, protocols 11 through 24. A
+four-bit field would shift every subsequent field in the message by one bit, so the eras would not
+merely be wrong, they would fail to parse at all. **Evidence class: arithmetic, confirmed
+differentially against five measured protocols.**
+
+The likely history is that `MAX_TABLES` was raised at some point and the comment was not touched.
+That part is **inference and is flagged as one** — nothing in the published tree dates either half.
+
+**Why this is worth a section rather than a footnote.** A stale comment inside a header is more
+dangerous than no comment at all: it sits beside a real constant, it reads as documentation of the
+wire, and it is wrong. An implementation written from that line produces a decoder that fails on
+nothing in particular — no exception, no obviously bad value, just every field after the id read one
+bit early. That is the same failure shape as the two send-prop flag traps in `04-entities.md`, and
+the same defence applies: derive the width from the limit rather than trusting a number that was
+typed by hand next to it.
+
+`StringTableWidthConformanceTests` holds both halves — the derived width, and the fact that the
+comment still says four. If Valve ever corrects it, the second test fails; the right response is to
+rewrite this section in the past tense rather than delete it, because the fact that it *was* wrong is
+why the width was worth checking.

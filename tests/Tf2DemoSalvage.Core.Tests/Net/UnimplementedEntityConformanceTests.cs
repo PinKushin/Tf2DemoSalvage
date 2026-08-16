@@ -167,17 +167,28 @@ public sealed class UnimplementedEntityConformanceTests
         // OVERRIDE — the same model with a different material forced over it — rather than with a
         // different model or skin.
         //
-        // TF2's own game code is not public, so the override list cannot be cited the way a shader
-        // parameter can. What IS citable is the mechanism: the material system exposes overrides,
-        // and the effect is per-entity and transient rather than baked into the model.
+        // **This comment previously said TF2's game code is not public and the override list could
+        // not be cited. That was wrong, and the correction is worth more than the test.**
+        // source-sdk-2013 ships TF2's own game code — 1,318 files under game/{shared,client,server}/tf
+        // — so the overrides are named outright rather than inferred:
         //
-        // Recorded because it interacts with the skin work already specified: skins are per-model
-        // families and overrides are per-entity replacements, and an implementation that conflates
-        // them will get team colours right and übercharge wrong.
+        //   c_tf_player.cpp:395,398 — "models/effects/invulnfx_blue.vmt" / "invulnfx_red.vmt"
+        //
+        // Two materials, chosen by team, applied over the ordinary one. Not a shader flag, not a
+        // skin: a whole material substituted for the duration of a condition.
+        //
+        // Still distinct from skins, which is the part that was right: skins are per-model families
+        // and overrides are per-entity replacements, and conflating them gets team colour right and
+        // übercharge wrong.
+        string player = SourceSdk.Text("src/game/client/tf/c_tf_player.cpp").ShouldNotBeNull();
+
+        player.ShouldContain("models/effects/invulnfx_blue.vmt");
+        player.ShouldContain("models/effects/invulnfx_red.vmt");
+
         Assert.Ignore(
             "material overrides are not implemented, so übercharge, disguises and burning draw as " +
-            "the ordinary material. Distinct from skins — skins are model families, overrides are " +
-            "per-entity replacements — and conflating them gets team colour right and uber wrong.");
+            "the ordinary material. The uber materials are named in c_tf_player.cpp:395 — TF2's " +
+            "game code is in the SDK, which this project had wrongly recorded as closed.");
     }
 
     /// <summary>Files matching a pattern under the SDK, to confirm a citation exists.</summary>
