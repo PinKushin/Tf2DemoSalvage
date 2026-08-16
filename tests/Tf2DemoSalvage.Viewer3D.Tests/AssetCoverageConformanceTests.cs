@@ -86,13 +86,19 @@ public sealed class AssetCoverageConformanceTests
 
         int propMaterials = assets.Materials.Count - assets.BrushMaterialCount;
 
+        // **Reported BEFORE the assertion, which is the whole lesson of this session.** A
+        // diagnostic placed after a failing assert never runs, so the first version of this test
+        // failed with "0 is not greater than 0" and nothing else — the number that would have
+        // explained it was on the unreachable line below.
+        TestContext.Out.WriteLine(
+            $"{assets.Materials.Count} materials total, {assets.BrushMaterialCount} brushwork, " +
+            $"{propMaterials} from props, {assets.Props.Count} prop vertices, " +
+            $"{assets.EntityModels.Count} entity models");
+
         propMaterials.ShouldBeGreaterThan(
             0,
             "the census examined no prop materials, which is what B81 was: a report that reads " +
             "clean because it never looked");
-
-        TestContext.Out.WriteLine(
-            $"{assets.Materials.Count} materials examined, {propMaterials} of them from props");
     }
 
     [Test]
@@ -143,6 +149,38 @@ public sealed class AssetCoverageConformanceTests
         surprising.ShouldBeEmpty(
             "a real map asks for these and nothing in docs/RISKS.md accounts for them: " +
             string.Join(", ", surprising));
+    }
+
+    [Test]
+    public void TheMapAsksForThingsThisProjectDoesNotDo()
+    {
+        // **This test exists to SKIP, and the skip is the point.** The assertion above checks that
+        // no NEW gap has appeared, which is worth having and is also a green tick over 44
+        // unimplemented parameters — the owner's objection, and a fair one: enumerating what is
+        // broken into an allow-list converts a visible gap into a passing test.
+        //
+        // The rest of this project's conformance suites answer that with Assert.Ignore, and
+        // docs/CONFORMANCE.md states the rule outright: "the skipped count IS the score". So the
+        // number lives here, in the suite's skip line, where it is read whether or not anyone opens
+        // this file.
+        MapAssets assets = Load();
+
+        int materials = assets.UnimplementedParameters.Count == 0
+            ? 0
+            : assets.UnimplementedParameters.Values.Max();
+
+        string[] worst =
+        [
+            .. assets.UnimplementedParameters
+                .OrderByDescending(entry => entry.Value)
+                .Take(6)
+                .Select(entry => $"{entry.Key} x{entry.Value}"),
+        ];
+
+        Assert.Ignore(
+            $"{assets.UnimplementedParameters.Count} unimplemented parameters on {MapName}, " +
+            $"the largest wanted by {materials} of {assets.Materials.Count} materials. " +
+            $"Biggest first: {string.Join(", ", worst)}");
     }
 
     /// <summary>Parameters this project knowingly does not implement, each with its entry.</summary>
@@ -209,7 +247,28 @@ public sealed class AssetCoverageConformanceTests
             Assert.Ignore($"{MapName} is not installed.");
         }
 
-        return MapAssets.Load(
+        MapAssets assets = MapAssets.Load(
             File.ReadAllBytes(map), GameArchives.Open(game), maximumTextureSize: 512);
+
+        TestContext.Out.WriteLine(
+            $"game folder {game}: {assets.Resolved} materials resolved, {assets.Missing} missing");
+
+        // **Asserts that the archives YIELD content, not that they opened.** The first version of
+        // this guard checked GameArchives.IsEmpty and passed while nothing resolved at all: a
+        // half-installed game still produces search-path sources, so "not empty" was true and
+        // meaningless. Every assertion in this class is about content, so the precondition has to
+        // be about content too.
+        //
+        // Measured for real on 2026-08-16, when the game folder was mid-reinstall and gameinfo.txt
+        // was absent: 0 of 211 materials resolved, every prop model failed to load, and the
+        // failures read as decoder bugs. Half an hour went into a wrong hypothesis before the
+        // install was the answer — this line is what makes that a one-line diagnosis next time.
+        assets.Resolved.ShouldBeGreaterThan(
+            0,
+            $"no material resolved from {game}, so nothing this class measures is meaningful. " +
+            "The usual cause is an incomplete game install rather than a defect here — check that " +
+            "gameinfo.txt exists in the tf folder.");
+
+        return assets;
     }
 }
