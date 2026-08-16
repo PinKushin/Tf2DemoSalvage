@@ -22,6 +22,34 @@ It has already paid twice on the same day:
   have been a quirk of that recording. The protocol-14 SourceTV demo lacks it too, so it is a
   property of the era rather than of the mode.
 
+## The pair is also two DIFFERENT datasets, not just two writers
+
+Added 2026-08-16, and it changes how a missing field should be read.
+
+**TF2 splits a player's state across network tables by AUDIENCE.** A "local" table is sent only to
+the player it describes; a shared table goes to everyone else. So a POV demo and a SourceTV demo of
+the same instant genuinely do not contain the same fields, by design:
+
+| Field | Local (the player's own client) | Shared (observers, SourceTV) |
+|---|---|---|
+| `m_flChargeLevel` (übercharge) | full precision, `SPROP_NOSCALE` | **12 bits over 0..100** |
+| disguise | `m_nDesiredDisguiseTeam/Class` | `m_nDisguiseTeam/Class` only |
+| cloak timing | `m_flStealthNoAttackExpire`, `m_flStealthNextChangeTime` | absent entirely |
+
+The medigun is the sharpest case: the direct send in the always-sent table is **commented out**, so
+there is no unconditional charge level at all — only one of the two sub-tables, chosen by audience.
+
+**The rule that follows: before concluding a field is missing, establish which table it lives in and
+whose recording this is.** "Absent from an STV demo" is documented behaviour for anything local, not
+evidence of a decode failure — and, in the other direction, a field decoded from a POV demo may have
+a *different precision* than the same field from STV, so the two are not interchangeable
+measurements.
+
+That is a refinement of the control described above rather than a contradiction of it. The pair is
+still the control for writer behaviour; it is not a control for field presence.
+
+Pinned by `LocalTableConformanceTests` and `UnimplementedGameplayEntityConformanceTests`.
+
 ## What differs by mode, structurally
 
 POV carries `dem_usercmd` (one input record per tick) and `dem_consolecmd`; SourceTV carries
