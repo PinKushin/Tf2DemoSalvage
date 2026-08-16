@@ -4856,3 +4856,99 @@ crawls and regex results was tried first, on the assumption that reading thousan
 startup and the caching bought nothing — it is kept as a bound, labelled honestly as unmeasured
 benefit rather than a win. The real cost was in a place nobody had looked, which is the usual
 outcome of guessing at a profile.
+
+**2026-08-16, measured in the real game: `mat_fullbright 1` changes nothing about the disc.**
+Owner captured the lit/fullbright pair. That is a null result and it is the useful kind, because it
+falsifies the standing theory rather than adding another candidate.
+
+**Confirmed by the owner as engine behaviour, not a property of one capture**: fullbright does
+nothing to capture points in the real Source engine either. So this is not "our screenshot happened
+to be unlit" — the capture point materials are unlit by design, in the game, and always have been.
+
+**Fullbright flattens lighting. A surface it does not change is a surface that was never lit.** So
+the ambient cube cannot be the cause — an unlit material ignores the light cache entirely, and B83
+has been chasing a lighting explanation for a material that has no lighting term. That also explains
+why adding half-Lambert to the sun term did nothing: there is no diffuse term to modify.
+
+Where this points instead: the disc's own shader and blend. The capture point family already turned
+out to use `UnLitTwoTexture` for the beam (B80), whose pixel shader is
+`baseColor * baseColor2 * g_DiffuseModulation` with alpha forced to 1 — a MULTIPLY. Two textures
+multiplied is dark by construction if the second texture is wrong, missing, or defaulted to
+something near black, and "almost black" is exactly what a multiply against an unbound texture
+looks like.
+
+**Next step is therefore a material question, not a lighting one**: what shader the disc's VMT names,
+what its second texture resolves to, and whether this project binds it. Not another ambient
+experiment.
+
+**And the comparison is now clean.** Both the real game and this viewer draw the disc unlit, so
+every lighting difference between them is irrelevant to B83 — which removes the settings confound
+below for this bug specifically. If the real one is bright and ours is almost black while neither is
+lit, the difference is in the textures or the blend and nothing else.
+
+### The screenshots say envmap, and B55 was dismissed for the wrong reason
+
+**What the captures actually show**: the BLU point is polished chrome — a mirror-bright ring and
+dish with a cyan core, reflecting the sky. That is not a bright base texture. It is a **cubemap
+reflection**, and it explains the fullbright null result exactly, because `$envmap` is a reflection
+term and fullbright does not touch it.
+
+**B55 already says `$envmap` is unimplemented** and that the owner identified it from the game's own
+behaviour: control points are "very reflective and shiny", and DirectX 8.1 takes the shine off them
+because dx8's `LightmappedGeneric` drops the envmap pass. Every part of that describes these
+screenshots.
+
+**So why does B55 explicitly rule itself out for the black disc?** Because it looked for the wrong
+object. Its check was "no upward-facing WORLD FACE at mid's centre at all" — widened to 160 units
+horizontally and 1024 down — and that is correct and irrelevant: **the disc is a prop, not
+brushwork.** `cap_point_base.mdl` is a model. A survey of world faces was never going to find it, and
+finding nothing was read as evidence against the cause rather than as evidence about the search.
+
+**B81 is the missing link.** The census that would have named `$envmap` on this surface covered the
+world and not the props — 1,034 prop materials it never looked at — so the one instrument that
+reports unimplemented parameters was blind to exactly this object. B55's conclusion, B81's blind
+spot and B83's symptom are one story: the material was never examined.
+
+**The concrete next check, and it is a measurement rather than another theory**: with B81's census
+now covering props, load a capture point map and read what it reports for the cap point materials.
+If `$envmap` appears there, B83 is B55 on a prop and the two close together.
+
+**Prediction worth stating before looking**, so it can be wrong: the disc's base texture is a dark
+or mid grey metal, and essentially all of its apparent brightness in game is the reflection. That is
+what "almost black" means here — not a broken material, but a correct one missing the term that
+supplies most of its light.
+
+### The pattern is POSITIONAL, not by team — and that is the decisive observation
+
+**Corrected by the owner, and it kills the team explanation outright.** This entry has said "worst
+under BLU" throughout, which reads as a team-colour problem. It is not: **the darkness does not
+improve when RED caps the point.** What is actually dark is the **second and last points on BLU's
+side of the map** — positions, not owners. (The last point is indoors and has not been inspected up
+close yet, so it is the less certain half of that.)
+
+**That single fact reconciles everything above**, and it is why the envmap explanation survives in a
+modified form:
+
+- **In the real game** the disc's brightness is a cubemap reflection. It looks bright wherever it
+  stands, and fullbright does not touch it — which is what the captures show.
+- **In this viewer** there is no `$envmap` (B55), so the disc is lit by the lightmap and the leaf's
+  ambient cube instead. Its brightness therefore tracks **where it is**, and a point under cover or
+  indoors gets a dark ambient cube and goes almost black.
+
+So this project has not lost the disc's brightness uniformly; it has **substituted a positional term
+for a reflective one**, which is exactly the failure mode that produces "some of them are fine". A
+uniform loss would have been noticed immediately. Team ownership never entered into it, and reading
+the pattern as a team problem sent this entry after `$basetexture`/`$texture2` swaps for a while.
+
+**The decisive check is now a measurement with a stated prediction.** Log the ambient cube this
+renderer samples at each capture point's origin on the same map. If the two dark points return a
+markedly lower cube than the ones that look acceptable, the substitution above is confirmed and B83
+closes into B55 — the fix being to implement `$envmap` rather than to adjust any lighting. If the
+cubes are all similar, this explanation is wrong and the difference is in the material after all.
+
+**Confound to control for before comparing any screenshot.** The reference captures come from the
+owner's own in-game config, which is NOT the highest-settings target this renderer aims at — modern
+TF2 config files ship inside VPKs rather than as `.cfg`, so the owner's custom config tooling cannot
+express the high-end settings to test against. Any difference between a capture and this viewer may
+therefore be a settings difference rather than a defect. Differences in a surface that is UNLIT are
+still meaningful, since most of the settings axis is lighting and shadow quality.
