@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
@@ -88,6 +89,51 @@ public sealed class StudioStructTests
             .ShouldBe(StudioLayout.HeaderPoseParameterIndexOffset);
         header.Offset("numincludemodels").ShouldBe(StudioLayout.HeaderIncludeCountOffset);
         header.Offset("includemodelindex").ShouldBe(StudioLayout.HeaderIncludeIndexOffset);
+    }
+
+    [Test]
+    public void TheAttachmentLayout_MatchesItsDeclaration()
+    {
+        // **Written before the reader exists, which is the point.** B82 is open — items parented to
+        // an attachment sit at the wearer's feet because nothing reads these — and the order of work
+        // here puts the conformance test first. When the reader arrives it starts from numbers that
+        // were checked against studio.h before any code depended on them, rather than from numbers
+        // that looked right while the picture looked wrong.
+        CLayout header = Layout("studiohdr_t");
+
+        header.Offset("numlocalattachments").ShouldBe(StudioLayout.HeaderAttachmentCountOffset);
+        header.Offset("localattachmentindex").ShouldBe(StudioLayout.HeaderAttachmentIndexOffset);
+
+        CLayout attachment = Layout("mstudioattachment_t");
+
+        attachment.Size.ShouldBe(StudioLayout.AttachmentStride);
+        attachment.Offset("sznameindex").ShouldBe(StudioLayout.AttachmentNameOffset);
+        attachment.Offset("flags").ShouldBe(StudioLayout.AttachmentFlagsOffset);
+        attachment.Offset("localbone").ShouldBe(StudioLayout.AttachmentBoneOffset);
+        attachment.Offset("local").ShouldBe(StudioLayout.AttachmentMatrixOffset);
+    }
+
+    [Test]
+    public void AnAttachmentCarriesItsOwnTransform()
+    {
+        // **The fact B82's fix turns on, stated where it cannot be forgotten.** An attachment is not
+        // just a bone reference: it carries a 3x4 matrix positioning the point relative to that
+        // bone. A fix that read localbone and stopped would place every item AT the bone, which is
+        // the bone-merge behaviour this project already has and is exactly the symptom being
+        // investigated — close enough for a hat to look almost right and wrong for everything else.
+        CLayout attachment = Layout("mstudioattachment_t");
+
+        int matrix = attachment.Offset("local");
+        int bone = attachment.Offset("localbone");
+
+        (matrix - bone).ShouldBe(4, "the matrix follows the bone index immediately");
+
+        // 48 bytes of matrix, not 12 of position: it carries rotation as well, so an item can be
+        // turned by its attachment point rather than only moved.
+        attachment.Members
+            .First(member => member.Name == "local")
+            .Size
+            .ShouldBe(48);
     }
 
     [Test]

@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -44,6 +45,26 @@ public readonly record struct PlayerInfo(
     private const int SteamIdBytes = 32;
     private const int FakePlayerOffset = 108;
     private const int SourceTvOffset = 109;
+
+    /// <summary>Where each field this reads sits, by the engine's name for it.</summary>
+    /// <remarks>
+    /// **Exposed so the offsets can be derived rather than trusted.** Three of them sit after
+    /// padding the declaration does not spell out — <c>guid</c> is 33 bytes, so <c>friendsID</c>
+    /// starts at 72 rather than 69 — and the numbers above encode that arithmetic silently.
+    /// <c>PlayerInfoConformanceTests</c> computes the layout from <c>public/cdll_int.h</c> and
+    /// checks these against it.
+    ///
+    /// <c>friendsName</c> and <c>customFiles</c> are not read and so are not listed; they are not
+    /// gaps in the format, only in what this project needs.
+    /// </remarks>
+    internal static IReadOnlyList<(string Name, int Offset)> RecordFields =>
+    [
+        ("name", NameOffset),
+        ("userID", UserIdOffset),
+        ("guid", SteamIdOffset),
+        ("fakeplayer", FakePlayerOffset),
+        ("ishltv", SourceTvOffset),
+    ];
 
     /// <summary>Reads one record.</summary>
     /// <param name="data">The string table entry's user data.</param>

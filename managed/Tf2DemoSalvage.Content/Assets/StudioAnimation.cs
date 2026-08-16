@@ -57,12 +57,12 @@ public readonly record struct StudioBonePose(
 /// </remarks>
 public static class StudioAnimation
 {
-    private const int RawPosition = 0x01;
-    private const int RawRotation = 0x02;
-    private const int AnimatedPosition = 0x04;
-    private const int AnimatedRotation = 0x08;
-    private const int Delta = 0x10;
-    private const int RawRotation64 = 0x20;
+    private const int RawPosition = StudioFlags.AnimationRawPosition;
+    private const int RawRotation = StudioFlags.AnimationRawRotation;
+    private const int AnimatedPosition = StudioFlags.AnimationAnimatedPosition;
+    private const int AnimatedRotation = StudioFlags.AnimationAnimatedRotation;
+    private const int Delta = StudioFlags.AnimationDelta;
+    private const int RawRotation64 = StudioFlags.AnimationRawRotation64;
 
     /// <summary>How many animations a model declares.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>

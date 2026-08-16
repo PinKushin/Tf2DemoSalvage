@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -55,6 +56,23 @@ public static class SourceSdk
     public const string Missing =
         "source-sdk-2013 is not available; set SOURCE_SDK to a checkout to run this.";
 
+    /// <summary>What has already been read, so a suite reads the SDK once rather than per test.</summary>
+    /// <remarks>
+    /// **The reads are repetitive in a way that adds up.** <c>BspStructTests</c> asks for
+    /// <c>bspfile.h</c> once per structure — a dozen times across the class — and the send-prop test
+    /// walks every <c>.cpp</c> under <c>src/game</c> recursively, reading each in full, once per test
+    /// method. The SDK is a fixed checkout for the length of a run, so the second read of a file can
+    /// never differ from the first.
+    ///
+    /// Concurrent because NUnit may run fixtures in parallel, and keyed by the path as given so two
+    /// spellings of the same file cost two reads rather than returning the wrong one.
+    /// </remarks>
+    private static readonly ConcurrentDictionary<string, string?> Read = new(StringComparer.Ordinal);
+
+    /// <summary>Extractions already performed, keyed by file and what was asked of it.</summary>
+    private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, int>> Parsed =
+        new(StringComparer.Ordinal);
+
     /// <summary>The full text of one file under the SDK, or null when it is not there.</summary>
     /// <param name="relativePath">Path under the checkout, such as <c>src/public/bspfile.h</c>.</param>
     /// <returns>The file's contents, or null.</returns>
@@ -62,14 +80,17 @@ public static class SourceSdk
     {
         ArgumentNullException.ThrowIfNull(relativePath);
 
-        if (Root is not { } root)
+        return Read.GetOrAdd(relativePath, static path =>
         {
-            return null;
-        }
+            if (Root is not { } root)
+            {
+                return null;
+            }
 
-        string path = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            string full = Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar));
 
-        return File.Exists(path) ? File.ReadAllText(path) : null;
+            return File.Exists(full) ? File.ReadAllText(full) : null;
+        });
     }
 
     /// <summary>Every file matching a pattern under one folder of the SDK.</summary>
@@ -113,18 +134,129 @@ public static class SourceSdk
     {
         ArgumentNullException.ThrowIfNull(match);
 
-        HashSet<string> found = new(StringComparer.OrdinalIgnoreCase);
+        // **Measured, and neither the crawl nor the matching turned out to dominate.** The sweep
+        // over src/game reads thousands of files and runs a pattern across roughly twenty megabytes,
+        // three times, which looks expensive and is not: caching the file list, then the contents,
+        // then the result changed a three-test run from 553 ms to 532–648 ms. That is noise. The
+        // cost is the test host starting up, and none of this touches it.
+        //
+        // Kept anyway, because it bounds the cost as more suites read the SDK and the checkout
+        // cannot change mid-run — but recorded as unmeasured benefit rather than a win, since the
+        // numbers do not support calling it one.
+        //
+        // Keyed by the pattern's own text as well as the folder, because two callers sweeping the
+        // same directory for different things must not share an answer. That would be a wrong
+        // result rather than a slow one, which is the only outcome here worth avoiding.
+        return Matched.GetOrAdd(
+            $"{relativeFolder}|{pattern}|{recursive}|{match}",
+            _ =>
+            {
+                HashSet<string> found = new(StringComparer.OrdinalIgnoreCase);
 
-        IEnumerable<string> captured = Files(relativeFolder, pattern, recursive)
-            .SelectMany(file => match.Matches(File.ReadAllText(file)))
-            .Select(hit => hit.Groups[1].Value);
+                IEnumerable<string> captured = Sweep(relativeFolder, pattern, recursive)
+                    .Select(Contents)
+                    .SelectMany(text => match.Matches(text))
+                    .Select(hit => hit.Groups[1].Value);
 
-        foreach (string name in captured)
+                foreach (string name in captured)
+                {
+                    found.Add(name);
+                }
+
+                return found;
+            });
+    }
+
+    /// <summary>Sweeps already performed, keyed by where, what files, and which pattern.</summary>
+    private static readonly ConcurrentDictionary<string, HashSet<string>> Matched =
+        new(StringComparer.Ordinal);
+
+    /// <summary>File lists already walked, keyed by folder, pattern and depth.</summary>
+    private static readonly ConcurrentDictionary<string, string[]> Walked =
+        new(StringComparer.Ordinal);
+
+    /// <summary>Absolute file paths in a folder, walked once.</summary>
+    private static string[] Sweep(string relativeFolder, string pattern, bool recursive) =>
+        Walked.GetOrAdd(
+            $"{relativeFolder}|{pattern}|{recursive}",
+            _ => [.. Files(relativeFolder, pattern, recursive)]);
+
+    /// <summary>One absolute path's contents, read once.</summary>
+    private static string Contents(string absolutePath) =>
+        Read.GetOrAdd("abs:" + absolutePath, _ => File.ReadAllText(absolutePath)) ?? string.Empty;
+
+    /// <summary>One enum's members with the values C gives them, counting implicit ones.</summary>
+    /// <param name="relativePath">Path under the checkout, such as
+    /// <c>src/public/bitmap/imageformat.h</c>.</param>
+    /// <param name="name">The enum's name, such as <c>ImageFormat</c>.</param>
+    /// <returns>Member to value, empty when the enum or the file is absent.</returns>
+    /// <remarks>
+    /// **Most Source enums number themselves implicitly, and <see cref="Constants"/> cannot see
+    /// those.** <c>ImageFormat</c> assigns a value to exactly two of its forty members — −1 and 0 —
+    /// and every other format is defined only by its POSITION in the list. A pattern that reads
+    /// <c>NAME = value</c> comes back with two entries and looks like it worked.
+    ///
+    /// That is the more dangerous half of the format: a texture's format byte selects how its pixels
+    /// are decoded, and the wrong selection produces an image rather than an error. So the counter
+    /// is modelled the way C does it — start at zero, an explicit assignment resets it, every
+    /// member takes the next value.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, int> Enumerators(string relativePath, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return Parsed.GetOrAdd($"enum:{relativePath}:{name}", _ => ReadEnumerators(relativePath, name));
+    }
+
+    /// <summary>Does the work behind <see cref="Enumerators"/>, once per enum.</summary>
+    private static Dictionary<string, int> ReadEnumerators(string relativePath, string name)
+    {
+        Dictionary<string, int> values = new(StringComparer.Ordinal);
+
+        if (Text(relativePath) is not { } text)
         {
-            found.Add(name);
+            return values;
         }
 
-        return found;
+        Match declaration = Regex.Match(
+            text,
+            @"enum\s+" + Regex.Escape(name) + @"\s*\{(?<body>[^}]*)\}",
+            RegexOptions.Singleline,
+            PatternLimit);
+
+        if (!declaration.Success)
+        {
+            return values;
+        }
+
+        string body = Regex.Replace(
+            declaration.Groups["body"].Value, @"//[^\n]*", " ", RegexOptions.None, PatternLimit);
+
+        int next = 0;
+
+        foreach (string member in body.Split(','))
+        {
+            Match parsed = Regex.Match(
+                member.Trim(),
+                @"^([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(-?\d+))?$",
+                RegexOptions.None,
+                PatternLimit);
+
+            if (!parsed.Success)
+            {
+                continue;
+            }
+
+            if (parsed.Groups[2].Success)
+            {
+                next = int.Parse(parsed.Groups[2].Value, CultureInfo.InvariantCulture);
+            }
+
+            values[parsed.Groups[1].Value] = next;
+            next++;
+        }
+
+        return values;
     }
 
     /// <summary>Every named integer a header declares, by <c>#define</c> or as an enumerator.</summary>
@@ -143,7 +275,11 @@ public static class SourceSdk
     /// rather than half-evaluated: a wrong value here would be worse than a missing one, because it
     /// would fail a test that is supposed to be the reference.
     /// </remarks>
-    public static IReadOnlyDictionary<string, int> Constants(string relativePath)
+    public static IReadOnlyDictionary<string, int> Constants(string relativePath) =>
+        Parsed.GetOrAdd($"const:{relativePath}", _ => ReadConstants(relativePath));
+
+    /// <summary>Does the work behind <see cref="Constants"/>, once per file.</summary>
+    private static Dictionary<string, int> ReadConstants(string relativePath)
     {
         Dictionary<string, int> values = new(StringComparer.Ordinal);
 
@@ -152,13 +288,28 @@ public static class SourceSdk
             return values;
         }
 
+        // **Mixed case is allowed after the first character**, because Valve's own names are not
+        // all uppercase: `TCOMBINE_RGB_EQUALS_BASE_x_DETAILx2` in common_ps_fxc.h has two lowercase
+        // letters, and an uppercase-only pattern silently omits it. A missing constant here does
+        // not fail — it makes whatever asked for it look unchecked, which is the failure mode this
+        // whole reference is built against.
         Regex defined = new(
-            @"^\s*#define\s+([A-Z][A-Z0-9_]*)\s+\(?\s*(0x[0-9A-Fa-f]+|\d+)\s*\)?\s*(?://.*)?$",
+            @"^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(?\s*(0x[0-9A-Fa-f]+|\d+)\s*\)?\s*(?://.*)?$",
             RegexOptions.Multiline,
             PatternLimit);
 
         Regex enumerated = new(
             @"^\s*([A-Z][A-Z0-9_]*)\s*=\s*(0x[0-9A-Fa-f]+|\d+)\s*,",
+            RegexOptions.Multiline,
+            PatternLimit);
+
+        // **`(1 << n)` is how Valve writes most flag sets**, and skipping it left whole headers
+        // looking empty. soundflags.h declares every SND_* that way, so an extraction that only
+        // understood literals reported no sound flags at all — which reads as "the header moved"
+        // rather than "the pattern is too narrow". Only this one shape is evaluated; anything built
+        // from other constants is still skipped rather than half-computed.
+        Regex shifted = new(
+            @"(?:^\s*#define\s+|^\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=?\s*\(\s*1\s*<<\s*(\d+)\s*\)",
             RegexOptions.Multiline,
             PatternLimit);
 
@@ -169,7 +320,12 @@ public static class SourceSdk
 
         IEnumerable<(string Name, int Value)> declarations = new[] { defined, enumerated }
             .SelectMany(pattern => pattern.Matches(text))
-            .Select(hit => (hit.Groups[1].Value, Number(hit.Groups[2].Value)));
+            .Select(hit => (hit.Groups[1].Value, Number(hit.Groups[2].Value)))
+            .Concat(shifted
+                .Matches(text)
+                .Select(hit => (
+                    hit.Groups[1].Value,
+                    1 << int.Parse(hit.Groups[2].Value, CultureInfo.InvariantCulture))));
 
         foreach ((string name, int value) in declarations)
         {

@@ -238,9 +238,14 @@ public static class CStruct
     /// <summary>The text between a structure's braces, or null when it cannot be isolated.</summary>
     private static string? Body(string header, string name)
     {
+        // **`class` as well as `struct`, because C++ makes them the same thing for layout.** The
+        // only difference is default access, which changes nothing about where a member sits.
+        // Refusing classes cost real coverage: ddispinfo_t was written off as underivable purely
+        // because CDispNeighbor and CDispCornerNeighbors are declared with the other keyword.
         Match declaration = Regex.Match(
             header,
-            @"(?:^|\n)\s*(?:typedef\s+)?struct\s+" + Regex.Escape(name) + @"\s*(?://[^\n]*)?\s*\n?\s*\{",
+            @"(?:^|\n)\s*(?:typedef\s+)?(?:struct|class)\s+" + Regex.Escape(name) +
+                @"\s*(?://[^\n]*)?\s*\n?\s*\{",
             RegexOptions.None,
             PatternLimit);
 
@@ -556,14 +561,24 @@ public static class CStruct
                 : null;
         }
 
-        // Nested type declarations are outside what this models, and a guess about one would be a
-        // number rather than a refusal.
+        // A nested type DECLARATION is still outside what this models — only a nested member of an
+        // already-sized type is handled, through the composites the caller supplies.
         if (text.StartsWith("typedef", StringComparison.Ordinal) ||
             text.StartsWith("union", StringComparison.Ordinal) ||
             text.StartsWith("struct", StringComparison.Ordinal) ||
             text.StartsWith("class", StringComparison.Ordinal))
         {
             return null;
+        }
+
+        // **A nested enum declares constants, not storage.** ddispinfo_t carries
+        // `enum unnamed { ALLOWEDVERTS_SIZE = ... }` purely to name an array bound, and its braces
+        // have already collapsed by the time this sees it — leaving the bare keyword, which occupies
+        // no bytes. Skipped rather than refused, because refusing would lose the whole structure
+        // over a member that is not one.
+        if (text.StartsWith("enum", StringComparison.Ordinal))
+        {
+            return new Declared(string.Empty, new CTypeSize(0, 1), []);
         }
 
         string[] tokens = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);

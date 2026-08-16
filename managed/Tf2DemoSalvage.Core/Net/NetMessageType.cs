@@ -11,8 +11,17 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <c>netmessages.h</c> are not shipped in source-sdk-2013, so there is no authoritative header
 /// to read them from (see <c>docs/RISKS.md</c> B3).
 ///
-/// Ids 1, 9, 16, 20 and 22 are unused at this protocol and are deliberately absent — a stream
-/// producing one is malformed, and the decoder should say so rather than guess.
+/// **Ids 1, 9, 16, 20 and 22 are absent because they are UNIMPLEMENTED, not because they are
+/// unused.** An earlier version of this comment said they were unused at this protocol and that a
+/// stream producing one is malformed. Both halves are wrong, and the project's own evidence
+/// contradicts them: a real ETF2L demo carries id 1 (see <c>docs/RISKS.md</c> B3), and the engine's
+/// <c>public/inetmsghandler.h</c> declares handlers for <c>SendTable</c> and <c>CrosshairAngle</c> —
+/// which are two of these gaps. Calling a legitimate demo malformed is the more expensive direction
+/// to be wrong in, because it stops the investigation.
+///
+/// The decoder's behaviour was right the whole time: it stops at an unimplemented id and says so.
+/// Only this comment was wrong, which is why <c>NetMessageConformanceTests</c> now checks the gaps
+/// against the engine's own list rather than against a sentence.
 ///
 /// **These messages are not length-prefixed.** There is no skip: the next message starts
 /// wherever the previous one's body ended, so the stream can only be walked by decoding every
@@ -26,7 +35,7 @@ public enum NetMessageType : byte
     /// <summary>No-op padding, <c>net_NOP</c>. Used to pad a packet to a byte boundary.</summary>
     Empty = 0,
 
-    /// <summary>File transfer request/deny, <c>svc_File</c>.</summary>
+    /// <summary>File transfer request/deny, <c>net_File</c> — a net message, not an svc one.</summary>
     File = 2,
 
     /// <summary>Server tick and frame timing, <c>net_Tick</c>.</summary>

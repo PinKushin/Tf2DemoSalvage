@@ -16,11 +16,20 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// the structure declarations in <c>public/bspfile.h</c>: the sizes are computed from the members
 /// Valve declares, not compared against numbers typed a second time.
 ///
-/// **What is NOT here, and why.** The static prop lump is a game lump declared in
-/// <c>gamebspfile.h</c> with a per-version layout, and <c>ddispinfo_t</c> embeds
-/// <c>CDispNeighbor</c>, a class rather than a struct. Both keep their constants local and neither is
-/// covered by the layout test — stated rather than quietly omitted, because an uncovered constant
-/// that looks covered is worse than one that admits it.
+/// **Two entries used to sit here as uncoverable and neither survived being looked at**, which is
+/// worth recording because both exclusions sounded like properties of the format and were properties
+/// of the reader.
+///
+/// <c>ddispinfo_t</c> was excluded because it embeds <c>CDispNeighbor</c>, "a class rather than a
+/// struct". C++ makes those identical for layout — they differ only in default access — so the
+/// obstacle was one keyword missing from a regex. <c>DisplacementConformanceTests</c> now derives
+/// the whole chain: a sub-neighbour is six bytes including its trailing pad, a neighbour is two of
+/// those, and the record ends at 176.
+///
+/// The static prop lump was excluded for having "a per-version layout". It has four, all declared,
+/// and the versions only append — so <c>StaticPropConformanceTests</c> checks the property the
+/// reader actually depends on: origin, angles and prop type sit at the same offsets in every one of
+/// them, which is what makes reading without dispatching on the version correct rather than lucky.
 /// </remarks>
 internal static class BspStructLayout
 {

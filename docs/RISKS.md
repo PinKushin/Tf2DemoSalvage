@@ -810,6 +810,22 @@ assumption again without evidence; it has already failed once.
 The cost is bounded and visible: one packet of 118,282 in one of seven demos, reported in place
 rather than hidden.
 
+**2026-08-16 — the enum said these ids were "unused", and that was wrong in the expensive
+direction.** `NetMessageType`'s comment claimed ids 1, 9, 16, 20 and 22 are unused at this protocol
+and that "a stream producing one is malformed". Two independent things contradict it: this entry,
+which records id 1 occurring in a real demo, and `public/inetmsghandler.h`, which declares handlers
+for `SendTable` and `CrosshairAngle` — two of those five gaps. They are **unimplemented**, not
+unused.
+
+The distinction is the whole point. "Unimplemented" makes a stop this project's defect and keeps the
+investigation open; "malformed" makes it the file's fault and closes it. The decoder's own behaviour
+was right the entire time — it stops and says "not decoded yet" — so only the comment was wrong,
+which is exactly the kind of confidently-repeated conclusion `docs/findings/` exists to catch.
+
+`NetMessageConformanceTests` now checks the gaps against the engine's handler list rather than
+against a sentence. The numbering came from client binaries and the names come from published
+source, so the two are independent and neither can check itself.
+
 
 ### B16 resolved — it was `svc_BspDecal` overreading, not an unknown message
 
@@ -4778,3 +4794,65 @@ switched off wholesale in the end.
 **If this is ever revisited**, the fix is a non-allocating `OfClass` — an index of entities by class
 maintained on insert, which `EntityStateTable` is already the right place for — not a rewrite of the
 call sites. Do it behind a profile, not behind this note.
+
+### B86 RESOLVED — a VTF format constant pointed at the wrong format
+
+**`VtfFormat.Dxt1OneBitAlpha` was 26. The engine's value is 20; 26 is `IMAGE_FORMAT_UVLX8888`.**
+Found by `ImageFormatConformanceTests` the first time it ran, 2026-08-16.
+
+**Why it survived: the enum is almost entirely implicit.** `public/bitmap/imageformat.h` assigns a
+number to exactly two of its forty members — `IMAGE_FORMAT_UNKNOWN = -1` and
+`IMAGE_FORMAT_RGBA8888 = 0`. Every other format is defined by its POSITION in the list, so
+`DXT1_ONEBITALPHA = 20` cannot be checked by reading a line; it has to be counted. Counting by hand
+is how one arrives at 26, which is a real format four places further down.
+
+**It cost in both directions, and neither is an error.**
+
+- A VTF declaring **20** — a genuine DXT1-with-one-bit-alpha texture — matched nothing in our enum,
+  fell through to `Unknown`, and was reported as an unsupported format. The surface drew untextured.
+- A VTF declaring **26** would have had a 32-bit uncompressed `UVLX8888` image decoded as 4-bit
+  block compression, at one eighth the byte count. Not subtle on screen, and still not an exception.
+
+**The general lesson, which is why this suite exists.** A constant taken from a list that numbers
+itself cannot be verified by reading; it has to be derived by counting the same way the compiler
+does. `SourceSdk.Enumerators` now models C's rule — start at zero, an explicit assignment resets the
+counter, each member takes the next value — and the test that would have failed silently against a
+two-entry extraction has a control that says so: `IMAGE_FORMAT_ABGR8888` must come back as 1.
+
+**What is still not covered.** Eight of forty formats are decoded, which is deliberate — TF2's
+content is overwhelmingly DXT1 and DXT5 — and the reader reports an unsupported format rather than
+guessing at one. That gap is a decision and the count is asserted so it stays one.
+
+### B87 — the test suite is still slower than it needs to be — OPEN, deferred by the owner
+
+**Two causes were found and fixed on 2026-08-16; a third is noted here and NOT done.**
+
+Fixed: `Tf2DemoSalvage.Content.Tests` had no `AssemblyTestPolicy.cs` at all, and
+`Tf2DemoSalvage.Viewer3D.Tests` deliberately opted out of parallelism as a "UI assembly" — a
+rationale that expired when the UI tests moved to `Tf2DemoSalvage.Viewer3D.UiTests`. Its own comment
+dated itself: "today's four tests construct forms without showing them", written when the assembly
+had four tests and left in place while it grew to 278, none of which construct a form.
+
+| Suite | Before | After |
+|---|---|---|
+| `Content.Tests` (361) | 1 m 11 s | **22 s** |
+| `Viewer3D.Tests` (278) | 1 m 59 s | **46 s** |
+
+**Still outstanding, and the reason this entry stays open:**
+
+- **`Corpus.Tests` takes 40 s over gcor alone**, and the full lcor run is around 30 minutes. Worth
+  measuring whether demos are re-read per test rather than once per fixture.
+- **Both fixed suites are still dominated by repeated asset work** — the same BSP decompressed and
+  the same VTFs decoded by many tests. Parallelism hid that rather than removing it; a cached
+  per-map fixture would cut it again.
+- **Nothing enforces the policy file's presence.** Its absence from Content cost minutes and
+  reported nothing, because a serial run and a parallel run produce identical pass/fail output. A
+  test asserting that every unit and integration assembly carries both attributes would make the
+  next omission fail rather than just cost.
+
+**The measurement note that matters more than the numbers.** Caching the SDK reference's file
+crawls and regex results was tried first, on the assumption that reading thousands of files under
+`src/game` dominated. Measured: 553 ms before, 532–648 ms after. Noise. The cost was test-host
+startup and the caching bought nothing — it is kept as a bound, labelled honestly as unmeasured
+benefit rather than a win. The real cost was in a place nobody had looked, which is the usual
+outcome of guessing at a profile.

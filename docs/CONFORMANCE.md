@@ -34,6 +34,30 @@ readers actually use.
 | `SurfaceFlagTests` | 12 `SURF_*` bits, and names the 4 ignored | `public/bspflags.h` |
 | `EngineConstantConformanceTests` | `EF_NODRAW`, `EF_BONEMERGE`, handle widths | `public/const.h` |
 | `UserCommandConformanceTests` | the usercmd field order and 14 widths | `WriteUsercmd` in `game/shared/usercmd.cpp` |
+| `StudioFlagTests` | 6 animation format selectors, 2 sequence bits | `public/studio.h` |
+| `ImageFormatConformanceTests` | 8 VTF pixel formats, implicitly numbered | `bitmap/imageformat.h` |
+| `DetailCombineConformanceTests` | 12 detail blend modes | `stdshaders/common_ps_fxc.h` |
+| `PlayerInfoConformanceTests` | `player_info_t`, padding included | `public/cdll_int.h` |
+| `NetMessageConformanceTests` | message names and the numbering's gaps | `public/inetmsghandler.h` |
+| `NetFieldWidthConformanceTests` | entity, model and class index widths | `public/const.h` |
+| `GameEventConformanceTests` | event id width and the documented field types | `public/igameevents.h` |
+| `StaticPropConformanceTests` | 4 versioned prop lumps | `public/gamebspfile.h` |
+| `DisplacementConformanceTests` | the terrain record and its neighbour chain | `public/bspfile.h` |
+| `CapacityGuardTests` | no safety cap is stricter than the engine allows | `studio.h`, `bspfile.h` |
+| `WireEncodingConformanceTests` | the 4 coordinate widths, string and flag widths | `coordsize.h`, `dt_common.h` |
+| `EntityMessageConformanceTests` | two message ids that collide at 1 | `game/shared/base*_shared.h` |
+
+**The sweep that closed it.** Every constant in this project whose own doc comment cites an
+ALL_CAPS engine identifier was collected — each of those comments is a claim — and checked against a
+test. Everything on that list is now covered except `TF_CLASS_UNDEFINED` and
+`TF_FIRST_NORMAL_CLASS`: `source-sdk-2013` *references* them, in `client/replay/gamedefs.h`, without
+defining them anywhere, because TF2's own game code is not public. Those are a decompile target if
+they ever matter, not a gap that can be closed from source.
+
+The coordinate widths are the ones to care about. A position is an integer part plus a fraction and
+there are **two** of each — multiplayer origins use a narrower range and a coarser precision — so a
+decoder using one pair everywhere is right near a map's middle and drifts at its edges. For a
+documented surf or jump run that is the difference between a record and a fabrication.
 
 **Why derived rather than compared.** A test asserting `56 == 56` against a header tests typing.
 `CStruct` reads `struct dface_t`, sums its members under C's alignment rules, and asserts that total
@@ -46,10 +70,24 @@ the parser initially counted both branches of `#ifdef PLATFORM_64BITS`, which ma
 `mstudiotexture_t` 96 bytes and failed a correct constant. Both are written up in
 [`findings/08-method.md`](findings/08-method.md).
 
-**Known gaps, stated rather than implied**: `ddispinfo_t`'s stride (it embeds classes, not structs),
-the static prop game lump (per-version layout in `gamebspfile.h`), and the VTX topology-field
-variants (added under a define the published SDK does not carry — only the eight-byte difference is
-checkable).
+### The gaps, and what happened to them
+
+Three things were written down as uncoverable. **Two of them were not.**
+
+| Claimed gap | Outcome |
+|---|---|
+| `ddispinfo_t` "embeds classes, not structs" | C++ makes `class` and `struct` identical for layout. One keyword in a regex; the whole chain now derives, ending at 176. |
+| static props have "a per-version layout" | Four declared versions that only append. The reader's real assumption — origin, angles and prop type at fixed offsets in all four — is now checked. |
+| VTX topology fields | **Genuinely uncoverable.** Added under a define the published SDK does not carry, so only the eight-byte difference between the two strides is checkable. |
+
+The pattern is worth naming: an exclusion that sounds like a property of the FORMAT is often a
+property of the reader, and it goes unexamined because it is written in the same confident tone as
+everything around it. Both of these had been recorded, correctly-sounding, in the file they excluded.
+
+**Still genuinely outside the SDK**, and pinned by other means: the `svc_` message numbering and the
+netmessages field widths (binary scanning, held up by the corpus decoding), and the game event type
+numbering (`GameEventManager` is closed — pinned by arithmetic instead, seven documented types plus
+absent being exactly three bits).
 
 ## Why the census counts are not the priority order
 

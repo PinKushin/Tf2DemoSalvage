@@ -32,10 +32,10 @@ public readonly record struct StudioSequence(
     public bool IsForwardDeclaration => (Flags & ForwardDeclared) != 0;
 
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
-    private const int Looping = 0x0001;
+    private const int Looping = StudioFlags.SequenceLooping;
 
     /// <summary><c>STUDIO_OVERRIDE</c> from <c>studio.h</c>.</summary>
-    private const int ForwardDeclared = 0x0800;
+    private const int ForwardDeclared = StudioFlags.SequenceForwardDeclared;
 }
 
 /// <summary>
@@ -59,10 +59,10 @@ public readonly record struct StudioSequence(
 public static class StudioSequences
 {
     /// <summary>Most sequences a model may declare, as a guard against a malformed header.</summary>
-    private const int MaximumSequences = 4096;
+    private const int MaximumSequences = StudioReaderLimits.Sequences;
 
     /// <summary>A model is untrusted input; TF2's classes declare about two dozen.</summary>
-    private const int MaximumPoseParameters = 256;
+    private const int MaximumPoseParameters = StudioReaderLimits.PoseParameters;
 
     /// <summary>Reads a model's sequences.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>

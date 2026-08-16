@@ -23,7 +23,7 @@ public static class StudioSkins
 {
 
     /// <summary>Most entries a skin table may hold, as a guard against a malformed header.</summary>
-    private const int MaximumEntries = 65536;
+    private const int MaximumEntries = StudioReaderLimits.SkinTableEntries;
 
     /// <summary>How many materials a skin family names.</summary>
     /// <param name="file">The model's bytes.</param>

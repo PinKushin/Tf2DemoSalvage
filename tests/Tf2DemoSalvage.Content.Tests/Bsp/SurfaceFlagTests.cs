@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
@@ -102,6 +103,28 @@ public sealed class SurfaceFlagTests
         {
             (modelled & engine[name]).ShouldBe(0, $"{name} overlaps a flag we act on");
         }
+    }
+
+    [Test]
+    public void TheSolidContentsBitIsTheEngines()
+    {
+        // **A different axis in the same header, and the only one of it this project reads.**
+        // CONTENTS_* describe what fills a leaf; SURF_* describe a face. BspLeafTree tests this one
+        // bit to decide whether a point is inside the world, which is what stops the sky trace
+        // walking out through a wall. Reading the wrong bit would make solid leaves look open — and
+        // an object lit as though it were outdoors is a lighting oddity, not an error.
+        Declared()["CONTENTS_SOLID"].ShouldBe(BspLeafTree.ContentsSolid);
+    }
+
+    [Test]
+    public void TheSelfShadowBumpTextureFlagIsTheEngines()
+    {
+        // TEXTUREFLAGS_SSBUMP, from vtf/vtf.h rather than bspflags.h. It is checked here because it
+        // is the last constant in this project citing an engine name without a test: the texture's
+        // own flag overrides whatever $detailblendmode asked for, so reading it wrongly silently
+        // selects a different blend for every self-shadowing bump map on a map.
+        SourceSdk.Constants("src/public/vtf/vtf.h")["TEXTUREFLAGS_SSBUMP"]
+            .ShouldBe((int)VtfTexture.SelfShadowBumpFlag);
     }
 
     [Test]
