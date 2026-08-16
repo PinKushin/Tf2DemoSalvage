@@ -44,6 +44,20 @@ readers actually use.
 | `StaticPropConformanceTests` | 4 versioned prop lumps | `public/gamebspfile.h` |
 | `DisplacementConformanceTests` | the terrain record and its neighbour chain | `public/bspfile.h` |
 | `CapacityGuardTests` | no safety cap is stricter than the engine allows | `studio.h`, `bspfile.h` |
+| `WireEncodingConformanceTests` | the 4 coordinate widths, string and flag widths | `coordsize.h`, `dt_common.h` |
+| `EntityMessageConformanceTests` | two message ids that collide at 1 | `game/shared/base*_shared.h` |
+
+**The sweep that closed it.** Every constant in this project whose own doc comment cites an
+ALL_CAPS engine identifier was collected — each of those comments is a claim — and checked against a
+test. Everything on that list is now covered except `TF_CLASS_UNDEFINED` and
+`TF_FIRST_NORMAL_CLASS`: `source-sdk-2013` *references* them, in `client/replay/gamedefs.h`, without
+defining them anywhere, because TF2's own game code is not public. Those are a decompile target if
+they ever matter, not a gap that can be closed from source.
+
+The coordinate widths are the ones to care about. A position is an integer part plus a fraction and
+there are **two** of each — multiplayer origins use a narrower range and a coarser precision — so a
+decoder using one pair everywhere is right near a map's middle and drifts at its edges. For a
+documented surf or jump run that is the difference between a record and a fabrication.
 
 **Why derived rather than compared.** A test asserting `56 == 56` against a header tests typing.
 `CStruct` reads `struct dface_t`, sums its members under C's alignment rules, and asserts that total
