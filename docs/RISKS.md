@@ -5016,3 +5016,33 @@ TF2 config files ship inside VPKs rather than as `.cfg`, so the owner's custom c
 express the high-end settings to test against. Any difference between a capture and this viewer may
 therefore be a settings difference rather than a defect. Differences in a surface that is UNLIT are
 still meaningful, since most of the settings axis is lighting and shadow quality.
+
+### B83 addendum — the shine is a SETTING, and the stripes are a skin
+
+**Two more captures, on a max-settings config, and the discs are matte.** Same map, same points, same
+team states as the chrome captures earlier in this entry. The only difference is the graphics
+configuration. So "the capture point is polished chrome" is not a fixed ground truth to match — it is
+what one configuration produces, and another produces a flat grey dish.
+
+That changes what B83 can even claim. This entry has been comparing our almost-black disc against a
+mirror-bright one and calling the difference a defect; against these captures the target is much
+closer to what we draw. **The envmap contribution has to become a setting in this viewer rather than
+a fixed goal**, and until it is, no screenshot comparison of this surface means anything on its own.
+The owner's read is that they *should* be shiny and that a pure default config needs checking to
+settle it — so the target itself is not yet established.
+
+**A separate defect visible in the same captures, and this one is unambiguous.** The owned RED and
+BLU points carry ring markings that, per these shots, belong to the UNOWNED point only. That is not
+lighting and not reflection: `cap_point_base.mdl` carries **three skin families** and the hologram
+above it **four bodygroups** — neutral, empty, red, blue — both measured directly from the model
+earlier in this project.
+
+So the capture point's team appearance is selected by skin family and bodygroup, exactly the
+mechanism B73 was about: bodygroups were being chosen at LOAD time, so every entity sharing a model
+got the same one. B73 is closed for props generally; whether the capture point's per-point skin
+follows the point's owner is a different question and is not currently tested.
+
+**Which makes this the cheaper half of B83 to settle**, because it needs no rendering theory at all:
+read the demo's capture point entities, read the skin each one is sent, and check the model draws
+that family. Both halves of that are already implemented — `m_nSkin` is decoded (B73 era) and
+`StudioSkins` reads the table — so the question is only whether they are connected.
