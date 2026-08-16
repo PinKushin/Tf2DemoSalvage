@@ -116,19 +116,28 @@ while it looks like progress. The tell is three correct measurements in a row: t
 not the data. See `docs/memory/read-the-spec-before-measuring-our-data.md`, which was written after a
 session spent measuring a model that was never at fault.
 
-**Four sources, in this order. "Not in the published SDK" is not the end of the line.**
+**Four sources. This is a menu, not a ladder — pick the one that holds the answer and skip the rest.**
 
-| Source | Answers | Rules |
+| Source | Holds | Rules |
 |---|---|---|
 | `source-sdk-2013` (`F:/src/source-sdk-2013`) | shaders, file formats, math, message lists, material flags | read and cite freely; quoting it in comments is the point |
-| [demostf/parser](https://github.com/demostf/parser) | demo container and entity decode, where our reading is in doubt | read for cross-checking, never port — different language, and the point is to understand the format |
+| [demostf/parser](https://github.com/demostf/parser) | demo container and entity decode | read for cross-checking, never port. **Knows nothing about rendering — skip it outright for anything drawn** |
 | Valve Developer Community wiki | conventions and parameter meanings the SDK does not spell out | secondary; a wiki page is not a citation of behaviour |
-| a decompiler | only what the closed engine holds — the material system, TF2's own shaders | **never into a repository**, temp paths outside every git tree, carry back a note by hand and never a pasted function |
+| a decompiler | the closed engine — the material system, TF2's own shaders, anything the SDK omits | **reach for it readily.** The only hard rule is where its output lives |
 
-Pick by WHICH question is being asked: the Rust parser knows the demo format and nothing about
-rendering, and the decompiler knows the renderer and is the last resort for it. `$modblend` is the
-worked example — TF2 ships it in real VMTs and no published shader declares it, so the SDK genuinely
-cannot answer and the escalation is a decompile, not a guess.
+**Going through sources in order is a waste when you already know which one holds the answer.** A
+question about the demo container does not belong to a decompiler; a question about how `Modulate`
+blends does not belong to the Rust parser, which has never drawn anything. `$modblend` is the worked
+example — TF2 ships it in real VMTs and no published shader declares it, so the SDK cannot answer and
+a decompile is the right next step rather than a last resort.
+
+**The decompiler rule is about REPOSITORY SIZE, and that is the whole of it.** Decompiler projects
+and output are enormous, they cannot be moved to another disk easily once committed, and a folder
+committed once lives in the history for ever. So: run it with its project and output paths under a
+temp directory outside every git tree, and carry back only what is written by hand afterwards — a
+constant, a field order, a formula, a note saying where it came from. Never paste a decompiled
+function into source. The owner's position on the legal question is that it is not a practical
+concern here; the size problem is real and permanent.
 
 **Two instruments measure conformance and they are not interchangeable.** `SdkCoverageTests`
 generates the denominator from the SDK — 489 shader parameters, 66 lumps, 54 studio structures — and
