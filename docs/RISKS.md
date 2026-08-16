@@ -5073,6 +5073,43 @@ config-dependent and no comparison means anything without one, and (2) verify `m
 draw call as a directly measured fact rather than as an explanation for something seen in a picture.
 The second is cheap and independent of every appearance question here.
 
+### B83 third addendum — Valve's source states the answer, and always did
+
+**The capture point's appearance rule is published.** `team_control_point.cpp:569`, in
+`InternalSetOwner`, three consecutive lines:
+
+```cpp
+SetModel( STRING(m_TeamData[m_iTeam].iszModel) );
+SetBodygroup( 0, m_iTeam );
+m_nSkin = ( m_iTeam == TEAM_UNASSIGNED ) ? 2 : (m_iTeam - 2);
+```
+
+**Three mechanisms at once**, not the one this entry kept theorising about. The model can be swapped
+per team, bodygroup 0 takes the raw team number, and the skin is a remap of it. With
+`TEAM_UNASSIGNED` 0 and `TF_TEAM_RED` 2, the skin is **0 for RED, 1 for BLU, 2 for unowned** — all of
+it arithmetic on published constants, nothing measured, nothing inferred.
+
+Note that bodygroup and skin use *different* encodings of the same fact, three lines apart: the
+bodygroup gets 0/2/3 and the skin gets 0/1/2. Using one where the other belongs selects a
+valid-looking bodygroup that is wrong, with no error.
+
+**This closes the "is it connected" question as a question, and it should never have been open.**
+B83 ran to five falsified hypotheses across a month — ambient cube, envmap on a prop, indoor
+shadowing, sun asymmetry, and a skin defect that did not exist — every one proposed from a screenshot
+and every one killed by the owner looking at the game. The answer was in a file this project had
+already cloned, under a belief that TF2's game code is closed which was written down three times and
+checked none.
+
+What remains is genuinely measurable and does not depend on how anything looks: does a capture
+point's networked `m_nSkin` reach its draw call as ownership changes during a demo? That is an
+integer comparison, immune to the graphics configuration that invalidated every screenshot argument
+here. `ControlPointAppearanceConformanceTests` holds it, skipping, alongside the derived mapping.
+
+**The generalisable rule, and it is now in memory as `tf2-game-code-is-in-the-sdk`:** when a
+question is about what the game DOES, read the game. Measuring the picture can only tell you the
+picture disagrees, and it will keep suggesting mechanisms for as long as anyone is willing to
+propose them.
+
 ### B88 — a static written by every map load, and the real signal it obscured
 
 **Found by the full-suite gate, not by any individual run**, which is the only way this class of
