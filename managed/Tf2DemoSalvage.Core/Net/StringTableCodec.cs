@@ -26,7 +26,14 @@ internal static class StringTableCodec
     private const int HistoryIndexBits = 5;
     private const int SubstringLengthBits = 5;
     private const int UserDataLengthBits = 14;
-    private const int TableIdBits = 5;
+    /// <summary>Width of the table identifier in an update message.</summary>
+    /// <remarks>
+    /// Five, because <c>MAX_TABLES</c> is 32 and thirty-two identifiers need five bits. The comment
+    /// beside that constant in <c>networkstringtabledefs.h</c> says four, and is wrong; see
+    /// <c>StringTableWidthConformanceTests</c>, which derives this width from the limit rather than
+    /// trusting either half of that line.
+    /// </remarks>
+    internal const int TableIdBits = 5;
     private const int UpdateLengthBits = 20;
     private const int CreateLengthBits = 20;
 

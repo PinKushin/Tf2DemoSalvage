@@ -49,10 +49,28 @@ readers actually use.
 
 **The sweep that closed it.** Every constant in this project whose own doc comment cites an
 ALL_CAPS engine identifier was collected — each of those comments is a claim — and checked against a
-test. Everything on that list is now covered except `TF_CLASS_UNDEFINED` and
-`TF_FIRST_NORMAL_CLASS`: `source-sdk-2013` *references* them, in `client/replay/gamedefs.h`, without
-defining them anywhere, because TF2's own game code is not public. Those are a decompile target if
-they ever matter, not a gap that can be closed from source.
+test. Everything on that list is now covered.
+
+> **Correction, 2026-08-16.** This paragraph previously excepted `TF_CLASS_UNDEFINED` and
+> `TF_FIRST_NORMAL_CLASS`, and called them "a decompile target … not a gap that can be closed from
+> source", on the grounds that TF2's own game code is not public.
+>
+> **Both halves were false.** The identifiers are defined in `src/game/shared/tf/tf_shareddefs.h`,
+> at lines 205 and 198. And TF2's game code *is* published — `source-sdk-2013` carries **1,318 files**
+> under `game/shared/tf`, `game/client/tf` and `game/server/tf`, including all 125 HUD sources, the
+> full player-condition enumeration, and the econ item schema.
+>
+> The mistake was searching one directory (`client/replay/`), finding a reference without a
+> definition, and concluding the definition did not exist anywhere rather than that it was elsewhere.
+> **An absence found by a search is a fact about the search.** Same shape as the level-name filter in
+> `findings/24-reference-capture.md` and the "Econ" substring count in
+> `UnimplementedItemConformanceTests` — three instances now, which is why it is written here rather
+> than only in the entry it came from.
+>
+> The expensive part is not the wrong constant, it is that naming a decompiler as the next step made
+> a five-minute lookup look like a project. Nothing was blocked visibly; it was just deferred.
+> Whatever else "TF2 is closed" seemed to justify deferring is worth revisiting — the item system,
+> the HUD and the material overrides were all reopened by this and are now specified in batch nine.
 
 The coordinate widths are the ones to care about. A position is an integer part plus a fraction and
 there are **two** of each — multiplayer origins use a narrower range and a coarser precision — so a

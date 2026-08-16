@@ -156,25 +156,29 @@ public sealed class UnimplementedClientSystemConformanceTests
     [Test]
     public void TheHudIsWhereADecodedEventBecomesSomethingSeen()
     {
-        // TF2's HUD is in its own game code and is not in the public SDK, so what can be cited is the
-        // base: hud.h and the CHudElement family the mod layer extends. That limit is itself worth
-        // recording — this is one of the few gaps where the SDK cannot supply the answer and a
-        // decompiler or the live client would have to.
+        // **This said TF2's HUD is not in the public SDK and that a decompiler or the live client
+        // would be needed. That was wrong.** src/game/client/tf carries 125 HUD sources, including
+        // tf_hud_deathnotice.cpp — the kill feed — alongside the ammo, health and timer elements.
+        //
+        // The correction matters more than the entry, because the wrong version named a decompiler
+        // as the next step for something Valve published. That is the expensive kind of mistake: it
+        // does not block anything visibly, it just makes a cheap task look costly enough to defer.
         //
         // **The gap is not the drawing, it is the absence of any presentation layer at all.** Health,
         // ammo, the scoreboard, the kill feed and the round timer are all reconstructible from state
-        // this project already decodes. Nothing assembles them.
+        // this project already decodes, and now the exact layout is readable too.
         //
         // Kept separate from "game events are decoded and never shown" in the entity batch, which is
         // about one specific stream. This is the surface all of them would arrive on, and building it
         // once is what makes each of those cheap.
-        IEnumerable<string> hud = SourceSdk.Files("src/game/client", "hud.h");
+        IEnumerable<string> hud = SourceSdk.Files("src/game/client/tf", "tf_hud_*.cpp");
 
-        hud.Any().ShouldBeTrue("the client HUD base header should be present in the SDK");
+        hud.Count().ShouldBeGreaterThan(50);
 
         Assert.Ignore(
             "there is no HUD or presentation layer. Health, ammo, scoreboard, kill feed and timer " +
-            "are all derivable from state already decoded here. TF2's own HUD is not in the public " +
-            "SDK, so its exact layout would need the live client — the data is not the blocker.");
+            "are all derivable from state already decoded here, and TF2's own HUD sources ARE in " +
+            "the SDK (tf_hud_deathnotice.cpp and 124 others) — neither the data nor the layout is " +
+            "the blocker.");
     }
 }

@@ -360,6 +360,29 @@ public static class SourceSdk
         // Second pass, after the literals are in hand, so a name-shift can be resolved against them.
         // Ordered rather than folded into the loop above because the operand may be declared later in
         // the file than the macro that uses it.
+        // **A plain alias: `#define A B`, where B is another constant.** Valve uses it to give one
+        // bit two meanings deliberately — `#define SPROP_VARINT SPROP_NORMAL`, with the comment
+        // "reuse existing flag so we don't break demo". Skipping aliases makes a name that is very
+        // much declared look absent, which reads as "the header moved".
+        //
+        // Same one-level rule as the shift above, and the same reason.
+        Regex aliased = new(
+            @"^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?://.*)?$",
+            RegexOptions.Multiline,
+            PatternLimit);
+
+        IEnumerable<(string Name, int Value)> byAlias = aliased
+            .Matches(text)
+            .Select(hit => (
+                Name: hit.Groups[1].Value,
+                Value: values.TryGetValue(hit.Groups[2].Value, out int target) ? target : int.MinValue))
+            .Where(pair => pair.Value != int.MinValue);
+
+        foreach ((string name, int value) in byAlias)
+        {
+            values.TryAdd(name, value);
+        }
+
         IEnumerable<(string Name, int Bits)> byName = shiftedByName
             .Matches(text)
             .Select(hit => (
