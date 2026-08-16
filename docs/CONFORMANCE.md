@@ -1,7 +1,21 @@
 # Conformance with Source
 
-What this project reproduces of the engine's rendering, what it does not, and **what you would see**
-in each case. Seeded from the material census — which reports, at every map load, the parameters and
+What this project reproduces of the engine, what it does not, and **what you would see** in each
+case. Covers the whole surface rather than one subsystem — the demo format, the world, models,
+materials and effects — because a viewer is only as convincing as its weakest layer, and the layers
+fail in completely different ways.
+
+**The executable half is four test classes**, 60 entries, currently **22 asserting parity and 38
+naming a gap**:
+
+| Suite | Covers | Source it is written against |
+|---|---|---|
+| `DemoConformanceTests` | messages, schema, entity deltas, interpolation | `public/inetmsghandler.h` |
+| `WorldConformanceTests` | BSP lumps, lighting, water, skybox | `public/bspfile.h` |
+| `ModelConformanceTests` | bones, attachments, flexes, IK, ragdolls | `public/studio.h` |
+| `SourceConformanceTests` + `EffectConformanceTests` | materials and shading; particles, beams, decals, shadows | `stdshaders/`, `game/client/c_te_*` |
+
+Run them with `dotnet test --filter Conformance`. The skipped count IS the score. Seeded from the material census — which reports, at every map load, the parameters and
 shaders a real map asks for that this project does not implement — and then checked one at a time
 against `source-sdk-2013`.
 
