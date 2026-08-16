@@ -810,6 +810,22 @@ assumption again without evidence; it has already failed once.
 The cost is bounded and visible: one packet of 118,282 in one of seven demos, reported in place
 rather than hidden.
 
+**2026-08-16 — the enum said these ids were "unused", and that was wrong in the expensive
+direction.** `NetMessageType`'s comment claimed ids 1, 9, 16, 20 and 22 are unused at this protocol
+and that "a stream producing one is malformed". Two independent things contradict it: this entry,
+which records id 1 occurring in a real demo, and `public/inetmsghandler.h`, which declares handlers
+for `SendTable` and `CrosshairAngle` — two of those five gaps. They are **unimplemented**, not
+unused.
+
+The distinction is the whole point. "Unimplemented" makes a stop this project's defect and keeps the
+investigation open; "malformed" makes it the file's fault and closes it. The decoder's own behaviour
+was right the entire time — it stops and says "not decoded yet" — so only the comment was wrong,
+which is exactly the kind of confidently-repeated conclusion `docs/findings/` exists to catch.
+
+`NetMessageConformanceTests` now checks the gaps against the engine's handler list rather than
+against a sentence. The numbering came from client binaries and the names come from published
+source, so the two are independent and neither can check itself.
+
 
 ### B16 resolved — it was `svc_BspDecal` overreading, not an unknown message
 
