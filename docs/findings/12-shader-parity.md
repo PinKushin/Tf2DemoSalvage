@@ -168,3 +168,79 @@ first-person and third-person views of players, and the viewer wants a free came
 
 The current renderer is correct for a top-down view of static geometry. Everything above is what
 stands between that and a camera a person can fly.
+
+---
+
+## `$modblend` is dead, and the shipped VMTs say so
+
+Evidence class: **measured on one machine**, against the live install, 2026-08-16. Reproducible by
+anyone with TF2 installed; not asserted in a test, because it depends on a Steam library.
+
+`$modblend` was this project's standing example of a question the SDK cannot answer — TF2 ships it in
+real VMTs, no published shader declares it, and `CLAUDE.md` nominated it as the case where reaching
+for a decompiler is the right next step rather than a last resort.
+
+**It needed no decompiler. The answer is in the VMTs themselves.**
+
+Three facts, in the order they were established:
+
+1. **No published shader declares it.** `grep -ril '$modblend'` over
+   `materialsystem/stdshaders` returns nothing, against 28 files for `$envmap` and 35 for
+   `$detail`. Confirmed rather than assumed.
+2. **No shipped binary contains the string.** Extracting every `$`-prefixed identifier from
+   `bin/stdshader_dx9.dll` yields **515 parameter names** — `$envmap`, `$envmapfresnel`,
+   `$envmapsaturation` and so on — and `$modblend` is not among them. Nor is it in any other
+   `.dll` or `.exe` in `bin`, `bin/x64` or `tf/bin`.
+3. **It IS in three shipped VPKs**, and every occurrence has the same shape.
+
+That shape is the finding:
+
+```
+"Modulate"
+{
+	"$basetexture" "models/effects/cappoint_logo_blue"
+//	"$additive" "1"
+	"$alpha" "1"
+	"$modblend" ".63"
+	"$model" "1"
+	"$mod2x" "1"
+	"Proxies"
+	{
+//		"Equals"
+//		{
+//			"srcvar1" "$modblend"
+//			"resultvar"  "$alpha"
+//		}
+		"Sine"
+		{
+			"Sineperiod" ".3"
+			"SineMax" ".7"
+			"SineMin" ".6"
+			"resultVar" "$alpha"
+		}
+	}
+}
+```
+
+**The only thing that ever read `$modblend` is commented out four lines below it.** An `Equals`
+proxy copied it into `$alpha`; that proxy is disabled and a `Sine` proxy animates `$alpha` instead.
+The same pattern appears in all three materials that carry the parameter — `cappoint_logo_blue`
+(`.63`), `props_mvm/mvm_revive_hologram` (`1`) and `robo_marker` (`.63`) — so it is one template
+copied three times, with its consumer commented out before it shipped.
+
+**A material parameter that no shader declares is simply ignored by the material system.** So
+`$modblend` does nothing, has done nothing since the proxy was disabled, and the correct
+implementation of it is to implement nothing.
+
+### Two things worth carrying away
+
+**The decompiler was nominated for a question the game's own data files answered.** That is now the
+second time in one session — the game event field widths were in a `.res` comment block. The
+category "things the SDK cannot answer" was doing a lot of work in this project's source menu, and
+two of its examples were answerable from shipped data, not shipped code.
+
+**A live proxy turned up while looking for a dead parameter.** `cappoint_logo_blue` animates its
+alpha with a `Sine` proxy — period `.3`, between `.6` and `.7`. That is a visible pulse on the
+capture point logo, it is B80's "material proxies are not implemented" made concrete, and it was
+found incidentally. Worth remembering that reading real assets pays for itself even when the
+question was about something else.
