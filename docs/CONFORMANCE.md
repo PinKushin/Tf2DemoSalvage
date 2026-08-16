@@ -5,8 +5,29 @@ case. Covers the whole surface rather than one subsystem — the demo format, th
 materials and effects — because a viewer is only as convincing as its weakest layer, and the layers
 fail in completely different ways.
 
-**The executable half is four test classes**, 60 entries, currently **22 asserting parity and 38
-naming a gap**:
+**The executable half is 40 test classes**, 208 entries, currently **88 asserting parity and 120
+naming a gap**. Measured 2026-08-16, not estimated:
+
+```bash
+dotnet test <project> --filter 'FullyQualifiedName~Conformance'
+```
+
+| Project | Parity | Gaps | Total |
+|---|---:|---:|---:|
+| `Core.Tests` | 51 | 46 | 97 |
+| `Viewer3D.Tests` | 22 | 60 | 82 |
+| `Content.Tests` | 15 | 14 | 29 |
+| **Total** | **88** | **120** | **208** |
+
+**The gap count going UP is the suite working.** It was 38 when this document was first written and
+is 120 now, and nothing regressed — eighteen batches went looking for things that were never
+implemented and wrote each one down as a runnable claim. A conformance suite whose gap count only
+falls is one that has stopped looking.
+
+The counts exclude the derived-number suites below, which are named for what they measure rather
+than for conformance and are listed separately.
+
+The original four classes:
 
 | Suite | Covers | Source it is written against |
 |---|---|---|
@@ -15,9 +36,27 @@ naming a gap**:
 | `ModelConformanceTests` | bones, attachments, flexes, IK, ragdolls | `public/studio.h` |
 | `SourceConformanceTests` + `EffectConformanceTests` | materials and shading; particles, beams, decals, shadows | `stdshaders/`, `game/client/c_te_*` |
 
-Run them with `dotnet test --filter Conformance`. The skipped count IS the score. Seeded from the material census — which reports, at every map load, the parameters and
+The skipped count IS the score.
+
+**Seeded from the material census originally** — which reports, at every map load, the parameters and
 shaders a real map asks for that this project does not implement — and then checked one at a time
 against `source-sdk-2013`.
+
+**That seed is exhausted, and what replaced it is worth knowing**, because the census could only ever
+report gaps in things a map *declares*. The later batches came from three other questions, in
+increasing order of what they turned up:
+
+1. **Which declared fields does a conformance test already derive that no reader consumes?** A test
+   pinning a structure's layout is simultaneously an inventory of what is being skipped over. Four
+   gaps in one lump, from reading a test we already had.
+2. **Which systems does the client RUN that leave no trace in any file?** A PVS is a lump read past;
+   Hermite interpolation is a default whose absence is the opt-out; a soundscape is an index into a
+   file never opened. None of these is a field going unread, so no inventory finds them.
+3. **What did we write down as impossible without checking?** The largest single yield. "TF2's game
+   code is closed" appeared in three places, was true of none of them, and reopened the item system,
+   the HUD, player conditions and the capture-point rule in one afternoon.
+
+The third question is the one to ask first on any new area.
 
 ## The derived half: numbers computed from the SDK, not typed twice
 
