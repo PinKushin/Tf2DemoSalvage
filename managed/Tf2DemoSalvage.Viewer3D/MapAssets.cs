@@ -367,6 +367,23 @@ internal sealed class MapAssets
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
 
+    /// <summary>What this map asked for that is not implemented, and how many materials want it.</summary>
+    /// <remarks>
+    /// **Covers brushwork AND props**, which is the distinction B81 was: the census reported clean
+    /// for months while never examining a prop material. Exposed so a test can assert the set rather
+    /// than a person noticing a log line — the failure that cost B55 an hour and B83 four
+    /// hypotheses was never missing information, it was information nothing acted on.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> UnimplementedParameters { get; private init; } =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Shaders this map names that this project does not reproduce.</summary>
+    public IReadOnlyCollection<string> UnimplementedShaders { get; private init; } = [];
+
+    /// <summary>How many of <see cref="Materials"/> came from the map's own brushwork.</summary>
+    /// <remarks>Everything past this index is a prop or model material, appended after them.</remarks>
+    public int BrushMaterialCount { get; private init; }
+
     /// <summary>Every face's baked lighting, packed into one image.</summary>
     public LightmapAtlas Lightmaps { get; }
 
@@ -405,6 +422,11 @@ internal sealed class MapAssets
         int missing = 0;
 
         IDisposable materialTiming = ViewerLog.Time("assets", "resolving materials");
+
+        // What the map asked for that this project does not implement, accumulated across both
+        // sources so a test can assert the whole picture rather than reading two log lines.
+        Dictionary<string, int> census = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> shaderCensus = new(StringComparer.OrdinalIgnoreCase);
 
         // **Resolved in parallel, written by index.** Each material is an independent chain of
         // VMT, patch and VTF, and both content sources are read-only once opened: VpkArchive opens
@@ -451,10 +473,26 @@ internal sealed class MapAssets
         //
         // Both halves are reported per SOURCE — brushwork, then props and models — because they are
         // drawn by different paths and a combined number would hide which of them is missing what.
-        static void ReportCensus(string source, IReadOnlyCollection<ResolvedMaterial> resolved)
+        void ReportCensus(string source, IReadOnlyCollection<ResolvedMaterial> resolved)
         {
             IReadOnlyList<(string Parameter, int Materials)> parameters = MaterialCensus.Unimplemented(
                 resolved.Select(material => material.Declared ?? []));
+
+            // **Kept, not just printed.** The census answered this question correctly for months
+            // and the answer only ever reached a log, so B55 spent an hour rediscovering it and
+            // B83 four hypotheses. A number a test can assert is a different thing from a number
+            // someone might read.
+            foreach ((string parameter, int count) in parameters)
+            {
+                census[parameter] = census.GetValueOrDefault(parameter) + count;
+            }
+
+            foreach (string shader in MaterialCensus
+                .UnimplementedShaders(resolved.Select(material => material.Shader))
+                .Select(entry => entry.Shader))
+            {
+                shaderCensus.Add(shader);
+            }
 
             ViewerLog.Write(
                 "assets",
@@ -643,6 +681,9 @@ internal sealed class MapAssets
             missing)
         {
             EntityModels = models,
+            UnimplementedParameters = census,
+            UnimplementedShaders = shaderCensus,
+            BrushMaterialCount = brushMaterials,
         };
     }
 
