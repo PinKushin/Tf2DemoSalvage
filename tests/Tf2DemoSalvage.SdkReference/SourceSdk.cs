@@ -152,8 +152,13 @@ public static class SourceSdk
             return values;
         }
 
+        // **Mixed case is allowed after the first character**, because Valve's own names are not
+        // all uppercase: `TCOMBINE_RGB_EQUALS_BASE_x_DETAILx2` in common_ps_fxc.h has two lowercase
+        // letters, and an uppercase-only pattern silently omits it. A missing constant here does
+        // not fail — it makes whatever asked for it look unchecked, which is the failure mode this
+        // whole reference is built against.
         Regex defined = new(
-            @"^\s*#define\s+([A-Z][A-Z0-9_]*)\s+\(?\s*(0x[0-9A-Fa-f]+|\d+)\s*\)?\s*(?://.*)?$",
+            @"^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(?\s*(0x[0-9A-Fa-f]+|\d+)\s*\)?\s*(?://.*)?$",
             RegexOptions.Multiline,
             PatternLimit);
 

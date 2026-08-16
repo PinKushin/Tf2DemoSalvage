@@ -32,10 +32,10 @@ public readonly record struct StudioSequence(
     public bool IsForwardDeclaration => (Flags & ForwardDeclared) != 0;
 
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
-    private const int Looping = 0x0001;
+    private const int Looping = StudioFlags.SequenceLooping;
 
     /// <summary><c>STUDIO_OVERRIDE</c> from <c>studio.h</c>.</summary>
-    private const int ForwardDeclared = 0x0800;
+    private const int ForwardDeclared = StudioFlags.SequenceForwardDeclared;
 }
 
 /// <summary>
