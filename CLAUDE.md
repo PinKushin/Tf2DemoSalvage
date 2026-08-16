@@ -142,9 +142,28 @@ session spent measuring a model that was never at fault.
 
 **Going through sources in order is a waste when you already know which one holds the answer.** A
 question about the demo container does not belong to a decompiler; a question about how `Modulate`
-blends does not belong to the Rust parser, which has never drawn anything. `$modblend` is the worked
-example — TF2 ships it in real VMTs and no published shader declares it, so the SDK cannot answer and
-a decompile is the right next step rather than a last resort.
+blends does not belong to the Rust parser, which has never drawn anything.
+
+**There is a fifth source, and it is missing from the table above: the game's own shipped data.**
+VMTs, `.res` files, VPK contents. It is not code, so it does not feel like a source, and it answered
+two questions filed as needing a decompiler:
+
+- **`$modblend`** was the worked example here for "the SDK cannot answer this, decompile it". It
+  needed no decompiler. The parameter is declared in three shipped VMTs and read by nothing — the
+  only consumer is an `Equals` proxy **commented out four lines below it** in the same file. No
+  published shader declares it and no shipped binary contains the string, so the material system
+  ignores it. It is dead, and the correct implementation is nothing. See
+  `docs/findings/12-shader-parity.md`.
+- **Game event field widths and signedness** were filed as outside the SDK because
+  `GameEventManager` is closed. They are documented in the comment block at the top of
+  `game/mod_hl2mp/resource/modevents.res` — `short` is 16-bit *signed*, `bool` is 1 bit unsigned,
+  and so on. See `docs/CONFORMANCE.md`.
+
+So: **when the question is about a format the GAME reads, read what the game ships.** Valve's data
+files carry prose explaining themselves, and nobody thinks to look there because the habit is to look
+for code. The decompiler rule below stands unchanged — it is still a normal tool, reach for it
+readily — but check the shipped data first when the question is about content rather than about
+engine behaviour.
 
 **The decompiler rule is about REPOSITORY SIZE, and that is the whole of it.** Decompiler projects
 and output are enormous, they cannot be moved to another disk easily once committed, and a folder
