@@ -6,6 +6,8 @@ using System.Linq;
 
 using Tf2DemoSalvage.Core.Diagnostics;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>What kind of light a world light is.</summary>
@@ -64,17 +66,6 @@ public readonly record struct BspWorldLight(
 /// </remarks>
 public static class BspWorldLights
 {
-    /// <summary>The lights lump.</summary>
-    private const int LumpWorldLights = 15;
-
-    /// <summary>Bytes per <c>dworldlight_t</c>: 88 in the format this project reads.</summary>
-    /// <remarks>
-    /// origin, intensity and normal are three floats each (36), then cluster, type, style (12),
-    /// stopdot, stopdot2, exponent, radius (16), the three attenuation terms (12), then flags,
-    /// texinfo and owner (12).
-    /// </remarks>
-    private const int LightStride = 88;
-
     /// <summary>Reads every light the compiler recorded.</summary>
     /// <param name="file">The whole map file.</param>
     /// <returns>The lights, in file order; empty when the map carries none.</returns>
@@ -83,7 +74,7 @@ public static class BspWorldLights
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        ReadOnlySpan<byte> lump = BspLumpData.Read(file, header.Lump(LumpWorldLights)).Span;
+        ReadOnlySpan<byte> lump = BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLights)).Span;
 
         if (lump.IsEmpty)
         {
@@ -93,9 +84,9 @@ public static class BspWorldLights
             return [];
         }
 
-        List<BspWorldLight> lights = new(lump.Length / LightStride);
+        List<BspWorldLight> lights = new(lump.Length / WorldLightStride);
 
-        for (int at = 0; at + LightStride <= lump.Length; at += LightStride)
+        for (int at = 0; at + WorldLightStride <= lump.Length; at += WorldLightStride)
         {
             ReadOnlySpan<byte> entry = lump[at..];
 

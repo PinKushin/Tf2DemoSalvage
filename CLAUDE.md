@@ -103,6 +103,48 @@ Phase 1 (see `ROADMAP.md` §3): `managed/Tf2DemoSalvage.Core`, pure C# — conta
 
 Do not start Phase 2 or Phase 3 work before Phase 1 is solid and tested. Do not build toward Phase 4 (demo repair for live-client replay) at all unless explicitly asked — it's parked, see `docs/DECISIONS.md` D1.
 
+## The order of work, and where to look
+
+**A conformance test comes first, then unit/integration/UI tests, then the implementation.** The
+conformance test is where "what does the engine actually do" gets written down — with its citation —
+*before* any code exists to bias the answer. Written afterwards it becomes a description of what was
+built, which is the one thing a parity test must never be.
+
+**Read the source before measuring our data.** Measuring this project can only find data that is
+wrong; it cannot find a feature that was never implemented, and every measurement comes back correct
+while it looks like progress. The tell is three correct measurements in a row: the question is wrong,
+not the data. See `docs/memory/read-the-spec-before-measuring-our-data.md`, which was written after a
+session spent measuring a model that was never at fault.
+
+**Four sources. This is a menu, not a ladder — pick the one that holds the answer and skip the rest.**
+
+| Source | Holds | Rules |
+|---|---|---|
+| `source-sdk-2013` (`F:/src/source-sdk-2013`) | shaders, file formats, math, message lists, material flags | read and cite freely; quoting it in comments is the point |
+| [demostf/parser](https://github.com/demostf/parser) | demo container and entity decode | read for cross-checking, never port. **Knows nothing about rendering — skip it outright for anything drawn** |
+| Valve Developer Community wiki | conventions and parameter meanings the SDK does not spell out | secondary; a wiki page is not a citation of behaviour |
+| a decompiler | the closed engine — the material system, TF2's own shaders, anything the SDK omits | **reach for it readily.** The only hard rule is where its output lives |
+
+**Going through sources in order is a waste when you already know which one holds the answer.** A
+question about the demo container does not belong to a decompiler; a question about how `Modulate`
+blends does not belong to the Rust parser, which has never drawn anything. `$modblend` is the worked
+example — TF2 ships it in real VMTs and no published shader declares it, so the SDK cannot answer and
+a decompile is the right next step rather than a last resort.
+
+**The decompiler rule is about REPOSITORY SIZE, and that is the whole of it.** Decompiler projects
+and output are enormous, they cannot be moved to another disk easily once committed, and a folder
+committed once lives in the history for ever. So: run it with its project and output paths under a
+temp directory outside every git tree, and carry back only what is written by hand afterwards — a
+constant, a field order, a formula, a note saying where it came from. Never paste a decompiled
+function into source. The owner's position on the legal question is that it is not a practical
+concern here; the size problem is real and permanent.
+
+**Two instruments measure conformance and they are not interchangeable.** `SdkCoverageTests`
+generates the denominator from the SDK — 489 shader parameters, 66 lumps, 54 studio structures — and
+can never go stale. The hand-written suites carry the semantics and the COST: whether `$detail` is
+implemented with the right blend mode, and what a gap looks like on screen. Only the second kind
+catches a wrong implementation, and only the first kind catches a missing one.
+
 ## Reference material (external, not vendored)
 
 - [demostf/parser](https://github.com/demostf/parser) / `tf-demo-parser` crate — mature Rust reference implementation (demos.tf's actual parser). Read for cross-checking behavior, do not port code directly (different language, and the point is to actually understand the format).

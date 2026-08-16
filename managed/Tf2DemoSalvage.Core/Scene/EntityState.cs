@@ -22,6 +22,33 @@ namespace Tf2DemoSalvage.Core.Scene;
 public sealed class EntityState
 {
     /// <summary>Where TF2 sends the recording client's own position.</summary>
+    /// <summary>Every networked property this decoder looks for, by the table it lives in.</summary>
+    /// <remarks>
+    /// **Exposed so the names can be checked against the ones Source actually sends.** A property
+    /// name that no send table declares is not an error here — the lookup simply finds nothing and
+    /// the value takes its default, which is a legal value for every one of these. That is the same
+    /// silence that hid <c>m_nBody</c>, <c>m_nSkin</c> and the player's yaw, one layer further down:
+    /// a typo in a string is indistinguishable from an entity that never sent the property.
+    ///
+    /// Valve declares them in the send tables — <c>SendPropInt( SENDINFO(m_nBody), …)</c> in
+    /// <c>server/baseanimating.cpp:237</c> and its neighbours — so a conformance test can read the
+    /// engine's list and confirm every name here appears in it.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>> NetworkedProperties =>
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            [BaseEntityTable] =
+            [
+                OriginProperty, AnglesProperty, EffectsProperty, ModelIndexProperty,
+                OwnerProperty,
+            ],
+            [AnimatingTable] =
+            [
+                SequenceProperty, BodyProperty, CycleProperty, PlaybackRateProperty,
+                ModelScaleProperty,
+            ],
+        };
+
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
 
     /// <summary>Where TF2 sends every other player's position.</summary>
@@ -63,11 +90,18 @@ public sealed class EntityState
     private const int EdictBits = 11;
 
     /// <summary>
-    /// <c>INVALID_NETWORKED_EHANDLE_VALUE</c>: <c>(1 &lt;&lt; (MAX_EDICT_BITS + 10)) - 1</c>. Tested
+    /// <c>NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS</c> — the high part of a handle, which
+    /// distinguishes a slot's current occupant from the one that used to be there.
+    /// </summary>
+    private const int SerialBits = 10;
+
+    /// <summary>
+    /// <c>INVALID_NETWORKED_EHANDLE_VALUE</c>:
+    /// <c>(1 &lt;&lt; (MAX_EDICT_BITS + NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS)) - 1</c>. Tested
     /// against the WHOLE value, because its low eleven bits are 2047 and would otherwise read as a
     /// real slot.
     /// </summary>
-    private const int InvalidHandle = (1 << (EdictBits + 10)) - 1;
+    private const int InvalidHandle = (1 << (EdictBits + SerialBits)) - 1;
 
     /// <summary>Only things that animate carry the four below.</summary>
     private const string AnimatingTable = "DT_BaseAnimating";
@@ -230,8 +264,50 @@ public sealed class EntityState
     }
 
     /// <summary>The entity slot a networked handle names, or null when it names nothing.</summary>
-    private static int? Slot(int? handle) =>
+    /// <param name="handle">The raw networked value, or null when the property was never sent.</param>
+    /// <returns>The entity index, or <c>null</c> for the invalid handle.</returns>
+    /// <remarks>
+    /// **The invalid test comes BEFORE the mask, which is Valve's order and not an arrangement of
+    /// convenience.** <c>RecvProxy_IntToEHandle</c> (<c>client/recvproxy.cpp:90</c>) compares the
+    /// whole word against <c>INVALID_NETWORKED_EHANDLE_VALUE</c> first, and only then takes the low
+    /// <c>MAX_EDICT_BITS</c>. Masking first turns the invalid handle into 2047 — a legal index that
+    /// names whatever entity occupies that slot — which is how 220 syringe projectiles were claimed
+    /// as worn items by their owner.
+    ///
+    /// Internal so the rule can be asserted directly: the order of two operations is exactly the
+    /// kind of thing that reads correctly and behaves wrongly.
+    /// </remarks>
+    internal static int? Slot(int? handle) =>
         handle is not { } raw || raw == InvalidHandle ? null : raw & ((1 << EdictBits) - 1);
+
+    /// <summary>The invalid networked handle, as the engine defines it.</summary>
+    /// <remarks>
+    /// <c>(1 &lt;&lt; (MAX_EDICT_BITS + NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS)) - 1</c>, which is
+    /// 11 + 10 bits. Exposed so a test can state the value rather than assume −1, which is what it
+    /// is NOT.
+    /// </remarks>
+    internal static int NoHandle => InvalidHandle;
+
+    /// <summary>The engine constants this decoder acts on, by their names in the SDK.</summary>
+    /// <remarks>
+    /// **Exposed so a conformance test can read the values the code uses, not copies of them.** A
+    /// test asserting <c>0x020 == 0x020</c> against <c>const.h</c> proves nothing about this class;
+    /// asserting <em>this</em> dictionary does. The names are the engine's, so the test needs no
+    /// translation table and a rename here fails there.
+    ///
+    /// Every one of them is a value whose corruption is silent: a wrong <c>EF_NODRAW</c> bit hides
+    /// or shows entities, a wrong <c>EF_BONEMERGE</c> parents a weapon to nothing, and a wrong
+    /// <c>MAX_EDICT_BITS</c> masks a handle to the wrong slot — which resolves to a real, existing,
+    /// different entity.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, int> EngineConstants =>
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["EF_NODRAW"] = NoDraw,
+            ["EF_BONEMERGE"] = BoneMerge,
+            ["MAX_EDICT_BITS"] = EdictBits,
+            ["NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS"] = SerialBits,
+        };
 
     /// <summary>Which way the entity faces.</summary>
     /// <returns>Pitch, yaw and roll in degrees, or <c>null</c> when never sent.</returns>

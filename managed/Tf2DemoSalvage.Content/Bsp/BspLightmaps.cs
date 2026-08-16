@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One face's baked lighting.</summary>
@@ -71,20 +73,6 @@ public readonly record struct BspFaceLighting(
 
 public static class BspLightmaps
 {
-    private const int LumpFaces = 7;
-    private const int LumpTexinfo = 6;
-    private const int LumpLighting = 8;
-    private const int LumpLightingHdr = 53;
-
-    private const int FaceStride = 56;
-    private const int StylesOffset = 16;
-    private const int LightOffsetOffset = 20;
-    private const int LuxelSizeOffset = 36;
-    private const int TexinfoIndexOffset = 10;
-
-    private const int TexinfoStride = 72;
-    private const int TexinfoFlagsOffset = 64;
-
     /// <summary>How many lightmaps a bump-lit face carries: one flat plus one per basis vector.</summary>
     /// <remarks>
     /// <c>NUM_BUMP_VECTS + 1</c> in Valve's own arithmetic, from <c>bumpvects.h</c>.
@@ -132,12 +120,12 @@ public static class BspLightmaps
         BspHeader header = BspHeader.Parse(file.Span);
 
         ReadOnlySpan<byte> faces = BspLumpData
-            .ReadStructures(file, header.Lump(LumpFaces), FaceStride, "faces").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
 
-        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(LumpLighting));
+        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
         ReadOnlySpan<byte> lighting = ldr.Length > 0
             ? ldr.Span
-            : BspLumpData.Read(file, header.Lump(LumpLightingHdr)).Span;
+            : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr)).Span;
 
         int count = faces.Length / FaceStride;
         List<BspLightmap> lightmaps = new(count);
@@ -145,7 +133,7 @@ public static class BspLightmaps
         for (int index = 0; index < count; index++)
         {
             ReadOnlySpan<byte> face = faces.Slice(index * FaceStride, FaceStride);
-            int offset = BinaryPrimitives.ReadInt32LittleEndian(face[LightOffsetOffset..]);
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(face[FaceLightOffset..]);
 
             if (offset == Unlit || lighting.Length == 0)
             {
@@ -153,8 +141,8 @@ public static class BspLightmaps
                 continue;
             }
 
-            int width = BinaryPrimitives.ReadInt32LittleEndian(face[LuxelSizeOffset..]) + 1;
-            int height = BinaryPrimitives.ReadInt32LittleEndian(face[(LuxelSizeOffset + 4)..]) + 1;
+            int width = BinaryPrimitives.ReadInt32LittleEndian(face[FaceLuxelSizeOffset..]) + 1;
+            int height = BinaryPrimitives.ReadInt32LittleEndian(face[(FaceLuxelSizeOffset + 4)..]) + 1;
 
             if (width is < 1 or > MaximumLuxels || height is < 1 or > MaximumLuxels)
             {
@@ -215,15 +203,15 @@ public static class BspLightmaps
         BspHeader header = BspHeader.Parse(file.Span);
 
         ReadOnlySpan<byte> faces = BspLumpData
-            .ReadStructures(file, header.Lump(LumpFaces), FaceStride, "faces").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
 
         ReadOnlySpan<byte> texinfo = BspLumpData
-            .ReadStructures(file, header.Lump(LumpTexinfo), TexinfoStride, "texinfo").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Texinfo), TexinfoStride, "texinfo").Span;
 
-        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(LumpLighting));
+        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
         ReadOnlySpan<byte> lighting = ldr.Length > 0
             ? ldr.Span
-            : BspLumpData.Read(file, header.Lump(LumpLightingHdr)).Span;
+            : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr)).Span;
 
         int count = faces.Length / FaceStride;
         List<BspFaceLighting> read = new(count);
@@ -231,7 +219,7 @@ public static class BspLightmaps
         for (int index = 0; index < count; index++)
         {
             ReadOnlySpan<byte> face = faces.Slice(index * FaceStride, FaceStride);
-            int offset = BinaryPrimitives.ReadInt32LittleEndian(face[LightOffsetOffset..]);
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(face[FaceLightOffset..]);
 
             if (offset == Unlit || lighting.Length == 0)
             {
@@ -239,8 +227,8 @@ public static class BspLightmaps
                 continue;
             }
 
-            int width = BinaryPrimitives.ReadInt32LittleEndian(face[LuxelSizeOffset..]) + 1;
-            int height = BinaryPrimitives.ReadInt32LittleEndian(face[(LuxelSizeOffset + 4)..]) + 1;
+            int width = BinaryPrimitives.ReadInt32LittleEndian(face[FaceLuxelSizeOffset..]) + 1;
+            int height = BinaryPrimitives.ReadInt32LittleEndian(face[(FaceLuxelSizeOffset + 4)..]) + 1;
 
             if (width is < 1 or > MaximumLuxels || height is < 1 or > MaximumLuxels)
             {
@@ -290,10 +278,10 @@ public static class BspLightmaps
         BspHeader header = BspHeader.Parse(file.Span);
 
         ReadOnlySpan<byte> faces = BspLumpData
-            .ReadStructures(file, header.Lump(LumpFaces), FaceStride, "faces").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
 
         ReadOnlySpan<byte> texinfo = BspLumpData
-            .ReadStructures(file, header.Lump(LumpTexinfo), TexinfoStride, "texinfo").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Texinfo), TexinfoStride, "texinfo").Span;
 
         int count = faces.Length / FaceStride;
         List<(int Offset, long Bytes, int Styles)> spans = new(count);
@@ -301,15 +289,15 @@ public static class BspLightmaps
         for (int index = 0; index < count; index++)
         {
             ReadOnlySpan<byte> face = faces.Slice(index * FaceStride, FaceStride);
-            int offset = BinaryPrimitives.ReadInt32LittleEndian(face[LightOffsetOffset..]);
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(face[FaceLightOffset..]);
 
             if (offset == Unlit)
             {
                 continue;
             }
 
-            int width = BinaryPrimitives.ReadInt32LittleEndian(face[LuxelSizeOffset..]) + 1;
-            int height = BinaryPrimitives.ReadInt32LittleEndian(face[(LuxelSizeOffset + 4)..]) + 1;
+            int width = BinaryPrimitives.ReadInt32LittleEndian(face[FaceLuxelSizeOffset..]) + 1;
+            int height = BinaryPrimitives.ReadInt32LittleEndian(face[(FaceLuxelSizeOffset + 4)..]) + 1;
 
             if (width is < 1 or > MaximumLuxels || height is < 1 or > MaximumLuxels)
             {
@@ -335,7 +323,7 @@ public static class BspLightmaps
     /// </remarks>
     private static bool IsBumpLit(ReadOnlySpan<byte> face, ReadOnlySpan<byte> texinfo)
     {
-        int index = BinaryPrimitives.ReadInt16LittleEndian(face[TexinfoIndexOffset..]);
+        int index = BinaryPrimitives.ReadInt16LittleEndian(face[FaceTexinfoOffset..]);
 
         if (index < 0 || ((index + 1) * TexinfoStride) > texinfo.Length)
         {
@@ -387,7 +375,7 @@ public static class BspLightmaps
 
         for (int slot = 0; slot < 4; slot++)
         {
-            if (face[StylesOffset + slot] != NoStyle)
+            if (face[FaceStylesOffset + slot] != NoStyle)
             {
                 styles++;
             }

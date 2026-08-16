@@ -40,10 +40,11 @@ namespace Tf2DemoSalvage.Core.Net;
 public static class EntityMessageNames
 {
     /// <summary><c>BASEENTITY_MSG_REMOVE_DECALS</c>, from `baseentity_shared.h`.</summary>
-    private const int RemoveDecals = 1;
+    /// <remarks>Internal so <c>EntityMessageConformanceTests</c> checks these rather than copies.</remarks>
+    internal const int RemoveDecals = 1;
 
     /// <summary><c>PLAY_PLAYER_JINGLE</c>, the player handler's case for the same value.</summary>
-    private const int PlayerJingle = 1;
+    internal const int PlayerJingle = 1;
 
     /// <summary>The name of an entity message's type byte, or <c>null</c> if it is not known.</summary>
     /// <param name="className">The receiving class, e.g. <c>CBaseAnimating</c>.</param>

@@ -1398,3 +1398,36 @@ after. Flattening geometry per camera is a thing this project invented, not a th
 **Consequence for the height cut.** The overhead view's "take the roof off" cutting plane currently
 works on the precomputed depth. It becomes a world-height test instead, which is what it always
 meant — and it is the mechanism B49's black lids need, so the two land together.
+
+## D22 — surf and jump runs are a named audience, and they set the accuracy bar
+
+**Stated by the owner, 2026-08-16.** Part of why this parser exists is so TF2's surf and jump
+communities can properly document old runs — recordings the live client can no longer play, which is
+the same problem this project was built for, arriving from a direction that had not been written
+down.
+
+**Not the same "surf" as `SURF_*`.** Those are texinfo bits in `bspflags.h` — sky, nodraw, hint,
+bumplight — and have nothing to do with the game mode. The collision is named here because reading
+one as the other builds the wrong thing confidently, and it happened in the session that produced
+this entry.
+
+**What it changes: which errors are tolerable.** A viewer can be approximate about a material and
+still be useful to this audience. It cannot be approximate about a number. Specifically:
+
+| Quantity | Why it is load-bearing |
+|---|---|
+| `dem_usercmd` view angles and `sidemove`/`forwardmove` | this IS the strafe, per tick, not a summary of one |
+| tick attribution | a run's time is a tick count, so an off-by-one is a falsified record |
+| `m_vecOrigin`, and a recording player's `m_vecVelocity` | derived speed from position deltas approximates velocity, it is not the same number |
+| zone and timer events | usually plugin-driven on these servers, so they arrive as user messages or trigger entity state rather than as documented messages |
+
+**The consequence for priorities**: a wrong material is a cosmetic defect here and a wrong tick,
+angle or origin is a fabricated record. `UserCommandConformanceTests` exists because of this — it
+extracts the field order from `WriteUsercmd` rather than transcribing it, since a transposed pair
+still decodes and produces a complete command describing a run that never happened.
+
+**What this does NOT commit to.** Emulating `gamemovement.cpp` would let positions be *reproduced*
+from the recorded inputs, which is how a spliced demo would be detected and how a run could be
+replayed with no client at all. That is a much larger job and is not needed to document a run —
+decoding gives the run as recorded. The two compose if it is ever built: inputs from the demo,
+positions from emulation, and any disagreement is a finding.

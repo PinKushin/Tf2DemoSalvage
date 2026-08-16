@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One corner of a surface, with everywhere it has to be sampled.</summary>
@@ -122,28 +124,6 @@ public sealed record BspSurface(
 /// </remarks>
 public static class BspSurfaces
 {
-    private const int LumpVertexes = 3;
-    private const int LumpTexinfo = 6;
-    private const int LumpFaces = 7;
-    private const int LumpEdges = 12;
-    private const int LumpSurfedges = 13;
-    private const int LumpPlanes = 1;
-
-    private const int FaceStride = 56;
-    private const int TexinfoStride = 72;
-    private const int VertexStride = 12;
-    private const int EdgeStride = 4;
-    private const int SurfedgeStride = 4;
-    private const int PlaneStride = 20;
-
-    private const int FaceTexinfoOffset = 10;
-    private const int FaceDisplacementOffset = 12;
-    private const int FaceLuxelMinsOffset = 28;
-    private const int FaceLuxelSizeOffset = 36;
-    private const int TexinfoFlagsOffset = 64;
-    private const int TexinfoTexdataOffset = 68;
-    private const int TexinfoLightmapVecsOffset = 32;
-
     /// <summary>Reads every drawable face with its texture and lightmap coordinates.</summary>
     /// <param name="file">The map's bytes.</param>
     /// <returns>The surfaces, in face order.</returns>
@@ -156,12 +136,12 @@ public static class BspSurfaces
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        ReadOnlySpan<byte> faces = Lump(file, header, LumpFaces, FaceStride, "faces");
-        ReadOnlySpan<byte> texinfo = Lump(file, header, LumpTexinfo, TexinfoStride, "texinfo");
-        ReadOnlySpan<byte> vertexes = Lump(file, header, LumpVertexes, VertexStride, "vertexes");
-        ReadOnlySpan<byte> edges = Lump(file, header, LumpEdges, EdgeStride, "edges");
-        ReadOnlySpan<byte> surfedges = Lump(file, header, LumpSurfedges, SurfedgeStride, "surfedges");
-        ReadOnlySpan<byte> planes = Lump(file, header, LumpPlanes, PlaneStride, "planes");
+        ReadOnlySpan<byte> faces = Lump(file, header, BspLumpIndex.Faces, FaceStride, "faces");
+        ReadOnlySpan<byte> texinfo = Lump(file, header, BspLumpIndex.Texinfo, TexinfoStride, "texinfo");
+        ReadOnlySpan<byte> vertexes = Lump(file, header, BspLumpIndex.Vertexes, VertexStride, "vertexes");
+        ReadOnlySpan<byte> edges = Lump(file, header, BspLumpIndex.Edges, EdgeStride, "edges");
+        ReadOnlySpan<byte> surfedges = Lump(file, header, BspLumpIndex.Surfedges, SurfedgeStride, "surfedges");
+        ReadOnlySpan<byte> planes = Lump(file, header, BspLumpIndex.Planes, PlaneStride, "planes");
 
         IReadOnlyList<BspMaterial> materials = BspMaterials.Read(file);
         IReadOnlyList<BspLightmap> lightmaps = BspLightmaps.Read(file);

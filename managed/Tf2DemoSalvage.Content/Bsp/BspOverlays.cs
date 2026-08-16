@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One decal painted onto the world.</summary>
@@ -108,28 +110,8 @@ public sealed record BspOverlay(
 /// </remarks>
 public static class BspOverlays
 {
-    private const int LumpOverlays = 45;
-    private const int LumpTexinfo = 6;
-
-    private const int TexinfoStride = 72;
-
-    /// <summary>Which material a texinfo names.</summary>
-    private const int TexinfoTexdataOffset = 68;
-
-    /// <summary>Bytes per overlay, and the arithmetic above is the reason it is this.</summary>
-    private const int OverlayStride = 352;
-
-    /// <summary>Most faces one overlay can name.</summary>
+    /// <summary>Most faces one overlay can name: <c>OVERLAY_BSP_FACE_COUNT</c>.</summary>
     private const int MaximumFaces = 64;
-
-    private const int TexInfoOffset = 4;
-    private const int FaceCountOffset = 6;
-    private const int FacesOffset = 8;
-    private const int UOffset = 264;
-    private const int VOffset = 272;
-    private const int CornersOffset = 280;
-    private const int OriginOffset = 328;
-    private const int BasisNormalOffset = 340;
 
     /// <summary>The top two bits of the packed field hold the render order.</summary>
     private const int RenderOrderMask = 0xC000;
@@ -143,10 +125,10 @@ public static class BspOverlays
         BspHeader header = BspHeader.Parse(file.Span);
 
         ReadOnlySpan<byte> overlays = BspLumpData
-            .ReadStructures(file, header.Lump(LumpOverlays), OverlayStride, "overlays").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Overlays), OverlayStride, "overlays").Span;
 
         ReadOnlySpan<byte> texinfo = BspLumpData
-            .ReadStructures(file, header.Lump(LumpTexinfo), TexinfoStride, "texinfo").Span;
+            .ReadStructures(file, header.Lump(BspLumpIndex.Texinfo), TexinfoStride, "texinfo").Span;
 
         int count = overlays.Length / OverlayStride;
         List<BspOverlay> read = new(count);
@@ -158,7 +140,7 @@ public static class BspOverlays
             // **Face count and render order share sixteen bits**, the order in the top two. Reading
             // the whole field as a count gives tens of thousands for any overlay with a non-zero
             // order, and then the face loop walks straight off the end of the struct.
-            int packed = BinaryPrimitives.ReadUInt16LittleEndian(entry[FaceCountOffset..]);
+            int packed = BinaryPrimitives.ReadUInt16LittleEndian(entry[OverlayFaceCountOffset..]);
             int faceCount = packed & ~RenderOrderMask;
             int renderOrder = (packed & RenderOrderMask) >> 14;
 
@@ -172,7 +154,7 @@ public static class BspOverlays
 
             for (int face = 0; face < faceCount; face++)
             {
-                faces.Add(BinaryPrimitives.ReadInt32LittleEndian(entry[(FacesOffset + (face * 4))..]));
+                faces.Add(BinaryPrimitives.ReadInt32LittleEndian(entry[(OverlayFacesOffset + (face * 4))..]));
             }
 
             // Two dimensional on purpose: the z of each corner carries the basis, not a height.
@@ -181,20 +163,20 @@ public static class BspOverlays
             for (int corner = 0; corner < 4; corner++)
             {
                 corners.Add((
-                    Float(entry, CornersOffset + (corner * 12)),
-                    Float(entry, CornersOffset + (corner * 12) + 4)));
+                    Float(entry, OverlayCornersOffset + (corner * 12)),
+                    Float(entry, OverlayCornersOffset + (corner * 12) + 4)));
             }
 
             (float X, float Y, float Z) basisU = (
-                Float(entry, CornersOffset + 8),
-                Float(entry, CornersOffset + 12 + 8),
-                Float(entry, CornersOffset + 24 + 8));
+                Float(entry, OverlayCornersOffset + 8),
+                Float(entry, OverlayCornersOffset + 12 + 8),
+                Float(entry, OverlayCornersOffset + 24 + 8));
 
-            (float X, float Y, float Z) normal = Vector(entry, BasisNormalOffset);
+            (float X, float Y, float Z) normal = Vector(entry, OverlayBasisNormalOffset);
 
             // V is the cross product of the normal and U, flipped when the fourth corner's z says
             // so - which is the one bit of information vbsp had left to encode it in.
-            bool flipped = Float(entry, CornersOffset + 36 + 8) != 0f;
+            bool flipped = Float(entry, OverlayCornersOffset + 36 + 8) != 0f;
 
             (float X, float Y, float Z) basisV = Cross(normal, basisU);
 
@@ -203,7 +185,7 @@ public static class BspOverlays
                 basisV = (-basisV.X, -basisV.Y, -basisV.Z);
             }
 
-            short texInfoIndex = BinaryPrimitives.ReadInt16LittleEndian(entry[TexInfoOffset..]);
+            short texInfoIndex = BinaryPrimitives.ReadInt16LittleEndian(entry[OverlayTexinfoOffset..]);
 
             // **An overlay's texinfo carries no mapping, only a material.** vbsp zeroes every
             // texture vector in it and writes -99999 into the last component, so texdata is the
@@ -220,10 +202,10 @@ public static class BspOverlays
                 materialIndex,
                 renderOrder,
                 faces,
-                (Float(entry, UOffset), Float(entry, UOffset + 4)),
-                (Float(entry, VOffset), Float(entry, VOffset + 4)),
+                (Float(entry, OverlayUOffset), Float(entry, OverlayUOffset + 4)),
+                (Float(entry, OverlayVOffset), Float(entry, OverlayVOffset + 4)),
                 corners,
-                Vector(entry, OriginOffset),
+                Vector(entry, OverlayOriginOffset),
                 normal,
                 basisU,
                 basisV));

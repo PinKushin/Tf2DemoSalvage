@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One of a model's sequences.</summary>
@@ -30,10 +32,10 @@ public readonly record struct StudioSequence(
     public bool IsForwardDeclaration => (Flags & ForwardDeclared) != 0;
 
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
-    private const int Looping = 0x0001;
+    private const int Looping = StudioFlags.SequenceLooping;
 
     /// <summary><c>STUDIO_OVERRIDE</c> from <c>studio.h</c>.</summary>
-    private const int ForwardDeclared = 0x0800;
+    private const int ForwardDeclared = StudioFlags.SequenceForwardDeclared;
 }
 
 /// <summary>
@@ -56,55 +58,11 @@ public readonly record struct StudioSequence(
 /// </remarks>
 public static class StudioSequences
 {
-    /// <summary><c>studiohdr_t.numlocalseq</c> and <c>localseqindex</c>.</summary>
-    /// <remarks>
-    /// Immediately after <c>numlocalanim</c>/<c>localanimindex</c> at 180 and 184, and immediately
-    /// before <c>activitylistversion</c> and then <c>numtextures</c> at 204 — which this project
-    /// already reads and has verified against real files.
-    /// </remarks>
-    private const int SequenceCountOffset = 188;
-    private const int SequenceIndexOffset = 192;
-
-    /// <summary>
-    /// Bytes per <c>mstudioseqdesc_t</c>, summing <c>studio.h</c>'s field list: through
-    /// <c>numactivitymodifiers</c> at 188 and <c>unused[5]</c>.
-    /// </summary>
-    private const int SequenceStride = 212;
-
-    private const int LabelOffset = 4;
-    private const int FlagsOffset = 12;
-    private const int AnimationIndexOffset = 60;
-    private const int GroupSizeOffset = 68;
-
     /// <summary>Most sequences a model may declare, as a guard against a malformed header.</summary>
-    private const int MaximumSequences = 4096;
-
-    /// <summary><c>paramindex[2]</c>, <c>paramstart[2]</c> and <c>paramend[2]</c>.</summary>
-    /// <remarks>
-    /// Straight after <c>groupsize[2]</c> at 68, which this file already reads — the run is
-    /// <c>animindexindex</c> 60, <c>movementindex</c> 64, <c>groupsize</c> 68, <c>paramindex</c>
-    /// 76, <c>paramstart</c> 84, <c>paramend</c> 92.
-    /// </remarks>
-    private const int ParameterIndexOffset = 76;
-
-    private const int ParameterStartOffset = 84;
-    private const int ParameterEndOffset = 92;
-
-    /// <summary><c>studiohdr_t.numlocalposeparameters</c> and <c>localposeparamindex</c>.</summary>
-    /// <remarks>
-    /// Counted from <c>numbodyparts</c> at 232 through the attachment, node, flex descriptor, flex
-    /// controller, flex rule, ik chain and mouth pairs — nineteen ints in all, the last two being
-    /// these.
-    /// </remarks>
-    private const int PoseParameterCountOffset = 300;
-
-    private const int PoseParameterIndexOffset = 304;
-
-    /// <summary><c>mstudioposeparamdesc_t</c>: name index, flags, start, end, loop.</summary>
-    private const int PoseParameterStride = 20;
+    private const int MaximumSequences = StudioReaderLimits.Sequences;
 
     /// <summary>A model is untrusted input; TF2's classes declare about two dozen.</summary>
-    private const int MaximumPoseParameters = 256;
+    private const int MaximumPoseParameters = StudioReaderLimits.PoseParameters;
 
     /// <summary>Reads a model's sequences.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
@@ -113,13 +71,13 @@ public static class StudioSequences
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < SequenceIndexOffset + 4)
+        if (bytes.Length < HeaderSequenceIndexOffset + 4)
         {
             return [];
         }
 
-        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[SequenceCountOffset..]);
-        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[SequenceIndexOffset..]);
+        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderSequenceCountOffset..]);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderSequenceIndexOffset..]);
 
         if (count <= 0 || count > MaximumSequences)
         {
@@ -138,10 +96,10 @@ public static class StudioSequences
             int start = at + (index * SequenceStride);
             ReadOnlySpan<byte> sequence = bytes.Slice(start, SequenceStride);
 
-            int flags = BinaryPrimitives.ReadInt32LittleEndian(sequence[FlagsOffset..]);
-            int blends = BinaryPrimitives.ReadInt32LittleEndian(sequence[AnimationIndexOffset..]);
-            int groupX = BinaryPrimitives.ReadInt32LittleEndian(sequence[GroupSizeOffset..]);
-            int groupY = BinaryPrimitives.ReadInt32LittleEndian(sequence[(GroupSizeOffset + 4)..]);
+            int flags = BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceFlagsOffset..]);
+            int blends = BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceAnimationIndexOffset..]);
+            int groupX = BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceGroupSizeOffset..]);
+            int groupY = BinaryPrimitives.ReadInt32LittleEndian(sequence[(SequenceGroupSizeOffset + 4)..]);
 
             // **The offsets are relative to the sequence description, not to the file.** Every
             // index inside a studio structure is measured from the structure itself, which is the
@@ -154,7 +112,7 @@ public static class StudioSequences
                     : 0,
                 flags,
                 StudioStrings.At(
-                    bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[LabelOffset..])),
+                    bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceLabelOffset..])),
                 GridOf(bytes, sequence, table, groupX, groupY)));
         }
 
@@ -197,12 +155,12 @@ public static class StudioSequences
             groupX,
             groupY,
             animations,
-            BinaryPrimitives.ReadInt32LittleEndian(sequence[ParameterIndexOffset..]),
-            BinaryPrimitives.ReadInt32LittleEndian(sequence[(ParameterIndexOffset + 4)..]),
-            BinaryPrimitives.ReadSingleLittleEndian(sequence[ParameterStartOffset..]),
-            BinaryPrimitives.ReadSingleLittleEndian(sequence[ParameterEndOffset..]),
-            BinaryPrimitives.ReadSingleLittleEndian(sequence[(ParameterStartOffset + 4)..]),
-            BinaryPrimitives.ReadSingleLittleEndian(sequence[(ParameterEndOffset + 4)..]));
+            BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceParameterIndexOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(sequence[(SequenceParameterIndexOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[SequenceParameterStartOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[SequenceParameterEndOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[(SequenceParameterStartOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[(SequenceParameterEndOffset + 4)..]));
     }
 
     /// <summary>Every pose parameter a model declares, in the order its sequences index them.</summary>
@@ -216,13 +174,13 @@ public static class StudioSequences
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < PoseParameterIndexOffset + 4)
+        if (bytes.Length < HeaderPoseParameterIndexOffset + 4)
         {
             return [];
         }
 
-        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[PoseParameterCountOffset..]);
-        int index = BinaryPrimitives.ReadInt32LittleEndian(bytes[PoseParameterIndexOffset..]);
+        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderPoseParameterCountOffset..]);
+        int index = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderPoseParameterIndexOffset..]);
 
         if (count <= 0 || count > MaximumPoseParameters || index <= 0)
         {

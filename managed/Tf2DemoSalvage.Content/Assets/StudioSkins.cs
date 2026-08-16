@@ -1,6 +1,8 @@
 using System;
 using System.Buffers.Binary;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
@@ -19,23 +21,20 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 public static class StudioSkins
 {
-    private const int ReferenceCountOffset = 220;
-    private const int FamilyCountOffset = 224;
-    private const int TableOffset = 228;
 
     /// <summary>Most entries a skin table may hold, as a guard against a malformed header.</summary>
-    private const int MaximumEntries = 65536;
+    private const int MaximumEntries = StudioReaderLimits.SkinTableEntries;
 
     /// <summary>How many materials a skin family names.</summary>
     /// <param name="file">The model's bytes.</param>
     /// <returns>The width of the table.</returns>
-    public static int References(ReadOnlyMemory<byte> file) => Count(file, ReferenceCountOffset);
+    public static int References(ReadOnlyMemory<byte> file) => Count(file, HeaderSkinReferenceCountOffset);
 
     /// <summary>How many skins the model has.</summary>
     /// <param name="file">The model's bytes.</param>
     /// <returns>The height of the table; one for a model with no team colours.</returns>
     public static int Families(ReadOnlyMemory<byte> file) =>
-        Math.Max(1, Count(file, FamilyCountOffset));
+        Math.Max(1, Count(file, HeaderSkinFamilyCountOffset));
 
     /// <summary>Reads the skin table.</summary>
     /// <param name="file">The model's bytes.</param>
@@ -44,14 +43,14 @@ public static class StudioSkins
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < TableOffset + 4)
+        if (bytes.Length < HeaderSkinTableOffset + 4)
         {
             return [];
         }
 
-        int references = Count(file, ReferenceCountOffset);
-        int families = Count(file, FamilyCountOffset);
-        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[TableOffset..]);
+        int references = Count(file, HeaderSkinReferenceCountOffset);
+        int families = Count(file, HeaderSkinFamilyCountOffset);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderSkinTableOffset..]);
 
         long entries = (long)references * families;
 

@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One bone's position and rotation at one frame.</summary>
@@ -55,27 +57,12 @@ public readonly record struct StudioBonePose(
 /// </remarks>
 public static class StudioAnimation
 {
-    /// <summary><c>studiohdr_t.numlocalanim</c> and <c>localanimindex</c>.</summary>
-    private const int AnimationCountOffset = 180;
-    private const int AnimationIndexOffset = 184;
-
-    /// <summary>
-    /// Bytes per <c>mstudioanimdesc_t</c>: baseptr, sznameindex, fps, flags, numframes,
-    /// nummovements, movementindex, unused1[6], animblock, animindex, and the rest.
-    /// </summary>
-    private const int AnimationDescriptionStride = 100;
-
-    private const int FramesPerSecondOffset = 8;
-    private const int FrameCountOffset = 16;
-    private const int AnimationBlockOffset = 52;
-    private const int AnimationDataOffset = 56;
-
-    private const int RawPosition = 0x01;
-    private const int RawRotation = 0x02;
-    private const int AnimatedPosition = 0x04;
-    private const int AnimatedRotation = 0x08;
-    private const int Delta = 0x10;
-    private const int RawRotation64 = 0x20;
+    private const int RawPosition = StudioFlags.AnimationRawPosition;
+    private const int RawRotation = StudioFlags.AnimationRawRotation;
+    private const int AnimatedPosition = StudioFlags.AnimationAnimatedPosition;
+    private const int AnimatedRotation = StudioFlags.AnimationAnimatedRotation;
+    private const int Delta = StudioFlags.AnimationDelta;
+    private const int RawRotation64 = StudioFlags.AnimationRawRotation64;
 
     /// <summary>How many animations a model declares.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
@@ -84,9 +71,9 @@ public static class StudioAnimation
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        return bytes.Length < AnimationIndexOffset + 4
+        return bytes.Length < HeaderAnimationIndexOffset + 4
             ? 0
-            : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationCountOffset..]));
+            : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationCountOffset..]));
     }
 
     /// <summary>How many frames one animation has.</summary>
@@ -107,12 +94,12 @@ public static class StudioAnimation
             return 0;
         }
 
-        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationIndexOffset..]) +
-            (animation * AnimationDescriptionStride);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
 
-        return at < 0 || at + AnimationDescriptionStride > bytes.Length
+        return at < 0 || at + AnimationStride > bytes.Length
             ? 0
-            : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + FrameCountOffset)..]));
+            : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFrameCountOffset)..]));
     }
 
     /// <summary>How many cycles a second an animation advances at.</summary>
@@ -141,15 +128,15 @@ public static class StudioAnimation
 
         ReadOnlySpan<byte> bytes = file.Span;
 
-        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationIndexOffset..]) +
-            (animation * AnimationDescriptionStride);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
 
-        if (at < 0 || at + AnimationDescriptionStride > bytes.Length)
+        if (at < 0 || at + AnimationStride > bytes.Length)
         {
             return 0f;
         }
 
-        float fps = BinaryPrimitives.ReadSingleLittleEndian(bytes[(at + FramesPerSecondOffset)..]);
+        float fps = BinaryPrimitives.ReadSingleLittleEndian(bytes[(at + AnimationFramesPerSecondOffset)..]);
 
         return float.IsFinite(fps) && fps > 0f ? fps / (frames - 1) : 0f;
     }
@@ -187,17 +174,17 @@ public static class StudioAnimation
             return [];
         }
 
-        int table = BinaryPrimitives.ReadInt32LittleEndian(bytes[AnimationIndexOffset..]);
-        int at = table + (animation * AnimationDescriptionStride);
+        int table = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]);
+        int at = table + (animation * AnimationStride);
 
-        if (at < 0 || at + AnimationDescriptionStride > bytes.Length)
+        if (at < 0 || at + AnimationStride > bytes.Length)
         {
             return [];
         }
 
         ReadOnlySpan<byte> description = bytes[at..];
 
-        int frames = BinaryPrimitives.ReadInt32LittleEndian(description[FrameCountOffset..]);
+        int frames = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationFrameCountOffset..]);
         int block = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationBlockOffset..]);
         int data = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationDataOffset..]);
 

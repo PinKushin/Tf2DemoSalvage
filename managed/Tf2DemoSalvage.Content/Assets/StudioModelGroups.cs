@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
@@ -21,17 +23,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 public static class StudioModelGroups
 {
-    /// <summary><c>studiohdr_t.numincludemodels</c> and <c>includemodelindex</c>.</summary>
-    private const int IncludeCountOffset = 336;
-    private const int IncludeIndexOffset = 340;
-
-    /// <summary>Bytes per <c>mstudiomodelgroup_t</c>: a label index and a name index.</summary>
-    private const int GroupStride = 8;
-
-    private const int NameOffset = 4;
-
     /// <summary>Most models one may include, as a guard against a malformed header.</summary>
-    private const int MaximumGroups = 64;
+    private const int MaximumGroups = StudioReaderLimits.IncludedModels;
 
     /// <summary>Reads the paths of the models this one includes.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
@@ -40,20 +33,20 @@ public static class StudioModelGroups
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < IncludeIndexOffset + 4)
+        if (bytes.Length < HeaderIncludeIndexOffset + 4)
         {
             return [];
         }
 
-        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[IncludeCountOffset..]);
-        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[IncludeIndexOffset..]);
+        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderIncludeCountOffset..]);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderIncludeIndexOffset..]);
 
         if (count <= 0 || count > MaximumGroups)
         {
             return [];
         }
 
-        if (at < 0 || (long)at + ((long)count * GroupStride) > bytes.Length)
+        if (at < 0 || (long)at + ((long)count * ModelGroupStride) > bytes.Length)
         {
             return [];
         }
@@ -62,10 +55,10 @@ public static class StudioModelGroups
 
         for (int index = 0; index < count; index++)
         {
-            int entry = at + (index * GroupStride);
+            int entry = at + (index * ModelGroupStride);
 
             string name = StudioStrings.At(
-                bytes, entry + BinaryPrimitives.ReadInt32LittleEndian(bytes[(entry + NameOffset)..]));
+                bytes, entry + BinaryPrimitives.ReadInt32LittleEndian(bytes[(entry + ModelGroupNameOffset)..]));
 
             if (name.Length > 0)
             {

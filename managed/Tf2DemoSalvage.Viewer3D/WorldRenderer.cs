@@ -650,7 +650,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // which is what gives a model its shape instead of a flat wash.
                 if (sunColour.w > 0.5f)
                 {
-                    light += sunColour.rgb * saturate(dot(input.nrm, -sunDirection.xyz));
+                    float towardsSun = dot(input.nrm, -sunDirection.xyz);
+
+                    // **Half-Lambert where the material asks for it**, which is Valve's own
+                    // wrap from common_vs_fxc.h:826 — map −1..1 onto 0..1 and square it:
+                    //
+                    //     NDotL = NDotL * 0.5 + 0.5;
+                    //     NDotL = NDotL * NDotL;
+                    //
+                    // A surface facing directly away from the sun then keeps a quarter of it
+                    // instead of none, which is what stops a character's shaded side going black.
+                    // Applied to the DIRECT term only: the routine sits inside DoLightInternal, so
+                    // the ambient cube above is untouched.
+                    float wrapped = towardsSun * 0.5f + 0.5f;
+
+                    light += sunColour.rgb * (combine.y > 0.5f
+                        ? wrapped * wrapped
+                        : saturate(towardsSun));
                 }
             }
 
@@ -1316,6 +1332,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // arrive in the same slot, so the material has to say which it is.
             float multiplies = surface is { MultipliesTextures: true } ? 1f : 0f;
 
+            // **$halflambert, which 190 of this map's 1,034 model materials ask for.** It wraps the
+            // direct term so a surface facing away from a light keeps a quarter of it rather than
+            // going black, and it is the difference between a character reading as a solid shape in
+            // shade and reading as a silhouette.
+            float wrapsLight = surface is { IsHalfLambert: true } ? 1f : 0f;
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -1343,7 +1365,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     0f, 1f, 0f, 0f,
                     1f, 1f, 1f, 1f,
 
-                    multiplies, 0f, 0f, 0f,
+                    multiplies, wrapsLight, 0f, 0f,
                 ]
                 :
                 [
@@ -1365,7 +1387,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     0f, 1f, 0f, 0f,
                     1f, 1f, 1f, 1f,
 
-                    multiplies, 0f, 0f, 0f,
+                    multiplies, wrapsLight, 0f, 0f,
                 ]);
         }
 

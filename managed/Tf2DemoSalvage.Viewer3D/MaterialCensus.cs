@@ -35,13 +35,21 @@ internal static class MaterialCensus
         "$basetexture2",
 
         // Implemented together with UnLitTwoTexture and the Modulate blend: the second texture is
-        // decoded and multiplied, $nocull turns culling off for its material, and $modblend and
-        // $mod2x select the modulate factors. Moved here the moment they were consumed, which is
-        // what keeps this census worth reading.
+        // decoded and multiplied, $nocull turns culling off for its material, and $mod2x selects
+        // the doubled modulate factors. Moved here the moment they were consumed, which is what
+        // keeps this census worth reading.
+        //
+        // **$modblend and $decalscale were listed here and read by NOTHING**, which is the failure
+        // this list can have that no other test would catch: a census stops reporting a name the
+        // moment it appears here, so a wrong entry silences the very report meant to find it. Both
+        // were caught by cross-checking this set against the SDK's own declarations, which also
+        // showed that neither appears in source-sdk-2013 at all — $modblend is in TF2's shipped
+        // VMTs and in no published shader, so what the engine does with it is not knowable from
+        // the SDK.
         "$texture2",
         "$nocull",
-        "$modblend",
         "$mod2x",
+        "$halflambert",
         "$bumpmap",
         "$ssbump",
         "$detail",
@@ -55,7 +63,6 @@ internal static class MaterialCensus
         "$selfillum",
         "$selfillumtint",
         "$decal",
-        "$decalscale",
         "%compilenodraw",
         "include",
     };
@@ -135,6 +142,19 @@ internal static class MaterialCensus
                 .ThenBy(entry => entry.Shader, StringComparer.OrdinalIgnoreCase),
         ];
     }
+
+    /// <summary>The parameters this project reads, for a test that checks the claim.</summary>
+    /// <remarks>
+    /// **Exposed because a wrong entry in this set silences the report meant to catch it.** A name
+    /// listed here stops being censused, so a parameter claimed and never read is invisible for
+    /// ever — which is exactly what happened to <c>$modblend</c> and <c>$decalscale</c>, both listed
+    /// and read by nothing. They were caught by diffing this set against the SDK's own declarations,
+    /// and that diff needs to see the set.
+    /// </remarks>
+    internal static IReadOnlyCollection<string> ImplementedParameters => Implemented;
+
+    /// <summary>The shaders this project reproduces, for the same check.</summary>
+    internal static IReadOnlyCollection<string> ImplementedShaderNames => ImplementedShaders;
 
     /// <summary>The shaders whose behaviour this project actually reproduces.</summary>
     /// <remarks>

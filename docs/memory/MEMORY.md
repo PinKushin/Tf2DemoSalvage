@@ -61,3 +61,6 @@
 - [Read the map before the renderer](read-the-map-before-the-renderer.md) — four renderer theories died before asking the BSP what the broken thing actually was.
 - [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements only prove the fault is in the fourth hop.
 - [Read the spec before measuring our data](read-the-spec-before-measuring-our-data.md) — measurement cannot find a feature that was never implemented; three correct measurements in a row means go read Valve's file.
+- [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first, then the ordinary tests, then code; SDK, then the Rust parser, then a decompiler.
+- [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs; not the same "surf" as SURF_* texinfo flags.
+- [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions that sound like facts about the format are usually facts about your parser.

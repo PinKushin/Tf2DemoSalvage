@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 
+using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>
@@ -34,12 +36,9 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// </remarks>
 public sealed class BspLeafTree
 {
-    private const int LumpPlanes = 1;
-    private const int LumpNodes = 5;
-    private const int LumpLeafs = 10;
-
     /// <summary><c>CONTENTS_SOLID</c> from <c>bspflags.h</c>: "an eye is never valid in a solid".</summary>
-    private const int ContentsSolid = 0x1;
+    /// <remarks>Internal so <c>SurfaceFlagTests</c> checks this value rather than a copy of it.</remarks>
+    internal const int ContentsSolid = 0x1;
 
     /// <summary>How far to look for the sky before giving up, in world units.</summary>
     /// <remarks>
@@ -57,9 +56,6 @@ public sealed class BspLeafTree
     /// missed occluder shows as one object lit indoors, which reads as a lighting bug.
     /// </remarks>
     private const float SkyStep = 16f;
-
-    private const int PlaneStride = 20;
-    private const int NodeStride = 32;
 
     private readonly ReadOnlyMemory<byte> _nodes;
     private readonly ReadOnlyMemory<byte> _planes;
@@ -106,10 +102,10 @@ public sealed class BspLeafTree
         BspHeader header = BspHeader.Parse(file.Span);
 
         return new BspLeafTree(
-            BspLumpData.Read(file, header.Lump(LumpNodes)),
-            BspLumpData.Read(file, header.Lump(LumpPlanes)),
-            BspLumpData.Read(file, header.Lump(LumpLeafs)),
-            header.Lump(LumpLeafs).Version >= 1 ? 32 : 56);
+            BspLumpData.Read(file, header.Lump(BspLumpIndex.Nodes)),
+            BspLumpData.Read(file, header.Lump(BspLumpIndex.Planes)),
+            BspLumpData.Read(file, header.Lump(BspLumpIndex.Leafs)),
+            header.Lump(BspLumpIndex.Leafs).Version >= 1 ? 32 : 56);
     }
 
     /// <summary>Whether a point can see the sky along a direction.</summary>

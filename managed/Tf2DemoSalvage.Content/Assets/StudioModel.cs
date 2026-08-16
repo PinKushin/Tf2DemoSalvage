@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
+using static Tf2DemoSalvage.Content.Assets.StudioLayout;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One drawable run of a model's vertices, all sharing a material.</summary>
@@ -219,39 +221,7 @@ public static class StudioModel
     private const int MinimumVersion = 44;
     private const int MaximumVersion = 49;
 
-    private const int NameOffset = 12;
     private const int NameBytes = 64;
-
-    private const int TextureCountOffset = 204;
-    private const int TextureIndexOffset = 208;
-    private const int FolderCountOffset = 212;
-    private const int FolderIndexOffset = 216;
-    private const int BodyPartCountOffset = 232;
-    private const int BodyPartIndexOffset = 236;
-
-    private const int TextureStride = 64;
-    private const int BodyPartStride = 16;
-    private const int ModelStride = 148;
-    private const int MeshStride = 116;
-
-    private const int BodyPartModelCountOffset = 4;
-
-    /// <summary><c>mstudiobodyparts_t.base</c>: this part's place value within <c>m_nBody</c>.</summary>
-    private const int BodyPartBaseOffset = 8;
-
-    private const int BodyPartModelIndexOffset = 12;
-
-    private const int ModelMeshCountOffset = 72;
-    private const int ModelMeshIndexOffset = 76;
-    private const int ModelVertexCountOffset = 80;
-    private const int ModelVertexIndexOffset = 84;
-
-    private const int MeshMaterialOffset = 0;
-    private const int MeshVertexCountOffset = 8;
-    private const int MeshVertexOffset = 12;
-
-    /// <summary>Bytes per vertex in the <c>.vvd</c>, which <c>vertexindex</c> is measured in.</summary>
-    private const int VertexBytes = 48;
 
     /// <summary>The most of anything this reader will build from one file.</summary>
     /// <remarks>A model from a downloaded map is untrusted input (D32).</remarks>
@@ -269,7 +239,7 @@ public static class StudioModel
     {
         ReadOnlySpan<byte> bytes = file.Span;
 
-        if (bytes.Length < BodyPartIndexOffset + sizeof(int))
+        if (bytes.Length < HeaderBodyPartIndexOffset + sizeof(int))
         {
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
@@ -293,7 +263,7 @@ public static class StudioModel
         (List<StudioMesh> meshes, List<(int Base, int Count)> parts) = ReadMeshes(bytes);
 
         return new StudioModelInfo(
-            ReadFixedString(bytes.Slice(NameOffset, NameBytes)),
+            ReadFixedString(bytes.Slice(HeaderNameOffset, NameBytes)),
             BinaryPrimitives.ReadInt32LittleEndian(bytes[8..]),
             ReadMaterials(bytes),
             ReadFolders(bytes),
@@ -303,8 +273,8 @@ public static class StudioModel
 
     private static List<string> ReadMaterials(ReadOnlySpan<byte> file)
     {
-        int count = Count(file, TextureCountOffset, "textures");
-        int at = Offset(file, TextureIndexOffset, count, TextureStride, "textures");
+        int count = Count(file, HeaderTextureCountOffset, "textures");
+        int at = Offset(file, HeaderTextureIndexOffset, count, TextureStride, "textures");
 
         List<string> materials = new(count);
 
@@ -331,8 +301,8 @@ public static class StudioModel
     /// </remarks>
     private static List<string> ReadFolders(ReadOnlySpan<byte> file)
     {
-        int count = Count(file, FolderCountOffset, "material folders");
-        int at = Offset(file, FolderIndexOffset, count, sizeof(int), "material folders");
+        int count = Count(file, HeaderFolderCountOffset, "material folders");
+        int at = Offset(file, HeaderFolderIndexOffset, count, sizeof(int), "material folders");
 
         List<string> folders = new(count);
 
@@ -350,8 +320,8 @@ public static class StudioModel
     {
         List<(int Base, int Count)> chosen = [];
 
-        int parts = Count(file, BodyPartCountOffset, "body parts");
-        int partsAt = Offset(file, BodyPartIndexOffset, parts, BodyPartStride, "body parts");
+        int parts = Count(file, HeaderBodyPartCountOffset, "body parts");
+        int partsAt = Offset(file, HeaderBodyPartIndexOffset, parts, BodyPartStride, "body parts");
 
         List<StudioMesh> meshes = [];
 
@@ -396,7 +366,7 @@ public static class StudioModel
         // inside the model, on real vertices, drawing a wrong surface rather than failing.
         int firstVertex =
             BinaryPrimitives.ReadInt32LittleEndian(file[(modelAt + ModelVertexIndexOffset)..]) /
-            VertexBytes;
+            VertexStride;
 
         int vertices = BinaryPrimitives.ReadInt32LittleEndian(
             file[(modelAt + ModelVertexCountOffset)..]);

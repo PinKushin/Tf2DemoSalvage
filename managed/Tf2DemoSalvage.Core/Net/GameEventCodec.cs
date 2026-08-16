@@ -14,11 +14,26 @@ namespace Tf2DemoSalvage.Core.Net;
 /// </remarks>
 internal static class GameEventCodec
 {
-    private const int CountBits = 9;
-    private const int ListLengthBits = 20;
-    private const int EventLengthBits = 11;
-    private const int EventIdBits = 9;
-    private const int ValueTypeBits = 3;
+    /// <summary>Descriptors a list may carry, bounded by the id that indexes them.</summary>
+    /// <remarks>
+    /// **Internal so the widths can be checked against the engine rather than restated.** Two of
+    /// these are <c>MAX_EVENT_BITS</c> from <c>public/igameevents.h</c>; the other three are wire
+    /// widths from <c>netmessages.h</c>, which the SDK does not ship — see
+    /// <c>GameEventConformanceTests</c> for which is which and what pins the rest.
+    /// </remarks>
+    internal const int CountBits = 9;
+
+    /// <summary>Bit length of a whole <c>svc_GameEventList</c> body.</summary>
+    internal const int ListLengthBits = 20;
+
+    /// <summary>Bit length of one <c>svc_GameEvent</c> body.</summary>
+    internal const int EventLengthBits = 11;
+
+    /// <summary><c>MAX_EVENT_BITS</c>: the width of an event's index.</summary>
+    internal const int EventIdBits = 9;
+
+    /// <summary>Width of a field's type tag. Eight possible values, and seven are used.</summary>
+    internal const int ValueTypeBits = 3;
 
     /// <summary>Reads a <c>svc_GameEventList</c> body.</summary>
     internal static GameEventListMessage ReadList(ref BitReader reader)
