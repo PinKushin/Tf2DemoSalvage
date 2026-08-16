@@ -313,6 +313,23 @@ public static class SourceSdk
             RegexOptions.Multiline,
             PatternLimit);
 
+        // **The same shape with a NAME where the number goes**, which is how a header states that one
+        // constant is defined in terms of another: `#define MAX_BLOCK_SIZE (1<<MAX_BLOCK_BITS )`.
+        //
+        // Worth resolving rather than skipping, because the relationship is exactly what a
+        // conformance test wants to check. Reading only the bit count and computing the size in the
+        // test would be transcribing Valve's arithmetic into our code — the same mistake as
+        // transcribing a number, one level up.
+        //
+        // Resolved in a second pass against what the literal patterns already found, and only one
+        // level deep. A macro built from a macro built from a macro is not evaluated: half-computing
+        // an expression is worse than declining it, because the wrong answer still looks like a
+        // number.
+        Regex shiftedByName = new(
+            @"(?:^\s*#define\s+|^\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=?\s*\(\s*1\s*<<\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)",
+            RegexOptions.Multiline,
+            PatternLimit);
+
         static int Number(string text) =>
             text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
                 ? Convert.ToInt32(text[2..], 16)
@@ -331,7 +348,28 @@ public static class SourceSdk
         {
             // First declaration wins: a header that redefines a name under an #ifdef is describing
             // a variant build, and the first is the one these readers target.
+            //
+            // **Load-bearing far beyond one constant.** bspfile.h declares roughly thirty capacities
+            // twice, and every second declaration is the literal 2 — the BSP_USE_LESS_MEMORY build
+            // keeps the types and throws away the limits. Reversing this one call silently turns
+            // MAX_MAP_TEXDATA from 2048 into 2, which does not throw: it makes a guard reject every
+            // real map, and that reads as a corrupt file. SdkConstantResolutionTests holds the line.
             values.TryAdd(name, value);
+        }
+
+        // Second pass, after the literals are in hand, so a name-shift can be resolved against them.
+        // Ordered rather than folded into the loop above because the operand may be declared later in
+        // the file than the macro that uses it.
+        IEnumerable<(string Name, int Bits)> byName = shiftedByName
+            .Matches(text)
+            .Select(hit => (
+                Name: hit.Groups[1].Value,
+                Bits: values.TryGetValue(hit.Groups[2].Value, out int bits) ? bits : -1))
+            .Where(pair => pair.Bits is >= 0 and < 31);
+
+        foreach ((string name, int bits) in byName)
+        {
+            values.TryAdd(name, 1 << bits);
         }
 
         return values;

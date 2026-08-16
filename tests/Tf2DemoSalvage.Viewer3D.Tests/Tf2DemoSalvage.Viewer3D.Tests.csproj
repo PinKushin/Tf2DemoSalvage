@@ -42,6 +42,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Viewer3D\Tf2DemoSalvage.Viewer3D.csproj" />
+    <!-- Reads source-sdk-2013 so conformance tests check this project against the engine's own
+         declarations. SdkInventory here predates it and should fold into it. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
 </Project>

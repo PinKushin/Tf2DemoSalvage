@@ -4856,3 +4856,291 @@ crawls and regex results was tried first, on the assumption that reading thousan
 startup and the caching bought nothing — it is kept as a bound, labelled honestly as unmeasured
 benefit rather than a win. The real cost was in a place nobody had looked, which is the usual
 outcome of guessing at a profile.
+
+**2026-08-16, measured in the real game: `mat_fullbright 1` changes nothing about the disc.**
+Owner captured the lit/fullbright pair. That is a null result and it is the useful kind, because it
+falsifies the standing theory rather than adding another candidate.
+
+**Confirmed by the owner as engine behaviour, not a property of one capture**: fullbright does
+nothing to capture points in the real Source engine either. So this is not "our screenshot happened
+to be unlit" — the capture point materials are unlit by design, in the game, and always have been.
+
+**Fullbright flattens lighting. A surface it does not change is a surface that was never lit.** So
+the ambient cube cannot be the cause — an unlit material ignores the light cache entirely, and B83
+has been chasing a lighting explanation for a material that has no lighting term. That also explains
+why adding half-Lambert to the sun term did nothing: there is no diffuse term to modify.
+
+Where this points instead: the disc's own shader and blend. The capture point family already turned
+out to use `UnLitTwoTexture` for the beam (B80), whose pixel shader is
+`baseColor * baseColor2 * g_DiffuseModulation` with alpha forced to 1 — a MULTIPLY. Two textures
+multiplied is dark by construction if the second texture is wrong, missing, or defaulted to
+something near black, and "almost black" is exactly what a multiply against an unbound texture
+looks like.
+
+**Next step is therefore a material question, not a lighting one**: what shader the disc's VMT names,
+what its second texture resolves to, and whether this project binds it. Not another ambient
+experiment.
+
+**And the comparison is now clean.** Both the real game and this viewer draw the disc unlit, so
+every lighting difference between them is irrelevant to B83 — which removes the settings confound
+below for this bug specifically. If the real one is bright and ours is almost black while neither is
+lit, the difference is in the textures or the blend and nothing else.
+
+### The screenshots say envmap, and B55 was dismissed for the wrong reason
+
+**What the captures actually show**: the BLU point is polished chrome — a mirror-bright ring and
+dish with a cyan core, reflecting the sky. That is not a bright base texture. It is a **cubemap
+reflection**, and it explains the fullbright null result exactly, because `$envmap` is a reflection
+term and fullbright does not touch it.
+
+**B55 already says `$envmap` is unimplemented** and that the owner identified it from the game's own
+behaviour: control points are "very reflective and shiny", and DirectX 8.1 takes the shine off them
+because dx8's `LightmappedGeneric` drops the envmap pass. Every part of that describes these
+screenshots.
+
+**So why does B55 explicitly rule itself out for the black disc?** Because it looked for the wrong
+object. Its check was "no upward-facing WORLD FACE at mid's centre at all" — widened to 160 units
+horizontally and 1024 down — and that is correct and irrelevant: **the disc is a prop, not
+brushwork.** `cap_point_base.mdl` is a model. A survey of world faces was never going to find it, and
+finding nothing was read as evidence against the cause rather than as evidence about the search.
+
+**B81 is the missing link.** The census that would have named `$envmap` on this surface covered the
+world and not the props — 1,034 prop materials it never looked at — so the one instrument that
+reports unimplemented parameters was blind to exactly this object. B55's conclusion, B81's blind
+spot and B83's symptom are one story: the material was never examined.
+
+**The concrete next check, and it is a measurement rather than another theory**: with B81's census
+now covering props, load a capture point map and read what it reports for the cap point materials.
+If `$envmap` appears there, B83 is B55 on a prop and the two close together.
+
+**Prediction worth stating before looking**, so it can be wrong: the disc's base texture is a dark
+or mid grey metal, and essentially all of its apparent brightness in game is the reflection. That is
+what "almost black" means here — not a broken material, but a correct one missing the term that
+supplies most of its light.
+
+### The pattern is POSITIONAL, not by team — and that is the decisive observation
+
+**Corrected by the owner, and it kills the team explanation outright.** This entry has said "worst
+under BLU" throughout, which reads as a team-colour problem. It is not: **the darkness does not
+improve when RED caps the point.** What is actually dark is the **second and last points on BLU's
+side of the map** — positions, not owners. (The last point is indoors and has not been inspected up
+close yet, so it is the less certain half of that.)
+
+**That single fact reconciles everything above**, and it is why the envmap explanation survives in a
+modified form:
+
+- **In the real game** the disc's brightness is a cubemap reflection. It looks bright wherever it
+  stands, and fullbright does not touch it — which is what the captures show.
+- **In this viewer** there is no `$envmap` (B55), so the disc is lit by the lightmap and the leaf's
+  ambient cube instead. Its brightness therefore tracks **where it is**, and a point under cover or
+  indoors gets a dark ambient cube and goes almost black.
+
+So this project has not lost the disc's brightness uniformly; it has **substituted a positional term
+for a reflective one**, which is exactly the failure mode that produces "some of them are fine". A
+uniform loss would have been noticed immediately. Team ownership never entered into it, and reading
+the pattern as a team problem sent this entry after `$basetexture`/`$texture2` swaps for a while.
+
+**The decisive check is now a measurement with a stated prediction.** Log the ambient cube this
+renderer samples at each capture point's origin on the same map. If the two dark points return a
+markedly lower cube than the ones that look acceptable, the substitution above is confirmed and B83
+closes into B55 — the fix being to implement `$envmap` rather than to adjust any lighting. If the
+cubes are all similar, this explanation is wrong and the difference is in the material after all.
+
+**Falsified within the hour, by the owner: BLU's second point is OUTSIDE, exactly like RED's.** So
+"under cover gets a dark ambient cube" cannot be the explanation either — two outdoor points on the
+same map, one dark and one not. That is the second hypothesis in this entry killed by an observation
+rather than by a measurement, and both died to the same kind of fact: what the owner can see and the
+code cannot.
+
+**The remaining lead is per-prop and comes from this entry's own log.** B55 recorded "four
+vertex-lighting checksum mismatches" in passing. A static prop is lit by baked per-prop vertex
+colours in a `.vhv`, and `PropModels.Lighting` guards them with the model's checksum:
+
+```csharp
+catch (InvalidDataException failure)
+{
+    // Includes the checksum guard: lighting baked against a different build of the
+    // model would light the wrong parts of it. Unlit is the honest fallback.
+    ViewerLog.Warn("props", $"reading {path}", failure);
+    return null;
+}
+```
+
+That fits every constraint the other two failed. It is **per prop**, so it hits particular capture
+points and not others; it is independent of team, because ownership does not change which file was
+baked; and it is independent of indoor or outdoor, because a checksum is not a place. Four
+mismatches is the right order of magnitude for "the second and last points on one side".
+
+**What it does not yet explain** is the direction: the fallback returns null and the colour path
+uses **white** where there is no lighting, which should make a prop too BRIGHT rather than too dark.
+So either the fallback is not what these props take, or something downstream multiplies that white
+by a term that is itself dark. Recorded as an open question rather than smoothed over, because the
+last two theories were both plausible and both wrong.
+
+**Then the constraint that makes it tractable: the map is SYMMETRIC.** The owner's point is that
+nothing is built on one side and not the other — so RED's second point and BLU's second point are
+mirror images with the same model, the same materials and the same surroundings. That eliminates
+every material explanation at a stroke: identical materials cannot render differently.
+
+**But a symmetric map is not symmetrically LIT, and that is the resolution.** Geometry mirrors; the
+sun does not. `LUMP_WORLDLIGHTS` carries one sun direction for the whole map, so vrad bakes one side
+brighter than the other and the baked result is asymmetric even where the brushwork is identical.
+Everything fits:
+
+| Constraint | Sun-direction asymmetry |
+|---|---|
+| symmetric map, identical materials | baked light differs anyway — geometry mirrors, the sun does not |
+| both points outdoors | irrelevant; what matters is which way the sun faces |
+| ownership does not change it | vrad baked it long before anyone capped |
+| only some points affected | the ones on the shaded side |
+| the real game looks fine | the disc's brightness there is a reflection, so its lighting barely matters |
+
+So the earlier framing was the right variable with the wrong reason: not "indoors versus outdoors"
+but "toward the sun versus away from it". This project substitutes a lighting term for a reflective
+one (B55), and that substitution is only invisible where the lighting happens to be generous.
+
+**The measurement is unchanged and the prediction is now sharper**: sample the ambient cube and the
+baked prop lighting at each capture point's origin. The dark points should be the ones on the side
+the sun faces away from, and the sun's direction is readable from the map's own worldlights rather
+than guessed.
+
+**Four hypotheses, three dead, and the pattern in how they died is worth more than any of them**:
+every one was falsified by something the owner could see and no instrument here reports — the
+fullbright behaviour, the team independence, the second point being outdoors, the map's symmetry.
+That is the argument for the conformance tests added alongside this entry. A fallback that fires on
+real corpus data should fail a test, not write a line in a log that gets read an hour later.
+
+**Confound to control for before comparing any screenshot.** The reference captures come from the
+owner's own in-game config, which is NOT the highest-settings target this renderer aims at — modern
+TF2 config files ship inside VPKs rather than as `.cfg`, so the owner's custom config tooling cannot
+express the high-end settings to test against. Any difference between a capture and this viewer may
+therefore be a settings difference rather than a defect. Differences in a surface that is UNLIT are
+still meaningful, since most of the settings axis is lighting and shadow quality.
+
+### B83 addendum — the shine is a SETTING, and the stripes are a skin
+
+**Two more captures, on a max-settings config, and the discs are matte.** Same map, same points, same
+team states as the chrome captures earlier in this entry. The only difference is the graphics
+configuration. So "the capture point is polished chrome" is not a fixed ground truth to match — it is
+what one configuration produces, and another produces a flat grey dish.
+
+That changes what B83 can even claim. This entry has been comparing our almost-black disc against a
+mirror-bright one and calling the difference a defect; against these captures the target is much
+closer to what we draw. **The envmap contribution has to become a setting in this viewer rather than
+a fixed goal**, and until it is, no screenshot comparison of this surface means anything on its own.
+The owner's read is that they *should* be shiny and that a pure default config needs checking to
+settle it — so the target itself is not yet established.
+
+**A separate defect visible in the same captures, and this one is unambiguous.** The owned RED and
+BLU points carry ring markings that, per these shots, belong to the UNOWNED point only. That is not
+lighting and not reflection: `cap_point_base.mdl` carries **three skin families** and the hologram
+above it **four bodygroups** — neutral, empty, red, blue — both measured directly from the model
+earlier in this project.
+
+So the capture point's team appearance is selected by skin family and bodygroup, exactly the
+mechanism B73 was about: bodygroups were being chosen at LOAD time, so every entity sharing a model
+got the same one. B73 is closed for props generally; whether the capture point's per-point skin
+follows the point's owner is a different question and is not currently tested.
+
+**Which makes this the cheaper half of B83 to settle**, because it needs no rendering theory at all:
+read the demo's capture point entities, read the skin each one is sent, and check the model draws
+that family. Both halves of that are already implemented — `m_nSkin` is decoded (B73 era) and
+`StudioSkins` reads the table — so the question is only whether they are connected.
+
+### B83 second addendum — the rings are on EVERY point, and the "unambiguous defect" was not one
+
+**Withdrawn by observation, 2026-08-16.** The owner, on ultra settings: the ring markings are on every
+capture point, owned or not — lighter on an owned one, not absent. Two fresh captures show a RED-owned
+disc and a BLU-owned disc, both with the rings, both with a coloured glow in the centre rather than a
+team-marked surface.
+
+So the paragraph above claiming the rings "belong to the UNOWNED point only" is false, and with it the
+inference that the skin family is being chosen wrongly. Nothing about skins or bodygroups is
+established as broken by these captures. What the earlier shots showed was the same rings at a
+different brightness, read as presence versus absence.
+
+**Fourth falsified hypothesis about this one surface, and they share a shape.** Ambient cube, envmap
+on a prop, indoor shadowing, sun asymmetry, and now the skin family — each was a mechanism that would
+explain the appearance, proposed from a screenshot, and each died the moment the owner looked at the
+game rather than at the capture. The lesson is the one already in memory under
+`ui-tests-run-every-time` and the UI section of the global standards: **an appearance claim that
+cannot be checked by looking is a question, not a finding**, and this entry has now generated five
+findings that were questions.
+
+Concretely, for whoever picks this up: **stop proposing mechanisms for the capture point.** The two
+things worth doing are (1) establish a target at a stated graphics configuration, since the shine is
+config-dependent and no comparison means anything without one, and (2) verify `m_nSkin` reaches the
+draw call as a directly measured fact rather than as an explanation for something seen in a picture.
+The second is cheap and independent of every appearance question here.
+
+### B88 — a static written by every map load, and the real signal it obscured
+
+**Found by the full-suite gate, not by any individual run**, which is the only way this class of
+defect surfaces. `PropModels.RejectedPropLighting` was a static property assigned on every
+`MapAssets.Load`. Viewer3D.Tests runs its fixtures in parallel (B87), so with several maps loading at
+once the value belonged to whichever finished last — and a test asserting on it was reading another
+test's map. It passed alone and failed in the gate.
+
+Now carried on the load's own result as `MapAssets.RefusedPropLighting`. The general rule it violated
+is older than this project: **a static is a variable shared with every future caller, including the
+ones running at the same time.** The parallelism policy warns about exactly this and the static was
+added anyway, three commits after that policy was written.
+
+**The signal it obscured is worth keeping.** The failing run reported **two** refused prop lighting
+files. `cp_process_final` has none, so those two came from a different map loaded by another fixture
+in the same run — meaning some map in the test set does ship baked prop lighting this project
+declines. That is the same phenomenon B55 recorded as "four vertex-lighting checksum mismatches" and
+which B83 then chased.
+
+Which map is not known, because the number arrived through the very static that made it
+unattributable. Recorded so the observation is not lost: **a refusal exists somewhere in the test
+corpus**, and the per-load list now makes it attributable the moment anyone looks.
+
+### B89 — the full gate runs the UI suite against 1,700 competing tests
+
+**`dotnet test` on the solution runs test ASSEMBLIES concurrently**, so
+`Tf2DemoSalvage.Viewer3D.UiTests` — which launches the viewer and drives a real window — executes
+while Content, Corpus and Viewer3D.Tests saturate the machine. Measured 2026-08-16: the UI suite
+passes in 2 seconds alone and failed one of eight at 10 seconds inside the full gate.
+
+**`run-exclusive.ps1` does not help here and it is worth being clear why.** That lock serialises this
+machine against OTHER agents; it says nothing about what a single `dotnet test` invocation does with
+itself. The rule that a UI suite takes the desktop has always been about not sharing — and running it
+beside a CPU-saturating suite is the same sharing by another route.
+
+**The gate must therefore run in two phases**: everything except the UI project, then the UI project
+alone, both inside one lock. A single `dotnet test Tf2DemoSalvage.slnx` is not a valid way to run
+this suite and has been used as one throughout this session.
+
+**What is NOT yet established, and must not be assumed**: whether the failure is a synchronisation
+defect in the UI test itself. This project's standing rule is that flake is a defect in
+synchronisation or in the app and never noise, so "it was busy" is a description rather than a
+diagnosis. The two-phase split removes the contention; if a failure survives it, the test is waiting
+on the clock somewhere instead of on a condition. Which test failed was not captured, because the
+gate's output was filtered to summary lines — itself worth fixing before the next run.
+
+**B89 amended, 2026-08-16 — the diagnosis was confounded and should not stand as written.**
+
+The owner was running TF2 in the background, testing a config in another session, throughout the
+runs above. That was not known when the conclusion was drawn, and it breaks it.
+
+What was claimed: the UI suite failed because `dotnet test` runs assemblies concurrently, and
+"it survives the split, so it was starved rather than waiting on a clock". What is actually
+supported: the UI suite failed in one run and passed in another, with an uncontrolled variable
+between them. The game was using 30-45% CPU in the owner's own screenshots, so the machine load was
+not the test suite's alone and the two runs are not comparable.
+
+**The two-phase gate is still right**, because the reasoning for it does not depend on that failure:
+`dotnet test` on a solution genuinely does run assemblies concurrently, and a UI suite genuinely
+should not share. That argument stands on its own. What does not stand is calling the observed
+failure evidence for it.
+
+**And a hazard this exposed that matters more than the diagnosis.** A UI suite drives the real
+desktop with synthesized input. `run-exclusive.ps1` serialises this machine against other AGENTS; it
+knows nothing about the owner's own running game. A UI phase firing while TF2 is focused does not
+fail — it delivers clicks and keystrokes into TF2, which is the same failure the global rules
+already describe for two agents and has simply never been written down for the human case.
+
+So the UI phase needs the desktop free of the owner too, and there is currently nothing that checks
+it. Whether the right answer is a foreground check, a prompt, or simply not running UI tests
+unattended is open.

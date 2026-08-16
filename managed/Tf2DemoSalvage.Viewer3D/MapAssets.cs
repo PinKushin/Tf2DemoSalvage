@@ -367,6 +367,37 @@ internal sealed class MapAssets
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
 
+    /// <summary>What this map asked for that is not implemented, and how many materials want it.</summary>
+    /// <remarks>
+    /// **Covers brushwork AND props**, which is the distinction B81 was: the census reported clean
+    /// for months while never examining a prop material. Exposed so a test can assert the set rather
+    /// than a person noticing a log line — the failure that cost B55 an hour and B83 four
+    /// hypotheses was never missing information, it was information nothing acted on.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> UnimplementedParameters { get; private init; } =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Shaders this map names that this project does not reproduce.</summary>
+    public IReadOnlyCollection<string> UnimplementedShaders { get; private init; } = [];
+
+    /// <summary>How many of <see cref="Materials"/> came from the map's own brushwork.</summary>
+    /// <remarks>Everything past this index is a prop or model material, appended after them.</remarks>
+    public int BrushMaterialCount { get; private init; }
+
+    /// <summary>Placements whose baked lighting existed and this project would not apply.</summary>
+    /// <remarks>
+    /// **Empty is the only acceptable state, and a test says so rather than a log.** A refusal means
+    /// a map shipped baked lighting for a prop and this project declined it, so the prop draws with
+    /// white vertex colours and is indistinguishable from one the compiler never lit.
+    ///
+    /// **On the result rather than in a static, and that was a real bug.** The first version was a
+    /// static on <c>PropModels</c> written by every load. The full-suite run has these fixtures in
+    /// parallel, so the value belonged to whichever map finished last and a test asserting on it
+    /// was reading another test's map — passing alone and failing in the gate, which is the shape
+    /// of every shared-mutable-state defect.
+    /// </remarks>
+    public IReadOnlyList<string> RefusedPropLighting { get; private init; } = [];
+
     /// <summary>Every face's baked lighting, packed into one image.</summary>
     public LightmapAtlas Lightmaps { get; }
 
@@ -405,6 +436,11 @@ internal sealed class MapAssets
         int missing = 0;
 
         IDisposable materialTiming = ViewerLog.Time("assets", "resolving materials");
+
+        // What the map asked for that this project does not implement, accumulated across both
+        // sources so a test can assert the whole picture rather than reading two log lines.
+        Dictionary<string, int> census = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> shaderCensus = new(StringComparer.OrdinalIgnoreCase);
 
         // **Resolved in parallel, written by index.** Each material is an independent chain of
         // VMT, patch and VTF, and both content sources are read-only once opened: VpkArchive opens
@@ -451,10 +487,26 @@ internal sealed class MapAssets
         //
         // Both halves are reported per SOURCE — brushwork, then props and models — because they are
         // drawn by different paths and a combined number would hide which of them is missing what.
-        static void ReportCensus(string source, IReadOnlyCollection<ResolvedMaterial> resolved)
+        void ReportCensus(string source, IReadOnlyCollection<ResolvedMaterial> resolved)
         {
             IReadOnlyList<(string Parameter, int Materials)> parameters = MaterialCensus.Unimplemented(
                 resolved.Select(material => material.Declared ?? []));
+
+            // **Kept, not just printed.** The census answered this question correctly for months
+            // and the answer only ever reached a log, so B55 spent an hour rediscovering it and
+            // B83 four hypotheses. A number a test can assert is a different thing from a number
+            // someone might read.
+            foreach ((string parameter, int count) in parameters)
+            {
+                census[parameter] = census.GetValueOrDefault(parameter) + count;
+            }
+
+            foreach (string shader in MaterialCensus
+                .UnimplementedShaders(resolved.Select(material => material.Shader))
+                .Select(entry => entry.Shader))
+            {
+                shaderCensus.Add(shader);
+            }
 
             ViewerLog.Write(
                 "assets",
@@ -510,6 +562,14 @@ internal sealed class MapAssets
 
         IDisposable propTiming = ViewerLog.Time("assets", "loading props");
 
+        // **Carried on the result rather than in a static**, which is the second time that
+        // distinction has bitten in this file. A static written by every map load is meaningless
+        // the moment two loads overlap: the full suite runs these fixtures in parallel and the
+        // value belonged to whichever load finished last, so a test asserting on it was reading
+        // another test's map. Found by the gate rather than by any individual run, which is what a
+        // full-suite run is for.
+        List<string> refusedLighting = [];
+
         IReadOnlyList<PropVertex> props = PropModels.Load(
             map,
             pak,
@@ -517,7 +577,8 @@ internal sealed class MapAssets
             materials,
             textures,
             blendTextures,
-            ResolveProp);
+            ResolveProp,
+            refusedLighting);
 
         propTiming.Dispose();
 
@@ -562,8 +623,18 @@ internal sealed class MapAssets
                 }
             }
 
+            // Four categories again. "N of M loaded" answers HAVE and nothing else — it does not
+            // name which of the M are missing, and an entity model that fails to load is a player
+            // or a weapon that simply is not drawn, which looks like the demo not containing one.
             ViewerLog.Write(
-                "assets", $"{loaded} of {entityModels.Count} entity models loaded");
+                "assets",
+                $"ASKED FOR {entityModels.Count} entity models; HAVE {loaded}; " +
+                $"MISSING {entityModels.Count - loaded}");
+
+            foreach (string absent in entityModels.Where(path => !models.ContainsKey(path)))
+            {
+                ViewerLog.Write("assets", $"entity model not loaded: {absent}");
+            }
         }
 
         // **And now the props and models, which the census could not see (B81).** Reported
@@ -591,15 +662,28 @@ internal sealed class MapAssets
             bumps.Add(null);
         }
 
+        // **One inventory line covering all four questions**, because the individual counts below
+        // each answer a different one and none of them says whether the whole stage worked. The
+        // shape is deliberate and standing: ASKED FOR / HAVE / PRODUCED / MISSING. A log reporting
+        // only what failed reads clean while every material quietly falls back to its base texture,
+        // which is how 42 of 189 materials declaring an unimplemented $envmap went unnoticed for an
+        // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
+        int textured = textures.Count(texture => texture is not null);
+
+        ViewerLog.Write(
+            "assets",
+            $"ASKED FOR {materials.Count} materials ({brushMaterials} the map's own, " +
+            $"{materials.Count - brushMaterials} from props); " +
+            $"HAVE {textured} with a base texture; " +
+            $"PRODUCED {details.Count(detail => detail is not null)} with a detail texture, " +
+            $"{bumps.Count(bump => bump is not null)} with a bump map; " +
+            $"MISSING {materials.Count - textured} with no base texture resolved");
+
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
         ViewerLog.Write(
             "assets",
             $"{details.Count(detail => detail is not null)} materials carry a detail texture");
-
-        ViewerLog.Write(
-            "assets",
-            $"{materials.Count - brushMaterials} prop materials added to {brushMaterials} the map's own");
 
         // **Measured, not assumed.** A bump chain that resolves nothing still draws a perfectly
         // reasonable map, because every bumped face already has a correct flat lightmap.
@@ -620,6 +704,10 @@ internal sealed class MapAssets
             missing)
         {
             EntityModels = models,
+            UnimplementedParameters = census,
+            UnimplementedShaders = shaderCensus,
+            BrushMaterialCount = brushMaterials,
+            RefusedPropLighting = refusedLighting,
         };
     }
 

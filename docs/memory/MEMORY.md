@@ -64,3 +64,4 @@
 - [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first, then the ordinary tests, then code; SDK, then the Rust parser, then a decompiler.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs; not the same "surf" as SURF_* texinfo flags.
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions that sound like facts about the format are usually facts about your parser.
+- [A running client caches its config](a-running-client-caches-its-config.md) — a stale .cfg read makes a correct fix look failed; type the single cvar, and only `ultra` is a reference profile.

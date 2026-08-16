@@ -378,6 +378,31 @@ public sealed class VmtMaterial
     /// </remarks>
     public IReadOnlyCollection<string> Keys => _values.Keys;
 
+    /// <summary>Strips a platform condition from a key, leaving the parameter it qualifies.</summary>
+    /// <remarks>
+    /// **A VMT key may be prefixed with the platform it applies to** — <c>360?$color2</c> sets
+    /// <c>$color2</c> on Xbox 360 and nothing anywhere else. Reading the whole string as a name
+    /// invents a parameter that no shader has ever declared, and loses the real one: five materials
+    /// on cp_process_final carry <c>360?$color2</c>, and their <c>$color2</c> was simply not there.
+    ///
+    /// Found by <c>AssetCoverageConformanceTests</c> on its first run, which reported
+    /// <c>360?$color2</c> as an unimplemented parameter. It is not unimplemented; it was misparsed.
+    /// A census is only as good as the names going into it, and this is the second time a
+    /// substring problem has produced a plausible wrong number here — the first was counting
+    /// <c>$envmaptint</c> as <c>$envmap</c> (B55).
+    ///
+    /// **The PC value is the one to keep**, so the prefix is dropped rather than the key. This
+    /// project draws the PC build; a 360-only override would be wrong to apply, but the parameter
+    /// name it qualifies is the right thing to count and usually the material declares the plain
+    /// form as well, which then wins by ordinary overwrite.
+    /// </remarks>
+    private static string PlatformIndependent(string key)
+    {
+        int condition = key.IndexOf('?', StringComparison.Ordinal);
+
+        return condition >= 0 && condition + 1 < key.Length ? key[(condition + 1)..] : key;
+    }
+
     /// <summary>Parses a VMT.</summary>
     /// <param name="content">The file's bytes.</param>
     /// <returns>The material.</returns>
@@ -454,7 +479,7 @@ public sealed class VmtMaterial
                     // shader fallback carries its own $basetexture that is not the one to draw.
                     if (depth == 1)
                     {
-                        values[pendingKey] = token;
+                        values[PlatformIndependent(pendingKey)] = token;
                     }
 
                     pendingKey = null;

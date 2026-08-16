@@ -42,6 +42,10 @@ it, because a second copy is a copy that goes stale.
 | [18-decals.md](18-decals.md) | Overlays: a basis smuggled through unused corner components, and the published depth bias |
 | [19-model-indices.md](19-model-indices.md) | Where a networked entity's model comes from, and the packing protocol ≤ 20 applied to it |
 | [20-interpolation.md](20-interpolation.md) | Turning stored keyframes into motion: three quantities, three rules, one gap left open |
+| [21-player-animation.md](21-player-animation.md) | The demo carries no animation state, and the four things that had to be right before a player moved |
+| [22-bone-merged-attachments.md](22-bone-merged-attachments.md) | Why weapons and cosmetics carry no position of their own |
+| [23-drawing-what-the-entity-says.md](23-drawing-what-the-entity-says.md) | Defects that looked like renderer bugs and were this project overriding what the demo already said |
+| [24-reference-capture.md](24-reference-capture.md) | Configuring TF2 so a screenshot is a valid ground truth: why capture must be LDR, and what drifts |
 
 ## Which of this is original
 

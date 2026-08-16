@@ -551,7 +551,7 @@ public static class NetMessageReader
     /// <c>value x 360 / 65536</c>. Reporting the raw integer would be honest but useless - the
     /// value of svc_FixAngle to a reader is where the player was made to look.
     /// </remarks>
-    private static float ReadAngle(ref BitReader reader) =>
+    internal static float ReadAngle(ref BitReader reader) =>
         reader.ReadUInt32(16) * (360f / 65536f);
 
     /// <summary>

@@ -81,20 +81,24 @@ internal static class MaterialCensus
     {
         "$surfaceprop",
         "$surfaceprop2",
-        "%keywords",
-        "%compiletrigger",
-        "%compileclip",
-        "%compileplayerclip",
-        "%compilesky",
-        "%compilehint",
-        "%compileskip",
-        "%tooltexture",
-        "%compilenonsolid",
-        "%compilepassbullets",
-        "%compileladder",
-        "%compilewater",
-        "%compileorigin",
     };
+
+    /// <summary>Whether a key is a tool or compile keyword rather than a shader parameter.</summary>
+    /// <remarks>
+    /// **A rule, because the list was always going to trail.** This used to enumerate the compile
+    /// flags one at a time — <c>%compiletrigger</c>, <c>%compileclip</c>, fourteen of them — and
+    /// <c>AssetCoverageConformanceTests</c> immediately turned up four more on one map
+    /// (<c>%compileDetail</c>, <c>%compileNoChop</c>, <c>%compileNoLight</c>, <c>%detailtype</c>),
+    /// each reported as an unimplemented rendering parameter it is not.
+    ///
+    /// <c>%</c> is Valve's own prefix for keys aimed at the tools rather than the shader: vbsp obeys
+    /// them at compile time and Hammer reads them in its browser. None of them survives into the
+    /// material the engine draws with, so none is this project's to implement. That makes the prefix
+    /// a principled rule rather than a guess — unlike the enumeration, which could only ever be
+    /// complete for maps someone had already looked at.
+    /// </remarks>
+    private static bool IsToolKeyword(string name) =>
+        name.StartsWith('%');
 
     /// <summary>Which SHADERS the map's materials name that this project does not implement.</summary>
     /// <param name="shaders">Each material's shader name.</param>
@@ -203,7 +207,10 @@ internal static class MaterialCensus
             foreach (string parameter in material
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Select(name => name.Trim())
-                .Where(name => !Implemented.Contains(name) && !NoRenderingEffect.Contains(name))
+                .Where(name =>
+                    !Implemented.Contains(name) &&
+                    !NoRenderingEffect.Contains(name) &&
+                    !IsToolKeyword(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 counts[parameter] = counts.TryGetValue(parameter, out int seen) ? seen + 1 : 1;

@@ -54,6 +54,14 @@ public static class SendPropDecoder
     /// <summary>Bits a normal uses for magnitude, plus one for sign.</summary>
     internal const int NormalFractionBits = 11;
 
+    /// <summary><c>NORMAL_RESOLUTION</c> from <c>public/coordsize.h</c>, and a double as it is there.</summary>
+    /// <remarks>
+    /// The type is load-bearing. Valve writes <c>1.0 / NORMAL_DENOMINATOR</c>, which is a double,
+    /// and narrows only after multiplying — computing the reciprocal in float instead changes the
+    /// last bit of every normal this decodes.
+    /// </remarks>
+    internal const double NormalResolution = 1.0 / ((1 << NormalFractionBits) - 1);
+
     /// <summary>Width of a networked string's length prefix: <c>DT_MAX_STRING_BITS</c>.</summary>
     internal const int StringLengthBits = 9;
 
@@ -133,8 +141,20 @@ public static class SendPropDecoder
         if ((property.Flags & NormalFlag) != 0)
         {
             bool negative = reader.ReadBit();
-            float magnitude = reader.ReadUInt32(NormalFractionBits) /
-                              (float)((1 << NormalFractionBits) - 1);
+
+            // **Multiplied by the resolution, not divided by the denominator**, because that is
+            // what the engine does and the two are not the same operation. `bf_read::ReadBitNormal`
+            // is `(float)fractval * NORMAL_RESOLUTION`, where coordsize.h defines that as the
+            // double `1.0 / ((1 << NORMAL_FRACTIONAL_BITS) - 1)`. A reciprocal is not exactly
+            // representable, so multiplying by the rounded one rounds differently from dividing.
+            //
+            // The gap is a single ULP — 0.019540792 against 0.01954079 — and it was found by
+            // differentialling against a transcription of Valve's reader rather than by anything
+            // looking wrong. It matters because matching the engine exactly is this project's whole
+            // proposition, and because a one-ULP difference per component compounds through
+            // normalisation and lighting arithmetic downstream.
+            float magnitude = (float)(reader.ReadUInt32(NormalFractionBits) * NormalResolution);
+
             return negative ? -magnitude : magnitude;
         }
 

@@ -42,7 +42,7 @@ a frag-movie config can eventually be imported nearly as-is.
 |---|---|---|
 | `mat_bumpmap` | normal maps on or off | not implemented at all — see `12-shader-parity.md` |
 | `mat_specular` | cubemap reflections | not implemented |
-| `mat_hdr_level` | none, bloom, full HDR | LDR only, deliberately for now |
+| `mat_hdr_level` | none, bloom, full HDR | LDR only. Reference captures must be set to match — see `24-reference-capture.md` |
 | `mat_monitorgamma` | display gamma | the curve exists in `SourceGamma`, not exposed |
 | `r_shadows`, `r_shadowrendertotexture` | dynamic shadows | no dynamic lights yet |
 | `mat_motion_blur_enabled` | motion blur | nothing |

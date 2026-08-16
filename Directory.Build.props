@@ -24,6 +24,20 @@
     <AnalysisMode>All</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
 
+    <!-- **Unsafe is the project's stated first resort, not its last.** CLAUDE.md is explicit that
+         C# comes first for everything including the performance-sensitive parts, and that
+         `unsafe`/`Span<T>`/`stackalloc`/`MemoryMarshal` are what to reach for before dropping to
+         native code - which cannot be done with the switch off.
+
+         Declared here rather than per project because four of the five managed projects had already
+         turned it on individually and the fifth had not, which is how a setting becomes something
+         you check rather than something you know. One place, every project, including tests: the UI
+         suite needs it for the two user32 calls that ask which process owns the foreground.
+
+         This does NOT weaken the analyzer stack above. Unsafe code is still bound by every rule in
+         this file, and CA5392-style pointer and interop rules apply to it specifically. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
     <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Deterministic>true</Deterministic>
