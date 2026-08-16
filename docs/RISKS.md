@@ -5144,3 +5144,43 @@ already describe for two agents and has simply never been written down for the h
 So the UI phase needs the desktop free of the owner too, and there is currently nothing that checks
 it. Whether the right answer is a foreground check, a prompt, or simply not running UI tests
 unattended is open.
+
+### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — OPEN
+
+**Found by CI going red, and the report named the wrong thing.** The UI job failed with
+`System.TimeoutException : UIA Timeout` inside `Application.GetMainWindow`, which reads as a viewer
+that will not start. It starts fine.
+
+`MainForm` opens the demo and calls `LoadMap` **synchronously on the UI thread**. Between the window
+being created and that finishing, there is a window handle attached to a thread that pumps no
+messages — and UI Automation's `ElementFromHandle` requires the owning thread to pump. UIA gives up
+after a few seconds of its own and throws `COMException 0x80131505`, which escapes `GetMainWindow`'s
+wait rather than being retried by it. **A two-minute budget therefore expired in five seconds.**
+
+The numbers, both from CI:
+
+| Run | Outcome |
+|---|---|
+| 2026-08-15 19:31 | 8 passed, **2 m 30 s** |
+| 2026-08-16 20:31 | UIA Timeout at **5 s** |
+
+Nothing about startup changed between them. The merge added roughly 193 lines of work to
+`MapAssets`, the load crossed UIA's patience, and a passing suite became a failing one with no
+message pointing at the cause.
+
+**The test-side change is in and is not the fix.** `ViewerApplication.Launch` now retries through the
+COM timeout against the same `LaunchTimeout`, which is synchronising on the condition — "the process
+is answering" — rather than on a clock, and costs a responsive viewer nothing. It is explicitly not
+a flake workaround: the failure is deterministic given a slow enough load, and rerunning would be
+the wrong response.
+
+**The real defect is the application's, and a human sees it too.** A window that exists and ignores
+input for the length of a map load is a frozen window, on CI and on a desktop. The fix is to load off
+the UI thread, or to show the window only once loading is done — the first is better, because it can
+show progress. Not done here: this branch exists to unbreak `main`, and moving map loading to a
+background thread touches device creation and is its own change.
+
+**Worth generalising.** Two budgets were in play and only one was visible in the code. The test
+declared a two-minute wait and believed that was the limit; the shorter, undeclared limit belonged to
+a layer underneath and won. Any wait built on someone else's client has that shape — check what the
+layer below does when the thing it is waiting on stops answering, because its answer overrides yours.
