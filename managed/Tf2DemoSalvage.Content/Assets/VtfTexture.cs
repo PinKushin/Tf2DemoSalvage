@@ -40,7 +40,20 @@ public enum VtfFormat
     Dxt5 = 15,
 
     /// <summary>DXT1 with one bit of alpha.</summary>
-    Dxt1OneBitAlpha = 26,
+    /// <remarks>
+    /// **This was 26, and 26 is <c>IMAGE_FORMAT_UVLX8888</c>.** The real value is 20, counted by
+    /// position in <c>public/bitmap/imageformat.h</c> — the enum assigns a number to only two of its
+    /// forty members, so every other format is defined by where it sits in the list and cannot be
+    /// checked by reading one line.
+    ///
+    /// The error cost both directions. A VTF declaring 20 — a genuine DXT1-with-alpha texture — fell
+    /// through to <c>Unknown</c> and was reported unsupported, so the surface went untextured. A VTF
+    /// declaring 26 would have had a 32-bit uncompressed image decoded as 4-bit block compression,
+    /// which is not a subtle difference but is also not an error.
+    ///
+    /// Found by <c>ImageFormatConformanceTests</c> the first time it ran.
+    /// </remarks>
+    Dxt1OneBitAlpha = 20,
 }
 
 /// <summary>

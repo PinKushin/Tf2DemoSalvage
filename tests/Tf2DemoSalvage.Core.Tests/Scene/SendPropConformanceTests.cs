@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
@@ -90,31 +91,23 @@ public sealed class SendPropConformanceTests
     /// </remarks>
     private static HashSet<string> SentProperties()
     {
-        string? root = Environment.GetEnvironmentVariable("SOURCE_SDK");
-
-        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        if (!SourceSdk.Available)
         {
-            root = @"F:\src\source-sdk-2013";
+            Assert.Ignore(SourceSdk.Missing);
         }
 
-        string game = Path.Combine(root, "src", "game");
-
-        if (!Directory.Exists(game))
-        {
-            Assert.Ignore("source-sdk-2013 is not available; set SOURCE_SDK to run this.");
-        }
-
-        HashSet<string> names = new(StringComparer.Ordinal);
-
-        Regex sendInfo = new(@"SENDINFO(?:_[A-Z]+)?\(\s*([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled);
-
-        foreach (string file in Directory.EnumerateFiles(game, "*.cpp", SearchOption.AllDirectories))
-        {
-            foreach (Match hit in sendInfo.Matches(File.ReadAllText(file)))
-            {
-                names.Add(hit.Groups[1].Value);
-            }
-        }
+        // **Through SourceSdk so the crawl happens once, not once per test.** src/game is thousands
+        // of files and this sweep reads every one; three test methods asking independently read them
+        // three times. The file list and the contents are both cached there, so the second sweep is
+        // a regex over memory.
+        HashSet<string> names = SourceSdk.Names(
+            "src/game",
+            "*.cpp",
+            new Regex(
+                @"SENDINFO(?:_[A-Z]+)?\(\s*([A-Za-z_][A-Za-z0-9_]*)",
+                RegexOptions.Compiled,
+                TimeSpan.FromSeconds(10)),
+            recursive: true);
 
         // The instrument before its answer: an extraction that found nothing would pass every
         // assertion above by vacuum.
