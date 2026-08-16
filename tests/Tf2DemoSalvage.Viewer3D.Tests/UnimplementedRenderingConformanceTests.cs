@@ -1,0 +1,243 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
+
+namespace Tf2DemoSalvage.Viewer3D.Tests;
+
+/// <summary>
+/// More engine behaviour this project does not reproduce, specified before it is built.
+/// </summary>
+/// <remarks>
+/// **Second batch, same rule as <see cref="UnimplementedFeatureConformanceTests"/>**: the real
+/// assertion with its citation, behind a check that skips today and activates when the feature
+/// lands. What is new here is that one of them is not a material parameter at all — the static prop
+/// lump carries a skin index this project never reads, which is a decode gap rather than a shading
+/// one and was found by asking what <c>StaticPropConformanceTests</c> had already derived and
+/// nothing consumed.
+///
+/// **Two SDK details worth pinning because they invert the obvious reading**, and both would be got
+/// wrong by anyone implementing from the parameter name alone:
+///
+/// - <c>$seamless_scale</c> of **0 means ordinary mapping**, not zero scale
+///   (<c>WorldVertexTransition_dx8.cpp:176</c> guards on <c>!= 0.0f</c>).
+/// - <c>$edgesoftnessstart</c> defaults to **0.6** and <c>$edgesoftnessend</c> to **0.5**, so the
+///   range counts DOWN. Distance-alpha stores distance-from-edge, and softness runs from more inside
+///   to less.
+/// </remarks>
+public sealed class UnimplementedRenderingConformanceTests
+{
+    [SetUp]
+    public void RequireTheSdk()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+        }
+    }
+
+    [Test]
+    public void AStaticPropCarriesItsOwnSkinIndex()
+    {
+        // **A decode gap, not a shading one, and the cheapest real fix on the board.**
+        // StaticPropLump_t.m_Skin sits at offset 32 in every declared version — already derived by
+        // StaticPropConformanceTests — and BspStaticProps reads only origin (0), angles (12) and
+        // prop type (24). So every static prop in every map draws skin family 0 whatever the map
+        // asked for.
+        //
+        // What that looks like: a model with team or state variants drawing its first variant
+        // everywhere. cap_point_base.mdl has THREE skin families, measured directly from the model.
+        // A prop showing the wrong one is not an error and reads as the map's own art.
+        RequireStaticPropSkin();
+
+        // When it is implemented, the placement must expose the index and the renderer must select
+        // that family — StudioSkins already reads the table, so the missing piece is only the wire
+        // between them.
+        Assert.Fail("unreachable once implemented; see RequireStaticPropSkin");
+    }
+
+    [Test]
+    public void SeamlessScaleOfZeroMeansOrdinaryMapping()
+    {
+        // **The inverted default.** WorldVertexTransition_dx8.cpp:176 enables seamless mapping only
+        // when the value IS DEFINED AND non-zero, and line 187 sets it to 0 when absent. So zero is
+        // the off switch rather than a degenerate scale, and an implementation treating it as a
+        // multiplier collapses every such surface's texture coordinates to a point.
+        RequireImplemented("$seamless_scale", "no entry yet");
+
+        VmtMaterial off = Parse(
+            """
+            "WorldVertexTransition"
+            {
+                "$basetexture" "nature/rock"
+                "$seamless_scale" "0"
+            }
+            """);
+
+        VmtMaterial on = Parse(
+            """
+            "WorldVertexTransition"
+            {
+                "$basetexture" "nature/rock"
+                "$seamless_scale" "0.005"
+            }
+            """);
+
+        off.Value("$seamless_scale").ShouldBe("0");
+        on.Value("$seamless_scale").ShouldBe("0.005");
+    }
+
+    [Test]
+    public void DistanceAlphaSoftensAnEdgeOverARangeThatCountsDown()
+    {
+        // **TF2's signage.** unlitgeneric_dx9.cpp:47 describes $distancealpha as "distance-coded
+        // alpha generated from hi-res texture by vtex" — the texture stores distance from the
+        // glyph's edge rather than coverage, so a sign stays sharp at any zoom.
+        //
+        // The range is the trap: EDGESOFTNESSSTART defaults to 0.6 and EDGESOFTNESSEND to 0.5
+        // (lines 52-53), so start is GREATER than end. Reading them as a conventional
+        // ascending range inverts the gradient and produces a hard edge with a halo.
+        //
+        // Ignoring the whole feature draws the raw distance field as if it were colour, which is a
+        // grey blob where the lettering should be.
+        RequireImplemented("$distancealpha", "no entry yet");
+
+        Dictionary<string, string> defaults = ShaderDefaults();
+
+        defaults["EDGESOFTNESSSTART"].ShouldBe("0.6");
+        defaults["EDGESOFTNESSEND"].ShouldBe("0.5");
+
+        double.Parse(defaults["EDGESOFTNESSSTART"], System.Globalization.CultureInfo.InvariantCulture)
+            .ShouldBeGreaterThan(
+                double.Parse(defaults["EDGESOFTNESSEND"], System.Globalization.CultureInfo.InvariantCulture),
+                "the softness range counts down; treating it as ascending inverts the gradient");
+    }
+
+    [Test]
+    public void AnOutlineIsDrawnFromTheSameDistanceFieldAsTheGlyph()
+    {
+        // $outline and its six companions are declared on the same shader as $distancealpha
+        // (unlitgeneric_dx9.cpp:63-70) and are meaningless without it: the outline is a second
+        // threshold on the same distance field. So an implementation that adds outlines without
+        // distance alpha has nothing to threshold.
+        RequireImplemented("$outline", "no entry yet");
+
+        Dictionary<string, string> defaults = ShaderDefaults();
+
+        defaults["OUTLINECOLOR"].ShouldBe("[1 1 1]");
+        defaults["OUTLINEALPHA"].ShouldBe("0.0");
+    }
+
+    [Test]
+    public void BlendModulateChoosesWhereTwoTexturesMeet()
+    {
+        // $blendmodulatetexture supplies a per-pixel mask for the transition between $basetexture
+        // and $basetexture2 on a blended surface, replacing the straight vertex-alpha ramp with a
+        // noisy edge. Without it the two textures cross-fade linearly, which is smooth where the
+        // map author asked for a ragged join — visible on every ground transition using it.
+        RequireImplemented("$blendmodulatetexture", "no entry yet");
+
+        Parse(
+            """
+            "WorldVertexTransition"
+            {
+                "$basetexture" "nature/dirt"
+                "$basetexture2" "nature/grass"
+                "$blendmodulatetexture" "nature/blend_mask"
+            }
+            """)
+            .Value("$blendmodulatetexture")
+            .ShouldBe("nature/blend_mask");
+    }
+
+    [Test]
+    public void ColourAndAlphaModulateTheWholeMaterial()
+    {
+        // $color and $alpha scale a material's output, and the engine applies them as a modulation
+        // on top of whatever the shader produced. They are per-material rather than per-surface, so
+        // ignoring them draws a tinted or faded material at full strength — which on a TF2 map is
+        // most often a light haze or a coloured glow rendered as an opaque white one.
+        RequireImplemented("$color", "no entry yet");
+
+        VmtMaterial material = Parse(
+            """
+            "UnlitGeneric"
+            {
+                "$basetexture" "effects/glow"
+                "$color" "[1 .5 .25]"
+                "$alpha" "0.5"
+            }
+            """);
+
+        material.Value("$color").ShouldBe("[1 .5 .25]");
+        material.Value("$alpha").ShouldBe("0.5");
+    }
+
+    /// <summary>Skips unless the census says the parameter is implemented.</summary>
+    private static void RequireImplemented(string parameter, string entry)
+    {
+        if (!MaterialCensus.ImplementedParameters.Contains(parameter, StringComparer.OrdinalIgnoreCase))
+        {
+            Assert.Ignore(
+                $"{parameter} is not implemented ({entry}). The assertion below is what the engine " +
+                "does, written before the code so it cannot be a description of it.");
+        }
+    }
+
+    /// <summary>Skips while the static prop reader ignores the skin index.</summary>
+    /// <remarks>
+    /// The capability is checked by asking whether anything exposes it, which today nothing does.
+    /// Stated as its own helper so the day a skin appears on a placement this test starts running
+    /// rather than needing to be remembered.
+    /// </remarks>
+    private static void RequireStaticPropSkin()
+    {
+        bool exposed = typeof(BspStaticProp)
+            .GetProperties()
+            .Any(property => property.Name.Contains("Skin", StringComparison.OrdinalIgnoreCase));
+
+        if (!exposed)
+        {
+            Assert.Ignore(
+                "static prop skins are not read. StaticPropLump_t.m_Skin is at offset 32 in every " +
+                "declared version (already derived by StaticPropConformanceTests) and " +
+                "BspStaticProps reads only origin, angles and prop type — so every static prop " +
+                "draws skin family 0. cap_point_base.mdl has three families.");
+        }
+    }
+
+    /// <summary>The default values the shader declares for its parameters.</summary>
+    /// <remarks>
+    /// Read from <c>SHADER_PARAM</c> declarations, whose third argument is the default as a string.
+    /// Those defaults are part of the specification: a material that omits the key gets them, so an
+    /// implementation choosing its own is wrong for every material that does not state one.
+    /// </remarks>
+    private static Dictionary<string, string> ShaderDefaults()
+    {
+        string source = SourceSdk.Text("src/materialsystem/stdshaders/unlitgeneric_dx9.cpp")
+            ?? throw new InvalidOperationException("unlitgeneric_dx9.cpp is missing from the SDK");
+
+        Dictionary<string, string> defaults = new(StringComparer.Ordinal);
+
+        foreach (System.Text.RegularExpressions.Match hit in
+            System.Text.RegularExpressions.Regex.Matches(
+                source,
+                @"SHADER_PARAM\(\s*([A-Z0-9_]+)\s*,\s*[A-Z_]+\s*,\s*""([^""]*)""",
+                System.Text.RegularExpressions.RegexOptions.None,
+                TimeSpan.FromSeconds(10)))
+        {
+            defaults.TryAdd(hit.Groups[1].Value, hit.Groups[2].Value);
+        }
+
+        defaults.Count.ShouldBeGreaterThan(20, "no shader parameters were extracted");
+
+        return defaults;
+    }
+
+    /// <summary>Parses a VMT from text.</summary>
+    private static VmtMaterial Parse(string text) =>
+        VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes(text));
+}
