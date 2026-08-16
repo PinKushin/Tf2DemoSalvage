@@ -5047,6 +5047,32 @@ read the demo's capture point entities, read the skin each one is sent, and chec
 that family. Both halves of that are already implemented — `m_nSkin` is decoded (B73 era) and
 `StudioSkins` reads the table — so the question is only whether they are connected.
 
+### B83 second addendum — the rings are on EVERY point, and the "unambiguous defect" was not one
+
+**Withdrawn by observation, 2026-08-16.** The owner, on ultra settings: the ring markings are on every
+capture point, owned or not — lighter on an owned one, not absent. Two fresh captures show a RED-owned
+disc and a BLU-owned disc, both with the rings, both with a coloured glow in the centre rather than a
+team-marked surface.
+
+So the paragraph above claiming the rings "belong to the UNOWNED point only" is false, and with it the
+inference that the skin family is being chosen wrongly. Nothing about skins or bodygroups is
+established as broken by these captures. What the earlier shots showed was the same rings at a
+different brightness, read as presence versus absence.
+
+**Fourth falsified hypothesis about this one surface, and they share a shape.** Ambient cube, envmap
+on a prop, indoor shadowing, sun asymmetry, and now the skin family — each was a mechanism that would
+explain the appearance, proposed from a screenshot, and each died the moment the owner looked at the
+game rather than at the capture. The lesson is the one already in memory under
+`ui-tests-run-every-time` and the UI section of the global standards: **an appearance claim that
+cannot be checked by looking is a question, not a finding**, and this entry has now generated five
+findings that were questions.
+
+Concretely, for whoever picks this up: **stop proposing mechanisms for the capture point.** The two
+things worth doing are (1) establish a target at a stated graphics configuration, since the shine is
+config-dependent and no comparison means anything without one, and (2) verify `m_nSkin` reaches the
+draw call as a directly measured fact rather than as an explanation for something seen in a picture.
+The second is cheap and independent of every appearance question here.
+
 ### B88 — a static written by every map load, and the real signal it obscured
 
 **Found by the full-suite gate, not by any individual run**, which is the only way this class of

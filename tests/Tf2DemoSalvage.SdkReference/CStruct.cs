@@ -470,9 +470,35 @@ public static class CStruct
     }
 
     /// <summary>Splits an already-uncommented body into declarations.</summary>
+    /// <remarks>
+    /// **A macro invocation on its own line does not have to end in a semicolon, and 5 of the 146 in
+    /// the SDK's public headers do not.** Splitting on semicolons then glues the macro to the member
+    /// after it — <c>DECLARE_BYTESWAP_DATADESC() int magic</c> — and the "anything with parentheses is
+    /// a macro" rule in <see cref="Declaration"/> discards the pair. The structure parses, reports no
+    /// refusal, and comes out exactly one member short.
+    ///
+    /// Measured on <c>CompiledCaptionHeader_t</c>, which is six ints under <c>#pragma pack(1)</c> and
+    /// came out as 20 bytes rather than 24. **Nothing about that is distinguishable from a correct
+    /// answer** — it is a plausible size for a plausible header, and every offset after the swallowed
+    /// member is wrong by four bytes in a way that would read as a field-order mistake.
+    ///
+    /// <c>bspfile.h</c> writes the macro WITH a semicolon, which is why every existing structure test
+    /// passed and why this waited for a header outside that file to surface it. That is the whole
+    /// hazard in one sentence: the corpus of structures being tested shared a spelling.
+    /// </remarks>
     private static IEnumerable<string> Statements(string body)
     {
-        foreach (string statement in body.Split(';'))
+        // Narrow on purpose: an ALL-CAPS identifier, a balanced parenthesis run with no semicolon
+        // inside it, and the end of a line. That is a macro invocation and cannot be a member
+        // declaration, so terminating it is safe; a broader rule risks splitting a real declarator.
+        string terminated = Regex.Replace(
+            body,
+            @"(?m)^(\s*[A-Z_][A-Z0-9_]*\s*\([^;()]*\))\s*$",
+            "$1;",
+            RegexOptions.None,
+            PatternLimit);
+
+        foreach (string statement in terminated.Split(';'))
         {
             string trimmed = Regex.Replace(
                 statement, @"\s+", " ", RegexOptions.None, PatternLimit).Trim();
