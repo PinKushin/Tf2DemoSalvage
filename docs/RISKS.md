@@ -4699,3 +4699,34 @@ project defaults it to (1,1,1), matching the engine, so the tint is not it.
 
 The asymmetry is the lever: neutral and team share a mesh, a bump map and an envmap, and differ only
 in `$selfillum` and the base texture. Anything that treats those two identically cannot be the cause.
+
+### B84 — players never chose a movement animation, and never blended one
+
+Found by a reflection test written to stop a class of bug rather than a bug: every field of a
+`ScenePose` is set to a non-default value, run through `ScenePropTrack.At`, and asserted to come
+back. It named three fields the rebuild dropped — `Speed`, `MoveX`, `MoveY` — within a minute of
+existing.
+
+Two of those are read by the renderer:
+
+- `MainForm` picks an animation with `SequenceFor(model, speed)`, and a null `Speed` skips that block
+  entirely, so a running player keeps whatever sequence the demo last stated.
+- `EntityModels.PoseValues` reads `move_x` and `move_y` off the pose, and (0, 0) is the standing
+  corner of a nine-way movement grid.
+
+**The values existed the whole time.** `PlayersAt` computes all three and writes them to
+`ScenePlayer`; the renderer reads them from `SceneProp.Pose`, which nothing ever wrote them to. One
+quantity, computed onto one type and read off another, so both layers of the animation — which
+sequence, and where in its blend — sat at their defaults with no error anywhere.
+
+Filled in `PropsAt` rather than at the keyframe, because all three are functions of where the entity
+was a tenth of a second ago: that is a question about the TRACK, and a keyframe carrying them would
+be wrong at every tick between two.
+
+**Fifth instance of the same shape this session** — after `Yaw`, `Body`, `Skin` and the census's
+`$modblend`. A value with a legitimate default, in a record built member by member, read somewhere
+that cannot tell the difference. The reflection test now covers every field of `ScenePose` including
+ones nobody has added yet, which is what the hand-written version could not do: it compared against
+an object built in the test, so a new field defaulted on both sides and passed.
+
+Not yet confirmed on screen. The arithmetic is right and whether legs now run is a question for eyes.

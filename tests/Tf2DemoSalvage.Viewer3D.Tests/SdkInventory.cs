@@ -118,6 +118,65 @@ internal static class SdkInventory
             "c_te_*.cpp",
             new Regex(@"class (C_TE[A-Za-z0-9_]+)\s*:", RegexOptions.Compiled));
 
+    /// <summary>Every named integer a header declares, by <c>#define</c> or as an enumerator.</summary>
+    /// <param name="header">Path under the SDK, such as <c>src/public/bspfile.h</c>.</param>
+    /// <returns>Name to value, for the ones that are plain integers.</returns>
+    /// <remarks>
+    /// **This is the highest-value axis of the whole inventory.** A format reader is mostly magic
+    /// numbers — a lump index, a version bound, a vertex size, a bit width — and every one of them
+    /// fails the same way when wrong: it lands on real data and decodes something plausible. The
+    /// engine declares them all, so they can be checked rather than trusted.
+    ///
+    /// Only plain integers and hexadecimal are returned. Expressions like
+    /// <c>('V'&lt;&lt;24)+('S'&lt;&lt;16)+…</c> and anything built from other constants are skipped
+    /// rather than half-evaluated: a wrong value here would be worse than a missing one, because it
+    /// would fail a test that is supposed to be the reference.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, int> Constants(string header)
+    {
+        ArgumentNullException.ThrowIfNull(header);
+
+        if (Root is not { } root)
+        {
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+
+        string path = Path.Combine(root, header.Replace('/', Path.DirectorySeparatorChar));
+
+        if (!File.Exists(path))
+        {
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+
+        Dictionary<string, int> values = new(StringComparer.Ordinal);
+
+        Regex defined = new(
+            @"^\s*#define\s+([A-Z][A-Z0-9_]*)\s+\(?\s*(0x[0-9A-Fa-f]+|\d+)\s*\)?\s*(?://.*)?$",
+            RegexOptions.Multiline);
+
+        Regex enumerated = new(
+            @"^\s*([A-Z][A-Z0-9_]*)\s*=\s*(0x[0-9A-Fa-f]+|\d+)\s*,",
+            RegexOptions.Multiline);
+
+        foreach (Regex pattern in new[] { defined, enumerated })
+        {
+            foreach (Match hit in pattern.Matches(File.ReadAllText(path)))
+            {
+                string text = hit.Groups[2].Value;
+
+                int value = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    ? Convert.ToInt32(text[2..], 16)
+                    : int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+
+                // First declaration wins: a header that redefines a name under an #ifdef is
+                // describing a variant build, and the first is the one these readers target.
+                values.TryAdd(hit.Groups[1].Value, value);
+            }
+        }
+
+        return values;
+    }
+
     /// <summary>Matches a pattern across files and returns every distinct capture.</summary>
     private static HashSet<string> Names(string folder, string pattern, Regex match)
     {

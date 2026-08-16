@@ -199,6 +199,21 @@ public sealed class DemoTimeline
     /// </remarks>
     public float IntervalPerTick { get; private init; }
 
+    /// <summary>Builds a timeline directly from tracks, for tests that need an exact motion.</summary>
+    /// <param name="tracks">The entity tracks the timeline should answer from.</param>
+    /// <returns>A timeline with no frames and these tracks.</returns>
+    /// <remarks>
+    /// **A seam, and a narrow one on purpose.** Some behaviour here is a function of an entity's
+    /// motion over time — speed, and the movement pose parameters derived from it — and asserting
+    /// on it from a real demo means hunting for a tick where a player happens to be running, which
+    /// measures the corpus rather than the code. Two keyframes 200 units apart state the condition
+    /// exactly.
+    ///
+    /// Internal rather than public: this is not a way to build a timeline, it is a way to ask one a
+    /// question. Nothing outside the tests should be assembling tracks by hand.
+    /// </remarks>
+    internal static DemoTimeline ForTracks(List<ScenePropTrack> tracks) => new([], tracks);
+
     /// <summary>Walks a demo and records where everyone was.</summary>
     /// <param name="file">The whole demo file, header included.</param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
@@ -701,9 +716,41 @@ public sealed class DemoTimeline
             if (track.At(tick) is { Hidden: false } pose)
             {
                 into.Add(new SceneProp(
-                    track.EntityIndex, track.ModelPath, track.Kind, pose, track.AttachedTo));
+                    track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
+                    track.AttachedTo));
             }
         }
+    }
+
+    /// <summary>Fills in the movement pose parameters, which are derived rather than sent.</summary>
+    /// <param name="track">The entity's track, which is where the motion is.</param>
+    /// <param name="tick">The moment being drawn.</param>
+    /// <param name="pose">The interpolated pose.</param>
+    /// <returns>The pose with <c>move_x</c> and <c>move_y</c> filled in.</returns>
+    /// <remarks>
+    /// **These were computed onto one type and read off another, so they were always zero.**
+    /// <c>PlayersAt</c> works them out and writes them to <see cref="ScenePlayer"/>; the renderer
+    /// reads them from <see cref="SceneProp"/>'s pose, which nothing ever wrote them to. A movement
+    /// blend at (0, 0) is the grid's standing corner, so a running player's legs stood still while
+    /// the body slid along — and the numbers were right the whole time, in a record nobody asked.
+    ///
+    /// Filled here rather than at the keyframe, because they are a function of where the entity was
+    /// a tenth of a second ago and that is a question about the TRACK rather than about one moment.
+    /// Recording them per keyframe would also be wrong at any tick between two.
+    ///
+    /// Found by a reflection test asserting that no field of a pose comes back at its default —
+    /// which is the same class as <c>Body</c> and <c>Skin</c> going missing from the same rebuild.
+    /// </remarks>
+    private static ScenePose Moving(ScenePropTrack track, double tick, ScenePose pose)
+    {
+        (float moveX, float moveY) = MoveParameters(track, tick, pose.Yaw);
+
+        // **Speed decides WHICH animation plays, and it was missing the same way.** The viewer picks
+        // a sequence from it — MainForm asks SequenceFor(model, speed) — and a null speed skips that
+        // block entirely, so a running player kept whatever sequence the demo last stated while the
+        // move parameters, had they arrived, would only have blended within it. Two layers of the
+        // same defect, from one value computed onto ScenePlayer and read from SceneProp.
+        return pose with { Speed = SpeedAt(track, tick), MoveX = moveX, MoveY = moveY };
     }
 
     /// <summary>Where everyone was at a tick, or the most recent moment before it.</summary>
