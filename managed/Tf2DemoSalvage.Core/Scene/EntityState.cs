@@ -230,8 +230,29 @@ public sealed class EntityState
     }
 
     /// <summary>The entity slot a networked handle names, or null when it names nothing.</summary>
-    private static int? Slot(int? handle) =>
+    /// <param name="handle">The raw networked value, or null when the property was never sent.</param>
+    /// <returns>The entity index, or <c>null</c> for the invalid handle.</returns>
+    /// <remarks>
+    /// **The invalid test comes BEFORE the mask, which is Valve's order and not an arrangement of
+    /// convenience.** <c>RecvProxy_IntToEHandle</c> (<c>client/recvproxy.cpp:90</c>) compares the
+    /// whole word against <c>INVALID_NETWORKED_EHANDLE_VALUE</c> first, and only then takes the low
+    /// <c>MAX_EDICT_BITS</c>. Masking first turns the invalid handle into 2047 — a legal index that
+    /// names whatever entity occupies that slot — which is how 220 syringe projectiles were claimed
+    /// as worn items by their owner.
+    ///
+    /// Internal so the rule can be asserted directly: the order of two operations is exactly the
+    /// kind of thing that reads correctly and behaves wrongly.
+    /// </remarks>
+    internal static int? Slot(int? handle) =>
         handle is not { } raw || raw == InvalidHandle ? null : raw & ((1 << EdictBits) - 1);
+
+    /// <summary>The invalid networked handle, as the engine defines it.</summary>
+    /// <remarks>
+    /// <c>(1 &lt;&lt; (MAX_EDICT_BITS + NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS)) - 1</c>, which is
+    /// 11 + 10 bits. Exposed so a test can state the value rather than assume −1, which is what it
+    /// is NOT.
+    /// </remarks>
+    internal static int NoHandle => InvalidHandle;
 
     /// <summary>Which way the entity faces.</summary>
     /// <returns>Pitch, yaw and roll in degrees, or <c>null</c> when never sent.</returns>

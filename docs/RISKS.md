@@ -4729,4 +4729,17 @@ that cannot tell the difference. The reflection test now covers every field of `
 ones nobody has added yet, which is what the hand-written version could not do: it compared against
 an object built in the test, so a new field defaulted on both sides and passed.
 
-Not yet confirmed on screen. The arithmetic is right and whether legs now run is a question for eyes.
+**Corrected by the owner: legs were already moving, so the heading "never animated" was wrong.** A
+player's demo carries no sequence, so `Math.Max(0, -1)` selects sequence ZERO and the cycle advances
+from playback time — the legs move because something is always playing, not because anything was
+chosen. What was missing is narrower and worth stating exactly:
+
+- **which** animation plays was never decided, because `SequenceFor(model, speed)` was skipped;
+- **where in its blend grid** was always the standing corner.
+
+So the failure was never "no animation". It was "always the same animation, at one point of its
+grid", which looks like movement and cannot be told from correct movement without knowing what the
+player was doing. That is the same trap as every other entry here: the wrong behaviour is a
+plausible one.
+
+Whether it now runs CORRECTLY is still a question for eyes — moving legs were never the evidence.

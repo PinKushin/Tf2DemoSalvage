@@ -976,6 +976,21 @@ public sealed class DemoTimeline
     }
 
     /// <summary>Brings an angle into −180 to 180.</summary>
+    /// <param name="degrees">Any angle, including one several turns out.</param>
+    /// <returns>The same direction, expressed once.</returns>
+    /// <remarks>
+    /// **One direction must have one representation, or nothing can compare two of them.** The wire
+    /// sends yaw as 0..360 and everything here stores (−180, 180]; a player's facing was measured
+    /// held as 220.997 and −139.003 at once, which is the same direction and a full turn apart. Any
+    /// comparison or interpolation across that boundary is then wrong by 360 — and the boundary is
+    /// due south, where players spend a great deal of time.
+    ///
+    /// Internal so the invariant can be asserted over the whole circle rather than at the one value
+    /// somebody happened to measure. A wrap defect lives at a boundary, and a single example never
+    /// sits on one.
+    /// </remarks>
+    internal static float NormalizeAngle(float degrees) => Normalize(degrees);
+
     private static float Normalize(float degrees)
     {
         float wrapped = degrees % 360f;

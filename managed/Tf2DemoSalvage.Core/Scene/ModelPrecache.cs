@@ -115,10 +115,36 @@ public sealed class ModelPrecache
             return _paths.TryGetValue(modelIndex, out string? path) ? path : null;
         }
 
+        return DynamicSlot(modelIndex) is { } slot &&
+            _dynamic.TryGetValue(slot, out string? loaded) ? loaded : null;
+    }
+
+    /// <summary>Which <c>DynamicModels</c> entry a negative model index names, when any.</summary>
+    /// <param name="modelIndex">The networked index, which is signed and 13 bits wide.</param>
+    /// <returns>The table slot, or <c>null</c> when the index is ordinary or client-only.</returns>
+    /// <remarks>
+    /// **From <c>ivmodelinfo.h:90</c>**: an index below −1 is dynamic, the dynamic index is
+    /// <c>−2 − index</c>, and its low bit decides where it lives — EVEN is networked at
+    /// <c>dynamic &gt;&gt; 1</c> of the <c>DynamicModels</c> string table, ODD is client-only and a
+    /// demo cannot resolve it at all.
+    ///
+    /// **Every TF2 cosmetic arrives this way**, so reading a negative index as an ordinary one
+    /// finds nothing and draws nothing — silently, because a model that failed to resolve is
+    /// indistinguishable from an entity that has none.
+    ///
+    /// Separated from <see cref="Path"/> so the arithmetic can be asserted on its own: three
+    /// operations that are each plausible in the wrong order.
+    /// </remarks>
+    internal static int? DynamicSlot(int modelIndex)
+    {
+        if (modelIndex >= -1)
+        {
+            return null;
+        }
+
         int dynamicIndex = -2 - modelIndex;
 
-        return (dynamicIndex & 1) == 0 &&
-            _dynamic.TryGetValue(dynamicIndex >> 1, out string? loaded) ? loaded : null;
+        return (dynamicIndex & 1) == 0 ? dynamicIndex >> 1 : null;
     }
 
     /// <summary>Undoes the packing early protocols applied to negative model indices.</summary>
