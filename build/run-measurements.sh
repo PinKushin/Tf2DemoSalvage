@@ -48,6 +48,97 @@ fi
 REPO="$HOME/tf2demosalvage"
 LOCK="/tmp/measurement-box.lock"
 
+# The fuzz corpus is shared with the GitHub runner through release assets.
+#
+# **The point is not speed, it is architecture.** This box is ARM64 and the runner is x64, so an
+# input discovered on one is otherwise NEVER executed on the other — a fault that only manifests on
+# one architecture stays unreachable from the machine whose fuzzer found the input that triggers it.
+# No budget increase substitutes for pooling; more time on one architecture explores more of the
+# same architecture.
+#
+# **Why a release asset and not an Actions cache.** A cache has no public endpoint and cannot be read
+# from outside a runner, which rules it out as a shared store. A release asset on a public repo is
+# readable by plain curl with no credential; only writing needs a token.
+#
+# **One asset PER TARGET, which diverges from the shape TcgDex wrote up, and deliberately.** They
+# fuzz one target and publish one `corpus.tar.zst`. This project fuzzes four, and CI runs them as
+# four PARALLEL matrix jobs — four jobs publishing one asset is a last-writer-wins race that would
+# silently discard three targets' findings every night. Per-target assets make each job the sole
+# writer of its own, so there is no race to lose.
+GH_REPO="PinKushin/Tf2DemoSalvage"
+CORPUS_TAG="fuzz-corpus"
+CORPUS_TOKEN_FILE="${HOME}/.tf2demosalvage-gh-token"
+
+# Fold the shared corpus for one target into its local directory.
+#
+# **A fetch failure is never fatal.** The local corpus and the generated seed still make the run
+# useful; it simply starts further back. The first run has nothing to fetch, and saying so plainly
+# matters — "none published yet" and "the network broke" must not read the same.
+fetch_shared_corpus() {
+  local target="$1" dir="$2" url before
+  url="https://github.com/${GH_REPO}/releases/download/${CORPUS_TAG}/corpus-${target}.tar.zst"
+
+  if ! curl -fsSL -o "/tmp/shared-${target}.tar.zst" "$url"; then
+    echo "    ${target}: nothing published yet, or the fetch failed; using the local corpus only"
+    return 0
+  fi
+
+  rm -rf "/tmp/shared-${target}" && mkdir -p "/tmp/shared-${target}"
+
+  if tar -C "/tmp/shared-${target}" -xf "/tmp/shared-${target}.tar.zst" 2>/dev/null; then
+    before=$(find "$dir" -type f | wc -l)
+    # -n so a local input of the same name is never overwritten: the local one may be the
+    # reproducer for something this box found and has not published.
+    cp -n "/tmp/shared-${target}"/* "$dir/" 2>/dev/null || true
+    echo "    ${target}: merged ${before} -> $(find "$dir" -type f | wc -l) inputs"
+  else
+    echo "    WARNING: ${target}'s asset did not unpack; using the local corpus only" >&2
+  fi
+
+  rm -rf "/tmp/shared-${target}" "/tmp/shared-${target}.tar.zst"
+}
+
+# Replace one target's release asset with the current corpus.
+#
+# The upload endpoint REFUSES a duplicate asset name rather than replacing it, so the old asset is
+# deleted first. Every HTTP status is checked: a failed publish that printed success would leave the
+# two machines quietly diverging, which is the exact problem this exists to solve.
+publish_shared_corpus() {
+  local target="$1" dir="$2" id old code cfg
+
+  # **The token goes in a curl config file, never on the command line.** Arguments are visible in
+  # `ps` to every process on this box, and three projects share it as the same user. Trap-cleaned so
+  # a failure part-way cannot leave a readable token behind.
+  cfg=$(mktemp)
+  chmod 600 "$cfg"
+  trap 'rm -f "$cfg"' RETURN
+  printf 'header = "Authorization: Bearer %s"\n' "$(cat "$CORPUS_TOKEN_FILE")" > "$cfg"
+  local auth=(--config "$cfg" -H "Accept: application/vnd.github+json")
+
+  tar -C "$dir" -cf - . | zstd -19 -T0 -q -o "/tmp/publish-${target}.tar.zst" -f
+
+  id=$(curl -fsS "${auth[@]}" \
+    "https://api.github.com/repos/${GH_REPO}/releases/tags/${CORPUS_TAG}" | jq -r '.id // empty')
+  [ -n "$id" ] || { echo "    publish: release ${CORPUS_TAG} not found" >&2; return 1; }
+
+  old=$(curl -fsS "${auth[@]}" \
+    "https://api.github.com/repos/${GH_REPO}/releases/${id}/assets" \
+    | jq -r ".[]|select(.name==\"corpus-${target}.tar.zst\")|.id")
+  [ -n "$old" ] && curl -fsS -X DELETE "${auth[@]}" \
+    "https://api.github.com/repos/${GH_REPO}/releases/assets/${old}" >/dev/null
+
+  code=$(curl -s -o "/tmp/publish-${target}.json" -w '%{http_code}' -X POST "${auth[@]}" \
+    -H "Content-Type: application/zstd" --data-binary "@/tmp/publish-${target}.tar.zst" \
+    "https://uploads.github.com/repos/${GH_REPO}/releases/${id}/assets?name=corpus-${target}.tar.zst")
+  rm -f "/tmp/publish-${target}.tar.zst"
+
+  if [ "$code" != "201" ]; then
+    echo "    publish ${target}: HTTP ${code} -- $(jq -r '.message // "no message"' "/tmp/publish-${target}.json")" >&2
+    return 1
+  fi
+  echo "    ${target}: published $(find "$dir" -type f | wc -l) inputs"
+}
+
 exec 9>"$LOCK"
 if ! flock -n 9; then
   echo "ERROR: another measurement run holds $LOCK. One at a time." >&2
@@ -253,6 +344,10 @@ if [ "$MODE" = fuzz ]; then
       TF2FUZZ_SEED_PATH="${corpus_dir}/seed" dotnet "${FUZZ_OUT}/Tf2DemoSalvage.Fuzz.dll" 9>&-
     fi
 
+    # Fold in whatever the x64 runner has found before spending any budget, so this ARM64 run
+    # actually executes those inputs.
+    fetch_shared_corpus "$target" "$corpus_dir"
+
     before_count=$(find "$corpus_dir" -type f | wc -l)
     echo "=== ${target}: ${budget}s, corpus ${before_count} entries — $(date -Is)"
 
@@ -311,6 +406,49 @@ if [ "$MODE" = fuzz ]; then
     echo "FINDINGS: ${target} has ${found} crash artifact(s)."
     cp -r "$HOME/findings-${target}" "${OUT}/" 2>/dev/null || true
   done
+
+  # Minimise, then publish back so the runner starts from what this box learned.
+  #
+  # **Gated on a clean run, and that gate is the important part.** A run that found a crash must not
+  # overwrite the shared corpus: minimising drops inputs that do not increase coverage, and a
+  # crashing input is never in the corpus to begin with (libFuzzer only adds coverage-increasing
+  # ones). Publishing after a finding would be tidying up around the evidence.
+  #
+  # Writing needs a credential, unlike reading. Without the token the run still succeeds and simply
+  # does not publish — the box keeps its own corpus and nothing is lost.
+  if [ "$FUZZ_STATUS" = 0 ]; then
+    echo "=== minimising and publishing the shared corpus"
+    for target in bitreader varint container snappy; do
+      corpus_dir="$HOME/corpus-${target}"
+      min_dir="${corpus_dir}-min"
+      before_count=$(find "$corpus_dir" -type f | wc -l)
+
+      rm -rf "$min_dir" && mkdir -p "$min_dir"
+      TF2FUZZ_TARGET="$target" "$HOME/libfuzzer-dotnet" \
+        --target_path="${FUZZ_OUT}/Tf2DemoSalvage.Fuzz" \
+        -merge=1 "$min_dir" "$corpus_dir" 9>&- > "${OUT}/merge-${target}.log" 2>&1 || true
+
+      # Only take the minimised result if it produced one. A merge that failed leaves an empty
+      # directory, and publishing that would delete the shared corpus for every machine.
+      if [ "$(find "$min_dir" -type f | wc -l)" -gt 0 ]; then
+        rm -rf "$corpus_dir" && mv "$min_dir" "$corpus_dir"
+        echo "    ${target}: ${before_count} -> $(find "$corpus_dir" -type f | wc -l) after merge"
+      else
+        rm -rf "$min_dir"
+        echo "    ${target}: merge produced nothing; keeping the unminimised corpus" >&2
+      fi
+
+      if [ -r "$CORPUS_TOKEN_FILE" ]; then
+        publish_shared_corpus "$target" "$corpus_dir" \
+          || echo "    WARNING: ${target} publish failed; the local corpus is unaffected" >&2
+      fi
+    done
+
+    [ -r "$CORPUS_TOKEN_FILE" ] || \
+      echo "    no token at ${CORPUS_TOKEN_FILE}; fetched but did not publish"
+  else
+    echo "=== not publishing: the run found something, and the corpus stays as it was"
+  fi
 
   prune_own_runs
 

@@ -27,8 +27,10 @@ on:
         type: string
         default: '120'
 
+# Release assets live under Contents, so publishing the shared corpus needs write here. Kept at the
+# workflow level with nothing else raised: this workflow pushes no code and opens no pull request.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   fuzz:
@@ -103,6 +105,33 @@ jobs:
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ matrix.target }}-
 
+      - name: Fold in the shared corpus
+        # The box is ARM64 and this runner is x64. Without pooling, an input discovered on one is
+        # never executed on the other, so a fault that only manifests on one architecture is
+        # unreachable from the machine that found the input triggering it. More budget does not
+        # substitute: it explores more of the same architecture.
+        #
+        # An Actions cache cannot be read from outside a runner, which is why the shared store is a
+        # release asset. Reading needs no credential because the repo is public.
+        #
+        # Never fatal. The cache above and the seed below still make the run useful.
+        run: |
+          mkdir -p corpus-${{ matrix.target }}
+          url="https://github.com/${{ github.repository }}/releases/download/fuzz-corpus/corpus-${{ matrix.target }}.tar.zst"
+          if curl -fsSL -o /tmp/shared.tar.zst "$url"; then
+            mkdir -p /tmp/shared
+            if tar -C /tmp/shared -xf /tmp/shared.tar.zst 2>/dev/null; then
+              before=$(ls corpus-${{ matrix.target }} | wc -l)
+              # -n: never overwrite an input this runner's cache already holds.
+              cp -n /tmp/shared/* corpus-${{ matrix.target }}/ 2>/dev/null || true
+              echo "merged $before -> $(ls corpus-${{ matrix.target }} | wc -l) inputs"
+            else
+              echo "::warning::the shared corpus asset did not unpack; using the cache only"
+            fi
+          else
+            echo "nothing published yet, or the fetch failed; using the cache only"
+          fi
+
       - name: Seed the container target
         # Without a seed the corpus starts empty, and the container target's input has an
         # 8-byte magic and a 1072-byte fixed header before anything varies - mutation from
@@ -140,6 +169,42 @@ jobs:
         with:
           path: corpus-${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      - name: Minimise and publish the shared corpus
+        # `success()` is the gate and it is load-bearing: a run that found a crash must not
+        # overwrite the shared corpus. Minimising keeps only coverage-increasing inputs, and a
+        # crashing input is never in the corpus anyway, so publishing after a finding would be
+        # tidying up around the evidence.
+        #
+        # Each matrix job publishes its OWN target's asset, so the four parallel jobs never write
+        # the same name. A single shared asset would be a last-writer-wins race that silently
+        # discarded three targets' findings every night.
+        if: success()
+        run: |
+          mkdir -p corpus-min
+          ~/libfuzzer-dotnet \
+            --target_path=$(which dotnet) \
+            --target_arg=$PWD/publish/Tf2DemoSalvage.Fuzz.dll \
+            -merge=1 corpus-min corpus-${{ matrix.target }} > merge.log 2>&1 || true
+
+          # A failed merge leaves an empty directory. Publishing that would delete the shared
+          # corpus for every machine, so the unminimised one is kept instead.
+          if [ "$(ls corpus-min | wc -l)" -gt 0 ]; then
+            echo "minimised $(ls corpus-${{ matrix.target }} | wc -l) -> $(ls corpus-min | wc -l)"
+            rm -rf corpus-${{ matrix.target }} && mv corpus-min corpus-${{ matrix.target }}
+          else
+            echo "::warning::merge produced nothing; publishing the unminimised corpus"
+          fi
+
+          tar -C corpus-${{ matrix.target }} -cf - . \
+            | zstd -19 -T0 -q -o corpus-${{ matrix.target }}.tar.zst -f
+
+          # The release is a prerelease created once by hand; `gh release upload --clobber`
+          # replaces the asset, which the raw API refuses to do.
+          gh release upload fuzz-corpus corpus-${{ matrix.target }}.tar.zst --clobber \
+            || echo "::warning::publish failed; the cache above still holds this run's corpus"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Upload crashes
         if: failure()
