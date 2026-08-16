@@ -5069,3 +5069,26 @@ which B83 then chased.
 Which map is not known, because the number arrived through the very static that made it
 unattributable. Recorded so the observation is not lost: **a refusal exists somewhere in the test
 corpus**, and the per-load list now makes it attributable the moment anyone looks.
+
+### B89 — the full gate runs the UI suite against 1,700 competing tests
+
+**`dotnet test` on the solution runs test ASSEMBLIES concurrently**, so
+`Tf2DemoSalvage.Viewer3D.UiTests` — which launches the viewer and drives a real window — executes
+while Content, Corpus and Viewer3D.Tests saturate the machine. Measured 2026-08-16: the UI suite
+passes in 2 seconds alone and failed one of eight at 10 seconds inside the full gate.
+
+**`run-exclusive.ps1` does not help here and it is worth being clear why.** That lock serialises this
+machine against OTHER agents; it says nothing about what a single `dotnet test` invocation does with
+itself. The rule that a UI suite takes the desktop has always been about not sharing — and running it
+beside a CPU-saturating suite is the same sharing by another route.
+
+**The gate must therefore run in two phases**: everything except the UI project, then the UI project
+alone, both inside one lock. A single `dotnet test Tf2DemoSalvage.slnx` is not a valid way to run
+this suite and has been used as one throughout this session.
+
+**What is NOT yet established, and must not be assumed**: whether the failure is a synchronisation
+defect in the UI test itself. This project's standing rule is that flake is a defect in
+synchronisation or in the app and never noise, so "it was busy" is a description rather than a
+diagnosis. The two-phase split removes the contention; if a failure survives it, the test is waiting
+on the clock somewhere instead of on a condition. Which test failed was not captured, because the
+gate's output was filtered to summary lines — itself worth fixing before the next run.

@@ -34,9 +34,24 @@ lcor is 774 MB of modern matches against 20 MB of short era specimens. Use it fo
 purpose is "did I break something" — the merge gate, a quick check after an edit — and run the full
 superset when the change touches decoding itself.
 
+**The gate runs in TWO PHASES, and one `dotnet test` on the solution is not a valid way to run it.**
+`dotnet test` executes test ASSEMBLIES concurrently, so `Viewer3D.UiTests` — which launches the
+viewer and drives a real window — ends up competing with roughly 1,700 other tests. Measured
+2026-08-16: the UI suite passes in 2 seconds alone and failed one of eight at 10 seconds inside a
+single-invocation gate (B89). `run-exclusive.ps1` does not help, because it serialises this machine
+against OTHER agents and says nothing about what one `dotnet test` does with itself.
+
 ```bash
-TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test Tf2DemoSalvage.slnx
+TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test Tf2DemoSalvage.slnx --filter 'FullyQualifiedName!~UiTests'
+TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests/Tf2DemoSalvage.Viewer3D.UiTests.csproj
 ```
+
+Both inside one `run-exclusive.ps1` when the UI phase is included, since that phase takes the
+desktop. Green as of 2026-08-16: **1,725 passed, 92 skipped, 0 failed** across seven assemblies.
+
+**Do not filter the gate's output down to summary lines while iterating.** A run filtered to
+`Passed!|Failed!` loses which test failed, which cost a re-run today — the same "log what you will
+need before you need it" rule the subsystem logs follow.
 
 **A test that needs a specific demo asks for it with `Corpus.Demo("name")`**, which skips with a
 reason when the file is absent rather than throwing out of `First`. That distinction matters here:
