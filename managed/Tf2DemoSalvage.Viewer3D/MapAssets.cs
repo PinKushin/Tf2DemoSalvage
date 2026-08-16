@@ -562,8 +562,18 @@ internal sealed class MapAssets
                 }
             }
 
+            // Four categories again. "N of M loaded" answers HAVE and nothing else — it does not
+            // name which of the M are missing, and an entity model that fails to load is a player
+            // or a weapon that simply is not drawn, which looks like the demo not containing one.
             ViewerLog.Write(
-                "assets", $"{loaded} of {entityModels.Count} entity models loaded");
+                "assets",
+                $"ASKED FOR {entityModels.Count} entity models; HAVE {loaded}; " +
+                $"MISSING {entityModels.Count - loaded}");
+
+            foreach (string absent in entityModels.Where(path => !models.ContainsKey(path)))
+            {
+                ViewerLog.Write("assets", $"entity model not loaded: {absent}");
+            }
         }
 
         // **And now the props and models, which the census could not see (B81).** Reported
@@ -591,15 +601,28 @@ internal sealed class MapAssets
             bumps.Add(null);
         }
 
+        // **One inventory line covering all four questions**, because the individual counts below
+        // each answer a different one and none of them says whether the whole stage worked. The
+        // shape is deliberate and standing: ASKED FOR / HAVE / PRODUCED / MISSING. A log reporting
+        // only what failed reads clean while every material quietly falls back to its base texture,
+        // which is how 42 of 189 materials declaring an unimplemented $envmap went unnoticed for an
+        // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
+        int textured = textures.Count(texture => texture is not null);
+
+        ViewerLog.Write(
+            "assets",
+            $"ASKED FOR {materials.Count} materials ({brushMaterials} the map's own, " +
+            $"{materials.Count - brushMaterials} from props); " +
+            $"HAVE {textured} with a base texture; " +
+            $"PRODUCED {details.Count(detail => detail is not null)} with a detail texture, " +
+            $"{bumps.Count(bump => bump is not null)} with a bump map; " +
+            $"MISSING {materials.Count - textured} with no base texture resolved");
+
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
         ViewerLog.Write(
             "assets",
             $"{details.Count(detail => detail is not null)} materials carry a detail texture");
-
-        ViewerLog.Write(
-            "assets",
-            $"{materials.Count - brushMaterials} prop materials added to {brushMaterials} the map's own");
 
         // **Measured, not assumed.** A bump chain that resolves nothing still draws a perfectly
         // reasonable map, because every bumped face already has a correct flat lightmap.
