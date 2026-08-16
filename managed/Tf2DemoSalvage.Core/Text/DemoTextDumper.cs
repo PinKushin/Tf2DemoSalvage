@@ -329,9 +329,55 @@ public static class DemoTextDumper
             }
 
             detail.Append(field.Key).Append('=').Append(PlayerReferences.Render(field, byUserId));
+
+            // **Annotate in place rather than replacing the raw value.** The number stays because
+            // it is what the demo actually contains and this dump is meant to be checkable against
+            // the bytes; the word is added beside it because "customkill=1" tells a reader nothing
+            // and "customkill=1 (headshot)" tells them the most interesting thing about the kill.
+            //
+            // Only qualifiers that change how a kill READS are annotated. Deliberately not a general
+            // "make every field pretty" pass, which would be a large surface with no obvious edge.
+            if (Annotate(field) is { } note)
+            {
+                detail.Append(" (").Append(note).Append(')');
+            }
         }
 
         return detail.ToString();
+    }
+
+    /// <summary>A human-readable note for a field whose number hides its meaning.</summary>
+    /// <remarks>
+    /// Returns null for everything else, so the dump stays raw by default. The mappings live in
+    /// <see cref="KillDescription"/> and are held against the SDK by
+    /// <c>KillDescriptionConformanceTests</c> — which caught them being transcribed wrongly the
+    /// first time.
+    /// </remarks>
+    private static string? Annotate(KeyValuePair<string, object?> field)
+    {
+        // **Every integral width, not just int.** Game event fields are typed by the event
+        // definition — customkill arrives as a byte and death_flags as a short — so a pattern match
+        // on `int` alone matches neither, and the annotation silently did nothing while its own unit
+        // tests passed. Caught by looking at the actual output rather than at the function.
+        int value = field.Value switch
+        {
+            int whole => whole,
+            short small => small,
+            byte tiny => tiny,
+            _ => -1,
+        };
+
+        if (value < 0)
+        {
+            return null;
+        }
+
+        return field.Key switch
+        {
+            "customkill" => KillDescription.CustomKill(value),
+            "death_flags" => KillDescription.DeathFlags(value),
+            _ => null,
+        };
     }
 
     private static void WriteCommandListing(TextWriter writer, IReadOnlyList<DemoCommand> commands)
