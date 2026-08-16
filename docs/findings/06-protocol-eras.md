@@ -228,6 +228,52 @@ the gameplay.
 
 ---
 
+## The voice axis: Speex for six years, and a codec the modern x64 client cannot load
+
+Evidence class: **measured on the corpus** for the demos, **measured on one machine** for the
+installs. Both dated 2026-08-16.
+
+Every committed era specimen declares the same codec, POV and SourceTV alike:
+
+| Era | `svc_VoiceInit` codec | quality field |
+|---|---|---|
+| 2007 build 3258 | `vaudio_speex` | 5 |
+| 2008 build 3420 | `vaudio_speex` | 5 |
+| 2009 build 3862 | `vaudio_speex` | 5 |
+| 2011 build 4604 | `vaudio_speex` | 5 |
+| 2013 build 1729296 | `vaudio_speex` | 5 |
+| modern (`z1800.dem`) | `vaudio_celt` | 22050 |
+
+**Speex holds across the whole 2007–2013 range without wavering.** The quality field is 5 every time;
+the modern demo reads 22050 because at quality 255 the message carries a 16-bit sample rate instead —
+**the same field changes meaning rather than changing value**, which is the same shape as the
+observer-enum hazard below and just as quiet.
+
+### The part that matters, and it is the project's thesis in a new place
+
+The period clients each ship `vaudio_miles.dll` and `vaudio_speex.dll`, and no CELT — consistent with
+every demo they produced. The live install ships more:
+
+| Client | `bin` | `bin/x64` |
+|---|---|---|
+| 2007 / 2008 / 2011 / 2013 | miles, speex | *(no x64 at all)* |
+| modern | celt, miles, minimp3, speex | **celt, minimp3** |
+
+**The 64-bit client ships no `vaudio_speex.dll`.** Its `x64/engine.dll` still contains the string
+`vaudio_speex` — twice — so it can still be *asked* for a codec it has no implementation of.
+
+So every demo in the table above, 2007 through 2013, requests a codec the modern 64-bit client cannot
+load. This project decodes Speex, which means **it reads voice the live game no longer can** — the
+founding argument for this parser, arrived at from the audio side rather than the schema side, and
+measured rather than assumed.
+
+### What the corpus cannot say
+
+The change is **bracketed and not dated**: after the 2013 build, at or before `z1800`. Nothing in the
+corpus sits between them, and that gap overlaps the protocol gap at 17–23. Closing it is a recording
+problem — a specimen from 2014–2019 — not a parsing one. `CorpusVoiceCodecEraTests` asserts both ends
+and skips on the undated middle rather than interpolating a date.
+
 ## An enum value inserted into the MIDDLE, and Valve says why
 
 Evidence class: **read from published source**, `game/shared/shareddefs.h:499`.
