@@ -5182,6 +5182,57 @@ So the UI phase needs the desktop free of the owner too, and there is currently 
 it. Whether the right answer is a foreground check, a prompt, or simply not running UI tests
 unattended is open.
 
+### B91 — a fuzz finding that does not reproduce, and the report that hid it — PARTLY CLOSED
+
+**A snappy crash artifact sat unnoticed on fuzz-box from 2026-08-15 00:04 until 2026-08-16.** Nine
+bytes:
+
+```
+08              uncompressed length 8 (varint)
+00 ff           literal tag, length 1, one byte
+fc              literal tag, 0xFC >> 2 = 63 -> a 4-byte length follows
+fe ff ff 7f     that length: 0x7FFFFFFE, so the literal length is int.MaxValue
+09              trailing byte, never reached
+```
+
+**It does not reproduce.** `Snappy.cs` has not changed since before the crash, and today the same
+bytes on the same box execute in **3 ms** and preserve nothing. On Windows x64 the decoder refuses
+with the documented `InvalidDataException`. Kept as a regression fixture regardless —
+`SnappyFuzzRegressionTests` pins the documented refusal, because the input remains the only artifact
+of whatever happened.
+
+**The most likely cause is the harness's wall-clock assertion, and that is a real weakness.**
+`SnappyFuzzTarget` fails an input that takes longer than 5 seconds, on the correct reasoning that no
+fuzzer-sized input can take that long without a non-advancing loop. But it is **wall clock on a
+shared 1-OCPU box**, so it measures the machine as well as the code.
+
+The dated correlation, offered as correlation and not proof: TcgDex's log entry of 2026-08-16 17:05
+found a **runaway watcher waking every 5 seconds on that 1-OCPU box**, spawned by something of ours,
+which could never exit because `pgrep -f libfuzzer-dotnet` matches the watcher's own command line.
+It was alive on 2026-08-15, the reboot on 2026-08-16 killed it, and the input that "crashed" then
+runs in 3 ms now. That is suggestive and it is not a measurement.
+
+**The reporting defect is the part that is fixed, and it is the more important one.** The runner
+counted `~/findings-<target>` — a directory that persists across runs — so once anything landed
+there it printed
+
+```
+FINDINGS: snappy has 1 crash artifact(s).
+```
+
+on **every** subsequent run, for ever. That line then answers "was anything ever found", which is not
+a question anyone asks at the end of a run, and a warning that fires every time is one nobody reads.
+It is now counted before and after each target so the line reports what **this run** produced;
+pre-existing artifacts get a quieter note that says to triage or delete them.
+
+**Same family as the fuzz workflow's seed crash above:** in both, a signal that should mean "look
+here" was indistinguishable from the background, so nobody looked. A finding nobody triages is worth
+exactly as much as no finding.
+
+**Left open:** whether the 5-second budget should be CPU time rather than wall clock, or whether a
+timing failure should be reported as a distinct outcome from a thrown exception. Both would have
+made this a two-minute diagnosis instead of a day and a half.
+
 ### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — OPEN
 
 **Found by CI going red, and the report named the wrong thing.** The UI job failed with

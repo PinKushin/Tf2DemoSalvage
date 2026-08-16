@@ -362,6 +362,10 @@ if [ "$MODE" = fuzz ]; then
     findings_dir="$HOME/findings-${target}"
     mkdir -p "$corpus_dir" "$findings_dir"
 
+    # Remembered so the summary below can report what THIS run found rather than what the directory
+    # has accumulated. Indirection rather than an array so this stays POSIX-ish and readable.
+    eval "FINDINGS_BEFORE_${target}=\$(ls -1 '$findings_dir' 2>/dev/null | wc -l)"
+
     # (The container seed used to be generated here. It moved above the instrumentation step —
     # running instrumented code outside libFuzzer dies with an AccessViolationException, and the
     # reasoning is written out there.)
@@ -422,11 +426,28 @@ if [ "$MODE" = fuzz ]; then
   # A crash artifact is the exact bytes that caused it — a regression fixture, not a bug report.
   # Copied into the run directory as well as kept in ~/findings-*, because the run directory is
   # pruned to the last 30 and the findings are the part that must not be lost.
+  #
+  # **Reported per RUN, not per directory, and that distinction cost a day and a half.** ~/findings-*
+  # persists across runs, so a count of its contents says "FINDINGS: snappy has 1 crash artifact(s)"
+  # on every run for ever once anything lands there. That line then means "something was found at
+  # some point", which is not a question anybody is asking at the end of a run — and a warning that
+  # fires every time is one nobody reads. A snappy artifact from 2026-08-15 printed on every
+  # subsequent run and was noticed only when someone checked whether it referred to that run.
+  #
+  # The count is taken before the loop and compared after, so what prints is what THIS run produced.
+  # The persistent total is still shown, quietly, because it is the thing that needs triaging.
   for target in bitreader varint container snappy; do
-    found=$(ls -1 "$HOME/findings-${target}" 2>/dev/null | wc -l)
-    [ "$found" = 0 ] && continue
-    echo "FINDINGS: ${target} has ${found} crash artifact(s)."
-    cp -r "$HOME/findings-${target}" "${OUT}/" 2>/dev/null || true
+    total=$(ls -1 "$HOME/findings-${target}" 2>/dev/null | wc -l)
+    # Read back with the same eval form it was written with. `${!name}` indirect expansion refused
+    # this outright ("invalid indirect expansion") and is not worth the cleverness.
+    eval "new=\$(( total - \${FINDINGS_BEFORE_${target}:-0} ))"
+
+    if [ "$new" -gt 0 ]; then
+      echo "FINDINGS: ${target} produced ${new} NEW crash artifact(s) this run (${total} total)."
+      cp -r "$HOME/findings-${target}" "${OUT}/" 2>/dev/null || true
+    elif [ "$total" -gt 0 ]; then
+      echo "note: ${target} has ${total} artifact(s) from earlier runs, none new. Triage or delete them."
+    fi
   done
 
   # Minimise, then publish back so the runner starts from what this box learned.
