@@ -1787,6 +1787,21 @@ internal class MainForm : Form
                     // **RED is skin 0 and BLU is skin 1**, which is the game's own convention:
                     // m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1. Without it every player draws in
                     // the model's first family, which is red - both teams in red.
+                    //
+                    // **Deliberately computed here rather than read from the entity, and that stays
+                    // true now that m_nSkin IS retained by the scene layer.** For a player the
+                    // client computes this itself: c_tf_player.cpp:712-719 assigns m_nSkin from
+                    // m_iTeam while setting the model, and the field is marked FTYPEDESC_PRIVATE in
+                    // the prediction data. It is client state derived from team, not a value the
+                    // server sends for players.
+                    //
+                    // So this line is not made redundant by retaining the property - checked, on
+                    // exactly the suspicion that it had been. Props are the opposite case: a
+                    // capture point's skin comes from ownership on the server and must be read.
+                    //
+                    // Not reproduced here: the client's two skin OVERRIDES, applied straight after
+                    // the lines above - AdjustSkinIndexForZombie for Halloween, and the gold
+                    // ragdoll from TF_DMG_CUSTOM_GOLD_WRENCH.
                     Skin = player.Team == SceneTeams.Blu ? 1 : 0,
                 }));
         }
