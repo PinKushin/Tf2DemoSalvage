@@ -80,6 +80,7 @@ public static class DemoTextDumper
 
             if (options.IncludeGameEvents)
             {
+                WriteKillFeedSection(writer, scan);
                 WriteGameEventSection(writer, scan);
             }
         }
@@ -315,6 +316,48 @@ public static class DemoTextDumper
     /// everything else is a user id. Looking up an entity index in the user map would print a
     /// real name for a player who is not involved.
     /// </remarks>
+    /// <summary>Writes every death in order, in the game's kill feed shape.</summary>
+    /// <remarks>
+    /// **Separate from the game event section, and complete rather than sampled.** That section
+    /// answers "what kinds of thing happened and roughly what do they look like", capped so a demo
+    /// with 400 kills does not print 400 raw field dumps. This answers "what happened in the match",
+    /// which is a sequence — and the first entry of a sequence is not a summary of it.
+    ///
+    /// Player references are resolved here rather than during the scan because a userinfo update can
+    /// name a player *after* an event referencing them.
+    /// </remarks>
+    private static void WriteKillFeedSection(TextWriter writer, DemoScan.Result scan)
+    {
+        if (scan.Kills.Count == 0)
+        {
+            return;
+        }
+
+        writer.WriteLine(Separator);
+        writer.WriteLine("Kills");
+        writer.WriteLine(Separator);
+
+        Dictionary<int, PlayerInfo> byUserId = [];
+        foreach (PlayerInfo player in scan.Players.Values)
+        {
+            byUserId[player.UserId] = player;
+        }
+
+        foreach ((int tick, IReadOnlyList<KeyValuePair<string, object?>> fields) in scan.Kills)
+        {
+            List<KeyValuePair<string, object?>> resolved = [];
+            foreach (KeyValuePair<string, object?> field in fields)
+            {
+                resolved.Add(new(field.Key, PlayerReferences.Render(field, byUserId)));
+            }
+
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  tick {tick,-8} {KillFeed.Line(resolved)}"));
+        }
+
+        writer.WriteLine();
+    }
+
     private static string Describe(
         IReadOnlyList<KeyValuePair<string, object?>> fields,
         IReadOnlyDictionary<int, PlayerInfo> byUserId)
