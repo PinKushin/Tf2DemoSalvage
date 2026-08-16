@@ -5110,6 +5110,43 @@ question is about what the game DOES, read the game. Measuring the picture can o
 picture disagrees, and it will keep suggesting mechanisms for as long as anyone is willing to
 propose them.
 
+### B83 RESOLVED (the measurable half) — the skin was filtered out before anything could draw it
+
+**Answered 2026-08-16, and the answer was no.** A capture point's networked `m_nSkin` did not reach
+its draw call — and not because the renderer ignored it.
+
+`EntityState.NetworkedProperties` is a **whitelist**. `DT_BaseAnimating` retained sequence, body,
+cycle, playback rate and model scale, and **not `m_nSkin`**, so the property was discarded before the
+scene layer saw it. `ScenePose.Skin` was then structurally 0 for every entity in every demo this
+project has ever parsed, and zero is a legitimate skin, so nothing could report it.
+
+**Two places were wrong, and fixing either alone still yields zeros:**
+
+1. the whitelist did not retain the property;
+2. the pose construction in `DemoTimeline` never read it — while the *clone* in `ScenePropTrack`
+   copied `Skin` faithfully, under a comment explaining at length why losing a skin draws every
+   entity in family zero.
+
+**That comment is the sharpest part of this.** It was written when `Body` went missing from the same
+rebuild, and it says: *"a record constructed field by field, one field forgotten, and a default that
+is also a legitimate value so nothing can report it"*. Third instance of that exact shape —
+`ScenePlayer.Yaw`, then `ScenePose.Body`, now `ScenePose.Skin` — and **the third was introduced by
+the fix for the second**, which added `Skin` to the clone and not to the construction.
+
+**Measured, not assumed.** `cp_foundry` carries skins 0, 1 and 2 in a 38 / 5 / 2 split and `z1800` in
+42 / 15 / 1 — exactly the three values `team_control_point.cpp:569` produces. So 7 entities in one
+demo and 16 in the other were drawing with the wrong material.
+
+Held by two tests at two levels, since one would not have caught it: `RetainedPropertyTests` locks
+the whitelist **as a whole list**, and `CorpusEntitySkinTests` proves a real demo's distinct skins
+survive into the poses. The second was verified by manipulation — with the pose line reverted it
+reports exactly one distinct skin.
+
+**What this says about the rest of B83.** The entry ran to five falsified appearance hypotheses over
+a month. The one question deliberately framed so it could *not* be argued from screenshots — a skin
+is an integer, immune to graphics configuration — took twenty minutes once someone looked. The
+remaining open item is the shine, which is config-dependent and still has no established target.
+
 ### B88 — a static written by every map load, and the real signal it obscured
 
 **Found by the full-suite gate, not by any individual run**, which is the only way this class of

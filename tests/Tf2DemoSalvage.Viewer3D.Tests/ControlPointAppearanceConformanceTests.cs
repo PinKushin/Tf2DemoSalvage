@@ -31,6 +31,28 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 ///
 /// The lesson is the one now in memory as `tf2-game-code-is-in-the-sdk`: a month of appearance
 /// theories, and the answer was a published file. **Read the source before measuring the picture.**
+///
+/// **B83's open half was closed on 2026-08-16, and the answer was no.** This class used to carry a
+/// third, skipping test asking whether a capture point's networked <c>m_nSkin</c> reached its draw
+/// call. It did not — and not because the renderer ignored it. <c>EntityState.NetworkedProperties</c>
+/// is a whitelist and did not retain the property, so it was discarded before the pose was built.
+/// **Every entity in every demo ever parsed here drew with skin 0.**
+///
+/// The path is now whitelist → <c>EntityState.Skin()</c> → <c>ScenePose.Skin</c> → the renderer,
+/// held at two levels because either fix alone still yields zeros — the field was missing from the
+/// filter AND unread at the construction site:
+///
+/// - <c>RetainedPropertyTests</c> (Core.Tests) locks the whitelist as a whole list, so a future
+///   field cannot go missing the same way.
+/// - <c>CorpusEntitySkinTests</c> (Corpus.Tests) proves a real demo's distinct skins survive into
+///   the poses, verified by manipulation: with the pose line reverted it reports exactly one
+///   distinct skin, which is the original defect.
+///
+/// Measured — cp_foundry carries skins 0, 1 and 2 in a 38/5/2 split and z1800 in 42/15/1, exactly
+/// the three values <c>team_control_point.cpp:569</c> produces.
+///
+/// The skipping test is gone rather than kept green: a conformance entry that has been settled
+/// should stop counting as a gap. Its assertions live in the projects that can see the types.
 /// </remarks>
 public sealed class ControlPointAppearanceConformanceTests
 {
@@ -105,25 +127,4 @@ public sealed class ControlPointAppearanceConformanceTests
         source.ShouldContain("m_nSkin = ( m_iTeam == TEAM_UNASSIGNED ) ? 2 : (m_iTeam - 2)");
     }
 
-    [Test]
-    public void TheViewerFollowsTheOwnersSkinOnEveryCapturePoint()
-    {
-        // **The question B83 left open, now stated as a test rather than as a screenshot argument.**
-        // m_nSkin is decoded here and StudioSkins reads the table; what has never been checked is
-        // whether a capture point entity's skin reaches its draw call as ownership changes during a
-        // demo.
-        //
-        // Deliberately not a rendering comparison. A capture point's appearance is config-dependent —
-        // the shine comes and goes with graphics settings, which is what invalidated the earlier
-        // screenshot comparisons — but the SKIN INDEX is not. It is an integer in the entity, and
-        // whether the renderer uses it is answerable without looking at a picture at all.
-        //
-        // That is the whole reason to write it this way: five appearance hypotheses died to the
-        // owner's eyes, and this one cannot, because it does not depend on how anything looks.
-        Assert.Ignore(
-            "not yet measured: whether a capture point's networked m_nSkin reaches its draw call as " +
-            "ownership changes. The model, bodygroup and skin all change together " +
-            "(team_control_point.cpp:569), so following one and not the others is right for some " +
-            "points and wrong for others — which is the shape of B83's original symptom.");
-    }
 }

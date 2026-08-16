@@ -45,7 +45,7 @@ public sealed class EntityState
             [AnimatingTable] =
             [
                 SequenceProperty, BodyProperty, CycleProperty, PlaybackRateProperty,
-                ModelScaleProperty,
+                ModelScaleProperty, SkinProperty,
             ],
         };
 
@@ -103,7 +103,7 @@ public sealed class EntityState
     /// </summary>
     private const int InvalidHandle = (1 << (EdictBits + SerialBits)) - 1;
 
-    /// <summary>Only things that animate carry the four below.</summary>
+    /// <summary>Only things that animate carry the six below.</summary>
     private const string AnimatingTable = "DT_BaseAnimating";
 
     private const string SequenceProperty = "m_nSequence";
@@ -113,6 +113,22 @@ public sealed class EntityState
     private const string CycleProperty = "m_flCycle";
     private const string PlaybackRateProperty = "m_flPlaybackRate";
     private const string ModelScaleProperty = "m_flModelScale";
+
+    /// <summary>Which material family the model draws with.</summary>
+    /// <remarks>
+    /// <c>RecvPropInt(RECVINFO(m_nSkin))</c>, <c>c_baseanimating.cpp:176</c>.
+    ///
+    /// **TF2 paints teams as two skin families of one model rather than as a tint**, so this is not
+    /// decoration — it is which of two authored materials an entity draws with. The capture point
+    /// sets it from ownership arithmetic (<c>team_control_point.cpp:569</c>): 0 for RED, 1 for BLU,
+    /// 2 for unowned.
+    ///
+    /// Retained late. Everything downstream existed first — the renderer reads
+    /// <c>prop.Pose.Skin</c>, <c>ScenePropTrack</c> copies it through its clone — so the value was
+    /// structurally zero for every entity, and zero is a legitimate skin, which is why nothing
+    /// reported it.
+    /// </remarks>
+    private const string SkinProperty = "m_nSkin";
 
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
@@ -346,6 +362,15 @@ public sealed class EntityState
     /// would hide a decode that missed the property.
     /// </remarks>
     public int? Body() => Integer($"{AnimatingTable}.{BodyProperty}");
+
+    /// <summary>Which material family the model draws with, when it says.</summary>
+    /// <returns><c>m_nSkin</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **Absent means skin 0**, which is the model's first family and a perfectly ordinary value —
+    /// so a caller must not treat null as "unknown, leave it alone". That ambiguity is exactly what
+    /// hid this field's absence for a month: the default and the common case are the same number.
+    /// </remarks>
+    public int? Skin() => Integer($"{AnimatingTable}.{SkinProperty}");
 
     /// <summary>Whether the entity is alive, when it says.</summary>
     /// <returns><c>m_lifeState</c>, or <c>null</c> when it was never sent.</returns>

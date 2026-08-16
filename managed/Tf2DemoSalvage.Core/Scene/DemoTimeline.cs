@@ -607,6 +607,16 @@ public sealed class DemoTimeline
                 Scale = state.ModelScale() ?? 1f,
                 Sequence = state.AnimationSequence() ?? -1,
                 Body = state.Body() ?? 0,
+
+                // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a
+                // delta-compressed format only sends what changed from it.
+                //
+                // This line is the one that was missing. Everything downstream was already in
+                // place — ScenePropTrack copies Skin through its clone, with a comment explaining
+                // why losing it draws every entity in family zero, and the renderer reads
+                // prop.Pose.Skin. The value simply never entered the pose, so it was structurally
+                // zero and no assertion could tell that from a demo where zero was correct.
+                Skin = state.Skin() ?? 0,
                 Cycle = state.Cycle() ?? 0f,
 
                 // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
