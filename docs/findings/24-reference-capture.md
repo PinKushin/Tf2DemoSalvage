@@ -198,10 +198,63 @@ reports confident absences.
 
 ## Where the config lives
 
-`PinKushin/Pin-Config` — a flat Source `.cfg` with every render cvar stated explicitly, harvested
+`PinKushin/Pin-Config` — flat Source `.cfg` files with every render cvar stated explicitly, harvested
 from mastercomfig's module bodies rather than depending on them at runtime. It is versioned so that
 a capture can be attributed to an exact draw state, and regenerable so a mastercomfig update can be
 diffed rather than absorbed.
 
+Two profiles as of 2026-08-16: **`ultra`, which is the one this project captures against**, and
+`low`, which exists for playing rather than for measuring. Only `ultra` is a reference; a capture
+taken under `low` is not ground truth for anything here.
+
 That repo is the machine-readable statement of what the game was told to draw. When a capture and
 our output disagree, it is the first thing to check for drift.
+
+---
+
+## Two findings from building those profiles, 2026-08-16
+
+Both came out of the config work in `Pin-Config` and both matter to anyone taking a reference
+capture. Evidence class: **measured**, on a live client, with `-condebug`.
+
+### TF2 caches `.cfg` files while it is running, and a stale read looks like a failed fix
+
+**Overwriting a `.cfg` under a running client changes nothing until it is `exec`'d, and the first
+read after an overwrite can still serve the old copy.** So the sequence "edit the file, `exec`, see
+the old behaviour" does not mean the edit was wrong — it means the edit was not read.
+
+This produced a false negative that cost two rounds of diagnosis: a crash fix appeared not to work,
+two further theories were built on top of that, and the log later falsified both. **A false negative
+from a caching layer is worse than a wrong answer, because it invalidates the experiment without
+invalidating the confidence in it.**
+
+The procedure that avoids it, and which is better experimental practice anyway: **type the single
+cvar in the console.** A console cvar is read immediately, and it is one variable rather than a file
+of them — which is the difference between a measurement and a change of state. Restart the client
+when a whole profile genuinely needs testing.
+
+This is the same shape as the `-1` versus `-10` wrong turn recorded above: a procedure chosen for
+convenience, insensitive to the thing it was meant to detect.
+
+### `mat_reducefillrate 1` crashes the modern client, and the reason is a dead shader path
+
+```
+Shader 'shaders\fxc\vertexlit_and_unlit_generic_bump_ps20b.vcs'
+  - Couldn't load combo 849480 of shader (dyn=60)
+```
+
+`mat_reducefillrate` is TF2's "Shader Detail: Low" switch, and selecting the ps20b — Shader Model
+2.0b — path is its entire job. **That path is no longer complete: it requests shader combos that do
+not load, and the client dies.** Isolated as a single variable by typing the one cvar from a working
+ultra state, which reproduced the identical crash with the same combo number.
+
+**Why it belongs in this project's findings rather than only in the config repo:** it is a fact about
+what Valve still ships and still maintains. A decade-old "make it cheaper" cvar now names a code path
+that has decayed to the point of being fatal, while the expensive path it was avoiding is the one
+that works. Anything reasoning about TF2's render settings as a spectrum from cheap to expensive has
+that backwards at the bottom end.
+
+The wrong turn is kept too: `cl_jiggle_bone_framerate_cutoff 999` was blamed first, purely for being
+the unusual-looking value in the file. It was exonerated before anything was changed, by observing
+that inspecting a weapon on ultra — which runs cutoff 1 — did not crash either. **The unusual value
+is not the suspect; the value that changes the code path is.**

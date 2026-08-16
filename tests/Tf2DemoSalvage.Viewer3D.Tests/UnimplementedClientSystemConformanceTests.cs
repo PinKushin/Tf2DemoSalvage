@@ -57,10 +57,11 @@ public sealed class UnimplementedClientSystemConformanceTests
         // The other half is worth stating because it is NOT free. Anything relying on the PVS for
         // correctness rather than speed - a mapper's areaportal, a room that is meant to be hidden
         // until entered - draws here when the engine would have hidden it.
-        IReadOnlyDictionary<string, int> lumps =
-            SourceSdk.Enumerators("src/public/bspfile.h", "LUMP_VISIBILITY");
+        // Read through Constants rather than Enumerators because bspfile.h's lump list is an
+        // ANONYMOUS enum (bspfile.h:279) — there is no type name to ask for.
+        IReadOnlyDictionary<string, int> lumps = SourceSdk.Constants("src/public/bspfile.h");
 
-        lumps.Count.ShouldBeGreaterThan(0, "the lump enumeration should still be readable");
+        lumps["LUMP_VISIBILITY"].ShouldBe(4);
 
         Assert.Ignore(
             "the PVS is not used. dvis_t (bspfile.h:904) gives a per-cluster visible set the engine " +
@@ -85,7 +86,7 @@ public sealed class UnimplementedClientSystemConformanceTests
         // flag, so the data is understood. What does not happen is the recombination: the flat sample
         // is used and the three directional ones are skipped, which loses exactly the detail bump
         // mapping exists to provide.
-        IReadOnlyDictionary<string, int> bump = SourceSdk.Constants("src/public/bumpvects.h");
+        IReadOnlyDictionary<string, int> bump = SourceSdk.Constants("src/public/mathlib/bumpvects.h");
 
         bump["NUM_BUMP_VECTS"].ShouldBe(3);
 
