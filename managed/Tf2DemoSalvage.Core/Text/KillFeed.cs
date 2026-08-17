@@ -37,6 +37,17 @@ public static class KillFeed
 
         string victim = Text(fields, "userid");
         string attacker = Text(fields, "attacker");
+
+        // **User id 0 is the world, not a player.** TF2 assigns ids from 1 upward per connection, so
+        // an attacker of 0 — paired with a weapon of "worldspawn" — is the map doing the killing:
+        // fall damage, a trigger, a pit. Treated as no attacker so it reads as a death rather than
+        // as a kill by someone named "0", which matters to anyone counting a player's kills.
+        //
+        // Found as the single unresolved line left in 407 real kills once the roster history landed.
+        if (string.Equals(attacker, "0", StringComparison.Ordinal))
+        {
+            attacker = string.Empty;
+        }
         string weapon = Text(fields, "weapon");
         string assister = Text(fields, "assister");
 

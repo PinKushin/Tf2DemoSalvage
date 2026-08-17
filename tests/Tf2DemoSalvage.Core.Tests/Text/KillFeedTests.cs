@@ -86,6 +86,23 @@ public sealed class KillFeedTests
     }
 
     [Test]
+    public void AnAttackerOfZeroIsTheWorld()
+    {
+        // **The last unresolved line in 407 real kills**, and it was not a roster failure:
+        //
+        //   0 [worldspawn] Dojyaaaaaaan(699)
+        //
+        // User id 0 is not a player. TF2 assigns ids from 1 upward per connection — this demo's run
+        // from 698 to 733 — and an attacker of 0 with weapon "worldspawn" is the map killing
+        // someone: fall damage, a trigger, a pit.
+        //
+        // Rendered as a death rather than as a kill by a player named "0". The distinction matters
+        // for a reviewer counting someone's kills.
+        KillFeed.Line(Death("0", "demoman", "worldspawn"))
+            .ShouldBe("demoman died [worldspawn]");
+    }
+
+    [Test]
     public void AMissingAttackerIsNotInvented()
     {
         // A death from the world - fall damage, a trigger - carries no attacker. Reported as the

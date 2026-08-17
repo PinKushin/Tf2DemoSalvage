@@ -29,15 +29,34 @@ public static class RosterBuilder
     /// <summary>Applies a table's entries to a roster, keyed by entity index.</summary>
     /// <param name="entries">Entries from a create or update message.</param>
     /// <param name="players">Roster to update in place. Later records replace earlier ones.</param>
+    /// <param name="everyone">
+    /// Optional history keyed by USER ID, which is never overwritten by a later occupant of the
+    /// same slot. Null for callers that only want current occupancy.
+    /// </param>
     /// <remarks>
     /// Entries carrying no user data are skipped rather than removed. They mark a slot being
     /// vacated, and the question this answers is "who played in this match", not "who is
-    /// connected right now" — a player who left is still someone the demo should name. A slot
-    /// later reused by someone else overwrites the record, which is the correct outcome for
-    /// both questions.
+    /// connected right now" — a player who left is still someone the demo should name.
+    ///
+    /// **A slot reused by someone else overwrites the record, and this used to claim that was
+    /// "the correct outcome for both questions". It is correct for one of them.** A slot has one
+    /// occupant and a match has many, so the same dictionary cannot answer both — and the question
+    /// it silently stopped answering is the one the comment named.
+    ///
+    /// Measured through the kill feed: in the modern corpus demo, ids 700, 703, 710, 712, 713 and
+    /// 717 appear as killers and victims and resolved to no name. Their slots had been taken over by
+    /// later joiners and by bots, so the only record of them was gone, and the feed printed bare
+    /// numbers for players the demo names perfectly well.
+    ///
+    /// Hence <paramref name="everyone"/>: the slot map keeps meaning "who is here now", and the
+    /// history keeps meaning "who played". Keyed by user id because that is what a game event
+    /// carries, and because it is unique per connection — a rejoining player gets a new one, so
+    /// nothing collides.
     /// </remarks>
     public static void Apply(
-        IReadOnlyList<StringTableEntry> entries, IDictionary<int, PlayerInfo> players)
+        IReadOnlyList<StringTableEntry> entries,
+        IDictionary<int, PlayerInfo> players,
+        IDictionary<int, PlayerInfo>? everyone = null)
     {
         if (entries is null || players is null)
         {
@@ -62,7 +81,17 @@ public static class RosterBuilder
                 continue;
             }
 
-            players[entry.Index] = PlayerInfo.Parse([.. entry.UserData], entry.Index);
+            PlayerInfo player = PlayerInfo.Parse([.. entry.UserData], entry.Index);
+
+            players[entry.Index] = player;
+
+            // **Indexer, not TryAdd**, so a player whose own record is corrected later — a name
+            // change, a slot move — keeps the newest version of themselves. What must not be lost
+            // is a DIFFERENT player, and a different player has a different user id.
+            if (everyone is not null)
+            {
+                everyone[player.UserId] = player;
+            }
         }
     }
 }

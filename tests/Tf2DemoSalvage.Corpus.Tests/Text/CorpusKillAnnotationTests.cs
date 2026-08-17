@@ -106,4 +106,58 @@ public sealed class CorpusKillAnnotationTests
         // output. Asserted on the rendered text because that is where it was wrong.
         rendered.ToString().ShouldNotContain("assist -1");
     }
+
+    [Test]
+    public void EveryKillNamesItsPlayersRatherThanTheirUserIds()
+    {
+        // **The roster gap, asserted where it was visible.** Six players in this demo had their
+        // entity slots taken over by later joiners and by bots, so a roster keyed by slot had
+        // forgotten them and the feed printed bare user ids for people the demo names.
+        //
+        // Swept over all 407 lines rather than sampled: the defect affected a minority of kills, so
+        // any single line is likely to pass whether it is fixed or not.
+        string path = Corpus.Demo("z1800");
+        byte[] bytes = File.ReadAllBytes(path);
+
+        StringWriter rendered = new();
+
+        DemoTextDumper.Write(
+            rendered,
+            Path.GetFileName(path),
+            DemoHeader.Parse(bytes),
+            [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))],
+            new DemoDumpOptions { IncludeGameEvents = true });
+
+        bool inFeed = false;
+        int checkedLines = 0;
+
+        foreach (string raw in rendered.ToString().Split('\n'))
+        {
+            string line = raw.TrimEnd('\r');
+
+            if (line.StartsWith("Kills", StringComparison.Ordinal))
+            {
+                inFeed = true;
+                continue;
+            }
+
+            if (!inFeed || !line.TrimStart().StartsWith("tick ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Strip the tick, which is the only number on the line that is not a player reference.
+            string feed = line.Trim()[5..].TrimStart();
+            feed = feed[feed.IndexOf(' ', StringComparison.Ordinal)..].Trim();
+
+            // A resolved player renders as name(id); an unresolved one as a bare number. So a
+            // standalone run of digits is the failure, and parenthesised ids are expected.
+            System.Text.RegularExpressions.Regex.IsMatch(feed, @"(^|\s)\d+(\s|\[)")
+                .ShouldBeFalse($"unresolved user id in: {feed}");
+
+            checkedLines++;
+        }
+
+        checkedLines.ShouldBeGreaterThan(400, "the whole feed should have been checked");
+    }
 }

@@ -52,6 +52,11 @@ internal static class DemoScan
     /// a sequence, and the first entry of a sequence is not a summary of it — the modern corpus
     /// demo fires 407 of these and the cap showed one.
     /// </param>
+    /// <param name="Everyone">
+    /// Every player seen, keyed by user id, including those whose entity slot was later taken over
+    /// by someone else. <see cref="Players"/> answers "who was here"; this answers "who played",
+    /// and a game event can reference either.
+    /// </param>
     internal sealed record Result(
         SortedDictionary<int, PlayerInfo> Players,
         Dictionary<string, int> EventCounts,
@@ -62,7 +67,8 @@ internal static class DemoScan
         List<(int Tick, UserMessage Message)> UserMessages,
         List<(int Tick, DecodedSound Sound)> Sounds,
         List<(int Tick, string ClassName, DecodedTempEntity Effect)> Effects,
-        List<(int Tick, IReadOnlyList<KeyValuePair<string, object?>> Fields)> Kills);
+        List<(int Tick, IReadOnlyList<KeyValuePair<string, object?>> Fields)> Kills,
+        Dictionary<int, PlayerInfo> Everyone);
 
     /// <summary>One entity entering, leaving or being deleted.</summary>
     /// <param name="Tick">The command tick it happened on.</param>
@@ -104,6 +110,12 @@ internal static class DemoScan
         // field, so ServerInfo cannot be read without it. See NetDecodeState.NetworkProtocol.
         NetDecodeState state = new() { NetworkProtocol = networkProtocol };
         SortedDictionary<int, PlayerInfo> players = [];
+
+        // Keyed by user id and never overwritten by a later occupant of the same slot. The Players
+        // section still reports `players` — who was in the match at the end — while anything naming
+        // a player from a game event uses this, because an event can reference someone whose slot
+        // was taken over long before the demo finished.
+        Dictionary<int, PlayerInfo> everyone = [];
         Dictionary<string, int> counts = [];
         List<(int Tick, string Name, IReadOnlyList<KeyValuePair<string, object?>> Fields)> sample = [];
         List<(int Tick, IReadOnlyList<KeyValuePair<string, object?>> Fields)> kills = [];
@@ -152,7 +164,7 @@ internal static class DemoScan
                 // Roster first, and shared with the trace writer so the two outputs cannot
                 // disagree about who a user id belongs to. It handles both the create message and
                 // the update that carries mid-match joiners (RISKS B22).
-                Roster.Observe(message, state, players);
+                Roster.Observe(message, state, players, everyone);
 
                 switch (message)
                 {
@@ -222,7 +234,7 @@ internal static class DemoScan
 
         return new Result(
             players, counts, sample, total, chat, entityEvents, userMessages, sounds, effects,
-            kills);
+            kills, everyone);
     }
 
     /// <summary>Decodes a sounds body, skipping one that will not read.</summary>
