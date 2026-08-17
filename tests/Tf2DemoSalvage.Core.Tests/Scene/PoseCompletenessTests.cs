@@ -174,6 +174,10 @@ public sealed class PoseCompletenessTests
         // entire point of the control.
         PlaybackRate = 1.75f,
         Hidden = true,
+
+        // Non-null and non-zero, because null is the "nothing said" case and zero would mean
+        // airborne — neither is distinctive enough for this test to measure the field being lost.
+        Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

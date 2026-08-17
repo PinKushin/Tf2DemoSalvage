@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -11,14 +13,17 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// 244,951 samples on one demo alone. TF2 computes a player's animation on the client in
 /// <c>CTFPlayerAnimState</c> and sends none of it, so a viewer has to compute it too.
 ///
-/// This is the first slice of that, and only the first: standing against running, which is
-/// <c>CBasePlayerAnimState::HandleMoving</c> comparing horizontal speed against
-/// <c>MOVING_MINIMUM_SPEED</c>. Ducking, aiming, jumping, swimming, taunting, the loser state and
-/// the weapon-specific variants are all still missing, and a player doing any of them will be
-/// drawn standing or running instead.
+/// The choice itself is <see cref="PlayerActivityState"/>, which is
+/// <c>CMultiPlayerAnimState::CalcMainActivity</c> — jumping, then ducking, then swimming, then
+/// dying, and moving only if none of those claimed it. Aiming, taunting, the loser state and the
+/// gesture layers are still missing.
 ///
-/// **Named rather than numbered, deliberately.** Sequence numbers differ per class — the scout's
-/// 212 is not the heavy's — so the choice is made by label and resolved per model.
+/// **By ACTIVITY, not by label, and that correction is the point of this file's second version.**
+/// The first asked the model for a sequence called <c>run_PRIMARY</c>, which TF2's models do happen
+/// to be named — but it is not how the engine finds an animation. <c>mstudioseqdesc_t</c> carries an
+/// activity name beside the label and <c>SelectWeightedSequence</c> works from the activity; the
+/// label is a human name for one sequence. Selecting by label meant relying on a naming convention
+/// instead of on the field that exists for the purpose.
 ///
 /// **Speed is the engine's own input here, not a substitute for one.**
 /// <c>CBasePlayerAnimState::GetOuterXYSpeed</c> is <c>vel.Length2D()</c> — the entity's absolute
@@ -52,22 +57,51 @@ internal static class PlayerAnimation
     /// — <c>m_hActiveWeapon</c> is a separate decode this project has not done. Every class has the
     /// primary forms, so they resolve for all nine.
     /// </remarks>
-    public static int For(PropModels.SkinnedModel model, float speed)
+    public static int For(PropModels.SkinnedModel model, float speed) =>
+        For(model, speed, flags: null, alive: true);
+
+    /// <summary>Which sequence a player should be playing.</summary>
+    /// <param name="model">The player's model, for resolving activities to numbers.</param>
+    /// <param name="speed">Horizontal speed in units a second.</param>
+    /// <param name="flags">The player's <c>m_fFlags</c>, or null when the recording did not say.</param>
+    /// <param name="alive">Whether the player is alive.</param>
+    /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
+    /// <remarks>
+    /// **Null flags are a real case rather than an error.** <c>m_fFlags</c> is declared in
+    /// <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for the recorder alone while a
+    /// SourceTV recording carries it for everybody. Absent, the state machine sees a player standing
+    /// on the ground — which is what they usually are, and is the same answer this file gave before
+    /// the flags existed.
+    ///
+    /// **Falls back rather than returning nothing.** A model that claims no sequence for the chosen
+    /// activity — a crouch-walk it does not have, say — takes the standing form instead. A player
+    /// frozen in the reference pose lies on their back, which reads as a broken model rather than as
+    /// a missing animation.
+    /// </remarks>
+    public static int For(PropModels.SkinnedModel model, float speed, int? flags, bool alive)
     {
         ArgumentNullException.ThrowIfNull(model);
 
-        bool moving = speed > MovingMinimumSpeed;
+        // Absent flags read as standing on the ground: FL_ONGROUND set, nothing else. Passing zero
+        // instead would say AIRBORNE, and every player in a POV demo would be drawn falling.
+        int state = flags ?? PlayerActivityState.OnGround;
 
-        int wanted = moving ? model.Find("run_PRIMARY") : model.Find("Stand_PRIMARY");
+        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep: false, alive);
+
+        int wanted = model.ForActivity(PlayerActivityState.NameOf(activity));
 
         if (wanted >= 0)
         {
             return wanted;
         }
 
-        // A model without the named sequence falls back to the other rather than to nothing: a
-        // player frozen in the reference pose is worse than one running on the spot, and either is
-        // honest about being an approximation.
-        return moving ? model.Find("Stand_PRIMARY") : model.Find("run_PRIMARY");
+        // The two the engine starts from, in order: whatever the player is doing, standing or
+        // running is closer to it than the reference pose.
+        int fallback = speed > MovingMinimumSpeed
+            ? model.ForActivity(PlayerActivityState.NameOf(PlayerActivity.Run))
+            : model.ForActivity(PlayerActivityState.NameOf(PlayerActivity.StandIdle));
+
+        return fallback >= 0 ? fallback : model.Find("Stand_PRIMARY");
     }
 }
