@@ -286,7 +286,7 @@ internal sealed class EntityModelSet
     /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
     public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds) =>
         _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
-            ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds)
+            ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds, prop.Pose.PlaybackRate)
             : (0, 0, 0f);
 
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>

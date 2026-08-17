@@ -620,6 +620,10 @@ public sealed class DemoTimeline
                 // never happened and froze the cycle at that boundary.
                 Scale = state.ModelScale() ?? 1f,
                 Sequence = state.AnimationSequence() ?? 0,
+
+                // The third factor in Valve's advance, c_baseanimating.cpp:5493. Retained and
+                // decoded since the whitelist was written, and read by nothing until now.
+                PlaybackRate = state.PlaybackRate() ?? 1f,
                 Body = state.Body() ?? 0,
 
                 // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a

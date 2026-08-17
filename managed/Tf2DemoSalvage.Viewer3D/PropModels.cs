@@ -1418,9 +1418,13 @@ internal static class PropModels
         public bool IsStill => Geometry.Count <= 1;
 
         /// <summary>Which baked frame a sequence and cycle land on.</summary>
-        /// <param name="sequence">The networked sequence, or −1 when the demo has not said.</param>
+        /// <param name="sequence">The networked sequence; zero when the demo has not said.</param>
         /// <param name="cycle">How far through it, where one is the end.</param>
         /// <param name="seconds">Demo time, for advancing the cycle as the client does.</param>
+        /// <param name="playbackRate">
+        /// The entity's <c>m_flPlaybackRate</c> — the third factor in Valve's advance
+        /// (<c>c_baseanimating.cpp:5493</c>). One is normal speed.
+        /// </param>
         /// <returns>An index into <see cref="Geometry"/>, always in range.</returns>
         /// <remarks>
         /// **An unknown sequence draws the first frame rather than nothing.** A demo can name a
@@ -1428,13 +1432,17 @@ internal static class PropModels
         /// added in a later game version than the recording - and a prop that vanishes is a worse
         /// answer than one that stands still.
         /// </remarks>
-        public int Frame(int sequence, float cycle, double seconds) =>
-            Select(sequence, cycle, seconds).Frame;
+        public int Frame(int sequence, float cycle, double seconds, float playbackRate = 1f) =>
+            Select(sequence, cycle, seconds, playbackRate).Frame;
 
         /// <summary>Which baked frames a sequence and cycle fall between, and how far.</summary>
-        /// <param name="sequence">The networked sequence, or −1 when the demo has not said.</param>
+        /// <param name="sequence">The networked sequence; zero when the demo has not said.</param>
         /// <param name="cycle">How far through it, where one is the end.</param>
         /// <param name="seconds">Demo time, for advancing the cycle as the client does.</param>
+        /// <param name="playbackRate">
+        /// The entity's <c>m_flPlaybackRate</c> — the third factor in Valve's advance
+        /// (<c>c_baseanimating.cpp:5493</c>). One is normal speed.
+        /// </param>
         /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
         /// <remarks>
         /// **The fraction is the whole point.** Rounding a cycle to the nearest baked frame steps
@@ -1445,7 +1453,8 @@ internal static class PropModels
         /// <c>Next</c> wraps for a looping sequence and holds for a one-shot, matching what
         /// <see cref="StudioSequences.FrameFor(float, int, bool)"/> does with the frame itself.
         /// </remarks>
-        public (int Frame, int Next, float Blend) Select(int sequence, float cycle, double seconds)
+        public (int Frame, int Next, float Blend) Select(
+            int sequence, float cycle, double seconds, float playbackRate)
         {
             if (Geometry.Count == 0)
             {
@@ -1471,7 +1480,11 @@ internal static class PropModels
             // does it every frame in C_BaseAnimating::FrameAdvance and treats a networked cycle as
             // an occasional correction; replaying only what was sent leaves every prop frozen on
             // frame zero, which is what a health pack looked like.
-            double advanced = cycle + (seconds * where.CyclesPerSecond);
+            // **Valve's formula has three factors and this had two.** c_baseanimating.cpp:5493 is
+            // `addcycle = flInterval * cyclerate * m_flPlaybackRate`, and the playback rate was
+            // absent here - decoded, retained, and read by nothing - so anything not playing at
+            // rate 1 advanced at the wrong speed.
+            double advanced = cycle + (seconds * where.CyclesPerSecond * playbackRate);
 
             bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
 
