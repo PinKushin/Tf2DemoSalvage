@@ -3073,11 +3073,31 @@ internal class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// How many times the shutdown block has run. One, for the lifetime of a form.
+    /// </summary>
+    /// <remarks>
+    /// **WinForms disposes a shown form twice**: `Form.Close` disposes a top-level form, and
+    /// `Application.Run` disposes it again when the message loop ends. Without a guard the whole
+    /// shutdown block ran twice, and the second pass overwrote the first pass's timings with
+    /// zeroes — every viewer log ends with `device released after 4 ms` followed immediately by
+    /// `0 ms`, which reads as a fast exit however slow the real one was.
+    ///
+    /// **A count rather than a flag, because the flag cannot be tested.** After the fix a boolean
+    /// reads true whether shutdown ran once or twice, so it is blind to the exact defect the
+    /// guard exists to prevent. The count distinguishes them, and it does so per instance — the
+    /// first version of this test counted lines in the process-wide viewer log, which every other
+    /// fixture in the assembly writes to in parallel, and it failed one run in four for that
+    /// reason rather than for anything about the code.
+    /// </remarks>
+    internal int ShutdownRuns { get; private set; }
+
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && ShutdownRuns == 0)
         {
+            ShutdownRuns++;
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
             // is slow is not guessable - the log says.
