@@ -1812,8 +1812,12 @@ internal class MainForm : Form
             return;
         }
 
+        long sampledAt = Stopwatch.GetTimestamp();
+
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
+
+        _samplingTicks += Stopwatch.GetTimestamp() - sampledAt;
 
         // Packing is a no-op after the first sighting of each model, so this costs a dictionary
         // lookup per entity per frame once the demo has been running for a moment.
@@ -1931,7 +1935,11 @@ internal class MainForm : Form
             ? _timeline.IntervalPerTick
             : PlaybackClock.DefaultIntervalPerTick);
 
+        long posedAt = Stopwatch.GetTimestamp();
+
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
+
+        _posingTicks += Stopwatch.GetTimestamp() - posedAt;
 
         if (_instances.Count != _lastInstanceCount)
         {
@@ -2610,6 +2618,18 @@ internal class MainForm : Form
     /// <summary>The longest frame since the rate was last reported, in seconds.</summary>
     private double _longestFrameSeconds;
 
+    /// <summary>Stopwatch ticks spent sampling the timeline since the last report.</summary>
+    /// <remarks>
+    /// **Split from posing because twenty milliseconds is a budget, not an answer** (B99). Paused,
+    /// the viewer draws the whole uncalled map at 300 frames a second with a longest frame of
+    /// 3.4 ms; playing, it manages 48. That difference is all CPU and all in this rebuild, and
+    /// which half of the rebuild owns it decides what to fix.
+    /// </remarks>
+    private long _samplingTicks;
+
+    /// <summary>Stopwatch ticks spent posing and lighting models since the last report.</summary>
+    private long _posingTicks;
+
     /// <summary>Whether either Shift key is down, for the speed multiplier.</summary>
     /// <remarks>
     /// Read from <see cref="Control.ModifierKeys"/> rather than tracked, because Shift alone is not
@@ -2796,11 +2816,19 @@ internal class MainForm : Form
             $"{_framesDrawn / elapsed:0.#} frames a second, " +
             $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
             (_transport.Playing ? ", playing" : ", paused") +
-            (_freeLook && _heldKeys.Count > 0 ? ", flying" : string.Empty));
+            (_freeLook && _heldKeys.Count > 0 ? ", flying" : string.Empty) +
+            $"; sampling {_samplingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
+            $", posing {_posingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
+            $" (lighting {_models.LightingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms)" +
+            " of the second");
+
+        _models.LightingTicks = 0;
 
         _framesDrawn = 0;
         _rateReportedAt = now;
         _longestFrameSeconds = 0d;
+        _samplingTicks = 0;
+        _posingTicks = 0;
     }
 
     /// <summary>Sends the current view to the device, without rebuilding anything.</summary>

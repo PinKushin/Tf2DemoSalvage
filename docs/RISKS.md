@@ -5809,13 +5809,35 @@ moves. The ambient reconstruction beneath it also went from picking one sample t
 Neither is wrong — both are what the engine computes — but the engine computes them for a moving
 entity once, not for every entity on every frame.
 
-**Measure before optimising, and the order is now the opposite of what this entry first said:**
+**Measured, 2026-08-17, per second of wall time while playing:**
 
-1. Time `ShowMoment` and its parts. Twenty milliseconds is a large budget and it belongs to something
-   specific; the split between pose rebuilding, bone matrices and lighting is not yet known.
-2. Cache what cannot have changed. A model that has not moved has the same lighting it had last
-   frame, and most models in a demo are stationary.
-3. Only then culling, which is still worth doing for B96's roof and for the worst viewpoints.
+```
+46.6 frames a second; sampling 15.5 ms, posing 895.8 ms (lighting 318.8 ms) of the second
+```
 
+Sampling the timeline — interpolating every track at the moment being drawn — is **16 ms a second**
+and is free. **Posing owns about 900 ms of every second**, which at 46 frames is ~19 ms a frame and
+is the entire gap. Of that, **lighting is ~320 ms**, so roughly a third of the total cost, leaving
+~580 ms for bone matrices and transforms.
+
+Both halves recompute results that mostly cannot have changed. A health pack that has not moved has
+the same ambient cube and the same four nearest lights it had last frame, and most entities in a demo
+are stationary at any moment.
+
+**The order to fix, cheapest and most certain first:**
+
+1. **Cache lighting per entity, invalidated on movement.** ~320 ms a second for a value that changes
+   only when a model moves or a light does — and map lights never move. This is the third of the cost
+   that is plainly wasted.
+2. **Rank the local lights once per map, not per model per frame.** `LocalLights.AddTo` scans all 477
+   of cp_process's world lights for every model on every frame to pick four. A spatial index, or
+   simply caching the choice with the position, removes almost all of it.
+3. **Then the remaining ~580 ms of posing.** Bone matrices for a skinned model are genuine per-frame
+   work when it is animating, and are not when it is not. The same staleness test applies.
+4. **Culling last**, for B96's roof and the worst viewpoints, because rendering is already 3.4 ms.
+
+**Both hot paths were added on 2026-08-17 in this session** — local lights, and the ambient
+reconstruction that went from picking one sample to averaging sixteen. Neither is wrong and both are
+what the engine computes; the engine simply does not recompute them for every entity on every frame.
 A frame rate measured while playing was measuring the wrong thing for the whole of this entry's
-first draft.
+first draft, and the fix it pointed at — culling — was the one thing the numbers do not support.
