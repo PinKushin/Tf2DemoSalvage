@@ -1714,35 +1714,12 @@ internal class MainForm : Form
         return (centreX, centreY, ground + PlayerEyeHeight);
     }
 
-    /// <summary>How far one key press moves the free camera, along each of its axes.</summary>
-    /// <param name="keyData">The key, with its modifiers.</param>
-    /// <returns>The step, or null when the key is not a movement key.</returns>
+    /// <summary>World units the free camera moves per wheel notch.</summary>
     /// <remarks>
-    /// **Returns null rather than a zero step for anything else**, so the caller can tell "not a
-    /// movement key" from "a movement key that happened to move nothing" and let every other
-    /// binding through. Swallowing unknown keys here would quietly break the transport.
-    /// </remarks>
-    private static (float Forward, float Right, float Up)? FlyStep(Keys keyData)
-    {
-        Keys key = keyData & Keys.KeyCode;
-        float step = (keyData & Keys.Shift) != 0 ? FlySpeed * 4f : FlySpeed;
-
-        return key switch
-        {
-            Keys.W => (step, 0f, 0f),
-            Keys.S => (-step, 0f, 0f),
-            Keys.A => (0f, -step, 0f),
-            Keys.D => (0f, step, 0f),
-            Keys.Space => (0f, 0f, step),
-            Keys.ControlKey => (0f, 0f, -step),
-            _ => null,
-        };
-    }
-
-    /// <summary>World units the free camera moves per key press.</summary>
-    /// <remarks>
-    /// Thirty-two units is half a player's height, which is small enough to line a shot up and
-    /// large enough to cross a room without holding a key down for a minute. Shift quadruples it.
+    /// **A distance, unlike flight, because a wheel notch IS a discrete event.** Thirty-two units is
+    /// half a player's height. Key-driven flight used to work the same way and could not — a held
+    /// key is a duration and became one in <see cref="FreeFlight"/> (B97) — but a notch has no
+    /// duration to integrate over.
     /// </remarks>
     private const float FlySpeed = 32f;
 
@@ -2499,6 +2476,12 @@ internal class MainForm : Form
             // empties, so the viewport redraws as fast as the UI allows and stops entirely while
             // the user is dragging a menu around. A timer would keep presenting underneath it.
             Application.Idle += OnIdle;
+
+            // Registered beside the idle loop because they are the two halves of the same thing:
+            // the filter records what is held, the loop moves the camera by it.
+            _keyReleases = new KeyReleaseFilter(_heldKeys);
+            Application.AddMessageFilter(_keyReleases);
+
             _rendering = true;
         }
         catch (Exception failure) when (failure is InvalidOperationException or ArgumentException)
@@ -2608,6 +2591,80 @@ internal class MainForm : Form
             CountFrame();
         }
         while (!MessageQueue.HasWork());
+    }
+
+    /// <summary>Flight keys currently held down.</summary>
+    /// <remarks>
+    /// **Held state, because a keystroke is not a duration** (B97). Added on the key down message
+    /// and removed on the key up, so the frame loop can ask what is down right now instead of
+    /// inferring it from how fast Windows repeats.
+    /// </remarks>
+    private readonly HashSet<Keys> _heldKeys = [];
+
+    /// <summary>Times the camera's frames, which run whether or not the demo is playing.</summary>
+    private readonly Stopwatch _flyWatch = Stopwatch.StartNew();
+
+    /// <summary>The key-release filter, kept so it can be removed on shutdown.</summary>
+    private KeyReleaseFilter? _keyReleases;
+
+    /// <summary>Whether either Shift key is down, for the speed multiplier.</summary>
+    /// <remarks>
+    /// Read from <see cref="Control.ModifierKeys"/> rather than tracked, because Shift alone is not
+    /// a flight key and never enters the held set — and a modifier's state is exactly what WinForms
+    /// already exposes.
+    /// </remarks>
+    private static bool IsShiftHeld() => (ModifierKeys & Keys.Shift) != 0;
+
+    /// <inheritdoc />
+    protected override void OnDeactivate(EventArgs e)
+    {
+        // A key released while another window has focus never sends its key up to this one, so the
+        // camera would fly on for ever after an alt-tab.
+        ReleaseHeldKeys();
+
+        base.OnDeactivate(e);
+    }
+
+    /// <summary>Forgets every held key, so nothing is left pressed.</summary>
+    /// <remarks>
+    /// **A key released while the window is not focused never sends its key up here**, so without
+    /// this the camera would fly on for ever after an alt-tab — the classic held-key leak. Called on
+    /// deactivation and on leaving the free view.
+    /// </remarks>
+    private void ReleaseHeldKeys() => _heldKeys.Clear();
+
+    /// <summary>
+    /// Sees key releases wherever focus is, so a held key can be known to have stopped.
+    /// </summary>
+    /// <remarks>
+    /// **A form-level WndProc override does NOT see them, which is how this shipped broken once.**
+    /// Key messages go to the focused window, and the viewport panel takes focus — the same reason
+    /// the Escape handling lives where it does. <see cref="ProcessCmdKey"/> works for key DOWN only
+    /// because WinForms walks it up the parent chain; there is no such courtesy for key up, so the
+    /// camera kept every key it had ever been given and flew on for ever. Pressing the opposite
+    /// direction then cancelled it to a standstill instead of reversing.
+    ///
+    /// A message filter runs before dispatch for every message on the thread, so focus stops
+    /// mattering. It never consumes anything: returning false leaves the key to its normal handling.
+    /// </remarks>
+    private sealed class KeyReleaseFilter(HashSet<Keys> held) : IMessageFilter
+    {
+        /// <summary>WM_KEYUP.</summary>
+        private const int WmKeyUp = 0x0101;
+
+        /// <summary>WM_SYSKEYUP, which is what a key released with Alt down sends.</summary>
+        private const int WmSysKeyUp = 0x0105;
+
+        /// <inheritdoc />
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg is WmKeyUp or WmSysKeyUp)
+            {
+                held.Remove((Keys)(int)m.WParam & Keys.KeyCode);
+            }
+
+            return false;
+        }
     }
 
     /// <summary>When the last frame was presented.</summary>
@@ -2733,8 +2790,50 @@ internal class MainForm : Form
         _rateReportedAt = now;
     }
 
+    /// <summary>Flies the camera by however long the last frame took.</summary>
+    /// <remarks>
+    /// **Here rather than in the key handler, which is the whole of B97.** A message-driven camera
+    /// moves at whatever rate Windows repeats a held key; a frame-driven one moves at a speed. Its
+    /// own stopwatch, because the playback clock only runs while the demo is playing and the camera
+    /// has to fly while paused.
+    /// </remarks>
+    private void FlyCamera()
+    {
+        double seconds = _flyWatch.IsRunning ? _flyWatch.Elapsed.TotalSeconds : 0d;
+        _flyWatch.Restart();
+
+        if (!_freeLook || _heldKeys.Count == 0)
+        {
+            return;
+        }
+
+        // A stall is not flight time, for the same reason it is not playback time: a map load or a
+        // window drag would otherwise fling the camera across the map when the loop resumes.
+        seconds = Math.Min(seconds, MaximumFrameSeconds);
+
+        (float X, float Y, float Z) moved = FreeFlight.Movement(
+            _heldKeys, seconds, _freeAngles.Pitch, _freeAngles.Yaw, IsShiftHeld());
+
+        if (moved == (0f, 0f, 0f))
+        {
+            return;
+        }
+
+        (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
+
+        _freeOrigin = (where.X + moved.X, where.Y + moved.Y, where.Z + moved.Z);
+
+        // **Costly, and knowingly so — see B98.** This re-projects the whole map into screen space
+        // every frame the camera moves, because the view matrix upload lives inside ProjectMap. It
+        // was invisible while the camera moved once per keystroke and is the frame budget now that
+        // it flies, which shows as stutter during playback and smooth flight while paused.
+        _worldIsStale = true;
+    }
+
     private void RenderFrame()
     {
+        FlyCamera();
+
         // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
         // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
         // step of a full-screen transition - or every pixel of a window drag - is collapsed into
@@ -2989,27 +3088,13 @@ internal class MainForm : Form
         // which is what every editor does, because rising along a pitched view drifts sideways and
         // feels broken.
         //
-        // Shift multiplies the step. Held keys arrive here as auto-repeat, which is coarse; smooth
-        // movement wants the frame tick and is worth doing once the view has earned its keep.
-        if (_freeLook && FlyStep(keyData) is { } fly)
+        // **The key is only RECORDED here; the movement happens per frame** (B97). Moving on the
+        // message meant Windows' auto-repeat set the speed: nothing for the repeat delay, then fixed
+        // jumps at the repeat rate, and never two directions at once because auto-repeat reports
+        // only the last key held. See FreeFlight.
+        if (_freeLook && FreeFlight.IsFlightKey(keyData & Keys.KeyCode))
         {
-            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
-            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
-
-            // AngleVectors' forward and right, the same pair the camera itself builds.
-            (float X, float Y, float Z) forward = (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
-            (float X, float Y, float Z) right = (sinYaw, -cosYaw, 0f);
-
-            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
-
-            _freeOrigin = (
-                where.X + (forward.X * fly.Forward) + (right.X * fly.Right),
-                where.Y + (forward.Y * fly.Forward) + (right.Y * fly.Right),
-                where.Z + (forward.Z * fly.Forward) + fly.Up);
-
-            _worldIsStale = true;
-            _viewport.Invalidate();
-
+            _heldKeys.Add(keyData & Keys.KeyCode);
             return true;
         }
 
@@ -3025,6 +3110,10 @@ internal class MainForm : Form
             if (!_freeLook)
             {
                 _freeOrigin = null;
+
+                // Nothing is flying any more, and a key still recorded as held would move the
+                // camera the moment the free view was entered again.
+                ReleaseHeldKeys();
             }
 
             _worldIsStale = true;
@@ -3208,6 +3297,14 @@ internal class MainForm : Form
                 // into freed memory, and that is a crash on exit rather than a leak.
                 Application.Idle -= OnIdle;
                 _rendering = false;
+            }
+
+            if (_keyReleases is not null)
+            {
+                // A filter left registered outlives the form and keeps a reference to it, which is
+                // the ordinary way a WinForms window fails to be collected.
+                Application.RemoveMessageFilter(_keyReleases);
+                _keyReleases = null;
             }
 
             TimeSpan idleStopped = closing.Elapsed;
