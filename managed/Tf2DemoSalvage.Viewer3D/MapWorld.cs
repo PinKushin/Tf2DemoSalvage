@@ -81,6 +81,17 @@ internal static class MapWorldBuilder
         int brushFaces = 0;
         int terrainFaces = 0;
         int missingMaterials = 0;
+        int movingFaces = 0;
+
+        // **Where the world model ends and the brush entities begin.** models[0] is the world by
+        // definition, so every face at or beyond its count belongs to a door, a lift, a cart or
+        // some other entity that has to be free to move.
+        //
+        // int.MaxValue when the models lump was not read, which builds everything - the behaviour
+        // before this boundary existed. An unknown boundary must not silently delete geometry:
+        // "we do not know which faces move" and "no faces move" are different facts, and only one
+        // of them is safe to act on.
+        int worldFaceCount = models is { Count: > 0 } ? models[0].FaceCount : int.MaxValue;
 
         // Grouped first so each material's triangles end up contiguous, then flattened. A
         // dictionary keeps the grouping O(n) rather than sorting thirteen thousand faces.
@@ -105,6 +116,22 @@ internal static class MapWorldBuilder
             // frame, which is where that decision belongs.
             if (!surface.IsVisible || surface.Vertices.Count < 3)
             {
+                continue;
+            }
+
+            // **A brush entity's faces are not the world's, and baking them here freezes them.**
+            // The faces lump holds the world model's faces first and every other model's after,
+            // so walking all of it draws doors, lifts and payload carts at the position they were
+            // COMPILED in - which is not a missing door, it is a door that can never move. On
+            // cp_process_f12 that is 1,030 surfaces, and a door compiled retracted sits inside the
+            // ceiling and reads as absent (B71).
+            //
+            // Valve's own comment on the models lump says how a submodel is meant to be used:
+            // "submodels just draw faces without walking the bsp tree". They are drawn, per frame,
+            // at their entity's networked origin - by the entity path, not this one.
+            if (surface.FaceIndex >= worldFaceCount)
+            {
+                movingFaces++;
                 continue;
             }
 
@@ -196,20 +223,13 @@ internal static class MapWorldBuilder
         // retracted is invisible either way.
         //
         // Counted rather than assumed, because the question decided what to build next and the
-        // answer was not in evidence.
-        int worldFaces = models is { Count: > 0 } ? models[0].FaceCount : int.MaxValue;
-        int movingFaces = 0;
-
-        foreach (BspSurface surface in surfaces)
-        {
-            movingFaces += surface.FaceIndex >= worldFaces ? 1 : 0;
-        }
-
+        // answer was not in evidence. Now counted BY the skip rather than by a second pass over
+        // the same list: two loops asking one question is where the two answers drift apart.
         ViewerLog.Write(
             "render",
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
             $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material; " +
-            $"{movingFaces} of the surfaces read belong to entity models rather than the world");
+            $"{movingFaces} faces held back for entity models rather than baked into the world");
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];
