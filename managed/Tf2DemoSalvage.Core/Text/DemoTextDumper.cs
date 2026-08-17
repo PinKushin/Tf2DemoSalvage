@@ -343,10 +343,22 @@ public static class DemoTextDumper
 
         foreach ((int tick, IReadOnlyList<KeyValuePair<string, object?>> fields) in scan.Kills)
         {
+            // **Only the name fields are rendered; the rest keep their numeric type.**
+            // PlayerReferences.Render returns a string for everything, so resolving the whole list
+            // turned customkill, death_flags and damagebits into text — and KillFeed reads those as
+            // numbers, so it silently annotated nothing. The feed shipped without "(headshot)" or
+            // "(crit)" on any line while its unit tests, which pass raw values, stayed green.
+            //
+            // Second time this exact shape has bitten in this file. The first was the dumper's
+            // annotation matching `int` when the value arrives as a byte.
             List<KeyValuePair<string, object?>> resolved = [];
             foreach (KeyValuePair<string, object?> field in fields)
             {
-                resolved.Add(new(field.Key, PlayerReferences.Render(field, byUserId)));
+                bool isName = field.Key is "userid" or "attacker" or "assister";
+
+                resolved.Add(isName
+                    ? new(field.Key, PlayerReferences.Render(field, byUserId))
+                    : field);
             }
 
             writer.WriteLine(string.Create(
@@ -417,6 +429,7 @@ public static class DemoTextDumper
         {
             "customkill" => KillDescription.CustomKill(value),
             "death_flags" => KillDescription.DeathFlags(value),
+            "damagebits" => KillDescription.DamageTypes(value),
             _ => null,
         };
     }

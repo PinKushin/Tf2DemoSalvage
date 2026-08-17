@@ -27,6 +27,14 @@ namespace Tf2DemoSalvage.Core.Text;
 /// </remarks>
 public static class KillFeed
 {
+    /// <summary>The bit TF2 uses for a critical hit.</summary>
+    /// <remarks>
+    /// <c>#define DMG_CRITICAL (DMG_ACID)</c> — <c>tf_shareddefs.h:1164</c>, where <c>DMG_ACID</c> is
+    /// <c>1 &lt;&lt; 20</c>. TF2 reuses thirteen of the engine's damage bits, so the base-game name
+    /// for this one is "acid".
+    /// </remarks>
+    private const int CriticalDamage = 1 << 20;
+
     /// <summary>Renders a death event's fields as a single line.</summary>
     /// <param name="fields">The event's decoded fields.</param>
     /// <returns>A line in the game's kill feed shape.</returns>
@@ -99,6 +107,16 @@ public static class KillFeed
             KillDescription.DeathFlags(deathFlags) is { } flagged)
         {
             notes.Add(flagged);
+        }
+
+        // **Only the crit, not the whole damage word.** A feed line naming every bit —
+        // "bullet, critical, hit locations, direct" — buries the one a reader cares about in
+        // modifiers they do not. The full decode stays in the event dump, where the raw value sits
+        // beside it and the detail is the point.
+        if (Number(fields, "damagebits") is { } damageBits &&
+            (damageBits & CriticalDamage) != 0)
+        {
+            notes.Add("crit");
         }
 
         // **An assister of -1 is nobody, and the field is always present.** So "was there an

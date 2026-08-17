@@ -108,6 +108,59 @@ public sealed class CorpusKillAnnotationTests
     }
 
     [Test]
+    public void TheFeedItselfCarriesTheQualifiersNotJustTheEventDump()
+    {
+        // **The feed shipped with no qualifiers at all and every unit test stayed green.**
+        // WriteKillFeedSection resolved the whole field list through PlayerReferences.Render, which
+        // returns a string for everything — so customkill, death_flags and damagebits arrived at
+        // KillFeed as text, its Number() lookup returned null, and it annotated nothing.
+        //
+        // KillFeedTests passes raw byte values and could not see it; the annotation test above
+        // measures the EVENT section, which was fine. The gap was the feed's own output, and this
+        // closes it.
+        //
+        // Second time this shape has bitten the same file — the first was the dumper matching `int`
+        // when the value arrives as a byte.
+        string path = Corpus.Demo("z1800");
+        byte[] bytes = File.ReadAllBytes(path);
+
+        StringWriter rendered = new();
+
+        DemoTextDumper.Write(
+            rendered,
+            Path.GetFileName(path),
+            DemoHeader.Parse(bytes),
+            [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))],
+            new DemoDumpOptions { IncludeGameEvents = true });
+
+        int annotated = 0;
+        bool inFeed = false;
+
+        foreach (string raw in rendered.ToString().Split('\n'))
+        {
+            string line = raw.TrimEnd('\r');
+
+            if (line.StartsWith("Kills", StringComparison.Ordinal))
+            {
+                inFeed = true;
+                continue;
+            }
+
+            if (inFeed && line.TrimStart().StartsWith("tick ", StringComparison.Ordinal) &&
+                (line.Contains("headshot", StringComparison.Ordinal) ||
+                 line.Contains("crit", StringComparison.Ordinal) ||
+                 line.Contains("backstab", StringComparison.Ordinal)))
+            {
+                annotated++;
+            }
+        }
+
+        // Measured at 84 on this demo. Asserted as a floor rather than the exact count: the point is
+        // that qualifiers reach the feed at all, and it was zero.
+        annotated.ShouldBeGreaterThan(50);
+    }
+
+    [Test]
     public void EveryKillNamesItsPlayersRatherThanTheirUserIds()
     {
         // **The roster gap, asserted where it was visible.** Six players in this demo had their
