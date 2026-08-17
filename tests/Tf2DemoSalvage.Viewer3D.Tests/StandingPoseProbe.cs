@@ -262,8 +262,13 @@ public sealed class StandingPoseProbe
         // **Through the real lookup, not a copy of it.** The first version of this test did its own
         // exact-name search and then posed the result — so it measured the model files and passed
         // happily with the defect reinstated. A test of a lookup has to call the lookup.
+        // Merged across the base model and its includes, exactly as PropModels does it — the base
+        // model alone declares neither move_x nor move_y.
+        (IReadOnlyList<StudioPoseParameter> sharedPose, IReadOnlyList<IReadOnlyList<int>> masterPose) =
+            StudioPoseParameterMerge.Merge([.. models.Select(file => StudioSequences.PoseParameters(file))]);
+
         PropModels.SkinnedModel model = new(
-            bones, models, table, groups, StudioSequences.PoseParameters(baseFile));
+            bones, models, table, groups, sharedPose, masterPose);
 
         int found = model.Find("stand_PRIMARY");
 

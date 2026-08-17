@@ -5922,7 +5922,7 @@ checked against the SDK. What is known to DIVERGE: brush entities take an ambien
 engine lightmaps them. What is untested: whether the result matches the game on screen, which needs a
 side-by-side against a reference capture rather than a screenshot of ours alone.
 
-### B101 — a moving player plays the BACKWARD run, and three pose-parameter divergences — OPEN
+### B101 — a moving player plays the BACKWARD run, and three pose-parameter divergences — RESOLVED
 
 **Owner's observation:** "as long as they are moving they are running backwards according to the
 animation, but if they sit still, they do properly stand".
@@ -6025,3 +6025,55 @@ spectated position, and is the truth — and are simply not drawn.
 `PlayerActivity.Die` is retained because `HandleDying` is genuinely in Valve's code and this
 reimplements that function, but it is unreachable in TF2 for the reason above and no viewer path
 can select it.
+
+**B101's answer, and none of the three divergences above was it.** The cause was found by measuring
+each hop in turn rather than by reading further.
+
+**The parameter was never wrong.** The POV half of a purpose-recorded pair carries the recorder's own
+`CUserCmd`, so "was this player running forward" is answered by the input rather than reconstructed
+from the output. Sampling the middle of every unbroken run of at least 60 ticks of `forwardmove 450`
+with `sidemove 0` and `IN_FORWARD` held gives, at seven of nine samples, exactly:
+
+```
+tick  218 move_x 1.000 move_y -0.000
+tick  640 move_x 1.000 move_y -0.000
+tick  878 move_x 1.000 move_y -0.000
+tick 1187 move_x 1.000 move_y  0.000
+tick 1399 move_x 1.000 move_y  0.000
+tick 4375 move_x 1.000 move_y  0.000
+tick 4872 move_x 1.000 move_y  0.000
+```
+
+The two exceptions, ticks 5541 and 5681, are `-0.707, -0.707` and both fall inside a rocket jump,
+where `forwardmove` and the direction of travel legitimately disagree because the player is airborne.
+
+`Studio_LocalPoseParameter` was checked too and our port matches it, including the `groupsize > 2`
+test that looked like an off-by-one and is Valve's own.
+
+**The fault was the pose parameter LIST.** `scout.mdl` declares two parameters — `body_pitch` and
+`body_yaw` — and nothing else. `move_x` and `move_y` live only in `scout_animations.mdl`, the model
+it includes. A sequence's `paramindex` is local to the group that owns the sequence, so the run's
+request for index 5 was served against a two-entry list, fell out of bounds, and returned cell zero
+with a setting of zero on both axes. That is the grid corner at `move_x = −1, move_y = −1`: the
+backward-left run, played by every moving player in every direction, forever.
+
+Nothing could report it. Falling off the end of a list is a legitimate answer for a model that
+genuinely has no such parameter, and cell zero is a real cell.
+
+**The engine merges the lists**, in `CVirtualModel::AppendPoseParameters`
+(`studio_virtualmodel.cpp:445`), and keeps a per-group map read back by
+`CStudioHdr::GetSharedPoseParameter`. Three details are followed: matching is by name and
+case-insensitive; a duplicate WIDENS the shared range across all four endpoints, which matters
+because `body_pitch` is −45..45 in the base model and −45..90 in the animations; and the shared list
+is in group order so the base model keeps its own indices.
+
+**The translation is implemented but is not yet observable on any player model**, and that was
+established by sabotage rather than assumed: replacing `masterPose[local]` with `local` leaves the
+whole suite green, because a player model's parameters are a prefix of its animation model's and the
+map comes out as the identity. It is kept because it is what the engine does and because a model
+whose animations reorder a shared name would need it — Valve's own comment is that returning the
+untranslated index "is just some random unrelated index". The merged list is what the corpus can
+currently falsify.
+
+The three divergences recorded above are still real and still unfixed; they change magnitudes and
+diagonals, not direction. They are now the whole of what is left in B101's original list.

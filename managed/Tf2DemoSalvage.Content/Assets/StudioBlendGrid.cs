@@ -184,6 +184,11 @@ public sealed class StudioBlendGrid
     /// <param name="axis">Zero for the first axis, one for the second.</param>
     /// <param name="parameters">Every pose parameter the model declares.</param>
     /// <param name="values">The current value of each, in the same order.</param>
+    /// <param name="masterPose">
+    /// The owning group's map from its own pose parameter indices to shared ones, as
+    /// <c>virtualgroup_t::masterPose</c>. A sequence's <c>paramindex</c> is local to its group, so
+    /// without this the shared list is indexed with a number that belongs to a different list.
+    /// </param>
     /// <returns>The lower cell index and how far past it the value sits, from zero to one.</returns>
     /// <remarks>
     /// **Ported from <c>Studio_LocalPoseParameter</c>** (<c>bone_setup.cpp:1682</c>). The value is
@@ -204,13 +209,29 @@ public sealed class StudioBlendGrid
     /// branch — a model that did would blend at slightly wrong proportions rather than break.
     /// </remarks>
     public (int Index, float Setting) Locate(
-        int axis, IReadOnlyList<StudioPoseParameter> parameters, IReadOnlyList<float> values)
+        int axis,
+        IReadOnlyList<StudioPoseParameter> parameters,
+        IReadOnlyList<float> values,
+        IReadOnlyList<int> masterPose)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(values);
+        ArgumentNullException.ThrowIfNull(masterPose);
 
-        int which = axis == 0 ? ParameterX : ParameterY;
+        int local = axis == 0 ? ParameterX : ParameterY;
         int group = axis == 0 ? GroupX : GroupY;
+
+        // **The index stored in the sequence is local to the group that owns it, and translating it
+        // is not optional.** <c>CStudioHdr::GetSharedPoseParameter</c> reads
+        // <c>pGroup->masterPose[iLocalPose]</c> for exactly this. Skipping the translation is what
+        // made every player run backwards: a player model declares two pose parameters and its
+        // animation model's run sequence asks for index 5, which fell off the end of the list and
+        // returned cell zero on both axes — the backward corner of the blend grid.
+        //
+        // Valve's own comment on the bounds check is worth keeping: returning the local index when
+        // it is out of range "is not correct, this should return -1 because otherwise it's just
+        // some random unrelated index".
+        int which = local >= 0 && local < masterPose.Count ? masterPose[local] : -1;
 
         if (which < 0 || which >= parameters.Count || which >= values.Count)
         {
