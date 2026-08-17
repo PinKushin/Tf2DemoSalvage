@@ -5755,3 +5755,44 @@ One thing to check before taking it: `ReprojectScene` is gated on the same `_wor
 scene points are stored in SCREEN space. Whether they are drawn in the free view decides whether
 flight may skip that too, or must keep it and skip only the map projection. Not yet established, and
 guessing it wrong freezes the overlay instead of the map.
+
+### B98 RESOLVED — the view matrix upload was buried inside the map projection
+
+**Confirmed smoother by the owner while playing.** Flight set `_worldIsStale`, and the only thing
+that consumed that flag also re-projected every map segment and every surface triangle into screen
+space for the top-down overlay — because `SetCamera` was called from inside `ProjectMap`. The free
+view does not draw that overlay.
+
+Affordable at one camera move per keystroke; the frame budget once the camera flew every frame
+(B97). The tell was the owner's: smooth while paused, jittery while playing, because playback's
+per-frame scene rebuild was competing for the same milliseconds.
+
+`UploadCamera` now sends the matrix alone. Each reason it is safe in the free view was checked rather
+than assumed: the world's vertices are in map coordinates and only the view changes (D21); the 3D
+models are world-space and placed by their own matrices; and the screen-space scene points are a
+map-view fallback drawn only for players with NO model, so they are empty in any modern demo and are
+projected through the top-down camera anyway. The map view still rebuilds in full, because there
+everything is projected to screen space.
+
+The frame log now reports the LONGEST frame each second beside the rate, because a mean hides jitter
+by construction — the average barely moved while the worst frame grew.
+
+### B99 — the viewer draws every surface and every model, every frame — OPEN
+
+**Owner's target: a thousand frames a second, which TF2 itself reaches.** Measured on cp_process at
+a 300 fps cap with vertical sync off: about **48 frames a second** standing still with the demo
+playing, longest frame 21–27 ms; **22–37** while flying, longest 46–100 ms.
+
+The gap is not a shader or a driver setting. **TF2 hits a thousand frames a second by not drawing
+most of the map**: the PVS culls whole leaves against where the camera stands, the frustum culls what
+survives that, and LOD reduces what is left. This viewer draws the entire map and every model on
+every frame, from any viewpoint — which is also B96, the roof that hides the map from above.
+
+So the same missing mechanism explains both, and the order is worth stating: leaf and frustum culling
+first, because it removes work rather than making work cheaper. Only then is it worth looking at
+draw-call batching, instancing, or the CPU-side decode of DXT textures (B93).
+
+**One measurement to take before any of it**, and it is cheap: hold the camera still somewhere open
+and compare against still at the shutter. If both read about thirty frames a second, the cost is
+view-dependent GPU work — overdraw — rather than anything flight does, and the residual after B98 is
+not a defect at all. Guessing that wrong means optimising the wrong half.
