@@ -539,11 +539,18 @@ public sealed class DemoTimeline
             return;
         }
 
-        // **A slot is reused, so the model is what identifies the occupant.** A rocket that
-        // explodes frees its index for the next one, and appending that one's positions to the
-        // old track would draw a rocket flying between two unrelated places.
+        // **A slot is reused, and the SERIAL NUMBER is what identifies the occupant** — the engine's
+        // own rule, and the one EntityStateTable already applies to entity state. A rocket that
+        // explodes frees its index for the next one, and appending that one's positions to the old
+        // track would draw a rocket flying between two unrelated places.
+        //
+        // This compared MODEL PATHS until 2026-08-16 (B92), which was wrong in both directions. Two
+        // consecutive rockets share a model, so the case described above — the one the check existed
+        // for — was exactly the case it could not see. And an entity may change model while
+        // remaining itself: team_control_point.cpp:569 calls SetModel on every capture, so a point
+        // changing hands ended its track and split one object into several.
         if (tracks.TryGetValue(entity.EntityIndex, out ScenePropTrack? track) &&
-            !string.Equals(track.ModelPath, model, StringComparison.Ordinal))
+            !track.Continues(state.SerialNumber))
         {
             track.End(tick);
             tracks.Remove(entity.EntityIndex);
@@ -552,7 +559,7 @@ public sealed class DemoTimeline
 
         if (track is null)
         {
-            track = new ScenePropTrack(entity.EntityIndex, model);
+            track = new ScenePropTrack(entity.EntityIndex, model, state.SerialNumber);
             tracks[entity.EntityIndex] = track;
 
             // Player tracks are kept apart from Props. They carry poses and no model, so a

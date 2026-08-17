@@ -177,10 +177,12 @@ public sealed class ScenePropTrack
     /// <summary>Starts a track for one entity.</summary>
     /// <param name="entityIndex">Slot in the entity table.</param>
     /// <param name="modelPath">The model this entity draws as.</param>
-    public ScenePropTrack(int entityIndex, string modelPath)
+    /// <param name="serialNumber">The engine's serial for this occupant of the slot.</param>
+    public ScenePropTrack(int entityIndex, string modelPath, int serialNumber = 0)
     {
         EntityIndex = entityIndex;
         ModelPath = modelPath;
+        SerialNumber = serialNumber;
     }
 
     /// <summary>Slot in the entity table.</summary>
@@ -188,6 +190,35 @@ public sealed class ScenePropTrack
 
     /// <summary>The model this entity draws as.</summary>
     public string ModelPath { get; }
+
+    /// <summary>The engine's serial for this occupant of the slot.</summary>
+    /// <remarks>
+    /// **An entity is its index AND its serial.** The index is a slot the engine reissues; the
+    /// serial is what distinguishes one occupant from the next.
+    /// </remarks>
+    public int SerialNumber { get; }
+
+    /// <summary>Whether an update in this slot continues this track or starts a new object.</summary>
+    /// <param name="serialNumber">The serial of the entity now occupying the slot.</param>
+    /// <returns><c>true</c> to keep appending to this track.</returns>
+    /// <remarks>
+    /// **Identity is the serial number, which is the engine's own rule** — the same one
+    /// <c>EntityStateTable</c> applies to entity state.
+    ///
+    /// **The model path used to decide this, and it was wrong in both directions.** It could not see
+    /// two consecutive rockets in one slot, which share a model, so their positions merged into one
+    /// track that drew as an object teleporting. And it reported changes that never happened: a
+    /// capture point calls <c>SetModel</c> on every capture (<c>team_control_point.cpp:569</c>), so
+    /// changing hands ended its track and split one object into several.
+    ///
+    /// **No fallback, because there is nothing to fall back from.** The serial reaching here comes
+    /// from an <c>EntityState</c>, and the state table has already applied the engine's create rule
+    /// — a serial is compared only on an enter, and a new occupant gets a new state — so by the time
+    /// a track sees it, identity is settled and the value is authoritative. An earlier draft of this
+    /// took a nullable serial and treated null as "continue"; that path could never execute, which
+    /// makes it dead code wearing the costume of a safety net.
+    /// </remarks>
+    public bool Continues(int serialNumber) => SerialNumber == serialNumber;
 
     /// <summary>The entity whose skeleton carries this one, when it has no place of its own.</summary>
     /// <remarks>
