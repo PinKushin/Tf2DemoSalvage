@@ -609,10 +609,17 @@ public sealed class DemoTimeline
                 Yaw = yaw,
                 Roll = roll,
 
-                // Scale and sequence default rather than zero: an absent scale is authored size,
-                // and sequence -1 is "does not animate" where zero is a real animation.
+                // **Scale defaults to 1, sequence to 0, and both are the engine's own defaults
+                // rather than sentinels of ours.** An absent scale is authored size; an absent
+                // sequence is sequence 0, which m_nSequence is initialised to
+                // (BaseAnimatingOverlay.cpp:104).
+                //
+                // Sequence was -1 until 2026-08-16, meaning "does not animate". Every drawing
+                // consumer clamped it straight back to 0, and the one that compares rather than
+                // clamps — InterpolateCycle, where a sequence change is a cut — saw a change that
+                // never happened and froze the cycle at that boundary.
                 Scale = state.ModelScale() ?? 1f,
-                Sequence = state.AnimationSequence() ?? -1,
+                Sequence = state.AnimationSequence() ?? 0,
                 Body = state.Body() ?? 0,
 
                 // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a
