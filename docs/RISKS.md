@@ -5581,3 +5581,22 @@ offsets checked against Valve's declaration. The falloff is stated inline in `bs
 spotlights**, 108 surface, 77 point, 1 sky, 1 sky ambient. Spotlights dominate almost 4:1, so cones
 (`stopdot`, `stopdot2`, `exponent`) are the main case rather than an extra. Every point light on the
 map is pure inverse-square: constant 0, linear 0, quadratic 1.
+
+### B96 — no visibility culling, so a roof hides the map from above — OPEN, owner-diagnosed
+
+**Not a lighting defect, and it was nearly chased as one.** The large black regions in the viewer's
+top-down screenshots are a roof, drawn because this project has no visibility culling. TF2's own
+spectator free camera does not show it — the owner supplied a reference capture of the same map from
+above with the roof absent.
+
+Worth stating plainly because it was on its way to being investigated as unlit geometry: the geometry
+is drawn correctly, from a viewpoint the engine would never have drawn it from.
+
+The engine culls per frame against the view frustum and the PVS, from wherever the camera is. This
+project culls at BUILD time and only by normal — which the `MapWorld` comments already describe as
+the deliberate deviation (D21 and the B68 work), on the reasoning that a build-time cull is only
+equivalent for a camera that never moves. A free camera above the map is exactly the case that
+breaks.
+
+Related and already recorded: build-time shortcuts tuned for the top-down view broke once a free
+camera existed.

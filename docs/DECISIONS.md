@@ -1431,3 +1431,42 @@ from the recorded inputs, which is how a spliced demo would be detected and how 
 replayed with no client at all. That is a much larger job and is not needed to document a run —
 decoding gives the run as recorded. The two compose if it is ever built: inputs from the demo,
 positions from emulation, and any disagreement is a finding.
+
+## D23 — models are lit the way the engine lights them, ambient cube plus local lights
+
+**Owner's decision, 2026-08-17, stated when brush entities first drew and came out flat-lit:** the
+lighting should be done as Valve does it. This closes a question the B71 amendment had left open,
+and it settles a class of future ones — the target is the engine's model, not something that looks
+close.
+
+**What the engine's model is**, from `public/istudiorender.h`, which describes the whole of it in
+three fields:
+
+```cpp
+Vector m_vecAmbientCube[6];		// ambient, and lights that aren't in locallight[]
+int    m_nLocalLightCount;
+LightDesc_t m_LocalLightDescs[4];
+```
+
+So a model takes the ambient cube of its leaf **and up to four local lights**, with everything beyond
+those four folded back into the cube. Not one or the other.
+
+Two consequences that are already visible:
+
+- **Brush entities are lightmapped by the engine and are not lightmapped here.** A door drawn through
+  the entity path takes an ambient cube, so it draws flat against lightmapped walls. The fix is
+  lightmap coordinates in the entity vertex format, or the world shader with a per-instance
+  transform, and it is a real divergence rather than a detail.
+- **No prop receives direct light from a point or spot light** (B95). The cube is the bounce term;
+  the direct term is the world lights, and only the sun was applied.
+
+**Why this is a decision and not just a bug list.** The alternative — tuning the ambient term until
+screenshots look right — was live for a while, and B83 shows where that leads: five falsified
+appearance hypotheses across a month, every one proposed from a picture. Naming the engine as the
+target means a disagreement is settled by reading Valve's code and measuring, not by argument about
+how a screenshot looks.
+
+**Where the answers live, since this project twice recorded that they were unavailable:** the falloff
+is stated inline in `public/bspfile.h`, the ambient reconstruction is `Mod_LeafAmbientColorAtPos` in
+`utils/vrad/leaf_ambient_lighting.cpp`, and `utils/` generally holds the compilers that WRITE the
+data the engine reads. See the `nothing-is-closed` memory.
