@@ -6134,3 +6134,50 @@ checkout. Both produce the same empty result, and without the control asserting 
 
 Two fixtures asserted the old table and were changed rather than worked around: they were this
 project pinning its own mistake.
+
+**Three of B101's four divergences are now fixed, and a FOURTH was found while fixing them — the
+sign was inverted.** The engine computes
+
+```cpp
+float flYaw = flAngle - m_PoseParameterData.m_flEstimateYaw;   // eye − travel
+flYaw = AngleNormalize( -flYaw );                              // → travel − eye
+```
+
+and this project computed `eye − travel`. It is zero for a player running dead forward, which is
+exactly the case the POV recording measured, so the measurement that settled the backward run could
+not see it. What it breaks is left against right: a player strafing to their left played the
+strafe-right animation and vice versa. Found only by reading the function again, term by term, while
+implementing the other three — which is the argument for quoting a routine into a test rather than
+paraphrasing it.
+
+The snap is gone. `SnapYawTo` is real engine code but is called only under
+`if ( mp_slammoveyaw.GetBool() )`, and that cvar is `"0"` and `FCVAR_DEVELOPMENTONLY`, so no shipped
+client takes the branch. This project applied it unconditionally, with a comment arguing it stopped
+the legs wavering as the differenced heading jitters — plausible, and not what TF2 does. A player
+running 30° off their facing was animated as though at 45°.
+
+The box push-out is in, guarded where Valve guards it.
+
+**The speed scaling is still not implemented**, and it is the only piece left:
+
+```cpp
+float flMaxSpeed = GetBasePlayer()->GetSequenceGroundSpeed( GetBasePlayer()->GetSequence() );
+if ( flMaxSpeed > flSpeed ) { vecCurrentMoveYaw.x *= flSpeed / flMaxSpeed; ... }
+```
+
+The path is now traced and nothing about it is unknown: `GetSequenceGroundSpeed` is
+`GetSequenceMoveDist / SequenceDuration`; the distance is `Studio_SeqMovement` blending up to four
+animations by the pose parameters; each one is `Studio_AnimPosition` walking `mstudiomovement_t`
+records with `d = v0*f + 0.5*(v1-v0)*f²`. The records sit at `nummovements`/`movementindex`, offsets
+20 and 24 of `mstudioanimdesc_t`, stride 44 — and this project already reads `fps` and `numframes`
+from that struct.
+
+What makes it a separate change rather than a fourth line here is **where it has to live**. The
+scaling needs the authored ground speed of the sequence the player is playing, which is model data,
+and `DemoTimeline` decodes a demo and has never opened a model. So the final scale has to move into
+the viewer, after the sequence is chosen. Note also that the engine sets `move_x`/`move_y`, reads
+the ground speed with those in place, and only then rescales and sets them again — the order is in
+the source and is not incidental.
+
+Until then a player easing along animates at a full-magnitude blend rather than being drawn back
+towards the middle of the grid.

@@ -1054,10 +1054,45 @@ public sealed class DemoTimeline
             return (0f, 0f);
         }
 
-        float yaw = SnapYaw(Normalize(-(heading - bodyYaw)));
+        // **estimateYaw − eyeYaw, and the order is the whole of a defect that lasted until it was
+        // measured.** The engine computes `flYaw = flAngle - m_flEstimateYaw` and then
+        // `AngleNormalize( -flYaw )`, so the two negations cancel and what reaches the cosine is
+        // the direction of travel minus the way the body faces. This project had it the other way
+        // round, which is zero for a player running dead forward — so a measurement of a forward
+        // run could not see it — and which swaps strafing left with strafing right.
+        float yaw = Normalize(heading - bodyYaw);
         (float sine, float cosine) = MathF.SinCos(yaw * (MathF.PI / 180f));
 
-        return (cosine, -sine);
+        float x = cosine;
+        float y = -sine;
+
+        // **"push edges out to -1 to 1 box"**, Valve's own comment. A unit vector puts a diagonal
+        // at 0.707 on each axis, which is halfway along a nine-way grid's cell, so the corner
+        // animations authored for the diagonals were never reached. Dividing by the larger
+        // component sends every direction to the edge of the box instead of the circle.
+        float scale = MathF.Max(MathF.Abs(x), MathF.Abs(y));
+
+        // Guarded exactly where Valve guards it — `if ( flInvScale != 0.0f )`. The vector is a
+        // cosine and a sine, so this only fires on a degenerate value, but dividing by it would
+        // give two NaNs that reach the blend grid as a plausible-looking mid-cell.
+        if (scale != 0f)
+        {
+            x /= scale;
+            y /= scale;
+        }
+
+        // **The speed scaling is NOT applied, and this is the one part of the engine's function
+        // left out.** After the push-out it does:
+        //
+        //     float flMaxSpeed = GetBasePlayer()->GetSequenceGroundSpeed( GetSequence() );
+        //     if ( flMaxSpeed > flSpeed ) { x *= flSpeed / flMaxSpeed; y *= flSpeed / flMaxSpeed; }
+        //
+        // which pulls a player moving slower than their animation was authored for back towards
+        // the middle of the grid. flMaxSpeed is the authored ground speed of the CHOSEN SEQUENCE,
+        // read from mstudiomovement_t in the model file — and this layer decodes a demo and has
+        // never opened a model. Recorded in B101 rather than approximated: a guessed maximum would
+        // scale every player by a number with no relationship to what they are playing.
+        return (x, y);
     }
 
     /// <summary>Brings an angle into −180 to 180.</summary>
@@ -1092,24 +1127,18 @@ public sealed class DemoTimeline
         return wrapped;
     }
 
-    /// <summary>Forces an angle to the nearest of eight compass points.</summary>
-    /// <remarks><c>SnapYawTo</c>, <c>multiplayer_animstate.cpp:1443</c>, thresholds included.</remarks>
-    private static float SnapYaw(float degrees)
-    {
-        float sign = degrees < 0f ? -1f : 1f;
-        float size = MathF.Abs(degrees);
-
-        float snapped = size switch
-        {
-            < 23f => 0f,
-            < 67f => 45f,
-            < 113f => 90f,
-            < 157f => 135f,
-            _ => 180f,
-        };
-
-        return snapped * sign;
-    }
+    // **SnapYawTo was implemented here and is deliberately gone.** It is real engine code
+    // (multiplayer_animstate.cpp:1443) and forces a direction to the nearest of eight compass
+    // points, but ComputePoseParam_MoveYaw calls it only under `if ( mp_slammoveyaw.GetBool() )` —
+    // and that cvar is declared `ConVar mp_slammoveyaw( "mp_slammoveyaw", "0", FCVAR_REPLICATED |
+    // FCVAR_DEVELOPMENTONLY, "Force movement yaw along an animation path." )`. Default off, and
+    // development-only, so no shipped TF2 client takes that branch.
+    //
+    // This project applied it unconditionally, with a comment arguing it stopped the legs wavering
+    // between animations as the differenced heading jitters. That reasoning is plausible and is not
+    // what the engine does: it quantised every direction to eight, so a player running at 30° off
+    // their facing animated as though at 45°. Kept in the history rather than in the code, because
+    // an unused private method is dead weight and the reason it went belongs with the decision.
 
     private static int? First(EntityState player, string[] keys)
     {
