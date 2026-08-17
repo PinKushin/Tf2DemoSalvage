@@ -203,6 +203,9 @@ internal class MainForm : Form
     /// <summary>The map's sun, when it has one.</summary>
     private BspWorldLight? _sun;
 
+    /// <summary>Every light the map compiled, for the direct term a model receives.</summary>
+    private IReadOnlyList<BspWorldLight> _worldLights = [];
+
     /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
     private (float Lowest, float Highest)? _heightRange;
 
@@ -1017,7 +1020,11 @@ internal class MainForm : Form
 
                     // The direct term. The ambient cube is the shade; this is what makes daylight
                     // bright, and it is the reason a pack outdoors looked like one indoors.
-                    _sun = BspWorldLights.Sun(BspWorldLights.Read(bytes));
+                    // Kept whole, not just the sun: the sun is the only light applied to the world
+                    // surfaces, but a model also takes direct light from the point and spot lights
+                    // around it (B95, D23), and those are the other 475 entries on cp_process.
+                    _worldLights = BspWorldLights.Read(bytes);
+                    _sun = BspWorldLights.Sun(_worldLights);
 
                     // **Every model the demo will ever show, loaded with the map.** The timeline
                     // is already built, so the whole set is known before anything is drawn - and
@@ -1294,9 +1301,16 @@ internal class MainForm : Form
         // only reconstructs the original lighting when it is interpolated. Taking the nearest read
         // back whichever survivor of that thinning was closest, which is why one capture point on
         // cp_process drew at 0.10 while its mirror image on a symmetric map drew at 0.39.
-        return leaf >= 0 && leaf < _ambient.Count
+        AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count
             ? _ambient[leaf].At(x, y, z)
             : default;
+
+        // **And the direct term, which is the other half of what the engine gives a model.**
+        // istudiorender.h describes the cube as "ambient, and lights that aren't in locallight[]",
+        // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
+        // every light past the nearest four. Without this a prop out of daylight is lit by the
+        // bounce alone, which is why anything indoors read as though it were in shade (B95).
+        return LocalLights.AddTo(bounced, _worldLights, x, y, z);
     }
 
     /// <summary>The sun reaching a world position, or null when it does not.</summary>
