@@ -3200,8 +3200,17 @@ and the scene layer does not yet consume.
 
 **`demo_interpolateview` is not in the SDK.** A whole-tree grep of source-sdk-2013 returns nothing;
 it is an engine ConVar in `engine.dll`, the same category as the overlay renderer and for the same
-reason. So its exact behaviour is not readable from source and must be measured, not remembered —
-see `source-sdk-is-cloned-locally` for why an empty grep is an answer rather than a failed search.
+reason. So its exact behaviour is not readable from source and must be measured, not remembered.
+
+> **Amended 2026-08-16.** This cited `source-sdk-is-cloned-locally` for "why an empty grep is an
+> answer rather than a failed search". **That memory does not exist**, and the principle as stated is
+> the one that produced five wrong absence claims in this project — TF2's game code, `$modblend`,
+> `moveparent`, the haptics block, and the container header.
+>
+> The claim about `demo_interpolateview` itself still holds: the tree really does return nothing and
+> it really is an engine ConVar. What changes is the justification. An empty search is evidence only
+> once a **positive control in the same sweep** shows the search could have found something — see
+> `an-empty-search-needs-a-control`, which replaces the missing reference.
 
 What is known and worth holding: it governs the **camera** between the per-frame `democmdinfo_t`
 samples, and a community report ties an incorrect setting to a viewmodel reload animation glitch

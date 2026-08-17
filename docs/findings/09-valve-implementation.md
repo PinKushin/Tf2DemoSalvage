@@ -16,13 +16,32 @@ A recurring waste of time is reaching for the SDK expecting the demo parser. It 
 |---|---|
 | Game client/server DLL source (`game/client`, `game/server`, `game/shared`) | `engine.dll` — the demo reader, netcode, entity delta engine |
 | `tier0`/`tier1` utilities, including **`bitbuf.cpp` — the bit reader/writer itself** | `materialsystem`, the renderer |
-| `mathlib`, format headers (`bspfile.h`, `studio.h`, `coordsize.h`) | The `.dem` container code |
+| `mathlib`, format headers (`bspfile.h`, `studio.h`, `coordsize.h`) | The `.dem` container **code** |
 | Map/model compilers (`vbsp`, `vrad`, `studiomdl`) | SourceTV's relay implementation |
+| **`materialsystem/stdshaders` — 1,192 files of shader source** | the material system's own runtime |
+| **`public/demofile/demoformat.h` — the header struct and `dem_*` list** | |
+| **`public/haptics` — user-message registrations, with sizes** | |
 
 So: **user message layouts are readable** (they live in game code), **bit-level primitives are
-readable** (`tier1`), and **the container and entity-delta engine are not**. That split explains
-why this project's user-message work is transcription while its `svc_PacketEntities` work had to be
-inferred.
+readable** (`tier1`), and **the entity-delta engine is not**. That split explains why this project's
+user-message work is transcription while its `svc_PacketEntities` work had to be inferred.
+
+> **Amended 2026-08-16, after five wrong absence claims traced back to this kind of summary.**
+>
+> The right-hand column was too coarse in three places, and each cost real work:
+>
+> - **`materialsystem` was listed as absent.** `materialsystem/stdshaders` holds **1,192 files** of
+>   published shader source — enough to settle `$modblend` and to derive the 489-parameter
+>   conformance denominator. Only the runtime is missing.
+> - **"The `.dem` container code"** is right about the code and was read as covering the format.
+>   `public/demofile/demoformat.h` declares `demoheader_t`, `DEMO_HEADER_ID` and every `dem_*`
+>   command.
+> - **Nothing pointed at `public/`.** The haptics user messages live there, and a search scoped to
+>   TF2's game directory concluded the SDK said nothing about them.
+>
+> **A "what is not available" table is exactly the artefact that stops people looking**, so its rows
+> have to be as narrow as the evidence. "The material system's runtime" and "`materialsystem`" differ
+> by 1,192 files. See `an-empty-search-needs-a-control`.
 
 `bf_write`/`bf_read` being public is worth stating loudly, because it removes any reason to
 disassemble for bit-level questions: `src/tier1/bitbuf.cpp` and `public/tier1/bitbuf.h`.

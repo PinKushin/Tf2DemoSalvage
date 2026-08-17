@@ -1,7 +1,26 @@
 # 01 — The container
 
-The outermost layer, and the only one whose code Valve has never published — `engine.dll` holds the
-`.dem` reader and is not in the SDK. Everything here was established by measurement.
+The outermost layer, and the only one whose **code** Valve has never published — `engine.dll` holds
+the `.dem` reader and it is not in the SDK.
+
+> **Correction, 2026-08-16.** This continued "Everything here was established by measurement", which
+> overstated the absence. The reader is genuinely missing; the **format declarations are not**.
+>
+> `src/public/demofile/` contains exactly one file, `demoformat.h`, and it declares `demoheader_t` in
+> full — the 8-byte stamp, two protocol ints, four `MAX_OSPATH` strings, the playback float and three
+> ints — plus `DEMO_HEADER_ID` and the `dem_*` command enumeration with `dem_lastcmd`.
+>
+> **Nothing in this project cited it**: not this file, not the reader, not a test. So the container
+> was the only layer with no conformance check against the SDK, because the SDK was believed to hold
+> nothing to check against.
+>
+> The measurements were right — `DemoHeaderConformanceTests` passed on its first run, deriving 1072
+> from Valve's member list. What changes is that the layout is now pinned to the declaration instead
+> of to a correct guess, and the command names are checked rather than remembered.
+>
+> Fifth instance of an absence recorded more broadly than the evidence supported; the running list is
+> in `05-user-messages.md`. The shape here is subtler than the others — the strong claim (no reader)
+> was true, and the sentence after it quietly widened to cover things that were published.
 
 For the current, correct description see `docs/SPEC.md` Layer 1. This file records how it was
 learned and what was wrong on the way.
