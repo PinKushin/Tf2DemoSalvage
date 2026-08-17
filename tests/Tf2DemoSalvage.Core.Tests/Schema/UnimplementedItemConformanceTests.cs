@@ -72,10 +72,27 @@ public sealed class UnimplementedItemConformanceTests
         view.ShouldContain("CNetworkVar( attrib_definition_index_t, m_iAttributeDefinitionIndex )");
         view.ShouldContain("CNetworkVar( float,\tm_flValue )");
 
+        // **The member is a float and the WIRE is an unsigned int, under a different name.**
+        // Refined 2026-08-16, after a sweep of SENDINFO_NAME aliases; the first version of this test
+        // said "(definition index, float) pairs", which would have led an implementer to look for a
+        // float send-prop that does not exist.
+        //
+        //   econ_item_view.cpp:67  SendPropInt( SENDINFO_NAME(m_flValue, m_iRawValue32), 32, SPROP_UNSIGNED )
+        //   econ_item_view.cpp:73  RecvPropInt( RECVINFO_NAME(m_flValue, m_iRawValue32) )
+        //
+        // So the float's BIT PATTERN travels as a 32-bit unsigned integer, and the wire name says so
+        // outright. Decoding it as an integer yields 1065353216 where the value is 1.0 — a large,
+        // plausible-looking number rather than an error, which is the family in
+        // `numeric-decoding-traps`.
+        string viewSource = SourceSdk.Text("src/game/shared/econ/econ_item_view.cpp").ShouldNotBeNull();
+
+        viewSource.ShouldContain("SendPropInt( SENDINFO_NAME(m_flValue, m_iRawValue32), 32, SPROP_UNSIGNED )");
+
         Assert.Ignore(
-            "item attributes are not decoded. They are networked as (definition index, float) pairs " +
-            "on the entity (econ_item_view.h:157) and carry paint, unusual effects, killstreaks and " +
-            "every balance change — all of it present in the demo and discarded here.");
+            "item attributes are not decoded. They are (definition index, value) pairs on the " +
+            "entity (econ_item_view.h:157), and the value travels as a 32-bit unsigned int named " +
+            "m_iRawValue32 whose bits are a float — reading it as an integer gives 1065353216 for " +
+            "1.0, which looks like data rather than an error.");
     }
 
     [Test]
