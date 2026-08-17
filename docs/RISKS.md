@@ -5921,3 +5921,39 @@ and the ambient reconstruction from `utils/vrad/leaf_ambient_lighting.cpp`, both
 checked against the SDK. What is known to DIVERGE: brush entities take an ambient cube where the
 engine lightmaps them. What is untested: whether the result matches the game on screen, which needs a
 side-by-side against a reference capture rather than a screenshot of ours alone.
+
+### B101 — a moving player plays the BACKWARD run, and three pose-parameter divergences — OPEN
+
+**Owner's observation:** "as long as they are moving they are running backwards according to the
+animation, but if they sit still, they do properly stand".
+
+The standing half is the useful part of that: activity selection works. `PlayerActivityState` picks
+stand and run correctly and the sequence resolves per class — demo 94, medic 60, soldier 150,
+scout 175 on cp_process. So this is not the activity, it is which cell of the run's blend grid the
+pose parameters select.
+
+**Three divergences are confirmed from `CMultiPlayerAnimState::ComputePoseParam_MoveYaw`, and none of
+them explains the reversal**, so there is a fourth thing and it is not yet identified. Recorded
+separately because each is independently a defect:
+
+1. **The box push-out is missing.** Valve divides both components by `MAX(|x|,|y|)` — commented
+   "push edges out to -1 to 1 box" — so a diagonal becomes a full-magnitude corner. Without it a
+   player running at 45° reads 0.707 on each axis and the corner animations are never reached.
+2. **The speed scaling is missing.** `if (flMaxSpeed > flSpeed) { x *= flSpeed/flMaxSpeed; ... }`,
+   which is why a player easing along animates slower than one at full sprint. Ours are always full
+   magnitude.
+3. **The snap is applied unconditionally and should be conditional.** `SnapYawTo` runs only
+   `if ( mp_slammoveyaw.GetBool() )`, and that cvar is declared
+   `ConVar mp_slammoveyaw( "mp_slammoveyaw", "0", FCVAR_REPLICATED | FCVAR_DEVELOPMENTONLY, ... )` —
+   default **off**, and development-only. This project's comment on the snap says it "is not a
+   rounding convenience", which is true of what it does and wrong about whether TF2 uses it.
+
+**What to measure next, and it has to be a measurement rather than another reading.** For a player
+whose heading matches their body yaw — running dead forward — log `move_x`, `move_y`, the normalised
+parameter, the blend cell chosen, and the authored movement of that cell from
+`mstudioseqdesc_t.movementindex`. The authored movement is the ground truth: it says which way the
+animation actually travels, so comparing it against the direction the player is moving settles
+whether the inversion is in the parameter, in the normalisation, or in the grid's cell order.
+
+Guessing was tried and produced three plausible candidates that all turned out to be real but
+irrelevant, which is the signal to stop reading and start measuring.
