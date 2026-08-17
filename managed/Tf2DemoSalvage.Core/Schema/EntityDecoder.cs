@@ -826,6 +826,66 @@ public sealed class EntityDecoder
         return decoded;
     }
 
+    /// <summary>
+    /// An entity's full state: its class baseline overlaid with what the snapshot sent.
+    /// </summary>
+    /// <param name="entity">The decoded entity.</param>
+    /// <returns>
+    /// The merged properties for an entering entity, ordered by flattened index; the entity's
+    /// own properties unchanged for every other update type, and whenever its class has no
+    /// baseline.
+    /// </returns>
+    /// <remarks>
+    /// **An entity entering the PVS is a delta against its class baseline, not against zero**, so
+    /// everything equal to the baseline is omitted from the wire. The engine does this in
+    /// <c>CL_CopyNewEntity</c>, which fetches the instance baseline and applies the incoming
+    /// update on top of it; a client that skipped the first half would hold a partly-zero entity.
+    ///
+    /// This is separate from <see cref="DecodedEntity.Properties"/> rather than folded into it,
+    /// and the reason is the assembler. `Properties` is what the bitstream actually carried, and
+    /// re-encoding it has to reproduce the original bits — merging baseline values into it would
+    /// make the writer emit properties the server never sent, so a demo would not survive a round
+    /// trip. One member is wire-faithful, the other is state-faithful, and the two questions are
+    /// genuinely different.
+    ///
+    /// **Ordered by flattened index because that is the order the wire uses**, so a merged list
+    /// reads the same way an unmerged one does and a delta value replaces the baseline value at
+    /// the same position rather than being appended after it.
+    /// </remarks>
+    public IReadOnlyList<DecodedProperty> EffectiveProperties(DecodedEntity entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+
+        if (entity.UpdateType != EntityUpdateType.Enter)
+        {
+            return entity.Properties;
+        }
+
+        IReadOnlyList<DecodedProperty>? baseline = Baseline(entity.ClassId);
+
+        // Null and empty are treated alike here, unlike in Baseline itself: for this question
+        // "no baseline" and "a baseline that sets nothing" produce the same merged state.
+        if (baseline is null || baseline.Count == 0)
+        {
+            return entity.Properties;
+        }
+
+        SortedDictionary<int, DecodedProperty> merged = [];
+
+        foreach (DecodedProperty property in baseline)
+        {
+            merged[property.Index] = property;
+        }
+
+        // Second, so the snapshot wins wherever it spoke. That direction is the whole mechanism.
+        foreach (DecodedProperty property in entity.Properties)
+        {
+            merged[property.Index] = property;
+        }
+
+        return [.. merged.Values];
+    }
+
     /// <summary>The flattened property list a class's updates index into.</summary>
     /// <param name="classId">The networked class.</param>
     /// <returns>Its properties, in the order the wire numbers them.</returns>
