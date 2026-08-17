@@ -57,9 +57,17 @@ public sealed class RetainedPropertyTests
 
         retained[AnimatingTable].ShouldBe(
             [
-                "m_nSequence", "m_nBody", "m_flCycle", "m_flPlaybackRate",
+                "m_nSequence", "m_nBody", "m_flPlaybackRate",
                 "m_flModelScale", "m_nSkin",
             ],
             ignoreOrder: true);
+
+        // **m_flCycle is NOT on this table**, and pinning it here was this project asserting its
+        // own mistake. baseanimating.cpp:223 puts it in a sub-table of its own, under the comment
+        // "Sendtable for fields we don't want to send to clientside animating entities" — so a door
+        // sends its cycle and a player, which calls UseClientSideAnimation, never does. Measured on
+        // a real demo: 97 DT_ServerAnimationData.m_flCycle and no DT_BaseAnimating.m_flCycle.
+        retained.ShouldContainKey("DT_ServerAnimationData");
+        retained["DT_ServerAnimationData"].ShouldBe(["m_flCycle"]);
     }
 }

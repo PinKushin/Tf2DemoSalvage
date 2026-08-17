@@ -6077,3 +6077,60 @@ currently falsify.
 
 The three divergences recorded above are still real and still unfixed; they change magnitudes and
 diagonals, not direction. They are now the whole of what is left in B101's original list.
+
+### B103 — two properties were looked for in the wrong send table, and both were silent — RESOLVED
+
+**Found by asking why B100's crouching never worked**, then by writing the conformance test that
+would have caught it. A qualified key is `Table.Property`, and a property name that is real in the
+WRONG table matches nothing at all — while looking entirely correct.
+
+**`m_fFlags` was looked for in `DT_LocalPlayerExclusive`.** It is declared in `DT_BasePlayer`
+(`player.cpp:8183`), with no exclusivity and `SPROP_CHANGES_OFTEN`:
+
+```cpp
+IMPLEMENT_SERVERCLASS_ST( CBasePlayer, DT_BasePlayer )
+    ...
+    SendPropInt ( SENDINFO(m_fFlags), 0, SPROP_UNSIGNED|SPROP_CHANGES_OFTEN ),
+```
+
+So `Flags` answered null for **every player in every demo**, the activity state machine took its
+"nothing said, assume on the ground" branch forever, and nobody has ever crouched or jumped in the
+viewer — the owner's "everyone is still just running all the time". A trace of a POV demo carries
+119 `DT_BasePlayer.m_fFlags` and not one occurrence of the name being searched for.
+
+The comment beside the constant cited `player.cpp:8183` — the correct line — while stating the wrong
+table and adding an invented consequence: "for the recorder alone in a POV one". A citation attached
+to a guess reads exactly like a citation attached to a measurement. `LifeState()` in the same file
+already read from `DT_BasePlayer` with a comment saying why, so two accessors on one entity
+disagreed about where a player's own state lives. Both now share a constant.
+
+**`m_flCycle` was looked for in `DT_BaseAnimating`.** It is in a sub-table
+(`baseanimating.cpp:223`), and Valve's comment above it explains who receives it:
+
+```cpp
+// Sendtable for fields we don't want to send to clientside animating entities
+BEGIN_SEND_TABLE_NOBASE( CBaseAnimating, DT_ServerAnimationData )
+    SendPropFloat (SENDINFO(m_flCycle), ANIMATION_CYCLE_BITS, ...)
+END_SEND_TABLE()
+```
+
+A door or a moving platform sends its cycle; a player never does, because `CTFPlayer` calls
+`UseClientSideAnimation()` (`tf_player.cpp:949`) and the client advances it. Measured: 97
+`DT_ServerAnimationData.m_flCycle`, zero `DT_BaseAnimating.m_flCycle`.
+
+**Why the existing conformance test could not catch either.** `SendPropConformanceTests` checks that
+each name appears in SOME send table anywhere in the SDK, which is deliberate — this project decodes
+generically, so a name is legitimate if any class sends it. But it uses the table only in its error
+message. `SendTableConformanceTests` now parses each `IMPLEMENT_SERVERCLASS_ST` /
+`BEGIN_SEND_TABLE` block to its `END_SEND_TABLE()` and checks the PAIR. It found the `m_flCycle`
+mismatch immediately, which is the whole argument for it: one of the two defects was found by
+reasoning and the other by the instrument.
+
+**The instrument needed a control and failed it first.** The initial scan found zero send tables, for
+two independent reasons at once — `SourceSdk.Files` defaults to the top folder only and `src/game`
+has no `.cpp` there, and it returns absolute paths while `SourceSdk.Text` takes one relative to the
+checkout. Both produce the same empty result, and without the control asserting that the scan finds
+`DT_BasePlayer.m_fFlags` the whole test would have reported a clean sweep of nothing.
+
+Two fixtures asserted the old table and were changed rather than worked around: they were this
+project pinning its own mistake.

@@ -70,7 +70,7 @@ public sealed class EntityModelTests
         // c_baseanimating.cpp networks all three (lines 173, 152, 186).
         EntityState entity = State(
             Property("DT_BaseAnimating", "m_nSequence", PropertyValue.FromInt(7)),
-            Property("DT_BaseAnimating", "m_flCycle", PropertyValue.FromFloat(0.25f)),
+            Property("DT_ServerAnimationData", "m_flCycle", PropertyValue.FromFloat(0.25f)),
             Property("DT_BaseAnimating", "m_flPlaybackRate", PropertyValue.FromFloat(1.5f)));
 
         entity.AnimationSequence().ShouldBe(7);
