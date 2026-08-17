@@ -358,8 +358,40 @@ Three lessons, in increasing order of how much they cost:
    lengths, and the same `+4`. That pattern was visible in the corpus the whole time and was
    never looked for, because each era was investigated on its own.
 3. **TF2 demos contain haptics traffic.** The server sends these to every client regardless of
-   whether anyone owns a Falcon, so they are in ordinary recordings. Nothing in the SDK's TF2
-   game code hints at it — the block lives in the haptics module.
+   whether anyone owns a Falcon, so they are in ordinary recordings.
+
+> **Correction, 2026-08-16.** Point 3 continued "Nothing in the SDK's TF2 game code hints at it — the
+> block lives in the haptics module", and that is wrong. **The SDK declares the whole block**, in
+> `src/public/haptics/haptic_msgs.cpp`:
+>
+> ```c
+> void RegisterHapticMessages(void)
+> {
+> 	usermessages->Register( "SPHapWeapEvent", 4 );
+> 	usermessages->Register( "HapDmg", -1 );
+> 	usermessages->Register( "HapPunch", -1 );
+> 	usermessages->Register( "HapSetDrag", -1 );
+> 	usermessages->Register( "HapSetConst", -1 );
+> 	usermessages->Register( "HapMeleeContact", 0);
+> }
+> ```
+>
+> Six messages, the same order, and the same sizes this project reconstructed by scanning binaries —
+> `SPHapWeapEvent` 4, four variable-length, `HapMeleeContact` 0. `HapSetDrag` being fourth, which is
+> where the `+4` comes from, is readable straight off that list. There is even a TF2-specific
+> `game/client/tf/c_tf_haptics.cpp`, so the narrower reading "not in TF2's game code" does not hold
+> either.
+>
+> **The reconstruction was right, and that is the point.** Binary scanning produced exactly what the
+> source states, which is a good check on the method — but the source was there the whole time, and
+> `Register` gives each message's SIZE, which is the expensive part to recover any other way.
+>
+> **Fourth instance in this project of an absence being recorded as a fact.** The others: TF2's game
+> code "is not public" (1,318 files), `$modblend` needing a decompiler (three shipped VMTs answer
+> it), and `moveparent` "will never appear in a SENDINFO" (it appears in a `SENDINFO_NAME`). Every
+> one was a search that came back empty, read as evidence about the format rather than about the
+> search. Here the search was for the word in TF2's game directory, and the file is one level up in
+> `public/`.
 
 ### The id table shifts within protocol 24, and now we know exactly how
 
