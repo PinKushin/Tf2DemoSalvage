@@ -64,6 +64,7 @@
 - [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first, then the ordinary tests, then code; SDK, then the Rust parser, then a decompiler.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs; not the same "surf" as SURF_* texinfo flags.
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions that sound like facts about the format are usually facts about your parser.
+- [An empty search needs a control](an-empty-search-needs-a-control.md) — five absence claims here were facts about the grep; put a positive control in the same sweep before believing a zero.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument; search the SDK for the string, and `m_flValue` travels as a float's bits named `m_iRawValue32`.
 - [Shipped data is a source](shipped-data-is-a-source.md) — VMTs and .res files answered two questions filed as needing a decompiler; `$modblend` is dead, read only by a commented-out proxy.
 - [TF2's game code is in the SDK](tf2-game-code-is-in-the-sdk.md) — 1,318 files including the HUD, player conditions and econ schema; "TF2 is closed" was written in three places and checked in none.
