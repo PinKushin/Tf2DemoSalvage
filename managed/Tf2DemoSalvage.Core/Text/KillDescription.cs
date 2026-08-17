@@ -75,6 +75,86 @@ public static class KillDescription
         (0x0400, "australium"),
     ];
 
+    /// <summary>Damage bits worth naming, with TF2's meanings where it overrides the engine's.</summary>
+    /// <remarks>
+    /// **TF2 aliases thirteen engine bits to different meanings** (`tf_shareddefs.h:1162-1175`), so
+    /// the base-game names are wrong in a TF2 demo. `DMG_CRITICAL` is `DMG_ACID`,
+    /// `DMG_USE_HITLOCATIONS` is `DMG_AIRBOAT`, `DMG_MELEE` is `DMG_BLAST_SURFACE`, `DMG_IGNITE` is
+    /// `DMG_PLASMA`. A decoder using the engine's names prints "acid" and "airboat" for an ordinary
+    /// critical headshot.
+    ///
+    /// **Two aliases are genuinely ambiguous and keep the engine meaning here.**
+    /// `DMG_IGNORE_MAXHEALTH` is `DMG_BULLET` and `DMG_IGNORE_DEBUFFS` is `DMG_SLASH`, so bit 1
+    /// means both "shot" and "ignore max health" with nothing in the word to separate them. The
+    /// damage KIND is the useful half for a reader; the modifier is not recoverable from this field
+    /// alone, so it is not guessed at.
+    /// </remarks>
+    private static readonly (int Bit, string Name)[] DamageNames =
+    [
+        (1 << 0, "crush"),
+        (1 << 1, "bullet"),
+        (1 << 2, "slash"),
+        (1 << 3, "burn"),
+        (1 << 5, "fall"),
+        (1 << 6, "blast"),
+        (1 << 7, "club"),
+        (1 << 8, "shock"),
+        (1 << 10, "radius max"),
+        (1 << 14, "drown"),
+        (1 << 17, "no close distance mod"),
+        (1 << 18, "half falloff"),
+        (1 << 20, "critical"),
+        (1 << 21, "use distance mod"),
+        (1 << 24, "ignite"),
+        (1 << 25, "hit locations"),
+        (1 << 26, "not counted toward crit rate"),
+        (1 << 27, "melee"),
+        (1 << 28, "direct"),
+        (1 << 29, "buckshot"),
+    ];
+
+    /// <summary>Describes the damage word on a death or hurt event.</summary>
+    /// <param name="damageBits">The event's <c>damagebits</c> field.</param>
+    /// <returns>A comma-separated list of the bits set, or <c>null</c> when none are.</returns>
+    /// <remarks>
+    /// Named in TF2's terms, not the engine's — see <see cref="DamageNames"/>. Unknown bits are
+    /// reported as their mask so a future flag is visible rather than dropped.
+    /// </remarks>
+    public static string? DamageTypes(int damageBits)
+    {
+        if (damageBits == 0)
+        {
+            return null;
+        }
+
+        StringBuilder described = new();
+        int remaining = damageBits;
+
+        foreach ((int bit, string name) in DamageNames)
+        {
+            if ((damageBits & bit) == 0)
+            {
+                continue;
+            }
+
+            Append(described, name);
+            remaining &= ~bit;
+        }
+
+        for (int bit = 1; bit != 0 && remaining != 0; bit <<= 1)
+        {
+            if ((remaining & bit) == 0)
+            {
+                continue;
+            }
+
+            Append(described, string.Create(CultureInfo.InvariantCulture, $"bit 0x{bit:X8}"));
+            remaining &= ~bit;
+        }
+
+        return described.ToString();
+    }
+
     /// <summary>Describes how a kill was made, when it was anything but ordinary.</summary>
     /// <param name="customKill">The event's <c>customkill</c> field.</param>
     /// <returns>
