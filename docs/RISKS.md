@@ -5270,7 +5270,44 @@ exactly as much as no finding.
 timing failure should be reported as a distinct outcome from a thrown exception. Both would have
 made this a two-minute diagnosis instead of a day and a half.
 
-### B92 — two rockets in one slot share a track, because the model is the discriminator — OPEN
+### B92 RESOLVED — the model was the discriminator, and it was wrong in both directions
+
+**Fixed and measured on 2026-08-16.** Identity is now the serial number, which is the engine's own
+rule and the one `EntityStateTable` already applied a few files away.
+
+**The measurement, on `z1800.dem`, by swapping the discriminator and rebuilding:**
+
+| Rule | Tracks | Slots holding more than one track |
+|---|---:|---:|
+| No identity check at all | 784 | 179 |
+| **Model path (shipped until today)** | **907** | 190 |
+| **Serial number (now)** | **849** | 216 |
+
+**Read those two rows together, because they confirm the prediction in both directions at once.**
+
+- **The model rule missed handovers.** Serial finds 216 slots that changed occupant; model found 190.
+  Twenty-six slots changed hands without changing model — two rockets, two of the same prop — and
+  their positions were appended to the previous occupant's track.
+- **The model rule invented splits.** It produced 907 tracks against identity's 849, so **58 tracks
+  were one object cut in half** by a model change that never changed the object.
+  `team_control_point.cpp:569` calls `SetModel` on every capture, and players change model on every
+  class change.
+
+So the shipped behaviour both merged distinct objects and shattered single ones, which is what
+"a proxy that disagrees with real identity in both directions" means concretely.
+
+**A test I wrote for this could not fail, and I caught it by sabotage.** `CorpusTrackIdentityTests`
+asserted that some slot held more than one track — but tracks are also removed on a Delete update, so
+that holds whether or not the identity check works. Disabling `Continues` entirely left it green. It
+is deleted rather than repaired: a corpus assertion sensitive to this needs to compare two
+implementations in one run, and a weak one that looks like coverage is worse than none. The rule is
+covered by four unit tests on `ScenePropTrack.Continues`; the table above is the evidence that it
+matters.
+
+That happened minutes after auditing the suite for exactly this failure, which is the honest measure
+of how easy it is.
+
+### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — OPEN
 
 **Found by auditing tests that assert a policy**, after a roster test was discovered certifying a
 real bug. This is the same shape in a different file, and it is still live.
