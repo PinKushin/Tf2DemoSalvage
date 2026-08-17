@@ -2607,6 +2607,9 @@ internal class MainForm : Form
     /// <summary>The key-release filter, kept so it can be removed on shutdown.</summary>
     private KeyReleaseFilter? _keyReleases;
 
+    /// <summary>The longest frame since the rate was last reported, in seconds.</summary>
+    private double _longestFrameSeconds;
+
     /// <summary>Whether either Shift key is down, for the speed multiplier.</summary>
     /// <remarks>
     /// Read from <see cref="Control.ModifierKeys"/> rather than tracked, because Shift alone is not
@@ -2784,10 +2787,51 @@ internal class MainForm : Form
             return;
         }
 
-        ViewerLog.Write("render", $"{_framesDrawn / elapsed:0.#} frames a second");
+        // **The worst frame, not just the average, because jitter is a spread and a mean hides
+        // it.** Flying the camera used to re-project the whole map every frame (B98); the average
+        // barely moved while the longest frame in each second grew enormously, which is exactly
+        // what stutter is. A rate on its own could not have shown that, and did not.
+        ViewerLog.Write(
+            "render",
+            $"{_framesDrawn / elapsed:0.#} frames a second, " +
+            $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
+            (_transport.Playing ? ", playing" : ", paused") +
+            (_freeLook && _heldKeys.Count > 0 ? ", flying" : string.Empty));
 
         _framesDrawn = 0;
         _rateReportedAt = now;
+        _longestFrameSeconds = 0d;
+    }
+
+    /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
+    /// <remarks>
+    /// **Sixty-four bytes, where telling the device the camera moved used to cost a projection of
+    /// the whole map** (B98). The `SetCamera` call lived inside <see cref="ProjectMap"/>, so the
+    /// only way to update the view was to re-project every map segment and every surface triangle
+    /// into screen space for the top-down overlay — which the free view does not draw.
+    ///
+    /// Affordable while the camera moved once per keystroke; the frame budget once it flew. The
+    /// tell was that flight stayed smooth while the demo was paused and stuttered while it played,
+    /// because playback's per-frame scene rebuild was competing for the same milliseconds.
+    ///
+    /// **Safe to use instead of a full rebuild in the FREE view only**, and each half of that was
+    /// checked rather than assumed. The world's vertices are in map coordinates and only the view
+    /// changes (D21). The 3D models are world-space too, placed by their own matrices. And the
+    /// screen-space scene points are a map-view fallback drawn only for players with no model, so
+    /// they are empty in any modern demo and are projected through the top-down camera anyway. The
+    /// map view still rebuilds, because there everything IS projected to screen space.
+    /// </remarks>
+    private void UploadCamera()
+    {
+        if (_device is null || !_device.HasWorld)
+        {
+            return;
+        }
+
+        _device.SetCamera(
+            _freeLook ? FreeLookCamera().ToMatrix() : MapCamera().ToMatrix(),
+            _surfaceColours.Checked,
+            _heightCut);
     }
 
     /// <summary>Flies the camera by however long the last frame took.</summary>
@@ -2801,6 +2845,9 @@ internal class MainForm : Form
     {
         double seconds = _flyWatch.IsRunning ? _flyWatch.Elapsed.TotalSeconds : 0d;
         _flyWatch.Restart();
+
+        // Every frame's duration passes through here, so this is where the worst one is noticed.
+        _longestFrameSeconds = Math.Max(_longestFrameSeconds, Math.Min(seconds, MaximumFrameSeconds));
 
         if (!_freeLook || _heldKeys.Count == 0)
         {
@@ -2823,11 +2870,9 @@ internal class MainForm : Form
 
         _freeOrigin = (where.X + moved.X, where.Y + moved.Y, where.Z + moved.Z);
 
-        // **Costly, and knowingly so — see B98.** This re-projects the whole map into screen space
-        // every frame the camera moves, because the view matrix upload lives inside ProjectMap. It
-        // was invisible while the camera moved once per keystroke and is the frame budget now that
-        // it flies, which shows as stutter during playback and smooth flight while paused.
-        _worldIsStale = true;
+        // The view, and nothing else. Flight only happens in the free camera, where the map's
+        // screen-space projection is not what is being drawn (B98).
+        UploadCamera();
     }
 
     private void RenderFrame()
