@@ -72,3 +72,4 @@
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale .cfg read makes a correct fix look failed; type the single cvar, and only `ultra` is a reference profile.
 - [POV demos are PVS-limited](pov-demos-are-pvs-limited.md) — 16 props against SourceTV's 94; missing props imitate a regression exactly, so verify rendering on an STV demo.
 - [Nothing is closed](nothing-is-closed.md) — the ambient blend was published in vrad all along; check SDK, shipped data, then a decompiler before ever writing "unavailable".
+- [Death is EF_NODRAW, not an animation](death-is-ef-nodraw-not-an-animation.md) — TF2 never animates a dying player; the corpse is a separate CTFRagdoll entity.
