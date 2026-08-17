@@ -5702,3 +5702,56 @@ Entities are now drawn 0.1 s behind the tick asked for, because that is where a 
 demo's own recorded view origin is not: it is taken at the tick. Whether the two should agree has not
 been settled, and the honest answer needs a side-by-side against the game rather than reasoning —
 which B97 currently prevents.
+
+### B97 RESOLVED — the free camera moved on key auto-repeat, not on the frame
+
+**Owner's description: "single clicks that repeat, like typing in notepad".** Movement happened once
+per `WM_KEYDOWN`, so Windows' auto-repeat decided how the camera flew — nothing for the repeat delay,
+then fixed jumps at the repeat rate, and never two directions at once because auto-repeat reports only
+the last key held. The code knew: a comment beside it read *"Held keys arrive here as auto-repeat,
+which is coarse; smooth movement wants the frame tick and is worth doing once the view has earned its
+keep."*
+
+Now a held-key set feeds `FreeFlight.Movement`, which integrates against the frame time. Speed is
+600 units a second (Shift ×4) instead of 32 units a press; diagonals work and are normalised, so a
+diagonal is not faster than a straight line; and distance no longer depends on the machine's keyboard
+settings or the frame rate.
+
+**It shipped broken once, and the reason is worth keeping.** The key-up handler went into the form's
+`WndProc`, which never sees it: key messages go to the FOCUSED window and the viewport panel takes
+focus — the same reason the Escape handling sits where it does, in a comment a few hundred lines
+above the new code. `ProcessCmdKey` works for key down only because WinForms walks it up the parent
+chain; there is no equivalent for key up. So every key stayed held for ever, and pressing the opposite
+direction cancelled to a standstill rather than reversing. A thread-wide `IMessageFilter` sees
+releases before dispatch, so focus stops mattering.
+
+**None of `FreeFlight`'s eleven tests could have caught that**, and they all passed against the broken
+camera: the defect was in what FILLS the held set, not in what the movement computes. Same shape as
+the wiring no-ops recorded elsewhere here.
+
+**Valve settles the design question, in the opposite direction from polling.**
+`public/tier0/protected_things.h` redirects `GetAsyncKeyState`, `GetKeyState` and `ReadConsoleInput`
+to `__USE_VCR_MODE` names that will not link — banned outright, because VCR mode records and replays
+input deterministically and polled global state is not reproducible. So the engine reads keys from the
+message queue, which is what this now does. Raw input is the legitimate step beyond that, and Source
+uses it for the MOUSE (`m_rawinput`), where it bypasses pointer acceleration.
+
+### B98 — flying the camera re-projects the whole map every frame — OPEN, caused by B97
+
+**Owner's observation: flight is smooth while the demo is paused and jittery while it plays.** That
+split is the diagnosis. The view matrix upload lives INSIDE `ProjectMap`, so the only way to tell the
+device the camera moved is to re-project every map segment and every surface triangle into screen
+space for the top-down overlay — which the free view does not even draw.
+
+Moving the camera once per keystroke made that affordable. Flying it every frame makes it the frame
+budget, and during playback it competes with the per-frame scene rebuild, so frame times spike and
+vary. Paused, it is the only work and stays even.
+
+**The fix is to separate the two**, and the geometry already allows it: the world's vertices are in
+map coordinates and only the view changes (D21), so a camera move is sixty-four bytes rather than a
+projection. Extract the `SetCamera` call from `ProjectMap` and have flight call that alone.
+
+One thing to check before taking it: `ReprojectScene` is gated on the same `_worldIsStale` flag and
+scene points are stored in SCREEN space. Whether they are drawn in the free view decides whether
+flight may skip that too, or must keep it and skip only the map projection. Not yet established, and
+guessing it wrong freezes the overlay instead of the map.

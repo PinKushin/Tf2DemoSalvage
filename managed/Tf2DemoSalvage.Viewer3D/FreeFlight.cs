@@ -1,0 +1,113 @@
+using System;
+using System.Collections.Generic;
+using System.Windows.Forms;
+
+namespace Tf2DemoSalvage.Viewer3D;
+
+/// <summary>
+/// Turns the set of held keys and a frame's duration into a camera movement.
+/// </summary>
+/// <remarks>
+/// **Movement per frame, not per keystroke, and the difference is the defect this replaces (B97).**
+/// The free camera used to move once per <c>WM_KEYDOWN</c>, which means Windows' auto-repeat decided
+/// how it flew: nothing for the repeat delay, then a fixed jump at the repeat rate, and never two
+/// directions at once because auto-repeat only ever reports the last key. The owner's description was
+/// "single clicks that repeat, like typing in notepad".
+///
+/// Three things follow from integrating instead, and only the first is the bug report:
+///
+/// - motion starts the moment a key goes down and is smooth for as long as it is held;
+/// - diagonals work, because every held key contributes;
+/// - speed is in units per SECOND, so it no longer depends on the machine's keyboard settings or
+///   on the frame rate.
+///
+/// **Separated from the form so it can be tested.** The movement is a pure function of held keys,
+/// elapsed time and the camera's angles; leaving it inside a message handler made it reachable only
+/// by driving a real window.
+/// </remarks>
+internal static class FreeFlight
+{
+    /// <summary>World units per second the camera flies.</summary>
+    /// <remarks>
+    /// **A speed now, where it used to be a distance per keypress.** The old 32 units per press at
+    /// Windows' default repeat rate of about 31 a second is a little over 900 units a second, and a
+    /// player runs at 300 — so matching the old feel exactly would be three times a scout's sprint.
+    /// 600 is fast enough to cross cp_process without waiting and slow enough to line up a shot,
+    /// and Shift still quadruples it.
+    /// </remarks>
+    public const float SpeedPerSecond = 600f;
+
+    /// <summary>How much faster Shift flies.</summary>
+    public const float ShiftMultiplier = 4f;
+
+    /// <summary>Whether a key contributes to flight, so the caller knows to track it.</summary>
+    /// <param name="key">The key, without modifiers.</param>
+    /// <returns>Whether it is a flight key.</returns>
+    public static bool IsFlightKey(Keys key) =>
+        key is Keys.W or Keys.S or Keys.A or Keys.D or Keys.Space or
+            Keys.ControlKey or Keys.LControlKey or Keys.RControlKey;
+
+    /// <summary>The camera's movement for one frame.</summary>
+    /// <param name="held">Keys currently down.</param>
+    /// <param name="seconds">How long the frame lasted.</param>
+    /// <param name="pitch">Camera pitch in degrees.</param>
+    /// <param name="yaw">Camera yaw in degrees.</param>
+    /// <param name="fast">Whether Shift is held.</param>
+    /// <returns>The world-space movement, zero when nothing is held.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="held"/> is null.</exception>
+    /// <remarks>
+    /// **Up and down are along the WORLD's up axis, not the camera's**, which is what every editor
+    /// does: rising along a pitched view drifts sideways and reads as broken. Forward and right come
+    /// from <c>AngleVectors</c>, the same pair the camera itself builds.
+    ///
+    /// The direction is normalised, so holding W and A is not faster than holding W alone — the
+    /// mistake that makes diagonal movement quicker in a lot of homemade cameras.
+    /// </remarks>
+    public static (float X, float Y, float Z) Movement(
+        IReadOnlySet<Keys> held, double seconds, float pitch, float yaw, bool fast)
+    {
+        ArgumentNullException.ThrowIfNull(held);
+
+        if (held.Count == 0 || seconds <= 0)
+        {
+            return (0f, 0f, 0f);
+        }
+
+        float forwardInput = (held.Contains(Keys.W) ? 1f : 0f) - (held.Contains(Keys.S) ? 1f : 0f);
+        float rightInput = (held.Contains(Keys.D) ? 1f : 0f) - (held.Contains(Keys.A) ? 1f : 0f);
+
+        bool down = held.Contains(Keys.ControlKey) ||
+                    held.Contains(Keys.LControlKey) ||
+                    held.Contains(Keys.RControlKey);
+
+        float upInput = (held.Contains(Keys.Space) ? 1f : 0f) - (down ? 1f : 0f);
+
+        if (forwardInput == 0f && rightInput == 0f && upInput == 0f)
+        {
+            return (0f, 0f, 0f);
+        }
+
+        (float sinPitch, float cosPitch) = MathF.SinCos(pitch * (MathF.PI / 180f));
+        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * (MathF.PI / 180f));
+
+        (float X, float Y, float Z) forward = (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+        (float X, float Y, float Z) right = (sinYaw, -cosYaw, 0f);
+
+        float x = (forward.X * forwardInput) + (right.X * rightInput);
+        float y = (forward.Y * forwardInput) + (right.Y * rightInput);
+        float z = (forward.Z * forwardInput) + (right.Z * rightInput) + upInput;
+
+        float length = MathF.Sqrt((x * x) + (y * y) + (z * z));
+
+        if (length <= 0f)
+        {
+            // Opposed keys cancelling exactly, which is a held W and S rather than an error.
+            return (0f, 0f, 0f);
+        }
+
+        float travel = (float)(SpeedPerSecond * (fast ? ShiftMultiplier : 1f) * seconds);
+        float scale = travel / length;
+
+        return (x * scale, y * scale, z * scale);
+    }
+}
