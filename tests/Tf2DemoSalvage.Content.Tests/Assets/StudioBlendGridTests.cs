@@ -23,6 +23,17 @@ public sealed class StudioBlendGridTests
     private static IReadOnlyList<StudioPoseParameter> Parameters() =>
         [new("move_x", -1f, 1f, 0f), new("move_y", -1f, 1f, 0f)];
 
+    /// <summary>
+    /// A group whose own parameter order is already the shared one, so no translation happens.
+    /// </summary>
+    /// <remarks>
+    /// These tests are about the grid arithmetic, and a one-group model genuinely has an identity
+    /// <c>masterPose</c>. The translation itself is measured in
+    /// <see cref="StudioPoseParameterMergeTests"/>, where the two lists differ — which is the only
+    /// condition under which it can be wrong.
+    /// </remarks>
+    private static readonly int[] Identity = [0, 1];
+
     /// <summary>The parameters as the engine stores them: normalised to zero-to-one.</summary>
     private static float[] Stored(float moveX, float moveY) =>
     [
@@ -38,7 +49,7 @@ public sealed class StudioBlendGridTests
         // answer is the LAST gap fully traversed rather than a cell past the end.
         StudioBlendGrid grid = Movement();
 
-        (int index, float setting) = grid.Locate(0, Parameters(), Stored(1f, 0f));
+        (int index, float setting) = grid.Locate(0, Parameters(), Stored(1f, 0f), Identity);
 
         index.ShouldBe(1);
         setting.ShouldBe(1f, 1e-5f);
@@ -51,7 +62,7 @@ public sealed class StudioBlendGridTests
         // same for both ends, and running backwards is exactly the case the owner reported.
         StudioBlendGrid grid = Movement();
 
-        (int index, float setting) = grid.Locate(0, Parameters(), Stored(-1f, 0f));
+        (int index, float setting) = grid.Locate(0, Parameters(), Stored(-1f, 0f), Identity);
 
         index.ShouldBe(0);
         setting.ShouldBe(0f, 1e-5f);
@@ -62,7 +73,7 @@ public sealed class StudioBlendGridTests
     {
         StudioBlendGrid grid = Movement();
 
-        (int index, float setting) = grid.Locate(0, Parameters(), Stored(0f, 0f));
+        (int index, float setting) = grid.Locate(0, Parameters(), Stored(0f, 0f), Identity);
 
         // Halfway along a two-gap axis is the start of the second gap.
         index.ShouldBe(1);
@@ -76,7 +87,7 @@ public sealed class StudioBlendGridTests
         // parameter that is not there would index off the end of the model's list.
         StudioBlendGrid grid = new(3, 1, [0, 1, 2], 0, -1, -1f, 1f, 0f, 0f);
 
-        grid.Locate(1, Parameters(), Stored(1f, 1f)).ShouldBe((0, 0f));
+        grid.Locate(1, Parameters(), Stored(1f, 1f), Identity).ShouldBe((0, 0f));
     }
 
     [Test]

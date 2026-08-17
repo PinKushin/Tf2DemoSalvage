@@ -559,6 +559,15 @@ internal static class PropModels
 
             StudioSequenceTable table = StudioSequenceTable.Merge(groups);
 
+            // **One pose parameter list across the base model and everything it includes.** A
+            // player model declares two of its own; move_x and move_y arrive with the animation
+            // model, and a sequence's paramindex is local to whichever group owns it. Built here
+            // from groupModels because that list is already in group order with the base first,
+            // which is the order the engine merges in.
+            (IReadOnlyList<StudioPoseParameter> sharedPose, IReadOnlyList<IReadOnlyList<int>> masterPose) =
+                StudioPoseParameterMerge.Merge(
+                    [.. groupModels.Select(file => StudioSequences.PoseParameters(file))]);
+
             List<int> sequenceAnimation = [.. sequences.Select(sequence => sequence.Animation)];
             List<bool> sequenceLoops = [.. sequences.Select(sequence => sequence.Loops)];
             // **Looping animations get the budget first.** A loop is the one that plays
@@ -886,7 +895,8 @@ internal static class PropModels
                             groupModels,
                             table,
                             groups,
-                            StudioSequences.PoseParameters(modelFile))
+                            sharedPose,
+                            masterPose)
                         : null,
                     IlluminationOf(modelFile),
                     byFamily,
@@ -1036,7 +1046,16 @@ internal static class PropModels
     /// <param name="Models">The base model and every animation model it includes, in group order.</param>
     /// <param name="Sequences">The merged sequence table a networked sequence number indexes.</param>
     /// <param name="Groups">Each group's own sequences, for resolving a merged number back.</param>
-    /// <param name="PoseParameters">The model's pose parameters, which its blend grids index.</param>
+    /// <param name="PoseParameters">
+    /// The SHARED pose parameters — the base model's merged with every included model's, as a
+    /// virtual model builds them. A player model declares only <c>body_pitch</c> and
+    /// <c>body_yaw</c>; <c>move_x</c> and <c>move_y</c> arrive with the animation model.
+    /// </param>
+    /// <param name="MasterPose">
+    /// Per group, the map from that group's own pose parameter indices into
+    /// <paramref name="PoseParameters"/>. A sequence's <c>paramindex</c> is local to its group, so
+    /// this is what makes it mean anything against the shared list.
+    /// </param>
     /// <remarks>
     /// **One copy of the geometry and a pose per draw.** Baking trades memory for draw cost and
     /// only pays while the frame count is small: a health pack is one animation of thirty frames,
@@ -1059,7 +1078,8 @@ internal static class PropModels
         IReadOnlyList<byte[]> Models,
         StudioSequenceTable Sequences,
         IReadOnlyList<(int Group, IReadOnlyList<StudioSequence> Sequences)> Groups,
-        IReadOnlyList<StudioPoseParameter> PoseParameters)
+        IReadOnlyList<StudioPoseParameter> PoseParameters,
+        IReadOnlyList<IReadOnlyList<int>> MasterPose)
     {
         /// <summary>The bone matrices for one sequence at one frame.</summary>
         /// <param name="sequence">The merged sequence number, as a demo would network it.</param>
@@ -1125,8 +1145,15 @@ internal static class PropModels
                 return StudioBones.Posed(Bones, PoseOf(where.Group, chosen.Animation, frame));
             }
 
-            (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues);
-            (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues);
+            // The owning group's map, because paramindex is local to it. An unknown group gets an
+            // empty map rather than the base model's, which would silently read the wrong parameter
+            // instead of reading none.
+            IReadOnlyList<int> map = where.Group >= 0 && where.Group < MasterPose.Count
+                ? MasterPose[where.Group]
+                : [];
+
+            (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues, map);
+            (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues, map);
 
             (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
 
