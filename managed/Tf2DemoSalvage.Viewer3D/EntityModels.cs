@@ -132,6 +132,17 @@ internal sealed class EntityModelSet
     /// <summary>The height each brush entity was last reported at, so movement can be logged.</summary>
     private readonly Dictionary<int, float> _brushHeight = [];
 
+    /// <summary>
+    /// Stopwatch ticks spent lighting models, accumulated until the caller resets it.
+    /// </summary>
+    /// <remarks>
+    /// **Posing owns about nine hundred milliseconds of every second** (B99), and it does two
+    /// different jobs — bone matrices and lighting. This separates them, because the fix differs:
+    /// bones are per-frame work an animation genuinely needs, while a stationary model's lighting
+    /// cannot have changed since the last frame and is being recomputed anyway.
+    /// </remarks>
+    public long LightingTicks { get; set; }
+
     private static bool IsUnlit(AmbientCube cube) =>
         cube.PositiveX == (0f, 0f, 0f) &&
         cube.NegativeX == (0f, 0f, 0f) &&
@@ -655,9 +666,13 @@ internal sealed class EntityModelSet
             // direction in the world.
             (float lightX, float lightY, float lightZ) = IlluminationPoint(prop, pose);
 
+            long litAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
             AmbientCube light = lightAt is null
                 ? default
                 : lightAt(lightX, lightY, lightZ);
+
+            LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
 
             // **A model lit by nothing draws black, and that is worth saying out loud.** The cube
             // comes from the leaf a model stands in, and a player's origin is at its FEET - so a
