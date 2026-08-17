@@ -97,7 +97,11 @@ public sealed class PlayerCompletenessTests
         // Crouched and off the ground at once, so IsCrouched and IsAirborne are BOTH distinctive —
         // this test reads derived properties too, and a value that leaves either at its default is
         // one the test above cannot measure.
-        Flags: PlayerActivityState.Ducking);
+        Flags: PlayerActivityState.Ducking,
+
+        // False, because the default is true. A player the engine would not draw is the unusual
+        // case and therefore the measurable one.
+        Drawn: false);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

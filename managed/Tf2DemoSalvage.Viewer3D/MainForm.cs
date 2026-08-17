@@ -1404,7 +1404,7 @@ internal class MainForm : Form
     /// working, which hid whether the models were there at all.
     /// </remarks>
     private string? PlayerModel(ScenePlayer player) =>
-        player.IsPlaying && player.PlayerClass is { } playerClass
+        player.IsPlaying && player.Drawn && player.PlayerClass is { } playerClass
             ? _classModels?.Model(playerClass)
             : null;
 
@@ -1906,8 +1906,15 @@ internal class MainForm : Form
                     speed,
                     prop.Pose.Flags,
 
-                    // A dead player is drawn by its ragdoll rather than by an activity, so anything
-                    // reaching here is alive as far as the animation is concerned.
+                    // **True because the dead never reach here, not because death is ignored.**
+                    // PlayerModel refuses a player the engine would not draw, and TF2 turns a dead
+                    // player off with EF_NODRAW while a separate CTFRagdoll becomes the corpse.
+                    //
+                    // This comment previously claimed a ragdoll was already doing that job, which
+                    // was false in both directions: nothing here draws ragdolls, and dead players
+                    // WERE reaching this call. With their ground flag clear they were then given
+                    // ACT_MP_JUMP_FLOAT, so seventeen seconds of a respawn drew a soldier falling
+                    // through the air.
                     alive: true) is var chosen and >= 0)
             {
                 _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
@@ -2016,7 +2023,13 @@ internal class MainForm : Form
             // **Spectators and the SourceTV camera are CTFPlayer entities too**, with real
             // positions that follow the action - so drawing everything puts convincing dots on the
             // map where nobody is standing.
-            if (!player.IsPlaying)
+            //
+            // **The dead are skipped here for the same reason, and the marker pass is where that
+            // is easiest to get wrong.** A player the engine would not draw has no model, and the
+            // rule below is "no model means a dot" - so removing dead players from the model pass
+            // alone would have turned every corpse into a marker gliding around the map behind
+            // whoever it was spectating, which is the same defect in a cheaper primitive.
+            if (!player.IsPlaying || !player.Drawn)
             {
                 continue;
             }
