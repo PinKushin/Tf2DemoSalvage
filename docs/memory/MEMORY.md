@@ -64,6 +64,7 @@
 - [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first, then the ordinary tests, then code; SDK, then the Rust parser, then a decompiler.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs; not the same "surf" as SURF_* texinfo flags.
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions that sound like facts about the format are usually facts about your parser.
+- [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — three no-ops shipped with a green suite; one assertion on the rendered artefact is the only test that catches wiring.
 - [An empty search needs a control](an-empty-search-needs-a-control.md) — five absence claims here were facts about the grep; put a positive control in the same sweep before believing a zero.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument; search the SDK for the string, and `m_flValue` travels as a float's bits named `m_iRawValue32`.
 - [Shipped data is a source](shipped-data-is-a-source.md) — VMTs and .res files answered two questions filed as needing a decompiler; `$modblend` is dead, read only by a commented-out proxy.

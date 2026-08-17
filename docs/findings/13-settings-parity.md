@@ -66,3 +66,12 @@ detail, anisotropic filtering on, bumpmaps and specular on, no motion blur, and 
 **The one that is already wrong to default to TF2's own value is `fps_max`.** A demo viewer scrubbing
 a timeline wants frames as fast as it can make them; a game wants a stable cap. Ours has no cap and
 that is right, but it should still be settable.
+
+**Measured on the owner's machine, 2026-08-16: TF2 itself runs uncapped without trouble.** Their
+config sets no `fps_max` at all, and the game returns roughly **600 fps in most places and close to
+1000 in some**. Worth recording because "Source needs a cap around 300" is widely repeated, and it
+did not hold here — the reference captures this project compares against were taken on an uncapped
+client.
+
+That also disposes of a worry this section might otherwise raise: an uncapped game and an uncapped
+viewer are the same condition, so frame rate is not a variable between a capture and our output.
