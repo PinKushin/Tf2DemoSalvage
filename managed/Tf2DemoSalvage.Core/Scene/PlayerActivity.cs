@@ -147,24 +147,53 @@ public static class PlayerActivityState
         return moving ? PlayerActivity.Run : PlayerActivity.StandIdle;
     }
 
+    /// <summary>
+    /// The weapon slot an activity is suffixed with, when the demo does not say which is out.
+    /// </summary>
+    /// <remarks>
+    /// **Every activity a model claims is weapon-suffixed, which is measured and was a surprise.**
+    /// A scout ships <c>ACT_MP_RUN_PRIMARY</c>, <c>ACT_MP_RUN_SECONDARY</c>, <c>ACT_MP_RUN_MELEE</c>
+    /// and more; the bare <c>ACT_MP_RUN</c> that <c>CalcMainActivity</c> returns appears nowhere in a
+    /// model. <c>CTFPlayerAnimState::TranslateActivity</c> is what adds the suffix, which is why that
+    /// step exists rather than being an optimisation.
+    ///
+    /// The primary slot is assumed because <c>m_hActiveWeapon</c> is not decoded yet, and every class
+    /// has the primary forms so the name always resolves. It is the same assumption the earlier
+    /// guess-the-label code made, now for a stated reason instead of by accident.
+    /// </remarks>
+    public const string DefaultWeaponSlot = "PRIMARY";
+
     /// <summary>The engine's name for an activity, which is what a model file stores.</summary>
     /// <param name="activity">The activity.</param>
-    /// <returns>Its <c>ACT_MP_</c> name.</returns>
+    /// <param name="weaponSlot">Which weapon slot to suffix with.</param>
+    /// <returns>Its <c>ACT_MP_</c> name, as a model spells it.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The activity is not one of the known values.</exception>
     /// <remarks>
-    /// Thrown rather than defaulted for an unknown value: a silently wrong activity name resolves
-    /// to no sequence and freezes the model in its reference pose, which reads as a model bug.
+    /// **Measured against a real model rather than composed from the enum.** The naming is not
+    /// regular: standing is <c>ACT_MP_STAND_PRIMARY</c> rather than <c>STAND_IDLE</c>, crouching
+    /// idle is <c>ACT_MP_CROUCH_PRIMARY</c> with no IDLE at all, and a jump is three activities —
+    /// start, float and land — so there is no single name for it.
+    ///
+    /// Thrown rather than defaulted for an unknown value: a wrong activity name resolves to no
+    /// sequence and freezes the model in its reference pose, which reads as a model fault rather
+    /// than a lookup one.
     /// </remarks>
-    public static string NameOf(PlayerActivity activity) => activity switch
-    {
-        PlayerActivity.StandIdle => "ACT_MP_STAND_IDLE",
-        PlayerActivity.Run => "ACT_MP_RUN",
-        PlayerActivity.CrouchIdle => "ACT_MP_CROUCH_IDLE",
-        PlayerActivity.CrouchWalk => "ACT_MP_CROUCHWALK",
-        PlayerActivity.Jump => "ACT_MP_JUMP",
-        PlayerActivity.SwimIdle => "ACT_MP_SWIM_IDLE",
-        PlayerActivity.Swim => "ACT_MP_SWIM",
-        PlayerActivity.Die => "ACT_MP_DIE",
-        _ => throw new ArgumentOutOfRangeException(nameof(activity)),
-    };
+    public static string NameOf(PlayerActivity activity, string weaponSlot = DefaultWeaponSlot) =>
+        activity switch
+        {
+            PlayerActivity.StandIdle => $"ACT_MP_STAND_{weaponSlot}",
+            PlayerActivity.Run => $"ACT_MP_RUN_{weaponSlot}",
+            PlayerActivity.CrouchIdle => $"ACT_MP_CROUCH_{weaponSlot}",
+            PlayerActivity.CrouchWalk => $"ACT_MP_CROUCHWALK_{weaponSlot}",
+
+            // The float rather than the start, because a demo gives no moment of leaving the ground
+            // — only that the player is airborne, which is what the float describes. The start and
+            // the land need sub-state this project does not derive (B100).
+            PlayerActivity.Jump => $"ACT_MP_JUMP_FLOAT_{weaponSlot}",
+
+            PlayerActivity.SwimIdle => $"ACT_MP_SWIM_{weaponSlot}",
+            PlayerActivity.Swim => $"ACT_MP_SWIM_{weaponSlot}",
+            PlayerActivity.Die => "ACT_DIESIMPLE",
+            _ => throw new ArgumentOutOfRangeException(nameof(activity)),
+        };
 }

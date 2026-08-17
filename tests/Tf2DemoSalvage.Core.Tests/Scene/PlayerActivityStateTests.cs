@@ -149,12 +149,21 @@ public sealed class PlayerActivityStateTests
         // loadtime to game DLL values", so a model file stores the activity's NAME rather than its
         // number — matching on the name is how a sequence is found, and a typo here resolves to
         // nothing and freezes the model in its reference pose.
-        PlayerActivityState.NameOf(PlayerActivity.StandIdle).ShouldBe("ACT_MP_STAND_IDLE");
-        PlayerActivityState.NameOf(PlayerActivity.Run).ShouldBe("ACT_MP_RUN");
-        PlayerActivityState.NameOf(PlayerActivity.CrouchIdle).ShouldBe("ACT_MP_CROUCH_IDLE");
-        PlayerActivityState.NameOf(PlayerActivity.CrouchWalk).ShouldBe("ACT_MP_CROUCHWALK");
-        PlayerActivityState.NameOf(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP");
-        PlayerActivityState.NameOf(PlayerActivity.Die).ShouldBe("ACT_MP_DIE");
+        // **Weapon-suffixed, because that is what a model actually ships.** The bare ACT_MP_RUN that
+        // CalcMainActivity returns appears in no model at all; TranslateActivity adds the slot. That
+        // is measured against the scout in SequenceActivityTests rather than assumed here.
+        //
+        // The naming is also irregular, so every one of these is taken from the model rather than
+        // composed from the enum: standing is STAND and not STAND_IDLE, crouching idle is CROUCH
+        // with no IDLE, and a jump has no single name — start, float and land are three activities.
+        PlayerActivityState.NameOf(PlayerActivity.StandIdle).ShouldBe("ACT_MP_STAND_PRIMARY");
+        PlayerActivityState.NameOf(PlayerActivity.Run).ShouldBe("ACT_MP_RUN_PRIMARY");
+        PlayerActivityState.NameOf(PlayerActivity.CrouchIdle).ShouldBe("ACT_MP_CROUCH_PRIMARY");
+        PlayerActivityState.NameOf(PlayerActivity.CrouchWalk).ShouldBe("ACT_MP_CROUCHWALK_PRIMARY");
+        PlayerActivityState.NameOf(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP_FLOAT_PRIMARY");
+
+        // Another slot, to show the suffix is a parameter rather than baked in.
+        PlayerActivityState.NameOf(PlayerActivity.Run, "MELEE").ShouldBe("ACT_MP_RUN_MELEE");
     }
 
     [Test]

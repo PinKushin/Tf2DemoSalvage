@@ -174,6 +174,15 @@ public sealed class StudioStructTests
 
         sequence.Offset("szlabelindex").ShouldBe(StudioLayout.SequenceLabelOffset);
         sequence.Offset("flags").ShouldBe(StudioLayout.SequenceFlagsOffset);
+
+        // **The activity pair, derived rather than counted by hand.** These sit between two fields
+        // this test already pins, so a wrong offset here would read the label pointer or the flags
+        // as an activity name — a plausible-looking string index that resolves to the wrong text,
+        // or a number where a string was wanted. Neither would throw.
+        sequence.Offset("szactivitynameindex")
+            .ShouldBe(StudioLayout.SequenceActivityNameOffset);
+
+        sequence.Offset("actweight").ShouldBe(StudioLayout.SequenceActivityWeightOffset);
         sequence.Offset("animindexindex").ShouldBe(StudioLayout.SequenceAnimationIndexOffset);
         sequence.Offset("groupsize").ShouldBe(StudioLayout.SequenceGroupSizeOffset);
         sequence.Offset("paramindex").ShouldBe(StudioLayout.SequenceParameterIndexOffset);

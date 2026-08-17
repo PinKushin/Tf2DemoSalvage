@@ -1300,6 +1300,61 @@ internal static class PropModels
             return -1;
         }
 
+        /// <summary>The sequence an activity selects, or −1 when the model claims none.</summary>
+        /// <param name="activity">The activity's name, as <c>ACT_MP_RUN</c>.</param>
+        /// <returns>A merged sequence number, or −1.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="activity"/> is null.</exception>
+        /// <remarks>
+        /// **This is how the engine finds an animation, and matching sequence LABELS was not.**
+        /// `mstudioseqdesc_t` carries both a label and an activity name, and
+        /// <c>SelectWeightedSequence</c> works from the activity: the label is a human name for one
+        /// sequence, while the activity is the question the game asks. Selecting by label meant
+        /// guessing that a class named its running animation <c>run_PRIMARY</c>, which is true for
+        /// TF2's player models by convention and is not what makes the engine find it.
+        ///
+        /// **Weighted, because several sequences answer to one activity.** Valve picks among them in
+        /// proportion to <c>actweight</c>, so a model with three idle variants does not always show
+        /// the first. This takes the HIGHEST weight rather than sampling at random: a demo has to
+        /// replay the same way twice, and a random pick would make a screenshot unreproducible and a
+        /// test flaky by design. Recorded as a deliberate divergence rather than parity.
+        ///
+        /// A weight of zero is never chosen even when the activity name matches, which is Valve's
+        /// rule and the reason the comparison is strictly greater than zero.
+        /// </remarks>
+        public int ForActivity(string activity)
+        {
+            ArgumentNullException.ThrowIfNull(activity);
+
+            int best = -1;
+            int bestWeight = 0;
+
+            for (int sequence = 0; sequence < Sequences.Count; sequence++)
+            {
+                if (Sequences.At(sequence) is not { } where ||
+                    where.Group >= Groups.Count ||
+                    where.Local >= Groups[where.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                StudioSequence candidate = Groups[where.Group].Sequences[where.Local];
+
+                if (candidate.ActivityWeight <= 0 ||
+                    !string.Equals(candidate.Activity, activity, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (candidate.ActivityWeight > bestWeight)
+                {
+                    bestWeight = candidate.ActivityWeight;
+                    best = sequence;
+                }
+            }
+
+            return best;
+        }
+
         /// <summary>How fast the animation behind a sequence advances, in cycles a second.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Cycles a second, or zero when it does not animate.</returns>

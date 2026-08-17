@@ -10,9 +10,23 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Animation">The local animation it plays, for a sequence with no blending.</param>
 /// <param name="Flags">Its flags, of which looping is the one that matters here.</param>
 /// <param name="Label">Its name, which is what several models' sequences are merged by.</param>
+/// <param name="Activity">
+/// The activity it answers to, as a name — <c>ACT_MP_RUN</c> and the like. Empty for a sequence that
+/// claims no activity, which is most of a weapon model's.
+/// </param>
+/// <param name="ActivityWeight">
+/// How strongly it claims that activity. Several sequences may share one, and the engine's
+/// <c>SelectWeightedSequence</c> picks between them in proportion to this; a weight of zero is never
+/// chosen even though the name is present.
+/// </param>
 /// <param name="Blend">The grid of animations it blends between, or null for a plain sequence.</param>
 public readonly record struct StudioSequence(
-    int Animation, int Flags, string Label = "", StudioBlendGrid? Blend = null)
+    int Animation,
+    int Flags,
+    string Label = "",
+    StudioBlendGrid? Blend = null,
+    string Activity = "",
+    int ActivityWeight = 0)
 {
     /// <summary>Whether the sequence loops.</summary>
     /// <remarks>
@@ -113,7 +127,20 @@ public static class StudioSequences
                 flags,
                 StudioStrings.At(
                     bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceLabelOffset..])),
-                GridOf(bytes, sequence, table, groupX, groupY)));
+                GridOf(bytes, sequence, table, groupX, groupY),
+
+                // **The activity's NAME, because the number beside it is not in the file.**
+                // studio.h annotates mstudioseqdesc_t.activity "initialized at loadtime to game DLL
+                // values", so a model ships szactivitynameindex -- ACT_MP_RUN and the like -- and the
+                // game resolves it against its own enum. Reading the number would be reading a slot
+                // the compiler left blank for the engine.
+                StudioStrings.At(
+                    bytes,
+                    start + BinaryPrimitives.ReadInt32LittleEndian(
+                        sequence[SequenceActivityNameOffset..])),
+
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    sequence[SequenceActivityWeightOffset..])));
         }
 
         return sequences;
