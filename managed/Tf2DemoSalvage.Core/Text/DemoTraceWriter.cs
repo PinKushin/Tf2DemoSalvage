@@ -197,10 +197,33 @@ public static class DemoTraceWriter
             if (message is CreateStringTableMessage createdTable)
             {
                 soundNames.Add(createdTable);
+
+                // **An entity ENTER is a delta against its class baseline, not against zero.**
+                // Without this the trace decoded every entity from nothing, so any property the
+                // map sets once at init and never resends was simply missing from the dump:
+                // m_iNumControlPoints, m_vCPPositions, m_bCPIsVisible and the rest, absent from
+                // 782 MB of cp_process trace while the same entity's gameplay properties appeared
+                // hundreds of times.
+                //
+                // Applied inside the message loop rather than in a pre-pass, because the table
+                // must be recorded before the snapshot that relies on it and both can share a
+                // packet. DemoTimeline has always done this; only the trace did not.
+                if (entities is not null && createdTable.Name == BaselineBuilder.TableName)
+                {
+                    BaselineBuilder.Apply(createdTable.Entries, entities);
+                }
             }
             else if (message is UpdateStringTableMessage updatedTable)
             {
                 soundNames.Add(updatedTable, state.StringTableName(updatedTable.TableId));
+
+                // Updates name their table only by id, so the id is resolved through the decode
+                // state exactly as the sound path above does.
+                if (entities is not null &&
+                    state.StringTableName(updatedTable.TableId) == BaselineBuilder.TableName)
+                {
+                    BaselineBuilder.Apply(updatedTable.Entries, entities);
+                }
             }
 
             if (message is PacketEntitiesMessage snapshot && entities is not null &&
@@ -444,12 +467,18 @@ public static class DemoTraceWriter
         {
             string kind = entity.UpdateType.ToString().ToUpperInvariant();
 
-            if (!options.IncludeEntityProperties || entity.Properties.Count == 0)
+            // **The state, not the bits.** An entering entity is a delta against its class
+            // baseline, so its own property list omits everything the baseline already said. A
+            // trace that printed only that list described the packet correctly and the entity
+            // wrongly - which is how every map-init property went missing from the dump.
+            IReadOnlyList<DecodedProperty> properties = entities.EffectiveProperties(entity);
+
+            if (!options.IncludeEntityProperties || properties.Count == 0)
             {
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"        entity {entity.EntityIndex} {kind} class {Named(entities, entity.ClassId)} " +
-                    $"props {entity.Properties.Count};"));
+                    $"props {properties.Count};"));
                 continue;
             }
 
@@ -457,7 +486,7 @@ public static class DemoTraceWriter
                 CultureInfo.InvariantCulture,
                 $"        entity {entity.EntityIndex} {kind} class {Named(entities, entity.ClassId)} {{"));
 
-            foreach (DecodedProperty property in entity.Properties)
+            foreach (DecodedProperty property in properties)
             {
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
