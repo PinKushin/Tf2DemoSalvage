@@ -2714,12 +2714,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
         return view;
     }
 
+    /// <summary>Anisotropy asked of the sampler, matching the reference capture config.</summary>
+    /// <remarks>
+    /// <c>mat_forceaniso 16</c> in the owner's ultra profile, which is what the screenshots this
+    /// project compares against were taken with. D3D11's maximum is 16, so this is both the game's
+    /// setting and the hardware ceiling.
+    /// </remarks>
+    private const uint MaxAnisotropy = 16;
+
     private static ComPtr<ID3D11SamplerState> Sampler(
         ComPtr<ID3D11Device> device, TextureAddressMode address)
     {
+        // **Anisotropic, because the reference captures are.** The owner's ultra config sets
+        // `mat_forceaniso 16`, and this was `MinMagMipLinear` with no anisotropy — so every surface
+        // seen at an angle, which is most of a floor or a wall from a free camera, was blurrier here
+        // than in the screenshots this project compares itself against. A parity gap in our own
+        // disfavour, and cheap.
+        //
+        // **Sixteen is the ceiling worth asking for**, and matching the config exactly is the point:
+        // a comparison is only meaningful when the two sides were told to do the same thing.
+        //
+        // No `MipLODBias`. A negative bias sharpens distant surfaces and aliases them, and TF2 does
+        // not apply one — sharper than the game is as wrong as blurrier when the goal is parity.
+        //
+        // The related question of going BELOW `mat_picmip -1` has an answer and it is no: a VTF's
+        // LOD resource caps size at `(1 << m_ResolutionClamp)` and picmip subtracts from that
+        // exponent, while the texture's own mip 0 is a hard ceiling. There is no detail past mip 0
+        // to ask for.
         SamplerDesc description = new()
         {
-            Filter = Filter.MinMagMipLinear,
+            Filter = Filter.Anisotropic,
+            MaxAnisotropy = MaxAnisotropy,
             AddressU = address,
             AddressV = address,
             AddressW = address,

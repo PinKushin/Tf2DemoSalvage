@@ -205,6 +205,32 @@ allowed to refuse exclusive; exclusive is the lower-latency path and the owner's
 Still wanted: viewer resolution, and export format (JSON or the Quake-style assembly script). No
 options dialog yet; the list is here so the shell keeps room for one.
 
+### Beyond TF2's own quality (owner-stated, 2026-08-16)
+
+**Upsample the textures and models so the viewer can look better than the game.** Recorded as a
+roadmap item, not started.
+
+**It does not begin until parity is reached — owner-stated, and it is a gate rather than a
+preference.** The reason is measurement, not discipline: this project checks itself by comparing its
+output against captures of the real game, and every difference is currently a defect to explain.
+Turn on a feature that changes every pixel by design and that instrument stops working — a wrong
+shader and an intentional improvement become the same observation. Parity first buys a baseline that
+says the remaining differences are ours.
+
+Two further things worth stating now rather than later:
+
+- **The ceiling this clears is real.** `mat_picmip -1` is TF2's maximum and going below it does
+  nothing — a VTF's mip 0 is a hard ceiling, so no setting recovers detail the file does not contain.
+  Upsampling is the only route past that, because it manufactures detail rather than requesting it.
+- **It must be switchable, and that rule already exists.** `findings/13-settings-parity.md` says any
+  "better than TF2" feature needs a switch the parity path turns off, because this project validates
+  itself against screenshots of the real game. An upsampled render compared against a TF2 capture
+  would differ everywhere, and the difference would be the feature rather than a defect.
+
+Nearest thing already done: anisotropic filtering, added 2026-08-16 — but that is **parity, not
+improvement**. The sampler had none while the reference config sets `mat_forceaniso 16`, so it was
+closing a gap in our own disfavour rather than exceeding the game.
+
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
