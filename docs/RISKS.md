@@ -5504,6 +5504,32 @@ Explanation 3 is the control and has to be excluded first, because it is the one
 wrong. The demo's own `m_vecOrigin` for that entity over time answers it without any rendering
 involved: dump the track and read whether Z falls.
 
+**Measured 2026-08-17. All three excluded, and the result is a contradiction rather than a cause.**
+
+* **The demo says up.** Every moving brush entity on cp_process rests at its lowest Z and rises.
+  A mapper's downward gate would rest at its highest.
+* **The geometry is placed correctly.** Submodel 80 compiles -64 to 80 about its own origin — an
+  origin brush at the shutter's centre, 144 units tall against 145 units of travel. With a resting
+  origin of 640 that is 576..720 closed and 721..865 open, which is `origin + vertex` working.
+* **Nothing sits at world zero.** A brush entity that never received `m_vecOrigin` would default to
+  (0,0,0), which is floor level near the middle of the map and an exact match for the symptom. No
+  brush track has a keyframe there.
+
+**And the contradiction: only THREE brush entities move in the whole demo**, at (-4132,-1084),
+(-4234,-1732) and (4234,1732) — X of ±4132 puts all three at the map's extremes, which are the spawn
+room doors. The owner's shutter is on the sewers side of second, near (-625,-1702); the nearest brush
+entity in their view direction is `*70 #140` at (-454,-1856,776), and it is not in the moving set.
+
+Two instrument explanations were proposed for that and both are wrong, recorded so they are not
+retried: tracks split on SERIAL NUMBER, and a serial does not change when an entity leaves and
+re-enters the PVS — only when the slot is reused — so PVS churn does not fragment a door's track. And
+the per-entity placement log reports each entity once, but the timeline measurement behind the
+"three" figure reads every keyframe and is not deduplicated.
+
+So either the shutter moves by something other than `m_vecOrigin`, or what was seen was not that
+entity. **What would settle it: the tick.** With a tick and the map position, the track for whatever
+occupies that spot can be read directly.
+
 ### D-lighting — brush entities are to be lit the way the engine lights them
 
 **Owner's decision, stated plainly:** the lighting should be done as Valve does it. Brush entities are

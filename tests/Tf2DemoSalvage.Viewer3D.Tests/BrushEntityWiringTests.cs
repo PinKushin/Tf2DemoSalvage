@@ -62,11 +62,21 @@ public sealed class BrushEntityWiringTests
         {
             BspModel gate = models[index];
 
-            // Compiled about its own origin means a Z range straddling zero, not one sitting at
-            // the 640 the demo reports. If these come back near 640 the vertices are world-space
-            // and adding the networked origin doubles the height.
-            gate.Minimum.Z.ShouldBeLessThan(320f);
-            gate.Maximum.Z.ShouldBeLessThan(320f);
+            // **Compiled about its own origin, which is what "relative" means here.** Submodel 80
+            // measures -64 to 80: 144 units tall, straddling zero, matching the 145 units the demo
+            // says it travels. That is an origin brush placed at the shutter's centre, and with a
+            // resting origin of 640 it puts the shutter at 576..720 and lifts it to 721..865.
+            //
+            // A previous version of this assertion demanded the minimum be non-negative, on a guess
+            // that a negative one would hang the shutter below its frame. Straddling zero is
+            // ordinary for a centred origin brush, so that was a hypothesis written as a test —
+            // and it failed against correct data. What actually distinguishes relative from absolute
+            // is magnitude, not sign: world-space vertices here would read near 640.
+            Math.Abs(gate.Minimum.Z).ShouldBeLessThan(
+                320f,
+                $"submodel {index} spans {gate.Minimum.Z:0} to {gate.Maximum.Z:0}");
+
+            Math.Abs(gate.Maximum.Z).ShouldBeLessThan(320f);
         }
     }
 
