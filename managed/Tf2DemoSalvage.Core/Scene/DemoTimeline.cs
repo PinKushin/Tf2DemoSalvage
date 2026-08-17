@@ -22,6 +22,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="LifeState">0 alive, 1 dying, 2 dead; absent means alive.</param>
 /// <param name="MoveX">The <c>move_x</c> pose parameter: how much of the motion is forward.</param>
 /// <param name="MoveY">The <c>move_y</c> pose parameter: how much of it is sideways.</param>
+/// <param name="Flags">
+/// The player's <c>m_fFlags</c>, carrying the crouch and ground bits, or <c>null</c> when the
+/// recording did not say. Declared in <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for
+/// the recorder alone while a SourceTV recording carries it for every player.
+/// </param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -41,8 +46,32 @@ public readonly record struct ScenePlayer(
     float Speed = 0f,
     int? LifeState = null,
     float MoveX = 0f,
-    float MoveY = 0f)
+    float MoveY = 0f,
+    int? Flags = null)
 {
+    /// <summary>Whether the player is crouched, when the recording says.</summary>
+    /// <remarks>
+    /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
+    /// recorder in a POV demo — a SourceTV recording carries them for all of them. So this answers
+    /// false for "not crouched" and for "not known" alike, and a caller that needs to tell them
+    /// apart must look at <see cref="Flags"/> itself.
+    ///
+    /// **Written as a null check rather than as a masked comparison, because the obvious form is
+    /// wrong.** <c>(Flags &amp; Ducking) != 0</c> lifts to a nullable comparison, and in C# a null
+    /// compared with <c>!=</c> to zero is TRUE — so every player whose flags never arrived read as
+    /// permanently crouched. Caught by the completeness test that checks each property differs from
+    /// its default, which is the one place that shape shows up as a value rather than as a crash.
+    /// </remarks>
+    public bool IsCrouched =>
+        Flags is { } ducking && (ducking & PlayerActivityState.Ducking) != 0;
+
+    /// <summary>Whether the player is off the ground, when the recording says.</summary>
+    /// <remarks>
+    /// <c>FL_ONGROUND</c> absent. Null flags answer false rather than true, deliberately: an
+    /// unknown state should draw a player standing on the floor rather than permanently falling.
+    /// </remarks>
+    public bool IsAirborne => Flags is { } flags && (flags & PlayerActivityState.OnGround) == 0;
+
     /// <summary>Whether this is someone actually playing, rather than watching.</summary>
     /// <remarks>
     /// **The distinction a map view has to make.** Team 0 is unassigned and team 1 is spectator;
@@ -423,7 +452,11 @@ public sealed class DemoTimeline
                     resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
                     resource?.Integer($"m_iPlayerClass.{slot}"),
                     LifeState: life,
-                    Yaw: facing));
+                    Yaw: facing,
+
+                    // Null on a POV demo for everyone but the recorder, because the send prop is in
+                    // DT_LocalPlayerExclusive; a SourceTV recording carries it for every player.
+                    Flags: player.Flags()));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a

@@ -1858,6 +1858,11 @@ internal class MainForm : Form
                     // that failed rather than one that ran too early.
                     Speed = player.Speed,
 
+                    // **The crouch and ground bits, for choosing an activity.** Carried on the pose
+                    // because the model has not been read yet and the activity lookup needs it, so
+                    // the choice happens in a second pass below.
+                    Flags = player.Flags,
+
                     // **Which way the legs run.** A movement sequence is a blend grid and these
                     // are its coordinates; without them the grid's corner is taken, which is one
                     // fixed direction regardless of facing.
@@ -1896,7 +1901,14 @@ internal class MainForm : Form
             SceneProp prop = _drawn[index];
 
             if (prop.Pose.Speed is { } speed &&
-                _models.SequenceFor(prop.ModelPath, speed) is var chosen and >= 0)
+                _models.SequenceFor(
+                    prop.ModelPath,
+                    speed,
+                    prop.Pose.Flags,
+
+                    // A dead player is drawn by its ragdoll rather than by an activity, so anything
+                    // reaching here is alive as far as the animation is concerned.
+                    alive: true) is var chosen and >= 0)
             {
                 _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }

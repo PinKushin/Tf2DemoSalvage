@@ -92,7 +92,12 @@ public sealed class PlayerCompletenessTests
         Speed: 320f,
         LifeState: 2,
         MoveX: 0.5f,
-        MoveY: -0.5f);
+        MoveY: -0.5f,
+
+        // Crouched and off the ground at once, so IsCrouched and IsAirborne are BOTH distinctive —
+        // this test reads derived properties too, and a value that leaves either at its default is
+        // one the test above cannot measure.
+        Flags: PlayerActivityState.Ducking);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

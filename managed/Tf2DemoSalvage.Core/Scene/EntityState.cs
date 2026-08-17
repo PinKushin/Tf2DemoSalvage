@@ -49,6 +49,7 @@ public sealed class EntityState
                 SequenceProperty, BodyProperty, CycleProperty, PlaybackRateProperty,
                 ModelScaleProperty, SkinProperty,
             ],
+            [PlayerTable] = [FlagsProperty],
         };
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
@@ -131,6 +132,17 @@ public sealed class EntityState
     /// reported it.
     /// </remarks>
     private const string SkinProperty = "m_nSkin";
+
+    /// <summary>Where a player's engine flags arrive.</summary>
+    /// <remarks>
+    /// <c>DT_LocalPlayerExclusive</c> is the table the send prop is declared in
+    /// (<c>player.cpp:8183</c>), and the name survives flattening, so that is what a demo's schema
+    /// calls it — for every player in a SourceTV recording, and for the recorder alone in a POV one.
+    /// </remarks>
+    private const string PlayerTable = "DT_LocalPlayerExclusive";
+
+    /// <summary>The engine flag word, carrying the crouch and ground bits.</summary>
+    private const string FlagsProperty = "m_fFlags";
 
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
@@ -387,6 +399,29 @@ public sealed class EntityState
     /// who had not died yet.
     /// </remarks>
     public int? LifeState() => Integer("DT_BasePlayer.m_lifeState");
+
+    /// <summary>The player's engine flags, when they were sent.</summary>
+    /// <returns><c>m_fFlags</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **What a player's animation has to be computed FROM, because none of it is sent.**
+    /// <c>tf_player.cpp:771</c> excludes <c>m_nSequence</c> from a player's send table, along with
+    /// <c>m_flCycle</c>, <c>m_flPoseParameter</c>, <c>m_flPlaybackRate</c> and <c>m_nBody</c> — the
+    /// client computes the whole lot. Measured on a real match: across 13 player entities,
+    /// <c>m_nSequence</c> appears zero times while <c>m_fFlags</c> appears on all thirteen.
+    ///
+    /// **Which recordings carry it, and this is the part worth knowing.** The send prop lives in
+    /// <c>DT_LocalPlayerExclusive</c> (<c>player.cpp:8183</c>), so a live client receives it for
+    /// itself alone — and a POV demo therefore carries it only for the recorder. A SourceTV
+    /// recording carries it for EVERY player, because an HLTV client is sent the full snapshot
+    /// rather than a per-client filtered one; the director has to be able to cut to anybody.
+    ///
+    /// So a caller must handle absence rather than assume: on a POV demo this is null for every
+    /// player but one, and the animation falls back to what speed alone can say.
+    ///
+    /// Bits from <c>const.h</c>: <c>FL_ONGROUND</c> 1, <c>FL_DUCKING</c> 2, <c>FL_ANIMDUCKING</c> 4,
+    /// <c>FL_INWATER</c> 512.
+    /// </remarks>
+    public int? Flags() => Integer($"{PlayerTable}.{FlagsProperty}");
 
     /// <summary>How far through its animation the entity is, from 0 to 1.</summary>
     /// <returns>The cycle, or <c>null</c> when the entity does not animate.</returns>

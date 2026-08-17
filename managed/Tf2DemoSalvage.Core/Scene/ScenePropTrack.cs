@@ -113,6 +113,23 @@ public readonly record struct ScenePose
     /// </remarks>
     public float? Speed { get; init; }
 
+    /// <summary>
+    /// A player's <c>m_fFlags</c>, for choosing an activity, or null when nothing said.
+    /// </summary>
+    /// <remarks>
+    /// **Carried on the pose because the choice cannot be made where the flags are known.** A player
+    /// becomes a prop before its model has been read, and the activity lookup needs the model — so
+    /// the two happen in separate passes and the flags have to travel between them.
+    ///
+    /// Discrete, like <see cref="Body"/> and <see cref="Hidden"/>: there is no halfway between
+    /// crouched and standing, so an interpolated pose takes the earlier keyframe's value rather than
+    /// blending toward the next.
+    ///
+    /// Null for every player but the recorder in a POV demo, since the send prop is in
+    /// <c>DT_LocalPlayerExclusive</c>; a SourceTV recording carries it for all of them.
+    /// </remarks>
+    public int? Flags { get; init; }
+
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
     /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
@@ -550,6 +567,14 @@ public sealed class ScenePropTrack
             // between keyframes would look like an animation that speeds up whenever the viewer
             // scrubs, which is a symptom nobody would trace back to here.
             PlaybackRate = from.PlaybackRate,
+
+            // **Fifth field on this list, and added deliberately rather than after a symptom.** Yaw,
+            // Body, Skin and PlaybackRate were each forgotten here first and each defaulted to a
+            // legitimate value, so nothing could report the loss. Flags defaulting to null would
+            // read as "the recording never said" and quietly stand every crouching player up.
+            //
+            // Discrete: there is no halfway between crouched and standing.
+            Flags = from.Flags,
         };
     }
 

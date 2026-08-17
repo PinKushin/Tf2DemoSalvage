@@ -165,6 +165,28 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>flags</c>: <c>STUDIO_LOOPING</c> and the rest.</summary>
     public const int SequenceFlagsOffset = 12;
 
+    /// <summary>
+    /// Where <c>mstudioseqdesc_t.szactivitynameindex</c> sits: the activity's NAME.
+    /// </summary>
+    /// <remarks>
+    /// **The name is the lookup, and the number beside it is useless in a file.** <c>studio.h</c>
+    /// annotates the following <c>activity</c> field "initialized at loadtime to game DLL values",
+    /// so what a model ships is this string — <c>ACT_MP_RUN</c> and the like — and the game resolves
+    /// it to whatever its own enum says. A reader that wanted the number would be reading a slot the
+    /// compiler left for the engine to fill.
+    /// </remarks>
+    public const int SequenceActivityNameOffset = 8;
+
+    /// <summary>
+    /// Where <c>mstudioseqdesc_t.actweight</c> sits: how strongly this sequence claims its activity.
+    /// </summary>
+    /// <remarks>
+    /// Several sequences can share one activity, and <c>SelectWeightedSequence</c> picks between them
+    /// in proportion to this. A weight of zero means the sequence is never chosen for the activity
+    /// even though it names it.
+    /// </remarks>
+    public const int SequenceActivityWeightOffset = 20;
+
     /// <summary>Byte offset of <c>animindexindex</c>: the animation grid for this sequence.</summary>
     public const int SequenceAnimationIndexOffset = 60;
 
