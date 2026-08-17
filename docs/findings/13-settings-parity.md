@@ -76,14 +76,21 @@ part.** The owner held it because they used to sit around **250 fps and never cr
 not folklore for them, it was an observation. On this build it is simply untrue, and by a wide
 margin.
 
-What changed is **not established here**. Candidates are the 64-bit client (this project confirmed
-`bin/x64` exists on the live install while every period build is 32-bit only), the hardware, and the
-config. Recording it as an unexplained change rather than picking one, because a plausible mechanism
-adopted without measurement is how the original belief hardened in the first place.
+**What changed is the hardware**, per the owner, who has the history first-hand: the 250 fps years
+were mid-range i5s and weak AMD cards, an RX 480 among them. The ceiling was the machine.
+
+Not the architecture — a draft of this note offered the 64-bit client as a candidate and that was
+wrong twice over. The owner has run a 64-bit OS since Windows 7, and TF2's own 64-bit build is far
+more recent than the observations. Two different meanings of "64-bit", neither of them the cause.
 
 **The transferable shape:** a limit observed consistently on one machine over years is evidence about
-that machine, and it survives long after it stops being true. The same failure as an empty grep read
-as a fact about the format — see `an-empty-search-needs-a-control`.
+that machine, and it survives long after the machine does. The same failure as an empty grep read as
+a fact about the format — see `an-empty-search-needs-a-control`.
+
+**And the correction is its own instance of the same thing.** Told the ceiling had lifted, I reached
+for the 64-bit client as the mechanism — a plausible story, adopted without measurement, which is
+precisely how the original belief hardened. The owner knew the actual history. Where a cause is
+someone's own machine, ask rather than infer.
 
 For this project's purposes the consequence is small and useful: an uncapped game and an uncapped
 viewer are the same condition, so frame rate is not a variable between a reference capture and our
