@@ -64,8 +64,25 @@ public readonly record struct ScenePose
     /// <summary>Size relative to the model as authored.</summary>
     public float Scale { get; init; } = 1f;
 
-    /// <summary>Which animation is playing, or −1 when the entity does not animate.</summary>
-    public int Sequence { get; init; } = -1;
+    /// <summary>Which animation is playing.</summary>
+    /// <remarks>
+    /// **Zero when the demo never said, because zero is the engine's default** — <c>m_nSequence</c>
+    /// is a plain int initialised to 0 (<c>BaseAnimatingOverlay.cpp:104</c>), and a delta format only
+    /// sends what changed from the baseline. "Never mentioned" and "sequence 0" are the same
+    /// statement about the wire.
+    ///
+    /// **This was −1 until 2026-08-16, and the sentinel was doing harm.** Every drawing consumer
+    /// immediately undid it — <c>Math.Max(0, pose.Sequence)</c> in two places, and
+    /// <c>PropModels.Select</c> opening with <c>sequence &lt; 0 ? 0 : sequence</c> under a comment
+    /// saying "a sequence the demo never mentioned is sequence zero, not an error". But
+    /// <c>InterpolateCycle</c> does not clamp, it COMPARES: a change of sequence is a cut, so
+    /// a first keyframe of −1 followed by an explicit 0 registered a change that never happened and
+    /// froze the cycle across that span.
+    ///
+    /// Invented sentinels for absent values are the hazard the owner's rule names: Valve's data is
+    /// values rather than pointers, so absence is always a default and never a third state.
+    /// </remarks>
+    public int Sequence { get; init; }
 
     /// <summary>How far through that animation, from 0 to 1.</summary>
     public float Cycle { get; init; }
