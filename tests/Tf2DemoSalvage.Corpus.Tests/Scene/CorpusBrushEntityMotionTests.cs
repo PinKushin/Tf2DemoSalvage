@@ -134,12 +134,18 @@ public sealed class CorpusBrushEntityMotionTests
 
         brushes.ShouldNotBeEmpty();
 
+        // **Z alone, and getting here took two wrong versions worth recording.** The first asked for
+        // X, Y AND Z all near zero, which a door whose Z defaulted while its X and Y stayed real
+        // passes cleanly — the test agreed with the defect it was written to catch. Widening it to
+        // ANY axis then failed on two entities that are legitimately at X or Y zero, because
+        // cp_process is symmetric about the origin and things sit on its centre line.
+        //
+        // Z is the axis that carries the meaning: it is both the delta-compression default and floor
+        // level, so a brush entity at Z zero is either unplaced or in the ground. A door's X and Y
+        // being zero says nothing at all.
         IReadOnlyList<string> atOrigin =
             [.. brushes
-                .Where(track => track.Keyframes.Any(keyframe =>
-                    Math.Abs(keyframe.Pose.X) < 1f &&
-                    Math.Abs(keyframe.Pose.Y) < 1f &&
-                    Math.Abs(keyframe.Pose.Z) < 1f))
+                .Where(track => track.Keyframes.Any(keyframe => Math.Abs(keyframe.Pose.Z) < 1f))
                 .Select(track => track.ModelPath)
                 .Distinct()];
 

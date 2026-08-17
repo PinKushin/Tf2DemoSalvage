@@ -45,7 +45,9 @@ public sealed class PoseCompletenessTests
 
         // **Between keyframes, which is the only condition where the defect exists.** On a keyframe
         // the stored pose is returned whole and every field is right by construction.
-        ScenePose between = track.At(5d)!.Value;
+        // Sampled a full interpolation delay past the midpoint, because a client draws cl_interp
+        // behind the present and cannot be pulled toward an update that has not arrived yet.
+        ScenePose between = track.At(12d)!.Value;
 
         between.X.ShouldBeGreaterThan(0f, "the sample must be BETWEEN the keyframes, not on one");
         between.X.ShouldBeLessThan(100f);
@@ -131,7 +133,8 @@ public sealed class PoseCompletenessTests
         DemoTimeline timeline = DemoTimeline.ForTracks([track]);
 
         List<SceneProp> props = [];
-        timeline.PropsAt(6d, props);
+        // Likewise one delay later, so the second update has landed and a speed can be derived.
+        timeline.PropsAt(13d, props);
 
         ScenePose pose = props.Single().Pose;
 

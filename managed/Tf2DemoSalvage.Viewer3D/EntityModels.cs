@@ -129,8 +129,8 @@ internal sealed class EntityModelSet
     /// <summary>Entities whose sampled light has been reported, one line each.</summary>
     private readonly HashSet<int> _reportedLight = [];
 
-    /// <summary>Brush entities whose placement has been reported, one line each.</summary>
-    private readonly HashSet<int> _reportedBrush = [];
+    /// <summary>The height each brush entity was last reported at, so movement can be logged.</summary>
+    private readonly Dictionary<int, float> _brushHeight = [];
 
     private static bool IsUnlit(AmbientCube cube) =>
         cube.PositiveX == (0f, 0f, 0f) &&
@@ -690,13 +690,22 @@ internal sealed class EntityModelSet
             // its own origin and the demo says that origin rests at 640 and rises to 785, so the
             // shutter should occupy 576..720 closed. Whether it does is a fact about this transform,
             // and a gate reported in the floor is a disagreement with one of those two numbers.
-            if (prop.Kind == SceneModelKind.Brush && _reportedBrush.Add(prop.EntityIndex))
+            // **Every movement, not the first sighting.** Reporting once per entity was enough to
+            // find where the gates are and useless for finding out what one DOES: a shutter that
+            // sinks below its frame does so over a handful of frames, and the one line already
+            // written came from long before. Logged on a change of more than a unit so a stationary
+            // door stays silent and a moving one leaves a trace that can be read against the
+            // demo's own keyframes.
+            if (prop.Kind == SceneModelKind.Brush &&
+                (!_brushHeight.TryGetValue(prop.EntityIndex, out float lastZ) ||
+                 Math.Abs(lastZ - pose.Z) > 1f))
             {
+                _brushHeight[prop.EntityIndex] = pose.Z;
+
                 ViewerLog.Write(
                     "render",
-                    $"brush {prop.ModelPath} #{prop.EntityIndex} origin " +
-                    $"({pose.X:0},{pose.Y:0},{pose.Z:0}) yaw {pose.Yaw:0.#} pitch {pose.Pitch:0.#} " +
-                    $"roll {pose.Roll:0.#} scale {pose.Scale:0.##}");
+                    $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
+                    $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
             }
 
             if (lightAt is not null && _reportedLight.Add(prop.EntityIndex))

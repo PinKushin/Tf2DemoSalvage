@@ -56,7 +56,9 @@ public sealed class AbsentSequenceTests
         track.Add(0, new ScenePose { Cycle = 0.00f });
         track.Add(10, new ScenePose { Sequence = 0, Cycle = 0.20f });
 
-        ScenePose middle = track.At(5).ShouldNotBeNull();
+        // One interpolation delay past the midpoint: the engine renders the recent past, so the
+        // second update has to have arrived before it can be blended toward.
+        ScenePose middle = track.At(12).ShouldNotBeNull();
 
         // Halfway between the two keyframes, so halfway through the cycle. A cut would report the
         // first keyframe's 0.0 for the whole span.

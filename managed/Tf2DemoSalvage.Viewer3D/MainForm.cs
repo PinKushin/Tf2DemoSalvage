@@ -789,6 +789,16 @@ internal class MainForm : Form
     public const string AutoPlayVariable = "TF2VIEW_AUTOPLAY";
 
     /// <summary>
+    /// Places the free camera, as <c>x y z pitch yaw</c> — TF2's own <c>pos</c> and <c>ang</c>.
+    /// </summary>
+    /// <remarks>
+    /// Written to take a `cl_showpos` readout with as little rearranging as possible: TF2 prints
+    /// `pos: x y z` and `ang: pitch yaw roll`, so the five numbers go in that order and roll is
+    /// ignored because this camera has none.
+    /// </remarks>
+    public const string CameraVariable = "TF2VIEW_CAMERA";
+
+    /// <summary>
     /// Applies a window geometry override, so a developer can reproduce CI's tiny screen.
     /// </summary>
     /// <remarks>
@@ -1619,6 +1629,25 @@ internal class MainForm : Form
         float aspect = Math.Max(1, _viewport.ClientSize.Width) /
             (float)Math.Max(1, _viewport.ClientSize.Height);
 
+        // **A camera placed from the environment, for comparing against a capture from the game.**
+        // TF2's `pos` and `ang` readouts give an exact viewpoint, and reproducing one by hand with
+        // mouse and keys is neither quick nor repeatable. Parity work keeps needing the same frame
+        // twice — once from the engine and once from here — so the coordinates are worth taking as
+        // input. Applied once, like the orbit below, so the camera still flies afterwards.
+        if (_freeOrigin is null &&
+            Environment.GetEnvironmentVariable(CameraVariable) is { Length: > 0 } placement &&
+            ParseCamera(placement) is { } placed)
+        {
+            _freeOrigin = placed.Origin;
+            _freeAngles = (placed.Pitch, placed.Yaw);
+
+            ViewerLog.Write(
+                "render",
+                $"free camera placed from {CameraVariable} at " +
+                $"({placed.Origin.X:0.##},{placed.Origin.Y:0.##},{placed.Origin.Z:0.##}) " +
+                $"pitch {placed.Pitch:0.##} yaw {placed.Yaw:0.##}");
+        }
+
         // Placed the first time by orbiting what the map view was centred on, so entering the free
         // view does not move the subject. After that it is a position and it flies.
         _freeOrigin ??= FreeCamera.Orbiting(
@@ -1630,6 +1659,45 @@ internal class MainForm : Form
             Angles = (_freeAngles.Pitch, _freeAngles.Yaw, 0f),
             Aspect = aspect,
         };
+    }
+
+    /// <summary>Reads a camera placement, or null when the text is not five numbers.</summary>
+    /// <param name="text">Whitespace or comma separated <c>x y z pitch yaw</c>.</param>
+    /// <returns>The placement, or <c>null</c>.</returns>
+    /// <remarks>
+    /// Null rather than a default placement, because a mistyped variable that silently put the
+    /// camera at the origin would look like the viewer ignoring it — and the whole point is to be
+    /// somewhere specific. The log line only prints when a placement was actually read.
+    /// </remarks>
+    internal static ((float X, float Y, float Z) Origin, float Pitch, float Yaw)? ParseCamera(
+        string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        string[] parts = text.Split(
+            [' ', ',', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (parts.Length < 5)
+        {
+            return null;
+        }
+
+        Span<float> values = stackalloc float[5];
+
+        for (int index = 0; index < 5; index++)
+        {
+            if (!float.TryParse(
+                    parts[index], NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out values[index]))
+            {
+                return null;
+            }
+        }
+
+        return ((values[0], values[1], values[2]), values[3], values[4]);
     }
 
     /// <summary>What the free camera is aimed at when it is first entered.</summary>

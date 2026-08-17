@@ -17,6 +17,38 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class ScenePropTrackTests
 {
+    /// <summary>Ticks between the updates these tests use, small enough to be interpolated whole.</summary>
+    /// <remarks>
+    /// **These tests were written with updates a hundred ticks apart, and a client never sees that
+    /// shape interpolated.** It draws <c>cl_interp</c> behind the present and cannot be pulled toward
+    /// an update that has not arrived, so a hundred-tick gap is held for ninety-three ticks and
+    /// interpolated over the last seven. Sampling its midpoint asked for something the engine does
+    /// not render, and the answers those tests expected were only reachable by ignoring causality —
+    /// which is what let a shutter drift open on its own and sink through the floor (B94).
+    ///
+    /// Four ticks is inside the delay window, so the whole gap interpolates and the SHAPE of the
+    /// curve — linear, hermite, slerp, cycle wrap — is what these tests measure, which is what they
+    /// were always about. It is also what a demo actually carries: a moving entity is updated every
+    /// tick or two.
+    /// </remarks>
+    private const int UpdateGap = 4;
+
+    /// <summary>
+    /// The tick to ask for so the pose lands a given fraction between two updates.
+    /// </summary>
+    /// <param name="firstTick">Tick of the earlier update.</param>
+    /// <param name="fraction">Where between the two updates the pose should fall.</param>
+    /// <returns>The tick to pass to <c>At</c>.</returns>
+    /// <remarks>
+    /// Adds back the interpolation delay, so a test can say "halfway between these two updates" and
+    /// not restate the engine's timing arithmetic at every call site.
+    /// </remarks>
+    private static double Between(int firstTick, double fraction) =>
+        firstTick + InterpolationDelay + (fraction * UpdateGap);
+
+    /// <summary>Matches <c>ScenePropTrack</c>'s own delay, which is <c>cl_interp</c> in ticks.</summary>
+    private const int InterpolationDelay = 7;
+
     [Test]
     public void At_BeforeTheFirstKeyframe_IsNothing()
     {
@@ -56,10 +88,10 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f));
-        track.Add(200, Pose(100f, 0f, 0f));
+        track.Add(100 + UpdateGap, Pose(100f, 0f, 0f));
 
-        track.At(150)!.Value.X.ShouldBe(50f, 0.001);
-        track.At(175)!.Value.X.ShouldBe(75f, 0.001);
+        track.At(Between(100, 0.5))!.Value.X.ShouldBe(50f, 0.001);
+        track.At(Between(100, 0.75))!.Value.X.ShouldBe(75f, 0.001);
     }
 
     [Test]
@@ -79,10 +111,10 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f));
-        track.Add(200, Pose(0f, 0f, 0f) with { Yaw = 1f });
-        track.Add(300, Pose(100f, 0f, 0f) with { Yaw = 1f });
+        track.Add(100 + UpdateGap, Pose(0f, 0f, 0f) with { Yaw = 1f });
+        track.Add(100 + (2 * UpdateGap), Pose(100f, 0f, 0f) with { Yaw = 1f });
 
-        track.At(250)!.Value.X.ShouldBe(37.5f, 0.001);
+        track.At(Between(100 + UpdateGap, 0.5))!.Value.X.ShouldBe(37.5f, 0.001);
     }
 
     [Test]
@@ -94,9 +126,9 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f));
-        track.Add(200, Pose(100f, 0f, 0f));
+        track.Add(100 + UpdateGap, Pose(100f, 0f, 0f));
 
-        track.At(150)!.Value.X.ShouldBe(50f, 0.001);
+        track.At(Between(100, 0.5))!.Value.X.ShouldBe(50f, 0.001);
     }
 
     [Test]
@@ -107,7 +139,7 @@ public sealed class ScenePropTrackTests
         // the oldest sample at a uniform interval before splining - lerping prev towards start and
         // pretending it sits at start->changetime - dt1.
         //
-        // Here p0 sits 200 ticks before p1 while p2 is only 100 after, so dt1/dt2 is 0.5 and the
+        // Here p0 sits twice as far before p1 as p2 sits after it, so dt1/dt2 is 0.5 and the
         // fixup lerps p0 halfway towards p1: a synthetic sample of -50 at tick 100, in place of
         // the real -100 at tick 0.
         //
@@ -120,10 +152,10 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
 
         track.Add(0, Pose(-100f, 0f, 0f));
-        track.Add(200, Pose(0f, 0f, 0f) with { Yaw = 1f });
-        track.Add(300, Pose(100f, 0f, 0f) with { Yaw = 1f });
+        track.Add(2 * UpdateGap, Pose(0f, 0f, 0f) with { Yaw = 1f });
+        track.Add(3 * UpdateGap, Pose(100f, 0f, 0f) with { Yaw = 1f });
 
-        track.At(250)!.Value.X.ShouldBe(43.75f, 0.001);
+        track.At(Between(2 * UpdateGap, 0.5))!.Value.X.ShouldBe(43.75f, 0.001);
     }
 
     [Test]
@@ -135,7 +167,7 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/weapons/rocket.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f));
-        track.Add(200, Pose(100f, 0f, 0f));
+        track.Add(100 + UpdateGap, Pose(100f, 0f, 0f));
 
         track.At(500)!.Value.X.ShouldBe(100f);
     }
@@ -154,10 +186,10 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/props/fan.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.9f, Sequence = 1 });
-        track.Add(200, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 1 });
+        track.Add(100 + UpdateGap, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 1 });
 
         // Halfway is 1.0, which wraps to 0.0 - not 0.5, which is where a plain lerp lands.
-        track.At(150)!.Value.Cycle.ShouldBe(0f, 0.001);
+        track.At(Between(100, 0.5))!.Value.Cycle.ShouldBe(0f, 0.001);
     }
 
     [Test]
@@ -169,9 +201,9 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/props/fan.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.2f, Sequence = 1 });
-        track.Add(200, Pose(0f, 0f, 0f) with { Cycle = 0.6f, Sequence = 1 });
+        track.Add(100 + UpdateGap, Pose(0f, 0f, 0f) with { Cycle = 0.6f, Sequence = 1 });
 
-        track.At(150)!.Value.Cycle.ShouldBe(0.4f, 0.001);
+        track.At(Between(100, 0.5))!.Value.Cycle.ShouldBe(0.4f, 0.001);
     }
 
     [Test]
@@ -184,9 +216,9 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/player/scout.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.9f, Sequence = 1 });
-        track.Add(200, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 2 });
+        track.Add(100 + UpdateGap, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 2 });
 
-        ScenePose shown = track.At(150)!.Value;
+        ScenePose shown = track.At(Between(100, 0.5))!.Value;
 
         shown.Sequence.ShouldBe(1, "the new animation has not started yet");
         shown.Cycle.ShouldBe(0.9f, "held, not blended into an animation it does not belong to");
@@ -201,9 +233,9 @@ public sealed class ScenePropTrackTests
         ScenePropTrack track = new(entityIndex: 3, "models/props/door.mdl");
 
         track.Add(100, Pose(0f, 0f, 0f) with { Yaw = 350f });
-        track.Add(200, Pose(0f, 0f, 0f) with { Yaw = 10f });
+        track.Add(100 + UpdateGap, Pose(0f, 0f, 0f) with { Yaw = 10f });
 
-        track.At(150)!.Value.Yaw.ShouldBe(0f, 0.01);
+        track.At(Between(100, 0.5))!.Value.Yaw.ShouldBe(0f, 0.01);
     }
 
     [Test]
@@ -308,7 +340,10 @@ public sealed class ScenePropTrackTests
         track.Add(0, held with { X = 0f });
         track.Add(10, held with { X = 100f });
 
-        ScenePose? between = track.At(5d);
+        // One interpolation delay past the midpoint. The test's own guard below — that X has moved
+        // off both keyframes — is what makes this genuinely "between", and it now has to be asked
+        // for at a tick where the second update has arrived.
+        ScenePose? between = track.At(12d);
 
         between.ShouldNotBeNull();
 

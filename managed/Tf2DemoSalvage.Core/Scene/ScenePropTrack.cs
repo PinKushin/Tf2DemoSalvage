@@ -206,6 +206,36 @@ public sealed class ScenePropTrack
 {
     private readonly List<(int Tick, ScenePose Pose)> _keyframes = [];
 
+    /// <summary>
+    /// For each keyframe, the last tick the demo restated that same pose.
+    /// </summary>
+    /// <remarks>
+    /// **Parallel to <see cref="_keyframes"/> rather than folded into it**, so the public
+    /// <see cref="Keyframes"/> shape and everything reading it are untouched. Equal to the
+    /// keyframe's own tick for a pose stated once, and later for one held.
+    ///
+    /// This is the interval an interpolation may legitimately run over. A demo states a stationary
+    /// entity's pose repeatedly and those repeats are collapsed, so without this the gap between two
+    /// stored keyframes reads as the duration of the movement between them — which for a door is
+    /// ten seconds of drift instead of a tenth of a second of travel.
+    /// </remarks>
+    private readonly List<int> _heldUntil = [];
+
+    /// <summary>
+    /// How far behind the requested tick a pose is sampled — the engine's <c>cl_interp</c>.
+    /// </summary>
+    /// <remarks>
+    /// **This is the delay a client renders at, not a smoothing fudge.** <c>cl_interp</c> defaults
+    /// to 0.1 seconds, which at TF2's 66.67 ticks per second is 6.67 ticks; seven is that rounded.
+    /// Drawing the recent past is what lets a client interpolate at all — at the present moment
+    /// there is nothing yet to interpolate toward.
+    ///
+    /// **Ticks rather than seconds is a known simplification.** A 33-tick server's 0.1 seconds is
+    /// half as many ticks, and this class is not told the tick rate; the honest form takes the
+    /// interval from the demo header, which is a change to how tracks are constructed.
+    /// </remarks>
+    private const int InterpolationDelayTicks = 7;
+
     private int _endTick = int.MaxValue;
 
     /// <summary>Starts a track for one entity.</summary>
@@ -345,10 +375,22 @@ public sealed class ScenePropTrack
     {
         if (_keyframes.Count > 0 && _keyframes[^1].Pose == pose)
         {
+            // **Dropped from the list but not from the record.** Collapsing a repeat saves the
+            // memory it is there to save; forgetting WHEN it was last repeated throws away the only
+            // evidence of when the entity started moving, and the interpolation then smears the
+            // motion backwards across the whole stationary stretch.
+            //
+            // Measured: a shutter on cp_process holds at Z 640 and steps to 785. With the repeat
+            // simply discarded, tick 100 of a 610-tick hold reported 663.771 — the straight line
+            // from the first keyframe to the step. On screen that is a door drifting upward for no
+            // reason for ten seconds, and then, on the way back, sinking below its own frame into
+            // the floor.
+            _heldUntil[^1] = tick;
             return;
         }
 
         _keyframes.Add((tick, pose));
+        _heldUntil.Add(tick);
     }
 
     /// <summary>Records that the entity ceased to exist.</summary>
@@ -391,6 +433,20 @@ public sealed class ScenePropTrack
     /// Nothing is extrapolated. Before the first keyframe there is nothing, and after the last
     /// the pose holds — a rocket that flew on forever after its final update would be a plausible
     /// trajectory that no part of the demo ever stated.
+    ///
+    /// **The interpolation is CAUSAL, and getting that wrong put doors through the floor.** A client
+    /// draws <c>targettime = now - interp</c> and can only interpolate between entries it has already
+    /// received; an update that has not arrived cannot pull anything toward it. This reader holds the
+    /// whole demo, so without the delay it could see a keyframe seconds in the future and slide
+    /// toward it the entire time — a shutter drifting open on its own for ten seconds, and sinking
+    /// below its own frame on the way back (B94). Two rules restore it:
+    ///
+    /// - the pose is sampled <see cref="InterpolationDelayTicks"/> behind the requested tick, which
+    ///   is what <c>cl_interp</c> does;
+    /// - a keyframe later than the requested tick is not used, because it has not arrived yet.
+    ///
+    /// Together those turn a long gap into exactly what a client shows: the old pose held, then the
+    /// movement rendered over the interpolation window once the update lands.
     /// </remarks>
     public ScenePose? At(double tick)
     {
@@ -399,20 +455,46 @@ public sealed class ScenePropTrack
             return null;
         }
 
-        int index = IndexAt((int)Math.Floor(tick));
+        // The moment being drawn, one interpolation window behind the moment being asked for.
+        double target = tick - InterpolationDelayTicks;
+
+        if (target <= _keyframes[0].Tick)
+        {
+            // Nothing had been received yet, so the first stated pose is all a client would have.
+            return _keyframes[0].Pose;
+        }
+
+        int index = IndexAt((int)Math.Floor(target));
 
         if (index < 0 || index + 1 >= _keyframes.Count)
         {
             return earlier;
         }
 
-        (int fromTick, ScenePose from) = _keyframes[index];
+        (int statedTick, ScenePose from) = _keyframes[index];
         (int toTick, ScenePose to) = _keyframes[index + 1];
+
+        // **A keyframe later than the tick being asked for has not arrived yet.** This is the whole
+        // of the causality rule: a client at tick 100 cannot be pulled toward an update stated at
+        // tick 610, and a reader holding the entire demo can. Holding the earlier pose is what the
+        // client shows, and skipping this check is what walked a shutter open over ten seconds.
+        if (toTick > tick)
+        {
+            return from;
+        }
+
+        // **The movement starts where the pose was last RESTATED, not where it was first stated.**
+        // A stationary entity's repeats are collapsed, so the stored keyframe can be seconds older
+        // than the last moment the demo confirmed that pose — and interpolating from the older tick
+        // spreads a tenth of a second of travel over the whole hold.
+        int fromTick = _heldUntil.Count > index ? _heldUntil[index] : statedTick;
 
         if (toTick <= fromTick)
         {
             return earlier;
         }
+
+        tick = target;
 
         float fraction = (float)Math.Clamp((tick - fromTick) / (toTick - fromTick), 0.0, 1.0);
 
