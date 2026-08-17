@@ -5514,3 +5514,70 @@ This was raised as an open choice in the B71 amendment and is no longer one. It 
 next — the owner put the dark control points ahead of it — but the direction is settled, and the
 implementation is the one the amendment named: lightmap coordinates carried into the entity vertex
 format, or the world shader used with a per-instance transform.
+
+### B83 RESOLVED (the dark capture point) — nearest-sample against a set compressed for interpolation
+
+**The owner's correction is what located it.** The report was not "capture points are dark" but "ONE
+capture point is dark, and its neighbours are fine" — which rules out a missing lighting term
+outright, because an absent term darkens every instance equally. Work had already begun on local
+lights under the wrong reading.
+
+**The existing instrument could not see it.** The dark-model warning dedupes on model path, so the
+five capture points sharing `cap_point_base.mdl` collapse to one report and a bright one reporting
+first silences a dark one for ever; it also only fires at exactly zero, and this one was dim. A
+per-instance line keyed on entity index made the comparison possible at all.
+
+cp_process is mirror-symmetric, and the pair disagreed:
+
+| entity | position | nearest | blended |
+|---|---|---|---|
+| #323 BLU 2nd | (-1664,-2176,768) | **0.1042** | **0.2886** |
+| #328 RED 2nd | (+1664,+2176,768) | 0.3516 | 0.3520 |
+
+**Reading both leaves out of the BSP gave the mechanism.** Leaf 2843 and leaf 498 each hold 16
+samples, and vrad scatters their positions non-symmetrically — so the *nearest* sample to the query
+is a 0.037 one on the BLU side and a 0.513 one on the RED side. Same geometry, different winner.
+
+**The blend is published, and this project had written that it was not.** `BspAmbientLight` said the
+weighting "is in the closed engine" and "cannot be transcribed", and argued nearest was a defensible
+decision rather than a guess. It is `Mod_LeafAmbientColorAtPos` in
+`utils/vrad/leaf_ambient_lighting.cpp` — `factor = 1 / (dist² + 1)`, normalised by the total.
+
+**Nearest is not a coarse version of it.** `CompressAmbientSampleList` deletes every sample the blend
+can already predict to within 3 in gamma space, so a map's stored samples are a deliberately sparse
+set that only reconstructs the original function when interpolated. Nearest reads back an arbitrary
+survivor of that thinning. That is why the error was 3.4x rather than a few percent.
+
+**The owner's second hypothesis was also right, and the official map settles it.** The remaining gap
+after the fix is real map data:
+
+| | BLU 2nd | RED 2nd |
+|---|---|---|
+| cp_process_f12 | 0.2886 | 0.3520 |
+| cp_process_final | 0.3842 | 0.3547 |
+
+The release build agrees to within 8%; f12 is 18% out and its leaf carries a 0.0365 sample the final
+version does not. A lighting quirk in that beta, which our lookup was amplifying enormously.
+
+The last-point asymmetry (0.143 vs 0.212 on f12, 0.117 vs 0.190 on final) is present in **both**
+builds and is therefore map data, not a defect.
+
+Evidence class: read from published source (vrad), measured on two builds of one map.
+
+### B95 — local lights are still not applied — OPEN, and separate from B83
+
+`istudiorender.h` describes a model's lighting as an ambient cube "and lights that aren't in
+locallight[]", beside `m_nLocalLightCount` and `m_LocalLightDescs[4]`. We apply the cube and the sun
+and nothing else, so no prop receives direct light from a point or spot light.
+
+This is a genuine divergence and the owner has confirmed it still wants doing — it is simply not what
+made one capture point dark. Filed separately so the two are not conflated again.
+
+`dworldlight_t`'s falloff terms, radius, and spotlight penumbra cosines are now read, with the
+offsets checked against Valve's declaration. The falloff is stated inline in `bspfile.h`:
+`1 / (constant_attn + linear_attn * dist + quadratic_attn * dist²)`.
+
+**Measured input for whoever implements it:** cp_process_f12 carries 477 world lights — **290
+spotlights**, 108 surface, 77 point, 1 sky, 1 sky ambient. Spotlights dominate almost 4:1, so cones
+(`stopdot`, `stopdot2`, `exponent`) are the main case rather than an extra. Every point light on the
+map is pure inverse-square: constant 0, linear 0, quadratic 1.
