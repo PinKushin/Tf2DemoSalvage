@@ -41,11 +41,36 @@ public enum WorldLightKind
 /// <param name="Intensity">Its colour and strength, in linear light.</param>
 /// <param name="Normal">Which way it points; the direction the sun travels.</param>
 /// <param name="Kind">Which sort of light it is.</param>
+/// <param name="ConstantAttenuation">First falloff term; see the remarks.</param>
+/// <param name="LinearAttenuation">Second falloff term, multiplied by distance.</param>
+/// <param name="QuadraticAttenuation">Third falloff term, multiplied by distance squared.</param>
+/// <param name="Radius">Cutoff distance, beyond which the light contributes nothing. Zero means
+/// no cutoff, and the falloff alone decides where it stops mattering.</param>
+/// <param name="StopDot">Cosine at which a spotlight's penumbra begins.</param>
+/// <param name="StopDot2">Cosine at which it ends; outside this the spotlight is dark.</param>
+/// <param name="Exponent">Shapes the penumbra falloff between the two cosines.</param>
+/// <remarks>
+/// **The falloff is Valve's, stated inline in <c>bspfile.h</c> rather than inferred:**
+/// <c>1 / (constant_attn + linear_attn * dist + quadratic_attn * dist^2)</c>, for
+/// <c>emit_spotlight</c> and <c>emit_point</c>.
+///
+/// These were not read before this, and their absence is why an indoor prop draws dark: a model
+/// takes its leaf's ambient cube plus up to four local lights, and with no falloff terms there was
+/// no way to evaluate a local light at all. The sun was the only direct light applied, so anything
+/// out of daylight was lit by the bounce term alone.
+/// </remarks>
 public readonly record struct BspWorldLight(
     (float X, float Y, float Z) Origin,
     (float Red, float Green, float Blue) Intensity,
     (float X, float Y, float Z) Normal,
-    WorldLightKind Kind);
+    WorldLightKind Kind,
+    float ConstantAttenuation = 0f,
+    float LinearAttenuation = 0f,
+    float QuadraticAttenuation = 0f,
+    float Radius = 0f,
+    float StopDot = 0f,
+    float StopDot2 = 0f,
+    float Exponent = 0f);
 
 /// <summary>
 /// The lights a map was compiled with, including its sun.
@@ -94,7 +119,14 @@ public static class BspWorldLights
                 (Float(entry, 0), Float(entry, 4), Float(entry, 8)),
                 (Float(entry, 12), Float(entry, 16), Float(entry, 20)),
                 (Float(entry, 24), Float(entry, 28), Float(entry, 32)),
-                (WorldLightKind)BinaryPrimitives.ReadInt32LittleEndian(entry[40..])));
+                (WorldLightKind)BinaryPrimitives.ReadInt32LittleEndian(entry[40..]),
+                Float(entry, BspStructLayout.WorldLightConstantAttenuationOffset),
+                Float(entry, BspStructLayout.WorldLightLinearAttenuationOffset),
+                Float(entry, BspStructLayout.WorldLightQuadraticAttenuationOffset),
+                Float(entry, BspStructLayout.WorldLightRadiusOffset),
+                Float(entry, BspStructLayout.WorldLightStopDotOffset),
+                Float(entry, BspStructLayout.WorldLightStopDot2Offset),
+                Float(entry, BspStructLayout.WorldLightExponentOffset)));
         }
 
         DecodeLog.Note(

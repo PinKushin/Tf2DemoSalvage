@@ -112,6 +112,33 @@ public sealed class BspStructTests
     }
 
     [Test]
+    public void TheWorldLightFalloffFields_MatchTheirDeclaration()
+    {
+        // **Derived from Valve's struct, not transcribed from it.** Every one of these offsets was
+        // arrived at by adding up field sizes by hand first, and a hand-added offset is exactly the
+        // kind of thing that is wrong by four bytes and still reads plausibly: a light would simply
+        // fall off at the wrong rate, which looks like a lighting choice rather than a parse error.
+        CLayout light = Layout("dworldlight_t");
+
+        light.Offset("stopdot").ShouldBe(BspStructLayout.WorldLightStopDotOffset);
+        light.Offset("stopdot2").ShouldBe(BspStructLayout.WorldLightStopDot2Offset);
+        light.Offset("exponent").ShouldBe(BspStructLayout.WorldLightExponentOffset);
+        light.Offset("radius").ShouldBe(BspStructLayout.WorldLightRadiusOffset);
+
+        // The three terms of 1 / (constant + linear * d + quadratic * d^2), which bspfile.h states
+        // inline. Their ORDER is the part worth pinning: all three are floats, so swapping two of
+        // them parses cleanly and produces a falloff curve that is wrong everywhere except at the
+        // one distance where the curves happen to cross.
+        light.Offset("constant_attn")
+            .ShouldBe(BspStructLayout.WorldLightConstantAttenuationOffset);
+        light.Offset("linear_attn").ShouldBe(BspStructLayout.WorldLightLinearAttenuationOffset);
+        light.Offset("quadratic_attn")
+            .ShouldBe(BspStructLayout.WorldLightQuadraticAttenuationOffset);
+
+        light.Offset("flags").ShouldBe(BspStructLayout.WorldLightFlagsOffset);
+    }
+
+    [Test]
     public void TheOverlayLayout_MatchesItsDeclaration()
     {
         CLayout overlay = Layout("doverlay_t");
