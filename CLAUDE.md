@@ -131,6 +131,27 @@ while it looks like progress. The tell is three correct measurements in a row: t
 not the data. See `docs/memory/read-the-spec-before-measuring-our-data.md`, which was written after a
 session spent measuring a model that was never at fault.
 
+**Anything that produces output is not done until an assertion has read that output on a real
+demo.** A unit test proves a component works when called with the values the test chose. It says
+nothing about whether production calls it, or with what — and that gap has shipped three no-ops in
+one session, every one with a green suite:
+
+- The dumper's kill annotation matched `int`. Game event fields are typed by their definition and
+  `customkill` arrives as a **byte**, so it matched nothing and annotated nothing.
+- The kill feed resolved its whole field list through a renderer that returns strings, so the same
+  three fields reached it as text and its numeric lookup returned null. **Not one of 407 lines**
+  carried "(headshot)".
+- `m_flPlaybackRate` was decoded, retained and unit-tested, and no production code ever read it, so
+  every animation played at rate 1.
+
+Each was found by looking at the output, never by the tests that covered the code. So: **write the
+component tests, then add one assertion against the rendered artefact for a corpus demo** — the text
+the dump produces, the poses the timeline builds, the frame the renderer selects. It is one test and
+it is the only one that can fail when the wiring is wrong.
+
+The same rule stated from the other side: a passing test whose inputs were written by the same
+person who wrote the code proves the two agree, not that either matches the demo.
+
 **Four sources. This is a menu, not a ladder — pick the one that holds the answer and skip the rest.**
 
 | Source | Holds | Rules |

@@ -54,6 +54,43 @@ public sealed class ModelFramesTests
     }
 
     [Test]
+    public void DoubleTheRateReachesTheSameFrameInHalfTheTime()
+    {
+        // **The assertion that was missing when playback rate was wired in**, and the reason the
+        // rule now says an output-level check is part of finishing the work. `m_flPlaybackRate` was
+        // decoded, retained and unit-tested for a month while nothing multiplied by it, so every
+        // animation ran at rate 1 and every test passed.
+        //
+        // The measurement is a coincidence that a wrong rate cannot produce: at double speed the
+        // animation must be at the same point after HALF the elapsed time. Asserting merely that a
+        // different rate gives a different frame would also pass for a rate applied backwards, or
+        // squared, or added.
+        PropModels.ModelFrames medkit = Medkit();
+
+        int normal = medkit.Frame(sequence: 0, cycle: 0f, seconds: Period / 4d, playbackRate: 1f);
+        int doubled = medkit.Frame(sequence: 0, cycle: 0f, seconds: Period / 8d, playbackRate: 2f);
+
+        doubled.ShouldBe(normal);
+    }
+
+    [Test]
+    public void AStoppedRateHoldsTheFirstFrame()
+    {
+        // Rate zero is a real value — the engine uses it to freeze an animation — and it must not
+        // be confused with "no rate was sent", which is 1. A cycle that advances at zero stays where
+        // it started however long the demo runs.
+        //
+        // **The elapsed time is deliberately not a whole number of periods.** The first draft used
+        // `Period * 10`, which is exactly ten loops, so a rate that was ignored entirely ALSO landed
+        // back on frame 0 and the assertion passed against the defect. Caught by sabotage, and it is
+        // the same "wrong condition" mistake as choosing two keyframes exactly half a cycle apart:
+        // an input where correct and broken predict the same observation measures nothing.
+        PropModels.ModelFrames medkit = Medkit();
+
+        medkit.Frame(sequence: 0, cycle: 0f, seconds: Period * 10.37d, playbackRate: 0f).ShouldBe(0);
+    }
+
+    [Test]
     public void HalfAPeriodLater_TheFrameIsAsFarAwayAsItCanBe()
     {
         // Half a loop is the maximum separation, and choosing it deliberately is the difference
