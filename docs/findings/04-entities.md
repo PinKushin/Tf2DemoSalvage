@@ -80,3 +80,69 @@ They are used that way repeatedly in [05](05-user-messages.md) and [08](08-metho
 All corpus demos decode end to end with no stops, across every protocol held. Entity snapshots
 re-encode byte-identically except for a residue of roughly a thousand, which remains open and is
 tracked in `docs/RISKS.md`.
+
+## A property's wire name is not always its C++ name
+
+Evidence class: **read from published source**, swept across `src/game`.
+
+`SENDINFO` names a send prop after its member. `SENDINFO_NAME` takes two arguments and sends under
+the **second**:
+
+```c
+#define SENDINFO_NAME(varName,remoteVarName)   #remoteVarName, ...
+```
+
+Seventeen uses, six distinct aliases in the whole SDK:
+
+| C++ member | wire name |
+|---|---|
+| `m_hMoveParent` | `moveparent` |
+| `m_MoveType` | `movetype` |
+| `m_MoveCollide` | `movecollide` |
+| `m_nEntIndex` | `entindex` |
+| `m_flHDRColorScale` | `HDRColorScale` |
+| `m_flValue` | **`m_iRawValue32`** |
+
+The first four drop the Hungarian prefix; the fifth keeps a capital. **The sixth is the interesting
+one, because the rename carries information about the encoding.**
+
+### `m_flValue` is a float sent as an unsigned integer
+
+`econ_item_view.cpp:67` and `:73`:
+
+```c
+SendPropInt( SENDINFO_NAME(m_flValue, m_iRawValue32), 32, SPROP_UNSIGNED ),
+RecvPropInt( RECVINFO_NAME(m_flValue, m_iRawValue32) ),
+```
+
+The member is `CNetworkVar( float, m_flValue )`. The prop is a **`SendPropInt`, 32 bits, unsigned**.
+So an econ attribute's value travels as the float's **bit pattern reinterpreted as an integer**, and
+the wire name says so — `RawValue32` is a warning, not a typo.
+
+Decoding it as a number gives **1065353216** where the value is **1.0**. That is not an error, it is
+a large plausible integer, so it fails the way the whole `numeric-decoding-traps` family does. Every
+item attribute in TF2 — paint, unusual effects, killstreaks, every balance change — arrives through
+this one property.
+
+### Why this cost something
+
+A conformance test written earlier in this project described attributes as "(definition index,
+float) pairs". Accurate about the *member*, wrong about the *wire*, and an implementer following it
+would have looked for a float send prop that does not exist.
+
+**And the aliasing produced a false accusation.** `SendPropConformanceTests` scrapes `SENDINFO(...)`
+for the set of names the engine sends, capturing only the first argument — so every aliased property
+was missing from its denominator. When `moveparent` was added to the inventory of names this project
+reads, the test reported it as a name "no send table in the SDK declares", against entirely correct
+code.
+
+Worse, that false negative had already been believed once. A test asserted:
+
+> *"moveparent is not a SendProp and must not be checked as one … it will never appear in a
+> `SENDINFO`."*
+
+A limitation of a regex, written down as a fact about the format, and then defended by an assertion.
+Both are corrected; the scraper now reads the remote name.
+
+**The general rule: when looking for a property name in the SDK, search for it as a STRING, not as an
+identifier.** The wire carries the string, and only `SENDINFO_NAME` tells you they can differ.
