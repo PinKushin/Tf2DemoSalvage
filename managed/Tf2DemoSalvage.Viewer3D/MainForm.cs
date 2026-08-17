@@ -1029,7 +1029,19 @@ internal class MainForm : Form
                         _archives,
                         (int)_settings.TextureQuality,
                         DemoModelPaths(),
-                        WornModelPaths());
+                        WornModelPaths(),
+
+                        // Built from the surfaces just read rather than from a second pass over
+                        // the file: the models lump names face RANGES, so it needs the same
+                        // surface list the world was built from and nothing else.
+                        //
+                        // **No models lump means no brush entities, and that agrees with the world
+                        // build on purpose.** MapWorld treats an absent lump as "build every
+                        // face", so the doors stay baked into the static world exactly as they
+                        // were before this work. The two decisions have to move together: holding
+                        // faces back here while the world declined to bake them would lose the
+                        // geometry entirely rather than degrade to the old behaviour.
+                        BrushModels.Build(_brushModels ?? [], _surfaceList));
                 }
 
                 int displacements = 0;

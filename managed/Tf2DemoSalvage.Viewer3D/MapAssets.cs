@@ -413,6 +413,11 @@ internal sealed class MapAssets
     /// <param name="entityModels">Model paths the demo uses, loaded with the map so the textures upload once.</param>
     /// <param name="wornModels">Of those, the ones bone-merged onto another entity, which must be skinned.</param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
+    /// <param name="brushModels">
+    /// The map's own brush entities, keyed <c>*N</c>, already built from its models lump. Passed
+    /// in rather than read here because they are cut from the same surface list the world is built
+    /// from, and reading that list twice is the expensive half of loading a map.
+    /// </param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -421,7 +426,8 @@ internal sealed class MapAssets
         GameArchives archives,
         int maximumTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
-        IReadOnlyCollection<string>? wornModels = null)
+        IReadOnlyCollection<string>? wornModels = null,
+        IReadOnlyDictionary<string, PropModels.ModelFrames>? brushModels = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -593,6 +599,26 @@ internal sealed class MapAssets
         // and playback costs nothing. TF2 launches a listen server to play a demo, so the budget
         // here is generous.
         Dictionary<string, PropModels.ModelFrames> models = new(StringComparer.OrdinalIgnoreCase);
+
+        // **The map's own brush entities, which have no file to load.** A door is `*12`, a run of
+        // faces in this same BSP, so its geometry is built from the map rather than resolved
+        // through the archives — but once built it is a model like any other, and joins the table
+        // the entity path already looks in. That is the whole of the wiring: no second lookup, no
+        // second draw path.
+        //
+        // Added before the studio loop rather than after, so a demo that somehow names `*12` as a
+        // model path cannot have a failed file load overwrite real geometry with an empty entry.
+        if (brushModels is { Count: > 0 })
+        {
+            foreach ((string name, PropModels.ModelFrames geometry) in brushModels)
+            {
+                models[name] = geometry;
+            }
+
+            ViewerLog.Write(
+                "assets",
+                $"{brushModels.Count} brush entities built from the map's models lump");
+        }
 
         if (entityModels is { Count: > 0 })
         {
