@@ -24,6 +24,24 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class CorpusBrushEntityMotionTests
 {
+    /// <summary>
+    /// The exact recording the gate was seen in, named in full rather than by map.
+    /// </summary>
+    /// <remarks>
+    /// **`Corpus.Demo("cp_process")` was wrong here and quietly so.** It returns the FIRST file
+    /// whose name contains the fragment, and the local corpus holds two cp_process recordings from
+    /// different servers — `br.tf2pickup.org` and `na.serveme.tf #627716`. The viewer was driven on
+    /// the second while this test measured whichever sorted first, so the count of moving entities
+    /// and the gate that was watched came from different demos. A conclusion drawn across two files
+    /// is not a conclusion.
+    ///
+    /// Both are SourceTV recordings (`SourceTV Demo` in the header), which matters for a different
+    /// reason: SourceTV is PVS-limited too, just far less than a POV. A door that moved while the
+    /// STV camera was elsewhere is not in the file at all, so "only three moved" may be a fact about
+    /// coverage rather than about decoding.
+    /// </remarks>
+    private const string ProcessDemo = "cp_process_f12-2026-08-08-2207";
+
     /// <summary>A track's vertical travel across the whole recording.</summary>
     private static float VerticalTravel(ScenePropTrack track)
     {
@@ -38,7 +56,7 @@ public sealed class CorpusBrushEntityMotionTests
     [Test]
     public void BrushEntitiesThatMove_AreReportedWithTheirDirection()
     {
-        string path = Corpus.Demo("cp_process");
+        string path = Corpus.Demo(ProcessDemo);
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
 
@@ -85,6 +103,15 @@ public sealed class CorpusBrushEntityMotionTests
                 track.Keyframes.Min(keyframe => keyframe.Pose.Z) + 1f)];
 
         descending.ShouldBeEmpty(report);
+
+        // **27 tracks over 13 distinct submodels**, measured on this demo: 78, 80, 81, 132, 135,
+        // 137, 139, 141, 143, 144, 146, 185 and 186, resting at 584, 640, 648, 696 or 744 and each
+        // rising about 144. Several submodels hold more than one track because a round reset deletes
+        // and recreates the entity, which changes its serial number and starts a new track.
+        //
+        // Pinned as a floor rather than an exact count: the figure is evidence that the demo carries
+        // gate motion broadly rather than a property worth breaking a build over.
+        moving.Count.ShouldBeGreaterThan(20, report);
     }
 
     [Test]
@@ -98,7 +125,7 @@ public sealed class CorpusBrushEntityMotionTests
         //
         // Instance baselines now reach entering entities, so a gate's spawn origin should arrive
         // even when the snapshot omits it. This is what says whether that is true in practice.
-        string path = Corpus.Demo("cp_process");
+        string path = Corpus.Demo(ProcessDemo);
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
 

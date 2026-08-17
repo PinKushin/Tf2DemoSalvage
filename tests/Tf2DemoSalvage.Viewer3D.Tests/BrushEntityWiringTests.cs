@@ -57,8 +57,10 @@ public sealed class BrushEntityWiringTests
 
         IReadOnlyList<BspModel> models = BspModels.Read(File.ReadAllBytes(MapPath));
 
-        // The three the demo showed moving.
-        foreach (int index in (int[])[80, 81, 186])
+        List<string> bounds = [];
+
+        // The submodels the demo shows moving, across all the rest heights it reports.
+        foreach (int index in (int[])[78, 80, 81, 132, 135, 137, 139, 141, 143, 144, 146, 185, 186])
         {
             BspModel gate = models[index];
 
@@ -77,7 +79,22 @@ public sealed class BrushEntityWiringTests
                 $"submodel {index} spans {gate.Minimum.Z:0} to {gate.Maximum.Z:0}");
 
             Math.Abs(gate.Maximum.Z).ShouldBeLessThan(320f);
+
+            // **Where the shutter sits relative to its own origin, which decides whether "closed"
+            // fills the frame.** The demo's resting origin IS the closed position, so a shutter
+            // whose geometry straddles zero hangs half below that point: submodel 80 spans -64 to
+            // 80, which at a rest of 640 occupies 576..720 and puts its lower edge 64 units under
+            // the sill. That is the reported symptom, and it is the difference between an origin
+            // brush at the shutter's centre and one at its base.
+            //
+            // Reported rather than asserted, because which of those a mapper used is not something
+            // this project gets to require -- what matters is that the renderer agrees with the
+            // engine, and the engine applies origin + vertex either way.
+            bounds.Add($"{index}: {gate.Minimum.Z:0}..{gate.Maximum.Z:0}");
         }
+
+        // Every gate compiles about its own origin, which is the claim BrushModels rests on.
+        bounds.Count.ShouldBe(13, string.Join(", ", bounds));
     }
 
     [Test]

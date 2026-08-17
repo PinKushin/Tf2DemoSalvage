@@ -5515,20 +5515,40 @@ involved: dump the track and read whether Z falls.
   (0,0,0), which is floor level near the middle of the map and an exact match for the symptom. No
   brush track has a keyframe there.
 
-**And the contradiction: only THREE brush entities move in the whole demo**, at (-4132,-1084),
-(-4234,-1732) and (4234,1732) — X of ±4132 puts all three at the map's extremes, which are the spawn
-room doors. The owner's shutter is on the sewers side of second, near (-625,-1702); the nearest brush
-entity in their view direction is `*70 #140` at (-454,-1856,776), and it is not in the moving set.
+**A contradiction was recorded here and it was my own measurement error.** The first pass reported
+only THREE moving brush entities, all at the map's extremes, and concluded the owner's shutter could
+not be among them. That came from the wrong file: `Corpus.Demo("cp_process")` returns the first name
+containing the fragment, the local corpus holds two cp_process recordings from different servers
+(`br.tf2pickup.org` and `na.serveme.tf #627716`), and the viewer had been driven on the second while
+the test measured the first. A conclusion drawn across two demos is not a conclusion.
 
-Two instrument explanations were proposed for that and both are wrong, recorded so they are not
-retried: tracks split on SERIAL NUMBER, and a serial does not change when an entity leaves and
-re-enters the PVS — only when the slot is reused — so PVS churn does not fragment a door's track. And
-the per-entity placement log reports each entity once, but the timeline measurement behind the
-"three" figure reads every keyframe and is not deduplicated.
+**Re-measured on the recording actually watched: 27 tracks over 13 distinct submodels** — 78, 80, 81,
+132, 135, 137, 139, 141, 143, 144, 146, 185 and 186 — resting at 584, 640, 648, 696 or 744 and each
+rising about 144 units. Several submodels carry more than one track because a round reset deletes and
+recreates the entity, changing its serial number. So the demo carries gate motion across the whole
+map, near second included, and there is no contradiction to explain.
 
-So either the shutter moves by something other than `m_vecOrigin`, or what was seen was not that
-entity. **What would settle it: the tick.** With a tick and the map position, the track for whatever
-occupies that spot can be read directly.
+Every one of the 27 still rests at its LOWEST Z and rises, so the mapper explanation stays dead.
+
+**What the geometry says, and why it is not yet a verdict.** Submodel 80 spans -64 to 80 about its own
+origin — an origin brush at the shutter's centre, not its base. The demo's resting origin is the
+closed position, so closed puts the shutter half below that point: at a rest of 640, 576..720. That
+looks like the symptom, but the engine computes the same `origin + vertex`, so it only means the
+doorway itself sits at 576..720. It is a bug only if this project's transform disagrees with the
+engine's, and nothing measured so far says it does.
+
+**Still open, and what would settle it:** the viewer placed at the same spot as the owner's TF2
+reference capture — `pos -625.75 -1702.36 689.03`, `ang -0.62 -37.58 0` — with the two pictures
+compared. Every remaining question is about agreement with the engine, which no amount of reading
+either file can answer.
+
+One instrument theory is recorded as wrong so it is not retried: tracks split on serial number, and a
+serial does not change when an entity leaves and re-enters the PVS — only when its slot is reused —
+so PVS churn alone does not fragment a door's track.
+
+Worth carrying forward regardless: **SourceTV is PVS-limited too**, just far less than a POV. A door
+that moves while the STV camera is elsewhere is absent from the file, so any count of "how many moved"
+is a statement about coverage as much as about decoding.
 
 ### D-lighting — brush entities are to be lit the way the engine lights them
 
