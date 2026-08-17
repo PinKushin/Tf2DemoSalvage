@@ -290,15 +290,33 @@ internal sealed class EntityModelSet
             ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds, prop.Pose.PlaybackRate)
             : (0, 0, 0f);
 
+    /// <summary>Whether a model kind has geometry this renderer can draw.</summary>
+    /// <param name="kind">What the model reference resolved to.</param>
+    /// <returns>Whether it can be packed and drawn.</returns>
+    /// <remarks>
+    /// **One predicate, because it was two tests that had to agree and nothing made them.** The
+    /// packing loop and the draw loop each carried their own <c>Kind != Studio</c>, so admitting
+    /// brush entities meant changing the same rule in two places — and the two failures are not
+    /// alike: a model packed but never drawn is silent, while one drawn but never packed is a
+    /// lookup miss reported as a load failure.
+    ///
+    /// A sprite is a camera-facing quad with no geometry of its own and is still not drawn.
+    /// Unknown is <c>mod_bad</c>: the reference never resolved, so there is nothing to look up.
+    /// </remarks>
+    private static bool IsDrawable(SceneModelKind kind) =>
+        kind is SceneModelKind.Studio or SceneModelKind.Brush;
+
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>
     /// <param name="load">Reads a model in its own coordinates, or answers null.</param>
     /// <returns>Whether anything was added, so the caller knows to re-upload.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// **Brush models and sprites are not studio models.** A <c>*N</c> reference is an inline BSP
-    /// submodel whose geometry lives in the map, and a sprite is a camera-facing quad; handing
-    /// either to a <c>.mdl</c> loader draws nothing and reports nothing.
+    /// **A <c>*N</c> reference is an inline BSP submodel**, so its geometry comes from the map
+    /// rather than from a <c>.mdl</c> — but it arrives through the same loader as a model like
+    /// any other, which is why one packing path serves both. A sprite is a camera-facing quad
+    /// with no geometry at all, and handing one to a model loader draws nothing and reports
+    /// nothing.
     ///
     /// A model that fails to load is remembered as empty rather than retried every frame — the
     /// loader reports it once, and asking again sixty times a second would bury the log in the
@@ -313,7 +331,11 @@ internal sealed class EntityModelSet
 
         foreach (SceneProp prop in props)
         {
-            if (prop.Kind != SceneModelKind.Studio || _byModel.ContainsKey(prop.ModelPath))
+            // **Brush entities pack like studio models, because by here they are models.** `*12`
+            // resolves through the same loader to geometry the map built, so the only thing that
+            // ever made this test about `.mdl` files was that nothing else had geometry yet.
+            // Sprites still have none, and Unknown means the model reference was never resolved.
+            if (!IsDrawable(prop.Kind) || _byModel.ContainsKey(prop.ModelPath))
             {
                 continue;
             }
@@ -551,7 +573,7 @@ internal sealed class EntityModelSet
 
             int skin = prop.Pose.Skin;
 
-            if (prop.Kind != SceneModelKind.Studio)
+            if (!IsDrawable(prop.Kind))
             {
                 notStudio++;
 
