@@ -5777,22 +5777,45 @@ everything is projected to screen space.
 The frame log now reports the LONGEST frame each second beside the rate, because a mean hides jitter
 by construction — the average barely moved while the worst frame grew.
 
-### B99 — the viewer draws every surface and every model, every frame — OPEN
+### B99 — playback costs twenty milliseconds a frame on the CPU, and rendering costs three — OPEN
 
 **Owner's target: a thousand frames a second, which TF2 itself reaches.** Measured on cp_process at
 a 300 fps cap with vertical sync off: about **48 frames a second** standing still with the demo
 playing, longest frame 21–27 ms; **22–37** while flying, longest 46–100 ms.
 
-The gap is not a shader or a driver setting. **TF2 hits a thousand frames a second by not drawing
-most of the map**: the PVS culls whole leaves against where the camera stands, the frustum culls what
-survives that, and LOD reduces what is left. This viewer draws the entire map and every model on
-every frame, from any viewpoint — which is also B96, the roof that hides the map from above.
+**The first version of this entry blamed culling, and the measurement it was missing killed that.**
+Every sample had been taken while PLAYING. Paused, the same viewpoint on the same map reports:
 
-So the same missing mechanism explains both, and the order is worth stating: leaf and frustum culling
-first, because it removes work rather than making work cheaper. Only then is it worth looking at
-draw-call batching, instancing, or the CPU-side decode of DXT textures (B93).
+```
+[render] 300 frames a second, longest 3.4 ms, paused
+[render]  48 frames a second, longest  25 ms, playing
+```
 
-**One measurement to take before any of it**, and it is cheap: hold the camera still somewhere open
-and compare against still at the shutter. If both read about thirty frames a second, the cost is
-view-dependent GPU work — overdraw — rather than anything flight does, and the residual after B98 is
-not a defect at all. Guessing that wrong means optimising the wrong half.
+**Drawing the entire uncalled map costs 3.4 milliseconds.** It reaches the 300 cap with room to
+spare, on roughly 1.4 million triangles — 11,186 world faces and 1,222,475 prop triangles. The owner's
+read was right: a modern card does not struggle with that, and culling is an optimisation on top
+rather than the reason for 48 frames a second.
+
+**Playback adds about twenty milliseconds of CPU per frame**, and that is the whole gap. `ShowMoment`
+rebuilds the scene on every frame: poses for every track, bone matrices for every skinned model, and
+the lighting for each one.
+
+**Prime suspect, and it was added on 2026-08-17 in this same session.** `LocalLights.AddTo` runs per
+model per frame and scans all 477 of the map's world lights to rank the strongest four, then
+evaluates the falloff again for each of six cube faces. At roughly 95 models that is about 45,000
+light evaluations a frame, each with a square root, for a result that cannot change unless the model
+moves. The ambient reconstruction beneath it also went from picking one sample to averaging sixteen.
+
+Neither is wrong — both are what the engine computes — but the engine computes them for a moving
+entity once, not for every entity on every frame.
+
+**Measure before optimising, and the order is now the opposite of what this entry first said:**
+
+1. Time `ShowMoment` and its parts. Twenty milliseconds is a large budget and it belongs to something
+   specific; the split between pose rebuilding, bone matrices and lighting is not yet known.
+2. Cache what cannot have changed. A model that has not moved has the same lighting it had last
+   frame, and most models in a demo are stationary.
+3. Only then culling, which is still worth doing for B96's roof and for the worst viewpoints.
+
+A frame rate measured while playing was measuring the wrong thing for the whole of this entry's
+first draft.
