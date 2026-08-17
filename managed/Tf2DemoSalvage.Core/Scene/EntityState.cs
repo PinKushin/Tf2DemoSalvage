@@ -46,10 +46,11 @@ public sealed class EntityState
             [NonLocalOriginTable] = [OriginProperty, OriginZProperty, EyeAnglesPitch, EyeAnglesYaw],
             [AnimatingTable] =
             [
-                SequenceProperty, BodyProperty, CycleProperty, PlaybackRateProperty,
+                SequenceProperty, BodyProperty, PlaybackRateProperty,
                 ModelScaleProperty, SkinProperty,
             ],
-            [PlayerTable] = [FlagsProperty],
+            [ServerAnimationTable] = [CycleProperty],
+            [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
         };
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
@@ -113,7 +114,28 @@ public sealed class EntityState
 
     /// <summary>Which alternative each body part shows, packed into one number.</summary>
     private const string BodyProperty = "m_nBody";
+    /// <summary>How far through its animation a SERVER-animated entity is.</summary>
+    /// <remarks>
+    /// **Not on <c>DT_BaseAnimating</c>, which is where this looked for it and found nothing.**
+    /// <c>baseanimating.cpp:223</c> puts it in a table of its own, under a comment that explains
+    /// exactly who gets it:
+    ///
+    /// <code>
+    /// // Sendtable for fields we don't want to send to clientside animating entities
+    /// BEGIN_SEND_TABLE_NOBASE( CBaseAnimating, DT_ServerAnimationData )
+    ///     SendPropFloat (SENDINFO(m_flCycle), ANIMATION_CYCLE_BITS, ...)
+    /// END_SEND_TABLE()
+    /// </code>
+    ///
+    /// So a door or a moving platform sends its cycle and a player never does — <c>CTFPlayer</c>
+    /// calls <c>UseClientSideAnimation()</c> (<c>tf_player.cpp:949</c>) and the client advances the
+    /// cycle itself. A trace agrees: 97 <c>DT_ServerAnimationData.m_flCycle</c> and no
+    /// <c>DT_BaseAnimating.m_flCycle</c> at all.
+    /// </remarks>
     private const string CycleProperty = "m_flCycle";
+
+    /// <summary>The sub-table carrying what client-animated entities must not receive.</summary>
+    private const string ServerAnimationTable = "DT_ServerAnimationData";
     private const string PlaybackRateProperty = "m_flPlaybackRate";
     private const string ModelScaleProperty = "m_flModelScale";
 
@@ -133,16 +155,38 @@ public sealed class EntityState
     /// </remarks>
     private const string SkinProperty = "m_nSkin";
 
-    /// <summary>Where a player's engine flags arrive.</summary>
+    /// <summary>The ordinary player table, sent to everyone.</summary>
     /// <remarks>
-    /// <c>DT_LocalPlayerExclusive</c> is the table the send prop is declared in
-    /// (<c>player.cpp:8183</c>), and the name survives flattening, so that is what a demo's schema
-    /// calls it — for every player in a SourceTV recording, and for the recorder alone in a POV one.
+    /// **This was <c>DT_LocalPlayerExclusive</c>, and the citation beside it was right while the
+    /// claim was invented.** <c>player.cpp:8183</c> really is where <c>m_fFlags</c> is declared, and
+    /// what it says there is:
+    ///
+    /// <code>
+    /// IMPLEMENT_SERVERCLASS_ST( CBasePlayer, DT_BasePlayer )
+    ///     ...
+    ///     SendPropInt ( SENDINFO(m_fFlags), 0, SPROP_UNSIGNED|SPROP_CHANGES_OFTEN ),
+    /// </code>
+    ///
+    /// No exclusivity — it is sent for every player, and marked <c>SPROP_CHANGES_OFTEN</c> because
+    /// they all send it constantly. The old comment's "for the recorder alone in a POV one" was a
+    /// guess written in the voice of a measurement.
+    ///
+    /// The cost was total silence: the qualified key never matched, <c>Flags</c> answered null for
+    /// every player in every demo, and the activity state machine took its "nothing said" branch
+    /// forever. Nobody crouched or jumped in the viewer, ever. A trace settles it — 119
+    /// <c>DT_BasePlayer.m_fFlags</c> and not one occurrence of the name being looked for.
+    ///
+    /// <see cref="LifeState"/> already read from this table, with a comment saying why. Two
+    /// accessors on the same entity disagreed about where a player's own state lives, which is what
+    /// a constant is for.
     /// </remarks>
-    private const string PlayerTable = "DT_LocalPlayerExclusive";
+    private const string BasePlayerTable = "DT_BasePlayer";
 
     /// <summary>The engine flag word, carrying the crouch and ground bits.</summary>
     private const string FlagsProperty = "m_fFlags";
+
+    /// <summary>0 alive, 1 dying, 2 dead; see LIFE_ALIVE in const.h.</summary>
+    private const string LifeStateProperty = "m_lifeState";
 
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
@@ -398,7 +442,7 @@ public sealed class EntityState
     /// sends what changed. Reading absence as "unknown, so do not draw" would hide every player
     /// who had not died yet.
     /// </remarks>
-    public int? LifeState() => Integer("DT_BasePlayer.m_lifeState");
+    public int? LifeState() => Integer($"{BasePlayerTable}.{LifeStateProperty}");
 
     /// <summary>The player's engine flags, when they were sent.</summary>
     /// <returns><c>m_fFlags</c>, or <c>null</c> when it was never sent.</returns>
@@ -421,12 +465,12 @@ public sealed class EntityState
     /// Bits from <c>const.h</c>: <c>FL_ONGROUND</c> 1, <c>FL_DUCKING</c> 2, <c>FL_ANIMDUCKING</c> 4,
     /// <c>FL_INWATER</c> 512.
     /// </remarks>
-    public int? Flags() => Integer($"{PlayerTable}.{FlagsProperty}");
+    public int? Flags() => Integer($"{BasePlayerTable}.{FlagsProperty}");
 
     /// <summary>How far through its animation the entity is, from 0 to 1.</summary>
     /// <returns>The cycle, or <c>null</c> when the entity does not animate.</returns>
     /// <remarks><c>c_baseanimating.cpp:152</c>.</remarks>
-    public float? Cycle() => Number($"{AnimatingTable}.{CycleProperty}");
+    public float? Cycle() => Number($"{ServerAnimationTable}.{CycleProperty}");
 
     /// <summary>How fast the animation runs, where 1 is its authored speed.</summary>
     /// <returns>The rate, or <c>null</c> when never sent.</returns>
