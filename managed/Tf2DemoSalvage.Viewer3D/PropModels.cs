@@ -1188,6 +1188,60 @@ internal static class PropModels
             return StudioBones.Posed(Bones, pose);
         }
 
+        /// <summary>How fast a sequence was authored to travel, in units a second.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <param name="poseValues">
+        /// A value for each pose parameter, in <see cref="PoseParameters"/> order and normalised,
+        /// because they choose which cells of the grid are blended and therefore which animations'
+        /// travel is being asked about.
+        /// </param>
+        /// <returns>The ground speed, or zero when nothing in the blend moves.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
+        /// <remarks>
+        /// **<c>GetSequenceGroundSpeed</c>** (<c>baseanimating.cpp:1096</c>), which
+        /// <c>ComputePoseParam_MoveYaw</c> needs to scale a slow player's blend back towards the
+        /// middle of the grid. The blend is resolved the same way <see cref="Skeleton(int, int, IReadOnlyList{float})"/> resolves
+        /// it, so the speed reported is that of the animations actually being played rather than of
+        /// the sequence's first cell.
+        /// </remarks>
+        public float GroundSpeed(int sequence, IReadOnlyList<float> poseValues)
+        {
+            ArgumentNullException.ThrowIfNull(poseValues);
+
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Group >= Groups.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return 0f;
+            }
+
+            StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
+
+            if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
+            {
+                return StudioMotion.GroundSpeed(Models[where.Group], [(chosen.Animation, 1f)]);
+            }
+
+            IReadOnlyList<int> map = where.Group >= 0 && where.Group < MasterPose.Count
+                ? MasterPose[where.Group]
+                : [];
+
+            (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues, map);
+            (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues, map);
+
+            (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
+
+            List<(int Animation, float Weight)> blend = new(animations.Length);
+
+            for (int corner = 0; corner < animations.Length; corner++)
+            {
+                blend.Add((animations[corner], weights[corner]));
+            }
+
+            return StudioMotion.GroundSpeed(Models[where.Group], blend);
+        }
+
         /// <summary>One animation's pose, renumbered onto the base model's bones.</summary>
         /// <remarks>
         /// **The animation's bones are ITS model's, and must be renumbered.** An animation model

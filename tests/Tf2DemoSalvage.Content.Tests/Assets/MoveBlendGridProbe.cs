@@ -79,6 +79,68 @@ public sealed class MoveBlendGridProbe
         }
     }
 
+    [Test]
+    public void WhatGroundSpeedDoesTheRunBlendReport()
+    {
+        if (!Directory.Exists(Game))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        VpkArchive[] archives =
+        [
+            .. new[] { "tf2_misc_dir.vpk", "tf2_textures_dir.vpk" }
+                .Select(name => Path.Combine(Game, name))
+                .Where(File.Exists)
+                .Select(VpkArchive.Open),
+        ];
+
+        foreach (string path in new[]
+        {
+            "models/player/scout_animations.mdl",
+            "models/player/soldier_animations.mdl",
+            "models/player/heavy_animations.mdl",
+        })
+        {
+            if (archives.Select(a => a.ReadFile(path)).FirstOrDefault(f => f is not null) is not { } file)
+            {
+                continue;
+            }
+
+            IReadOnlyList<StudioPoseParameter> parameters = StudioSequences.PoseParameters(file);
+            int[] identity = [.. Enumerable.Range(0, parameters.Count)];
+
+            foreach (StudioSequence sequence in StudioSequences.Read(file)
+                .Where(c => c.Activity == "ACT_MP_RUN_PRIMARY" && c.Blend is { Blends: true })
+                .Take(1))
+            {
+                StudioBlendGrid grid = sequence.Blend!;
+
+                float[] values = new float[parameters.Count];
+
+                for (int index = 0; index < parameters.Count; index++)
+                {
+                    float raw = parameters[index].Name switch { "move_x" => 1f, _ => 0f };
+                    values[index] = StudioBlendGrid.Normalize(parameters[index], raw);
+                }
+
+                (int x, float sx) = grid.Locate(0, parameters, values, identity);
+                (int y, float sy) = grid.Locate(1, parameters, values, identity);
+
+                (int[] animations, float[] weights) = grid.ThreeWay(x, y, sx, sy);
+
+                List<(int, float)> blend =
+                    [.. animations.Select((a, i) => (a, weights[i])).Where(pair => pair.Item2 > 0f)];
+
+                TestContext.Out.WriteLine(
+                    $"SPEED {Path.GetFileName(path)} " +
+                    string.Join(", ", blend.Select(b => $"anim {b.Item1} w {b.Item2:0.###}")) +
+                    $" => ground speed {StudioMotion.GroundSpeed(file, blend):0.##}");
+            }
+        }
+    }
+
     private static void Describe(
         StudioSequence sequence, IReadOnlyList<StudioPoseParameter> parameters)
     {

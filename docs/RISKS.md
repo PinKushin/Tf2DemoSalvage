@@ -6181,3 +6181,47 @@ the source and is not incidental.
 
 Until then a player easing along animates at a full-magnitude blend rather than being drawn back
 towards the middle of the grid.
+
+### B101's speed scaling — RESOLVED, and the ground speed matches TF2's class speeds exactly
+
+The last piece of `ComputePoseParam_MoveYaw` is now implemented:
+
+```cpp
+float flMaxSpeed = GetBasePlayer()->GetSequenceGroundSpeed( GetBasePlayer()->GetSequence() );
+if ( flMaxSpeed > flSpeed ) { vecCurrentMoveYaw.x *= flSpeed / flMaxSpeed; ... }
+```
+
+`StudioMotion` reads the `mstudiomovement_t` blocks an animation carries — `nummovements` and
+`movementindex` at offsets 20 and 24 of `mstudioanimdesc_t`, stride 44 — and ports
+`Studio_AnimPosition`, whose integral is `d = v0*f + 0.5*(v1-v0)*f²`. `Studio_SeqMovement` sums the
+weighted VECTORS and takes the length of the sum, which is not the weighted mean of the lengths: two
+animations travelling opposite ways at equal weight cancel to a standstill, and averaging would
+report full pace.
+
+**The duration term was already here and the division cancels.** `Studio_CPS` is
+`Σ weight·fps/(numframes-1)`, `Studio_Duration` is its reciprocal, and `GetSequenceGroundSpeed` is
+distance ÷ duration — so the whole thing is distance × cps, and `StudioAnimation.CyclesPerSecond`
+was already exactly that per-animation term.
+
+**The result validates against a constant from somewhere else entirely.** Run over each class's
+forward run it gives 400, 240 and 230 for scout, soldier and heavy — precisely the `speed_max`
+values the game loads from its own class scripts (`tf_classdata.cpp:152`). Nothing in the code was
+given those numbers; they fall out of the movement records and the frame rate. An arithmetic slip
+anywhere in the chain would land somewhere else.
+
+**One term is untestable against any shipped model, and sabotage established that rather than
+intuition.** Changing Valve's `0.5` coefficient leaves every corpus assertion green, because TF2's
+run loops are authored at constant velocity — `v0` equals `v1`, so the acceleration term is
+identically zero however it is scaled. Scaling `v0 * f` instead reddens four of them. A fixture
+supplies the missing condition: an animation accelerating from rest to 200 units a second over one
+second, where the integral gives 100, reading the end velocity flat would give 200 and dropping the
+term would give 0. That fixture is the only test that fails when the coefficient is wrong.
+
+**The scaling lives in the viewer, not in `DemoTimeline`**, because it needs the authored speed of
+the sequence the player is playing and the scene layer has never opened a model. The two-pass shape
+is Valve's: set the parameters, read the ground speed WITH THOSE IN PLACE — they choose which cells
+are blended, so they choose whose authored speed is being asked about — then rescale and set again.
+`flMaxSpeed > flSpeed` is a strict comparison, so a player moving faster than their animation was
+authored for is left alone rather than scaled past the edge of the grid.
+
+B101 is now closed in full.

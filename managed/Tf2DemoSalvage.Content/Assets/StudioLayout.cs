@@ -214,6 +214,41 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>numframes</c>.</summary>
     public const int AnimationFrameCountOffset = 16;
 
+    /// <summary>Byte offset of <c>nummovements</c>: how many piecewise motion blocks it has.</summary>
+    /// <remarks>
+    /// Straight after <c>numframes</c> in <c>mstudioanimdesc_t</c> — <c>baseptr</c>,
+    /// <c>sznameindex</c>, <c>fps</c>, <c>flags</c>, <c>numframes</c>, then this pair, then
+    /// <c>unused1[6]</c> and the <c>animblock</c>/<c>animindex</c> already read below.
+    /// </remarks>
+    public const int AnimationMovementCountOffset = 20;
+
+    /// <summary>Byte offset of <c>movementindex</c>, relative to the animation description.</summary>
+    public const int AnimationMovementIndexOffset = 24;
+
+    /// <summary>
+    /// Bytes per <c>mstudiomovement_t</c>: <c>endframe</c>, <c>motionflags</c>, <c>v0</c>,
+    /// <c>v1</c>, <c>angle</c>, then two <c>Vector</c>s — <c>vector</c> and <c>position</c>.
+    /// </summary>
+    public const int MovementStride = 44;
+
+    /// <summary>Byte offset of <c>endframe</c> within a movement block.</summary>
+    public const int MovementEndFrameOffset = 0;
+
+    /// <summary>Byte offset of <c>v0</c>: the velocity at the start of the block.</summary>
+    public const int MovementStartVelocityOffset = 8;
+
+    /// <summary>Byte offset of <c>v1</c>: the velocity at its end.</summary>
+    public const int MovementEndVelocityOffset = 12;
+
+    /// <summary>Byte offset of <c>angle</c>: the yaw rotation at the end of the block.</summary>
+    public const int MovementAngleOffset = 16;
+
+    /// <summary>Byte offset of <c>vector</c>: the direction of travel for the block.</summary>
+    public const int MovementVectorOffset = 20;
+
+    /// <summary>Byte offset of <c>position</c>: displacement from the start of the animation.</summary>
+    public const int MovementPositionOffset = 32;
+
     /// <summary>Byte offset of <c>animblock</c>: 0 when the data is in this file.</summary>
     public const int AnimationBlockOffset = 52;
 

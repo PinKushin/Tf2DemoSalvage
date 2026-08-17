@@ -826,7 +826,7 @@ internal sealed class EntityModelSet
                     phase, skinned.Frames(sequence), skinned.Loops(sequence));
 
                 StudioSkeleton posed = skinned.Skeleton(
-                    sequence, posedFrame, PoseValues(skinned, pose));
+                    sequence, posedFrame, PoseValues(skinned, pose, sequence));
 
                 bones = posed.Matrices;
 
@@ -1058,7 +1058,7 @@ internal sealed class EntityModelSet
     /// Anything this project does not compute stays at zero, which is what the engine leaves an
     /// unset parameter at.
     /// </remarks>
-    private static float[] PoseValues(PropModels.SkinnedModel model, ScenePose pose)
+    private static float[] PoseValues(PropModels.SkinnedModel model, ScenePose pose, int sequence)
     {
         IReadOnlyList<StudioPoseParameter> parameters = model.PoseParameters;
 
@@ -1067,14 +1067,59 @@ internal sealed class EntityModelSet
             return [];
         }
 
+        float[] values = Filled(parameters, pose.MoveX, pose.MoveY);
+
+        // **The speed scaling, and it happens HERE rather than in the scene layer because only this
+        // side can open a model.** ComputePoseParam_MoveYaw finishes with
+        //
+        //     float flMaxSpeed = GetSequenceGroundSpeed( GetSequence() );
+        //     if ( flMaxSpeed > flSpeed ) { x *= flSpeed / flMaxSpeed; y *= flSpeed / flMaxSpeed; }
+        //
+        // which pulls a player moving slower than their animation was authored for back towards the
+        // middle of the blend grid. Without it a scout walking at 100 units a second animated with
+        // the same full-magnitude stride as one sprinting at 400.
+        //
+        // **The two-pass shape is Valve's, not an accident of this port.** The engine sets move_x
+        // and move_y, reads the ground speed WITH THOSE IN PLACE — the parameters choose which
+        // cells of the grid are blended, so they choose whose authored speed is being asked about —
+        // and only then rescales and sets them again. Reading the speed first would ask about
+        // whichever cells the previous frame happened to leave behind.
+        if (pose.Speed is not { } speed || speed <= 0f)
+        {
+            return values;
+        }
+
+        float authored = model.GroundSpeed(sequence, values);
+
+        // Valve's guard is `if ( flMaxSpeed > flSpeed )`, so a player moving FASTER than their
+        // animation was authored for is left alone rather than scaled past the edge of the grid.
+        if (authored <= speed)
+        {
+            return values;
+        }
+
+        float scale = speed / authored;
+
+        return Filled(parameters, pose.MoveX * scale, pose.MoveY * scale);
+    }
+
+    /// <summary>Every pose parameter's stored value, given the two this project computes.</summary>
+    /// <remarks>
+    /// Anything not computed stays at a raw zero, which is what the engine leaves an unset
+    /// parameter at — and note that zero is normalised like any other value, so a parameter running
+    /// −1 to 1 lands in the MIDDLE of its range rather than at the bottom.
+    /// </remarks>
+    private static float[] Filled(
+        IReadOnlyList<StudioPoseParameter> parameters, float moveX, float moveY)
+    {
         float[] values = new float[parameters.Count];
 
         for (int index = 0; index < parameters.Count; index++)
         {
             float raw = parameters[index].Name switch
             {
-                "move_x" => pose.MoveX,
-                "move_y" => pose.MoveY,
+                "move_x" => moveX,
+                "move_y" => moveY,
                 _ => 0f,
             };
 
