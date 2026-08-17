@@ -34,6 +34,53 @@ public sealed class BrushEntityWiringTests
         "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
 
     [Test]
+    public void AMovingGatesGeometry_IsCompiledWhereTheDemoSaysItRests()
+    {
+        // **B94's second question, once the demo excluded the mapper.** Three gates move on
+        // cp_process -- submodels 80, 81 and 186 -- and the demo's own m_vecOrigin says all three
+        // rest at Z 640 and rise 145 units. So the motion is upward and the fault is this side.
+        //
+        // That leaves where the geometry sits. vbsp shifts an entity's brushes to be relative to
+        // its origin brush and writes that point as the entity's origin keyvalue, so a gate WITH an
+        // origin brush is compiled near zero and placed by the networked origin. One without keeps
+        // world coordinates and carries an origin of zero. Both are correct under
+        // `world = origin + vertex`; what breaks is a gate compiled in world space whose entity
+        // still reports a non-zero origin, because then the two are added twice.
+        //
+        // The models lump answers it directly, and the answer decides whether BrushModels is right
+        // to keep vertices as stored.
+        if (!File.Exists(MapPath))
+        {
+            Assert.Ignore("cp_process_f12.bsp is not on this machine.");
+            return;
+        }
+
+        IReadOnlyList<BspModel> models = BspModels.Read(File.ReadAllBytes(MapPath));
+
+        // The three the demo showed moving.
+        foreach (int index in (int[])[80, 81, 186])
+        {
+            BspModel gate = models[index];
+
+            // **Compiled about its own origin, which is what "relative" means here.** Submodel 80
+            // measures -64 to 80: 144 units tall, straddling zero, matching the 145 units the demo
+            // says it travels. That is an origin brush placed at the shutter's centre, and with a
+            // resting origin of 640 it puts the shutter at 576..720 and lifts it to 721..865.
+            //
+            // A previous version of this assertion demanded the minimum be non-negative, on a guess
+            // that a negative one would hang the shutter below its frame. Straddling zero is
+            // ordinary for a centred origin brush, so that was a hypothesis written as a test —
+            // and it failed against correct data. What actually distinguishes relative from absolute
+            // is magnitude, not sign: world-space vertices here would read near 640.
+            Math.Abs(gate.Minimum.Z).ShouldBeLessThan(
+                320f,
+                $"submodel {index} spans {gate.Minimum.Z:0} to {gate.Maximum.Z:0}");
+
+            Math.Abs(gate.Maximum.Z).ShouldBeLessThan(320f);
+        }
+    }
+
+    [Test]
     public void ARealMapsBrushEntities_ReachTheEntityModelTable()
     {
         if (!Directory.Exists(GamePath) || !File.Exists(MapPath))

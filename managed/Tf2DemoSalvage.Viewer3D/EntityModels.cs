@@ -129,6 +129,9 @@ internal sealed class EntityModelSet
     /// <summary>Entities whose sampled light has been reported, one line each.</summary>
     private readonly HashSet<int> _reportedLight = [];
 
+    /// <summary>Brush entities whose placement has been reported, one line each.</summary>
+    private readonly HashSet<int> _reportedBrush = [];
+
     private static bool IsUnlit(AmbientCube cube) =>
         cube.PositiveX == (0f, 0f, 0f) &&
         cube.NegativeX == (0f, 0f, 0f) &&
@@ -682,6 +685,20 @@ internal sealed class EntityModelSet
             // fine, which is the shape that rules out a missing lighting term: an absent term
             // darkens every instance equally. So the question is what THIS instance sampled, and
             // the answer needs the instances side by side.
+            // **Where a brush entity actually lands, which is the one thing the BSP and the demo
+            // cannot answer between them (B94).** The map says submodel 80 spans -64 to 80 about
+            // its own origin and the demo says that origin rests at 640 and rises to 785, so the
+            // shutter should occupy 576..720 closed. Whether it does is a fact about this transform,
+            // and a gate reported in the floor is a disagreement with one of those two numbers.
+            if (prop.Kind == SceneModelKind.Brush && _reportedBrush.Add(prop.EntityIndex))
+            {
+                ViewerLog.Write(
+                    "render",
+                    $"brush {prop.ModelPath} #{prop.EntityIndex} origin " +
+                    $"({pose.X:0},{pose.Y:0},{pose.Z:0}) yaw {pose.Yaw:0.#} pitch {pose.Pitch:0.#} " +
+                    $"roll {pose.Roll:0.#} scale {pose.Scale:0.##}");
+            }
+
             if (lightAt is not null && _reportedLight.Add(prop.EntityIndex))
             {
                 ViewerLog.Write(
