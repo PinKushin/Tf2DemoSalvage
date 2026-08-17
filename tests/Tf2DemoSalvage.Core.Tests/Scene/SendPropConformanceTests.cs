@@ -59,18 +59,34 @@ public sealed class SendPropConformanceTests
     }
 
     [Test]
-    public void TheKnownSpecialCases_AreNotMistakenForProperties()
+    public void MoveparentIsARealSendPropDeclaredUnderAnAlias()
     {
-        // **moveparent is not a SendProp and must not be checked as one.** It is the flattened name
-        // the engine gives a parent handle inside DT_BaseEntity's hierarchy, so it will never
-        // appear in a SENDINFO. Stated here so the absence is a recorded fact rather than a gap
-        // someone later "fixes" by renaming the constant to something that IS declared and breaks
-        // the decode.
+        // **This test used to assert the opposite, and the opposite was false.** It read:
+        //
+        //   "moveparent is not a SendProp and must not be checked as one. It is the flattened name
+        //    the engine gives a parent handle inside DT_BaseEntity's hierarchy, so it will never
+        //    appear in a SENDINFO."
+        //
+        // It appears in one. `baseentity.cpp:287`:
+        //
+        //   SendPropEHandle( SENDINFO_NAME( m_hMoveParent, moveparent ) )
+        //   #define SENDINFO_NAME(varName, remoteVarName)  #remoteVarName, ...
+        //
+        // The C++ member is `m_hMoveParent` and the WIRE name is `moveparent`. The scraper backing
+        // this class captured only SENDINFO's first argument, so every aliased property was missing
+        // from its denominator — and a previous author, finding `moveparent` absent, concluded it
+        // was special and wrote that conclusion into a test that then defended it.
+        //
+        // **False negative, wrong conclusion, test certifying the conclusion.** Third instance of
+        // that sequence found in this suite, and the most complete one: the search's limitation
+        // became a recorded fact about the format.
+        //
+        // The scraper now reads the remote name too, so this asserts what is true. `movetype` and
+        // `movecollide` are declared the same way on the same table.
         HashSet<string> declared = SentProperties();
 
-        declared.ShouldNotContain(
-            "moveparent",
-            "if this ever appears in a send table, the note in EntityState needs revisiting");
+        declared.ShouldContain("moveparent");
+        declared.ShouldContain("movetype");
     }
 
     [Test]
@@ -108,6 +124,27 @@ public sealed class SendPropConformanceTests
                 RegexOptions.Compiled,
                 TimeSpan.FromSeconds(10)),
             recursive: true);
+
+        // **`SENDINFO_NAME` sends under its SECOND argument, not its first**, and the pattern above
+        // captures only the first — so every aliased property was missing from this denominator:
+        //
+        //   SendPropEHandle( SENDINFO_NAME( m_hMoveParent, moveparent ) )
+        //   #define SENDINFO_NAME(varName, remoteVarName)  #remoteVarName, ...
+        //
+        // The C++ member is `m_hMoveParent`; the wire name is `moveparent`. This project reads
+        // `moveparent`, correctly, and adding it to the inventory made this test report a defect
+        // that did not exist — a denominator with a hole in it accuses correct code.
+        //
+        // `movetype` and `movecollide` are declared the same way on the same table, so anything
+        // reading those later would have hit this too.
+        names.UnionWith(SourceSdk.Names(
+            "src/game",
+            "*.cpp",
+            new Regex(
+                @"SENDINFO_NAME\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*([A-Za-z_][A-Za-z0-9_]*)",
+                RegexOptions.Compiled,
+                TimeSpan.FromSeconds(10)),
+            recursive: true));
 
         // The instrument before its answer: an extraction that found nothing would pass every
         // assertion above by vacuum.

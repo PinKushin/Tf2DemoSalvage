@@ -39,9 +39,11 @@ public sealed class EntityState
         {
             [BaseEntityTable] =
             [
-                OriginProperty, AnglesProperty, EffectsProperty, ModelIndexProperty,
-                OwnerProperty,
+                OriginProperty, OriginZProperty, AnglesProperty, EffectsProperty,
+                ModelIndexProperty, OwnerProperty, ParentProperty,
             ],
+            [LocalOriginTable] = [OriginProperty, OriginZProperty, EyeAnglesPitch, EyeAnglesYaw],
+            [NonLocalOriginTable] = [OriginProperty, OriginZProperty, EyeAnglesPitch, EyeAnglesYaw],
             [AnimatingTable] =
             [
                 SequenceProperty, BodyProperty, CycleProperty, PlaybackRateProperty,

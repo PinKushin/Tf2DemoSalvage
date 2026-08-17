@@ -5115,17 +5115,26 @@ propose them.
 **Answered 2026-08-16, and the answer was no.** A capture point's networked `m_nSkin` did not reach
 its draw call — and not because the renderer ignored it.
 
-`EntityState.NetworkedProperties` is a **whitelist**. `DT_BaseAnimating` retained sequence, body,
-cycle, playback rate and model scale, and **not `m_nSkin`**, so the property was discarded before the
-scene layer saw it. `ScenePose.Skin` was then structurally 0 for every entity in every demo this
-project has ever parsed, and zero is a legitimate skin, so nothing could report it.
+`ScenePose.Skin` was structurally 0 for every entity in every demo this project has ever parsed, and
+zero is a legitimate skin, so nothing could report it.
 
-**Two places were wrong, and fixing either alone still yields zeros:**
-
-1. the whitelist did not retain the property;
-2. the pose construction in `DemoTimeline` never read it — while the *clone* in `ScenePropTrack`
-   copied `Skin` faithfully, under a comment explaining at length why losing a skin draws every
-   entity in family zero.
+> **Correction, later the same day.** This entry originally said `EntityState.NetworkedProperties` is
+> a **whitelist** and that the property "was discarded before the scene layer saw it". That is false,
+> and it was my own diagnosis.
+>
+> `EntityStateTable.Apply` writes **every** decoded property into the state unconditionally, and
+> `NetworkedProperties` has no production consumer — only tests read it. `EntityState.Skin()` would
+> have answered correctly all along. **The entire defect was one missing line**, the
+> `Skin = state.Skin() ?? 0` in the pose construction, while the *clone* in `ScenePropTrack` copied
+> `Skin` faithfully under a comment explaining why losing it draws every entity in family zero.
+>
+> Adding `m_nSkin` to the list was still worth doing, for a different reason than the one given:
+> that list is the set of names `SendPropConformanceTests` checks against the SDK's send tables, so a
+> name absent from it has nothing verifying it is real. Not retention — coverage.
+>
+> Found while auditing for the inverse defect, "consumed but not retained", which cannot exist
+> because no retention gate exists. The audit's real yield was four production property names absent
+> from that inventory and therefore unchecked.
 
 **That comment is the sharpest part of this.** It was written when `Body` went missing from the same
 rebuild, and it says: *"a record constructed field by field, one field forgotten, and a default that
