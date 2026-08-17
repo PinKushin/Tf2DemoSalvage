@@ -147,12 +147,20 @@ public static class LocalLights
     /// falloff (surface must trace to SKY texture)" — so treating it as a positional light would
     /// put the sun wherever its origin happens to be recorded. It is applied on its own path.
     ///
-    /// <c>emit_surface</c> is a lit face acting as a source and is treated as a spotlight, which is
-    /// what this project's own <see cref="WorldLightKind"/> notes describe.
+    /// **<c>emit_surface</c> is excluded too, and the map proves why.** All 108 of cp_process's
+    /// surface lights carry attenuation terms of exactly zero, with intensities around 7,000 to
+    /// 8,300. A light with no falloff reaches everywhere at full strength — vrad's normalisation
+    /// turns the all-zero case into <c>constant_attn = 1</c>, so four of them dominated every model
+    /// on the map and the middle capture point drew at a luminance of 6.3 with no lamp anywhere
+    /// near it.
+    ///
+    /// That absent falloff is the evidence rather than an inconvenience: an area light for the
+    /// radiosity solver has no distance term because it is never evaluated at a distance. It is
+    /// resolved at compile time into the lightmaps and into the leaf ambient cube, so applying it
+    /// again at runtime both double-counts it and never attenuates it.
     /// </remarks>
     private static bool IsLocal(WorldLightKind kind) =>
-        kind is WorldLightKind.Point or WorldLightKind.Spotlight or
-            WorldLightKind.Surface or WorldLightKind.QuakeLight;
+        kind is WorldLightKind.Point or WorldLightKind.Spotlight or WorldLightKind.QuakeLight;
 
     /// <summary>
     /// Distance falloff, as <c>LightDesc_t::ComputeLightAtPoints</c> computes it.
