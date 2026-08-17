@@ -5441,3 +5441,76 @@ background thread touches device creation and is its own change.
 declared a two-minute wait and believed that was the limit; the shorter, undeclared limit belonged to
 a layer underneath and won. Any wait built on someone else's client has that shape — check what the
 layer below does when the thing it is waiting on stops answering, because its answer overrides yours.
+
+### B71 RESOLVED — brush entities draw and move, and the count is exact
+
+The last step landed the wiring. Measured on cp_process_f12 with autoplay:
+
+```
+[assets] 200 brush entities built from the map's models lump
+[render] world: 10482 brush faces, 60 terrain faces, 1222475 prop triangles, 0 faces with no
+         material; 704 faces held back for entity models rather than baked into the world
+[props]  asked for 235, produced 235; skipped 0 not-studio [none], 0 no-batches [none]
+```
+
+That last line read `produced 94; skipped 141 not-studio` before, and every one of the 141 was a
+door, gate or moving brush. Static brush faces fell by exactly the 704 now drawn as entities.
+
+**The 704 is not the 1,030 measured earlier, and the difference is the reader rather than the map.**
+The visibility and degenerate-face checks run before the boundary check, so 326 entity-model faces
+were already being dropped for other reasons and are counted in neither number.
+
+**One assumption died to the SDK on the way, and it is the useful part of this entry.** The first
+draft treated `dmodel_t::origin` as the rotation pivot and wrote rotating doors down as a known gap.
+It is not the pivot — `public/bspfile.h` annotates the field `// for sounds or lights` — and vbsp
+has already done the work:
+
+```c
+// origin brushes are removed, but they set
+// the rotation origin for the rest of the brushes
+// in the entity.  After the entire entity is parsed,
+// the planenums and texinfos will be adjusted for
+// the origin brush
+```
+
+(`utils/vbsp/map.cpp`.) A mapper's origin brush becomes the entity's `origin` keyvalue and the
+entity's brushes are shifted relative to it; without one the vertices are world-space and the origin
+is zero. Both reduce to `world = entityOrigin + R × vertex`, which is the transform the entity path
+already applied. Had the guess been "fixed" instead of checked, every closed door would have moved.
+
+Evidence class: read from published source (vbsp, bspfile.h, `C_BaseEntity::DrawBrushModel`), and
+measured on the corpus for the counts.
+
+### B94 — a gate travels into the floor instead of up into its frame — OPEN
+
+**The owner's observation, watching cp_process play back**, and the first real defect found by having
+brush entities draw at all: the gates animate, but one of them moves DOWN into the floor rather than
+up into the top of its frame. Their guess at a cause is that a number of players were around it at
+the time.
+
+Not diagnosed. What is worth writing down before anyone starts is that three explanations fit and
+they are distinguishable:
+
+1. **The movement is right and the geometry is offset.** A door whose faces are placed relative to a
+   pivot the viewer is not applying would travel correctly and start in the wrong place, which reads
+   as travelling the wrong way when the start and end are both near the frame.
+2. **The origin is right and belongs to another entity.** Entity slots are reused, and the player
+   correlation the owner noticed points here — a track that took a neighbour's origin would move a
+   door by whatever that neighbour did.
+3. **The demo really does say down.** A `func_door` moves along its own `movedir`, and a gate that
+   retracts downward is an ordinary thing for a mapper to build.
+
+Explanation 3 is the control and has to be excluded first, because it is the one where nothing is
+wrong. The demo's own `m_vecOrigin` for that entity over time answers it without any rendering
+involved: dump the track and read whether Z falls.
+
+### D-lighting — brush entities are to be lit the way the engine lights them
+
+**Owner's decision, stated plainly:** the lighting should be done as Valve does it. Brush entities are
+lightmapped by the engine; the viewer's entity path lights by ambient cube, so every door now draws
+flat against lightmapped walls.
+
+This was raised as an open choice in the B71 amendment and is no longer one. It is not scheduled
+next — the owner put the dark control points ahead of it — but the direction is settled, and the
+implementation is the one the amendment named: lightmap coordinates carried into the entity vertex
+format, or the world shader used with a per-instance transform.

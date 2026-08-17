@@ -116,10 +116,19 @@ public sealed class EntityModelsTests
     }
 
     [Test]
-    public void BrushModelsAndSprites_AreNotHandedToTheStudioLoader()
+    public void SpritesAreNotHandedToTheLoader_ButBrushModelsAre()
     {
-        // A "*3" is an inline BSP submodel and a ".spr" is a camera-facing sprite. Neither is a
-        // .mdl, and giving either to a studio loader draws nothing while reporting nothing.
+        // **This test asserted that `*3` was withheld too, and that was right until it wasn't.**
+        // The original reasoning — "neither is a .mdl, and giving either to a studio loader draws
+        // nothing while reporting nothing" — was sound when the loader could only read .mdl files.
+        // A `*3` now resolves to geometry the map itself built from its models lump (B71), so
+        // withholding it is what draws nothing: it is the door.
+        //
+        // The sprite half is unchanged and still load-bearing. A .spr is a camera-facing quad with
+        // no geometry of its own, and nothing has been built to make one.
+        //
+        // Kept as one test rather than split, because the point is the boundary between the two
+        // and a boundary is only visible with both sides in it.
         EntityModelSet models = new();
         List<string> asked = [];
 
@@ -131,7 +140,7 @@ public sealed class EntityModelsTests
                 return OneTriangle(path);
             });
 
-        asked.ShouldBe(["models/props/crate.mdl"]);
+        asked.ShouldBe(["*3", "models/props/crate.mdl"]);
     }
 
     [Test]
