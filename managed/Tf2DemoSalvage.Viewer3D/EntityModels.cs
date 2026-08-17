@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Content.Assets;
@@ -531,16 +532,65 @@ internal sealed class EntityModelSet
             _wanted.Add(prop.AttachedTo!.Value);
         }
 
+        // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
+        // how "all the props went away" became a guessing game: the scene said 14 models, the map
+        // showed one, and nothing in between reported which test rejected the other thirteen.
+        //
+        // Four categories, per the project's rule: asked for, what we have, what was produced, what
+        // is missing and why.
+        int askedFor = _ordered.Count;
+        int notStudio = 0;
+        int noBatches = 0;
+        int drawnCount = 0;
+        Dictionary<string, int> noBatchesBy = [];
+        Dictionary<string, int> notStudioBy = [];
+
         foreach (SceneProp prop in _ordered)
         {
             (int frame, int _, float blend) = SelectFor(prop, seconds);
 
             int skin = prop.Pose.Skin;
 
-            if (prop.Kind != SceneModelKind.Studio || Batches(prop.ModelPath, frame).Count == 0)
+            if (prop.Kind != SceneModelKind.Studio)
             {
+                notStudio++;
+
+                // **Inline BSP submodels collapse to one entry.** A map's doors and moving brushes
+                // are `*1`, `*2`, ... and process names 141 of them, which turns the line into a
+                // wall that hides the entry that matters. They are one gap, not 141 findings.
+                string rejectedName;
+
+                if (prop.ModelPath.Length == 0)
+                {
+                    rejectedName = "<no model>";
+                }
+                else if (prop.ModelPath.StartsWith('*'))
+                {
+                    rejectedName = "<inline submodel>";
+                }
+                else
+                {
+                    rejectedName = System.IO.Path.GetFileName(prop.ModelPath);
+                }
+
+                string rejected = $"{rejectedName}#{prop.Kind}";
+
+                notStudioBy[rejected] = notStudioBy.GetValueOrDefault(rejected) + 1;
                 continue;
             }
+
+            if (Batches(prop.ModelPath, frame).Count == 0)
+            {
+                noBatches++;
+
+                // Named per model, because "no batches" for one model is a load failure and for all
+                // of them is a frame-selection failure, and the two need different fixes.
+                string name = System.IO.Path.GetFileName(prop.ModelPath);
+                noBatchesBy[name] = noBatchesBy.GetValueOrDefault(name) + 1;
+                continue;
+            }
+
+            drawnCount++;
 
             ScenePose pose = prop.Pose;
 
@@ -731,7 +781,33 @@ internal sealed class EntityModelSet
                     : null,
                 prop.Pose.Body));
         }
+
+        // **The four categories, reported only when they change.** Asked for, produced, and what was
+        // rejected with the reason — because "the props went away" was diagnosable from the map and
+        // from nothing in the log, which is the gap this closes.
+        //
+        // Keyed on the whole tuple rather than on the drawn count alone: thirteen props failing for
+        // a new reason while the drawn count holds steady is exactly the change worth seeing.
+        (int, int, int, int) state = (askedFor, drawnCount, notStudio, noBatches);
+
+        if (state != _lastDrawState)
+        {
+            _lastDrawState = state;
+
+            string missing = noBatchesBy.Count == 0
+                ? "none"
+                : string.Join(", ", noBatchesBy.Select(entry => $"{entry.Value}x{entry.Key}"));
+
+            ViewerLog.Write(
+                "props",
+                $"asked for {askedFor}, produced {drawnCount}; " +
+                $"skipped {notStudio} not-studio [{(notStudioBy.Count == 0 ? "none" : string.Join(", ", notStudioBy.Select(e => $"{e.Value}x{e.Key}")))}], " +
+                $"{noBatches} no-batches [{missing}]");
+        }
     }
+
+    /// <summary>The last reported draw tally, so the line prints on change rather than per frame.</summary>
+    private (int AskedFor, int Drawn, int NotStudio, int NoBatches) _lastDrawState = (-1, -1, -1, -1);
 
     /// <summary>Replaces a model's bone matrices with its wearer's, matched by bone name.</summary>
     /// <param name="modelPath">The worn model, whose skeleton decides which bones are wanted.</param>
