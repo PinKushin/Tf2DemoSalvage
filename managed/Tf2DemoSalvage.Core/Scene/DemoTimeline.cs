@@ -27,6 +27,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// recording did not say. Declared in <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for
 /// the recorder alone while a SourceTV recording carries it for every player.
 /// </param>
+/// <param name="Drawn">
+/// Whether the engine would draw this player's model, which is <c>EF_NODRAW</c> rather than
+/// anything about life state. TF2 turns the player off on death — <c>AddEffects( EF_NODRAW |
+/// EF_NOSHADOW )</c> at the end of <c>CreateRagdollEntity</c>, <c>tf_player.cpp:15637</c> — and
+/// spawns a separate <c>CTFRagdoll</c> to be the corpse. A dead player stays in this list as data
+/// for the scoreboard and the kill feed with this false.
+/// </param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -47,7 +54,8 @@ public readonly record struct ScenePlayer(
     int? LifeState = null,
     float MoveX = 0f,
     float MoveY = 0f,
-    int? Flags = null)
+    int? Flags = null,
+    bool Drawn = true)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -286,9 +294,6 @@ public sealed class DemoTimeline
 
         List<TimelineFrame> frames = [];
 
-        // Where each player last stood while alive, so a corpse stays where it fell rather than
-        // following the player it spectates.
-        Dictionary<int, (float X, float Y, float Z, float Yaw)> diedAt = [];
         float interval = 0f;
 
         ModelPrecache precache = new();
@@ -425,29 +430,19 @@ public sealed class DemoTimeline
                 float facing = Normalize(
                     player.EyeAngles() is { } eyes ? eyes.Yaw : player.Angles()?.Yaw ?? 0f);
 
-                (float X, float Y, float Z) where = origin;
-
-                // **The facing is kept with the position, for the same reason.** A dead player's
-                // entity follows whoever they are spectating, so its yaw is that player's — a body
-                // left on the ground would swing round to match whatever the camera is watching.
-                // Position was already held from the last living tick and yaw was not, which is the
-                // half-applied version of one idea.
-                if (alive)
-                {
-                    diedAt[player.EntityIndex] = (origin.X, origin.Y, origin.Z, facing);
-                }
-                else if (diedAt.TryGetValue(
-                    player.EntityIndex, out (float X, float Y, float Z, float Yaw) fell))
-                {
-                    where = (fell.X, fell.Y, fell.Z);
-                    facing = fell.Yaw;
-                }
-
+                // **The dead are reported where the entity actually is, which is wherever they are
+                // spectating from.** This used to hold the last living position and yaw so a body
+                // stayed roughly where it fell, standing in for a ragdoll nobody had built yet.
+                // That stand-in is gone: the engine does not draw a dead player at all, so there
+                // was never a corpse for it to approximate, and holding the position meant the
+                // timeline reported a coordinate the demo does not contain. A viewer that wants a
+                // body waits for B58 and draws the CTFRagdoll entity, which is where the engine
+                // keeps one.
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
-                    where.X,
-                    where.Y,
-                    where.Z,
+                    origin.X,
+                    origin.Y,
+                    origin.Z,
                     resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties),
                     resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
                     resource?.Integer($"m_iPlayerClass.{slot}"),
@@ -456,7 +451,36 @@ public sealed class DemoTimeline
 
                     // Null on a POV demo for everyone but the recorder, because the send prop is in
                     // DT_LocalPlayerExclusive; a SourceTV recording carries it for every player.
-                    Flags: player.Flags()));
+                    Flags: player.Flags(),
+
+                    // **EF_NODRAW, which is how the engine hides a corpse.** On death the server
+                    // spawns a CTFRagdoll and then turns the player off with
+                    // `AddEffects( EF_NODRAW | EF_NOSHADOW )` (tf_player.cpp:15637), so the body on
+                    // screen is a different entity and the player itself is simply not drawn. TF2
+                    // has no death animation to play instead: HandleDying is unreachable, because
+                    // PLAYERANIMEVENT_DIE is raised nowhere in the game tree and its handler is an
+                    // Assert(0).
+                    //
+                    // Read from the effects field rather than only from the life state, because
+                    // that is what the engine tests. EF_NODRAW is also how a player is hidden while
+                    // taunting into a cutscene or riding a teleporter, and life state cannot answer
+                    // those.
+                    //
+                    // **The life state is ANDed in as well, and the reason is a gate in the
+                    // engine rather than a shortcut here.** A dead player does not keep EF_NODRAW
+                    // for the whole of their death: StateThinkDYING removes it again for the
+                    // deathcam, commented `// still draw player body` (tf_player.cpp:13934). That
+                    // whole branch is conditional on `m_hRagdoll` being non-null — the body is
+                    // re-shown only once a corpse exists to justify it. We do not build ragdolls
+                    // yet (B58), so that condition is false for every death we could render, and
+                    // the engine's own answer for our situation is that the effect stays on.
+                    //
+                    // Measured on movement-test-stv-cp_process: 322 of 535 dead player-ticks
+                    // carried EF_NODRAW on the wire and 213 did not, and the 213 are exactly the
+                    // deathcam window above.
+                    //
+                    // When ragdolls land this becomes wrong and should follow EF_NODRAW alone.
+                    Drawn: player.IsDrawn && alive));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a

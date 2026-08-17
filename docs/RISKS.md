@@ -5957,3 +5957,71 @@ whether the inversion is in the parameter, in the normalisation, or in the grid'
 
 Guessing was tried and produced three plausible candidates that all turned out to be real but
 irrelevant, which is the signal to stop reading and start measuring.
+
+### B102 — dead players were drawn, and a respawn animated as a 17-second jump — RESOLVED
+
+**Owner's observation, which is what identified it:** "none of my RJs were 17 seconds, a 17 second
+rocket jump isnt even really possible on a real non jump map lol". A movement recording made
+deliberately to exercise jumps and crouches had a 17-second block of `AIR` in it, which had been
+read as a rocket jump. It was a respawn.
+
+**The engine does not animate death at all, and that is a fact about Valve's code rather than a gap
+in ours.** `CMultiPlayerAnimState::HandleDying` exists and sets `ACT_DIESIMPLE`, but `m_bDying` can
+only be set by `PLAYERANIMEVENT_DIE` — and that event is raised nowhere in the entire `game/` tree.
+Its handler is `Assert( 0 ); // Should be here - not supporting this yet!`. The empty search was run
+with `PLAYERANIMEVENT_JUMP` as a control, which returns real raise sites in `tf_player.cpp`, so the
+zero is a fact about the code and not about the grep.
+
+What happens instead is at the end of `CreateRagdollEntity`, `tf_player.cpp:15637`:
+
+```cpp
+// Turn off the player.
+AddSolidFlags( FSOLID_NOT_SOLID );
+AddEffects( EF_NODRAW | EF_NOSHADOW );
+```
+
+The corpse is a separate `CTFRagdoll` entity with physics. Turn ragdolls off in the game and the
+player simply vanishes, after a single frame of the model in its reference pose — hands at the
+sides, no sequence playing. That is the owner's description of TF2 and it is exactly what the code
+above produces: the model is drawn for one frame with no activity, then not drawn at all.
+
+**Three separate defects here, and only the first was visible.**
+
+1. `DemoTimeline` gated players on `IsVisible`, which is about the PVS, rather than on `IsDrawn`,
+   which also tests `EF_NODRAW`. Dead players kept being drawn. Harmless-looking until B100 began
+   choosing an activity from `m_fFlags`: a corpse has `FL_ONGROUND` clear, so it was given
+   `ACT_MP_JUMP_FLOAT` and fell through the air for the whole respawn.
+2. The call site passed `alive: true` with a comment claiming "a dead player is drawn by its
+   ragdoll rather than by an activity". Nothing here draws ragdolls and dead players **were**
+   reaching that call, so the comment was false in both directions. A comment asserting the
+   precondition that makes a hardcoded argument safe is worth no more than a check.
+3. The marker pass would have inherited the bug in a cheaper primitive. Its rule is "a player with
+   no model gets a dot", so removing the dead from the model pass alone turns every corpse into a
+   marker gliding around the map behind whoever it is spectating.
+
+**Measured, because "dead" and "not drawn" are not the same set.** On
+`movement-test-stv-cp_process`, 535 dead player-ticks were drawn before the fix. Following
+`EF_NODRAW` alone removed 322 of them and left 213 — and those 213 are a real engine behaviour
+rather than a decode fault. `StateThinkDYING` puts the effect back:
+
+```cpp
+if ( !m_bAbortFreezeCam && m_hRagdoll &&
+     (m_lifeState == LIFE_DYING || m_lifeState == LIFE_DEAD) && ... )
+    RemoveEffects( EF_NODRAW | EF_NOSHADOW );	// still draw player body
+```
+
+**That exception is gated on `m_hRagdoll`.** The body is re-shown only once a corpse exists to
+justify it, so with no ragdolls built (B58) the condition is false for every death this project can
+render and the engine's own answer for our situation is that the effect stays on. So `Drawn` is
+`IsDrawn && alive` today, and becomes `IsDrawn` alone when B58 lands. The `&& alive` is a
+placeholder for a ragdoll, not a second opinion about death.
+
+**The stand-in is gone, at the owner's instruction.** A dead player's entity follows whoever they
+are spectating, so the timeline used to hold the last living position and yaw and report a body
+roughly where it fell. That approximated a corpse the engine never draws, and it reported a
+coordinate the demo does not contain. Dead players now report their real origin — which is the
+spectated position, and is the truth — and are simply not drawn.
+
+`PlayerActivity.Die` is retained because `HandleDying` is genuinely in Valve's code and this
+reimplements that function, but it is unreachable in TF2 for the reason above and no viewer path
+can select it.

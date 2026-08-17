@@ -132,6 +132,14 @@ public sealed class PlayerActivityStateTests
     {
         // A corpse is not running, and its position keeps changing as the ragdoll settles — so the
         // speed test would otherwise have it sprinting along the floor.
+        //
+        // **This branch is unreachable in TF2, and is kept because HandleDying is real code.**
+        // `m_bDying` can only be set by PLAYERANIMEVENT_DIE, which is raised nowhere in the game
+        // tree — its handler is `Assert( 0 ); // Should be here - not supporting this yet!`. TF2
+        // hides the dead player with EF_NODRAW and spawns a CTFRagdoll instead, so no player model
+        // ever plays a death animation and no viewer path can select this. Asserting it anyway
+        // keeps the reimplementation of CalcMainActivity complete and honest about what the engine
+        // contains; B102 records why nothing reaches it.
         PlayerActivityState.For(OnGround, Running, waistDeep: false, alive: false)
             .ShouldBe(PlayerActivity.Die);
 
