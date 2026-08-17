@@ -69,9 +69,22 @@ that is right, but it should still be settable.
 
 **Measured on the owner's machine, 2026-08-16: TF2 itself runs uncapped without trouble.** Their
 config sets no `fps_max` at all, and the game returns roughly **600 fps in most places and close to
-1000 in some**. Worth recording because "Source needs a cap around 300" is widely repeated, and it
-did not hold here — the reference captures this project compares against were taken on an uncapped
-client.
+1000 in some**.
 
-That also disposes of a worry this section might otherwise raise: an uncapped game and an uncapped
-viewer are the same condition, so frame rate is not a variable between a capture and our output.
+**The "Source can't go above 300" belief had real evidence behind it, and that is the interesting
+part.** The owner held it because they used to sit around **250 fps and never cross 300** — so it was
+not folklore for them, it was an observation. On this build it is simply untrue, and by a wide
+margin.
+
+What changed is **not established here**. Candidates are the 64-bit client (this project confirmed
+`bin/x64` exists on the live install while every period build is 32-bit only), the hardware, and the
+config. Recording it as an unexplained change rather than picking one, because a plausible mechanism
+adopted without measurement is how the original belief hardened in the first place.
+
+**The transferable shape:** a limit observed consistently on one machine over years is evidence about
+that machine, and it survives long after it stops being true. The same failure as an empty grep read
+as a fact about the format — see `an-empty-search-needs-a-control`.
+
+For this project's purposes the consequence is small and useful: an uncapped game and an uncapped
+viewer are the same condition, so frame rate is not a variable between a reference capture and our
+output.
