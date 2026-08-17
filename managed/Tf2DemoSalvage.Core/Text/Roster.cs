@@ -27,19 +27,26 @@ internal static class Roster
     /// <param name="message">A decoded message.</param>
     /// <param name="state">Decode state, which knows string table names by id.</param>
     /// <param name="players">Roster keyed by entity index, updated in place.</param>
+    /// <param name="everyone">
+    /// Optional history keyed by user id, which survives a slot being reused. Callers that name
+    /// players from game events want this; callers asking who is currently connected do not.
+    /// </param>
     public static void Observe(
-        INetMessage message, NetDecodeState state, IDictionary<int, PlayerInfo> players)
+        INetMessage message,
+        NetDecodeState state,
+        IDictionary<int, PlayerInfo> players,
+        IDictionary<int, PlayerInfo>? everyone = null)
     {
         switch (message)
         {
             case CreateStringTableMessage table when table.Name == UserInfoTable:
-                RosterBuilder.Apply(table.Entries, players);
+                RosterBuilder.Apply(table.Entries, players, everyone);
                 break;
 
             // Mid-game joins arrive here, not in the create message (RISKS B22).
             case UpdateStringTableMessage update
                 when state?.StringTableName(update.TableId) == UserInfoTable:
-                RosterBuilder.Apply(update.Entries, players);
+                RosterBuilder.Apply(update.Entries, players, everyone);
                 break;
 
             default:

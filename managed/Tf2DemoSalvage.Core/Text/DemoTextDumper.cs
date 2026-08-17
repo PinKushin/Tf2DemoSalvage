@@ -286,11 +286,9 @@ public static class DemoTextDumper
             CultureInfo.InvariantCulture, $"  First {sample.Count} in order:"));
         writer.WriteLine();
 
-        Dictionary<int, PlayerInfo> byUserId = [];
-        foreach (PlayerInfo player in scan.Players.Values)
-        {
-            byUserId[player.UserId] = player;
-        }
+        // Same history the kill feed uses, and for the same reason: an event names whoever was
+        // playing when it fired, not whoever holds that entity slot at the end of the demo.
+        Dictionary<int, PlayerInfo> byUserId = scan.Everyone;
 
         foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object?>> fields) in sample)
         {
@@ -337,11 +335,11 @@ public static class DemoTextDumper
         writer.WriteLine("Kills");
         writer.WriteLine(Separator);
 
-        Dictionary<int, PlayerInfo> byUserId = [];
-        foreach (PlayerInfo player in scan.Players.Values)
-        {
-            byUserId[player.UserId] = player;
-        }
+        // **scan.Everyone, not scan.Players.** The slot map holds who occupied each entity index
+        // last; a kill references whoever was playing at the time, and in the modern corpus demo six
+        // of those had their slots taken over by later joiners and by bots. Naming from the slot map
+        // printed bare user ids for players the demo names perfectly well.
+        Dictionary<int, PlayerInfo> byUserId = scan.Everyone;
 
         foreach ((int tick, IReadOnlyList<KeyValuePair<string, object?>> fields) in scan.Kills)
         {

@@ -135,6 +135,48 @@ public class RosterBuilderTests
     }
 
     [Test]
+    public void Apply_ReusedSlot_StillRemembersWhoHeldItBefore()
+    {
+        // **The slot map is "who is here now"; the history is "who played in this match".** Those
+        // are different questions and the same dictionary cannot answer both, because a slot has one
+        // occupant and a match has many.
+        //
+        // Found through the kill feed. In the modern corpus demo, ids 700, 703, 710, 712, 713 and
+        // 717 appear as killers and victims and resolve to no name — their slots were taken over by
+        // later joiners and by bots, so the only record of them was overwritten. The feed printed
+        // bare numbers for players the demo names perfectly well.
+        //
+        // This is the case the existing doc comment got wrong: it said a reused slot overwriting the
+        // record "is the correct outcome for both questions". It is correct for one of them.
+        Dictionary<int, PlayerInfo> players = [];
+        Dictionary<int, PlayerInfo> everyone = [];
+
+        RosterBuilder.Apply([new StringTableEntry(3, "3", Record("first", 1))], players, everyone);
+        RosterBuilder.Apply([new StringTableEntry(3, null, Record("second", 2))], players, everyone);
+
+        // Current occupancy, unchanged.
+        players.Count.ShouldBe(1);
+        players[3].Name.ShouldBe("second");
+
+        // And both players remain nameable by the id an event would carry.
+        everyone[1].Name.ShouldBe("first");
+        everyone[2].Name.ShouldBe("second");
+    }
+
+    [Test]
+    public void Apply_WithoutAHistory_BehavesExactlyAsBefore()
+    {
+        // The history is optional so every existing caller is unaffected. Asserted rather than
+        // assumed, because "I added an optional parameter" is exactly the change that quietly
+        // alters a default.
+        Dictionary<int, PlayerInfo> players = [];
+
+        RosterBuilder.Apply([new StringTableEntry(3, "3", Record("only", 1))], players);
+
+        players[3].Name.ShouldBe("only");
+    }
+
+    [Test]
     public void Apply_NullEntries_DoesNothing()
     {
         Dictionary<int, PlayerInfo> players = [];
