@@ -76,12 +76,19 @@ part.** The owner held it because they used to sit around **250 fps and never cr
 not folklore for them, it was an observation. On this build it is simply untrue, and by a wide
 margin.
 
-**What changed is the hardware**, per the owner, who has the history first-hand: the 250 fps years
-were mid-range i5s and weak AMD cards, an RX 480 among them. The ceiling was the machine.
+**Mostly the hardware**, per the owner, who has the history first-hand: the 250 fps years were
+mid-range i5s and weak AMD cards, an RX 480 among them. Their own read is that **CPU speed mattered
+most, then the GPUs**, and that the 32-bit client may have contributed without being the main thing.
+Nothing here separates those, and it is recorded as their attribution rather than as a measurement.
 
-Not the architecture — a draft of this note offered the 64-bit client as a candidate and that was
-wrong twice over. The owner has run a 64-bit OS since Windows 7, and TF2's own 64-bit build is far
-more recent than the observations. Two different meanings of "64-bit", neither of them the cause.
+That reading is at least consistent with how the engine behaves: Source's frame rate is bound by a
+single main thread, so a faster core moves it more than a faster card does — general knowledge, not
+something measured in this project.
+
+**What it is NOT is the 64-bit OS.** A draft of this note offered "the 64-bit client" as the
+mechanism and that was wrong twice over: the owner has run a 64-bit OS since Windows 7, and TF2's own
+64-bit build postdates the observations by years. Two different meanings of "64-bit", and I had
+merged them.
 
 **The transferable shape:** a limit observed consistently on one machine over years is evidence about
 that machine, and it survives long after the machine does. The same failure as an empty grep read as
