@@ -64,6 +64,23 @@ public readonly record struct ScenePose
     /// <summary>Size relative to the model as authored.</summary>
     public float Scale { get; init; } = 1f;
 
+    /// <summary>How fast the animation advances, as a multiple of its authored rate.</summary>
+    /// <remarks>
+    /// **The third factor in Valve's cycle advance** (<c>c_baseanimating.cpp:5493</c>):
+    ///
+    /// <code>
+    /// float addcycle = flInterval * cyclerate * m_flPlaybackRate;
+    /// </code>
+    ///
+    /// One when the demo never said, which is the engine's default and not a sentinel — a rate of
+    /// zero would freeze the animation, which is the wrong reading of "never mentioned".
+    ///
+    /// Added 2026-08-16. <c>m_flPlaybackRate</c> had been retained and decoded since the whitelist
+    /// was written, and nothing outside a unit test ever read it, so anything not playing at rate 1
+    /// animated at the wrong speed.
+    /// </remarks>
+    public float PlaybackRate { get; init; } = 1f;
+
     /// <summary>Which animation is playing.</summary>
     /// <remarks>
     /// **Zero when the demo never said, because zero is the engine's default** — <c>m_nSequence</c>
@@ -445,6 +462,12 @@ public sealed class ScenePropTrack
             // Found immediately after Body, in the same list, by asking what ELSE this rebuild
             // forgets rather than waiting for the next symptom to arrive.
             Skin = from.Skin,
+
+            // Fourth field added to this list after being forgotten from it by default — Yaw, Body
+            // and Skin were the others. Carried rather than recomputed: a rate that reverted to 1
+            // between keyframes would look like an animation that speeds up whenever the viewer
+            // scrubs, which is a symptom nobody would trace back to here.
+            PlaybackRate = from.PlaybackRate,
         };
     }
 

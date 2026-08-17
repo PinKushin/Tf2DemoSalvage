@@ -165,6 +165,11 @@ public sealed class PoseCompletenessTests
         MoveY = -0.5f,
         Body = 3,
         Skin = 1,
+
+        // Not 1, which is the default and would make the completeness assertion compare a default
+        // against a default. This pair caught PlaybackRate the moment it was added, which is the
+        // entire point of the control.
+        PlaybackRate = 1.75f,
         Hidden = true,
     };
 
