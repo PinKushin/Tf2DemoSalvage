@@ -143,6 +143,23 @@ internal sealed class EntityModelSet
     /// </remarks>
     public long LightingTicks { get; set; }
 
+    /// <summary>One entity's lighting, and the point it was sampled at.</summary>
+    /// <param name="X">Illumination point the lighting was taken at, as bits.</param>
+    /// <param name="Y">Illumination point, as bits.</param>
+    /// <param name="Z">Illumination point, as bits.</param>
+    /// <param name="Light">The ambient cube there.</param>
+    /// <param name="Sun">The sun there, or null where the sky is not visible.</param>
+    /// <remarks>
+    /// The position is held as bits because the question is whether the model is at the IDENTICAL
+    /// point, not whether it is near where it was — a tolerance would let a slow drift accumulate
+    /// without ever refreshing.
+    /// </remarks>
+    private readonly record struct LitAt(
+        int X, int Y, int Z, AmbientCube Light, SunLight? Sun);
+
+    /// <summary>The last lighting computed for each entity, by entity index.</summary>
+    private readonly Dictionary<int, LitAt> _lit = [];
+
     private static bool IsUnlit(AmbientCube cube) =>
         cube.PositiveX == (0f, 0f, 0f) &&
         cube.NegativeX == (0f, 0f, 0f) &&
@@ -668,11 +685,49 @@ internal sealed class EntityModelSet
 
             long litAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            AmbientCube light = lightAt is null
-                ? default
-                : lightAt(lightX, lightY, lightZ);
+            // **A model that has not moved is lit exactly as it was last frame** (B99). Lighting
+            // cost 320 ms of every second against 3.4 ms to draw the whole map, and nearly all of
+            // it recomputed an unchanged answer: a cube is an inverse-squared average over sixteen
+            // ambient samples, LocalLights ranks all 477 of the map's world lights to pick four and
+            // evaluates a falloff per light for six faces, and the sun traces a ray through the BSP
+            // to ask whether the sky is visible.
+            //
+            // **Keyed on the illumination point, compared exactly.** The point is derived from the
+            // pose, and a held pose interpolates to a bit-identical ScenePose — so an entity that
+            // has not moved produces the identical point and an entity that has moved at all
+            // produces a different one. A tolerance would be slower to check and would let a slow
+            // drift accumulate silently.
+            //
+            // Keyed on the entity as well, because two models can stand in one place and must not
+            // share a slot. Map lights never move, so nothing else can invalidate this.
+            AmbientCube light;
+            SunLight? sun;
 
-            LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
+            // Compared as bits rather than as floats, which is what "the identical point" means and
+            // is also how it is said without tripping the equality analyser: this is an identity
+            // test, not an approximation, and a tolerance would let a slow drift accumulate.
+            (int bitsX, int bitsY, int bitsZ) = (
+                BitConverter.SingleToInt32Bits(lightX),
+                BitConverter.SingleToInt32Bits(lightY),
+                BitConverter.SingleToInt32Bits(lightZ));
+
+            if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
+                cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ)
+            {
+                LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
+
+                light = cached.Light;
+                sun = cached.Sun;
+            }
+            else
+            {
+                light = lightAt is null ? default : lightAt(lightX, lightY, lightZ);
+                sun = sunAt?.Invoke(lightX, lightY, lightZ);
+
+                _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, light, sun);
+
+                LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
+            }
 
             // **A model lit by nothing draws black, and that is worth saying out loud.** The cube
             // comes from the leaf a model stands in, and a player's origin is at its FEET - so a
@@ -873,7 +928,12 @@ internal sealed class EntityModelSet
                 prop.ModelPath,
                 transform.ToMatrix(),
                 light,
-                sunAt?.Invoke(lightX, lightY, lightZ),
+
+                // Cached alongside the cube, because the sun costs more than it looks: it traces a
+                // ray through the BSP to ask whether the sky is visible from here. It was also
+                // being asked TWICE per model — once here and once for the wearer record — and
+                // neither answer could differ.
+                sun,
                 frame,
                 blend,
                 bones,

@@ -5824,16 +5824,41 @@ Both halves recompute results that mostly cannot have changed. A health pack tha
 the same ambient cube and the same four nearest lights it had last frame, and most entities in a demo
 are stationary at any moment.
 
+**Step one is done, 2026-08-17, and it was worth five times the frame rate.** Measured on the same
+demo from the same viewpoint, playing:
+
+| per second, playing | before | after |
+|---|---|---|
+| frame rate | 46.6 | **250–278** |
+| longest frame | 25 ms | **5–7 ms** |
+| posing | 896 ms | **600 ms** |
+| — of which lighting | 319 ms | **~95 ms** |
+
+And while flying, which was the worst case: **22–37 frames a second becomes 110–170**, with the
+longest frame falling from 46–100 ms to 14–17.
+
+**Lighting did not fall to zero, and should not have.** Players and projectiles move every frame and
+must be re-lit every frame; what disappeared was the recomputation for stationary props, which are
+most of a map. `sampling` rose from 16 to about 90 ms a second for the same reason it looks worse and
+is not — it is the same per-frame work spread over five times as many frames, 0.35 ms a frame before
+and after.
+
 **The order to fix, cheapest and most certain first:**
 
-1. **Cache lighting per entity, invalidated on movement.** ~320 ms a second for a value that changes
-   only when a model moves or a light does — and map lights never move. This is the third of the cost
-   that is plainly wasted.
+1. ~~**Cache lighting per entity, invalidated on movement.**~~ **Done.** Keyed on the entity and on the
+   illumination point compared as BITS: the question is whether the model is at the identical point,
+   not near it, and a tolerance would let a slow drift accumulate without ever refreshing. A held pose
+   interpolates to a bit-identical `ScenePose`, so an unmoved entity produces an identical point.
+   The sun is cached with it — it traces a ray through the BSP for sky visibility, and was being
+   asked twice per model.
 2. **Rank the local lights once per map, not per model per frame.** `LocalLights.AddTo` scans all 477
    of cp_process's world lights for every model on every frame to pick four. A spatial index, or
    simply caching the choice with the position, removes almost all of it.
-3. **Then the remaining ~580 ms of posing.** Bone matrices for a skinned model are genuine per-frame
-   work when it is animating, and are not when it is not. The same staleness test applies.
+3. **Then the remaining ~600 ms of posing, which is now the bulk of it.** Bone matrices for a skinned
+   model are genuine per-frame work when it is animating, and are not when it is not — the same
+   staleness argument as the lighting. **Measure before assuming, though:** two theories about the
+   sinking door died to measurement earlier the same day, and "it must be the bones" is exactly that
+   shape of guess.
 4. **Culling last**, for B96's roof and the worst viewpoints, because rendering is already 3.4 ms.
 
 **Both hot paths were added on 2026-08-17 in this session** — local lights, and the ambient
