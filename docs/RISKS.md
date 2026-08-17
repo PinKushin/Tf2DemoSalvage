@@ -5866,3 +5866,58 @@ reconstruction that went from picking one sample to averaging sixteen. Neither i
 what the engine computes; the engine simply does not recompute them for every entity on every frame.
 A frame rate measured while playing was measuring the wrong thing for the whole of this entry's
 first draft, and the fix it pointed at — culling — was the one thing the numbers do not support.
+
+### B100 — every player plays one of two animations, chosen by speed alone — OPEN
+
+**Owner's observation, and it outranks the remaining performance work:** the legs move, but "most of
+the models are not doing anything but their running animation, and the animation being blanket
+applied when each player class has a different one".
+
+That is exactly what the code does. `PlayerAnimation.For` is two states resolved by name:
+
+```csharp
+bool moving = speed > MovingMinimumSpeed;
+int wanted = moving ? model.Find("run_PRIMARY") : model.Find("Stand_PRIMARY");
+```
+
+No class difference, no crouch, no jump or fall, no aiming, no weapon, no death, no taunt, and the
+primary-weapon variant assumed for everyone because `m_hActiveWeapon` is not decoded.
+
+**A demo does not carry the answer, which is why this is a state machine and not a decode.** The
+server never networks a player's sequence; the client computes it. So parity means reproducing what
+the client computes, and all of it is published:
+
+| Source | What it holds |
+|---|---|
+| `game/shared/tf/tf_playeranimstate.cpp` (1,551 lines) | TF2's own state: activity selection, per-class translation, aim layers |
+| `game/shared/base_playeranimstate.cpp` | the base state machine it derives from |
+
+`CTFPlayerAnimState::TranslateActivity` is where the per-class part lives, and its shape shows how
+specific the real rules are — a Spy's `ACT_MP_STAND_MELEE` and a Demoman's `ACT_MP_STAND_SECONDARY`
+are special-cased in the same branch as the ordinary `ACT_MP_STAND_PRIMARY`.
+
+**Order of work, since the whole thing is large:**
+
+1. **Activity from movement state first** — idle, walk, run, airwalk, crouch, jump start/float/land.
+   That is the difference between "everyone runs on the spot" and legs that match what the player is
+   doing, and it needs nothing but the position and flags already decoded.
+2. **Per-class translation next**, which is `TranslateActivity` and the activity-to-sequence lookup
+   against each model's own table.
+3. **Weapon-dependent variants last**, because they need `m_hActiveWeapon` decoded first — a separate
+   piece of work this project has not done.
+
+**Do not optimise bone matrices before this.** Posing owns about 600 ms a second and bones are most
+of it, but making the wrong animation cheaper is the wrong order.
+
+### D23 addendum — the lighting is not verified, only unglitchy
+
+Worth stating plainly because a five-times frame rate is easy to mistake for a correctness result.
+The owner's assessment of the lighting is "I really don't know if it is right, I'm assuming it is,
+it's not glitchy" — and the cache added under B99 preserves whatever the lighting computes rather
+than validating it.
+
+What is actually established: the local-light evaluation is transcribed from `mathlib/lightdesc.cpp`
+and the ambient reconstruction from `utils/vrad/leaf_ambient_lighting.cpp`, both with their constants
+checked against the SDK. What is known to DIVERGE: brush entities take an ambient cube where the
+engine lightmaps them. What is untested: whether the result matches the game on screen, which needs a
+side-by-side against a reference capture rather than a screenshot of ours alone.
