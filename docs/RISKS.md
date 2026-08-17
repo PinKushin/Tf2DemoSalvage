@@ -5646,3 +5646,59 @@ breaks.
 
 Related and already recorded: build-time shortcuts tuned for the top-down view broke once a free
 camera existed.
+
+### B94 RESOLVED — interpolation was not causal, so entities slid toward updates that had not arrived
+
+**Confirmed by the owner watching a full cycle**, after four wrong theories. The shutter now sits
+still while shut, rises when triggered, and stops at the sill.
+
+A client draws `cl_interp` behind the present and can only blend between history entries it has
+already received. This reader holds the whole demo, so tick 100 could see a keyframe at tick 610 and
+slide toward it for the entire hold. Delta compression creates the gap in the first place — a
+stationary entity sends nothing — so a door's two nearest keyframes routinely straddle a long
+stationary stretch. That smear is the drift, and the same smear running backwards is the sink.
+
+Two rules, both the engine's: sample `InterpolationDelayTicks` behind the tick asked for (0.1 s at
+66.67 ticks is 6.67, rounded to 7), and never use a keyframe later than the tick asked for.
+
+Measured per-entity Z range on cp_process, before and after: `*132` 564.7..735.8 becomes
+584.0..728.0 — exactly rest to open, no excursion; `*139` 582.7..738.0 becomes 583.2..729.3. Before
+any of the work in this entry, doors left the map downward and kept going.
+
+**Never door-specific.** Every entity that holds still and then moves was being smeared: lifts, the
+payload cart, a player standing then strafing.
+
+**Ten tests changed, and they were wrong rather than stale.** They spaced updates a hundred ticks
+apart and sampled the midpoint — a shape no client renders, since it holds such a gap for
+ninety-three ticks and interpolates over the last seven. Their intent is unchanged and now measured
+at four-tick spacing, which is what a demo carries.
+
+**The four dead theories, recorded because each cost a cycle:** hermite overshoot (a constant-speed
+close does not overshoot); a keyframe below rest (none exists); a keyframe defaulting to the origin
+(none — and the test that looked for one required X, Y AND Z near zero, so it would have missed a
+Z-only default); and a fixed sixteen-tick cap on the gap, which is not a rule the engine has. It has
+no cap; it simply cannot see the future.
+
+Evidence class: read from published source (`interpolatedvar.h`), measured on the corpus, confirmed
+on screen by the owner.
+
+### B97 — the free camera moves on key auto-repeat, so it steps instead of flying — OPEN
+
+**Owner's observation, and it invalidates an instrument.** Camera movement is driven by Windows key
+auto-repeat — "single clicks that repeat, like typing in notepad" — rather than by polling key state
+each frame. So it stalls for the OS repeat delay, then advances in discrete jumps at the repeat rate.
+
+Worth filing for its own sake, and worth knowing before using the viewer to judge anything about
+timing: asked whether entity motion felt late after the interpolation delay landed, the owner could
+not tell, because the camera already lags far more than 0.1 s. An instrument that lags cannot measure
+latency.
+
+The fix is to hold a pressed-key set from the key down and up messages and integrate movement per
+frame against the frame time, which is also what makes diagonal movement and acceleration possible.
+
+### D23 addendum — whether the recorded camera should share the interpolation delay is OPEN
+
+Entities are now drawn 0.1 s behind the tick asked for, because that is where a client draws. The
+demo's own recorded view origin is not: it is taken at the tick. Whether the two should agree has not
+been settled, and the honest answer needs a side-by-side against the game rather than reasoning —
+which B97 currently prevents.
