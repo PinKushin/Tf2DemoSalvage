@@ -77,7 +77,22 @@ public sealed class BspEntitiesTests
     [Test]
     public void Parse_RepeatedKey_KeepsTheFirst()
     {
-        // Source's own key/value store answers with the first, so a duplicate must not overwrite.
+        // **Source has BOTH behaviours, and this is the lookup one.** Audited 2026-08-16 because the
+        // original comment here — "Source's own key/value store answers with the first" — asserted a
+        // policy with no citation, which is the shape that let a roster test certify a real bug.
+        //
+        // Looking a key up answers with the first: MapEntity_ExtractValue in
+        // game/shared/mapentities_shared.cpp scans forward and returns on the first name match. Same
+        // for KeyValues::FindKey, which walks the peer list and returns the first — and loading
+        // APPENDS (KeyValues.cpp:1902), so first-in-list is first-in-file rather than the reverse.
+        //
+        // **Spawning an entity does the opposite.** MapEntity_ParseEntity iterates every key with
+        // GetFirstKey/GetNextKey and hands each to KeyValue(), so for a field-backed key the LAST
+        // one written wins.
+        //
+        // This parser produces a dictionary for lookup-style consumers, so first-wins is the correct
+        // match. Anyone using it to reproduce spawn behaviour needs the other rule, and would not
+        // learn that from a dictionary that had already discarded the duplicate.
         Parse("{\n\"origin\" \"1 2 3\"\n\"origin\" \"9 9 9\"\n}")[0]["origin"].ShouldBe("1 2 3");
     }
 

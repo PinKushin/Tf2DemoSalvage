@@ -5270,6 +5270,48 @@ exactly as much as no finding.
 timing failure should be reported as a distinct outcome from a thrown exception. Both would have
 made this a two-minute diagnosis instead of a day and a half.
 
+### B92 — two rockets in one slot share a track, because the model is the discriminator — OPEN
+
+**Found by auditing tests that assert a policy**, after a roster test was discovered certifying a
+real bug. This is the same shape in a different file, and it is still live.
+
+A slot is reused, so something has to decide whether a new occupant is the same object. Two places
+do this and they disagree:
+
+| Site | Discriminator |
+|---|---|
+| `EntityStateTable` | **serial number** — the engine's own identity |
+| `DemoTimeline.RecordProp` | **model path** |
+
+The timeline's own comment states the rule and then gives the example that breaks it:
+
+> *"A slot is reused, so the model is what identifies the occupant. A rocket that explodes frees its
+> index for the next one, and appending that one's positions to the old track would draw a rocket
+> flying between two unrelated places."*
+
+**Two consecutive rockets have the same model.** So for the exact case the comment describes — the
+one that motivated the check — the discriminator cannot separate them, and the second rocket's
+positions are appended to the first's track. The result is a rocket that teleports from where the
+last one exploded to where the next one spawned, drawn as one continuous object.
+
+It is worst precisely where it matters most: a firefight, where the same weapon fires repeatedly and
+its projectiles cycle through a small set of entity slots.
+
+**The fix is to use what the state table already uses.** `RecordProp` holds the `EntityState`, which
+carries `SerialNumber`, so the identity is in hand — `ScenePropTrack` would need to carry it and the
+comparison would move from model to serial. Small change; the reason it is not made here is that
+`RecordProp` is private with eight parameters and has no unit test, so doing it properly means
+building that seam first, and an audit is the wrong moment to improvise one.
+
+**Not fixed also means not confirmed on real data.** The reasoning above is from reading the code and
+the engine's identity model; nobody has yet watched a rocket teleport. That check is cheap once the
+seam exists — count tracks whose poses contain an implausible jump.
+
+**Why the audit found it and the suite did not.** There is no unit test for track building at all;
+the logic is exercised only through corpus runs, where a merged rocket track is invisible unless
+somebody is looking at rockets. The comment asserting the policy was the only statement of intent,
+and it was wrong on its own example.
+
 ### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — OPEN
 
 **Found by CI going red, and the report named the wrong thing.** The UI job failed with
