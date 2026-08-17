@@ -71,3 +71,4 @@
 - [TF2's game code is in the SDK](tf2-game-code-is-in-the-sdk.md) — 1,318 files including the HUD, player conditions and econ schema; "TF2 is closed" was written in three places and checked in none.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale .cfg read makes a correct fix look failed; type the single cvar, and only `ultra` is a reference profile.
 - [POV demos are PVS-limited](pov-demos-are-pvs-limited.md) — 16 props against SourceTV's 94; missing props imitate a regression exactly, so verify rendering on an STV demo.
+- [Nothing is closed](nothing-is-closed.md) — the ambient blend was published in vrad all along; check SDK, shipped data, then a decompiler before ever writing "unavailable".

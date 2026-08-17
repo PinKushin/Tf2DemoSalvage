@@ -108,6 +108,27 @@ internal sealed class EntityModelSet
     }
 
     /// <summary>Whether an ambient cube carries no light at all.</summary>
+    /// <summary>The whole cube's brightness, for comparing one instance against another.</summary>
+    /// <param name="cube">The sampled ambient cube.</param>
+    /// <returns>Mean of the six faces' mean channel.</returns>
+    /// <remarks>
+    /// A crude average on purpose. It is a diagnostic for ranking instances of the same model
+    /// against each other, not a photometric quantity — the question it answers is "is this one
+    /// darker than its neighbours", and any monotonic summary answers that.
+    /// </remarks>
+    private static float Luminance(AmbientCube cube)
+    {
+        static float Mean((float Red, float Green, float Blue) face) =>
+            (face.Red + face.Green + face.Blue) / 3f;
+
+        return (Mean(cube.PositiveX) + Mean(cube.NegativeX) +
+                Mean(cube.PositiveY) + Mean(cube.NegativeY) +
+                Mean(cube.PositiveZ) + Mean(cube.NegativeZ)) / 6f;
+    }
+
+    /// <summary>Entities whose sampled light has been reported, one line each.</summary>
+    private readonly HashSet<int> _reportedLight = [];
+
     private static bool IsUnlit(AmbientCube cube) =>
         cube.PositiveX == (0f, 0f, 0f) &&
         cube.NegativeX == (0f, 0f, 0f) &&
@@ -650,6 +671,24 @@ internal sealed class EntityModelSet
                     "render",
                     $"{prop.ModelPath} is lit by nothing at ({pose.X:0},{pose.Y:0},{pose.Z:0}); " +
                     $"its leaf carries no ambient light, so it draws black");
+            }
+
+            // **Per INSTANCE, because the warning above cannot see the defect being chased.** It
+            // dedupes on the model path, so five capture points sharing cap_point_base.mdl collapse
+            // to one report and a bright one reporting first silences a dark one for ever. It also
+            // only fires at exactly zero, and the point in question is dim rather than black.
+            //
+            // The owner's observation is that ONE control point is dark while its neighbours are
+            // fine, which is the shape that rules out a missing lighting term: an absent term
+            // darkens every instance equally. So the question is what THIS instance sampled, and
+            // the answer needs the instances side by side.
+            if (lightAt is not null && _reportedLight.Add(prop.EntityIndex))
+            {
+                ViewerLog.Write(
+                    "render",
+                    $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
+                    $"at ({pose.X:0},{pose.Y:0},{pose.Z:0}) sampled ({lightX:0},{lightY:0},{lightZ:0}) " +
+                    $"skin {skin} luminance {Luminance(light):0.####}");
             }
 
             if (!_reportedFrames.Contains(prop.ModelPath))

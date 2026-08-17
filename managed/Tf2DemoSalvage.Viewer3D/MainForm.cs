@@ -1289,8 +1289,13 @@ internal class MainForm : Form
 
         int leaf = tree.LeafAt(x, y, z);
 
+        // **Blended, as Mod_LeafAmbientColorAtPos blends it.** vrad thins a leaf's samples down to
+        // the ones an inverse-squared-distance average cannot already predict, so the stored set
+        // only reconstructs the original lighting when it is interpolated. Taking the nearest read
+        // back whichever survivor of that thinning was closest, which is why one capture point on
+        // cp_process drew at 0.10 while its mirror image on a symmetric map drew at 0.39.
         return leaf >= 0 && leaf < _ambient.Count
-            ? _ambient[leaf].Nearest(x, y, z)
+            ? _ambient[leaf].At(x, y, z)
             : default;
     }
 

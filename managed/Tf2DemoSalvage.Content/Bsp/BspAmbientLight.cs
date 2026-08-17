@@ -93,38 +93,53 @@ public readonly record struct AmbientSamples(
     IReadOnlyList<AmbientSample> Samples,
     (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Bounds)
 {
-    /// <summary>The sample taken closest to a world position.</summary>
+    /// <summary>
+    /// The leaf's ambient light at a world position, reconstructed as the engine reconstructs it.
+    /// </summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>
     /// <param name="z">World position.</param>
-    /// <returns>The nearest sample's cube, or an unlit one when the leaf holds none.</returns>
+    /// <returns>The blended cube, or an unlit one when the leaf holds no samples.</returns>
     /// <remarks>
-    /// **Nearest rather than blended, and that is a limit of the evidence rather than a shortcut.**
-    /// The engine blends a leaf's samples in <c>LightcacheGetDynamic</c>, which is in the closed
-    /// engine — the weighting is not in <c>source-sdk-2013</c> and cannot be transcribed. Choosing
-    /// the nearest is a decision this project can defend and state; inventing a blend would be a
-    /// guess wearing parity's clothes.
+    /// **This is <c>Mod_LeafAmbientColorAtPos</c>, and it is published.** It sits in
+    /// <c>utils/vrad/leaf_ambient_lighting.cpp</c>, not in the closed engine as this file's
+    /// removed <c>Nearest</c> claimed:
     ///
-    /// Distances are compared squared, since only the ordering matters.
+    /// <code>
+    /// // do an inverse squared distance weighted average of the samples to reconstruct
+    /// // the original function
+    /// float dist = (list[i].pos - pos).LengthSqr();
+    /// float factor = 1.0f / (dist + 1.0f);
+    /// </code>
+    ///
+    /// **The compiler depends on the reader doing this.** <c>CompressAmbientSampleList</c> deletes
+    /// every sample this reconstruction can already predict to within 3 in gamma space, so a map's
+    /// stored samples are a deliberately sparse set that only means anything interpolated. Nearest
+    /// is not a coarser version of this — it reads back whichever survivor of that thinning
+    /// happened to be closest.
+    ///
+    /// Measured on cp_process_f12: leaf 2843 holds 16 samples, and nearest returns 0.1027 at
+    /// z=772 against 0.4141 ninety-six units higher, while the mirror-image leaf on a symmetric
+    /// map returns 0.3936 at both heights. That is the capture point that drew dark while its
+    /// opposite number did not.
+    ///
+    /// The <c>+ 1</c> keeps the weight finite where a sample sits exactly on the query point.
     /// </remarks>
-    public AmbientCube Nearest(float x, float y, float z)
+    public AmbientCube At(float x, float y, float z)
     {
         if (Samples is not { Count: > 0 })
         {
+            // Not a division by zero dressed as black: totalFactor would be zero, and NaN
+            // propagates through every later multiply without ever looking like an error.
             return default;
-        }
-
-        if (Samples.Count == 1)
-        {
-            return Samples[0].Cube;
         }
 
         float width = Bounds.MaxX - Bounds.MinX;
         float depth = Bounds.MaxY - Bounds.MinY;
         float height = Bounds.MaxZ - Bounds.MinZ;
 
-        AmbientCube best = Samples[0].Cube;
-        float nearest = float.MaxValue;
+        Span<float> totals = stackalloc float[18];
+        float totalFactor = 0f;
 
         foreach (AmbientSample sample in Samples)
         {
@@ -132,17 +147,40 @@ public readonly record struct AmbientSamples(
             float dy = Bounds.MinY + (sample.Y * depth) - y;
             float dz = Bounds.MinZ + (sample.Z * height) - z;
 
-            float distance = (dx * dx) + (dy * dy) + (dz * dz);
+            float factor = 1f / ((dx * dx) + (dy * dy) + (dz * dz) + 1f);
 
-            if (distance < nearest)
-            {
-                nearest = distance;
-                best = sample.Cube;
-            }
+            totalFactor += factor;
+
+            Accumulate(totals, 0, sample.Cube.PositiveX, factor);
+            Accumulate(totals, 3, sample.Cube.NegativeX, factor);
+            Accumulate(totals, 6, sample.Cube.PositiveY, factor);
+            Accumulate(totals, 9, sample.Cube.NegativeY, factor);
+            Accumulate(totals, 12, sample.Cube.PositiveZ, factor);
+            Accumulate(totals, 15, sample.Cube.NegativeZ, factor);
         }
 
-        return best;
+        float scale = 1f / totalFactor;
+
+        return new AmbientCube(
+            Scaled(totals, 0, scale),
+            Scaled(totals, 3, scale),
+            Scaled(totals, 6, scale),
+            Scaled(totals, 9, scale),
+            Scaled(totals, 12, scale),
+            Scaled(totals, 15, scale));
     }
+
+    private static void Accumulate(
+        Span<float> totals, int at, (float Red, float Green, float Blue) face, float factor)
+    {
+        totals[at] += face.Red * factor;
+        totals[at + 1] += face.Green * factor;
+        totals[at + 2] += face.Blue * factor;
+    }
+
+    private static (float Red, float Green, float Blue) Scaled(
+        Span<float> totals, int at, float scale) =>
+        (totals[at] * scale, totals[at + 1] * scale, totals[at + 2] * scale);
 }
 
 /// <summary>
@@ -172,10 +210,17 @@ public static class BspAmbientLight
     /// fraction of the leaf's bounding box. Keeping only the first throws away the variation the
     /// samples exist to describe, and a large leaf is exactly where that variation matters.
     ///
-    /// **How the engine weights them is not published.** <c>LightcacheGetDynamic</c> lives in the
-    /// closed engine, so the blend between samples cannot be transcribed. This project therefore
-    /// takes the nearest sample by position, which is defensible and stated rather than a guess
-    /// dressed as parity — see <see cref="AmbientSamples.Nearest"/>.
+    /// **How the engine weights them IS published, and this comment used to say it was not.** It
+    /// claimed <c>LightcacheGetDynamic</c> lived in the closed engine and the blend "cannot be
+    /// transcribed", so the reader took the nearest sample — described as defensible rather than a
+    /// guess. The function is <c>Mod_LeafAmbientColorAtPos</c> in
+    /// <c>utils/vrad/leaf_ambient_lighting.cpp</c>, it is an inverse-squared-distance weighted
+    /// average, and nobody had looked. See <see cref="AmbientSamples.At"/>.
+    ///
+    /// Kept here because the wrong claim cost a real defect: vrad thins the stored samples down to
+    /// those the blend cannot already predict, so nearest-sample does not approximate the answer,
+    /// it reads back an arbitrary survivor of that thinning. Two mirror-image capture points on a
+    /// symmetric map came back 0.10 and 0.39.
     /// </remarks>
     public static IReadOnlyList<AmbientSamples> Read(ReadOnlyMemory<byte> file)
     {
