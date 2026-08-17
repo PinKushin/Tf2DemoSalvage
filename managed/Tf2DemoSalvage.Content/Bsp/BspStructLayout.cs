@@ -70,6 +70,38 @@ internal static class BspStructLayout
     /// <summary>Bytes per <c>dworldlight_t</c>.</summary>
     public const int WorldLightStride = 88;
 
+    /// <summary>Where <c>dworldlight_t.stopdot</c> sits: the start of a spotlight's penumbra.</summary>
+    public const int WorldLightStopDotOffset = 48;
+
+    /// <summary>Where <c>dworldlight_t.stopdot2</c> sits: the end of the penumbra.</summary>
+    public const int WorldLightStopDot2Offset = 52;
+
+    /// <summary>Where <c>dworldlight_t.exponent</c> sits.</summary>
+    public const int WorldLightExponentOffset = 56;
+
+    /// <summary>Where <c>dworldlight_t.radius</c> sits: the cutoff distance.</summary>
+    public const int WorldLightRadiusOffset = 60;
+
+    /// <summary>
+    /// Where <c>dworldlight_t.constant_attn</c> sits, first of the three falloff terms.
+    /// </summary>
+    /// <remarks>
+    /// Valve states the falloff inline in <c>bspfile.h</c>, so it is read rather than derived:
+    /// <c>1 / (constant_attn + linear_attn * dist + quadratic_attn * dist^2)</c>, for
+    /// <c>emit_spotlight</c> and <c>emit_point</c>. The linear and quadratic terms follow at four
+    /// byte intervals.
+    /// </remarks>
+    public const int WorldLightConstantAttenuationOffset = 64;
+
+    /// <summary>Where <c>dworldlight_t.linear_attn</c> sits.</summary>
+    public const int WorldLightLinearAttenuationOffset = 68;
+
+    /// <summary>Where <c>dworldlight_t.quadratic_attn</c> sits.</summary>
+    public const int WorldLightQuadraticAttenuationOffset = 72;
+
+    /// <summary>Where <c>dworldlight_t.flags</c> sits, holding the <c>DWL_FLAGS_</c> bits.</summary>
+    public const int WorldLightFlagsOffset = 76;
+
     /// <summary>Bytes per <c>doverlay_t</c>.</summary>
     public const int OverlayStride = 352;
 
