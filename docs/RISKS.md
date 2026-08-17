@@ -5288,6 +5288,41 @@ exactly as much as no finding.
 timing failure should be reported as a distinct outcome from a thrown exception. Both would have
 made this a two-minute diagnosis instead of a day and a half.
 
+### B93 — DXT textures are decoded on the CPU and uploaded eight times larger — OPEN
+
+**Raised by the owner asking whether more should be pushed onto the GPU.** The answer for the map
+load is mostly no — it is I/O, LZMA decompression and pointer-chasing parses, none of which suit a
+GPU — but the question found something better than it was looking for.
+
+`VtfTexture.Decode` expands **DXT1, DXT3 and DXT5 into 32-bit BGRA on the CPU**
+(`VtfTexture.cs:310-320`), and `WorldRenderer` creates every world texture as
+`R8G8B8A8_UNORM[_SRGB]` (`WorldRenderer.cs:2688`).
+
+**D3D11 samples BC1/BC2/BC3 natively — they are the same formats.** So the decode is work done to
+make the result worse:
+
+| | shipped | uploaded |
+|---|---|---|
+| DXT1 | 0.5 bytes/pixel | 4 bytes/pixel — **8×** |
+| DXT5 | 1 byte/pixel | 4 bytes/pixel — **4×** |
+
+Three costs at once: CPU time decoding, VRAM holding the expansion, and PCIe bandwidth uploading it.
+
+**Feasible, because the textures are not atlased.** `ArraySize = 1` — each is its own resource, so a
+block-compressed format drops straight in. That is the thing that usually blocks this.
+
+**One real caveat, and it is not a blocker.** `MipLevels = 0` asks D3D to generate the mip chain, and
+it cannot do that for block-compressed formats. VTFs ship their **own** mip chain, so the upload
+would use Valve's authored mips instead of generated ones — arguably more correct, since those are
+what the game samples, but it is a change in the upload path rather than a format swap.
+
+**Connects to B90.** Texture decode is part of what makes the map load long enough to freeze the
+window, so removing it shrinks the problem B90 is about, without being a substitute for taking the
+work off the UI thread.
+
+Not started. It touches the texture pipeline and the result has to be looked at — this is exactly the
+class of change where a passing assertion says nothing about whether the map still looks right.
+
 ### B92 RESOLVED — the model was the discriminator, and it was wrong in both directions
 
 **Fixed and measured on 2026-08-16.** Identity is now the serial number, which is the engine's own
