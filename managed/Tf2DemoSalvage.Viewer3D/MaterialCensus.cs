@@ -59,6 +59,7 @@ internal static class MaterialCensus
         "$detailtint",
         "$translucent",
         "$alphatest",
+        "$alphatestreference",
         "$additive",
         "$selfillum",
         "$selfillumtint",

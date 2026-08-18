@@ -119,6 +119,24 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsAlphaTested => Flag("$alphatest");
 
+    /// <summary>The alpha value at and above which an alpha-tested texel is kept.</summary>
+    /// <remarks>
+    /// **Zero means "use the hardware default", not "keep everything".** Valve applies the override
+    /// only when the material's value is above zero — <c>BaseVSShader.cpp:927</c>:
+    ///
+    /// <code>
+    /// if( alphaTestReferenceVar != -1 &amp;&amp; params[alphaTestReferenceVar]->GetFloatValue() > 0.0f )
+    ///     s_pShaderShadow->AlphaFunc( SHADER_ALPHAFUNC_GEQUAL, params[...]->GetFloatValue() );
+    /// </code>
+    ///
+    /// and the parameter is declared with an EMPTY default (<c>depthwrite.cpp:23</c>), so an absent
+    /// key leaves the API's own reference alone. Treating a missing value as a cutoff of zero would
+    /// keep every texel and turn a grate into a solid sheet.
+    ///
+    /// The comparison is <c>GEQUAL</c>, so a texel exactly at the reference is KEPT.
+    /// </remarks>
+    public float AlphaTestReference => Number("$alphatestreference", 0f);
+
     /// <summary>Whether the surface is blended with what is behind it.</summary>
     /// <remarks>
     /// **Alpha test wins when a material declares both**, which is Valve's own clause rather than
