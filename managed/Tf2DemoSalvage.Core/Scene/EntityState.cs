@@ -51,6 +51,7 @@ public sealed class EntityState
             ],
             [ServerAnimationTable] = [CycleProperty],
             [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
+            [CombatCharacterTable] = [ActiveWeaponProperty],
         };
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
@@ -184,6 +185,17 @@ public sealed class EntityState
 
     /// <summary>The engine flag word, carrying the crouch and ground bits.</summary>
     private const string FlagsProperty = "m_fFlags";
+
+    /// <summary>Where anything that can hold a weapon says which one it is holding.</summary>
+    /// <remarks>
+    /// <c>IMPLEMENT_SERVERCLASS_ST(CBaseCombatCharacter, DT_BaseCombatCharacter)</c>
+    /// (<c>basecombatcharacter.cpp:196</c>), not one of the exclusive tables beside it — so it
+    /// arrives for every combat character in the PVS rather than for the recorder alone.
+    /// </remarks>
+    private const string CombatCharacterTable = "DT_BaseCombatCharacter";
+
+    /// <summary>The handle naming the weapon currently in hand.</summary>
+    private const string ActiveWeaponProperty = "m_hActiveWeapon";
 
     /// <summary>0 alive, 1 dying, 2 dead; see LIFE_ALIVE in const.h.</summary>
     private const string LifeStateProperty = "m_lifeState";
@@ -336,6 +348,22 @@ public sealed class EntityState
             ? null
             : Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
     }
+
+    /// <summary>Which entity is the weapon this one is holding, or null when it holds none.</summary>
+    /// <returns>The weapon's entity slot.</returns>
+    /// <remarks>
+    /// **This decides how the whole body animates, not just what is in the hands.**
+    /// <c>CTFWeaponBase::ActivityList</c> (<c>tf_weaponbase.cpp:4208</c>) selects an
+    /// <c>acttable_t</c> from the weapon's role and every entry maps a bare activity to a suffixed
+    /// one — <c>{ ACT_MP_RUN, ACT_MP_RUN_SECONDARY }</c>. So a medic holding a medigun runs with a
+    /// different animation from a scout holding a scattergun, and drawing both with the primary
+    /// suffix is wrong for a large part of the game.
+    ///
+    /// Through <see cref="Slot"/> like every other handle, so the invalid value is tested before
+    /// the mask rather than after it.
+    /// </remarks>
+    public int? ActiveWeapon() =>
+        Slot(Integer($"{CombatCharacterTable}.{ActiveWeaponProperty}"));
 
     /// <summary>The entity slot a networked handle names, or null when it names nothing.</summary>
     /// <param name="handle">The raw networked value, or null when the property was never sent.</param>

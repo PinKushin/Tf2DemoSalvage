@@ -103,4 +103,32 @@ public sealed class CorpusPlayerFlagsTests
         players.ShouldContain(player => !player.IsCrouched);
         players.ShouldContain(player => !player.IsAirborne);
     }
+
+    [Test]
+    public void APovRecordingCarriesThemToo()
+    {
+        // **The claim this settles was stated as a separate defect and turned out to be the same
+        // one.** When the flags were read from DT_LocalPlayerExclusive the recorder of a POV demo
+        // reported null like everyone else, and that was filed as "POV demos cannot support crouch
+        // and jump detection at all". It was never about the point of view: m_fFlags is on
+        // DT_BasePlayer (player.cpp:8183) and is sent for every player in the PVS, so a POV demo
+        // carries it exactly as a SourceTV one does.
+        //
+        // Asserted rather than assumed, because "the fix probably covered that too" is how a
+        // second defect hides behind a first.
+        string path = Corpus.Demo("movement-test-pov-cp_process");
+
+        List<ScenePlayer> stated =
+        [
+            .. DemoTimeline.Build(File.ReadAllBytes(path))
+                .Frames
+                .SelectMany(frame => frame.Players)
+                .Where(player => player.IsPlaying && player.Flags is not null),
+        ];
+
+        stated.ShouldNotBeEmpty("a POV demo carries m_fFlags for the players it can see");
+
+        stated.ShouldContain(player => player.IsCrouched, "the recorder crouches deliberately");
+        stated.ShouldContain(player => player.IsAirborne, "and jumps deliberately");
+    }
 }

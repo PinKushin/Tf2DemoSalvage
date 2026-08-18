@@ -6225,3 +6225,39 @@ are blended, so they choose whose authored speed is being asked about — then r
 authored for is left alone rather than scaled past the edge of the grid.
 
 B101 is now closed in full.
+
+### B104 — a solution-wide `dotnet test` once reported a TRUNCATED total — OPEN
+
+Observed 2026-08-17 during the active-weapon work. One invocation of the merge gate reported
+
+```
+Passed!  - Failed: 0, Passed: 50, Skipped: 0, Total: 50, Duration: 1 s - Tf2DemoSalvage.Viewer3D.Tests.dll
+```
+
+against a suite of **350**, which takes about **80 seconds**. Nothing in the output said anything was
+wrong: no failure, no warning, a green line. The immediately following run of the same command
+reported 350, and running that project alone reported 350.
+
+**This is the exact hazard the standing rule names — "Passed!" is not the result, the COUNT is.** Had
+the missing 300 contained a regression from that change, the gate would have reported success.
+
+Not diagnosed, and recorded rather than explained away. The shape suggests a race between the
+parallel build writing the test assembly and the runner discovering it — in the truncated run
+Viewer3D executed unusually early in the ordering and finished in a second, which is about what
+discovery alone would cost. It did not reproduce on demand, so it is a one-in-many event rather than
+a deterministic fault.
+
+What to do about it until it is understood: **compare each assembly's total against its known size
+every time**, rather than reading the pass/fail word. Current sizes at this commit:
+
+| Assembly | Total |
+|---|---|
+| Audio.Tests | 16 |
+| Core.Tests | 1034 |
+| Cli.Tests | 63 |
+| Content.Tests | 429 |
+| Corpus.Tests | 138 (gcor-only; more with lcor) |
+| Viewer3D.Tests | 350 |
+| Viewer3D.UiTests | 8 |
+
+A total that drops without the suite shrinking is a failed run wearing a pass.
