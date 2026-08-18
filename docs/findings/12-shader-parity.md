@@ -244,3 +244,63 @@ alpha with a `Sine` proxy — period `.3`, between `.6` and `.7`. That is a visi
 capture point logo, it is B80's "material proxies are not implemented" made concrete, and it was
 found incidentally. Worth remembering that reading real assets pays for itself even when the
 question was about something else.
+
+## Auditing what is claimed against what is checked (2026-08-18)
+
+The census says which parameters this project implements. Nothing said which of those had ever been
+compared against the engine, and the two are very different questions:
+`SdkCoverageTests` catches a parameter never implemented; only a behavioural test catches one
+implemented **wrongly**. Of twenty-one claimed, **eight had no such test** — and three defects fell
+out of writing them.
+
+### The audit's own first result was wrong, which is the useful part
+
+The opening sweep reported *all twenty* parameters as untested. That was a fact about the search: the
+parameter names begin with `$`, which the shell read as a regex anchor, so every pattern matched
+nothing. A positive control — "does a parameter I know is covered show up?" — caught it in one step.
+Without it the conclusion would have been twenty redundant tests and eight real gaps missed. Filed as
+the reason `docs/memory/an-empty-search-needs-a-control.md` exists.
+
+### Boolean parameters are integers, and nine were compared against a string
+
+`VmtMaterial` read nine flags as `Value(key) is "1"`. The material system does not: these are
+declared `SHADER_PARAM_TYPE_INTEGER` — `SHADER_PARAM( SSBUMP, SHADER_PARAM_TYPE_INTEGER, "0", ... )`
+— and the flag-valued ones become `MATERIAL_VAR_*` bits set from an integer read. **Nothing in that
+path compares against the character `1`.**
+
+So `"$translucent" "2"` drew translucent in TF2 and opaque here. It survived because it agrees with
+the engine on every material Valve ships — and *that* is the shape worth remembering: "Valve always
+writes 1" is a statement about Valve, not about the input a reader is handed, and a custom map's
+materials go through the same code. (RISKS B115.)
+
+### The translucent blend factors were never actually unknowable
+
+The renderer carried a comment saying its alpha-blend factors were *interpolated*, because
+`SetDefaultBlendingShadowState` lives in the closed material system. True of the function; false of
+the definition. `public/shaderlib/BaseShader.h` declares `BlendType_t` with each mode's equation
+written beside it:
+
+```cpp
+// src * srcAlpha + dst * (1-srcAlpha)
+BT_BLEND,
+// src * one + dst * one
+BT_ADD,
+```
+
+That moves the claim from **interpolated** to **read from published source** — a different evidence
+class entirely. Third time this session something filed as unavailable was sitting in a shipped
+header, after the game event widths and `$modblend`.
+
+### Every alpha-tested edge was cut at half
+
+`$alphatestreference` was unimplemented and the shader clipped at a constant `0.5`. Valve enables
+alpha testing from the flag and overrides the reference **only when the material states one above
+zero** (`BaseVSShader.cpp:925`), comparing `GEQUAL`. A material asking 0.9 keeps only its most opaque
+texels; ours kept everything above half, thickening every alpha-tested edge — foliage, grates,
+chain-link, ladders. It reads as bad art, not as a bug. (RISKS B117.)
+
+Two traps in one parameter. **Zero is not a cutoff**: an absent reference means "leave the API
+default alone", and reading it as "clip at zero" keeps every texel and turns a grate into a sheet —
+the exact inverse of the defect. And **the declared default is spelled differently by different
+shaders**: `"0.0"` in the generic shaders, `""` in `depthwrite`. The conformance test pins the
+meaning for that reason; its first draft pinned the empty string and failed against correct code.
