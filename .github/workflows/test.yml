@@ -60,8 +60,13 @@ jobs:
         # Floors rather than exact equality: an exact number turns every added test into a red
         # build, while a floor still catches the two failures that actually hide - a host that
         # died partway and a run that executed nothing. Raise these when tests are added.
+        #
+        # **A floor far below the real count catches neither.** These sat at 744 and 34 while the
+        # suites held 1034 and 352, and on 2026-08-17 a solution-wide run reported 50 of Viewer's
+        # 350 tests as a pass (B104) — which 34 would have accepted. A floor is only a guard while
+        # it is close to the number it guards.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 744 Core
+          ./build/assert-test-count.sh '**/core.trx' 1000 Core
           ./build/assert-test-count.sh '**/cli.trx' 63 Cli
 
       - uses: actions/upload-artifact@v7
@@ -177,9 +182,9 @@ jobs:
         # invisible, since a corpus test over zero demos passes.
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 16 Audio
-          ./build/assert-test-count.sh '**/viewer.trx' 34 Viewer
-          ./build/assert-test-count.sh '**/viewer-ui.trx' 5 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 99 Corpus
+          ./build/assert-test-count.sh '**/viewer.trx' 340 Viewer
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 8 ViewerUi
+          ./build/assert-test-count.sh '**/corpus.trx' 130 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

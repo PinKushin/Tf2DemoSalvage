@@ -6565,3 +6565,40 @@ the EYE yaw, so the movement blend must not start reading the feet now that the 
 feet. `ScenePose.EyeYaw` carries it, and the move parameters take `EyeYaw ?? Yaw` — null for
 anything that is not a player, where the entity's own rotation is the only yaw there is. Without
 that, B101's fix would have regressed silently the moment this landed.
+
+### B104 — the guard against a truncated run existed and was too loose to fire — RESOLVED
+
+The truncated total recorded above was never diagnosed, and looking for the cause turned up
+something worse: **the check that should have caught it was already in the repository and would have
+passed it.**
+
+`build/assert-test-count.sh` reads the `.trx` counters and fails below a floor, exactly for this. The
+floors had not been raised as the suite grew:
+
+| Assembly | Real count | Floor |
+|---|---|---|
+| Viewer | 352 | **34** |
+| Core | 1034 | 744 |
+| Corpus | 138 | 99 |
+
+The run that reported 50 of Viewer's 350 tests would have satisfied a floor of 34 without complaint.
+A floor is only a guard while it is close to the number it guards, and these had drifted an order of
+magnitude. Now 340, 1000 and 130.
+
+**The local gate was worse than CI, because it had no check at all.** Every "green at full count" in
+this project's history was a person reading six console lines and comparing them against remembered
+numbers. `build/gate.sh` replaces that: one project at a time, `.trx` per project, floor asserted for
+each. Running whole projects sequentially also removes the assembly-level concurrency that is the
+leading suspect for the truncation itself — a solution-wide `dotnet test` runs test assemblies in
+parallel, and a single run writes one `.trx` per project all under the same name, so the counts
+cannot be told apart afterwards.
+
+**A second way two runs differ, found while checking the first.** `--filter` changes which tests
+EXIST rather than which ones run: NUnit's adapter includes `[Explicit]` tests when no filter is given
+and drops them as soon as any filter is present. Content.Tests reports 441 unfiltered and 436 with
+`--filter 'FullyQualifiedName!~UiTests'`, the five being diagnostic probes. That filter is the one
+`CLAUDE.md` documents for the merge gate, so every `[Explicit]` test in this repository has been
+silently absent from it.
+
+The original truncation is still not explained, and the honest position is that it now cannot hide:
+the floors would fail it and the per-project run removes its most likely cause.
