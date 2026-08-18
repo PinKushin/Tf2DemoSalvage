@@ -16,8 +16,15 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="Yaw">Rotation about the vertical axis, in degrees.</param>
 /// <param name="Roll">Rotation about the forward axis, in degrees.</param>
 /// <param name="Scale">Uniform scale, 1 unless the map declares otherwise.</param>
+/// <param name="Skin">
+/// Which skin family the model draws with, <c>StaticPropLump_t.m_Skin</c>. Zero for most props,
+/// and the reason this is not optional: a model with team or state variants draws its FIRST family
+/// when this is ignored, which is not an error and reads as the map's own art.
+/// <c>cap_point_base.mdl</c> has three.
+/// </param>
 public readonly record struct BspStaticProp(
-    string Model, float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale);
+    string Model, float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale,
+    int Skin = 0);
 
 /// <summary>
 /// The models a map places itself: rocks, crates, fences, foliage.
@@ -85,6 +92,18 @@ public static class BspStaticProps
     private const int OriginOffset = 0;
     private const int AnglesOffset = 12;
     private const int PropTypeOffset = 24;
+
+    /// <summary>Offset of <c>StaticPropLump_t.m_Skin</c>, in every declared version.</summary>
+    /// <remarks>
+    /// **Thirty-two rather than thirty-one, because of padding.** The members before it are
+    /// <c>m_PropType</c>, <c>m_FirstLeaf</c> and <c>m_LeafCount</c> (three <c>unsigned short</c>,
+    /// ending at 30) then <c>m_Solid</c>, one byte. The next member is an <c>int</c>, which the
+    /// compiler aligns to four — so byte 31 is padding and the skin begins at 32.
+    ///
+    /// Derived independently by <c>StaticPropConformanceTests</c> from the declaration itself, so
+    /// this constant is checked rather than asserted.
+    /// </remarks>
+    private const int SkinOffset = 32;
 
     /// <summary>Reads every static prop a map places.</summary>
     /// <param name="file">The map's bytes.</param>
@@ -274,10 +293,35 @@ public static class BspStaticProps
                 BinaryPrimitives.ReadSingleLittleEndian(prop[AnglesOffset..]),
                 BinaryPrimitives.ReadSingleLittleEndian(prop[(AnglesOffset + 4)..]),
                 BinaryPrimitives.ReadSingleLittleEndian(prop[(AnglesOffset + 8)..]),
-                ReadScale(prop, version, stride)));
+                ReadScale(prop, version, stride),
+                ReadSkin(prop, stride)));
         }
 
         return placements;
+    }
+
+    /// <summary>The skin family, where the placement is long enough to carry one.</summary>
+    /// <remarks>
+    /// **Guarded by the stride rather than by the version.** Every declared version has the field
+    /// at the same offset, but a lump whose stride is somehow shorter would otherwise be read past
+    /// its end — and this reader already accepts a stride it derives from the data rather than one
+    /// it assumes. A placement too short to hold the field reports family zero, which is what the
+    /// renderer did for every prop before this existed.
+    ///
+    /// Negative values are clamped away for the same reason <c>ReadScale</c> rejects zero: the skin
+    /// indexes a table, and a compiler writing rubbish should cost the prop its variant rather than
+    /// throwing out of a map that is otherwise fine.
+    /// </remarks>
+    private static int ReadSkin(ReadOnlySpan<byte> prop, int stride)
+    {
+        if (stride < SkinOffset + sizeof(int))
+        {
+            return 0;
+        }
+
+        int skin = BinaryPrimitives.ReadInt32LittleEndian(prop[SkinOffset..]);
+
+        return skin > 0 ? skin : 0;
     }
 
     /// <summary>The uniform scale, where the map's version carries one.</summary>
