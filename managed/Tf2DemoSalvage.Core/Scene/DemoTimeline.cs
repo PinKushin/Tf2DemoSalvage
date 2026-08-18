@@ -33,6 +33,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>m_flJumpStartTime</c> — a moment no demo records, so this is derived from when
 /// <c>FL_ONGROUND</c> cleared.
 /// </param>
+/// <param name="Airwalking">
+/// Whether this player has risen fast enough to air-walk since leaving the ground. The engine's
+/// test is <c>vecVelocity.z &gt; 300.0f || m_bInAirWalk</c>, so it latches until they land — this
+/// is that latch. It says nothing about whether the CLASS air-walks, which is the class script's
+/// answer and the caller's to apply.
+/// </param>
 /// <param name="ActiveWeapon">
 /// Which entity is the weapon in hand, or <c>null</c> when none is held. Decoded from
 /// <c>m_hActiveWeapon</c> on <c>DT_BaseCombatCharacter</c>, so it arrives for every player in the
@@ -74,6 +80,7 @@ public readonly record struct ScenePlayer(
     int? Flags = null,
     bool Drawn = true,
     float? AirborneSeconds = null,
+    bool Airwalking = false,
     int? ActiveWeapon = null,
     string? WeaponClass = null)
 {
@@ -321,6 +328,16 @@ public sealed class DemoTimeline
         // carries no such event, so this watches FL_ONGROUND clear instead.
         Dictionary<int, int> leftGroundAt = [];
 
+        // Where each player was last tick, so a vertical speed can be differenced. The client does
+        // the same: GetOuterAbsVelocity calls EstimateAbsVelocity on the client, which estimates
+        // from position history rather than reading a networked velocity.
+        Dictionary<int, (int Tick, float Z)> lastHeight = [];
+
+        // **Sticky, because the engine's condition is `vz > 300 || m_bInAirWalk`.** Once an
+        // air-walk starts it continues until the player lands, so a rocket jump does not flicker
+        // back to the jump animation as the rise slows.
+        HashSet<int> airwalkingSince = [];
+
         ModelPrecache precache = new();
         int protocol = header.NetworkProtocol;
 
@@ -433,11 +450,25 @@ public sealed class DemoTimeline
                 // is measured from the moment the flag cleared.
                 float? airborne = null;
 
+                // **The rise, differenced from the last height this player was seen at.** Only the
+                // upward component matters: the air-walk test is on velocity.z alone.
+                float? rising = null;
+
+                if (lastHeight.TryGetValue(player.EntityIndex, out (int Tick, float Z) before) &&
+                    command.Tick > before.Tick &&
+                    interval > 0f)
+                {
+                    rising = (origin.Z - before.Z) / ((command.Tick - before.Tick) * interval);
+                }
+
+                lastHeight[player.EntityIndex] = (command.Tick, origin.Z);
+
                 if (player.Flags() is { } stateFlags)
                 {
                     if ((stateFlags & PlayerActivityState.OnGround) != 0)
                     {
                         leftGroundAt.Remove(player.EntityIndex);
+                        airwalkingSince.Remove(player.EntityIndex);
                     }
                     else
                     {
@@ -451,6 +482,13 @@ public sealed class DemoTimeline
                         // net_tick states one, and a zero interval would make every jump read as
                         // its own first instant for ever.
                         airborne = interval > 0f ? (command.Tick - since) * interval : null;
+
+                        // The engine's threshold, and it latches: once rising this fast the
+                        // air-walk holds until the ground flag returns.
+                        if (rising is { } climb && climb > PlayerActivityState.AirwalkRiseSpeed)
+                        {
+                            airwalkingSince.Add(player.EntityIndex);
+                        }
                     }
                 }
 
@@ -538,6 +576,7 @@ public sealed class DemoTimeline
                     // is, and only this loop can see both. Resolved rather than carried as a bare
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     AirborneSeconds: airborne,
+                    Airwalking: airwalkingSince.Contains(player.EntityIndex),
                     ActiveWeapon: player.ActiveWeapon(),
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)

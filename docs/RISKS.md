@@ -6444,3 +6444,41 @@ Still open from `HandleJumping`: **airwalk**, which supersedes the jump when `ve
 and the player is not ducking, and `ACT_MP_FALLING_STOMP` beneath it. Both need vertical velocity,
 which is derivable from the track, and airwalk additionally needs `m_bDontDoAirwalk` from the class
 script — which this project already decrypts and reads for the player model.
+
+### B108 — a rocket-jumping player tucks instead of air-walking — RESOLVED
+
+`CTFPlayerAnimState::HandleJumping` checks the air-walk BEFORE the jump and it supersedes it:
+
+```cpp
+bool bValidAirWalkClass = ( pData && pData->m_bDontDoAirwalk == false );
+if ( bValidAirWalkClass && ( vecVelocity.z > 300.0f || m_bInAirWalk ) && !bInDuck )
+```
+
+So a fast-rising player runs in the air rather than tucking, and every rocket jump in this viewer
+was drawn with the wrong animation.
+
+**Only the medic opts out**, measured from the shipped class scripts rather than guessed —
+`DontDoAirwalk` (`tf_classdata.cpp:187`) is set for class 5 and no other. The plausible guesses were
+the heavy or the soldier and both are wrong, which is the whole argument for reading the data.
+
+**The threshold separates an ordinary jump from a blast jump by design.** A TF2 jump leaves the
+ground at 268 units a second and the test is strictly above 300, so plain jumping never air-walks.
+The corpus test asserts both halves on one recording — the rocket jump air-walks and the ordinary
+jumps do not — because either alone is consistent with a latch that never fires or never clears.
+
+**The latch is the engine's, not a convenience.** `vecVelocity.z > 300.0f || m_bInAirWalk` means the
+air-walk continues once started, so a rocket jump does not flicker back to the jump animation as the
+rise slows. `DemoTimeline` reproduces it by latching on the first fast-rising tick and clearing when
+the ground flag returns.
+
+**Vertical speed is differenced from position, which is what the client does too.** The animation
+state reads `GetOuterAbsVelocity`, and on the client that is `EstimateAbsVelocity` — an estimate
+from position history rather than a networked velocity. So the derivation here is the engine's own
+method rather than a substitute for one.
+
+**The two halves are resolved in different layers and meet on the pose.** `DemoTimeline` knows the
+rise and cannot open a class script; the viewer can. Neither could answer alone.
+
+Not implemented from the same branch: **`ACT_MP_FALLING_STOMP`**, which replaces the air-walk when
+`m_flFallVelocity > PLAYER_MAX_SAFE_FALL_SPEED` and `CanFallStomp()` — the Mantreads. It needs a
+fall-velocity accumulator and an item check, and it is one animation for one item.

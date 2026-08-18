@@ -152,6 +152,13 @@ public readonly record struct ScenePose
     /// </remarks>
     public float? AirborneSeconds { get; init; }
 
+    /// <summary>Whether the player is air-walking: rising fast, and their class allows it.</summary>
+    /// <remarks>
+    /// Both halves are resolved before this is set — the rise in the timeline, the class in the
+    /// viewer, which is the only layer that can open a class script.
+    /// </remarks>
+    public bool Airwalking { get; init; }
+
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
     /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
@@ -599,6 +606,7 @@ public sealed class ScenePropTrack
             Flags = from.Flags,
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,
+            Airwalking = from.Airwalking,
         };
     }
 

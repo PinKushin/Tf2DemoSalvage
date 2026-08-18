@@ -74,6 +74,10 @@ internal static class PlayerAnimation
     /// How long since the player left the ground, or null when it cannot be told — which splits a
     /// jump into <c>ACT_MP_JUMP_START</c> and <c>ACT_MP_JUMP_FLOAT</c>.
     /// </param>
+    /// <param name="airwalking">
+    /// Whether they are rising fast enough to air-walk and their class allows it, which supersedes
+    /// the jump entirely.
+    /// </param>
     /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
@@ -94,7 +98,8 @@ internal static class PlayerAnimation
         int? flags,
         bool alive,
         string slot = "PRIMARY",
-        float? airborneSeconds = null)
+        float? airborneSeconds = null,
+        bool airwalking = false)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -102,8 +107,8 @@ internal static class PlayerAnimation
         // instead would say AIRBORNE, and every player in a POV demo would be drawn falling.
         int state = flags ?? PlayerActivityState.OnGround;
 
-        PlayerActivity activity =
-            PlayerActivityState.For(state, speed, waistDeep: false, alive, airborneSeconds);
+        PlayerActivity activity = PlayerActivityState.For(
+            state, speed, waistDeep: false, alive, airborneSeconds, airwalking);
 
         int wanted = model.ForActivity(PlayerActivityState.NameOf(activity, slot));
 

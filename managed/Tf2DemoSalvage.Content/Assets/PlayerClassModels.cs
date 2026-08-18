@@ -70,6 +70,9 @@ public sealed class PlayerClassModels
 
     private readonly Dictionary<int, string> _models = [];
 
+    /// <summary>Which classes refuse the air-walk animation.</summary>
+    private readonly HashSet<int> _noAirwalk = [];
+
     private PlayerClassModels()
     {
     }
@@ -111,9 +114,21 @@ public sealed class PlayerClassModels
                     : null;
             }
 
-            if (script is not null && ClassScript.Model(script) is { } model)
+            if (script is null)
+            {
+                continue;
+            }
+
+            if (ClassScript.Model(script) is { } model)
             {
                 models._models[playerClass] = model;
+            }
+
+            // Read in the same pass, because the script is already decrypted and in hand — this
+            // decides whether a rising player air-walks or plays the jump.
+            if (ClassScript.DontDoAirwalk(script))
+            {
+                models._noAirwalk.Add(playerClass);
             }
         }
 
@@ -131,4 +146,16 @@ public sealed class PlayerClassModels
     /// </remarks>
     public string? Model(int playerClass) =>
         _models.TryGetValue(playerClass, out string? model) ? model : null;
+
+    /// <summary>Whether a class plays the air-walk animation while rising.</summary>
+    /// <param name="playerClass">The class number, as the demo reports it.</param>
+    /// <returns>True unless the class script sets <c>DontDoAirwalk</c>.</returns>
+    /// <remarks>
+    /// **True by default, which is the engine's default and not an optimistic guess.**
+    /// <c>bValidAirWalkClass</c> is <c>pData &amp;&amp; pData->m_bDontDoAirwalk == false</c>, and
+    /// <c>GetInt( "DontDoAirwalk", 0 )</c> means a script that omits the key describes a class that
+    /// does air-walk. A class whose script is missing entirely therefore answers true here, which
+    /// matches what the engine would draw if it somehow loaded one.
+    /// </remarks>
+    public bool Airwalks(int playerClass) => !_noAirwalk.Contains(playerClass);
 }

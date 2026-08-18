@@ -29,6 +29,18 @@ public enum PlayerActivity
     /// <summary>Crouched and moving.</summary>
     CrouchWalk,
 
+    /// <summary>Rising fast — the legs run in the air rather than tucking for a jump.</summary>
+    /// <remarks>
+    /// <c>ACT_MP_AIRWALK</c>, chosen by <c>CTFPlayerAnimState::HandleJumping</c> BEFORE the jump and
+    /// superseding it: <c>if ( bValidAirWalkClass &amp;&amp; ( vecVelocity.z > 300.0f ||
+    /// m_bInAirWalk ) &amp;&amp; !bInDuck )</c>. It is what a rocket-jumping soldier is drawn with.
+    ///
+    /// Measured from the shipped class scripts: **only the medic sets <c>DontDoAirwalk</c>**, so
+    /// every other class air-walks. That was worth measuring rather than guessing — the plausible
+    /// answers were the heavy or the soldier, and both are wrong.
+    /// </remarks>
+    Airwalk,
+
     /// <summary>Airborne, in the first half second — the push-off.</summary>
     /// <remarks>
     /// <c>CTFPlayerAnimState::HandleJumping</c> splits a jump in two:
@@ -109,6 +121,14 @@ public static class PlayerActivityState
     /// </remarks>
     public const float JumpStartSeconds = 0.5f;
 
+    /// <summary>How fast a player must rise before the legs air-walk instead of tucking.</summary>
+    /// <remarks>
+    /// <c>vecVelocity.z &gt; 300.0f</c> in <c>CTFPlayerAnimState::HandleJumping</c>. An ordinary
+    /// TF2 jump leaves the ground at 268 units a second, so this deliberately excludes it — the
+    /// air-walk is for rocket jumps, blast jumps and launchers.
+    /// </remarks>
+    public const float AirwalkRiseSpeed = 300f;
+
     /// <summary>At rest on the ground — <c>FL_ONGROUND</c>.</summary>
     public const int OnGround = 1 << 0;
 
@@ -149,7 +169,23 @@ public static class PlayerActivityState
     /// </param>
     /// <returns>The activity the engine would choose.</returns>
     public static PlayerActivity For(
-        int flags, float speed, bool waistDeep, bool alive, float? airborneSeconds)
+        int flags, float speed, bool waistDeep, bool alive, float? airborneSeconds) =>
+        For(flags, speed, waistDeep, alive, airborneSeconds, airwalking: false);
+
+    /// <summary>The same, knowing whether the player is air-walking.</summary>
+    /// <param name="flags">The player's <c>m_fFlags</c>.</param>
+    /// <param name="speed">Horizontal speed in units a second.</param>
+    /// <param name="waistDeep">Whether the water reaches the waist.</param>
+    /// <param name="alive">Whether the player is alive.</param>
+    /// <param name="airborneSeconds">How long since they left the ground, or null.</param>
+    /// <param name="airwalking">
+    /// Whether they are rising fast enough to air-walk AND their class allows it. Both halves are
+    /// the caller's to establish: the speed comes from the track and
+    /// <c>DontDoAirwalk</c> from the class script, and only the medic sets it.
+    /// </param>
+    /// <returns>The activity the engine would choose.</returns>
+    public static PlayerActivity For(
+        int flags, float speed, bool waistDeep, bool alive, float? airborneSeconds, bool airwalking)
     {
         bool moving = speed > MovingMinimumSpeed;
 
@@ -160,6 +196,14 @@ public static class PlayerActivityState
         // moment after landing, where the engine holds the jump a little longer.
         if ((flags & OnGround) == 0 && !waistDeep && alive)
         {
+            // **Air-walking outranks the jump**, and the engine checks it first inside
+            // HandleJumping — a fast-rising player runs in the air rather than tucking. Ducking
+            // cancels it there and so here: `( ... ) && !bInDuck`.
+            if (airwalking && (flags & Ducking) == 0)
+            {
+                return PlayerActivity.Airwalk;
+            }
+
             // **The push-off and the float are different animations**, split at half a second since
             // the jump began. Null means the caller cannot say how long they have been airborne, and
             // the float is the right answer then: it is what a jump spends most of its time in, and
@@ -237,6 +281,7 @@ public static class PlayerActivityState
             // gap here: ACT_MP_JUMP_LAND is started with RestartGesture( GESTURE_SLOT_JUMP, ... ),
             // so it is a layered gesture played over whatever the body is doing, not a body
             // activity. Returning it here would replace the run a player lands into.
+            PlayerActivity.Airwalk => $"ACT_MP_AIRWALK_{weaponSlot}",
             PlayerActivity.JumpStart => $"ACT_MP_JUMP_START_{weaponSlot}",
             PlayerActivity.Jump => $"ACT_MP_JUMP_FLOAT_{weaponSlot}",
 
