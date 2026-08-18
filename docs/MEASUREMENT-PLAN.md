@@ -91,10 +91,26 @@ ordinary tests only.
 2. **Content synthetic tests + a `content` mode.** New `stryker-config.json` and a `content` case in
    `build/run-measurements.sh` with `NEEDS_CORPUS=0`. Then ask for a slot.
 3. **Cross-build celt/speex + an `audio` mode**, and more voice-decoder tests.
-4. **More fuzz targets.** Today only four exist — `bitreader`, `varint`, `container`, `snappy`. The
-   untrusted-input surface is much wider: entity decode, string tables, the net message reader, temp
-   entities, and the three voice decoders, which parse untrusted network audio and are the strongest
-   remaining candidates.
+4. **More fuzz targets.** `netmessage` is **added and measured**; the other four were primitives.
+   Measured on `fuzz-box` 2026-08-18, 60-second run at commit `1ce50db`:
+
+   ```
+   Done 1025807 runs in 61 second(s)
+   stat::average_exec_per_sec:     16816
+   stat::new_units_added:          2980
+   stat::peak_rss_mb:              28
+   ```
+
+   Both numbers that matter grew — executions and corpus — which is this project's own test for a
+   run that did anything (`docs/FUZZING.md`). No findings, which is the expected result against a
+   function documented as total.
+
+   Still unfuzzed and worth doing, hardest-hitting first: **the three voice decoders**, because they
+   parse untrusted network audio through NATIVE code, so a fault there is memory corruption rather
+   than an exception — and they now build on Linux, which is what previously made this impossible.
+   Then entity decode and string tables, both reachable through `netmessage` already but worth
+   direct targets with their own corpora, since an input shaped for one decoder does not explore
+   another.
 5. **Viewer3D last, and maybe never.** 16.8 k LOC but mostly rendering, which mutation-tests as
    poorly as UI does. Split the non-rendering logic out first, or skip it.
 
