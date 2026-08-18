@@ -6881,3 +6881,38 @@ sabotage: restoring the string comparison on `$additive` alone reddens it.
 being claimed in `MaterialCensus`.** `SdkCoverageTests` counts what is missing; only a test that
 compares behaviour against the engine catches what is present and wrong. Eight of the twenty-one
 implemented parameters had no such test, which is what the audit was for.
+
+### B116 — every static prop drew skin family 0 — FIXED
+
+`StaticPropLump_t.m_Skin` says which skin family a placed model draws with. `BspStaticProps` read
+origin, angles and prop type and stopped, so the field was never decoded and every static prop in
+every map drew its FIRST family whatever the map asked for.
+
+**Measured before and after, because "the field parses" is not the claim worth making.** A decode of
+a member no map ever sets would be a decode of zeroes and would look identical to not reading it:
+
+```
+cp_process_final: 267 of 1631 placements name a skin family other than 0
+```
+
+So 267 props per map were drawing the wrong variant. That is not an error and never produced a
+warning — a model showing its red variant where the map asked for blue reads as the map's own art.
+
+**The offset is 32, and the reason is padding rather than arithmetic.** `m_PropType`, `m_FirstLeaf`
+and `m_LeafCount` are three `unsigned short` ending at 30, then `m_Solid` takes one byte, and the
+next member is an `int` the compiler aligns to four — so byte 31 is padding.
+`StaticPropConformanceTests` derives this independently from the declaration, so the constant is
+checked rather than asserted.
+
+**Applied per placement rather than per model, which is the whole difficulty.** A model is loaded
+once and placed many times with different families at different placements, so the swap cannot be
+baked at load. Vertices were already being copied per placement, so remapping the material index on
+the way past costs a dictionary lookup and no extra geometry. The swap tables themselves already
+existed — `StudioSkins` has read them since the player team-colour work — so this was the wire
+between two finished halves, which is what made it the cheapest fix on the board.
+
+**Found by the conformance audit, and the specification was written before the code.**
+`UnimplementedRenderingConformanceTests.AStaticPropCarriesItsOwnSkinIndex` skipped with the citation
+and an `Assert.Fail` beneath it, so finishing the work could not leave a test quietly passing on
+nothing — it forced the placeholder to be replaced with a real assertion. The suite's skip count
+went 7 to 6.

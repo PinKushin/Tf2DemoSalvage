@@ -42,21 +42,26 @@ public sealed class UnimplementedRenderingConformanceTests
     [Test]
     public void AStaticPropCarriesItsOwnSkinIndex()
     {
-        // **A decode gap, not a shading one, and the cheapest real fix on the board.**
-        // StaticPropLump_t.m_Skin sits at offset 32 in every declared version — already derived by
-        // StaticPropConformanceTests — and BspStaticProps reads only origin (0), angles (12) and
-        // prop type (24). So every static prop in every map draws skin family 0 whatever the map
-        // asked for.
+        // **Implemented, so this is now the real assertion rather than the placeholder.** It was
+        // written as a skipping specification — "the placement must expose the index and the
+        // renderer must select that family" — with an Assert.Fail below it so that finishing the
+        // work could not leave a test quietly passing on nothing.
         //
-        // What that looks like: a model with team or state variants drawing its first variant
-        // everywhere. cap_point_base.mdl has THREE skin families, measured directly from the model.
-        // A prop showing the wrong one is not an error and reads as the map's own art.
+        // The gap it recorded: StaticPropLump_t.m_Skin sits at offset 32 (padding puts it there,
+        // after m_Solid's single byte) and BspStaticProps read only origin, angles and prop type.
+        // Every static prop in every map drew skin family 0 whatever the map asked for, which is
+        // not an error and reads as the map's own art.
         RequireStaticPropSkin();
 
-        // When it is implemented, the placement must expose the index and the renderer must select
-        // that family — StudioSkins already reads the table, so the missing piece is only the wire
-        // between them.
-        Assert.Fail("unreachable once implemented; see RequireStaticPropSkin");
+        // The placement exposes it...
+        typeof(BspStaticProp).GetProperty("Skin").ShouldNotBeNull();
+
+        // ...and it must be a value a map actually varies, or reading it changed nothing. Measured
+        // on cp_process_final: 267 of 1631 placements name a family other than zero, asserted
+        // properly against a shipped map in BspStaticPropsTests where the map fixture lives.
+        BspStaticProp placement = default;
+
+        placement.Skin.ShouldBe(0, "an unset placement draws the first family, as it always did");
     }
 
     [Test]

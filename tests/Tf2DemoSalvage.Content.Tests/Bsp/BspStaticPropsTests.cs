@@ -68,6 +68,31 @@ public sealed class BspStaticPropsTests
     }
 
     [Test]
+    public void Read_AShippedMap_CarriesSkinFamilies()
+    {
+        // **The measurement that says whether reading this field was worth anything.** A decode of
+        // a member no map ever sets is a decode of zeroes, and would look identical to not reading
+        // it at all — so the test is not "the field parses" but "some prop in a real map asks for a
+        // family other than the first".
+        IReadOnlyList<BspStaticProp> props = BspStaticProps.Read(_map);
+
+        int skinned = props.Count(prop => prop.Skin > 0);
+
+        TestContext.Out.WriteLine(
+            $"{skinned} of {props.Count} placements name a skin family other than 0");
+
+        // Every skin must index a real family rather than being arbitrary data read from the wrong
+        // offset: a wrong offset here would produce large or negative numbers from neighbouring
+        // fields, and m_FadeMinDist sits immediately after it.
+        props.ShouldAllBe(prop => prop.Skin >= 0 && prop.Skin < 32);
+
+        skinned.ShouldBeGreaterThan(
+            0,
+            "cp_process_final dresses its control points with skinned props; if this is zero the " +
+            "offset is wrong or the field is being read from padding");
+    }
+
+    [Test]
     public void Read_AShippedMap_PlacesModels()
     {
         IReadOnlyList<BspStaticProp> props = BspStaticProps.Read(_map);

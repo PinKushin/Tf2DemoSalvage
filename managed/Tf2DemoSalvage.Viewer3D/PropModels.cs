@@ -212,9 +212,29 @@ internal static class PropModels
                 refused.Add($"prop {index} ({placement.Model}): {reason}");
             }
 
+            // **The placement's skin family, which every prop used to ignore.**
+            // StaticPropLump_t.m_Skin says which family a placed model draws with, and reading it
+            // as zero for everything drew the FIRST variant of every skinned prop — not an error,
+            // and it reads as the map's own art rather than as a defect. Measured on
+            // cp_process_final: 267 of 1631 placements ask for a family other than zero.
+            //
+            // The swap is applied here rather than at load time because a model is loaded ONCE and
+            // placed many times, with different families at different placements. Vertices are
+            // already copied per placement, so remapping the material index on the way past costs
+            // a dictionary lookup and no extra geometry.
+            IReadOnlyDictionary<int, int>? swap =
+                placement.Skin > 0 && model.Frames.SkinSwaps is { } swaps && placement.Skin <= swaps.Count
+                    ? swaps[placement.Skin - 1]
+                    : null;
+
             for (int at = 0; at < model.Corners.Count; at++)
             {
                 PropVertex corner = model.Corners[at];
+
+                if (swap is not null && swap.TryGetValue(corner.MaterialIndex, out int replaced))
+                {
+                    corner = corner with { MaterialIndex = replaced };
+                }
 
                 (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
 
