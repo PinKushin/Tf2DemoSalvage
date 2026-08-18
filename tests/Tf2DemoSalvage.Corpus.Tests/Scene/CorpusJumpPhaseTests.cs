@@ -64,4 +64,33 @@ public sealed class CorpusJumpPhaseTests
             60f,
             "no jump in this recording lasts a minute; a larger reading means the clock never reset");
     }
+
+    [Test]
+    public void ARocketJumpAirWalksAndAnOrdinaryJumpDoesNot()
+    {
+        // **The threshold is chosen to separate exactly these two**, which is why both halves are
+        // asserted on one recording. An ordinary TF2 jump leaves the ground at 268 units a second
+        // and the air-walk needs more than 300, so a recording of plain jumps AND a rocket jump
+        // must contain airborne players of both kinds.
+        //
+        // Without the second assertion a latch that never cleared would pass; without the first, a
+        // threshold that never fired would.
+        string path = Corpus.Demo(MovementDemo);
+
+        List<ScenePlayer> airborne =
+        [
+            .. DemoTimeline.Build(File.ReadAllBytes(path))
+                .Frames
+                .SelectMany(frame => frame.Players)
+                .Where(player => player.IsPlaying && player.AirborneSeconds is not null),
+        ];
+
+        airborne.ShouldContain(
+            player => player.Airwalking,
+            "the rocket jump rises fast enough to air-walk");
+
+        airborne.ShouldContain(
+            player => !player.Airwalking,
+            "and an ordinary jump does not, at 268 units a second against a threshold of 300");
+    }
 }

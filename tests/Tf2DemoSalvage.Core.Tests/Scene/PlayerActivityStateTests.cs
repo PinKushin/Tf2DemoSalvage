@@ -122,6 +122,48 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
+    public void AirWalkingBeatsBothJumpPhases()
+    {
+        // **HandleJumping checks the air-walk BEFORE the jump and it supersedes it**, so a
+        // fast-rising player runs in the air rather than tucking — whatever the jump clock says.
+        // Asserted at both phases, because a check placed after the split would pass at one.
+        PlayerActivityState
+            .For(0, Running, waistDeep: false, alive: true, airborneSeconds: 0.1f, airwalking: true)
+            .ShouldBe(PlayerActivity.Airwalk);
+
+        PlayerActivityState
+            .For(0, Running, waistDeep: false, alive: true, airborneSeconds: 2f, airwalking: true)
+            .ShouldBe(PlayerActivity.Airwalk);
+    }
+
+    [Test]
+    public void DuckingCancelsTheAirWalk()
+    {
+        // `( bValidAirWalkClass && ( vecVelocity.z > 300.0f || m_bInAirWalk ) && !bInDuck )` — a
+        // crouched rocket jump tucks rather than running in the air, which is what a crouch-jump
+        // looks like in the game.
+        PlayerActivityState.For(
+            Ducking, Running, waistDeep: false, alive: true, airborneSeconds: 0.1f, airwalking: true)
+            .ShouldBe(PlayerActivity.JumpStart);
+    }
+
+    [Test]
+    public void WithoutTheAirWalkTheJumpPhasesStillApply()
+    {
+        // The control for the two above: the air-walk must not swallow every airborne case. This
+        // is the same input with the flag cleared, and it has to answer differently.
+        PlayerActivityState
+            .For(0, Running, waistDeep: false, alive: true, airborneSeconds: 0.1f, airwalking: false)
+            .ShouldBe(PlayerActivity.JumpStart);
+    }
+
+    [Test]
+    public void TheAirWalkHasItsOwnName()
+    {
+        PlayerActivityState.NameOf(PlayerActivity.Airwalk).ShouldBe("ACT_MP_AIRWALK_PRIMARY");
+    }
+
+    [Test]
     public void AnUnknownAirborneTimeFloats()
     {
         // Null is "cannot tell", not "just left the ground". The float is what a jump spends most

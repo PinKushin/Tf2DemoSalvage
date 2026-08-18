@@ -186,6 +186,10 @@ public sealed class PoseCompletenessTests
         // Inside the push-off window, so a lost value reads as the float and the difference is
         // visible. Zero would be indistinguishable from the default.
         AirborneSeconds = 0.25f,
+
+        // True, because false is the default and the air-walk supersedes the jump — a pose that
+        // dropped this would draw a rocket jump as an ordinary one.
+        Airwalking = true,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

@@ -109,7 +109,10 @@ public sealed class PlayerCompletenessTests
         WeaponClass: "CTFRevolver",
 
         // Inside the push-off window, so losing it reads as the float rather than as a default.
-        AirborneSeconds: 0.25f);
+        AirborneSeconds: 0.25f,
+
+        // True, since false is the default and would hide the field being dropped.
+        Airwalking: true);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

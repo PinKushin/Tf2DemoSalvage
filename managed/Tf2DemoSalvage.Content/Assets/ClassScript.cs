@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text;
 
 namespace Tf2DemoSalvage.Content.Assets;
@@ -36,4 +37,24 @@ internal static class ClassScript
         // for their WeaponType and one copy of the quoting rules is enough.
         return ScriptKeyValue.First(script, "model")?.Replace('\\', '/');
     }
+
+    /// <summary>Whether this class refuses the air-walk animation.</summary>
+    /// <param name="script">The script's bytes.</param>
+    /// <returns>True when the class never air-walks.</returns>
+    /// <remarks>
+    /// <c>m_bDontDoAirwalk = ( pKeyValuesData->GetInt( "DontDoAirwalk", 0 ) &gt; 0 )</c>,
+    /// <c>tf_classdata.cpp:187</c>. A class that does air-walk plays <c>ACT_MP_AIRWALK</c> while
+    /// rising fast instead of the jump, so this decides which of two animations a rocket-jumping
+    /// player is drawn with.
+    ///
+    /// **Greater than zero, not merely non-zero**, which is the engine's own test — a negative
+    /// value would read as "does air-walk" there and must here too.
+    ///
+    /// Absent means false: <c>GetInt</c>'s default is 0, so a script that never mentions the key
+    /// describes a class that air-walks.
+    /// </remarks>
+    public static bool DontDoAirwalk(ReadOnlySpan<byte> script) =>
+        ScriptKeyValue.First(script, "DontDoAirwalk") is { } value &&
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int set) &&
+        set > 0;
 }

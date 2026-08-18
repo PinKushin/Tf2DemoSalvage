@@ -1932,6 +1932,13 @@ internal class MainForm : Form
                     // The jump clock, for the push-off versus the float.
                     AirborneSeconds = player.AirborneSeconds,
 
+                    // **Both halves of the air-walk meet here.** The timeline says the player rose
+                    // fast enough to start one; the class script says whether their class does it
+                    // at all, and only the medic opts out. Neither layer can answer both.
+                    Airwalking = player.Airwalking &&
+                        (player.PlayerClass is not { } airwalkClass ||
+                         _classModels?.Airwalks(airwalkClass) != false),
+
                     // **Which way the legs run.** A movement sequence is a blend grid and these
                     // are its coordinates; without them the grid's corner is taken, which is one
                     // fixed direction regardless of facing.
@@ -1991,7 +1998,10 @@ internal class MainForm : Form
                     slot: prop.Pose.Slot ?? "PRIMARY",
 
                     // Splits the jump into its push-off and its float.
-                    airborneSeconds: prop.Pose.AirborneSeconds) is var chosen and >= 0)
+                    airborneSeconds: prop.Pose.AirborneSeconds,
+
+                    // Supersedes the jump for a fast-rising player.
+                    airwalking: prop.Pose.Airwalking) is var chosen and >= 0)
             {
                 _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }
