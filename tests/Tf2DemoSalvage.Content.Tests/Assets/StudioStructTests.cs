@@ -188,6 +188,14 @@ public sealed class StudioStructTests
         sequence.Offset("paramindex").ShouldBe(StudioLayout.SequenceParameterIndexOffset);
         sequence.Offset("paramstart").ShouldBe(StudioLayout.SequenceParameterStartOffset);
         sequence.Offset("paramend").ShouldBe(StudioLayout.SequenceParameterEndOffset);
+
+        // **Added late, and it was the only offset in this structure that nothing checked.**
+        // B112's gesture work needed the per-bone weight list, and its offset was derived by
+        // counting forward from the verified members either side of it rather than read off a
+        // declaration. That is exactly the kind of arithmetic this file exists to confirm: a
+        // wrong offset here reads a neighbouring field as a pointer and returns weights that are
+        // plausible floats, so nothing throws and every gesture is quietly mis-weighted.
+        sequence.Offset("weightlistindex").ShouldBe(StudioLayout.SequenceWeightListIndexOffset);
     }
 
     [Test]
