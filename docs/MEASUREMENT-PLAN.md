@@ -20,6 +20,21 @@ unmeasured. Mapped by the PokemonBattleJournal agent in `MEASUREMENT-BOX-LOG.md`
 | Cli | 682 | 63 | `cli` exists | never measured |
 | Audio | 948 | 16 | none | never |
 
+### Measured since (2026-08-18)
+
+Every mode below now exists and has a number. Slots requested in the cross-agent log; none is
+booked yet.
+
+| Mode | Wall | Mutants | Score | Notes |
+|---|---|---:|---:|---|
+| `cli` | 2m03s | 119 | 76.30 % | 16 survivors, a small concrete worklist |
+| `content` | 7m02s | 2059 → 2080 | 31.04 % → 31.85 % | 3110 still skipped — game-gated |
+| `audio` | ~1m | 67 | 48.94 % | needed the Linux codec build to exist at all |
+
+**The `content` number to watch is the mutant COUNT, not the score.** 2059 → 2080 is synthetic
+tests replacing game-dependent ones; the score moves slowly because the denominator grows as fast
+as the numerator. Read it as "how much of Content is testable without 8.2 GB of game archives".
+
 And within `core` itself, **1,166 mutants are NoCoverage across 40 files** — about 70 % of them
 (818) in the write/encode/trace half: `*Assembly`, `*Writer`, `*Encoder`, `DemoTraceWriter`,
 `DemoTextDumper`. The corpus tests *parse* demos; they never exercise the paths that *produce*
