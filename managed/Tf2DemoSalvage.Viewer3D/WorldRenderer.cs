@@ -1149,16 +1149,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         if (_addBlend.Handle is null)
         {
             // SRC_ONE, DEST_ONE: exactly what the engine's BT_ADD does.
-            BlendDesc description = default;
-
-            description.RenderTarget[0].BlendEnable = 1;
-            description.RenderTarget[0].SrcBlend = Blend.One;
-            description.RenderTarget[0].DestBlend = Blend.One;
-            description.RenderTarget[0].BlendOp = BlendOp.Add;
-            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
-            description.RenderTarget[0].DestBlendAlpha = Blend.One;
-            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
-            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+            BlendDesc description = BlendStates.Additive;
 
             ComPtr<ID3D11BlendState> state = default;
 
@@ -1169,20 +1160,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         if (_alphaBlend.Handle is null)
         {
-            // Source-alpha over one-minus-source-alpha, which is what BT_BLEND means. The factors
-            // themselves are NOT in source-sdk-2013 - SetDefaultBlendingShadowState is defined in
-            // the closed materialsystem - so this is interpolated from the name and from what the
-            // surrounding code assumes. Flagged in docs/findings/17-translucency.md.
-            BlendDesc description = default;
-
-            description.RenderTarget[0].BlendEnable = 1;
-            description.RenderTarget[0].SrcBlend = Blend.SrcAlpha;
-            description.RenderTarget[0].DestBlend = Blend.InvSrcAlpha;
-            description.RenderTarget[0].BlendOp = BlendOp.Add;
-            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
-            description.RenderTarget[0].DestBlendAlpha = Blend.InvSrcAlpha;
-            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
-            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+            // Source-alpha over one-minus-source-alpha, which is what BT_BLEND means — and the
+            // equation is PUBLISHED rather than interpolated, which this comment used to deny.
+            // SetDefaultBlendingShadowState is indeed closed, but BlendType_t is declared in
+            // public/shaderlib/BaseShader.h with `src * srcAlpha + dst * (1-srcAlpha)` written
+            // beside BT_BLEND. See BlendStates and docs/findings/17-translucency.md.
+            BlendDesc description = BlendStates.Translucent;
 
             ComPtr<ID3D11BlendState> blend = default;
 
@@ -1197,16 +1180,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // what Source's Modulate shader does, and it is the one blend mode this project had no
             // state for — so every Modulate material was drawn opaque and covered what it was meant
             // to shade. White leaves the destination alone and black blacks it out.
-            BlendDesc description = default;
-
-            description.RenderTarget[0].BlendEnable = 1;
-            description.RenderTarget[0].SrcBlend = Blend.DestColor;
-            description.RenderTarget[0].DestBlend = Blend.Zero;
-            description.RenderTarget[0].BlendOp = BlendOp.Add;
-            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
-            description.RenderTarget[0].DestBlendAlpha = Blend.Zero;
-            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
-            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+            BlendDesc description = BlendStates.Modulate;
 
             ComPtr<ID3D11BlendState> blend = default;
 

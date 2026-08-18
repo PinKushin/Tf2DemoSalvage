@@ -6847,3 +6847,37 @@ than at the instrument pointing at it — the same shape as
 `docs/memory/instrument-bugs-outnumber-decoder-bugs.md`, which records five measurements that were
 wrong before any reader was. The tell was there immediately: the crash needed the whole suite and
 the targeted run was clean. A defect in the decoder would not care which other tests were running.
+
+### B115 — nine material flags compared against the string "1" — FIXED
+
+`VmtMaterial` read nine boolean parameters as `Value(key) is "1"`:
+
+```
+$alphatest  $translucent  $vertexalpha  $additive  $nocull
+$halflambert  $mod2x  $ssbump  $selfillum
+```
+
+**The engine does not do that, and the SDK says so in a way that needs no decompiler.** These are
+declared `SHADER_PARAM_TYPE_INTEGER` — `SHADER_PARAM( SSBUMP, SHADER_PARAM_TYPE_INTEGER, "0", ... )`
+— and the flag-valued ones become `MATERIAL_VAR_*` bits set from an integer read. Nothing in the
+material system compares a parameter against the characters `'1'`.
+
+So `"$translucent" "2"` draws translucent in TF2 and drew **opaque** here, and `"$nocull" " 1"` with
+a leading space was ignored entirely.
+
+**Why it survived: it agrees with the engine on every material Valve ships.** Valve's own VMTs write
+`1`, so the corpus and the game install both look correct. But a custom map's materials go through
+the same reader, and "Valve always writes 1" is a fact about Valve rather than about the input this
+code is handed — the same shape as every other place this project has assumed its inputs are
+well-formed because the ones in front of it were.
+
+Fixed with a `Flag` helper that parses the leading integer and treats non-zero as true, which is
+`atoi`-shaped like the engine's own read. Pinned by
+`ShaderParameterDefaultConformanceTests.ABooleanParameterIsAnIntegerAndAnyNonZeroIsTrue`, with zero
+and a non-numeric value as controls so it cannot pass by calling everything true. Verified by
+sabotage: restoring the string comparison on `$additive` alone reddens it.
+
+**Found by auditing which implemented shader parameters had SEMANTIC conformance rather than merely
+being claimed in `MaterialCensus`.** `SdkCoverageTests` counts what is missing; only a test that
+compares behaviour against the engine catches what is present and wrong. Eight of the twenty-one
+implemented parameters had no such test, which is what the audit was for.
