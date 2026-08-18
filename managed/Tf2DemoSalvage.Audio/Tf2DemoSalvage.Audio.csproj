@@ -39,4 +39,19 @@
     </Content>
   </ItemGroup>
 
+  <!-- The same two libraries under their ELF names, built by tools/native-audio/build.sh. They are
+       separate items rather than a platform condition on the ones above because BOTH may exist in a
+       tree that has been built on both platforms, and each should be copied wherever it is found -
+       the resolver picks by the running platform's naming convention, not by what is present. -->
+  <ItemGroup>
+    <Content Include="..\..\tools\native-audio\libcelt.so" Condition="Exists('..\..\tools\native-audio\libcelt.so')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libcelt.so</Link>
+    </Content>
+    <Content Include="..\..\tools\native-audio\libspeex.so" Condition="Exists('..\..\tools\native-audio\libspeex.so')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libspeex.so</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>
