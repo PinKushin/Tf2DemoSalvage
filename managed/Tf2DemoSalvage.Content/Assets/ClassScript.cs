@@ -32,27 +32,8 @@ internal static class ClassScript
     /// </remarks>
     public static string? Model(ReadOnlySpan<byte> script)
     {
-        string text = Encoding.UTF8.GetString(script);
-
-        int at = text.IndexOf("\"model\"", StringComparison.OrdinalIgnoreCase);
-
-        if (at < 0)
-        {
-            return null;
-        }
-
-        // The value is the next quoted run after the key.
-        int open = text.IndexOf('"', at + "\"model\"".Length);
-
-        if (open < 0)
-        {
-            return null;
-        }
-
-        int close = text.IndexOf('"', open + 1);
-
-        return close < 0
-            ? null
-            : text[(open + 1)..close].Replace('\\', '/');
+        // The scan itself lives in ScriptKeyValue, because the weapon scripts need the same thing
+        // for their WeaponType and one copy of the quoting rules is enough.
+        return ScriptKeyValue.First(script, "model")?.Replace('\\', '/');
     }
 }
