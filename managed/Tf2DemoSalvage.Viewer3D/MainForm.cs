@@ -1935,6 +1935,12 @@ internal class MainForm : Form
                     // Where they are looking, which aims the torso through body_pitch.
                     EyePitch = player.EyePitch,
 
+                    // The eyes and the twist. Yaw above is the FEET, which is what the body is
+                    // drawn at; these two carry where the player is actually looking and how far
+                    // the torso is turned to get there.
+                    EyeYaw = player.EyeYaw,
+                    AimYaw = player.AimYaw,
+
                     // **Both halves of the air-walk meet here.** The timeline says the player rose
                     // fast enough to start one; the class script says whether their class does it
                     // at all, and only the medic opts out. Neither layer can answer both.

@@ -115,7 +115,12 @@ public sealed class PlayerCompletenessTests
         Airwalking: true,
 
         // Non-zero, so losing it reads as level rather than as a default.
-        EyePitch: 21f);
+        EyePitch: 21f,
+
+        // Different from Yaw above, which is the point: the feet and the eyes part company when a
+        // player turns on the spot, and a rebuild that collapsed the two would pass if they matched.
+        EyeYaw: -95f,
+        AimYaw: 44f);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

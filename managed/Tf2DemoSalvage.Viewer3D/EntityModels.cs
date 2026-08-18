@@ -1078,7 +1078,7 @@ internal sealed class EntityModelSet
             return [];
         }
 
-        float[] values = Filled(parameters, pose.MoveX, pose.MoveY, pose.EyePitch);
+        float[] values = Filled(parameters, pose.MoveX, pose.MoveY, pose.EyePitch, pose.AimYaw);
 
         // **The speed scaling, and it happens HERE rather than in the scene layer because only this
         // side can open a model.** ComputePoseParam_MoveYaw finishes with
@@ -1111,7 +1111,8 @@ internal sealed class EntityModelSet
 
         float scale = speed / authored;
 
-        return Filled(parameters, pose.MoveX * scale, pose.MoveY * scale, pose.EyePitch);
+        return Filled(
+            parameters, pose.MoveX * scale, pose.MoveY * scale, pose.EyePitch, pose.AimYaw);
     }
 
     /// <summary>Every pose parameter's stored value, given the two this project computes.</summary>
@@ -1124,7 +1125,8 @@ internal sealed class EntityModelSet
         IReadOnlyList<StudioPoseParameter> parameters,
         float moveX,
         float moveY,
-        float? eyePitch)
+        float? eyePitch,
+        float? aimYaw)
     {
         float[] values = new float[parameters.Count];
 
@@ -1143,6 +1145,12 @@ internal sealed class EntityModelSet
                 // Zero when the recording sent no eye angles, which is level — the same answer this
                 // gave before aiming existed, rather than a guess at where they were looking.
                 "body_pitch" => -(eyePitch ?? 0f),
+
+                // **Already negated**, unlike body_pitch above. The twist is computed where the
+                // feet are simulated, because it is the difference between two values only that
+                // state machine holds — and SetPoseParameter( m_iAimYaw, -flAimYaw ) is applied
+                // there with them.
+                "body_yaw" => aimYaw ?? 0f,
 
                 _ => 0f,
             };
