@@ -209,6 +209,32 @@ public sealed class StudioStructTests
         animation.Offset("numframes").ShouldBe(StudioLayout.AnimationFrameCountOffset);
         animation.Offset("animblock").ShouldBe(StudioLayout.AnimationBlockOffset);
         animation.Offset("animindex").ShouldBe(StudioLayout.AnimationDataOffset);
+
+        // The two that point at the movement table, checked here because the table itself is
+        // checked below and a correct stride reached from a wrong index reads the wrong bytes.
+        animation.Offset("nummovements").ShouldBe(StudioLayout.AnimationMovementCountOffset);
+        animation.Offset("movementindex").ShouldBe(StudioLayout.AnimationMovementIndexOffset);
+    }
+
+    [Test]
+    public void TheMovementLayout_MatchesItsDeclaration()
+    {
+        // **The last unverified group in StudioLayout**, found by comparing its 83 constants
+        // against the ones this file names: everything else was covered and the whole
+        // mstudiomovement_t block was not. It is the locomotion table -- how far and which way an
+        // animation carries the player -- so a wrong offset here moves a running player by the
+        // wrong distance or in the wrong direction, which reads as a physics problem rather than
+        // as a parsing one.
+        CLayout movement = Layout("mstudiomovement_t");
+
+        movement.Size.ShouldBe(StudioLayout.MovementStride);
+
+        movement.Offset("endframe").ShouldBe(StudioLayout.MovementEndFrameOffset);
+        movement.Offset("v0").ShouldBe(StudioLayout.MovementStartVelocityOffset);
+        movement.Offset("v1").ShouldBe(StudioLayout.MovementEndVelocityOffset);
+        movement.Offset("angle").ShouldBe(StudioLayout.MovementAngleOffset);
+        movement.Offset("vector").ShouldBe(StudioLayout.MovementVectorOffset);
+        movement.Offset("position").ShouldBe(StudioLayout.MovementPositionOffset);
     }
 
     [Test]
