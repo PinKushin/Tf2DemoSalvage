@@ -42,12 +42,28 @@ single-invocation gate (B89). `run-exclusive.ps1` does not help, because it seri
 against OTHER agents and says nothing about what one `dotnet test` does with itself.
 
 ```bash
-TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test Tf2DemoSalvage.slnx --filter 'FullyQualifiedName!~UiTests'
-TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests/Tf2DemoSalvage.Viewer3D.UiTests.csproj
+bash build/gate.sh
 ```
 
-Both inside one `run-exclusive.ps1` when the UI phase is included, since that phase takes the
-desktop. Green as of 2026-08-16: **1,725 passed, 92 skipped, 0 failed** across seven assemblies.
+```bash
+pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
+```
+
+The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-18:
+**2,062 across six assemblies**, plus 8 UI.
+
+**`build/gate.sh` replaced a solution-wide `dotnet test --filter`, and the reasons are worth knowing
+because both bit.**
+
+- **It asserts the COUNT of every project** against a floor, via `build/assert-test-count.sh`. A run
+  that reports `Passed! ... Total: 50` against a suite of 350 is a failure wearing a pass, and one
+  happened here on 2026-08-17 (B104). Reading six console lines by eye is not a check.
+- **A solution-wide run writes one `.trx` per project all under the same name**, so nothing
+  afterwards can tell the counts apart. One project at a time is what makes the floors possible.
+- **`--filter` changes which tests EXIST.** NUnit's adapter includes `[Explicit]` tests when no
+  filter is given and drops them the moment any filter is present, so the old
+  `--filter 'FullyQualifiedName!~UiTests'` silently omitted every `[Explicit]` test in the
+  repository — measured as 441 against 436 on Content.Tests alone.
 
 **Do not filter the gate's output down to summary lines while iterating.** A run filtered to
 `Passed!|Failed!` loses which test failed, which cost a re-run today — the same "log what you will
