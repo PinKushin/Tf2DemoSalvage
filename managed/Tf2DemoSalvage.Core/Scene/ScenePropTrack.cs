@@ -159,6 +159,19 @@ public readonly record struct ScenePose
     /// </remarks>
     public bool Airwalking { get; init; }
 
+    /// <summary>How far up or down the player is looking, in degrees.</summary>
+    /// <remarks>
+    /// **Not <see cref="Pitch"/>, and the two must not be confused.** That one rotates the whole
+    /// model and stays zero for a player, because a player stands upright however far the eyes are
+    /// pitched (<c>tf_player.cpp:2689</c>). This one drives the <c>body_pitch</c> pose parameter,
+    /// which aims the torso within the standing body.
+    ///
+    /// Stored as the eye pitch itself. The negation <c>ComputePoseParam_AimPitch</c> applies
+    /// belongs where the parameter is bound, not here — a stored value that is already negated
+    /// reads as a bug every time someone compares it against the wire.
+    /// </remarks>
+    public float? EyePitch { get; init; }
+
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
     /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
@@ -607,6 +620,7 @@ public sealed class ScenePropTrack
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,
             Airwalking = from.Airwalking,
+            EyePitch = from.EyePitch,
         };
     }
 

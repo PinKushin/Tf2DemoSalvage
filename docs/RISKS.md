@@ -6482,3 +6482,37 @@ rise and cannot open a class script; the viewer can. Neither could answer alone.
 Not implemented from the same branch: **`ACT_MP_FALLING_STOMP`**, which replaces the air-walk when
 `m_flFallVelocity > PLAYER_MAX_SAFE_FALL_SPEED` and `CanFallStomp()` — the Mantreads. It needs a
 fall-velocity accumulator and an item check, and it is one animation for one item.
+
+### B109 — nobody aimed: body_pitch was never set — RESOLVED for pitch, OPEN for yaw
+
+`ComputePoseParam_AimPitch` is one line (`multiplayer_animstate.cpp:1689`):
+
+```cpp
+float flAimPitch = m_flEyePitch;
+GetBasePlayer()->SetPoseParameter( pStudioHdr, m_PoseParameterData.m_iAimPitch, -flAimPitch );
+```
+
+and `m_iAimPitch` is `LookupPoseParameter( pStudioHdr, "body_pitch" )` (`:1421`). That parameter sat
+at zero for every player in every demo, so nobody ever looked anywhere but level — most visible on a
+sniper, and on anyone tracking a player above them.
+
+**The negation lives at the binding rather than in the stored value**, so what the scene carries
+still matches what the wire said. A stored value that is already negated reads as a bug every time
+someone compares it against a trace.
+
+**Kept apart from the pose's own `Pitch`, which stays zero for a player.** That field rotates the
+whole model; `tf_player.cpp:2689` feeds pitch to the animation state to aim the torso, not to tip
+the body, and assigning it there lays a looking-up player on their back.
+
+**A test for that separation was written twice and removed both times**, and the gap is real. Players
+are not props in the timeline — `PropsAt` returns entity props and a player becomes one only in the
+viewer — so there is no artefact at this level carrying both a player and a model rotation. The
+first attempt asserted that only brush entities carry a pitch and was falsified by
+`comp_win_banner_scaled.mdl` at 14.9 degrees, a prop the mapper genuinely tilted; the second found no
+player models at all. Covering it needs the viewer's pose construction extracted from `MainForm`.
+
+**Still open: `body_yaw`.** `ComputePoseParam_AimYaw` sets it from the eye yaw minus the FEET yaw,
+and the feet are a state machine of their own — `m_flGoalFeetYaw`/`m_flCurrentFeetYaw`, which match
+the eyes while moving and turn in place with limits while standing. This project currently uses the
+eye yaw as the body yaw outright, which is right while moving and wrong while turning on the spot.
+That is B61.

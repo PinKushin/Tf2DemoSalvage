@@ -39,6 +39,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// is that latch. It says nothing about whether the CLASS air-walks, which is the class script's
 /// answer and the caller's to apply.
 /// </param>
+/// <param name="EyePitch">
+/// How far up or down the player is looking, in degrees, or <c>null</c> when the recording did not
+/// send eye angles. Drives the <c>body_pitch</c> pose parameter, which aims the torso —
+/// <c>ComputePoseParam_AimPitch</c> sets it to the NEGATED eye pitch.
+/// </param>
 /// <param name="ActiveWeapon">
 /// Which entity is the weapon in hand, or <c>null</c> when none is held. Decoded from
 /// <c>m_hActiveWeapon</c> on <c>DT_BaseCombatCharacter</c>, so it arrives for every player in the
@@ -81,6 +86,7 @@ public readonly record struct ScenePlayer(
     bool Drawn = true,
     float? AirborneSeconds = null,
     bool Airwalking = false,
+    float? EyePitch = null,
     int? ActiveWeapon = null,
     string? WeaponClass = null)
 {
@@ -519,6 +525,14 @@ public sealed class DemoTimeline
                 float facing = Normalize(
                     player.EyeAngles() is { } eyes ? eyes.Yaw : player.Angles()?.Yaw ?? 0f);
 
+                // **How far up or down they are looking, which aims the torso.**
+                // ComputePoseParam_AimPitch is one line — `SetPoseParameter( m_iAimPitch,
+                // -flAimPitch )` where flAimPitch is m_flEyePitch — and body_pitch is what it sets.
+                // Kept separate from the pose's own Pitch, which stays zero: a player model stands
+                // upright however far the eyes are pitched, and rolling the whole body by the view
+                // would lay them on their side every time they looked up.
+                float? lookingAt = player.EyeAngles() is { } view ? Normalize(view.Pitch) : null;
+
                 // **The dead are reported where the entity actually is, which is wherever they are
                 // spectating from.** This used to hold the last living position and yaw so a body
                 // stayed roughly where it fell, standing in for a ragdoll nobody had built yet.
@@ -577,6 +591,7 @@ public sealed class DemoTimeline
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     AirborneSeconds: airborne,
                     Airwalking: airwalkingSince.Contains(player.EntityIndex),
+                    EyePitch: lookingAt,
                     ActiveWeapon: player.ActiveWeapon(),
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)

@@ -190,6 +190,9 @@ public sealed class PoseCompletenessTests
         // True, because false is the default and the air-walk supersedes the jump — a pose that
         // dropped this would draw a rocket jump as an ordinary one.
         Airwalking = true,
+
+        // Non-zero, so a dropped value reads as looking level rather than as the default.
+        EyePitch = 21f,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>
