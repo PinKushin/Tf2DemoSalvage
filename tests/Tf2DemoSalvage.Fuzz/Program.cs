@@ -63,6 +63,10 @@ internal static class Program
                 Fuzzer.LibFuzzer.Run(Preserving(ContainerFuzzTarget.Consume));
                 break;
 
+            case "netmessage":
+                Fuzzer.LibFuzzer.Run(Preserving(NetMessageFuzzTarget.Consume));
+                break;
+
             case "snappy":
                 Fuzzer.LibFuzzer.Run(Preserving(SnappyFuzzTarget.Consume));
                 break;
@@ -84,7 +88,7 @@ internal static class Program
                 // S3928 rightly objects to naming something that is not in the argument list.
                 throw new InvalidOperationException(
                     $"Unknown {TargetVariable} '{target}'. Expected one of: bitreader, " +
-                    $"varint, container, snappy, selftest.");
+                    $"varint, container, snappy, netmessage, selftest.");
         }
     }
 

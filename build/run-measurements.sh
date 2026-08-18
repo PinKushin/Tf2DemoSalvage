@@ -383,7 +383,7 @@ if [ "$MODE" = fuzz ]; then
   fi
 
   FUZZ_STATUS=0
-  for target in bitreader varint container snappy; do
+  for target in bitreader varint container snappy netmessage; do
     case "$target" in
       container|snappy) budget="$LONG_TARGET_SECONDS" ;;
       *)                budget="$SHORT_TARGET_SECONDS" ;;
@@ -467,7 +467,7 @@ if [ "$MODE" = fuzz ]; then
   #
   # The count is taken before the loop and compared after, so what prints is what THIS run produced.
   # The persistent total is still shown, quietly, because it is the thing that needs triaging.
-  for target in bitreader varint container snappy; do
+  for target in bitreader varint container snappy netmessage; do
     total=$(ls -1 "$HOME/findings-${target}" 2>/dev/null | wc -l)
     # Read back with the same eval form it was written with. `${!name}` indirect expansion refused
     # this outright ("invalid indirect expansion") and is not worth the cleverness.
@@ -492,7 +492,7 @@ if [ "$MODE" = fuzz ]; then
   # does not publish — the box keeps its own corpus and nothing is lost.
   if [ "$FUZZ_STATUS" = 0 ]; then
     echo "=== minimising and publishing the shared corpus"
-    for target in bitreader varint container snappy; do
+    for target in bitreader varint container snappy netmessage; do
       corpus_dir="$HOME/corpus-${target}"
       min_dir="${corpus_dir}-min"
       before_count=$(find "$corpus_dir" -type f | wc -l)
