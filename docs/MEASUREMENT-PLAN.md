@@ -179,3 +179,53 @@ slot silently skips someone else's run.
 - **`-artifact_prefix` writes nothing through `libfuzzer-dotnet`**; crash preservation happens in
   the harness, from an exception *filter*, and the `selftest` target exists to prove that pipeline
   works. Gate any fuzz claim on it.
+
+## Reading a survivor list: three different problems wearing one label
+
+Measured 2026-08-18 by working through the four largest survivor blocks in Content. "Survived" is
+not one finding, and the fix differs by kind — reaching for the wrong one wastes the effort.
+
+### 1. Transcribed data with nothing checking the copy — write a CONFORMANCE test
+
+`WeaponScriptName` (112) is an eight-by-ten table copied from `pszWpnEntTranslationList`. Ten
+hand-written cases reached perhaps fifteen of ninety cells; a mutant rewriting any other cell
+survived. The fix is not more cases — restating the table in a test is a change detector — it is
+parsing **Valve's declaration** and checking every cell against it. 80 cells, one test.
+
+`IceCipher` (53) is the same shape with an extra twist: the file is mostly tables, and **a mutated
+table entry still round-trips**, because encrypt and decrypt both read the mutated table and remain
+exact inverses while computing a different cipher. Measured: flipping one S-box byte left all seven
+property tests green — avalanche and key-dependence included, since a different S-box still
+avalanches and still depends on its key. Only a known-answer vector catches it.
+
+### 2. Code that RUNS with inputs where correct and broken agree — choose a better INPUT
+
+The largest category, and the one a conformance test cannot help with. `VtfTexture` (75) is 43
+arithmetic mutations, and the hottest line is the 565-to-888 expansion:
+
+```csharp
+red   = ((colour >> 11) & 0x1F) * 255 / 31;
+green = ((colour >> 5)  & 0x3F) * 255 / 63;
+```
+
+The DXT tests use `0xF800` (pure red), `0x001F` (pure blue), `0x0000`. Mutate the green divisor and
+pure red decodes identically, because green is zero either way. The formula is already right and
+already cited; what is missing is an input that separates a right formula from a wrong one.
+
+This is exactly `CLAUDE.md`'s "wrong condition — an input for which correct and broken predict the
+SAME observation", and it is the one thing coverage can never show: the line is green, the assertion
+runs, and it still proves nothing. Choosing 0.25 rather than 0.5 for a blend weight is this fix made
+deliberately — at a half, `s` and `1 - s` give the same answer.
+
+### 3. A path nothing reaches — write the missing case
+
+`VtfTexture` line 190 guards `width <= 0 || height <= 0 || mipCount <= 0`. Mutating `<=` to `<`
+survives because nothing feeds a zero. Not conformance, not input choice: simply a case never
+written.
+
+### The rule
+
+**Survivor in transcribed data → conformance test. Survivor in arithmetic → better input. Survivor
+in a guard → the missing case.** And one structural warning that cost real time: a whole FUNCTION
+can be missing coverage while its siblings look well tested — `StudioPoseBlend.Blend` had no direct
+test because `Layer` beside it did, and the file's total looked healthy.
