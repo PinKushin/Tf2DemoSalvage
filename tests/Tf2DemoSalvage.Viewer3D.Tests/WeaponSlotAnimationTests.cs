@@ -32,45 +32,11 @@ public sealed class WeaponSlotAnimationTests
     [Test]
     public void HoldingASecondaryPlaysADifferentSequenceFromAPrimary()
     {
-        if (Environment.GetEnvironmentVariable("TF2_FOLDER") is not { Length: > 0 } folder ||
-            !Directory.Exists(folder))
+        if (Model() is not { } model)
         {
             Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
             return;
         }
-
-        GameArchives archives = GameArchives.Open(folder);
-
-        if (archives.Read("models/player/medic.mdl") is not { } baseFile)
-        {
-            Assert.Ignore("medic.mdl not found in the install.");
-            return;
-        }
-
-        List<byte[]> models = [baseFile];
-        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
-            [(0, StudioSequences.Read(baseFile))];
-
-        foreach (string include in StudioModelGroups.Read(baseFile))
-        {
-            if (archives.Read(include) is { } included)
-            {
-                groups.Add((models.Count, StudioSequences.Read(included)));
-                models.Add(included);
-            }
-        }
-
-        (IReadOnlyList<StudioPoseParameter> shared, IReadOnlyList<IReadOnlyList<int>> masterPose) =
-            StudioPoseParameterMerge.Merge(
-                [.. models.Select(file => StudioSequences.PoseParameters(file))]);
-
-        PropModels.SkinnedModel model = new(
-            StudioBones.Read(baseFile),
-            models,
-            StudioSequenceTable.Merge(groups),
-            groups,
-            shared,
-            masterPose);
 
         // Running, on the ground, alive — the ordinary case, varied only by what is in the hands.
         const float running = 300f;
@@ -87,6 +53,37 @@ public sealed class WeaponSlotAnimationTests
         secondary.ShouldNotBe(
             primary,
             "the suffix must reach the lookup; equal numbers mean it was computed and discarded");
+    }
+
+    [Test]
+    public void TheTwoJumpPhasesResolveToDifferentSequences()
+    {
+        // **The same wiring question as the slot, asked of the jump clock.** A push-off and a float
+        // are separate sequences in every class model, so a player in their first half second must
+        // not resolve to the one they play a second later. If the airborne time were computed and
+        // discarded these would be equal, and every jump would look like the float it looked like
+        // before — which is exactly the shape of the four no-ops this project has recorded.
+        if (Model() is not { } model)
+        {
+            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
+            return;
+        }
+
+        // Airborne: the ground flag clear and nothing else set.
+        const int airborne = 0;
+
+        int start = PlayerAnimation.For(
+            model, speed: 200f, airborne, alive: true, slot: "PRIMARY", airborneSeconds: 0.1f);
+
+        int floating = PlayerAnimation.For(
+            model, speed: 200f, airborne, alive: true, slot: "PRIMARY", airborneSeconds: 1.0f);
+
+        start.ShouldBeGreaterThanOrEqualTo(0, "a medic has a jump push-off");
+        floating.ShouldBeGreaterThanOrEqualTo(0, "and a float");
+
+        start.ShouldNotBe(
+            floating,
+            "the jump clock must reach the lookup; equal numbers mean it was computed and discarded");
     }
 
     [Test]
@@ -112,5 +109,53 @@ public sealed class WeaponSlotAnimationTests
 
         roles.Suffix("CWeaponMedigun", medic).ShouldBe("SECONDARY");
         roles.Suffix("CTFScatterGun").ShouldBe("PRIMARY");
+    }
+
+    /// <summary>The medic, loaded the way the viewer loads a player model.</summary>
+    /// <returns>The model, or null when the game is not installed.</returns>
+    /// <remarks>
+    /// **Through the real merge**, including the pose parameters, because a model built any other
+    /// way would not resolve the activities these tests ask for — the movement parameters live in
+    /// the included animation model rather than in the base one (B101).
+    /// </remarks>
+    private static PropModels.SkinnedModel? Model()
+    {
+        if (Environment.GetEnvironmentVariable("TF2_FOLDER") is not { Length: > 0 } folder ||
+            !Directory.Exists(folder))
+        {
+            return null;
+        }
+
+        GameArchives archives = GameArchives.Open(folder);
+
+        if (archives.Read("models/player/medic.mdl") is not { } baseFile)
+        {
+            return null;
+        }
+
+        List<byte[]> models = [baseFile];
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+            [(0, StudioSequences.Read(baseFile))];
+
+        foreach (string include in StudioModelGroups.Read(baseFile))
+        {
+            if (archives.Read(include) is { } included)
+            {
+                groups.Add((models.Count, StudioSequences.Read(included)));
+                models.Add(included);
+            }
+        }
+
+        (IReadOnlyList<StudioPoseParameter> shared, IReadOnlyList<IReadOnlyList<int>> masterPose) =
+            StudioPoseParameterMerge.Merge(
+                [.. models.Select(file => StudioSequences.PoseParameters(file))]);
+
+        return new PropModels.SkinnedModel(
+            StudioBones.Read(baseFile),
+            models,
+            StudioSequenceTable.Merge(groups),
+            groups,
+            shared,
+            masterPose);
     }
 }

@@ -1929,6 +1929,9 @@ internal class MainForm : Form
                     // the model is.
                     Slot = _weaponRoles?.Suffix(player.WeaponClass, player.PlayerClass),
 
+                    // The jump clock, for the push-off versus the float.
+                    AirborneSeconds = player.AirborneSeconds,
+
                     // **Which way the legs run.** A movement sequence is a blend grid and these
                     // are its coordinates; without them the grid's corner is taken, which is one
                     // fixed direction regardless of facing.
@@ -1985,7 +1988,10 @@ internal class MainForm : Form
 
                     // The weapon's suffix, or the primary forms when nothing resolved it — which is
                     // what the engine falls back to as well.
-                    slot: prop.Pose.Slot ?? "PRIMARY") is var chosen and >= 0)
+                    slot: prop.Pose.Slot ?? "PRIMARY",
+
+                    // Splits the jump into its push-off and its float.
+                    airborneSeconds: prop.Pose.AirborneSeconds) is var chosen and >= 0)
             {
                 _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }
