@@ -151,6 +151,29 @@ mkdir -p "$SPEEX_BUILD"
 sed 's/#define EXPORT __declspec(dllexport)/#define EXPORT/' \
   "$SPEEX_SRC/win32/config.h" > "$SPEEX_BUILD/config.h"
 
+# **speex_config_types.h is GENERATED, and nothing in the tree ships one for this path.**
+# speex_types.h includes it unconditionally; autotools writes it from
+# include/speex/speex_config_types.h.in by substituting the four integer type names, and the
+# Windows build gets its copy from win32/. Building without either is the error this hit:
+#
+#     fatal error: 'speex_config_types.h' file not found
+#
+# The substitutions are not a guess — they are the sizes the .in file's own @SIZE16@/@SIZE32@
+# placeholders are filled with on every platform where short is 16 bits and int is 32, which is
+# every platform this runs on. Written into the include directory so `#include "..."` finds it
+# beside speex_types.h exactly as a configured tree would.
+cat > "$SPEEX_INC/speex/speex_config_types.h" <<'EOF'
+#ifndef __SPEEX_CONFIG_TYPES_H__
+#define __SPEEX_CONFIG_TYPES_H__
+
+typedef short spx_int16_t;
+typedef unsigned short spx_uint16_t;
+typedef int spx_int32_t;
+typedef unsigned int spx_uint32_t;
+
+#endif
+EOF
+
 echo "==> Compiling Speex"
 
 # Source list from win32/VS2008/libspeex/libspeex.vcproj — the most complete of the checked-in
