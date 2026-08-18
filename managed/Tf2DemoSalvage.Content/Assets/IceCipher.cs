@@ -95,6 +95,48 @@ internal sealed class IceCipher
         BuildSchedule(keyBlock);
     }
 
+    /// <summary>Encrypts one block.</summary>
+    /// <param name="plainText">Eight bytes in.</param>
+    /// <param name="cipherText">Eight bytes out.</param>
+    /// <remarks>
+    /// **This is not needed to read anything, and it is here to make the reader testable.**
+    /// Nothing ICE-encrypted ever enters a <c>.dem</c> — the only ciphertext this project meets is
+    /// in <c>.ctx</c> script files already installed on the machine, which are read and never
+    /// written. So unlike <c>NetMessageWriter</c> or <c>StringTableCodec.WriteEntries</c>, this is
+    /// not part of the bit-identical recompilation path.
+    ///
+    /// What it buys is the round trip. Without it, testing <see cref="Decrypt"/> means hand-building
+    /// ciphertext and checking this project's arithmetic against my own — which is the trap in
+    /// <c>docs/memory/fixtures-are-the-weak-point.md</c>, and the reason the rule there is to prefer
+    /// a round-trip property wherever an encoder exists. Now one does.
+    ///
+    /// Transcribed from <c>IceKey::encrypt</c> (<c>src/mathlib/IceKey.cpp:238</c>). It is
+    /// <see cref="Decrypt"/> with the key schedule walked FORWARD rather than backward — a Feistel
+    /// network, so the two directions differ only in that order.
+    /// </remarks>
+    public void Encrypt(ReadOnlySpan<byte> plainText, Span<byte> cipherText)
+    {
+        uint left = ((uint)plainText[0] << 24) | ((uint)plainText[1] << 16) |
+                    ((uint)plainText[2] << 8) | plainText[3];
+        uint right = ((uint)plainText[4] << 24) | ((uint)plainText[5] << 16) |
+                     ((uint)plainText[6] << 8) | plainText[7];
+
+        for (int round = 0; round < Rounds; round += 2)
+        {
+            left ^= Round(right, _schedule[round]);
+            right ^= Round(left, _schedule[round + 1]);
+        }
+
+        for (int i = 0; i < 4; i++)
+        {
+            cipherText[3 - i] = (byte)(right & 0xff);
+            cipherText[7 - i] = (byte)(left & 0xff);
+
+            right >>= 8;
+            left >>= 8;
+        }
+    }
+
     /// <summary>Decrypts one block in place-compatible fashion.</summary>
     /// <param name="cipherText">Eight bytes in.</param>
     /// <param name="plainText">Eight bytes out.</param>
