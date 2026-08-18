@@ -4,6 +4,8 @@
 #
 #   bash build/run-measurements.sh corpus            [--no-pull]
 #   bash build/run-measurements.sh core              [--no-pull]
+#   bash build/run-measurements.sh cli               [--no-pull]
+#   bash build/run-measurements.sh content           [--no-pull]
 #   bash build/run-measurements.sh fuzz [seconds]    [--no-pull]
 #
 # `fuzz` runs on fuzz-box, the other three on mutation-box. The split is by WORKLOAD, not by
@@ -156,10 +158,22 @@ case "$MODE" in
   corpus)  PROJECT="tests/Tf2DemoSalvage.Corpus.Tests"; NEEDS_CORPUS=1 ;;
   cli)     PROJECT="tests/Tf2DemoSalvage.Cli.Tests";    NEEDS_CORPUS=1 ;;
   core)    PROJECT="tests/Tf2DemoSalvage.Core.Tests";   NEEDS_CORPUS=0 ;;
+  # Content needs no demos, and it needs no TF2 install either - but only for the SYNTHETIC half.
+  #
+  # About 40 of Content.Tests' 87 files are gated on the game being present (`F:/SteamLibrary/...`)
+  # and call Assert.Ignore when it is not, which is every run on this box. So a `content` score is a
+  # score over the synthetic subset ALONE, and mutants in code that only the game-gated tests reach
+  # will show as survivors no matter how good those tests are.
+  #
+  # That is not a flaw to work around, it is the number being driven: the plan (docs/MEASUREMENT-PLAN.md)
+  # is to replace the data dependency with synthetic fixtures, and this score measures exactly how far
+  # that has got. Read it as "how much of Content is testable without 8.2 GB of game archives", not as
+  # "how good are Content's tests".
+  content) PROJECT="tests/Tf2DemoSalvage.Content.Tests"; NEEDS_CORPUS=0 ;;
   # Fuzzing builds Core and the harness and never opens a demo, so it takes no LFS bandwidth.
   # Same reasoning as `lfs: false` in .github/workflows/fuzz.yml, for the same reason.
   fuzz)    PROJECT="tests/Tf2DemoSalvage.Fuzz";         NEEDS_CORPUS=0 ;;
-  *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli or fuzz." >&2; exit 2 ;;
+  *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli, content or fuzz." >&2; exit 2 ;;
 esac
 
 # `corpus` mutation is OFF, and refuses rather than warns.
