@@ -193,6 +193,11 @@ public sealed class PoseCompletenessTests
 
         // Non-zero, so a dropped value reads as looking level rather than as the default.
         EyePitch = 21f,
+
+        // Different from Yaw, because the feet and the eyes are different angles the moment a
+        // player turns on the spot — equal values would hide a rebuild that confused them.
+        EyeYaw = -95f,
+        AimYaw = 44f,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

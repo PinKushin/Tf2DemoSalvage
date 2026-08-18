@@ -172,6 +172,26 @@ public readonly record struct ScenePose
     /// </remarks>
     public float? EyePitch { get; init; }
 
+    /// <summary>Where the player is LOOKING, when that differs from where the body is drawn.</summary>
+    /// <remarks>
+    /// **<see cref="Yaw"/> is the feet and this is the eyes**, and the two part company when a
+    /// player turns on the spot. The body is rendered at the feet yaw
+    /// (<c>m_angRender[YAW] = m_flCurrentFeetYaw</c>) while the torso twists to face the eyes.
+    ///
+    /// Kept because <c>ComputePoseParam_MoveYaw</c> reads the EYE yaw —
+    /// <c>float flAngle = AngleNormalize( m_flEyeYaw )</c> — so the movement blend must not start
+    /// using the feet when the drawn yaw became the feet. Null for anything that is not a player,
+    /// where the entity's own rotation is the only yaw there is.
+    /// </remarks>
+    public float? EyeYaw { get; init; }
+
+    /// <summary>The <c>body_yaw</c> pose parameter: how far the torso is twisted.</summary>
+    /// <remarks>
+    /// Already negated, as <c>SetPoseParameter( m_iAimYaw, -flAimYaw )</c> negates it. See
+    /// <see cref="FeetYaw.AimYaw"/>.
+    /// </remarks>
+    public float? AimYaw { get; init; }
+
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
     /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
@@ -621,6 +641,8 @@ public sealed class ScenePropTrack
             AirborneSeconds = from.AirborneSeconds,
             Airwalking = from.Airwalking,
             EyePitch = from.EyePitch,
+            EyeYaw = from.EyeYaw,
+            AimYaw = from.AimYaw,
         };
     }
 

@@ -44,6 +44,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// send eye angles. Drives the <c>body_pitch</c> pose parameter, which aims the torso —
 /// <c>ComputePoseParam_AimPitch</c> sets it to the NEGATED eye pitch.
 /// </param>
+/// <param name="EyeYaw">
+/// Where the player is LOOKING, which is not where their body is drawn once they turn on the spot.
+/// <paramref name="Yaw"/> is the feet.
+/// </param>
+/// <param name="AimYaw">
+/// The <c>body_yaw</c> pose parameter — how far the torso is twisted from the feet, already negated
+/// as the engine negates it.
+/// </param>
 /// <param name="ActiveWeapon">
 /// Which entity is the weapon in hand, or <c>null</c> when none is held. Decoded from
 /// <c>m_hActiveWeapon</c> on <c>DT_BaseCombatCharacter</c>, so it arrives for every player in the
@@ -87,6 +95,8 @@ public readonly record struct ScenePlayer(
     float? AirborneSeconds = null,
     bool Airwalking = false,
     float? EyePitch = null,
+    float? EyeYaw = null,
+    float? AimYaw = null,
     int? ActiveWeapon = null,
     string? WeaponClass = null)
 {
@@ -337,7 +347,12 @@ public sealed class DemoTimeline
         // Where each player was last tick, so a vertical speed can be differenced. The client does
         // the same: GetOuterAbsVelocity calls EstimateAbsVelocity on the client, which estimates
         // from position history rather than reading a networked velocity.
-        Dictionary<int, (int Tick, float Z)> lastHeight = [];
+        Dictionary<int, (int Tick, float X, float Y, float Z)> lastHeight = [];
+
+        // **Where each player's feet point**, which is where their body is drawn. The engine runs
+        // this per client frame; a demo gives ticks, so it runs per tick. Stateful by nature — the
+        // feet lag the eyes and catch up over several of them.
+        Dictionary<int, FeetYaw> feet = [];
 
         // **Sticky, because the engine's condition is `vz > 300 || m_bInAirWalk`.** Once an
         // air-walk starts it continues until the player lands, so a rocket jump does not flicker
@@ -460,14 +475,29 @@ public sealed class DemoTimeline
                 // upward component matters: the air-walk test is on velocity.z alone.
                 float? rising = null;
 
-                if (lastHeight.TryGetValue(player.EntityIndex, out (int Tick, float Z) before) &&
+                // How fast in all three dimensions, which is what the feet-yaw test uses:
+                // `vecVelocity.Length() > 1.0f` rather than the horizontal speed the activity
+                // choice uses.
+                float travelling = 0f;
+
+                if (lastHeight.TryGetValue(
+                        player.EntityIndex, out (int Tick, float X, float Y, float Z) before) &&
                     command.Tick > before.Tick &&
                     interval > 0f)
                 {
-                    rising = (origin.Z - before.Z) / ((command.Tick - before.Tick) * interval);
+                    float elapsed = (command.Tick - before.Tick) * interval;
+
+                    rising = (origin.Z - before.Z) / elapsed;
+
+                    float acrossX = origin.X - before.X;
+                    float acrossY = origin.Y - before.Y;
+                    float upward = origin.Z - before.Z;
+
+                    travelling = MathF.Sqrt(
+                        (acrossX * acrossX) + (acrossY * acrossY) + (upward * upward)) / elapsed;
                 }
 
-                lastHeight[player.EntityIndex] = (command.Tick, origin.Z);
+                lastHeight[player.EntityIndex] = (command.Tick, origin.X, origin.Y, origin.Z);
 
                 if (player.Flags() is { } stateFlags)
                 {
@@ -533,6 +563,16 @@ public sealed class DemoTimeline
                 // would lay them on their side every time they looked up.
                 float? lookingAt = player.EyeAngles() is { } view ? Normalize(view.Pitch) : null;
 
+                // **The feet, advanced once per tick, and only once the eye yaw is known.** They
+                // follow the eyes while moving and stay planted while the player turns on the spot,
+                // which is the whole difference between this and using the eye yaw as the body yaw.
+                FeetYaw standing = feet.TryGetValue(player.EntityIndex, out FeetYaw known)
+                    ? known
+                    : default;
+
+                standing.Advance(facing, travelling, interval > 0f ? interval : 0f);
+                feet[player.EntityIndex] = standing;
+
                 // **The dead are reported where the entity actually is, which is wherever they are
                 // spectating from.** This used to hold the last living position and yaw so a body
                 // stayed roughly where it fell, standing in for a ragdoll nobody had built yet.
@@ -550,7 +590,13 @@ public sealed class DemoTimeline
                     resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
                     resource?.Integer($"m_iPlayerClass.{slot}"),
                     LifeState: life,
-                    Yaw: facing,
+                    // **The FEET, which is what the engine renders the body at** —
+                    // `m_angRender[YAW] = m_flCurrentFeetYaw`. Equal to the eye yaw whenever the
+                    // player is moving, so this changes nothing except while turning on the spot,
+                    // where the feet should stay planted and the torso twist.
+                    Yaw: standing.Current,
+                    EyeYaw: facing,
+                    AimYaw: standing.AimYaw(facing),
 
                     // Null on a POV demo for everyone but the recorder, because the send prop is in
                     // DT_LocalPlayerExclusive; a SourceTV recording carries it for every player.
@@ -944,7 +990,7 @@ public sealed class DemoTimeline
     /// </remarks>
     private static ScenePose Moving(ScenePropTrack track, double tick, ScenePose pose)
     {
-        (float moveX, float moveY) = MoveParameters(track, tick, pose.Yaw);
+        (float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
 
         // **Speed decides WHICH animation plays, and it was missing the same way.** The viewer picks
         // a sequence from it — MainForm asks SequenceFor(model, speed) — and a null speed skips that
@@ -1030,7 +1076,7 @@ public sealed class DemoTimeline
                 continue;
             }
 
-            (float moveX, float moveY) = MoveParameters(track, tick, pose.Yaw);
+            (float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
 
             // **Yaw travels with the position, from the same pose.** Taking one and discarding the
             // other is what left every player facing north the moment they stopped being a dot:

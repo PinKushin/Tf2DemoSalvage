@@ -6516,3 +6516,52 @@ and the feet are a state machine of their own — `m_flGoalFeetYaw`/`m_flCurrent
 the eyes while moving and turn in place with limits while standing. This project currently uses the
 eye yaw as the body yaw outright, which is right while moving and wrong while turning on the spot.
 That is B61.
+
+### B61 — the feet-yaw state machine — RESOLVED
+
+**A player's body is drawn at their FEET yaw, and the torso twists to make up the difference.**
+`ComputePoseParam_AimYaw` (`multiplayer_animstate.cpp:1702`) ends with
+
+```cpp
+m_angRender[YAW] = m_flCurrentFeetYaw;
+float flAimYaw = m_flEyeYaw - m_flCurrentFeetYaw;
+GetBasePlayer()->SetPoseParameter( pStudioHdr, m_PoseParameterData.m_iAimYaw, -flAimYaw );
+```
+
+This project used the eye yaw as the body yaw outright, which is right whenever a player is moving —
+"The feet match the eye direction when moving" — and wrong whenever they turn on the spot, where the
+feet should stay planted and the waist should twist.
+
+`FeetYaw` is that machine, and it is stateful because the engine's is: the feet lag and catch up
+over several ticks. Four numbers, all from the source rather than chosen — 45 degrees of twist
+before the feet step, 720 degrees a second, a 60-degree fade, and a movement threshold of one unit a
+second on the THREE-dimensional velocity rather than the horizontal speed the activity choice uses.
+
+**Two quirks are reproduced deliberately and both would be lost by tidying.**
+
+`ConvergeYawAngles` takes the magnitude BEFORE normalising the angle and the sign after:
+
+```cpp
+float flDeltaYaw = flGoalYaw - flCurrentYaw;
+float flDeltaYawAbs = fabs( flDeltaYaw );
+flDeltaYaw = AngleNormalize( flDeltaYaw );
+```
+
+Turning from 170 to −170 is twenty degrees the short way, but the raw difference is 340 — so the
+fade saturates at full rate rather than easing through, while the direction still comes from the
+normalised −20 and turns the short way. Normalising first eases instead, and the test pins the
+resulting −179.1.
+
+The feet also step round in whole 45-degree jumps rather than tracking the eyes, under a comment
+where Valve marks the branch unfinished in place. Reproduced as written.
+
+**The approach is asymptotic, which caught a wrong prediction of mine.** The fade scales the rate by
+`delta / 60`, so each tick covers about a fifth of what remains and the gap decays geometrically
+until the one per cent floor turns it linear. A test asserting the feet reach the eyes within twenty
+ticks failed at 88.11 degrees — correct behaviour, wrong expectation. It takes about forty.
+
+**One coupling had to be preserved rather than discovered later.** `ComputePoseParam_MoveYaw` reads
+the EYE yaw, so the movement blend must not start reading the feet now that the drawn yaw is the
+feet. `ScenePose.EyeYaw` carries it, and the move parameters take `EyeYaw ?? Yaw` — null for
+anything that is not a player, where the entity's own rotation is the only yaw there is. Without
+that, B101's fix would have regressed silently the moment this landed.
