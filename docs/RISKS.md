@@ -6336,3 +6336,39 @@ the engineer's `_primary` is a primary. So a soldier's shotgun currently animate
 holder's class is on the wire, so this is implementable.
 
 The econ `anim_slot` override from `items_game.txt` is also still unread.
+
+### B106 — a scout is reported holding an engineer's shotgun — OPEN
+
+Seen while verifying the per-class weapon translation on
+`demostf-cp_process_f12-2026-08-08-2207`. The viewer logs each weapon with the class holding it:
+
+```
+CTFShotgun/1=PRIMARY          CTFShotgun/2=PRIMARY        CTFShotgun/9=PRIMARY
+CTFShotgun_Revenge/1=PRIMARY  CTFShotgun_Revenge/9=PRIMARY
+CTFPistol_Scout/1=SECONDARY   CWeaponMedigun/5=SECONDARY
+```
+
+Class 1 is Scout and 2 is Sniper. **Neither can equip `tf_weapon_shotgun`**, and
+`CTFShotgun_Revenge` is the Frontier Justice, which is engineer-only — so `CTFShotgun_Revenge/1` is
+a scout holding a weapon no scout can carry.
+
+Some pairs in the same line are clearly right: `CWeaponMedigun/5` is a medic with a medigun and
+`CTFPistol_Scout/1` is a scout with the scout's pistol. So the pairing is not uniformly wrong, which
+rules out the simplest explanations.
+
+**Two candidates, and neither is confirmed.** Either `m_iPlayerClass` is being read for the wrong
+player — it comes from the resource entity's arrays keyed by entity index, `m_iPlayerClass.%03d`, so
+an off-by-one in the slot would attribute a neighbour's class — or `m_hActiveWeapon` resolves to an
+entity that is not that player's weapon. The handle goes through the same `Slot` decode as every
+other, invalid-tested before masking, so the second is the less likely of the two.
+
+**What this does and does not affect.** The per-class translation itself is measured against the
+game's own scripts and is right: a soldier's shotgun reads SECONDARY and an engineer's PRIMARY,
+verified by sabotage. What is in doubt is the CLASS handed to it, which decides which of those two
+answers a given player gets. A wrong class quietly picks the wrong script and the result is a
+plausible suffix, so this is the silent kind again.
+
+Worth measuring first: whether the same demo's class-to-model assignment agrees with the
+class-to-weapon one, since the models are drawn from the same `m_iPlayerClass` and look correct on
+screen. If the models are right and the weapons are wrong, the fault is in the weapon handle rather
+than in the class.

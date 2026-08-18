@@ -52,7 +52,13 @@ public sealed class WeaponRoles
         ["item2"] = "ITEM2",
     };
 
-    private readonly Dictionary<string, string> _byServerClass = new(StringComparer.Ordinal);
+    /// <summary>The suffix for one weapon in one class's hands.</summary>
+    /// <remarks>
+    /// Keyed by both, because a weapon's role is not a property of the weapon alone:
+    /// <c>tf_weapon_shotgun</c> is a primary for an engineer and a secondary for a soldier, a heavy
+    /// and a pyro. See <see cref="WeaponScriptName.Translate"/>.
+    /// </remarks>
+    private readonly Dictionary<(string Weapon, int Class), string> _byServerClass = [];
 
     /// <summary>Reads every weapon script the game ships that this project can name.</summary>
     /// <param name="readFile">Opens a file from the game, or returns null.</param>
@@ -63,7 +69,8 @@ public sealed class WeaponRoles
     /// **Driven by what the demo mentions rather than by the whole archive**, because the archive
     /// holds 78 weapon scripts and a recording touches a handful. Each is decrypted once.
     /// </remarks>
-    public static WeaponRoles Read(Func<string, byte[]?> readFile, IEnumerable<string> serverClasses)
+    public static WeaponRoles Read(
+        Func<string, byte[]?> readFile, IEnumerable<(string Weapon, int? Class)> serverClasses)
     {
         ArgumentNullException.ThrowIfNull(readFile);
         ArgumentNullException.ThrowIfNull(serverClasses);
@@ -71,14 +78,16 @@ public sealed class WeaponRoles
         WeaponRoles roles = new();
         IceCipher cipher = new(EncryptionKey);
 
-        foreach (string serverClass in serverClasses)
+        foreach ((string serverClass, int? playerClass) in serverClasses)
         {
-            if (roles._byServerClass.ContainsKey(serverClass))
+            (string Weapon, int Class) key = (serverClass, playerClass ?? 0);
+
+            if (roles._byServerClass.ContainsKey(key))
             {
                 continue;
             }
 
-            foreach (string candidate in WeaponScriptName.Candidates(serverClass))
+            foreach (string candidate in WeaponScriptName.Candidates(serverClass, playerClass))
             {
                 string name = "scripts/" + candidate;
 
@@ -99,7 +108,7 @@ public sealed class WeaponRoles
                 if (ScriptKeyValue.First(script, "WeaponType") is { } type &&
                     Suffixes.TryGetValue(type, out string? suffix))
                 {
-                    roles._byServerClass[serverClass] = suffix;
+                    roles._byServerClass[key] = suffix;
                 }
 
                 // The first script that exists is the weapon's, whether or not it named a type
@@ -120,8 +129,26 @@ public sealed class WeaponRoles
     /// <c>default:</c>. A weapon whose script is missing therefore animates exactly as the engine
     /// would animate one whose type it did not recognise.
     /// </remarks>
-    public string Suffix(string? serverClass) =>
-        serverClass is not null && _byServerClass.TryGetValue(serverClass, out string? suffix)
-            ? suffix
-            : "PRIMARY";
+    public string Suffix(string? serverClass) => Suffix(serverClass, playerClass: null);
+
+    /// <summary>The activity suffix a weapon drives in a particular class's hands.</summary>
+    /// <param name="serverClass">The weapon's server class, or null when nothing is held.</param>
+    /// <param name="playerClass">Who is holding it, or null when the demo did not say.</param>
+    /// <returns>The suffix, defaulting to <c>PRIMARY</c>.</returns>
+    public string Suffix(string? serverClass, int? playerClass)
+    {
+        if (serverClass is null)
+        {
+            return "PRIMARY";
+        }
+
+        if (_byServerClass.TryGetValue((serverClass, playerClass ?? 0), out string? suffix))
+        {
+            return suffix;
+        }
+
+        // Falling back to the classless reading is not the same as giving up: a weapon with no
+        // per-class translation was stored under class 0 by whoever asked for it first.
+        return _byServerClass.TryGetValue((serverClass, 0), out string? plain) ? plain : "PRIMARY";
+    }
 }

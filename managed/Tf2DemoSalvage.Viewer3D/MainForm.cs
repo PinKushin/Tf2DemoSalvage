@@ -1423,7 +1423,9 @@ internal class MainForm : Form
 
         // Only the classes this recording mentions: the archive holds 78 weapon scripts, a match
         // touches a handful, and each one costs an ICE decryption.
-        HashSet<string> held = new(StringComparer.Ordinal);
+        // **Weapon AND holder**, because the role is not a property of the weapon alone: a shotgun
+        // is a primary for an engineer and a secondary for a soldier, a heavy and a pyro.
+        HashSet<(string Weapon, int? Class)> held = [];
 
         foreach (TimelineFrame frame in timeline.Frames)
         {
@@ -1431,7 +1433,7 @@ internal class MainForm : Form
             {
                 if (player.WeaponClass is { } weapon)
                 {
-                    held.Add(weapon);
+                    held.Add((weapon, player.PlayerClass));
                 }
             }
         }
@@ -1442,8 +1444,11 @@ internal class MainForm : Form
             "demo",
             "weapon roles: " + string.Join(
                 ", ",
-                held.OrderBy(name => name, StringComparer.Ordinal)
-                    .Select(name => $"{name}={_weaponRoles.Suffix(name)}")));
+                held.OrderBy(pair => pair.Weapon, StringComparer.Ordinal)
+                    .ThenBy(pair => pair.Class)
+                    .Select(pair =>
+                        $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
+                        _weaponRoles.Suffix(pair.Weapon, pair.Class))));
     }
 
     /// <summary>The model a player is drawn as, or null when they are not drawn as one.</summary>
@@ -1922,7 +1927,7 @@ internal class MainForm : Form
                     // **Which weapon they are holding, as the suffix it drives.** Same reason as
                     // the flags: resolved here where the player is known, used a pass later where
                     // the model is.
-                    Slot = _weaponRoles?.Suffix(player.WeaponClass),
+                    Slot = _weaponRoles?.Suffix(player.WeaponClass, player.PlayerClass),
 
                     // **Which way the legs run.** A movement sequence is a blend grid and these
                     // are its coordinates; without them the grid's corner is taken, which is one
