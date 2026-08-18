@@ -116,6 +116,19 @@ slot silently skips someone else's run.
   lock rather than a stuck one, and two projects then run concurrently with no error.
 - **A runner that pulls itself takes effect one run late** — verify a runner change on the second
   invocation, or with `--no-pull`.
+- **A NEW MODE cannot launch at all on its first try, which is that trap's sharper edge.** The mode
+  dispatch (`case "$MODE"`) runs *before* the self-pull, because the mode is what decides whether the
+  pull needs Git LFS at all. So the box's old copy of the script rejects the new name and exits
+  before ever fetching the version that knows it. Hit for real on 2026-08-18 adding `content`:
+
+  ```
+  ERROR: unknown mode 'content'. Expected corpus, core, cli or fuzz.
+  ```
+
+  It reads like the mode was never added. Fix: pull the box clone by hand once
+  (`git fetch && git reset --hard origin/main`), then launch with `--no-pull` so the run uses the
+  script that was just verified rather than one replaced underneath it mid-run. Only the FIRST run
+  of a new mode needs this; afterwards the ordinary self-pull is fine.
 - **`-artifact_prefix` writes nothing through `libfuzzer-dotnet`**; crash preservation happens in
   the harness, from an exception *filter*, and the `selftest` target exists to prove that pipeline
   works. Gate any fuzz claim on it.
