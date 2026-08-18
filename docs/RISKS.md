@@ -6372,3 +6372,35 @@ Worth measuring first: whether the same demo's class-to-model assignment agrees 
 class-to-weapon one, since the models are drawn from the same `m_iPlayerClass` and look correct on
 screen. If the models are right and the weapons are wrong, the fault is in the weapon handle rather
 than in the class.
+
+### B106 — RESOLVED: it is nine player-ticks in 929,371, and the SET presentation hid that
+
+Counted rather than listed, on the same demo:
+
+```
+CTFShotgun_Revenge  class 9 (engineer)  x2118     class 1 (scout)  x6
+CTFShotgun          class 9             x215      class 1 x2   class 2 x1
+CWeaponMedigun      class 5 (medic)     x157233
+total player-ticks with both: 929371
+```
+
+The impossible pairs are **nine ticks in nine hundred thousand**. That is not a misattribution; it is
+the two sources not being sampled atomically. `m_iPlayerClass` comes from the resource entity's
+arrays and the weapon from the player entity, and a class change lands on one before the other — so
+for a tick or two a player reads as their old class holding their new weapon. The engine sees the
+same skew; it simply never draws a conclusion from it.
+
+Both hypotheses raised when this was filed were wrong, and checking them was still worth it. Entity
+slot reuse is handled — `Delete` removes the entity and an `Enter` with a different serial replaces
+it — so a recycled slot cannot carry a stale class name. And the weapon handle is decoded through
+the same `Slot` as every other, invalid-tested before masking.
+
+**The real defect was in how the finding was presented.** The viewer logs the pairs as a SET, which
+gives one tick and a hundred and fifty thousand exactly the same weight, and that is what made a
+rounding error look like a decode fault. A set answers "did this ever happen"; the question worth
+asking was "how often". Same family as *measure the output, not the capability* — the instrument
+reported a true thing that meant nothing like what it appeared to mean.
+
+No code change follows. The per-class translation reads the class it is given, that class is right
+for 999,991 ticks in a million, and a suffix wrong for one tick is not visible at sixty frames a
+second.
