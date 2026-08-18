@@ -6765,3 +6765,41 @@ rather than built on a guess:**
 de-risked — it can be built from one SDK mapping rather than needing per-era measurement, and the
 2007/2008 client decompile (owner-offered) would confirm the launch-era row rather than being needed
 to discover it.
+
+### B113 — `WriteAngle` wrote every negative angle as zero — FIXED
+
+`svc_FixAngle` carries three 16-bit angles, and the encoder was
+
+```csharp
+writer.Write((uint)MathF.Round(degrees * (65536f / 360f)) & 0xFFFF, 16);
+```
+
+**`(uint)` applied to a negative float does not wrap — .NET saturates it to zero.** So a pitch of
+−30° (a player looking up, entirely ordinary) was written as `0`, and the message reproduced a
+player looking dead level. The mask that looks like it handles the wrap never sees a negative value
+to wrap, because the conversion has already clamped it.
+
+Valve's own encoder gets this right by going through a SIGNED integer, where the mask does the
+two's-complement wrap — `bf_write::WriteBitAngle`, `tier1/bitbuf.cpp:551`:
+
+```cpp
+d = (int)( (fAngle / 360.0) * shift );
+d &= mask;
+```
+
+The fix is one cast, `(uint)(int)`, which reproduces that: −90° now encodes as 49152 and decodes as
+270°, the same direction by a different representative.
+
+**Why the corpus round trip could never have found it, and this is the interesting half.** That
+suite re-encodes messages decoded from real demos and reports 100 % of payload bits reproduced —
+which was true and remains true. `ReadAngle` is `raw * 360f / 65536f`, so a demo-sourced angle is
+**always in 0..360 and never negative**; the value handed back to the writer therefore never enters
+the broken branch. The defect is unreachable from any recording, by construction. It is reachable
+from a caller that builds a message in code — a synthetic test, or the text-to-demo compiler that
+is Phase 1's last item, which would have written flattened view angles into every demo it produced.
+
+Found by `NetMessageWriterTests`, written to give the writer coverage that does not depend on the
+corpus (see `docs/MEASUREMENT-PLAN.md`). It is the first finding from that work and it is exactly
+the shape the plan predicted: real data carries ordinary values, and ordinary values agree with a
+broken encoder. Verified by sabotage — restoring the single `(uint)` cast reddens both negative-angle
+tests and nothing else.

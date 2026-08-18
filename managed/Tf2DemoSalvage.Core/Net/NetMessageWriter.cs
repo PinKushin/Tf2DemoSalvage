@@ -422,7 +422,16 @@ public static class NetMessageWriter
     /// loses the round trip on about half of all values: the decoded float is not exactly
     /// representable, so dividing it back lands just under the integer it came from and the cast
     /// drops a whole step.
+    ///
+    /// **The cast goes through a SIGNED int, and that is load-bearing rather than incidental.**
+    /// <c>bf_write::WriteBitAngle</c> (<c>tier1/bitbuf.cpp:551</c>) is
+    /// <c>int d = (int)((fAngle / 360.0) * shift); d &amp;= mask;</c> — signed, then masked, so a
+    /// negative angle wraps into its positive representative (-90 becomes 270, the same
+    /// direction). Casting the float straight to <c>uint</c> looks equivalent and is not: .NET's
+    /// floating-point to unsigned conversions SATURATE, so every negative angle became exactly
+    /// zero. A player looking up is a negative pitch, so this silently flattened the view angle it
+    /// was asked to reproduce. See RISKS B113.
     /// </remarks>
     private static void WriteAngle(BitWriter writer, float degrees) =>
-        writer.Write((uint)MathF.Round(degrees * (65536f / 360f)) & 0xFFFF, 16);
+        writer.Write((uint)(int)MathF.Round(degrees * (65536f / 360f)) & 0xFFFF, 16);
 }
