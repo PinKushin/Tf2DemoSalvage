@@ -144,6 +144,14 @@ public readonly record struct ScenePose
     /// </remarks>
     public string? Slot { get; init; }
 
+    /// <summary>How long the player has been off the ground, for splitting a jump.</summary>
+    /// <remarks>
+    /// Travels with the flags, like <see cref="Slot"/>. Discrete in the same sense: it is a clock
+    /// reading rather than a position, and interpolating between two keyframes' readings would
+    /// invent a moment neither recorded.
+    /// </remarks>
+    public float? AirborneSeconds { get; init; }
+
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
     /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
@@ -590,6 +598,7 @@ public sealed class ScenePropTrack
             // Discrete: there is no halfway between crouched and standing.
             Flags = from.Flags,
             Slot = from.Slot,
+            AirborneSeconds = from.AirborneSeconds,
         };
     }
 

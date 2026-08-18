@@ -306,6 +306,7 @@ internal sealed class EntityModelSet
     /// </param>
     /// <param name="alive">Whether the player is alive.</param>
     /// <param name="slot">The suffix the held weapon drives, such as <c>SECONDARY</c>.</param>
+    /// <param name="airborneSeconds">How long since they left the ground, or null.</param>
     /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
@@ -316,10 +317,11 @@ internal sealed class EntityModelSet
         float speed,
         int? flags = null,
         bool alive = true,
-        string slot = "PRIMARY") =>
+        string slot = "PRIMARY",
+        float? airborneSeconds = null) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
-            ? PlayerAnimation.For(skinned, speed, flags, alive, slot)
+            ? PlayerAnimation.For(skinned, speed, flags, alive, slot, airborneSeconds)
             : -1;
 
     /// <summary>Every baked frame's batches for one model.</summary>

@@ -182,6 +182,10 @@ public sealed class PoseCompletenessTests
         // Not PRIMARY, which is the value the lookup falls back to when this is lost — so a pose
         // that dropped it would still animate plausibly and this test would not notice.
         Slot = "SECONDARY",
+
+        // Inside the push-off window, so a lost value reads as the float and the difference is
+        // visible. Zero would be indistinguishable from the default.
+        AirborneSeconds = 0.25f,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

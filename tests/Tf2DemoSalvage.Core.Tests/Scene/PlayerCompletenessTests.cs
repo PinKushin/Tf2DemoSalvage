@@ -106,7 +106,10 @@ public sealed class PlayerCompletenessTests
         // A weapon in hand, and its class — the pair that decides which suffix every body activity
         // takes, so losing either draws a medic running like a scout.
         ActiveWeapon: 17,
-        WeaponClass: "CTFRevolver");
+        WeaponClass: "CTFRevolver",
+
+        // Inside the push-off window, so losing it reads as the float rather than as a default.
+        AirborneSeconds: 0.25f);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

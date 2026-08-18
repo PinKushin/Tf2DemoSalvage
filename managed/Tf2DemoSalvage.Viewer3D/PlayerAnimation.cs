@@ -70,6 +70,10 @@ internal static class PlayerAnimation
     /// and so on, as <c>WeaponRoles</c> reads it from the weapon's own script. Defaulted rather than
     /// required, because the engine defaults it the same way.
     /// </param>
+    /// <param name="airborneSeconds">
+    /// How long since the player left the ground, or null when it cannot be told — which splits a
+    /// jump into <c>ACT_MP_JUMP_START</c> and <c>ACT_MP_JUMP_FLOAT</c>.
+    /// </param>
     /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
@@ -85,7 +89,12 @@ internal static class PlayerAnimation
     /// a missing animation.
     /// </remarks>
     public static int For(
-        PropModels.SkinnedModel model, float speed, int? flags, bool alive, string slot = "PRIMARY")
+        PropModels.SkinnedModel model,
+        float speed,
+        int? flags,
+        bool alive,
+        string slot = "PRIMARY",
+        float? airborneSeconds = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -93,7 +102,8 @@ internal static class PlayerAnimation
         // instead would say AIRBORNE, and every player in a POV demo would be drawn falling.
         int state = flags ?? PlayerActivityState.OnGround;
 
-        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep: false, alive);
+        PlayerActivity activity =
+            PlayerActivityState.For(state, speed, waistDeep: false, alive, airborneSeconds);
 
         int wanted = model.ForActivity(PlayerActivityState.NameOf(activity, slot));
 

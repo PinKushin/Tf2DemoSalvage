@@ -27,6 +27,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// recording did not say. Declared in <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for
 /// the recorder alone while a SourceTV recording carries it for every player.
 /// </param>
+/// <param name="AirborneSeconds">
+/// How long since this player left the ground, or <c>null</c> when they are on it or the recording
+/// did not say. Splits a jump into its push-off and its float, which the engine does from
+/// <c>m_flJumpStartTime</c> — a moment no demo records, so this is derived from when
+/// <c>FL_ONGROUND</c> cleared.
+/// </param>
 /// <param name="ActiveWeapon">
 /// Which entity is the weapon in hand, or <c>null</c> when none is held. Decoded from
 /// <c>m_hActiveWeapon</c> on <c>DT_BaseCombatCharacter</c>, so it arrives for every player in the
@@ -67,6 +73,7 @@ public readonly record struct ScenePlayer(
     float MoveY = 0f,
     int? Flags = null,
     bool Drawn = true,
+    float? AirborneSeconds = null,
     int? ActiveWeapon = null,
     string? WeaponClass = null)
 {
@@ -309,6 +316,11 @@ public sealed class DemoTimeline
 
         float interval = 0f;
 
+        // **When each player last left the ground**, so a jump can be split into its push-off and
+        // its float. The engine reads m_flJumpStartTime, set when the jump event arrives; a demo
+        // carries no such event, so this watches FL_ONGROUND clear instead.
+        Dictionary<int, int> leftGroundAt = [];
+
         ModelPrecache precache = new();
         int protocol = header.NetworkProtocol;
 
@@ -416,6 +428,32 @@ public sealed class DemoTimeline
                 // The resource's arrays are keyed by entity index, zero padded to three digits.
                 string slot = player.EntityIndex.ToString("D3", CultureInfo.InvariantCulture);
 
+                // **The jump clock, kept here because only this loop sees the ticks in order.**
+                // Recorded on the transition rather than every airborne tick, so the elapsed time
+                // is measured from the moment the flag cleared.
+                float? airborne = null;
+
+                if (player.Flags() is { } stateFlags)
+                {
+                    if ((stateFlags & PlayerActivityState.OnGround) != 0)
+                    {
+                        leftGroundAt.Remove(player.EntityIndex);
+                    }
+                    else
+                    {
+                        if (!leftGroundAt.TryGetValue(player.EntityIndex, out int since))
+                        {
+                            since = command.Tick;
+                            leftGroundAt[player.EntityIndex] = since;
+                        }
+
+                        // Null while the interval is unknown — the first frames arrive before
+                        // net_tick states one, and a zero interval would make every jump read as
+                        // its own first instant for ever.
+                        airborne = interval > 0f ? (command.Tick - since) * interval : null;
+                    }
+                }
+
                 // **A dead player's origin is not where they died — it is where they are
                 // WATCHING.** The entity follows whoever they spectate, so drawing a corpse at its
                 // current origin puts it standing inside a living player, and several of them
@@ -499,6 +537,7 @@ public sealed class DemoTimeline
                     // handle is only an entity slot; what the animation needs is which weapon it
                     // is, and only this loop can see both. Resolved rather than carried as a bare
                     // index so no consumer has to keep the entity table alive to make sense of it.
+                    AirborneSeconds: airborne,
                     ActiveWeapon: player.ActiveWeapon(),
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)

@@ -29,7 +29,21 @@ public enum PlayerActivity
     /// <summary>Crouched and moving.</summary>
     CrouchWalk,
 
-    /// <summary>Airborne.</summary>
+    /// <summary>Airborne, in the first half second — the push-off.</summary>
+    /// <remarks>
+    /// <c>CTFPlayerAnimState::HandleJumping</c> splits a jump in two:
+    /// <c>if ( gpGlobals->curtime - m_flJumpStartTime > 0.5 ) idealActivity = ACT_MP_JUMP_FLOAT;
+    /// else idealActivity = ACT_MP_JUMP_START;</c>. Both are real animations in every class model,
+    /// and playing float throughout skips the launch entirely.
+    ///
+    /// **Not gated on <c>m_bDontDoNewJump</c>, which the engine checks first.** That flag comes from
+    /// a class script and every shipped class has it false — the branch it guards sets the old
+    /// single <c>ACT_MP_JUMP</c>, and the comment beside it reads "Remove me once all classes are
+    /// doing the new jump". Reading it would be reproducing a migration that finished.
+    /// </remarks>
+    JumpStart,
+
+    /// <summary>Airborne, after the push-off.</summary>
     Jump,
 
     /// <summary>In water at least waist deep and still.</summary>
@@ -87,6 +101,14 @@ public static class PlayerActivityState
     /// </remarks>
     public const float MovingMinimumSpeed = 0.5f;
 
+    /// <summary>How long a jump plays its push-off before becoming a float.</summary>
+    /// <remarks>
+    /// <c>gpGlobals->curtime - m_flJumpStartTime > 0.5</c> in
+    /// <c>CTFPlayerAnimState::HandleJumping</c>. A strict comparison there, so exactly half a second
+    /// is still the start.
+    /// </remarks>
+    public const float JumpStartSeconds = 0.5f;
+
     /// <summary>At rest on the ground — <c>FL_ONGROUND</c>.</summary>
     public const int OnGround = 1 << 0;
 
@@ -112,7 +134,22 @@ public static class PlayerActivityState
     /// <param name="waistDeep">Whether the water is at least waist deep.</param>
     /// <param name="alive">Whether the player is alive.</param>
     /// <returns>The activity the engine would choose.</returns>
-    public static PlayerActivity For(int flags, float speed, bool waistDeep, bool alive)
+    public static PlayerActivity For(int flags, float speed, bool waistDeep, bool alive) =>
+        For(flags, speed, waistDeep, alive, airborneSeconds: null);
+
+    /// <summary>The same, knowing how long the player has been off the ground.</summary>
+    /// <param name="flags">The player's <c>m_fFlags</c>.</param>
+    /// <param name="speed">Horizontal speed in units a second.</param>
+    /// <param name="waistDeep">Whether the water reaches the waist.</param>
+    /// <param name="alive">Whether the player is alive.</param>
+    /// <param name="airborneSeconds">
+    /// How long since they left the ground, or null when it cannot be told. The engine measures
+    /// this from <c>m_flJumpStartTime</c>, set when the jump event arrives; a demo carries no such
+    /// event, so a caller derives it from when the ground flag cleared.
+    /// </param>
+    /// <returns>The activity the engine would choose.</returns>
+    public static PlayerActivity For(
+        int flags, float speed, bool waistDeep, bool alive, float? airborneSeconds)
     {
         bool moving = speed > MovingMinimumSpeed;
 
@@ -123,7 +160,13 @@ public static class PlayerActivityState
         // moment after landing, where the engine holds the jump a little longer.
         if ((flags & OnGround) == 0 && !waistDeep && alive)
         {
-            return PlayerActivity.Jump;
+            // **The push-off and the float are different animations**, split at half a second since
+            // the jump began. Null means the caller cannot say how long they have been airborne, and
+            // the float is the right answer then: it is what a jump spends most of its time in, and
+            // it is what this project drew before the phases existed.
+            return airborneSeconds is { } airborne && airborne <= JumpStartSeconds
+                ? PlayerActivity.JumpStart
+                : PlayerActivity.Jump;
         }
 
         // Then crouching, so a crouching player who is also moving crouch-walks rather than runs.
@@ -186,9 +229,15 @@ public static class PlayerActivityState
             PlayerActivity.CrouchIdle => $"ACT_MP_CROUCH_{weaponSlot}",
             PlayerActivity.CrouchWalk => $"ACT_MP_CROUCHWALK_{weaponSlot}",
 
-            // The float rather than the start, because a demo gives no moment of leaving the ground
-            // — only that the player is airborne, which is what the float describes. The start and
-            // the land need sub-state this project does not derive (B100).
+            // **The push-off and the float, split at half a second.** A demo carries no jump event,
+            // so the moment of leaving the ground is derived from when FL_ONGROUND cleared — see
+            // ScenePlayer.AirborneSeconds.
+            //
+            // The LAND is deliberately absent, and that is a fact about the engine rather than a
+            // gap here: ACT_MP_JUMP_LAND is started with RestartGesture( GESTURE_SLOT_JUMP, ... ),
+            // so it is a layered gesture played over whatever the body is doing, not a body
+            // activity. Returning it here would replace the run a player lands into.
+            PlayerActivity.JumpStart => $"ACT_MP_JUMP_START_{weaponSlot}",
             PlayerActivity.Jump => $"ACT_MP_JUMP_FLOAT_{weaponSlot}",
 
             PlayerActivity.SwimIdle => $"ACT_MP_SWIM_{weaponSlot}",

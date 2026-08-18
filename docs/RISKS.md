@@ -6404,3 +6404,43 @@ reported a true thing that meant nothing like what it appeared to mean.
 No code change follows. The per-class translation reads the class it is given, that class is right
 for 999,991 ticks in a million, and a suffix wrong for one tick is not visible at sixty frames a
 second.
+
+### B107 — a jump plays its push-off before its float — RESOLVED
+
+Every airborne player played `ACT_MP_JUMP_FLOAT` for the whole jump. TF2 splits it:
+
+```cpp
+if ( gpGlobals->curtime - m_flJumpStartTime > 0.5 )
+    idealActivity = ACT_MP_JUMP_FLOAT;
+else
+    idealActivity = ACT_MP_JUMP_START;
+```
+
+Both are real animations in every class model, so the launch was simply never drawn.
+
+**The clock is derived, and that is the interesting part.** The engine sets `m_flJumpStartTime` when
+the jump EVENT arrives, and a demo carries no such event — the same reason the whole activity state
+machine exists here. So `DemoTimeline` watches `FL_ONGROUND` clear and records the tick, converting
+to seconds with the recording's own interval. Null while the interval is still unknown, because a
+zero interval would make every jump read as its own first instant for ever.
+
+**`ACT_MP_JUMP_LAND` is deliberately not implemented, and that is a fact about the engine.** It is
+started with `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )` — a layered gesture played over
+whatever the body is doing, not a body activity. Returning it from the activity lookup would replace
+the run a player lands into. Gestures are a separate mechanism this project does not have.
+
+**Also read and deliberately skipped: `m_bDontDoNewJump`.** `HandleJumping` checks it before
+choosing the phases and falls back to the single old `ACT_MP_JUMP`; it comes from a class script,
+every shipped class has it false, and the comment beside it reads "Remove me once all classes are
+doing the new jump". Reproducing it would be reproducing a finished migration.
+
+Three assertions guard it, at three levels: the threshold is strict on both sides (half a second is
+still the push-off), the corpus test requires readings on both sides of it plus a minimum of exactly
+zero — a clock started from the demo's beginning would report hundreds of seconds — and a viewer
+test requires the two phases to resolve to DIFFERENT sequences on a real medic model, which fails if
+the clock is computed and discarded.
+
+Still open from `HandleJumping`: **airwalk**, which supersedes the jump when `vecVelocity.z > 300`
+and the player is not ducking, and `ACT_MP_FALLING_STOMP` beneath it. Both need vertical velocity,
+which is derivable from the track, and airwalk additionally needs `m_bDontDoAirwalk` from the class
+script — which this project already decrypts and reads for the player model.

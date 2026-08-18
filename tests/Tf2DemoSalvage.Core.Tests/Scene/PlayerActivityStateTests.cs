@@ -106,6 +106,46 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
+    public void AJumpStartsBeforeItFloats()
+    {
+        // **Half a second, strictly** — `gpGlobals->curtime - m_flJumpStartTime > 0.5` in
+        // CTFPlayerAnimState::HandleJumping, so exactly the threshold is still the push-off. Both
+        // sides are asserted because a comparison with the wrong direction passes either one alone.
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 0f)
+            .ShouldBe(PlayerActivity.JumpStart);
+
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 0.5f)
+            .ShouldBe(PlayerActivity.JumpStart, "the engine's test is strictly greater than");
+
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 0.51f)
+            .ShouldBe(PlayerActivity.Jump);
+    }
+
+    [Test]
+    public void AnUnknownAirborneTimeFloats()
+    {
+        // Null is "cannot tell", not "just left the ground". The float is what a jump spends most
+        // of its time in and is what this drew before the phases existed, so an absent clock keeps
+        // the previous behaviour rather than making every airborne player launch repeatedly.
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: null)
+            .ShouldBe(PlayerActivity.Jump);
+    }
+
+    [Test]
+    public void TheJumpPhasesHaveTheirOwnNames()
+    {
+        // The land is deliberately not here: ACT_MP_JUMP_LAND is started with
+        // RestartGesture( GESTURE_SLOT_JUMP, ... ), so it is a layered gesture over whatever the
+        // body is doing rather than a body activity. Returning it as one would replace the run a
+        // player lands into.
+        PlayerActivityState.NameOf(PlayerActivity.JumpStart).ShouldBe("ACT_MP_JUMP_START_PRIMARY");
+        PlayerActivityState.NameOf(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP_FLOAT_PRIMARY");
+
+        PlayerActivityState.NameOf(PlayerActivity.JumpStart, "MELEE")
+            .ShouldBe("ACT_MP_JUMP_START_MELEE");
+    }
+
+    [Test]
     public void WaterStopsTheJump()
     {
         // HandleJumping clears the jump the moment the water reaches the waist, before it can
