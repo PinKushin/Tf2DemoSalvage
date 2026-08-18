@@ -202,6 +202,29 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>paramend</c>: the value at its last.</summary>
     public const int SequenceParameterEndOffset = 92;
 
+    /// <summary>
+    /// Byte offset of <c>weightlistindex</c>: a float per bone, the sequence's own contribution
+    /// weight for each one when it is layered as a gesture.
+    /// </summary>
+    /// <remarks>
+    /// Counted forward from <c>animindexindex</c> at 60 through <c>movementindex</c> (64),
+    /// <c>groupsize[2]</c> (68), <c>paramindex[2]</c> (76), <c>paramstart[2]</c> (84),
+    /// <c>paramend[2]</c> (92), <c>paramparent</c> (100), <c>fadeintime</c>/<c>fadeouttime</c>
+    /// (104, 108), <c>localentrynode</c>/<c>localexitnode</c>/<c>nodeflags</c> (112, 116, 120),
+    /// <c>entryphase</c>/<c>exitphase</c> (124, 128), <c>lastframe</c> (132),
+    /// <c>nextseq</c>/<c>pose</c> (136, 140), <c>numikrules</c> (144),
+    /// <c>numautolayers</c>/<c>autolayerindex</c> (148, 152) — landing here at 156. Every offset up
+    /// to <c>paramend</c> is already load-bearing elsewhere in this project and agrees with this
+    /// count, which is what makes carrying it forward trustworthy rather than a fresh guess.
+    ///
+    /// <c>SlerpBones</c> (<c>bone_setup.cpp:1373</c>) reads it as
+    /// <c>pS2[i] = s * seqdesc.weight( i )</c> — the layer's own blend-in weight times this
+    /// PER-BONE value — for both the ordinary and the <c>STUDIO_DELTA</c> branch. A gesture cannot
+    /// be composited correctly without it: applying the layer weight alone moves bones the
+    /// sequence was authored to leave untouched.
+    /// </remarks>
+    public const int SequenceWeightListIndexOffset = 156;
+
     /// <summary>Bytes per <c>mstudioposeparamdesc_t</c>.</summary>
     public const int PoseParameterStride = 20;
 

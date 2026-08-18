@@ -6697,12 +6697,17 @@ the one this project has (interpolated, uniform weight, one sequence).
 **This changes B112 from a wire-up into three subsystems, and it is being recorded as a checkpoint
 rather than built on a guess:**
 
-1. A per-bone weight list reader (`weightlistindex`/`pBoneweight`), which nothing here parses yet.
+1. ~~A per-bone weight list reader~~ — **done.** `StudioGestureWeights.ForSequence` reads
+   `weightlistindex`/`pBoneweight`. Measured rather than assumed: `jumpland_primary` and an ordinary
+   run sequence share the identical shared default table at the same absolute address, while
+   `r_handposes`/`r_armposes` in the same file carry genuinely restricted 0/1 patterns — proof the
+   offset resolves correctly rather than a guess about gesture authoring.
 2. Additive delta composition — `SlerpBones`'s `STUDIO_DELTA` branch — as a second blend primitive
-   alongside `StudioPoseBlend.Blend`, which only interpolates.
+   alongside `StudioPoseBlend.Blend`, which only interpolates. **Not started.**
 3. Gesture lifecycle: slots, cycle progression, auto-kill, and the trigger itself
    (`CTEPlayerAnimEvent` decoded off `svc_TempEntities`, which nothing reads yet either).
+   **Not started.**
 
-Not started, on the owner's direction, rather than half-built and left computing a value nothing
-composites correctly — which would be the fifth defect of exactly the shape this session has spent
-its time removing.
+Numbers 2 and 3 remain undone on the owner's direction, rather than half-built and left computing a
+value nothing composites correctly — which would be the fifth defect of exactly the shape this
+session has spent its time removing.
