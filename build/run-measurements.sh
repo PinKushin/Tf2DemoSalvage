@@ -335,6 +335,10 @@ if [ "$MODE" = fuzz ]; then
   # A real run leaves it alone; a scheduled run that quietly used the smoke value would be the
   # "reads like a measurement, measures nothing" failure this repo keeps running into.
   SHORT_TARGET_SECONDS="${FUZZ_SHORT_SECONDS:-600}"
+
+  # Between the two: long enough that a wide target keeps finding coverage, short enough that three
+  # substantial targets still fit inside the slot. See the budget case below for the arithmetic.
+  MEDIUM_TARGET_SECONDS="${FUZZ_MEDIUM_SECONDS:-7200}"
   FUZZ_OUT="$HOME/tf2-fuzz-out"
 
   rm -rf "$FUZZ_OUT"
@@ -408,8 +412,20 @@ if [ "$MODE" = fuzz ]; then
     # thin managed wrapper. Measured: a 60-second voiceopus run added 4 corpus units and then
     # saturated. More time explores the same wrapper, so the budget buys little; what would buy
     # something is a native sanitiser build, which is a different piece of work.
+    # **netmessage gets its own budget because ten minutes was measurably too short for it.** It
+    # sits in front of every message decoder in the project — server info, string tables, game
+    # events, entity snapshots, sounds, voice, user messages — and a 60-second run added 2,980
+    # corpus units and was still climbing. A target that has not saturated after a minute is not
+    # done in ten.
+    #
+    # Not the full LONG budget either, and the reason is the SLOT rather than the target: this run
+    # starts at 19:00 and PokemonBattleJournal's fuzz job starts at 07:00, so twelve hours is the
+    # whole window — and the lock REFUSES rather than queues, so overrunning does not delay their
+    # job, it silently skips it. Two long targets plus this one plus the short ones lands near six
+    # hours, leaving real margin.
     case "$target" in
       container|snappy) budget="$LONG_TARGET_SECONDS" ;;
+      netmessage)       budget="$MEDIUM_TARGET_SECONDS" ;;
       *)                budget="$SHORT_TARGET_SECONDS" ;;
     esac
 
