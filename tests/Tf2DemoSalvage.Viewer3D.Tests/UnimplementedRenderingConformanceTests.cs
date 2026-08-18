@@ -60,6 +60,44 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
+    public void AlphaTestReferenceOverridesTheCutoffAndOnlyWhenAboveZero()
+    {
+        // **The renderer hardcodes 0.5 and the engine does not always use it.** WorldRenderer's
+        // pixel shader is `clip(albedo.a - 0.5f)` for every alpha-tested surface, but Valve's own
+        // setup (BaseVSShader.cpp:925) is:
+        //
+        //     s_pShaderShadow->EnableAlphaTest( IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) );
+        //     if( alphaTestReferenceVar != -1 && params[alphaTestReferenceVar]->GetFloatValue() > 0.0f )
+        //         s_pShaderShadow->AlphaFunc( SHADER_ALPHAFUNC_GEQUAL, params[...]->GetFloatValue() );
+        //
+        // Two things follow, and the second is the one an implementation gets wrong. The cutoff is
+        // GEQUAL against $alphatestreference when the material sets one — so a material asking for
+        // 0.9 keeps only its most opaque texels and ours keeps everything above half, which
+        // thickens every alpha-tested edge. And the override applies ONLY when the value is above
+        // zero: the declaration's default is the empty string (depthwrite.cpp:23), so an absent or
+        // zero reference means "leave the API default alone" rather than "cut off at zero", which
+        // would keep every texel and turn a grate into a solid sheet.
+        //
+        // Visible on exactly the surfaces that make a map read as a map — foliage, grates,
+        // chain-link fences, ladders. This is the shape of defect that looks like bad art.
+        RequireImplemented("$alphatestreference", "no entry yet");
+
+        VmtMaterial material = Parse(
+            """
+            LightmappedGeneric
+            {
+                "$basetexture" "nature/blendgrassgravel"
+                "$alphatest" "1"
+                "$alphatestreference" "0.9"
+            }
+            """);
+
+        // When implemented, the material must carry the reference through so the shader can use it
+        // rather than its own constant.
+        material.Value("$alphatestreference").ShouldBe("0.9");
+    }
+
+    [Test]
     public void SeamlessScaleOfZeroMeansOrdinaryMapping()
     {
         // **The inverted default.** WorldVertexTransition_dx8.cpp:176 enables seamless mapping only

@@ -117,7 +117,7 @@ public sealed class VmtMaterial
     /// The cheap form, and what foliage and grates use: each pixel is drawn or discarded, nothing
     /// in between, so it needs no sorting and can be drawn in the opaque pass.
     /// </remarks>
-    public bool IsAlphaTested => Value("$alphatest") is "1";
+    public bool IsAlphaTested => Flag("$alphatest");
 
     /// <summary>Whether the surface is blended with what is behind it.</summary>
     /// <remarks>
@@ -143,7 +143,7 @@ public sealed class VmtMaterial
                 return false;
             }
 
-            if (Value("$translucent") is "1" || Value("$vertexalpha") is "1")
+            if (Flag("$translucent") || Flag("$vertexalpha"))
             {
                 return true;
             }
@@ -164,7 +164,7 @@ public sealed class VmtMaterial
     /// measured on cp_process_f12, where <c>props_lights/light_cone_farm_32</c> carries baked
     /// lighting of exactly 0.000 and every lamp in the map wears one.
     /// </remarks>
-    public bool IsAdditive => Value("$additive") is "1";
+    public bool IsAdditive => Flag("$additive");
 
     /// <summary>Whether the material MULTIPLIES what is already drawn, rather than covering it.</summary>
     /// <remarks>
@@ -191,7 +191,7 @@ public sealed class VmtMaterial
     /// calls <c>EnableCulling</c> with it inverted. Everything else culls, with front faces wound
     /// clockwise per MATERIAL_CULLMODE_CCW in <c>imaterialsystem.h:180</c>.
     /// </remarks>
-    public bool IsNoCull => Value("$nocull") is "1";
+    public bool IsNoCull => Flag("$nocull");
 
     /// <summary>Whether direct light wraps around the surface instead of stopping at the terminator.</summary>
     /// <remarks>
@@ -210,7 +210,7 @@ public sealed class VmtMaterial
     /// **It applies to DIRECT light only.** The routine is inside <c>DoLightInternal</c>, so the
     /// ambient cube is unaffected; a model in shade is lit by the cube either way.
     /// </remarks>
-    public bool IsHalfLambert => Value("$halflambert") is "1";
+    public bool IsHalfLambert => Flag("$halflambert");
 
     /// <summary>Whether the material draws TWO textures multiplied together.</summary>
     /// <remarks>
@@ -236,7 +236,7 @@ public sealed class VmtMaterial
     public string? SecondTexture => Value("$texture2");
 
     /// <summary>Whether a modulating material doubles its result.</summary>
-    public bool IsModulateTwice => IsModulate && Value("$mod2x") is "1";
+    public bool IsModulateTwice => IsModulate && Flag("$mod2x");
 
     /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
     public string? Detail => Value("$detail");
@@ -328,7 +328,7 @@ public sealed class VmtMaterial
     /// of the materials that use one. The flag is data and this is a declaration, so a caller that
     /// has the texture should prefer the flag.
     /// </remarks>
-    public bool IsSelfShadowingBump => Value("$ssbump") is "1";
+    public bool IsSelfShadowingBump => Flag("$ssbump");
 
     /// <summary>Whether parts of the surface light themselves.</summary>
     /// <remarks>
@@ -343,7 +343,7 @@ public sealed class VmtMaterial
     /// Alpha one is fully unlit, alpha zero is normally lit — so flattening the channel to opaque
     /// makes the whole surface glow rather than just the lamp in the middle of it.
     /// </remarks>
-    public bool IsSelfIlluminated => Value("$selfillum") is "1";
+    public bool IsSelfIlluminated => Flag("$selfillum");
 
     /// <summary>The colour the self-illuminated part is tinted by.</summary>
     public (float Red, float Green, float Blue) SelfIllumTint => Colour("$selfillumtint");
@@ -555,6 +555,48 @@ public sealed class VmtMaterial
         }
 
         return value;
+    }
+
+    /// <summary>Reads a boolean-valued parameter the way the engine reads one.</summary>
+    /// <param name="key">The parameter name, including its leading <c>$</c>.</param>
+    /// <returns>Whether the parameter is set to a non-zero value.</returns>
+    /// <remarks>
+    /// **Non-zero rather than equal to one, because that is what the material system does.** These
+    /// parameters are declared <c>SHADER_PARAM_TYPE_INTEGER</c> — <c>$ssbump</c> is the visible
+    /// example (<c>"whether or not to use alternate bumpmap format with height"</c>, default
+    /// <c>"0"</c>) — and the flag-valued ones become <c>MATERIAL_VAR_*</c> bits set from an integer
+    /// read. Nothing in that path compares against the string <c>"1"</c>.
+    ///
+    /// This used to be <c>Value(key) is "1"</c> for nine parameters, which agreed with the engine
+    /// on every material Valve ships and disagreed on anything else: <c>"$translucent" "2"</c>
+    /// draws translucent in TF2 and drew opaque here. A custom map's materials are parsed by the
+    /// same code as Valve's, so "Valve always writes 1" is a statement about Valve rather than
+    /// about the input this reader is given.
+    ///
+    /// Parsed leniently for the same reason: the engine's integer read is <c>atoi</c>-shaped, so
+    /// surrounding whitespace does not stop it and trailing text does not either.
+    /// </remarks>
+    private bool Flag(string key)
+    {
+        if (Value(key) is not { } text)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> digits = text.AsSpan().TrimStart();
+        int end = 0;
+
+        if (end < digits.Length && (digits[end] is '-' or '+'))
+        {
+            end++;
+        }
+
+        while (end < digits.Length && char.IsAsciiDigit(digits[end]))
+        {
+            end++;
+        }
+
+        return int.TryParse(digits[..end], CultureInfo.InvariantCulture, out int value) && value != 0;
     }
 
     private (float Red, float Green, float Blue) Colour(string key)
