@@ -9,6 +9,11 @@
     <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal.
          Inapplicable here rather than ignored. -->
     <NoWarn>$(NoWarn);CA1515</NoWarn>
+    <!-- CA5394: the deterministic fuzz layer needs a *seeded* generator so a failure names a
+         reproducible case. A cryptographic RNG cannot be seeded - the "insecurity" CA5394 warns
+         about is exactly the property being relied on here. Same justification, same wording, as
+         Core.Tests and Content.Tests, which carry it for the same suites. -->
+    <NoWarn>$(NoWarn);CA5394</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +32,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
+
+    <!-- The voice fuzz targets are defined in the fuzz project and driven from here, the same way
+         Core.Tests drives the bit reader and container targets: one definition of the property,
+         exercised both by the deterministic suite and by libFuzzer, so the cheap layer and the
+         expensive layer cannot drift apart about what "correct" means. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Fuzz\Tf2DemoSalvage.Fuzz.csproj" />
   </ItemGroup>
 
 </Project>

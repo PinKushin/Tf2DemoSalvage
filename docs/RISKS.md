@@ -6803,3 +6803,47 @@ corpus (see `docs/MEASUREMENT-PLAN.md`). It is the first finding from that work 
 the shape the plan predicted: real data carries ordinary values, and ordinary values agree with a
 broken encoder. Verified by sabotage — restoring the single `(uint)` cast reddens both negative-angle
 tests and nothing else.
+
+### B114 — a libopus abort that was the fuzz harness, not the decoder — CLOSED, NOT A DEFECT
+
+The voice fuzz target's first full run took the test host down:
+
+```
+Fatal (internal) error in D:\a\libopus\libopus\opus-src\src\opus_decoder.c, line 865:
+assertion failed: ret==packet_frame_size
+```
+
+That is `abort()` rather than a return code, so it cannot be caught, and the obvious reading was
+the alarming one: a malformed voice frame — bytes chosen by whoever supplies the `.dem` — kills the
+process. It was written up that way, and a packet-validation guard was added to
+`OpusVoiceDecoder.Decode` as the fix.
+
+**That reading was wrong, and the thing that settled it was isolating the variable rather than
+accepting the first coherent story.** Two facts did not fit: the fuzz property tests passed 12/12
+on their own, and only the FULL audio suite crashed. The difference is NUnit's parallel fixtures —
+and `VoiceFuzzTarget` held one decoder per codec in a plain `static` field, shared across every
+thread. Opus, CELT and Speex are all stateful and none is thread-safe, so two fixtures decoding
+concurrently corrupt one decoder's state, and the assertion is libopus noticing.
+
+Measured both ways, which is the only reason this is settled rather than argued:
+
+| Harness | Guard | Result |
+|---|---|---|
+| shared `static` decoders | absent | **abort** |
+| `[ThreadStatic]` decoders | absent | 28 tests pass |
+| `[ThreadStatic]` decoders | present | 28 tests pass |
+
+So the abort is fully explained by the harness, and **nothing here shows `opus_decode` mishandling
+malformed input.** The fix is `[ThreadStatic]` on the target's decoders.
+
+The guard was kept, with its comment corrected to say what it is. It is precaution rather than a
+repair: inspecting a packet before decoding is what libopus's inspection entry points are for, and
+the oversize check is a genuine buffer-safety property regardless. It is explicitly not evidence of
+a decoder bug.
+
+**Worth keeping because the failure mode is instructive.** A native abort with a real library's
+assertion text in it is extremely convincing, and it pointed at the component under test rather
+than at the instrument pointing at it — the same shape as
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`, which records five measurements that were
+wrong before any reader was. The tell was there immediately: the crash needed the whole suite and
+the targeted run was clean. A defect in the decoder would not care which other tests were running.

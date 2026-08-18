@@ -80,6 +80,44 @@ public sealed class OpusVoiceDecoder : IDisposable
         fixed (byte* dataPointer = frame)
         fixed (short* pcmPointer = pcm)
         {
+            // **Precautionary, and the comment that used to be here overstated it.** It claimed
+            // this guard fixed a crash the voice fuzz target had found — libopus aborting on
+            // `assertion failed: ret==packet_frame_size` — and that was wrong. The abort was real
+            // but the cause was the FUZZ HARNESS sharing one decoder across NUnit's parallel
+            // fixtures, and these codecs are not thread-safe. With the harness corrected the same
+            // inputs decode fine with this guard disabled, measured both ways. See RISKS B114.
+            //
+            // Kept anyway, because it is defensible on its own terms rather than as a fix: a voice
+            // frame arrives inside `svc_VoiceData`, so its bytes are chosen by whoever supplies the
+            // demo, and asking libopus about a packet before asking it to decode is what the
+            // inspection entry points are for. The oversize check in particular is a real property
+            // — a packet can be well-formed and still declare more audio than the buffer holds.
+            //
+            // What it is NOT is evidence that `opus_decode` mishandles malformed input. Nothing
+            // here has shown that, and this comment should not be read as claiming it.
+            int frameCount = NativeOpus.PacketGetFrameCount(dataPointer, frame.Length);
+            int samplesPerFrame = NativeOpus.PacketGetSamplesPerFrame(dataPointer, SampleRate);
+
+            if (frameCount <= 0 || samplesPerFrame <= 0)
+            {
+                throw new InvalidOperationException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"A {frame.Length}-byte frame is not a valid Opus packet: " +
+                    $"opus_packet_get_nb_frames returned {frameCount} and " +
+                    $"opus_packet_get_samples_per_frame returned {samplesPerFrame}."));
+            }
+
+            // Checked as well as the framing, because a packet can be well-formed and still
+            // declare more audio than the buffer holds — 120 ms is the most Opus can produce, so
+            // anything beyond it would have overrun a buffer sized to that.
+            if ((long)frameCount * samplesPerFrame > MaxFrameSamples)
+            {
+                throw new InvalidOperationException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"A {frame.Length}-byte frame declares {frameCount} frames of " +
+                    $"{samplesPerFrame} samples, beyond the {MaxFrameSamples}-sample maximum."));
+            }
+
             samples = NativeOpus.Decode(
                 _decoder, dataPointer, frame.Length, pcmPointer, MaxFrameSamples, 0);
         }

@@ -4,7 +4,7 @@
 #
 #   bash tools/fuzz/run-box-fuzz.sh <target> [seconds] [--no-pull]
 #
-#   target: bitreader | varint | container | snappy | netmessage
+#   target: bitreader | varint | container | snappy | netmessage | voiceopus | voicecelt | voicespeex
 #   seconds: per-target time budget, default 300
 #
 # Mirrors PokemonBattleJournal's build/run-measurements.sh deliberately - same lock, same
@@ -39,9 +39,9 @@ for a in "$@"; do
 done
 
 case "$TARGET" in
-  bitreader|varint|container|snappy|netmessage) ;;
+  bitreader|varint|container|snappy|netmessage|voiceopus|voicecelt|voicespeex) ;;
   *)
-    echo "usage: $0 {bitreader|varint|container|snappy|netmessage} [seconds] [--no-pull]" >&2
+    echo "usage: $0 {bitreader|varint|container|snappy|netmessage|voiceopus|voicecelt|voicespeex} [seconds] [--no-pull]" >&2
     exit 2
     ;;
 esac

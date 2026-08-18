@@ -47,6 +47,23 @@ internal static partial class NativeOpus
     internal static partial void DecoderDestroy(nint decoder);
 
     /// <summary>
+    /// How many frames a packet declares, or a negative error code when it is malformed.
+    /// </summary>
+    /// <remarks>
+    /// **Packet inspection exists so a caller can refuse a packet WITHOUT decoding it**, and this
+    /// project needs it because <c>opus_decode</c> is not safe to call on arbitrary bytes with the
+    /// library built as it is shipped. See <see cref="OpusVoiceDecoder.Decode"/> and RISKS B114.
+    /// </remarks>
+    [LibraryImport(Library, EntryPoint = "opus_packet_get_nb_frames")]
+    [DefaultDllImportSearchPaths(SearchPath)]
+    internal static unsafe partial int PacketGetFrameCount(byte* packet, int length);
+
+    /// <summary>Samples per frame for a packet, from its TOC byte and the sample rate.</summary>
+    [LibraryImport(Library, EntryPoint = "opus_packet_get_samples_per_frame")]
+    [DefaultDllImportSearchPaths(SearchPath)]
+    internal static unsafe partial int PacketGetSamplesPerFrame(byte* packet, int sampleRate);
+
+    /// <summary>
     /// Decodes one Opus packet to 16-bit PCM.
     /// </summary>
     /// <returns>Samples per channel decoded, or a negative <c>opus_errorcodes</c> value.</returns>

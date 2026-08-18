@@ -26,6 +26,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+
+    <!-- The voice targets drive real codec libraries through P/Invoke. That is the whole point of
+         them: a fault in native code is memory corruption rather than an exception, so libFuzzer
+         detects it by the process dying rather than by anything this assembly asserts. -->
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
   </ItemGroup>
 
 </Project>
