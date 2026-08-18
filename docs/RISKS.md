@@ -6712,12 +6712,28 @@ rather than built on a guess:**
    Predictions computed by hand from Valve's own quaternion formulas — the sign-flipped Z component
    between POST and non-POST is the discriminator — and verified by sabotage: swapping the multiply
    order reddens exactly the two order-dependent tests and no others.
-3. Gesture lifecycle: slots, cycle progression, auto-kill, and the trigger itself
-   (`CTEPlayerAnimEvent` decoded off `svc_TempEntities`, which nothing reads yet either).
-   **Not started.**
+3. Gesture lifecycle. Split in two along the axis that actually matters here — whether the piece is
+   era-fragile:
+   - **3a — cycle progression + auto-kill — done.** `GestureLayer` (Core.Scene) ports the
+     `CLIENT_DLL` branch of `UpdateGestureLayer` (`multiplayer_animstate.cpp:1275`): `cycle =
+     elapsed/duration`, and once that passes one strictly (`> 1.0f`) either the gesture is gone
+     (`m_bAutoKill`) or it holds on its last frame (`m_flCycle = 1.0`). Closed form is exact, not an
+     approximation: on the standard `AddToGestureSlot` path every rate factor is constant —
+     `m_flPlaybackRate = 1.0`, `GetGesturePlaybackRate = 1.0`, `GetSequenceCycleRate = Studio_CPS =
+     1/duration` (`bone_setup.cpp:5532`) — so the per-frame integration sums to the closed form, and
+     the client's own `frametime`s (which the closed form avoids needing) are not recorded in the
+     demo anyway. That same path fixes the layer weight at `1.0` with zero blend in/out, which is why
+     `GestureLayer` carries no weight or fade — the per-bone shaping is the weight list from slice 1,
+     not a layer envelope. The auto-kill discriminator (`null` vs held `1.0`) and the strict `> 1.0f`
+     boundary were both verified by sabotage: each reddens exactly its own test.
+   - **3b — the trigger and the slot map — remaining, and era-fragile.** `CTEPlayerAnimEvent` already
+     decodes off `svc_TempEntities` generically (`m_hPlayer`, `m_iEvent`, `m_nData` are in the
+     decoded property set); what is missing is interpreting `m_iEvent` as a `PlayerAnimEvent_t` and
+     running `DoAnimationEvent`'s event→slot+activity mapping. The risk is that the enum is not
+     stable across eras — inserting a `PLAYERANIMEVENT_*` member shifts every ordinal after it, so a
+     value read from a protocol-11 demo is not necessarily the same event the current SDK's enum
+     names. This needs the same measured, per-era treatment the message-id and field-width work got,
+     not a straight port of one build's enum.
 
-Number 3 remains undone on the owner's direction, rather than half-built and left computing a value
-nothing composites correctly — which would be the fifth defect of exactly the shape this session has
-spent its time removing. With the weight list and the delta composition both in place and tested,
-the remaining slice is purely the lifecycle: decoding the temp-entity event, mapping it to a slot,
-advancing the layer's own cycle, and auto-killing it at the end.
+3b remains on the owner's direction. 3a was the era-clean half and is landed and tested; the enum
+mapping is deferred precisely because it cannot be done safely from the SDK alone.
