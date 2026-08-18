@@ -105,12 +105,28 @@ ordinary tests only.
    run that did anything (`docs/FUZZING.md`). No findings, which is the expected result against a
    function documented as total.
 
-   Still unfuzzed and worth doing, hardest-hitting first: **the three voice decoders**, because they
-   parse untrusted network audio through NATIVE code, so a fault there is memory corruption rather
-   than an exception — and they now build on Linux, which is what previously made this impossible.
-   Then entity decode and string tables, both reachable through `netmessage` already but worth
-   direct targets with their own corpora, since an input shaped for one decoder does not explore
-   another.
+   **The three voice targets are added too** — `voiceopus`, `voicecelt`, `voicespeex`, separate
+   corpora each. They are the only targets where a finding is memory corruption rather than an
+   exception, since they hand caller-chosen bytes to a C library.
+
+   **A prerequisite that is easy to forget: the codecs must be built on EACH box.** They are not
+   committed, and `fuzz-box` is a different machine from `mutation-box` —
+   `bash tools/native-audio/build.sh` once per box.
+
+   Two things learned building these, both recorded in RISKS B114:
+
+   - **The decoders are stateful and none is thread-safe.** A plain `static` decoder in the target
+     is fine under libFuzzer, which is single-threaded, and aborts under NUnit's parallel fixtures.
+     `[ThreadStatic]` is what makes the target usable from both. This cost a false finding: libopus
+     aborted on its own assertion, which read as a decoder defect and was the harness.
+   - **Random bytes are ACCEPTED by these codecs, not refused** — measured by tightening the
+     plausibility bound for one run. They are built to survive bit errors, so the fuzz budget goes
+     into real decode paths rather than bouncing off validation. That is what makes them a good
+     target.
+
+   Still unfuzzed: entity decode and string tables. Both are reachable through `netmessage` already,
+   but each is worth a direct target with its own corpus, since an input shaped for one decoder does
+   not explore another.
 5. **Viewer3D last, and maybe never.** 16.8 k LOC but mostly rendering, which mutation-tests as
    poorly as UI does. Split the non-rendering logic out first, or skip it.
 
