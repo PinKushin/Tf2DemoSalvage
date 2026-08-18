@@ -171,6 +171,14 @@ internal class MainForm : Form
     /// </remarks>
     private PlayerClassModels? _classModels;
 
+    /// <summary>Which activity suffix each weapon in this demo drives.</summary>
+    /// <remarks>
+    /// Per demo rather than per install, because it is built from the weapon classes the recording
+    /// mentions — reading all 78 shipped scripts to answer for the four a match uses would be work
+    /// for nothing, and each one costs an ICE decryption.
+    /// </remarks>
+    private WeaponRoles? _weaponRoles;
+
     /// <summary>Players turned into drawable models, rebuilt each frame.</summary>
     /// <remarks>
     /// Kept as a field so the per-frame allocation happens once rather than per tick.
@@ -1394,6 +1402,50 @@ internal class MainForm : Form
         }
     }
 
+    /// <summary>Reads each weapon's animation role, once both the demo and the game are open.</summary>
+    /// <remarks>
+    /// **Lazy because the two things it needs arrive in the opposite order to the obvious one.**
+    /// The first version built this beside the timeline, which is where the weapon classes become
+    /// known — and the archives are opened AFTER that, so <c>_archives</c> was null every time and
+    /// the roles were never read. Nothing failed: every suffix came back null, the lookup fell back
+    /// to the primary forms, and the viewer drew exactly what it had drawn before. The unit tests
+    /// passed throughout, because they call <c>WeaponRoles</c> directly.
+    ///
+    /// It was caught by a line missing from the log, which is the only instrument that could have
+    /// caught it — the defect is in the wiring, and every component was correct.
+    /// </remarks>
+    private void EnsureWeaponRoles()
+    {
+        if (_weaponRoles is not null || _archives is not { } archives || _timeline is not { } timeline)
+        {
+            return;
+        }
+
+        // Only the classes this recording mentions: the archive holds 78 weapon scripts, a match
+        // touches a handful, and each one costs an ICE decryption.
+        HashSet<string> held = new(StringComparer.Ordinal);
+
+        foreach (TimelineFrame frame in timeline.Frames)
+        {
+            foreach (ScenePlayer player in frame.Players)
+            {
+                if (player.WeaponClass is { } weapon)
+                {
+                    held.Add(weapon);
+                }
+            }
+        }
+
+        _weaponRoles = WeaponRoles.Read(archives.Read, held);
+
+        ViewerLog.Write(
+            "demo",
+            "weapon roles: " + string.Join(
+                ", ",
+                held.OrderBy(name => name, StringComparer.Ordinal)
+                    .Select(name => $"{name}={_weaponRoles.Suffix(name)}")));
+    }
+
     /// <summary>The model a player is drawn as, or null when they are not drawn as one.</summary>
     /// <param name="player">The player.</param>
     /// <remarks>
@@ -1828,6 +1880,10 @@ internal class MainForm : Form
         _drawn.Clear();
         _drawn.AddRange(_props);
 
+        // Cheap after the first call, and this is the first point where both the demo and the
+        // game's archives are certain to be open.
+        EnsureWeaponRoles();
+
         foreach (ScenePlayer player in _players)
         {
             if (PlayerModel(player) is not { } model)
@@ -1862,6 +1918,11 @@ internal class MainForm : Form
                     // because the model has not been read yet and the activity lookup needs it, so
                     // the choice happens in a second pass below.
                     Flags = player.Flags,
+
+                    // **Which weapon they are holding, as the suffix it drives.** Same reason as
+                    // the flags: resolved here where the player is known, used a pass later where
+                    // the model is.
+                    Slot = _weaponRoles?.Suffix(player.WeaponClass),
 
                     // **Which way the legs run.** A movement sequence is a blend grid and these
                     // are its coordinates; without them the grid's corner is taken, which is one
@@ -1915,7 +1976,11 @@ internal class MainForm : Form
                     // WERE reaching this call. With their ground flag clear they were then given
                     // ACT_MP_JUMP_FLOAT, so seventeen seconds of a respawn drew a soldier falling
                     // through the air.
-                    alive: true) is var chosen and >= 0)
+                    alive: true,
+
+                    // The weapon's suffix, or the primary forms when nothing resolved it — which is
+                    // what the engine falls back to as well.
+                    slot: prop.Pose.Slot ?? "PRIMARY") is var chosen and >= 0)
             {
                 _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }
@@ -2122,6 +2187,11 @@ internal class MainForm : Form
                     "demo",
                     $"{_timeline.Frames.Count} recorded moments, ticks {_timeline.FirstTick} to " +
                     $"{_timeline.LastTick}");
+
+                // The weapon roles are NOT built here, and the first attempt was. See
+                // EnsureWeaponRoles: the archives are opened later than this, so building here
+                // silently produced nothing.
+                _weaponRoles = null;
 
                 // **The rate the recording server ran, not a constant.** It is a server setting, so
                 // a box left at its default runs 33 where a configured one runs 66, and replaying

@@ -301,18 +301,25 @@ internal sealed class EntityModelSet
     /// <param name="speed">Horizontal speed in units a second.</param>
     /// <param name="flags">
     /// The player's <c>m_fFlags</c>, carrying the crouch and ground bits, or null when the recording
-    /// did not say — which is every player but the recorder in a POV demo.
+    /// did not say. Not a POV-versus-SourceTV distinction, as this said before B103: the property is
+    /// on <c>DT_BasePlayer</c> and reaches every player in the PVS.
     /// </param>
     /// <param name="alive">Whether the player is alive.</param>
+    /// <param name="slot">The suffix the held weapon drives, such as <c>SECONDARY</c>.</param>
     /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
     /// model was loaded skinned - a baked model has no merged sequence table to search.
     /// </remarks>
-    public int SequenceFor(string modelPath, float speed, int? flags = null, bool alive = true) =>
+    public int SequenceFor(
+        string modelPath,
+        float speed,
+        int? flags = null,
+        bool alive = true,
+        string slot = "PRIMARY") =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
-            ? PlayerAnimation.For(skinned, speed, flags, alive)
+            ? PlayerAnimation.For(skinned, speed, flags, alive, slot)
             : -1;
 
     /// <summary>Every baked frame's batches for one model.</summary>
