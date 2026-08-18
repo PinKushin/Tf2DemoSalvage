@@ -116,17 +116,33 @@ if [ "$TARGET" = "container" ]; then
   fi
 fi
 
-# Instrument Core, not the harness: coverage feedback has to come from the code under test
-# or the fuzzer explores nothing while still reporting a clean run - see the "no proof
+# Instrument the code under test, not the harness: coverage feedback has to come from the
+# decoder or the fuzzer explores nothing while still reporting a clean run - see the "no proof
 # instrumentation happened" check in the GitHub workflow, which exists for the same reason.
-before=$(stat -c%s "${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Core.dll")
-sharpfuzz "${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Core.dll" 9>&-
-after=$(stat -c%s "${HOME}/fuzz-out-${TARGET}/Tf2DemoSalvage.Core.dll")
-echo "Core.dll ${before} -> ${after} bytes"
-if [ "$after" -le "$before" ]; then
-  echo "ERROR: instrumentation did not change Core.dll - the fuzzer would explore nothing." >&2
-  exit 1
-fi
+#
+# **Which assembly holds the code under test depends on the target, and getting that wrong is
+# silent.** The voice targets decode entirely inside Tf2DemoSalvage.Audio; instrumenting only Core
+# for them left libFuzzer with no coverage signal at all, so the run was blind random testing
+# wearing the clothes of coverage-guided fuzzing. Measured 2026-08-18: voiceopus did 1,071,627
+# executions in 61 seconds and added ZERO new corpus units, which is the symptom -- executions
+# grow because the process is running, and the corpus does not because nothing reports coverage.
+case "$TARGET" in
+  voiceopus|voicecelt|voicespeex) ASSEMBLIES="Tf2DemoSalvage.Audio.dll Tf2DemoSalvage.Core.dll" ;;
+  *) ASSEMBLIES="Tf2DemoSalvage.Core.dll" ;;
+esac
+
+for assembly in $ASSEMBLIES; do
+  path="${HOME}/fuzz-out-${TARGET}/${assembly}"
+  before=$(stat -c%s "$path")
+  sharpfuzz "$path" 9>&-
+  after=$(stat -c%s "$path")
+  echo "${assembly} ${before} -> ${after} bytes"
+
+  if [ "$after" -le "$before" ]; then
+    echo "ERROR: instrumentation did not change ${assembly} - the fuzzer would explore nothing." >&2
+    exit 1
+  fi
+done
 
 TF2FUZZ_TARGET="$TARGET" "${HOME}/libfuzzer-dotnet" \
   --target_path="$(which dotnet)" \
