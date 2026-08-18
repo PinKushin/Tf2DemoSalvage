@@ -74,6 +74,7 @@ internal static class PlayerAnimation
     /// How long since the player left the ground, or null when it cannot be told — which splits a
     /// jump into <c>ACT_MP_JUMP_START</c> and <c>ACT_MP_JUMP_FLOAT</c>.
     /// </param>
+    /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
     /// <param name="airwalking">
     /// Whether they are rising fast enough to air-walk and their class allows it, which supersedes
     /// the jump entirely.
@@ -99,7 +100,8 @@ internal static class PlayerAnimation
         bool alive,
         string slot = "PRIMARY",
         float? airborneSeconds = null,
-        bool airwalking = false)
+        bool airwalking = false,
+        int? waterLevel = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -107,8 +109,13 @@ internal static class PlayerAnimation
         // instead would say AIRBORNE, and every player in a POV demo would be drawn falling.
         int state = flags ?? PlayerActivityState.OnGround;
 
+        // **WL_Waist, which is 2** — Valve documents the four levels at player.cpp:1961 and both
+        // HandleJumping and HandleSwimming test `>= WL_Waist`. This was hardcoded false until the
+        // water level was decoded, so nobody in any recording ever swam.
+        bool waistDeep = waterLevel >= PlayerActivityState.WaistDeepWaterLevel;
+
         PlayerActivity activity = PlayerActivityState.For(
-            state, speed, waistDeep: false, alive, airborneSeconds, airwalking);
+            state, speed, waistDeep, alive, airborneSeconds, airwalking);
 
         int wanted = model.ForActivity(PlayerActivityState.NameOf(activity, slot));
 

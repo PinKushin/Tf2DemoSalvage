@@ -120,7 +120,10 @@ public sealed class PlayerCompletenessTests
         // Different from Yaw above, which is the point: the feet and the eyes part company when a
         // player turns on the spot, and a rebuild that collapsed the two would pass if they matched.
         EyeYaw: -95f,
-        AimYaw: 44f);
+        AimYaw: 44f,
+
+        // Waist deep, so losing it reads as dry land rather than as a default.
+        WaterLevel: 2);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

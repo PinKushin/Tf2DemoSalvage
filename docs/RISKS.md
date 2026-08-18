@@ -6602,3 +6602,25 @@ silently absent from it.
 
 The original truncation is still not explained, and the honest position is that it now cannot hide:
 the floors would fail it and the per-project run removes its most likely cause.
+
+### B110 — nobody swam: waistDeep was hardcoded false — RESOLVED
+
+`PlayerAnimation.For` passed `waistDeep: false` to the activity state machine, so the swimming
+branch of `CalcMainActivity` was unreachable in every recording ever opened. A stub rather than a
+decision, and the kind the owner is right to dislike: the state machine handled swimming correctly
+and nothing could reach it.
+
+`m_nWaterLevel` is on the wire — `SendPropInt( SENDINFO( m_nWaterLevel ), 2, SPROP_UNSIGNED )` at
+`tf_player.cpp:792`, two bits for four levels, which Valve documents in a comment at
+`player.cpp:1961`: 0 not in water, 1 feet, 2 waist, 3 eyes.
+
+**Sent on `DT_TFPlayer` rather than a local-player table**, deliberately, with a note saying why:
+"This will create a race condition will the local player, but the data will be the same so.....".
+`DT_BasePlayer` carries its own copy for the local player alone, so reading that one would have
+worked for a POV recorder and nobody else — the same shape as B103, and avoided this time by
+checking the enclosing table before writing the constant. `SendTableConformanceTests` confirms the
+pair.
+
+The threshold is `>= WL_Waist`, tested identically by `HandleJumping` (which cancels a jump the
+moment the water reaches the waist) and `HandleSwimming`. Feet-deep water is not swimming, which the
+test pins: a player wading a shallow puddle keeps running.

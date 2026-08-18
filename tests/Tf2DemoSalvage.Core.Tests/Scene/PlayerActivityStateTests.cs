@@ -201,6 +201,22 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
+    public void TheWaistIsWhereSwimmingStarts()
+    {
+        // **WL_Waist is 2**, from Valve's own comment at player.cpp:1961 — 0 dry, 1 feet, 2 waist,
+        // 3 eyes — and both HandleJumping and HandleSwimming test `>= WL_Waist`. Feet-deep water is
+        // therefore NOT swimming, which is the boundary worth pinning: a player wading through a
+        // shallow puddle keeps running.
+        PlayerActivityState.WaistDeepWaterLevel.ShouldBe(2);
+
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true)
+            .ShouldBe(PlayerActivity.Jump, "feet in water is not swimming; this is still a jump");
+
+        PlayerActivityState.For(0, Still, waistDeep: true, alive: true)
+            .ShouldBe(PlayerActivity.SwimIdle);
+    }
+
+    [Test]
     public void CrouchingBeatsSwimming()
     {
         // HandleDucking is asked before HandleSwimming. Ordering these the other way is the kind of

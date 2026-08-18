@@ -1941,6 +1941,9 @@ internal class MainForm : Form
                     EyeYaw = player.EyeYaw,
                     AimYaw = player.AimYaw,
 
+                    // Waist deep is where a jump becomes a swim.
+                    WaterLevel = player.WaterLevel,
+
                     // **Both halves of the air-walk meet here.** The timeline says the player rose
                     // fast enough to start one; the class script says whether their class does it
                     // at all, and only the medic opts out. Neither layer can answer both.
@@ -2010,7 +2013,10 @@ internal class MainForm : Form
                     airborneSeconds: prop.Pose.AirborneSeconds,
 
                     // Supersedes the jump for a fast-rising player.
-                    airwalking: prop.Pose.Airwalking) is var chosen and >= 0)
+                    airwalking: prop.Pose.Airwalking,
+
+                    // Waist deep turns a jump into a swim.
+                    waterLevel: prop.Pose.WaterLevel) is var chosen and >= 0)
             {
                 _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }

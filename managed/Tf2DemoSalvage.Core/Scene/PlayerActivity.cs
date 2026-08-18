@@ -129,6 +129,15 @@ public static class PlayerActivityState
     /// </remarks>
     public const float AirwalkRiseSpeed = 300f;
 
+    /// <summary>The water level at which a player swims rather than walks or jumps.</summary>
+    /// <remarks>
+    /// <c>WL_Waist</c>. Valve documents the four values in a comment at <c>player.cpp:1961</c>:
+    /// 0 not in water, 1 feet, 2 waist, 3 eyes. Both <c>HandleJumping</c> and
+    /// <c>HandleSwimming</c> test <c>GetWaterLevel() >= WL_Waist</c>, so waist deep is where a jump
+    /// becomes a swim.
+    /// </remarks>
+    public const int WaistDeepWaterLevel = 2;
+
     /// <summary>At rest on the ground — <c>FL_ONGROUND</c>.</summary>
     public const int OnGround = 1 << 0;
 

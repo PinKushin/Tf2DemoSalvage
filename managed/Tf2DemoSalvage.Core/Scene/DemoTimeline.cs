@@ -52,6 +52,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// The <c>body_yaw</c> pose parameter — how far the torso is twisted from the feet, already negated
 /// as the engine negates it.
 /// </param>
+/// <param name="WaterLevel">
+/// How deep in water they are — 0 dry, 1 feet, 2 waist, 3 eyes (<c>player.cpp:1961</c>). Waist deep
+/// is where the animation changes: both <c>HandleJumping</c> and <c>HandleSwimming</c> test
+/// <c>&gt;= WL_Waist</c>, so a player who leaps into water swims rather than falling with their
+/// legs tucked.
+/// </param>
 /// <param name="ActiveWeapon">
 /// Which entity is the weapon in hand, or <c>null</c> when none is held. Decoded from
 /// <c>m_hActiveWeapon</c> on <c>DT_BaseCombatCharacter</c>, so it arrives for every player in the
@@ -97,6 +103,7 @@ public readonly record struct ScenePlayer(
     float? EyePitch = null,
     float? EyeYaw = null,
     float? AimYaw = null,
+    int? WaterLevel = null,
     int? ActiveWeapon = null,
     string? WeaponClass = null)
 {
@@ -638,6 +645,7 @@ public sealed class DemoTimeline
                     AirborneSeconds: airborne,
                     Airwalking: airwalkingSince.Contains(player.EntityIndex),
                     EyePitch: lookingAt,
+                    WaterLevel: player.WaterLevel(),
                     ActiveWeapon: player.ActiveWeapon(),
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)

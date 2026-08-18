@@ -52,6 +52,7 @@ public sealed class EntityState
             [ServerAnimationTable] = [CycleProperty],
             [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
             [CombatCharacterTable] = [ActiveWeaponProperty],
+            [TfPlayerTable] = [WaterLevelProperty],
         };
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
@@ -196,6 +197,22 @@ public sealed class EntityState
 
     /// <summary>The handle naming the weapon currently in hand.</summary>
     private const string ActiveWeaponProperty = "m_hActiveWeapon";
+
+    /// <summary>TF2's own player table, for what only a TF2 player sends.</summary>
+    private const string TfPlayerTable = "DT_TFPlayer";
+
+    /// <summary>How deep in water the player is.</summary>
+    /// <remarks>
+    /// <c>SendPropInt( SENDINFO( m_nWaterLevel ), 2, SPROP_UNSIGNED )</c>,
+    /// <c>tf_player.cpp:792</c> — two bits, so four levels, and Valve documents them in a comment at
+    /// <c>player.cpp:1961</c>: 0 not in water, 1 feet, 2 waist, 3 eyes.
+    ///
+    /// **Sent on <c>DT_TFPlayer</c> rather than the local-player table**, deliberately and with a
+    /// note saying why: "This will create a race condition will the local player, but the data will
+    /// be the same so.....". <c>DT_BasePlayer</c> carries its own copy for the local player alone;
+    /// this is the one that arrives for everybody.
+    /// </remarks>
+    private const string WaterLevelProperty = "m_nWaterLevel";
 
     /// <summary>0 alive, 1 dying, 2 dead; see LIFE_ALIVE in const.h.</summary>
     private const string LifeStateProperty = "m_lifeState";
@@ -364,6 +381,15 @@ public sealed class EntityState
     /// </remarks>
     public int? ActiveWeapon() =>
         Slot(Integer($"{CombatCharacterTable}.{ActiveWeaponProperty}"));
+
+    /// <summary>How deep in water the player is: 0 dry, 1 feet, 2 waist, 3 eyes.</summary>
+    /// <returns>The level, or <c>null</c> when the recording never said.</returns>
+    /// <remarks>
+    /// **Waist deep is where the animation changes.** Both <c>HandleJumping</c> and
+    /// <c>HandleSwimming</c> test <c>GetWaterLevel() >= WL_Waist</c> — a player who leaps into water
+    /// stops mid-jump and swims rather than falling with their legs tucked.
+    /// </remarks>
+    public int? WaterLevel() => Integer($"{TfPlayerTable}.{WaterLevelProperty}");
 
     /// <summary>The entity slot a networked handle names, or null when it names nothing.</summary>
     /// <param name="handle">The raw networked value, or null when the property was never sent.</param>
