@@ -382,8 +382,32 @@ if [ "$MODE" = fuzz ]; then
     exit 1
   fi
 
+  # **Audio too, because the voice targets decode entirely inside it.** Instrumenting only Core for
+  # those leaves libFuzzer with no coverage signal at all: the run does millions of executions and
+  # adds ZERO corpus units, which reads as a clean fast run rather than as a blind one. Measured on
+  # fuzz-box 2026-08-18 — voiceopus did 1,071,627 executions and added nothing until Audio was
+  # instrumented, after which the same target reported coverage and grew the corpus.
+  #
+  # Instrumented unconditionally rather than per target: this runner fuzzes every target in one
+  # pass out of one output directory, so the assembly has to be ready before the loop starts.
+  before=$(stat -c%s "${FUZZ_OUT}/Tf2DemoSalvage.Audio.dll")
+  sharpfuzz "${FUZZ_OUT}/Tf2DemoSalvage.Audio.dll" 9>&-
+  after=$(stat -c%s "${FUZZ_OUT}/Tf2DemoSalvage.Audio.dll")
+  echo "instrumented Audio.dll: ${before} -> ${after} bytes"
+
+  if [ "$after" -le "$before" ]; then
+    echo "ERROR: sharpfuzz did not grow Audio.dll - the voice targets would explore nothing." >&2
+    exit 1
+  fi
+
   FUZZ_STATUS=0
-  for target in bitreader varint container snappy netmessage; do
+  for target in bitreader varint container snappy netmessage voiceopus voicecelt voicespeex; do
+    # **The voice targets get the SHORT budget deliberately, despite being the highest-value ones.**
+    # A finding there is memory corruption rather than an exception, so they matter most — but
+    # SharpFuzz instruments IL and the decoders are native, so libFuzzer only sees coverage of the
+    # thin managed wrapper. Measured: a 60-second voiceopus run added 4 corpus units and then
+    # saturated. More time explores the same wrapper, so the budget buys little; what would buy
+    # something is a native sanitiser build, which is a different piece of work.
     case "$target" in
       container|snappy) budget="$LONG_TARGET_SECONDS" ;;
       *)                budget="$SHORT_TARGET_SECONDS" ;;
@@ -467,7 +491,7 @@ if [ "$MODE" = fuzz ]; then
   #
   # The count is taken before the loop and compared after, so what prints is what THIS run produced.
   # The persistent total is still shown, quietly, because it is the thing that needs triaging.
-  for target in bitreader varint container snappy netmessage; do
+  for target in bitreader varint container snappy netmessage voiceopus voicecelt voicespeex; do
     total=$(ls -1 "$HOME/findings-${target}" 2>/dev/null | wc -l)
     # Read back with the same eval form it was written with. `${!name}` indirect expansion refused
     # this outright ("invalid indirect expansion") and is not worth the cleverness.
@@ -492,7 +516,7 @@ if [ "$MODE" = fuzz ]; then
   # does not publish — the box keeps its own corpus and nothing is lost.
   if [ "$FUZZ_STATUS" = 0 ]; then
     echo "=== minimising and publishing the shared corpus"
-    for target in bitreader varint container snappy netmessage; do
+    for target in bitreader varint container snappy netmessage voiceopus voicecelt voicespeex; do
       corpus_dir="$HOME/corpus-${target}"
       min_dir="${corpus_dir}-min"
       before_count=$(find "$corpus_dir" -type f | wc -l)

@@ -108,6 +108,58 @@ public sealed class VtfTextureTests
     }
 
     [Test]
+    public void Decode_Dxt1_ExpandsEveryChannelByItsOwnWidth()
+    {
+        // **A colour where all three channels differ, which the rest of this file does not have.**
+        // Everything else here is pure red, pure blue, black or white — and against those, the
+        // green channel's arithmetic cannot be told apart from any other: green is zero in three of
+        // them and saturated in the fourth, so a wrong divisor gives the same answer.
+        //
+        // Measured 2026-08-18: VtfTexture carried 43 surviving arithmetic mutants, concentrated on
+        // this expansion, for exactly that reason. The formula was right and cited; the inputs
+        // could not distinguish it from a wrong one.
+        //
+        // Red is 5 bits, green is 6, blue is 5, each expanded by repeating the high bits so full
+        // scale reaches 255. Picking 10/20/30 of their ranges:
+        //
+        //   red   = 10 * 255 / 31 =  82  (integer division, 2550/31 = 82.2)
+        //   green = 20 * 255 / 63 =  80  (5100/63 = 80.9)
+        //   blue  = 30 * 255 / 31 = 246  (7650/31 = 246.7)
+        //
+        // The three land on different values, so a channel read at the wrong shift or divided by
+        // the wrong constant shows up as a wrong number rather than as a coincidence.
+        ushort colour = (ushort)((10 << 11) | (20 << 5) | 30);
+
+        byte[] block = Dxt1Block(first: colour, second: 0x0000, indices: 0x00000000);
+        byte[] file = Vtf(VtfFormat.Dxt1, width: 4, height: 4, mips: 1, images: block);
+
+        VtfTexture texture = VtfTexture.Decode(file);
+
+        texture.Pixels[0].ShouldBe((byte)82, "red is five bits over 31");
+        texture.Pixels[1].ShouldBe((byte)80, "green is six bits over 63");
+        texture.Pixels[2].ShouldBe((byte)246, "blue is five bits over 31");
+        texture.Pixels[3].ShouldBe((byte)255, "DXT1 without one-bit alpha is opaque");
+    }
+
+    [Test]
+    public void Decode_ARefusedSize_IsReportedRatherThanRead()
+    {
+        // The guard nothing reached: `width <= 0 || height <= 0 || mipCount <= 0`. Every other test
+        // here supplies a sensible header, so mutating that comparison survived — not because the
+        // check is wrong but because no case ever asked it anything.
+        //
+        // Each of the three separately, since one zero satisfies the whole condition and would
+        // leave the other two untested.
+        byte[] noWidth = Vtf(VtfFormat.Dxt1, width: 0, height: 4, mips: 1, images: Dxt1Block(0xF800, 0, 0));
+        byte[] noHeight = Vtf(VtfFormat.Dxt1, width: 4, height: 0, mips: 1, images: Dxt1Block(0xF800, 0, 0));
+        byte[] noMips = Vtf(VtfFormat.Dxt1, width: 4, height: 4, mips: 0, images: Dxt1Block(0xF800, 0, 0));
+
+        Should.Throw<InvalidDataException>(() => VtfTexture.Decode(noWidth));
+        Should.Throw<InvalidDataException>(() => VtfTexture.Decode(noHeight));
+        Should.Throw<InvalidDataException>(() => VtfTexture.Decode(noMips));
+    }
+
+    [Test]
     public void Decode_WithASizeLimit_TakesTheSmallerMip()
     {
         // The reason the limit exists: an overhead view of a whole map does not need 1024-pixel
