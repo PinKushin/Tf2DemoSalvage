@@ -6670,3 +6670,39 @@ Traced end to end in the SDK, and it is a subsystem rather than a gap:
 The reload rate has weapon attributes folded in (`mult_reload_time`, `fast_reload`,
 `multiplayer_animstate.cpp:198`), which needs the econ item — the same dependency the `anim_slot`
 override has.
+
+**Measured rather than assumed: every gesture checked is additive, not interpolated.** `jumpland_*`
+and `a_flinch01` on both `scout_animations.mdl` and `soldier_animations.mdl` all carry flags `0x14`
+— `STUDIO_POST | STUDIO_DELTA` — confirmed with a probe rather than guessed. That matters because
+`SlerpBones` (`bone_setup.cpp:1373`) takes an entirely different branch for `STUDIO_DELTA`:
+
+```cpp
+if (seqdesc.flags & STUDIO_DELTA)
+{
+    // adds to the base pose per bone, not slerp blends toward the gesture's own pose
+}
+```
+
+and the per-bone strength for either branch is not the layer weight alone — it is
+
+```cpp
+pS2[i] = s * seqdesc.weight( i );	// blend in based on this bone's weight
+```
+
+`seqdesc.weight(i)` comes from `mstudioseqdesc_t.weightlistindex` → `pBoneweight(i)`, one float per
+bone, authored per sequence. So a landing gesture is not "play a second sequence and mix" — it is a
+genuinely different pose-composition primitive (additive delta, per-bone weighted) layered on top of
+the one this project has (interpolated, uniform weight, one sequence).
+
+**This changes B112 from a wire-up into three subsystems, and it is being recorded as a checkpoint
+rather than built on a guess:**
+
+1. A per-bone weight list reader (`weightlistindex`/`pBoneweight`), which nothing here parses yet.
+2. Additive delta composition — `SlerpBones`'s `STUDIO_DELTA` branch — as a second blend primitive
+   alongside `StudioPoseBlend.Blend`, which only interpolates.
+3. Gesture lifecycle: slots, cycle progression, auto-kill, and the trigger itself
+   (`CTEPlayerAnimEvent` decoded off `svc_TempEntities`, which nothing reads yet either).
+
+Not started, on the owner's direction, rather than half-built and left computing a value nothing
+composites correctly — which would be the fifth defect of exactly the shape this session has spent
+its time removing.
