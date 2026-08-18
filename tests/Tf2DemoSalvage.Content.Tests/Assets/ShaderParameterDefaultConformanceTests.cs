@@ -170,6 +170,41 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
+    public void AlphaTestReferenceIsZeroWhenUnstatedRatherThanACutoffOfZero()
+    {
+        // **The distinction the whole parameter turns on.** Valve applies the override only when
+        // the value is above zero (BaseVSShader.cpp:927), so an absent key means "leave the API's
+        // own reference alone" -- NOT "clip at zero", which keeps every texel and turns a grate
+        // into a solid sheet.
+        //
+        // **The declared default is spelled differently by different shaders, and the meaning is
+        // the same.** lightmappedgeneric_dx9 and vertexlitgeneric_dx9 write "0.0"; depthwrite
+        // writes "". Both parse to zero and the guard is `> 0`, so they are equivalent -- which is
+        // why this asserts the MEANING rather than pinning one spelling and failing on the other
+        // shader's. The first draft did pin the empty string and failed against correct code.
+        string declared = Declared("ALPHATESTREFERENCE");
+
+        (declared.Length == 0 ||
+            float.Parse(declared, System.Globalization.CultureInfo.InvariantCulture) == 0f)
+            .ShouldBeTrue($"the declared default was '{declared}', which is neither empty nor zero");
+
+        Type("ALPHATESTREFERENCE").ShouldBe("SHADER_PARAM_TYPE_FLOAT");
+
+        // Absent reads as zero, which the renderer maps to the default rather than to a cutoff.
+        Bare().AlphaTestReference.ShouldBe(0f, 0.0001f);
+
+        // An explicit zero is the same case, and is why the renderer tests `> 0` rather than
+        // "was the key present".
+        Parse("""LightmappedGeneric { "$alphatestreference" "0" }""")
+            .AlphaTestReference.ShouldBe(0f, 0.0001f);
+
+        // And a real reference survives, at a value that is nothing like the default so a
+        // hardcoded 0.5 cannot pass this.
+        Parse("""LightmappedGeneric { "$alphatestreference" "0.9" }""")
+            .AlphaTestReference.ShouldBe(0.9f, 0.0001f);
+    }
+
+    [Test]
     public void EveryDefaultCheckedHereWasActuallyFoundInTheSdk()
     {
         // **The control.** Every assertion above compares against a string this test extracted; if

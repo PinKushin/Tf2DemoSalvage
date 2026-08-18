@@ -6916,3 +6916,50 @@ between two finished halves, which is what made it the cheapest fix on the board
 and an `Assert.Fail` beneath it, so finishing the work could not leave a test quietly passing on
 nothing — it forced the placeholder to be replaced with a real assertion. The suite's skip count
 went 7 to 6.
+
+### B117 — every alpha-tested edge was cut at half — FIXED
+
+The world shader clipped at a constant:
+
+```hlsl
+if (bump.w > 0.5f) { clip(albedo.a - 0.5f); }
+```
+
+`bump.w` carried a 1-or-0 flag saying "this surface is alpha tested", and the cutoff was hardcoded.
+`$alphatestreference` was not implemented at all.
+
+**What the engine does** (`BaseVSShader.cpp:925`): alpha testing is enabled from
+`MATERIAL_VAR_ALPHATEST`, and the reference is overridden **only when the material states one above
+zero** —
+
+```cpp
+s_pShaderShadow->EnableAlphaTest( IS_FLAG_SET(MATERIAL_VAR_ALPHATEST) );
+if( alphaTestReferenceVar != -1 && params[alphaTestReferenceVar]->GetFloatValue() > 0.0f )
+    s_pShaderShadow->AlphaFunc( SHADER_ALPHAFUNC_GEQUAL, params[alphaTestReferenceVar]->GetFloatValue() );
+```
+
+So a material asking for 0.9 keeps only its most opaque texels, and ours kept everything above half
+— **every alpha-tested edge was too thick**, on exactly the surfaces that make a map read as a map:
+foliage, grates, chain-link, ladders. The kind of defect that looks like bad art rather than a bug.
+
+**Fixed by carrying the CUTOFF in the float that used to carry a flag**, which needed no new
+plumbing: zero keeps its old meaning of "not alpha tested" and any other value is the threshold. That
+maps exactly onto Valve's "only override when above zero" rule, so a material naming no reference
+still gets the previous behaviour and nothing regresses.
+
+Two details worth keeping:
+
+- **An absent reference is zero, and zero is not a cutoff.** The declaration's default is empty or
+  `"0.0"` depending on the shader, and the guard is `> 0`. Reading a missing key as "clip at zero"
+  keeps every texel and turns a grate into a solid sheet — the inverse of the bug being fixed.
+- **The declared default is spelled differently by different shaders and means the same thing.**
+  `lightmappedgeneric_dx9` and `vertexlitgeneric_dx9` write `"0.0"`; `depthwrite` writes `""`. The
+  conformance test asserts the MEANING for that reason — its first draft pinned the empty string and
+  failed against correct code.
+
+The one number still interpolated is the DEFAULT of 0.5: Valve leaves the shader API's own reference
+alone when the material names none, and the shader API is closed. Everything else here is read from
+published source. Recorded on the constant itself.
+
+Specified before it was built, in `UnimplementedRenderingConformanceTests`; the rendering suite's
+skip count went 6 to 5.

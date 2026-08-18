@@ -134,6 +134,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private const int MaxBones = 128;
 
+    /// <summary>The cutoff an alpha-tested material gets when it names none.</summary>
+    /// <remarks>
+    /// **Half, and it is the API's default rather than a choice made here.** Valve calls
+    /// <c>AlphaFunc</c> only when <c>$alphatestreference</c> is above zero
+    /// (<c>BaseVSShader.cpp:927</c>), so a material that states nothing keeps whatever the shader
+    /// API was already set to. That value is not in <c>source-sdk-2013</c> — the shader API is
+    /// closed — so this one number is INTERPOLATED where the rest of the alpha-test behaviour is
+    /// read from published source, and it is the historical Direct3D default that Source's own
+    /// documentation and every reimplementation agree on.
+    /// </remarks>
+    private const float DefaultAlphaTestReference = 0.5f;
+
     private static readonly string ShaderSource = ShaderText.Replace(
         "MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
@@ -581,9 +593,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // texture with an unused alpha channel full of zeros. Every entity model in the demo
             // was discarded pixel by pixel while its geometry, transform and draw call were all
             // correct.
-            if (bump.w > 0.5f)
+            // bump.w carries the alpha-test CUTOFF: zero for a surface that is not alpha tested,
+            // otherwise the value to clip at. GEQUAL in the engine, so a texel exactly at the
+            // reference is kept - which is why the subtraction is clipped rather than compared.
+            if (bump.w > 0.0f)
             {
-                clip(albedo.a - 0.5f);
+                clip(albedo.a - bump.w);
             }
 
             // In the category view the vertex colour IS the answer, so the texture is dropped.
@@ -1299,7 +1314,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // A material keeps its alpha channel when it is transparent or self-illuminated; only
             // an ALPHA-TESTED one wants that channel used as a cut-out. Translucent materials keep
             // alpha for blending and must not be clipped by it.
-            float alphaTested = surface is { IsTransparent: true, IsTranslucent: false } ? 1f : 0f;
+            // **The CUTOFF rather than a flag, which is what lets a material choose one.** This
+            // used to be 1 or 0 and the shader clipped at a hardcoded half. Valve enables alpha
+            // testing from MATERIAL_VAR_ALPHATEST and then overrides the reference only when the
+            // material states one above zero (BaseVSShader.cpp:927), leaving the API default
+            // otherwise — so zero here keeps its old meaning of "not alpha tested" and any other
+            // value is the threshold to clip at.
+            //
+            // A material asking for 0.9 keeps only its most opaque texels; clipping everything at
+            // half instead thickens every alpha-tested edge, which is visible on exactly the
+            // surfaces that make a map read as a map — foliage, grates, chain-link, ladders.
+            float alphaTested = 0f;
+
+            if (surface is { IsTransparent: true, IsTranslucent: false })
+            {
+                alphaTested = surface.Value.AlphaTestReference > 0f
+                    ? surface.Value.AlphaTestReference
+                    : DefaultAlphaTestReference;
+            }
 
             // **Which of the two combines the shader should use.** UnLitTwoTexture multiplies its
             // two textures; a WorldVertexTransition displacement mixes them by vertex alpha. Both
