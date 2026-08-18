@@ -198,6 +198,9 @@ public sealed class PoseCompletenessTests
         // player turns on the spot — equal values would hide a rebuild that confused them.
         EyeYaw = -95f,
         AimYaw = 44f,
+
+        // Waist deep, so a dropped value reads as dry land.
+        WaterLevel = 2,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

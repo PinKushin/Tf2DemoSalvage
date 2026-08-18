@@ -192,6 +192,13 @@ public readonly record struct ScenePose
     /// </remarks>
     public float? AimYaw { get; init; }
 
+    /// <summary>How deep in water the player is: 0 dry, 1 feet, 2 waist, 3 eyes.</summary>
+    /// <remarks>
+    /// Travels with the flags, for the same reason. Waist deep is where the activity changes, so a
+    /// player who jumps into water swims instead of falling with their legs tucked.
+    /// </remarks>
+    public int? WaterLevel { get; init; }
+
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
     /// **A movement sequence is a blend grid and these are its coordinates.** Without them the
@@ -643,6 +650,7 @@ public sealed class ScenePropTrack
             EyePitch = from.EyePitch,
             EyeYaw = from.EyeYaw,
             AimYaw = from.AimYaw,
+            WaterLevel = from.WaterLevel,
         };
     }
 
