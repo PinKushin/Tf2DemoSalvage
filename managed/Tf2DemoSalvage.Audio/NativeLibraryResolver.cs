@@ -80,7 +80,7 @@ internal static class NativeLibraryResolver
 
     private static nint ResolveOpus(string libraryName)
     {
-        string? rid = CurrentWindowsRid();
+        string? rid = CurrentRid();
 
         if (rid is null)
         {
@@ -88,7 +88,7 @@ internal static class NativeLibraryResolver
         }
 
         string candidate = Path.Combine(
-            AppContext.BaseDirectory, "runtimes", rid, "native", libraryName + ".dll");
+            AppContext.BaseDirectory, "runtimes", rid, "native", FileName(libraryName));
 
         return File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out nint handle)
             ? handle
@@ -97,13 +97,13 @@ internal static class NativeLibraryResolver
 
     private static nint ResolveBuilt(string libraryName)
     {
-        string candidate = Path.Combine(AppContext.BaseDirectory, libraryName + ".dll");
+        string candidate = Path.Combine(AppContext.BaseDirectory, FileName(libraryName));
 
         if (!File.Exists(candidate))
         {
             // Deliberately not thrown here: returning zero lets the runtime raise its own
             // DllNotFoundException, and the caller-facing wrapper (SpeexVoiceDecoder,
-            // CeltVoiceDecoder) is where a message pointing at build.ps1 belongs, not this
+            // CeltVoiceDecoder) is where a message pointing at the build script belongs, not this
             // low-level resolver which every native import in this assembly shares.
             return 0;
         }
@@ -111,27 +111,78 @@ internal static class NativeLibraryResolver
         return NativeLibrary.TryLoad(candidate, out nint handle) ? handle : 0;
     }
 
-    /// <summary>
-    /// The RID folder name the <c>libopus</c> package ships for this process, or <c>null</c> off
-    /// Windows or an unsupported architecture.
-    /// </summary>
+    /// <summary>The file a native library called <paramref name="libraryName"/> lives in here.</summary>
     /// <remarks>
-    /// This project is Windows-only in practice (D20), so only the two Windows RIDs the package
-    /// actually publishes are handled. Returning null for anything else means the fallback is
-    /// "let the default resolver try and fail with its own clear error", not a wrong guess.
+    /// **Platform naming is not cosmetic — it is why this assembly could not run off Windows at
+    /// all.** Both resolvers appended <c>.dll</c> unconditionally, so on Linux the file was looked
+    /// for under a name nothing produces and every voice decoder failed to load even with the
+    /// library sitting beside it. That blocked mutation testing this project on the measurement
+    /// box, which is Linux ARM64 (<c>docs/MEASUREMENT-PLAN.md</c>).
+    ///
+    /// The conventions are the platforms' own: <c>celt.dll</c> on Windows, <c>libcelt.so</c> on
+    /// Linux, <c>libcelt.dylib</c> on macOS.
     /// </remarks>
-    private static string? CurrentWindowsRid()
+    private static string FileName(string libraryName)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return null;
+            return libraryName + ".dll";
         }
 
-        return RuntimeInformation.OSArchitecture switch
+        return RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+            ? "lib" + libraryName + ".dylib"
+            : "lib" + libraryName + ".so";
+    }
+
+    /// <summary>
+    /// The RID folder name the <c>libopus</c> package ships for this process, or <c>null</c> on a
+    /// platform or architecture it does not publish.
+    /// </summary>
+    /// <remarks>
+    /// **Linux was added because the measurement box needs it**, and the package genuinely ships
+    /// those RIDs — <c>linux-x64</c> and <c>linux-arm64</c> are both in <c>libopus</c> 1.6.1.3
+    /// alongside the Windows and macOS ones. The list is deliberately only what the package
+    /// publishes; returning null for anything else means "let the default resolver try and fail
+    /// with its own clear error", which is better than a wrong guess at a folder name.
+    ///
+    /// The musl variants are not handled. They are a different RID (<c>linux-musl-arm64</c>) that
+    /// .NET does not distinguish through <c>RuntimeInformation</c> alone, and no machine this
+    /// project runs on uses one.
+    /// </remarks>
+    private static string? CurrentRid()
+    {
+        Architecture architecture = RuntimeInformation.OSArchitecture;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Architecture.X64 => "win-x64",
-            Architecture.Arm64 => "win-arm64",
-            _ => null,
-        };
+            return architecture switch
+            {
+                Architecture.X64 => "win-x64",
+                Architecture.Arm64 => "win-arm64",
+                _ => null,
+            };
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            return architecture switch
+            {
+                Architecture.X64 => "linux-x64",
+                Architecture.Arm64 => "linux-arm64",
+                _ => null,
+            };
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return architecture switch
+            {
+                Architecture.X64 => "osx-x64",
+                Architecture.Arm64 => "osx-arm64",
+                _ => null,
+            };
+        }
+
+        return null;
     }
 }
