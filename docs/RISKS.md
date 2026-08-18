@@ -6624,3 +6624,49 @@ pair.
 The threshold is `>= WL_Waist`, tested identically by `HandleJumping` (which cancels a jump the
 moment the water reaches the waist) and `HandleSwimming`. Feet-deep water is not swimming, which the
 test pins: a player wading a shallow puddle keeps running.
+
+### B111 — there is no per-class playback rate, and this project said there was — RESOLVED (retraction)
+
+`PlayerAnimation.cs` carried a note that `m_flMaxGroundSpeed` drives the main sequence's playback
+RATE, so a heavy's run should cycle slower than a scout's, and that this was unimplemented. **That was
+read from the wrong class.** `CBasePlayerAnimState::ComputePlaybackRate` does scale the rate by max
+ground speed — and TF2 does not inherit from it. `CTFPlayerAnimState` derives from
+`CMultiPlayerAnimState`, which is standalone (`multiplayer_animstate.h:168`), and the only
+`SetPlaybackRate` in that class is `SetPlaybackRate( 1.0f )` for the local player
+(`multiplayer_animstate.cpp:1366`). Its `m_flMaxGroundSpeed` is maintained by `UpdateInterpolators`
+and returned by `GetMaxGroundSpeed()`, which nothing in the TF2 hierarchy reads for the main sequence.
+
+What TF2 does with speed is the pose-parameter scaling in `ComputePoseParam_MoveYaw` —
+`x *= flSpeed / flMaxSpeed` against the sequence's authored ground speed — and that IS implemented
+(B101). The rate is left at the authored value because that is what the engine does. Implementing
+the "missing" scaling would have been a divergence dressed as a fix.
+
+Retracted rather than quietly deleted, because a wrong claim recorded without the reasoning that
+killed it is the kind that gets confidently repeated.
+
+### B112 — the gesture layer: jump-land, attacks, reloads, flinches — OPEN
+
+`ComputeSequences` runs `ComputeMainSequence` and then `ComputeGestureSequence`. This project has
+the first and none of the second, so no player fires, reloads, lands or flinches — the body plays
+its main activity and nothing else.
+
+Traced end to end in the SDK, and it is a subsystem rather than a gap:
+
+- **Trigger:** `CTEPlayerAnimEvent`, a temp entity (`tf_player.cpp:340`) sent through
+  `svc_TempEntities` as `DT_TEPlayerAnimEvent` — `m_hPlayer`, `m_iEvent`
+  (`Q_log2( PLAYERANIMEVENT_COUNT ) + 1` bits, unsigned), `m_nData` (`ANIMATION_SEQUENCE_BITS`).
+  `EntityDecoder.DecodeTempEntities` already decodes the message; the event class is not yet
+  interpreted.
+- **Dispatch:** `DoAnimationEvent` maps `PLAYERANIMEVENT_ATTACK_PRIMARY`, `_RELOAD`, `_JUMP` and the
+  rest onto seven slots — `GESTURE_SLOT_ATTACK_AND_RELOAD`, `_GRENADE`, `_JUMP`, `_SWIM`, `_FLINCH`,
+  `_VCD`, `_CUSTOM`.
+- **Playback:** `RestartGesture` translates the activity through `TranslateActivity` (so it takes the
+  weapon suffix, as the main sequence does), and `AddToGestureSlot` puts it on an anim layer with its
+  own cycle, auto-killed at the end. A gesture already playing in the slot is run to `m_flCycle =
+  1.0` first.
+- **Blend:** the layer is composed over the main pose per bone. `PropModels` blends only within one
+  sequence's grid today; a layer over a sequence is new.
+
+The reload rate has weapon attributes folded in (`mult_reload_time`, `fast_reload`,
+`multiplayer_animstate.cpp:198`), which needs the econ item — the same dependency the `anim_slot`
+override has.

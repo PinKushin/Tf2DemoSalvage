@@ -30,11 +30,20 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// velocity, horizontal — so differencing recorded positions measures the same quantity the client
 /// does, rather than approximating an input the demo lacks.
 ///
-/// **Per-class run speeds do matter, but not here.** Every class plays the same run sequence; what
-/// differs is <c>m_flMaxGroundSpeed</c> from <c>GetCurrentMaxGroundSpeed</c>, which drives the
-/// playback RATE and the move-yaw pose parameter. A heavy at 230 units and a scout at 400 both run;
-/// the heavy's animation cycles slower. That is not implemented, so every class currently animates
-/// at the authored rate and a heavy will look faster-footed than he should.
+/// **There is no per-class playback rate, and an earlier version of this comment said there was.**
+/// It claimed <c>m_flMaxGroundSpeed</c> drives the playback RATE so a heavy's run cycles slower
+/// than a scout's, and that this was unimplemented. That was read from
+/// <c>CBasePlayerAnimState::ComputePlaybackRate</c> — a class TF2 does not inherit from.
+/// <c>CTFPlayerAnimState</c> derives from <c>CMultiPlayerAnimState</c>, which is standalone, and the
+/// only <c>SetPlaybackRate</c> in it is <c>SetPlaybackRate( 1.0f )</c> for the local player. Its
+/// <c>m_flMaxGroundSpeed</c> is maintained by <c>UpdateInterpolators</c> and returned by a getter
+/// nothing in the TF2 hierarchy reads for the main sequence.
+///
+/// What TF2 actually does with speed is the pose-parameter scaling in
+/// <c>ComputePoseParam_MoveYaw</c> — <c>x *= flSpeed / flMaxSpeed</c> against the sequence's own
+/// authored ground speed — which is implemented (B101). A heavy at his 230 against a run authored
+/// at 230 scales by one; a heavy at 150 is pulled toward the centre of the blend grid. The rate is
+/// left at the authored value because that is what the engine does.
 /// </remarks>
 internal static class PlayerAnimation
 {
