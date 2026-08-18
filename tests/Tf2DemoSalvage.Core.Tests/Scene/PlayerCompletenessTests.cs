@@ -112,7 +112,10 @@ public sealed class PlayerCompletenessTests
         AirborneSeconds: 0.25f,
 
         // True, since false is the default and would hide the field being dropped.
-        Airwalking: true);
+        Airwalking: true,
+
+        // Non-zero, so losing it reads as level rather than as a default.
+        EyePitch: 21f);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

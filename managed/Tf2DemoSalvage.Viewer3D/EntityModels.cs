@@ -1078,7 +1078,7 @@ internal sealed class EntityModelSet
             return [];
         }
 
-        float[] values = Filled(parameters, pose.MoveX, pose.MoveY);
+        float[] values = Filled(parameters, pose.MoveX, pose.MoveY, pose.EyePitch);
 
         // **The speed scaling, and it happens HERE rather than in the scene layer because only this
         // side can open a model.** ComputePoseParam_MoveYaw finishes with
@@ -1111,7 +1111,7 @@ internal sealed class EntityModelSet
 
         float scale = speed / authored;
 
-        return Filled(parameters, pose.MoveX * scale, pose.MoveY * scale);
+        return Filled(parameters, pose.MoveX * scale, pose.MoveY * scale, pose.EyePitch);
     }
 
     /// <summary>Every pose parameter's stored value, given the two this project computes.</summary>
@@ -1121,7 +1121,10 @@ internal sealed class EntityModelSet
     /// −1 to 1 lands in the MIDDLE of its range rather than at the bottom.
     /// </remarks>
     private static float[] Filled(
-        IReadOnlyList<StudioPoseParameter> parameters, float moveX, float moveY)
+        IReadOnlyList<StudioPoseParameter> parameters,
+        float moveX,
+        float moveY,
+        float? eyePitch)
     {
         float[] values = new float[parameters.Count];
 
@@ -1131,6 +1134,16 @@ internal sealed class EntityModelSet
             {
                 "move_x" => moveX,
                 "move_y" => moveY,
+
+                // **Negated, which is the whole of ComputePoseParam_AimPitch:**
+                // `SetPoseParameter( m_iAimPitch, -flAimPitch )` with flAimPitch the eye pitch. The
+                // sign lives here rather than in the stored value, so what the scene carries still
+                // matches what the wire said.
+                //
+                // Zero when the recording sent no eye angles, which is level — the same answer this
+                // gave before aiming existed, rather than a guess at where they were looking.
+                "body_pitch" => -(eyePitch ?? 0f),
+
                 _ => 0f,
             };
 

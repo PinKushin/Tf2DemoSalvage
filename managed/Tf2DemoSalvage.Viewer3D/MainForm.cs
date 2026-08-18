@@ -1932,6 +1932,9 @@ internal class MainForm : Form
                     // The jump clock, for the push-off versus the float.
                     AirborneSeconds = player.AirborneSeconds,
 
+                    // Where they are looking, which aims the torso through body_pitch.
+                    EyePitch = player.EyePitch,
+
                     // **Both halves of the air-walk meet here.** The timeline says the player rose
                     // fast enough to start one; the class script says whether their class does it
                     // at all, and only the medic opts out. Neither layer can answer both.
