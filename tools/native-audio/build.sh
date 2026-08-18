@@ -22,8 +22,25 @@ OUT="${1:-$ROOT}"
 WORK="$(mktemp -d -t tf2demosalvage-native-audio-XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
-command -v gcc >/dev/null || { echo "gcc is required" >&2; exit 1; }
+# **Whichever C compiler is installed, rather than a hardcoded gcc.** The measurement box has
+# clang and `cc` but no gcc at all — it was provisioned for the libFuzzer bridge, which needs
+# clang — so hardcoding gcc failed there with "gcc is required" on a machine that can compile C
+# perfectly well. CC overrides; otherwise cc, then clang, then gcc.
+CC="${CC:-}"
+
+if [ -z "$CC" ]; then
+  for candidate in cc clang gcc; do
+    if command -v "$candidate" >/dev/null; then
+      CC="$candidate"
+      break
+    fi
+  done
+fi
+
+[ -n "$CC" ] || { echo "no C compiler found (tried cc, clang, gcc; set CC)" >&2; exit 1; }
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
+
+echo "==> Compiler: $CC ($("$CC" --version 2>/dev/null | head -1))"
 
 echo "==> Building into $OUT (work: $WORK)"
 
@@ -103,16 +120,16 @@ CELT_SOURCES=(
 cd "$CELT_BUILD"
 
 for source in "${CELT_SOURCES[@]}"; do
-  gcc -c -O2 -fPIC -DHAVE_CONFIG_H -I "$CELT_BUILD" -I "$CELT_LIB" "$CELT_LIB/$source"
+  "$CC" -c -O2 -fPIC -DHAVE_CONFIG_H -I "$CELT_BUILD" -I "$CELT_LIB" "$CELT_LIB/$source"
 done
 
-gcc -c -O2 -fPIC -DHAVE_CONFIG_H -include "$CELT_BUILD/extern_decls.h" \
+"$CC" -c -O2 -fPIC -DHAVE_CONFIG_H -include "$CELT_BUILD/extern_decls.h" \
   -I "$CELT_BUILD" -I "$CELT_LIB" "$CELT_LIB/static_modes_float.c"
 
-gcc -c -O2 -fPIC -I "$CELT_LIB" -I "$CELT_BUILD" "$CELT_BUILD/missing_tables.c"
+"$CC" -c -O2 -fPIC -I "$CELT_LIB" -I "$CELT_BUILD" "$CELT_BUILD/missing_tables.c"
 
 echo "==> Linking libcelt.so"
-gcc -shared -o "$OUT/libcelt.so" ./*.o -lm
+"$CC" -shared -o "$OUT/libcelt.so" ./*.o -lm
 
 # =================================================================================================
 # Speex 1.2.1
@@ -150,14 +167,14 @@ SPEEX_SOURCES=(
 cd "$SPEEX_BUILD"
 
 for source in "${SPEEX_SOURCES[@]}"; do
-  gcc -c -O2 -fPIC -DHAVE_CONFIG_H \
+  "$CC" -c -O2 -fPIC -DHAVE_CONFIG_H \
     -I "$SPEEX_BUILD" -I "$SPEEX_LIB" -I "$SPEEX_INC" "$SPEEX_LIB/$source"
 done
 
 # No .def file: that is the Windows way of choosing exports. On ELF every non-static symbol is
 # exported already, and the four this project imports are among them.
 echo "==> Linking libspeex.so"
-gcc -shared -o "$OUT/libspeex.so" ./*.o -lm
+"$CC" -shared -o "$OUT/libspeex.so" ./*.o -lm
 
 echo "==> Done:"
 ls -l "$OUT/libcelt.so" "$OUT/libspeex.so"
