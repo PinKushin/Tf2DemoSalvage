@@ -27,6 +27,17 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// recording did not say. Declared in <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for
 /// the recorder alone while a SourceTV recording carries it for every player.
 /// </param>
+/// <param name="ActiveWeapon">
+/// Which entity is the weapon in hand, or <c>null</c> when none is held. Decoded from
+/// <c>m_hActiveWeapon</c> on <c>DT_BaseCombatCharacter</c>, so it arrives for every player in the
+/// PVS rather than for the recorder alone.
+/// </param>
+/// <param name="WeaponClass">
+/// That weapon's server class, such as <c>CTFRevolver</c>. It is what decides the suffix on every
+/// body activity — <c>CTFWeaponBase::ActivityList</c> picks an <c>acttable_t</c> from the weapon's
+/// role, so a medic's medigun drives <c>ACT_MP_RUN_SECONDARY</c> where a scattergun drives
+/// <c>ACT_MP_RUN_PRIMARY</c>.
+/// </param>
 /// <param name="Drawn">
 /// Whether the engine would draw this player's model, which is <c>EF_NODRAW</c> rather than
 /// anything about life state. TF2 turns the player off on death — <c>AddEffects( EF_NODRAW |
@@ -55,7 +66,9 @@ public readonly record struct ScenePlayer(
     float MoveX = 0f,
     float MoveY = 0f,
     int? Flags = null,
-    bool Drawn = true)
+    bool Drawn = true,
+    int? ActiveWeapon = null,
+    string? WeaponClass = null)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -480,7 +493,17 @@ public sealed class DemoTimeline
                     // deathcam window above.
                     //
                     // When ragdolls land this becomes wrong and should follow EF_NODRAW alone.
-                    Drawn: player.IsDrawn && alive));
+                    Drawn: player.IsDrawn && alive,
+
+                    // **The weapon, and its class resolved here while the table is in hand.** A
+                    // handle is only an entity slot; what the animation needs is which weapon it
+                    // is, and only this loop can see both. Resolved rather than carried as a bare
+                    // index so no consumer has to keep the entity table alive to make sense of it.
+                    ActiveWeapon: player.ActiveWeapon(),
+                    WeaponClass: player.ActiveWeapon() is { } held &&
+                        entities.TryGet(held, out EntityState? weapon)
+                            ? weapon.ClassName
+                            : null));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a

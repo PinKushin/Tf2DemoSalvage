@@ -101,7 +101,12 @@ public sealed class PlayerCompletenessTests
 
         // False, because the default is true. A player the engine would not draw is the unusual
         // case and therefore the measurable one.
-        Drawn: false);
+        Drawn: false,
+
+        // A weapon in hand, and its class — the pair that decides which suffix every body activity
+        // takes, so losing either draws a medic running like a scout.
+        ActiveWeapon: 17,
+        WeaponClass: "CTFRevolver");
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>
