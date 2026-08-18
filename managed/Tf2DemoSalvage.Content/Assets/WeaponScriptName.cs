@@ -49,6 +49,93 @@ public static class WeaponScriptName
         ["CTFWeaponBaseMerasmusGrenade"] = "tf_weaponbase_merasmus_grenade",
     };
 
+    /// <summary>
+    /// Weapons whose script depends on who is holding them, indexed by class number.
+    /// </summary>
+    /// <remarks>
+    /// **<c>pszWpnEntTranslationList</c>**, <c>tf_shareddefs.cpp:1628</c>. One weapon entity can
+    /// belong to several classes and animate differently for each, so the engine rewrites the base
+    /// entity name before reading its script. An empty entry means no translation for that class.
+    ///
+    /// **The role really does change**, which is why this is worth carrying: <c>tf_weapon_shotgun</c>
+    /// is a primary in its own script, but a soldier's, heavy's and pyro's translate to
+    /// <c>_soldier</c>, <c>_hwg</c> and <c>_pyro</c> — all secondaries — while only the engineer's
+    /// <c>_primary</c> stays a primary. The same holds for the parachute (soldier secondary, demoman
+    /// primary), the revolver (engineer secondary) and the throwable (medic primary).
+    ///
+    /// Class numbers are TF's own: 1 Scout, 2 Sniper, 3 Soldier, 4 Demoman, 5 Medic, 6 Heavy,
+    /// 7 Pyro, 8 Spy, 9 Engineer, with 0 undefined.
+    ///
+    /// **Valve's parachute row is missing a comma** — the spy's <c>""</c> and the engineer's
+    /// <c>""</c> sit adjacent, so C concatenates them into one literal and the initialiser is a
+    /// element short. Harmless there because both are empty; reproduced here as the two empties it
+    /// was meant to be rather than as the nine-element row it compiles to.
+    /// </remarks>
+    private static readonly Dictionary<string, string[]> PerClass = new(StringComparer.Ordinal)
+    {
+        ["tf_weapon_shotgun"] =
+        [
+            "", "", "", "tf_weapon_shotgun_soldier", "", "",
+            "tf_weapon_shotgun_hwg", "tf_weapon_shotgun_pyro", "", "tf_weapon_shotgun_primary",
+        ],
+        ["tf_weapon_pistol"] =
+        [
+            "", "tf_weapon_pistol_scout", "", "", "", "", "", "", "", "tf_weapon_pistol",
+        ],
+        ["tf_weapon_shovel"] =
+        [
+            "", "", "", "tf_weapon_shovel", "tf_weapon_bottle", "", "", "", "", "",
+        ],
+        ["tf_weapon_bottle"] =
+        [
+            "", "", "", "tf_weapon_shovel", "tf_weapon_bottle", "", "", "", "", "",
+        ],
+        ["saxxy"] =
+        [
+            "", "tf_weapon_bat", "tf_weapon_club", "tf_weapon_shovel", "tf_weapon_bottle",
+            "tf_weapon_bonesaw", "tf_weapon_fireaxe", "tf_weapon_fireaxe", "tf_weapon_knife",
+            "tf_weapon_wrench",
+        ],
+        ["tf_weapon_throwable"] =
+        [
+            "", "tf_weapon_throwable_secondary", "tf_weapon_throwable_secondary",
+            "tf_weapon_throwable_secondary", "tf_weapon_throwable_secondary",
+            "tf_weapon_throwable_primary", "tf_weapon_throwable_secondary",
+            "tf_weapon_throwable_secondary", "tf_weapon_throwable_secondary",
+            "tf_weapon_throwable_secondary",
+        ],
+        ["tf_weapon_parachute"] =
+        [
+            "", "", "", "tf_weapon_parachute_secondary", "tf_weapon_parachute_primary",
+            "", "", "", "", "",
+        ],
+        ["tf_weapon_revolver"] =
+        [
+            "", "", "", "", "", "", "", "", "tf_weapon_revolver", "tf_weapon_revolver_secondary",
+        ],
+    };
+
+    /// <summary>The script a weapon uses in a particular class's hands.</summary>
+    /// <param name="entityClass">The base entity name, such as <c>tf_weapon_shotgun</c>.</param>
+    /// <param name="playerClass">Who is holding it, or null when the demo did not say.</param>
+    /// <returns>The translated name, or the base one when no translation applies.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entityClass"/> is null.</exception>
+    public static string Translate(string entityClass, int? playerClass)
+    {
+        ArgumentNullException.ThrowIfNull(entityClass);
+
+        if (playerClass is not { } who ||
+            !PerClass.TryGetValue(entityClass, out string[]? byClass) ||
+            who < 0 ||
+            who >= byClass.Length)
+        {
+            return entityClass;
+        }
+
+        // An empty entry means this class has no translation, not that it has no weapon.
+        return byClass[who].Length > 0 ? byClass[who] : entityClass;
+    }
+
     /// <summary>Every script name a server class might use, best first.</summary>
     /// <param name="serverClass">The class a demo's schema names, such as <c>CTFRocketLauncher</c>.</param>
     /// <returns>Candidate script names, without a folder or extension.</returns>
@@ -57,21 +144,51 @@ public static class WeaponScriptName
     /// Several are offered because the archive settles which exists — a candidate that names no file
     /// costs a failed lookup, while picking one spelling and being wrong costs the weapon's role.
     /// </remarks>
-    public static IReadOnlyList<string> Candidates(string serverClass)
+    public static IReadOnlyList<string> Candidates(string serverClass) =>
+        Candidates(serverClass, playerClass: null);
+
+    /// <summary>The same, for a weapon in a particular class's hands.</summary>
+    /// <param name="serverClass">The class a demo's schema names.</param>
+    /// <param name="playerClass">Who is holding it, or null when the demo did not say.</param>
+    /// <returns>Candidate script names, the class's own translation first.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="serverClass"/> is null.</exception>
+    /// <remarks>
+    /// **The translation goes in FRONT rather than replacing the list.** A class that has no
+    /// translation for this weapon falls through to the ordinary names, and a translation naming a
+    /// script the install does not ship still leaves the base one to answer.
+    /// </remarks>
+    public static IReadOnlyList<string> Candidates(string serverClass, int? playerClass)
     {
         ArgumentNullException.ThrowIfNull(serverClass);
 
+        List<string> candidates = [];
+
         if (Irregular.TryGetValue(serverClass, out string? known))
         {
-            return [known];
+            Add(candidates, Translate(known, playerClass));
+            Add(candidates, known);
+
+            return candidates;
         }
 
-        List<string> candidates = [];
+        List<string> plain = [];
 
         foreach (string bare in Bare(serverClass))
         {
-            Add(candidates, "tf_weapon_" + Lower(bare));
-            Add(candidates, "tf_weapon_" + Broken(bare));
+            Add(plain, "tf_weapon_" + Lower(bare));
+            Add(plain, "tf_weapon_" + Broken(bare));
+        }
+
+        // Each name's own translation first, then every untranslated name — so a shotgun in a
+        // soldier's hands asks for tf_weapon_shotgun_soldier before tf_weapon_shotgun.
+        foreach (string candidate in plain)
+        {
+            Add(candidates, Translate(candidate, playerClass));
+        }
+
+        foreach (string candidate in plain)
+        {
+            Add(candidates, candidate);
         }
 
         return candidates;

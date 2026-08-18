@@ -105,9 +105,12 @@ public sealed class WeaponSlotAnimationTests
 
         GameArchives archives = GameArchives.Open(folder);
 
-        WeaponRoles roles = WeaponRoles.Read(archives.Read, ["CWeaponMedigun", "CTFScatterGun"]);
+        const int medic = 5;
 
-        roles.Suffix("CWeaponMedigun").ShouldBe("SECONDARY");
+        WeaponRoles roles = WeaponRoles.Read(
+            archives.Read, [("CWeaponMedigun", medic), ("CTFScatterGun", (int?)null)]);
+
+        roles.Suffix("CWeaponMedigun", medic).ShouldBe("SECONDARY");
         roles.Suffix("CTFScatterGun").ShouldBe("PRIMARY");
     }
 }

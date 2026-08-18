@@ -34,12 +34,12 @@ public sealed class WeaponRolesTests
             return;
         }
 
-        string[] classes =
+        (string Weapon, int? Class)[] classes =
         [
-            "CTFScatterGun", "CTFRocketLauncher", "CTFMinigun",
-            "CWeaponMedigun", "CTFPistol", "CTFShotgun",
-            "CTFBonesaw", "CTFBat", "CTFFireAxe",
-            "CTFWeaponPDA_Engineer_Build",
+            ("CTFScatterGun", null), ("CTFRocketLauncher", null), ("CTFMinigun", null),
+            ("CWeaponMedigun", null), ("CTFPistol", null), ("CTFShotgun", null),
+            ("CTFBonesaw", null), ("CTFBat", null), ("CTFFireAxe", null),
+            ("CTFWeaponPDA_Engineer_Build", null),
         ];
 
         WeaponRoles roles = WeaponRoles.Read(read, classes);
@@ -60,9 +60,8 @@ public sealed class WeaponRolesTests
         // _primary for the engineer, whose shotgun IS his primary. One server class, several
         // scripts, and the role differs between them.
         //
-        // Asserted as the base script's own answer, which is what this layer can currently see. The
-        // translation needs the holder's class and is recorded as the gap it is; without it an
-        // engineer's shotgun is right and a soldier's reads primary instead of secondary.
+        // Asked without a holder, this is the base script's own answer. The per-class case is
+        // below, and it is the one that matters on screen.
         roles.Suffix("CTFShotgun").ShouldBe("PRIMARY");
 
         // Melee.
@@ -72,12 +71,67 @@ public sealed class WeaponRolesTests
     }
 
     [Test]
+    public void OneShotgunIsAPrimaryOrASecondaryDependingOnWhoHoldsIt()
+    {
+        // **The case that proves a weapon's role is not a property of the weapon.**
+        // pszWpnEntTranslationList (tf_shareddefs.cpp:1628) rewrites tf_weapon_shotgun into
+        // _soldier, _hwg or _pyro before its script is read, and those are secondaries — while the
+        // engineer's _primary is the one weapon of the four that really is a primary.
+        //
+        // Both directions are asserted, because a translation that fired for everybody would make
+        // the engineer wrong in exactly the way this is meant to fix.
+        if (Reader() is not { } read)
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        const int soldier = 3;
+        const int heavy = 6;
+        const int pyro = 7;
+        const int engineer = 9;
+
+        WeaponRoles roles = WeaponRoles.Read(
+            read,
+            [
+                ("CTFShotgun", soldier), ("CTFShotgun", heavy),
+                ("CTFShotgun", pyro), ("CTFShotgun", engineer),
+            ]);
+
+        roles.Suffix("CTFShotgun", soldier).ShouldBe("SECONDARY");
+        roles.Suffix("CTFShotgun", heavy).ShouldBe("SECONDARY");
+        roles.Suffix("CTFShotgun", pyro).ShouldBe("SECONDARY");
+
+        roles.Suffix("CTFShotgun", engineer)
+            .ShouldBe("PRIMARY", "the engineer's shotgun IS his primary");
+    }
+
+    [Test]
+    public void AClassWithNoTranslationKeepsTheBaseScript()
+    {
+        // The control for the test above: the table has an entry for the shotgun and empty slots
+        // inside it, and an empty slot means "no translation" rather than "no weapon". A scout
+        // cannot carry this shotgun at all, so the base script is the honest answer.
+        if (Reader() is not { } read)
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        const int scout = 1;
+
+        WeaponRoles roles = WeaponRoles.Read(read, [("CTFScatterGun", scout)]);
+
+        roles.Suffix("CTFScatterGun", scout).ShouldBe("PRIMARY");
+    }
+
+    [Test]
     public void SomethingUnknownFallsBackToPrimary()
     {
         // **Primary is the engine's default too, not a guess made here.** ActivityList's switch
         // gives TF_WPN_TYPE_PRIMARY the same body as `default:`, so a weapon whose script is
         // missing animates exactly as the engine animates one whose type it does not recognise.
-        WeaponRoles roles = WeaponRoles.Read(_ => null, ["CTFNotAWeapon"]);
+        WeaponRoles roles = WeaponRoles.Read(_ => null, [("CTFNotAWeapon", (int?)null)]);
 
         roles.Suffix("CTFNotAWeapon").ShouldBe("PRIMARY");
         roles.Suffix(null).ShouldBe("PRIMARY", "an empty hand is the primary animation set");
