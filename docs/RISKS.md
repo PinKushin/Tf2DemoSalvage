@@ -6702,12 +6702,22 @@ rather than built on a guess:**
    run sequence share the identical shared default table at the same absolute address, while
    `r_handposes`/`r_armposes` in the same file carry genuinely restricted 0/1 patterns — proof the
    offset resolves correctly rather than a guess about gesture authoring.
-2. Additive delta composition — `SlerpBones`'s `STUDIO_DELTA` branch — as a second blend primitive
-   alongside `StudioPoseBlend.Blend`, which only interpolates. **Not started.**
+2. ~~Additive delta composition~~ — **done.** `StudioPoseBlend.Layer` ports `SlerpBones`'s
+   `STUDIO_DELTA` branch: `strength = layerWeight * seqdesc.weight(i)`, then `QuaternionMA`
+   (base ⊗ scaled-delta) for `STUDIO_POST` or `QuaternionSM` (scaled-delta ⊗ base) otherwise, with
+   `pos += delta * strength`. `QuaternionScale` is the sin/asin partial-rotation form from
+   `mathlib_base.cpp:1757`, not a component multiply. A bone a delta track never mentions defaults
+   to IDENTITY, not the rest pose — confirmed in the runtime's own decode at `bone_setup.cpp:599`,
+   which is what makes an untouched bone a genuine no-op rather than a drag toward the bind pose.
+   Predictions computed by hand from Valve's own quaternion formulas — the sign-flipped Z component
+   between POST and non-POST is the discriminator — and verified by sabotage: swapping the multiply
+   order reddens exactly the two order-dependent tests and no others.
 3. Gesture lifecycle: slots, cycle progression, auto-kill, and the trigger itself
    (`CTEPlayerAnimEvent` decoded off `svc_TempEntities`, which nothing reads yet either).
    **Not started.**
 
-Numbers 2 and 3 remain undone on the owner's direction, rather than half-built and left computing a
-value nothing composites correctly — which would be the fifth defect of exactly the shape this
-session has spent its time removing.
+Number 3 remains undone on the owner's direction, rather than half-built and left computing a value
+nothing composites correctly — which would be the fifth defect of exactly the shape this session has
+spent its time removing. With the weight list and the delta composition both in place and tested,
+the remaining slice is purely the lifecycle: decoding the temp-entity event, mapping it to a slot,
+advancing the layer's own cycle, and auto-killing it at the end.

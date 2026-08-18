@@ -429,6 +429,186 @@ public static class StudioPoseBlend
         return left;
     }
 
+    /// <summary>Layers a gesture over a base pose additively, the way a delta sequence composites.</summary>
+    /// <param name="bones">The skeleton both poses belong to.</param>
+    /// <param name="basePose">The pose being layered onto — the main body, already resolved.</param>
+    /// <param name="deltaPose">The gesture's own pose, from a sequence whose flags carry <c>STUDIO_DELTA</c>.</param>
+    /// <param name="boneWeights">
+    /// The gesture sequence's own per-bone weight list, from <see cref="StudioGestureWeights"/>,
+    /// indexed the same way <paramref name="deltaPose"/>'s bones are.
+    /// </param>
+    /// <param name="layerWeight">How strongly the gesture is blended in, from zero to one.</param>
+    /// <param name="post">
+    /// Whether the sequence's flags carry <c>STUDIO_POST</c>. Every jump-land and flinch gesture
+    /// measured on the shipped player models carries it (B112); this is a parameter rather than an
+    /// assumption because the flag genuinely varies by sequence and changes the composition order.
+    /// </param>
+    /// <returns>A pose naming every bone, so it can be layered again.</returns>
+    /// <exception cref="ArgumentNullException">A required argument is null.</exception>
+    /// <remarks>
+    /// **A different primitive from <see cref="Blend"/>, not a variant of it.** <c>SlerpBones</c>
+    /// (<c>bone_setup.cpp:1373</c>) takes an entirely separate branch for <c>STUDIO_DELTA</c>: the
+    /// gesture's rotation is not interpolated toward, it is composed ON TOP of the base rotation as
+    /// a scaled quaternion product, and position is a simple scaled add rather than a lerp:
+    ///
+    /// <code>
+    /// s2 = layerWeight * seqdesc.weight( i );      // per-bone strength
+    /// if ( STUDIO_POST ) QuaternionMA( q1[i], s2, q2[i], q1[i] );   // base ⊗ scale(delta, s2)
+    /// else               QuaternionSM( s2, q2[i], q1[i], q1[i] );  // scale(delta, s2) ⊗ base
+    /// pos1[i] += pos2[i] * s2;
+    /// </code>
+    ///
+    /// <c>QuaternionScale(q, t)</c> is a partial ROTATION — the sin/asin form in
+    /// <c>mathlib_base.cpp:1757</c>, equivalent to slerping from identity toward <c>q</c> by
+    /// <c>t</c> — not a naive per-component multiply, which would not stay a unit quaternion.
+    ///
+    /// **A bone the gesture's own animation track never mentions defaults to IDENTITY, not the
+    /// rest pose.** Confirmed in the runtime's own per-bone decode
+    /// (<c>bone_setup.cpp:599</c>): <c>else if (animdesc.flags &amp; STUDIO_DELTA) { boneQuat.Init(
+    /// 0, 0, 0, 1 ); bonePos.Init( 0, 0, 0 ); }</c>, with the rest-pose fallback reserved for the
+    /// non-delta <c>else</c> beneath it. An identity delta composed at any weight leaves the base
+    /// pose bone exactly as it was — which is the only default that means "this gesture does not
+    /// touch this bone," where the rest pose would instead drag it toward wherever the skeleton
+    /// happens to bind.
+    /// </remarks>
+    public static IReadOnlyList<StudioBonePose> Layer(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<StudioBonePose> basePose,
+        IReadOnlyList<StudioBonePose> deltaPose,
+        IReadOnlyList<float> boneWeights,
+        float layerWeight,
+        bool post)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(basePose);
+        ArgumentNullException.ThrowIfNull(deltaPose);
+        ArgumentNullException.ThrowIfNull(boneWeights);
+
+        StudioBonePose[] result = Expand(bones, basePose);
+        StudioBonePose[] delta = ExpandIdentity(bones, deltaPose);
+
+        float clampedLayer = Math.Clamp(layerWeight, 0f, 1f);
+
+        for (int bone = 0; bone < result.Length; bone++)
+        {
+            float strength = clampedLayer *
+                (bone < boneWeights.Count ? boneWeights[bone] : 0f);
+
+            // `if (s2 <= 0.0f) continue` — the gesture leaves this bone exactly as the base pose
+            // had it, not blended toward anything.
+            if (strength <= 0f)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z, float W) p = result[bone].Rotation;
+            (float X, float Y, float Z, float W) q = delta[bone].Rotation;
+
+            (float X, float Y, float Z, float W) scaled = QuaternionScale(q, strength);
+
+            (float X, float Y, float Z, float W) composed = post
+                ? Normalize(QuaternionMultiply(p, scaled))
+                : Normalize(QuaternionMultiply(scaled, p));
+
+            (float X, float Y, float Z) basePosition = result[bone].Position;
+            (float X, float Y, float Z) deltaPosition = delta[bone].Position;
+
+            result[bone] = new StudioBonePose(
+                bone,
+                (basePosition.X + (deltaPosition.X * strength),
+                 basePosition.Y + (deltaPosition.Y * strength),
+                 basePosition.Z + (deltaPosition.Z * strength)),
+                composed);
+        }
+
+        return result;
+    }
+
+    /// <summary>Scales a rotation's ANGLE by a fraction, keeping its axis.</summary>
+    /// <remarks>
+    /// **<c>QuaternionScale</c>**, <c>mathlib_base.cpp:1757</c>. Valve's own comment gives the
+    /// intent the fast form below computes: "slerp in 'reverse order' so that p doesn't get
+    /// realigned" — <c>QuaternionSlerp( p, identity, 1 - |t|, q )</c>, sign of <c>w</c> preserved
+    /// for <c>t &lt; 0</c>. The form actually run reaches the same answer through
+    /// <c>sin(asin(sinom) * t) / sinom</c> rather than a general slerp, which is why it is ported
+    /// verbatim instead of expressed as a call to a slerp this project does not otherwise have.
+    ///
+    /// At <c>t = 0</c> this is the identity quaternion; at <c>t = 1</c> it is (numerically very
+    /// close to) <paramref name="q"/> itself — the division by <c>sinom + FLT_EPSILON</c> rather
+    /// than <c>sinom</c> alone means it does not return bit-for-bit identical output, and that
+    /// epsilon is Valve's, not this port's.
+    /// </remarks>
+    private static (float X, float Y, float Z, float W) QuaternionScale(
+        (float X, float Y, float Z, float W) q, float t)
+    {
+        // **C's FLT_EPSILON, not .NET's `float.Epsilon`.** The two names collide and mean
+        // different things: .NET's is the smallest positive denormal, about 1.4e-45, which does
+        // nothing to guard a division — the numeric-decoding lesson already on file here is
+        // exactly this trap under a different constant (`Four_Epsilons`, B-series). C's
+        // `FLT_EPSILON` is 2^-23, about 1.1920929e-7, which is what actually keeps `sinom + eps`
+        // away from zero at single-precision.
+        const float fltEpsilon = 1.1920929E-07f;
+
+        float sinom = MathF.Min(MathF.Sqrt((q.X * q.X) + (q.Y * q.Y) + (q.Z * q.Z)), 1f);
+        float sinsom = MathF.Sin(MathF.Asin(sinom) * t);
+
+        float scale = sinsom / (sinom + fltEpsilon);
+
+        float r = MathF.Max(0f, 1f - (sinsom * sinsom));
+        float w = MathF.Sqrt(r);
+
+        return (q.X * scale, q.Y * scale, q.Z * scale, q.W < 0f ? -w : w);
+    }
+
+    /// <summary>The Hamilton product of two rotations, aligned first.</summary>
+    /// <remarks>
+    /// **<c>QuaternionMult</c>**, <c>mathlib_base.cpp:1837</c>. It aligns its SECOND argument to
+    /// its first internally — <c>QuaternionAlign( p, q, q2 )</c> — before the product, which is
+    /// why <see cref="Align"/> is not called again by <see cref="Layer"/> around this: doing so
+    /// would align twice against a result the second alignment cannot see is already aligned.
+    /// </remarks>
+    private static (float X, float Y, float Z, float W) QuaternionMultiply(
+        (float X, float Y, float Z, float W) p, (float X, float Y, float Z, float W) q)
+    {
+        (float X, float Y, float Z, float W) aligned = Align(p, q);
+
+        return (
+            (p.X * aligned.W) + (p.Y * aligned.Z) - (p.Z * aligned.Y) + (p.W * aligned.X),
+            (-p.X * aligned.Z) + (p.Y * aligned.W) + (p.Z * aligned.X) + (p.W * aligned.Y),
+            (p.X * aligned.Y) - (p.Y * aligned.X) + (p.Z * aligned.W) + (p.W * aligned.Z),
+            (-p.X * aligned.X) - (p.Y * aligned.Y) - (p.Z * aligned.Z) + (p.W * aligned.W));
+    }
+
+    /// <summary>Fills in the bones a delta animation did not mention, as IDENTITY rather than rest.</summary>
+    /// <remarks>
+    /// The other half of why <see cref="Layer"/> cannot reuse <see cref="Expand"/> as it stands:
+    /// confirmed at <c>bone_setup.cpp:599</c>, a bone a <c>STUDIO_DELTA</c> animation's own track
+    /// does not reach defaults to <c>(0,0,0,1)</c> and zero position — composing that at any
+    /// strength is a no-op, which is the only default that means "untouched" for an additive
+    /// layer. The ordinary <see cref="Expand"/> fills with the rest pose instead, which is correct
+    /// for the absolute animations <see cref="Blend"/> interpolates between and wrong here.
+    /// </remarks>
+    private static StudioBonePose[] ExpandIdentity(
+        IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose)
+    {
+        StudioBonePose[] full = new StudioBonePose[bones.Count];
+
+        for (int bone = 0; bone < full.Length; bone++)
+        {
+            full[bone] = new StudioBonePose(bone, (0f, 0f, 0f), (0f, 0f, 0f, 1f));
+        }
+
+        foreach (StudioBonePose moved in pose)
+        {
+            if (moved.Bone >= 0 && moved.Bone < full.Length)
+            {
+                full[moved.Bone] = moved with { Bone = moved.Bone };
+            }
+        }
+
+        return full;
+    }
+
     /// <summary>Fills in the bones an animation did not mention, from the skeleton's rest pose.</summary>
     private static StudioBonePose[] Expand(
         IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose)
