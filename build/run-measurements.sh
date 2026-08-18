@@ -6,6 +6,7 @@
 #   bash build/run-measurements.sh core              [--no-pull]
 #   bash build/run-measurements.sh cli               [--no-pull]
 #   bash build/run-measurements.sh content           [--no-pull]
+#   bash build/run-measurements.sh audio             [--no-pull]
 #   bash build/run-measurements.sh fuzz [seconds]    [--no-pull]
 #
 # `fuzz` runs on fuzz-box, the other three on mutation-box. The split is by WORKLOAD, not by
@@ -170,10 +171,26 @@ case "$MODE" in
   # that has got. Read it as "how much of Content is testable without 8.2 GB of game archives", not as
   # "how good are Content's tests".
   content) PROJECT="tests/Tf2DemoSalvage.Content.Tests"; NEEDS_CORPUS=0 ;;
+  # Audio needs no demos, but it DOES need the two native codecs, which are not committed.
+  # libopus arrives from NuGet with a linux-arm64 asset; celt and speex are built from Xiph source
+  # by tools/native-audio/build.sh and land in tools/native-audio/ as libcelt.so and libspeex.so.
+  #
+  # **The tests construct decoders unconditionally, with no availability guard**, so a missing
+  # library FAILS them rather than skipping - which would read as a broken suite rather than a
+  # missing prerequisite. Checked here so the message says which it is.
+  audio)   PROJECT="tests/Tf2DemoSalvage.Audio.Tests";   NEEDS_CORPUS=0
+           for library in libcelt.so libspeex.so; do
+             if [ ! -f "$REPO/tools/native-audio/$library" ]; then
+               echo "ERROR: tools/native-audio/$library is missing." >&2
+               echo "       Build both once with: bash tools/native-audio/build.sh" >&2
+               echo "       Without them every voice decoder test fails rather than skipping." >&2
+               exit 2
+             fi
+           done ;;
   # Fuzzing builds Core and the harness and never opens a demo, so it takes no LFS bandwidth.
   # Same reasoning as `lfs: false` in .github/workflows/fuzz.yml, for the same reason.
   fuzz)    PROJECT="tests/Tf2DemoSalvage.Fuzz";         NEEDS_CORPUS=0 ;;
-  *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli, content or fuzz." >&2; exit 2 ;;
+  *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli, content, audio or fuzz." >&2; exit 2 ;;
 esac
 
 # `corpus` mutation is OFF, and refuses rather than warns.
