@@ -121,6 +121,77 @@ public sealed class CorpusTempEntityTests
         Corpus.FilesWithSchema().ShouldNotBeEmpty();
     }
 
+    [Test]
+    public void ReportPlayerAnimEvents()
+    {
+        // **The trigger for the gesture layer (B112 slice 3b), measured before any enum is ported.**
+        // m_iEvent is a PlayerAnimEvent_t ordinal, and inserting an enum member shifts every value
+        // after it — so what a value MEANS is era-dependent and cannot be read off one build's SDK.
+        // This prints the raw distribution per era so the mapping can be established from data rather
+        // than assumed. The owner's era specimens are SOLO recordings, so the events present are
+        // whatever one player does alone: fire, reload, jump.
+        int demosWithAnimEvents = 0;
+
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoSchema schema = Corpus.Schema(path);
+            EntityDecoder decoder =
+                new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+            Dictionary<(string Event, string Data), int> byEvent = new();
+            foreach (DecodedTempEntity effect in Effects(path, decoder).Take(8000))
+            {
+                string className = schema.ServerClasses
+                    .FirstOrDefault(c => c.Id == effect.ClassId).ClassName ?? "?";
+                if (className != "CTEPlayerAnimEvent")
+                {
+                    continue;
+                }
+
+                // **Absent is reported as absent, never as a fabricated -1.** A temp entity carries
+                // only the properties that differ from the class baseline, so an omitted m_iEvent
+                // means "equals baseline", not "-1" — and folding those together with a real value
+                // is exactly the sentinel trap in docs/memory/sentinels-conflate-unknown-with-answer.
+                (string, string) key = (
+                    PropertyLabel(effect, "m_iEvent"), PropertyLabel(effect, "m_nData"));
+                byEvent[key] = byEvent.TryGetValue(key, out int seen) ? seen + 1 : 1;
+            }
+
+            if (byEvent.Count == 0)
+            {
+                continue;
+            }
+
+            demosWithAnimEvents++;
+            TestContext.Out.WriteLine(
+                $"{Path.GetFileName(path)} (protocol {Corpus.ProtocolOf(path)}):");
+            foreach (((string eventValue, string dataValue), int count) in
+                byEvent.OrderByDescending(e => e.Value))
+            {
+                TestContext.Out.WriteLine(
+                    $"    m_iEvent={eventValue,7}  m_nData={dataValue,7}  x{count}");
+            }
+        }
+
+        // No assertion on which events appear — that is the very thing being measured. The control
+        // is only that the corpus was walked at all.
+        Corpus.FilesWithSchema().ShouldNotBeEmpty();
+        TestContext.Out.WriteLine($"demos carrying CTEPlayerAnimEvent: {demosWithAnimEvents}");
+    }
+
+    private static string PropertyLabel(DecodedTempEntity effect, string name)
+    {
+        foreach (DecodedProperty property in effect.Properties)
+        {
+            if (property.Definition.Property.Name == name)
+            {
+                return property.Value.AsInt.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        return "absent";
+    }
+
     private static Totals Decode(string path, EntityDecoder decoder)
     {
         int messages = 0;

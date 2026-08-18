@@ -46,6 +46,7 @@ it, because a second copy is a copy that goes stale.
 | [22-bone-merged-attachments.md](22-bone-merged-attachments.md) | Why weapons and cosmetics carry no position of their own |
 | [23-drawing-what-the-entity-says.md](23-drawing-what-the-entity-says.md) | Defects that looked like renderer bugs and were this project overriding what the demo already said |
 | [24-reference-capture.md](24-reference-capture.md) | Configuring TF2 so a screenshot is a valid ground truth: why capture must be LDR, and what drifts |
+| [25-gesture-layer.md](25-gesture-layer.md) | How a demo says a player fired: a temp-entity trigger, and the enum ordinal that turned out to be append-only across every era |
 
 ## Which of this is original
 
@@ -71,6 +72,9 @@ in any public writeup found:
   the same session ([03](03-string-tables.md)).
 - **How `bf_write` behaves under pressure in practice**, and what that means for anyone
   re-encoding ([09](09-valve-implementation.md)).
+- **`PlayerAnimEvent_t` is append-only across TF2's whole history** — the gesture-trigger enum's
+  ordinals 0–29 are identical from the Orange Box era to today, so one event→gesture mapping decodes
+  every protocol. Established by comparing three SDK generations, not assumed ([25](25-gesture-layer.md)).
 
 ## Conventions used throughout
 

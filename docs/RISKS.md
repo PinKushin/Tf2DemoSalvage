@@ -6726,14 +6726,23 @@ rather than built on a guess:**
      `GestureLayer` carries no weight or fade — the per-bone shaping is the weight list from slice 1,
      not a layer envelope. The auto-kill discriminator (`null` vs held `1.0`) and the strict `> 1.0f`
      boundary were both verified by sabotage: each reddens exactly its own test.
-   - **3b — the trigger and the slot map — remaining, and era-fragile.** `CTEPlayerAnimEvent` already
-     decodes off `svc_TempEntities` generically (`m_hPlayer`, `m_iEvent`, `m_nData` are in the
-     decoded property set); what is missing is interpreting `m_iEvent` as a `PlayerAnimEvent_t` and
-     running `DoAnimationEvent`'s event→slot+activity mapping. The risk is that the enum is not
-     stable across eras — inserting a `PLAYERANIMEVENT_*` member shifts every ordinal after it, so a
-     value read from a protocol-11 demo is not necessarily the same event the current SDK's enum
-     names. This needs the same measured, per-era treatment the message-id and field-width work got,
-     not a straight port of one build's enum.
+   - **3b — the trigger and the slot map — remaining, but no longer era-blocked.**
+     `CTEPlayerAnimEvent` already decodes off `svc_TempEntities` generically (`m_hPlayer`,
+     `m_iEvent`, `m_nData` are in the decoded property set); what is missing is interpreting
+     `m_iEvent` as a `PlayerAnimEvent_t` and running `DoAnimationEvent`'s event→slot+activity
+     mapping. **The era-fragility this note used to claim was a real mechanism that did not happen
+     here, and checking three SDK generations is what settled it** (`docs/findings/25-gesture-layer.md`):
+     `PlayerAnimEvent_t` is strictly append-only — ordinals 0–29 are identical from the Orange Box
+     era (`hl2sdk/orangebox`) through 2013 and the current `hl2sdk/tf2`, with `DOUBLEJUMP_CROUCH`(30)
+     onward only ever appended. So one mapping table decodes every protocol; the only era effect is
+     range, which the narrower field self-enforces. Every observed corpus value maps under that
+     single enum. Two implementation notes for whoever builds it: a temp entity sends only what
+     differs from the previous instance, so an absent `m_iEvent` means "same event as the last one"
+     and the decode must carry that state forward (not default to zero — the sentinel trap); and
+     `m_nData` is the activity/sequence for the handful of events that use it (voice-command and
+     custom gestures), absent otherwise.
 
-3b remains on the owner's direction. 3a was the era-clean half and is landed and tested; the enum
-mapping is deferred precisely because it cannot be done safely from the SDK alone.
+3b remains on the owner's direction. 3a was the era-clean half and is landed and tested; 3b is now
+de-risked — it can be built from one SDK mapping rather than needing per-era measurement, and the
+2007/2008 client decompile (owner-offered) would confirm the launch-era row rather than being needed
+to discover it.
