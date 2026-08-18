@@ -6726,11 +6726,30 @@ rather than built on a guess:**
      `GestureLayer` carries no weight or fade — the per-bone shaping is the weight list from slice 1,
      not a layer envelope. The auto-kill discriminator (`null` vs held `1.0`) and the strict `> 1.0f`
      boundary were both verified by sabotage: each reddens exactly its own test.
-   - **3b — the trigger and the slot map — remaining, but no longer era-blocked.**
+   - **3b — the trigger and the slot map — the mapping is now built; the wiring is not.**
      `CTEPlayerAnimEvent` already decodes off `svc_TempEntities` generically (`m_hPlayer`,
-     `m_iEvent`, `m_nData` are in the decoded property set); what is missing is interpreting
-     `m_iEvent` as a `PlayerAnimEvent_t` and running `DoAnimationEvent`'s event→slot+activity
-     mapping. **The era-fragility this note used to claim was a real mechanism that did not happen
+     `m_iEvent`, `m_nData` are in the decoded property set). The event→slot+activity mapping —
+     `DoAnimationEvent` read as a pure function — is done: `PlayerGestureEvent.Map` (Core.Scene)
+     ports the full `CTFPlayerAnimState::DoAnimationEvent` over the base, total across all 41
+     events, with `PlayerAnimEvent`/`GestureSlot` enums, a `GestureContext` for the duck/swim/
+     airwalk/loser/minigun/sniper variant bits, and a `GestureTrigger` result. Events that drive the
+     MAIN sequence or clear state (jump, swim, die, spawn, snap-yaw, the custom-sequence pair) return
+     null rather than a gesture — those are `PlayerActivityState`'s job — as do the events dead in
+     the SDK (grenade draw/throw have no handler; `CustomGestureSequence` and `DoubleJumpCrouch` are
+     commented out, and `z1800`'s 19 `DoubleJumpCrouch` events correctly draw nothing). The
+     precedence subtlety is tested with a duck+swim input (reload picks duck first, attacks let swim
+     override) and both it and the pre-fire auto-kill rule were sabotage-verified.
+
+     **What remains of 3b is the wiring**, in two pieces: (i) decode the `CTEPlayerAnimEvent` stream
+     into `(player, event, nData)` carrying the persistent-instance state forward — an absent
+     `m_iEvent` means "same event as the last one", not zero; and (ii) feed each trigger a
+     `GestureLayer` (slice 3a) started at the event's tick and composite it (slice 2) in the viewer,
+     tracking one live gesture per slot per player. The remaining era-sensitive corner is narrow:
+     the two dynamic events (`CustomGesture`, `VoiceCommandGesture`) carry an activity ORDINAL in
+     `m_nData`, and the activity list itself grows across eras — so resolving that number to a name
+     needs the era's `ActivityList`, unlike the fixed-activity events which are already era-clean.
+
+     The rest of this note (the enum history) records why the fixed mapping is safe across eras. **The era-fragility this note used to claim was a real mechanism that did not happen
      here, and checking three SDK generations is what settled it** (`docs/findings/25-gesture-layer.md`):
      `PlayerAnimEvent_t` is strictly append-only — ordinals 0–29 are identical from the Orange Box
      era (`hl2sdk/orangebox`) through 2013 and the current `hl2sdk/tf2`, with `DOUBLEJUMP_CROUCH`(30)
