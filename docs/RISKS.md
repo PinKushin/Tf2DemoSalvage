@@ -6261,3 +6261,40 @@ every time**, rather than reading the pass/fail word. Current sizes at this comm
 | Viewer3D.UiTests | 8 |
 
 A total that drops without the suite shrinking is a failed run wearing a pass.
+
+### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — OPEN
+
+The chain from a demo to a weapon's animation role is complete and tested, and the last hop into the
+viewer is not done. Recorded so the half-built state is visible rather than looking finished.
+
+**What works.** `m_hActiveWeapon` gives the weapon entity, whose server class the timeline resolves.
+`WeaponScriptName` turns that class into the entity class the script is named for — a rule plus ten
+enumerated exceptions, checked against every `LINK_ENTITY_TO_CLASS` pair the SDK declares, 96 of
+them. `WeaponRoles` then finds `scripts/<name>.ctx`, decrypts it with the key Valve publishes in
+`tf_shareddefs.cpp:1616`, and reads `WeaponType` — the same key `tf_weapon_parse.cpp:134` reads.
+Measured against the installed game: a medigun and a pistol are secondaries, a bonesaw and a bat are
+melee, a rocket launcher and a minigun are primaries.
+
+**What is missing, and it is one step.** Nothing calls `WeaponRoles.Suffix` yet.
+`PlayerActivityState.NameOf` already takes the slot as a parameter and already defaults it to
+`PRIMARY`, so the wiring is: carry the suffix on `ScenePose` beside `Flags`, build a `WeaponRoles`
+once per demo from the weapon classes it mentions, and pass it through `PlayerAnimation.For`. Until
+that happens every player still animates as though holding a primary — the suffix is computed and
+discarded, which is the same shape as the three no-ops recorded in `CLAUDE.md`.
+
+**Two known gaps in the role itself**, both real and both silent:
+
+- **Per-class weapon translation.** `pszWpnEntTranslationList` (`tf_shareddefs.cpp:1628`) rewrites a
+  base weapon entity into a per-class one, and the role can differ between them:
+  `tf_weapon_shotgun` becomes `_soldier`, `_hwg` or `_pyro`, all secondaries, but `_primary` for the
+  engineer, whose shotgun is his primary. One server class, several scripts. The holder's class is
+  on the wire, so this is implementable; without it a soldier's shotgun reads primary.
+- **The econ `anim_slot` override.** `GetActivityWeaponRole` prefers
+  `CEconItemView::GetAnimationSlot` over the script when an item defines one, from `items_game.txt`
+  keyed by `m_iItemDefinitionIndex` — which IS networked and does appear in the corpus. Reading it
+  needs the econ schema, whose entries resolve through prefabs.
+
+A weapon whose script cannot be found falls back to `PRIMARY`, which is the engine's own default —
+`ActivityList` gives `TF_WPN_TYPE_PRIMARY` the same body as `default:`. That makes a miss
+indistinguishable from a correct primary, which is why the name mapping is enumerated against the
+SDK rather than trusted to a rule.
