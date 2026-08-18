@@ -125,10 +125,24 @@ public readonly record struct ScenePose
     /// crouched and standing, so an interpolated pose takes the earlier keyframe's value rather than
     /// blending toward the next.
     ///
-    /// Null for every player but the recorder in a POV demo, since the send prop is in
-    /// <c>DT_LocalPlayerExclusive</c>; a SourceTV recording carries it for all of them.
+    /// Null when the recording did not say. That used to be documented as "every player but the
+    /// recorder in a POV demo, since the send prop is in DT_LocalPlayerExclusive" — which was wrong
+    /// in both halves: it is on <c>DT_BasePlayer</c> and reaches every player in the PVS (B103).
     /// </remarks>
     public int? Flags { get; init; }
+
+    /// <summary>The activity suffix the held weapon drives, such as <c>SECONDARY</c>.</summary>
+    /// <remarks>
+    /// **Travels with the flags and for the same reason**: the weapon is known when the player
+    /// becomes a prop, and the activity lookup that needs it happens a pass later, once the model
+    /// has been read.
+    ///
+    /// A string rather than an enumeration because it is pasted onto an activity name —
+    /// <c>ACT_MP_RUN_</c> plus this — and the set of suffixes is the game's data rather than this
+    /// project's. Null means nothing was resolved, and the lookup then uses the primary forms, which
+    /// is the engine's own default.
+    /// </remarks>
+    public string? Slot { get; init; }
 
     /// <summary>The <c>move_x</c> pose parameter: how much of the motion is forward.</summary>
     /// <remarks>
@@ -575,6 +589,7 @@ public sealed class ScenePropTrack
             //
             // Discrete: there is no halfway between crouched and standing.
             Flags = from.Flags,
+            Slot = from.Slot,
         };
     }
 

@@ -6298,3 +6298,41 @@ A weapon whose script cannot be found falls back to `PRIMARY`, which is the engi
 `ActivityList` gives `TF_WPN_TYPE_PRIMARY` the same body as `default:`. That makes a miss
 indistinguishable from a correct primary, which is why the name mapping is enumerated against the
 SDK rather than trusted to a rule.
+
+### B105 — RESOLVED for the wiring; the per-class translation remains
+
+The suffix now reaches the renderer. `ScenePose` carries `Slot` beside `Flags`, the viewer builds a
+`WeaponRoles` from the weapon classes a recording mentions, and `PlayerAnimation.For` passes it to
+`PlayerActivityState.NameOf`. Measured on a real match, autoplayed so players actually exist:
+
+```
+weapon roles: CTFBat=MELEE, CTFBonesaw=MELEE, CTFCompoundBow=ITEM2, CTFCrossbow=PRIMARY,
+CTFMinigun=PRIMARY, CTFPipebombLauncher=SECONDARY, CTFPistol=SECONDARY, CTFScatterGun=PRIMARY,
+CTFWeaponBuilder=BUILDING, CTFWeaponPDA_Engineer_Build=PDA, CWeaponMedigun=SECONDARY
+```
+
+The Huntsman as `ITEM2` and the Crusader's Crossbow as a medic's `PRIMARY` are both the game's own
+answers, and neither was written down anywhere in this project.
+
+**The first attempt was a no-op and the tests could not see it.** The roles were built beside the
+timeline, which is where the weapon classes become known — and the archives are opened AFTER that,
+so `_archives` was null every time, every suffix came back null, and the lookup fell back to the
+primary forms. The viewer drew exactly what it had drawn before. Every unit test passed throughout,
+because they call `WeaponRoles` directly rather than through the viewer.
+
+It was found by a line missing from the log. That is the fourth no-op of this shape recorded in this
+project, and the only instrument that has ever caught one is output from a real run.
+
+Two tests now guard the wiring rather than the components: one asserts a medic resolves a DIFFERENT
+sequence holding a secondary than holding a primary — which fails if the suffix is computed and
+discarded — and one asserts the medigun is what produces `SECONDARY`. Split because a broken script
+read and a broken lookup are different defects. Verified by sabotage: making `For` ignore its slot
+reddens the first and leaves the second green.
+
+**Still open, and now measured rather than predicted.** `CTFShotgun=PRIMARY` appears in that log.
+`pszWpnEntTranslationList` (`tf_shareddefs.cpp:1628`) translates a base weapon entity per class, and
+the shotgun is the case where the role differs: `_soldier`, `_hwg` and `_pyro` are secondaries while
+the engineer's `_primary` is a primary. So a soldier's shotgun currently animates as a primary. The
+holder's class is on the wire, so this is implementable.
+
+The econ `anim_slot` override from `items_game.txt` is also still unread.

@@ -53,9 +53,9 @@ internal static class PlayerAnimation
     /// <returns>A merged sequence number, or −1 when the model offers neither.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
-    /// The primary-weapon variants are used because a demo does not say which weapon is out either
-    /// — <c>m_hActiveWeapon</c> is a separate decode this project has not done. Every class has the
-    /// primary forms, so they resolve for all nine.
+    /// The primary-weapon variants, which is the engine's default as well as this overload's:
+    /// <c>ActivityList</c> gives <c>TF_WPN_TYPE_PRIMARY</c> the same body as <c>default:</c>. Every
+    /// class has the primary forms, so they resolve for all nine.
     /// </remarks>
     public static int For(PropModels.SkinnedModel model, float speed) =>
         For(model, speed, flags: null, alive: true);
@@ -65,21 +65,27 @@ internal static class PlayerAnimation
     /// <param name="speed">Horizontal speed in units a second.</param>
     /// <param name="flags">The player's <c>m_fFlags</c>, or null when the recording did not say.</param>
     /// <param name="alive">Whether the player is alive.</param>
+    /// <param name="slot">
+    /// The activity suffix the held weapon drives — <c>PRIMARY</c>, <c>SECONDARY</c>, <c>MELEE</c>
+    /// and so on, as <c>WeaponRoles</c> reads it from the weapon's own script. Defaulted rather than
+    /// required, because the engine defaults it the same way.
+    /// </param>
     /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
-    /// **Null flags are a real case rather than an error.** <c>m_fFlags</c> is declared in
-    /// <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for the recorder alone while a
-    /// SourceTV recording carries it for everybody. Absent, the state machine sees a player standing
-    /// on the ground — which is what they usually are, and is the same answer this file gave before
-    /// the flags existed.
+    /// **Null flags are a real case rather than an error**, though a rarer one than this comment
+    /// used to claim. It said <c>m_fFlags</c> was declared in <c>DT_LocalPlayerExclusive</c> and so
+    /// reached only a POV recorder; it is on <c>DT_BasePlayer</c> and reaches every player in the
+    /// PVS (B103). Absent, the state machine sees a player standing on the ground — which is what
+    /// they usually are.
     ///
     /// **Falls back rather than returning nothing.** A model that claims no sequence for the chosen
     /// activity — a crouch-walk it does not have, say — takes the standing form instead. A player
     /// frozen in the reference pose lies on their back, which reads as a broken model rather than as
     /// a missing animation.
     /// </remarks>
-    public static int For(PropModels.SkinnedModel model, float speed, int? flags, bool alive)
+    public static int For(
+        PropModels.SkinnedModel model, float speed, int? flags, bool alive, string slot = "PRIMARY")
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -89,18 +95,28 @@ internal static class PlayerAnimation
 
         PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep: false, alive);
 
-        int wanted = model.ForActivity(PlayerActivityState.NameOf(activity));
+        int wanted = model.ForActivity(PlayerActivityState.NameOf(activity, slot));
 
         if (wanted >= 0)
         {
             return wanted;
         }
 
+        // **The weapon's own suffix first, then the primary form of the same activity.** A class
+        // that has no crouch-walk for the slot it is holding still has the primary one, and that is
+        // nearer to what the player is doing than a different activity would be. Only after both
+        // fail does the activity itself change, below.
+        if (!string.Equals(slot, "PRIMARY", StringComparison.Ordinal) &&
+            model.ForActivity(PlayerActivityState.NameOf(activity)) is var primary and >= 0)
+        {
+            return primary;
+        }
+
         // The two the engine starts from, in order: whatever the player is doing, standing or
         // running is closer to it than the reference pose.
         int fallback = speed > MovingMinimumSpeed
-            ? model.ForActivity(PlayerActivityState.NameOf(PlayerActivity.Run))
-            : model.ForActivity(PlayerActivityState.NameOf(PlayerActivity.StandIdle));
+            ? model.ForActivity(PlayerActivityState.NameOf(PlayerActivity.Run, slot))
+            : model.ForActivity(PlayerActivityState.NameOf(PlayerActivity.StandIdle, slot));
 
         return fallback >= 0 ? fallback : model.Find("Stand_PRIMARY");
     }
