@@ -132,6 +132,78 @@ pakfile. Compare
   1,073,741,824 forty-three times.
 - **43 of 43 textures present** in the pakfile under their derived names.
 
+## The assignment does not need to be computed
+
+The obvious design for `$envmap` is a nearest-by-position search at load: read the 43 placements,
+and for each surface find the closest. **vbsp already did it, at compile time.**
+
+`Cubemap_CreateTexInfo` (`vbsp/cubemap.cpp:600`) clones the face's texdata under a patched material
+name carrying the cubemap's origin, writes a Patch VMT whose `$envmap` is that cubemap's baked
+texture, and repoints the texinfo at the clone. So a face's material *already names the exact
+cubemap it reflects*, and this project reads that name for every surface as it is.
+
+Measured, and it is two independent recordings agreeing: **51 patched materials on
+cp_process_final, all 51 naming one of the 43 placements**, and all 51 with the position in the
+material's name matching the position in its `$envmap` value. Those come from different parts of the
+compiler and cross-check each other without reference to our reader at all.
+
+**Brush faces are patched; static props are not**, because `Cubemap_CreateTexInfo` works on texinfo
+and a prop has none. 26 materials on this map still read the literal `env_cubemap` and every one is
+a `models/props_*` — those the engine binds at runtime by proximity to the prop's origin. The test
+asserting this started life as "no resolved material still asks for `env_cubemap`", which is simply
+false; the assertion was wrong, not the data.
+
+## The patch that never applied
+
+Chasing that produced the largest finding of the three. **Every `Patch` material this project has
+ever resolved was a no-op.**
+
+The parser kept keys only at depth 1, which is correct and deliberate — a `Proxies` block carries
+its own `$basetexture` naming the texture a proxy animates, and taking that as the surface's draws
+the wrong picture. But a patch's overrides are at depth **2**:
+
+```
+"patch"
+{
+	"include"		"materials/ICARUS/GLASSCHROME001.vmt"
+	"replace"
+	{
+		"$envmap"		"maps/cp_process_final/c1568_1728_976"
+	}
+}
+```
+
+So `Parse` returned a material carrying `include` and nothing else. `ApplyPatch` drops `include` and
+overlays the rest — and the rest was empty, so it overlaid nothing and the merged material was the
+included stock one, exactly. On this map that is 51 materials.
+
+**`ApplyPatch`'s own documentation asserted the flattening**: *"this reader flattens those into the
+top level, so applying the patch is a straight overlay"*. It did not. Nothing in `ApplyPatch` was
+wrong — it faithfully applied what it was handed — which is precisely why the bug survived having a
+test:
+
+```csharp
+VmtMaterial patch = Parse(
+    "\"Patch\"\n{\n" +
+    "  \"include\" \"materials/models/base.vmt\"\n" +
+    "  \"$color\" \"[1 0 0]\"\n}\n");
+```
+
+The keys are at the patch's **top level**, a shape real VMTs never use. Third time in this session
+that a fixture written from the same belief as the code confirmed it — after the 13-byte cubemap
+record and the census's missing third axis. The pattern is now specific enough to name: **when a
+format has a real-world example available, put the real one in the fixture.** `VmtPatchBlockTests`
+uses the file above byte for byte.
+
+The fix keys on depth *and* name, not name alone: a `replace` block nested inside `Proxies` is a
+proxy's, and matching the name anywhere would swap one bug for a rarer one. There is a test for that
+too, because a fix whose failure mode is "works on everything I tried" needs the negative case
+written down.
+
+**What it did not change:** material resolution is 211 of 211 either way. That was checked by
+reverting the fix rather than assumed — the surrounding comment says 208 of 211, and it would have
+been easy and wrong to claim the improvement.
+
 ## Still open
 
 Reading the lump is one of three parts. Nothing yet assigns a cubemap to a surface — Source picks
