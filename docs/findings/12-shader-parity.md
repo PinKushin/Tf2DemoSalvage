@@ -229,8 +229,44 @@ The same pattern appears in all three materials that carry the parameter — `ca
 copied three times, with its consumer commented out before it shipped.
 
 **A material parameter that no shader declares is simply ignored by the material system.** So
-`$modblend` does nothing, has done nothing since the proxy was disabled, and the correct
-implementation of it is to implement nothing.
+`$modblend` does nothing in TF2, has done nothing since the proxy was disabled, and the correct
+implementation of it here is to implement nothing.
+
+### "Dead" was too strong, and the correction is worth keeping (2026-08-19)
+
+The heading above says *dead*. The owner challenged that while
+[`$vertexcolor`](28-vertex-colour.md) was being worked out: a parameter this engine ignores may be
+one Source uses for another game or another path, rather than one nothing uses anywhere. That was
+exactly right about `$vertexcolor` — it is live in `cable_dx6.cpp` and in the fixed-function
+`decal.cpp`, just unreachable from a DX9 `LightmappedGeneric` world face.
+
+So the same test was run here, properly this time and with a positive control, because the original
+claim rested on an absence and five absence claims in this project have turned out to be facts about
+the grep.
+
+**`$modblend` is absent from 21 TF2 binaries**: `client`, `engine` and `server` at 2007, 2008, 2009,
+2011, 2013 and live, plus `MaterialSystem.dll`, `StudioRender.dll`, `shaderapidx9.dll` and all five
+`stdshader_*.dll`. Every sweep carried a control that fired — `vertexcolor` on the engine-side
+binaries, `$detail` on the shader DLLs. So the absence is real and not a search artifact.
+
+**But two things stop this being a refutation of the challenge.**
+
+The structural difference is that `$vertexcolor` is a **MATERIAL_VAR flag** — engine-level, present
+across the whole family by construction, which is why live consumers were findable in shipped
+source. `$modblend` would be a **SHADER_PARAM**, which exists only where some shader declares it. So
+"live elsewhere in the family" is a weaker prior here. That is an argument about likelihood, not
+evidence.
+
+And the evidence that survives points the other way: **three shipped VMTs declare it, and VMT keys
+do not appear by accident.** Some shader, tool or branch had it. What is established is that no TF2
+binary of any era reads it; what is not established is that nothing ever did, and no other Source 1
+game was available on the machine to check (the only other Source-family title installed is CS:GO,
+which is Source 2).
+
+**So the accurate statement is the one written for `$vertexcolor`: not reachable here, origin
+unknown.** The implementation advice is unchanged — implement nothing — but the reasoning behind it
+is now "no path in this game reaches it" rather than "it is dead", and those differ for anyone
+carrying this reading to another Source project.
 
 ### Two things worth carrying away
 
