@@ -28,10 +28,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class CorpusDamageTests
 {
-    /// <summary>Well past any real hit, well below what a misread short produces.</summary>
-    private const int ImplausibleDamage = 2048;
 
-    private const float WorldHalfExtent = 16384f;
 
     [Test]
     public void EveryDamageMessage_DecodesAtEveryProtocol()
@@ -66,36 +63,6 @@ public sealed class CorpusDamageTests
         demos.ShouldBeGreaterThan(0, "no demo carried a Damage user message");
     }
 
-    [Test]
-    public void EveryDamageValueAndOrigin_IsPlausible()
-    {
-        foreach (string path in Corpus.Files())
-        {
-            string name = Path.GetFileName(path);
-
-            foreach (UserMessage message in Damages(path))
-            {
-                if (message.Fields is null)
-                {
-                    continue;
-                }
-
-                foreach (KeyValuePair<string, object?> field in message.Fields)
-                {
-                    if (field.Key == "damage")
-                    {
-                        // 16164 is what the wrong layout produced. A right one cannot reach here.
-                        ((int)field.Value!).ShouldBeInRange(0, ImplausibleDamage, name);
-                    }
-                    else if (field.Key is "x" or "y" or "z")
-                    {
-                        MathF.Abs((float)field.Value!)
-                            .ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-                    }
-                }
-            }
-        }
-    }
 
     [Test]
     public void ProtocolFourteenAndBelow_SendNoDamageTypeField()

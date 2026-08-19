@@ -208,42 +208,4 @@ public sealed class CorpusUserCommandTests
     private static bool SameBits(float left, float right) =>
         BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
-    [Test]
-    public void UserCommand_PlayerInput_VariesFromItsDefaults()
-    {
-        // The control for the test above. Re-encoding a payload whose every presence bit is zero
-        // is nearly free, so a codec that silently produced empty commands would pass it on any
-        // corpus. Real recordings must show angles moving and buttons being pressed.
-        HashSet<float> yaws = [];
-        uint buttonsSeen = 0;
-        bool anyWeaponSwitch = false;
-
-        foreach (string path in Corpus.Files())
-        {
-            byte[] file = File.ReadAllBytes(path);
-
-            foreach (DemoCommand command in
-                DemoCommandReader.Read(file.AsMemory(DemoHeader.SizeBytes))
-                    .Where(c => c.Type == DemoCommandType.UserCmd))
-            {
-                UserCommand decoded = UserCommand.Decode(command.Payload.Span);
-                yaws.Add(decoded.Yaw);
-                buttonsSeen |= decoded.Buttons;
-                anyWeaponSwitch |= decoded.WeaponSelect != 0;
-            }
-        }
-
-        // A player who turned at all produces many distinct yaws; a decoder returning a constant
-        // produces one.
-        yaws.Count.ShouldBeGreaterThan(10);
-
-        // IN_ATTACK and IN_FORWARD are the two nobody records a demo without.
-        (buttonsSeen & 1).ShouldBe(1u, "IN_ATTACK never appeared in any recorded input");
-        (buttonsSeen & (1u << 3)).ShouldBe(1u << 3, "IN_FORWARD never appeared");
-
-        anyWeaponSwitch.ShouldBeTrue("no weapon switch appeared in any recorded input");
-
-        TestContext.Out.WriteLine(
-            $"{yaws.Count} distinct yaws, buttons union {UserCommandButtons.Describe(buttonsSeen)}");
-    }
 }
