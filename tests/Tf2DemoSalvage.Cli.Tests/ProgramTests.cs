@@ -326,7 +326,7 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Test]
-    public void ATruncatedRecordingIsReportedAsTruncatedRatherThanAccepted()
+    public void Main_TruncatedRecording_ReportsTruncation()
     {
         // **No demo in the corpus is missing its dem_stop, so this specimen is AUTHORED.**
         //
@@ -379,7 +379,7 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Test]
-    public void AnUnmodifiedRoundTripIsNotAccusedOfTruncation()
+    public void Main_UnmodifiedRoundTrip_ReportsNoTruncation()
     {
         // **The control for the authored specimen**, and the reason it is worth the extra compile.
         // Without it, "the warning fired" could mean the round trip itself loses the dem_stop —
@@ -405,7 +405,7 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Test]
-    public void ADemoDeclaringTheRightFrameCountIsNotAccusedOfMiscounting()
+    public void Main_CorrectFrameCount_ReportsNoMiscount()
     {
         // The other side of the frame-count check, and the one that keeps it honest. The header
         // states the frame count and the stream contains it by completely different paths; the

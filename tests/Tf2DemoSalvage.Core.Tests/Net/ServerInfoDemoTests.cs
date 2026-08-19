@@ -25,7 +25,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 public sealed class ServerInfoDemoTests
 {
     [Test]
-    public void TheMapNameSurvivesTheWholeDemo()
+    public void RoundTrip_MapName_SurvivesTheWholeDemo()
     {
         // The corpus version of this compared against the header because it had no other oracle.
         // Here the expected value is simply known.
@@ -35,7 +35,7 @@ public sealed class ServerInfoDemoTests
     }
 
     [Test]
-    public void EveryFieldComesBackAsItWentIn()
+    public void RoundTrip_EveryServerInfoField_ReturnsTheValueSent()
     {
         // **Distinct values in every field, which is what the corpus could not arrange.** A real
         // demo's ServerInfo has whatever the server had, and several fields are small integers that
@@ -65,7 +65,7 @@ public sealed class ServerInfoDemoTests
     }
 
     [Test]
-    public void TheSourceTvFlagIsNotConfusedWithTheDedicatedOne()
+    public void Decode_SourceTvAndDedicatedFlags_AreNotTransposed()
     {
         // Two adjacent booleans, which is exactly the pair a bit-level decode transposes. The
         // corpus could only ever show one combination per demo; both are asserted here in one run.
@@ -83,7 +83,7 @@ public sealed class ServerInfoDemoTests
     }
 
     [Test]
-    public void AnEraWithNoSurvivingDemoStillDecodes()
+    public void Decode_AtProtocol18_StillReadsServerInfo()
     {
         // **Protocol 18 has no specimen anywhere in this project**, and community demos from that
         // window are rare enough that one may never turn up. The corpus axis stops at what someone
@@ -100,7 +100,7 @@ public sealed class ServerInfoDemoTests
     }
 
     [Test]
-    public void AMapNameAtItsLongestIsNotTruncated()
+    public void RoundTrip_LongMapName_IsNotTruncated()
     {
         // A community map name of real length, which the committed corpus does not contain — every
         // demo in it is a stock map with a short name. A length field read one bit narrow keeps

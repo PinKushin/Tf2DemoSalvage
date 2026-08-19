@@ -32,7 +32,7 @@ public sealed class LoggingTests
     }
 
     [Test]
-    public void TheLastVerbosityFlagWins()
+    public void Parse_RepeatedVerbosityFlags_KeepsTheLast()
     {
         // Both directions, because "last wins" is only demonstrated by a pair that disagree - a
         // parser that ignored the second flag would pass a test using only one order.
@@ -41,7 +41,7 @@ public sealed class LoggingTests
     }
 
     [Test]
-    public void VerbosityDoesNotDisturbTheOtherOptions()
+    public void Parse_VerbosityFlag_LeavesTheOtherOptionsAlone()
     {
         CommandLine line = CommandLine.Parse(["demo.dem", "-v", "-t", "-o", "out.txt"]);
 

@@ -38,7 +38,7 @@ public sealed class SoundCodecTests
     private const ushort Modern = 24;
 
     [Test]
-    public void EveryFieldComesBackAsItWentIn()
+    public void RoundTrip_EverySoundField_ReturnsTheValueSent()
     {
         // **Distinct values in every field, which is what a real demo could not arrange.** Sounds
         // as recorded are full of shared defaults — volume 1, pitch 100, channel 6 — and two
@@ -95,7 +95,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void ANegativeOriginIsNotReadAsAHugePositiveOne()
+    public void Decode_NegativeOrigin_IsSignExtended()
     {
         // **The failure this guards is silent and was described in the decoder's own remarks.** A
         // twelve-bit coordinate without sign extension comes back near 4096, which scaled by eight
@@ -118,7 +118,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void TheSpeakerEntitysMinusOneSurvives()
+    public void Decode_SpeakerEntityMinusOne_IsSignExtended()
     {
         // -1 is "no speaker", and it is the exact value an unextended sign loses: twelve bits of
         // ones reads back as 4095. The engine's own default is -1, so a decoder that dropped the
@@ -131,7 +131,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void ANegativeDelayTakesTheTenfoldBranch()
+    public void RoundTrip_NegativeDelay_TakesTheTenfoldBranch()
     {
         // The wire biases a delay by 100ms and expands anything still negative tenfold, so
         // precision is lost only on large skip-aheads. Both branches are one expression apart and
@@ -144,7 +144,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void AnOmittedFieldInheritsThePreviousSound()
+    public void Decode_OmittedField_InheritsThePreviousSound()
     {
         // **The delta base, which is the one thing the corpus round trip explicitly could not
         // check.** Its remarks say so: the flag bits rather than the values decide how much is
@@ -170,7 +170,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void TheFirstSoundInAMessageDeltasAgainstTheEngineDefaults()
+    public void Decode_FirstSoundInAMessage_DeltasAgainstEngineDefaults()
     {
         // The other half of the same question. A sound that sends nothing is not empty — it is
         // every engine default, and those are specific numbers rather than zeroes.
@@ -184,7 +184,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void AStopSoundCarriesNothingAfterItsChannel()
+    public void Decode_StopSound_CarriesNothingAfterItsChannel()
     {
         // SND_STOP truncates the record. Reading the playback fields anyway would take bits
         // belonging to the next sound, so this is checked by what follows rather than by what the
@@ -225,7 +225,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void ASoundAfterAStopInheritsSndStopUnlessItSaysOtherwise()
+    public void Decode_SoundAfterAStopWithoutFlags_InheritsSndStop()
     {
         // The consequence of flags being delta-coded, stated on its own because it is surprising
         // and because nothing else in the suite would fail if it changed. The second sound asks
@@ -247,7 +247,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void TheSoundIndexIs13BitsThrough22And14BitsAfter()
+    public void SoundNumberBits_AtProtocol22And23_Are13And14()
     {
         // **The corpus has no demo between protocols 15 and 24, so this boundary was untestable
         // until a sound could be written rather than found.**
@@ -269,7 +269,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void TheFlagsFieldIs9BitsThrough18And11BitsAfter()
+    public void FlagsBits_AtProtocol18And19_Are9And11()
     {
         // Nine to eleven, so a two-bit step. Isolated within each protocol for the reason spelled
         // out above: a cross-protocol difference cannot tell this field from any other that moves
@@ -279,7 +279,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void TheSpecialDspFieldIsEntirelyAbsentThrough21()
+    public void SpecialDspBits_AtProtocol21And22_AreZeroAndEight()
     {
         // The subtle one. Below the boundary the DSP value is not merely omitted — *the bit that
         // would say whether it follows* is not on the wire either. A decoder that kept the flag
@@ -295,7 +295,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void ADspValueIsDroppedEntirelyBelowProtocol22()
+    public void Encode_DspValueAtProtocol21_IsDropped()
     {
         // The value side of the same boundary, and it is asymmetric on purpose: a sound asking to
         // send a DSP at protocol 21 has no way to, so what comes back must report that it did
@@ -312,7 +312,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void TheNarrowEntityFormIsRecordedRatherThanInferred()
+    public void RoundTrip_NarrowEntityForm_IsRecordedNotInferred()
     {
         // An entity index below 32 fits the five-bit form, and nothing forces a sender to use it.
         // Both forms decode to 7; only the length tells them apart, which is exactly why the
@@ -331,7 +331,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void ASequenceNumberSentAsAnIncrementIsNotConfusedWithOneSentInFull()
+    public void Decode_SequenceIncrementForm_IsDistinctFromExplicit()
     {
         // Three-way, and the sense of the first bit is inverted from every other flag here: a SET
         // bit means unchanged. The increment form and an explicit value one higher decode to the
@@ -360,7 +360,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void SoundsSurviveAWholeDemo()
+    public void RoundTrip_SoundThroughAWholeDemo_KeepsItsFields()
     {
         // **The output-level assertion.** Everything above tests the codec when called with the
         // values the test chose; this is the only one here that fails if nothing production-side
@@ -392,7 +392,7 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void AReliableSoundsMessageKeepsItsNarrowerLengthField()
+    public void RoundTrip_ReliableSoundsMessage_UsesTheNarrowLengthField()
     {
         // The reliable flag changes two fields at once: a reliable message implies a single sound
         // and shrinks its length field from sixteen bits to eight. Reading one shape for the other
@@ -436,7 +436,7 @@ public sealed class SoundCodecTests
     /// </summary>
     /// <remarks>
     /// **Deliberately a second copy.** Building the fixture out of the value under test would make
-    /// <see cref="TheFirstSoundInAMessageDeltasAgainstTheEngineDefaults"/> tautological: change
+    /// <see cref="Decode_FirstSoundInAMessage_DeltasAgainstEngineDefaults"/> tautological: change
     /// the decoder's default channel to 3 and both the expectation and the observation move
     /// together. These numbers come from <c>soundinfo.h</c>, so the two agreeing is a finding.
     /// </remarks>
