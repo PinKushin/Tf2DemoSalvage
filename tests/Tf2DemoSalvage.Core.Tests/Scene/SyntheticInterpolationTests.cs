@@ -30,6 +30,9 @@ public sealed class SyntheticInterpolationTests
     /// <summary>The track's fixed render delay, <c>InterpolationDelayTicks</c>.</summary>
     private const int Delay = 7;
 
+    /// <summary><c>EF_NODRAW</c>, bit 5 of <c>m_fEffects</c>.</summary>
+    private const int NoDraw = 0x020;
+
     [Test]
     public void PlayersAt_BetweenTwoKeyframes_IsTheBlendTheDelayLandsOn()
     {
@@ -88,6 +91,62 @@ public sealed class SyntheticInterpolationTests
         timeline.PlayersAt(105.0, shown);
 
         shown.ShouldHaveSingleItem().X.ShouldBe(0f, 0.5f);
+    }
+
+    [Test]
+    public void PropsAt_AnEntityHiddenByNoDraw_IsNotDrawnAndComesBackWhenTheBitClears()
+    {
+        // **The check that EF_NODRAW actually arrives.** A taken health pack is hidden rather than
+        // deleted because it respawns, and the fix for that reads one bit of m_fEffects. If the
+        // property never reaches the decoder the fix is a no-op that looks identical to working —
+        // markers on the floor either way — which is why the corpus version could only count how
+        // many tracks were hidden somewhere.
+        //
+        // The bit is set on one snapshot and cleared on the next, so all three states are checked
+        // against a known answer. The coming back is the half that distinguishes a pickup from a
+        // destroyed entity: a track hidden from some point onwards could be something that was
+        // deleted, which proves nothing about respawning.
+        //
+        // **Each state is asked for ten ticks AFTER it was stated, because of the render delay.**
+        // A track draws `now - 7`, so asking on the tick a change was stated draws the tick before
+        // it and reports the previous state. That is not a quirk of this fixture — it is what a
+        // client shows, and asking at the stated tick is what made the first version of this test
+        // report a visible pickup on the tick it was taken.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEffects(
+            Interval, (100, 0), (200, NoDraw), (300, 0)));
+
+        Hidden(timeline, tick: 110).ShouldBeFalse("the pickup starts visible");
+        Hidden(timeline, tick: 210).ShouldBeTrue("EF_NODRAW did not reach the timeline");
+        Hidden(timeline, tick: 310).ShouldBeFalse("the pickup never came back");
+    }
+
+    [Test]
+    public void PropsAt_EffectsWithoutNoDraw_DoNotHideTheEntity()
+    {
+        // EF_NODRAW is one bit of m_fEffects and its neighbours are ordinary things an entity
+        // sets — EF_BONEMERGE is 0x001 and EF_NOSHADOW 0x010. A reader testing the field for
+        // non-zero rather than masking hides every entity that sets any of them, which on a real
+        // demo is most of the cosmetics.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEffects(
+            Interval, (100, 0x001 | 0x010), (200, 0x001 | 0x010)));
+
+        Hidden(timeline, tick: 210).ShouldBeFalse(
+            "an effects value without EF_NODRAW must not hide the entity");
+    }
+
+    /// <summary>Whether the single prop track is hidden at a tick.</summary>
+    /// <remarks>
+    /// An absent prop counts as hidden, so a fixture that produced no track at all fails rather
+    /// than passing the "is hidden" case for the wrong reason — which is exactly how the first
+    /// attempt at these tests failed, and the failure that led to the origin-table fix in
+    /// <c>SyntheticPlayer.SchemaWithProp</c>.
+    /// </remarks>
+    private static bool Hidden(DemoTimeline timeline, int tick)
+    {
+        List<SceneProp> props = [];
+        timeline.PropsAt(tick, props);
+
+        return props.Count == 0 || props[0].Pose.Hidden;
     }
 
     [Test]
