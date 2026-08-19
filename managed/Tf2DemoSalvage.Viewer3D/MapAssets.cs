@@ -508,12 +508,11 @@ internal sealed class MapAssets
         PakFile pak = PakFile.ReadFrom(map);
         List<BspMaterial> materials = [.. BspMaterials.Read(map)];
 
-        List<MapTexture?> textures = new(materials.Count);
-        List<MapTexture?> blendTextures = new(materials.Count);
-        List<MapDetail?> details = new(materials.Count);
-        List<MapBump?> bumps = new(materials.Count);
-        List<MapCubemap?> cubemaps = new(materials.Count);
-        List<IReadOnlyList<MaterialProxy>> proxies = new(materials.Count);
+        // **One table rather than six parallel lists**, because they kept getting out of step. A
+        // prop's materials continue this same table, and PropModels appended to three of the six —
+        // so every model material lost its detail texture, bump map, cubemap and proxies, padded
+        // afterwards with nulls. See MaterialTable.
+        MaterialTable table = new();
         int resolved = 0;
         int missing = 0;
 
@@ -537,14 +536,11 @@ internal sealed class MapAssets
         Parallel.For(0, materials.Count, index =>
             found[index] = Resolve(materials[index].Name, pak, archives, maximumTextureSize));
 
-        foreach (ResolvedMaterial material in found)
+        for (int index = 0; index < found.Length; index++)
         {
-            textures.Add(material.Texture);
-            blendTextures.Add(material.Blend);
-            details.Add(material.Detail);
-            bumps.Add(material.Bump);
-            cubemaps.Add(material.Cubemap);
-            proxies.Add(material.Proxies ?? []);
+            ResolvedMaterial material = found[index];
+
+            table.Add(materials[index], material);
 
             if (material.Texture is null)
             {
@@ -658,9 +654,7 @@ internal sealed class MapAssets
             map,
             pak,
             archives,
-            materials,
-            textures,
-            blendTextures,
+            table,
             ResolveProp,
             refusedLighting);
 
@@ -710,9 +704,7 @@ internal sealed class MapAssets
                     path,
                     pak,
                     archives,
-                    materials,
-                    textures,
-                    blendTextures,
+                    table,
                     ResolveProp,
 
                     // **Worn models are skinned regardless of how cheap they are.** A bone-merged
@@ -747,34 +739,15 @@ internal sealed class MapAssets
         // which half is missing what.
         ReportCensus("prop and model", propMaterials);
 
-        // The blend list is indexed in step with the textures, and a prop material never has a
-        // second layer - only a displacement's WorldVertexTransition does.
-        while (blendTextures.Count < textures.Count)
-        {
-            blendTextures.Add(null);
-        }
-
-        // Prop materials are appended after the brushwork, so their detail slots have to be too or
-        // every prop indexes a detail belonging to a different material.
-        while (details.Count < textures.Count)
-        {
-            details.Add(null);
-        }
-
-        while (bumps.Count < textures.Count)
-        {
-            bumps.Add(null);
-        }
-
-        while (proxies.Count < textures.Count)
-        {
-            proxies.Add([]);
-        }
-
-        while (cubemaps.Count < textures.Count)
-        {
-            cubemaps.Add(null);
-        }
+        // **Five padding loops used to stand here and they were the bug.** Each filled a list with
+        // nulls up to the texture count, because prop materials were appended to three lists and
+        // not the rest — so the padding was not padding, it was every model material's detail,
+        // bump, cubemap and proxies being thrown away and replaced with nothing. The comments even
+        // said so: "prop materials are appended after the brushwork, so their detail slots have to
+        // be too".
+        //
+        // MaterialTable.Add appends all seven at once, so there is nothing left to pad and no way
+        // for a caller to create the gap again.
 
         // **One inventory line covering all four questions**, because the individual counts below
         // each answer a different one and none of them says whether the whole stage worked. The
@@ -782,45 +755,52 @@ internal sealed class MapAssets
         // only what failed reads clean while every material quietly falls back to its base texture,
         // which is how 42 of 189 materials declaring an unimplemented $envmap went unnoticed for an
         // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
-        int textured = textures.Count(texture => texture is not null);
+        int textured = table.Textures.Count(texture => texture is not null);
 
         ViewerLog.Write(
             "assets",
-            $"ASKED FOR {materials.Count} materials ({brushMaterials} the map's own, " +
-            $"{materials.Count - brushMaterials} from props); " +
+            $"ASKED FOR {table.Count} materials ({brushMaterials} the map's own, " +
+            $"{table.Count - brushMaterials} from props); " +
             $"HAVE {textured} with a base texture; " +
-            $"PRODUCED {details.Count(detail => detail is not null)} with a detail texture, " +
-            $"{bumps.Count(bump => bump is not null)} with a bump map; " +
-            $"MISSING {materials.Count - textured} with no base texture resolved");
+            $"PRODUCED {table.Details.Count(detail => detail is not null)} with a detail texture, " +
+            $"{table.Bumps.Count(bump => bump is not null)} with a bump map; " +
+            $"MISSING {table.Count - textured} with no base texture resolved");
 
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
         ViewerLog.Write(
             "assets",
-            $"{details.Count(detail => detail is not null)} materials carry a detail texture");
+            $"{table.Details.Count(detail => detail is not null)} materials carry a detail texture");
 
         // **Measured, not assumed.** A bump chain that resolves nothing still draws a perfectly
         // reasonable map, because every bumped face already has a correct flat lightmap.
         ViewerLog.Write(
             "assets",
-            $"{bumps.Count(bump => bump is not null)} materials carry a bump map, " +
-            $"{bumps.Count(bump => bump is { IsSelfShadowing: true })} of them self-shadowing");
+            $"{table.Bumps.Count(bump => bump is not null)} materials carry a bump map, " +
+            $"{table.Bumps.Count(bump => bump is { IsSelfShadowing: true })} of them self-shadowing");
 
         // **Measured, not assumed**, for the same reason as the detail and bump lines above: a
         // cubemap chain that resolves nothing still draws a perfectly reasonable map, just a matte
         // one — which is the state this has been in since the project started (B55).
         ViewerLog.Write(
             "assets",
-            $"{cubemaps.Count(cubemap => cubemap is not null)} materials carry a baked cubemap");
+            $"{table.Cubemaps.Count(cubemap => cubemap is not null)} materials carry a baked cubemap");
+
+        // **Measured for the same reason, and this is the number that says the entity path works.**
+        // Model materials used to arrive with none, because they were appended to three lists and
+        // padded into the rest.
+        ViewerLog.Write(
+            "assets",
+            $"{table.Proxies.Count(list => list.Count > 0)} materials run a proxy");
 
         return new MapAssets(
-            textures,
-            blendTextures,
-            details,
-            bumps,
-            cubemaps,
-            proxies,
-            materials,
+            table.Textures,
+            table.BlendTextures,
+            table.Details,
+            table.Bumps,
+            table.Cubemaps,
+            table.Proxies,
+            table.Materials,
             PackLighting(map),
             props,
             resolved,

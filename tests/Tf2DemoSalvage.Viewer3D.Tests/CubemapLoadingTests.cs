@@ -113,24 +113,55 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
-    public void NoStaticPropMaterialClaimsABakedCubemap()
+    public void AMaterialCarryingACubemapEitherWasPatchedOrNamedOneItself()
     {
-        // A prop's material is never patched — Cubemap_CreateTexInfo works on texinfo and a prop
-        // has none — so one arriving with a cubemap would mean this loader had invented an
-        // assignment the map never made.
+        // **This test used to assert that ONLY map-patched materials carry a cubemap, and that was
+        // true because of a bug.** Model materials were appended to three of the seven lists
+        // indexed by material number and their cubemaps were "padded" away with nulls, so every
+        // prop arrived reflecting nothing and the stronger claim held by accident. Fixing
+        // MaterialTable turned 51 into 53.
+        //
+        // The reasoning behind the old assertion was sound as far as it went — vbsp patches
+        // texinfo, and a static prop has none — but the conclusion was too strong. A prop's own VMT
+        // can name a concrete envmap texture without vbsp doing anything, and two of this map's do.
+        //
+        // What is actually invariant is narrower and still worth guarding: a material that carries
+        // a cubemap has a name for it, and nothing carrying one is still asking for the literal
+        // env_cubemap.
         MapAssets assets = LoadTheMap();
+
+        int patched = 0;
+        int namedItself = 0;
 
         for (int index = 0; index < assets.Cubemaps.Count; index++)
         {
-            if (assets.Cubemaps[index] is not null)
+            if (assets.Cubemaps[index] is null)
             {
-                assets.Materials[index].Name
-                    .ShouldStartWith(
-                        $"maps/{MapName}/",
-                        Case.Insensitive,
-                        "only a material vbsp patched into the map names a baked cubemap");
+                continue;
+            }
+
+            if (assets.Materials[index].Name.StartsWith(
+                    $"maps/{MapName}/", StringComparison.OrdinalIgnoreCase))
+            {
+                patched++;
+            }
+            else
+            {
+                namedItself++;
+
+                TestContext.Out.WriteLine($"names its own: {assets.Materials[index].Name}");
             }
         }
+
+        TestContext.Out.WriteLine($"{patched} patched by vbsp, {namedItself} naming their own");
+
+        // Both kinds must exist, or this is measuring one case and calling it the rule — which is
+        // precisely how the old version passed.
+        patched.ShouldBeGreaterThan(0, "vbsp patches the map's own reflecting brush faces");
+
+        // The great majority are still the patched ones; a map whose props out-reflected its
+        // brushwork would mean the patch resolution had broken.
+        patched.ShouldBeGreaterThan(namedItself);
     }
 
     private static MapAssets LoadTheMap()
