@@ -248,8 +248,10 @@ public sealed class AssetCoverageConformanceTests
             Assert.Ignore($"{MapName} is not installed.");
         }
 
-        MapAssets assets = MapAssets.Load(
-            File.ReadAllBytes(map), GameArchives.Open(game), maximumTextureSize: 512);
+        // Shared: every assertion in this class counts materials and reads their declared
+        // parameters, none of which depends on how large the decoded textures are. The 512 it used
+        // to ask for was the largest number in the suite and bought nothing it measures.
+        MapAssets assets = MapCache.Load();
 
         TestContext.Out.WriteLine(
             $"game folder {game}: {assets.Resolved} materials resolved, {assets.Missing} missing");

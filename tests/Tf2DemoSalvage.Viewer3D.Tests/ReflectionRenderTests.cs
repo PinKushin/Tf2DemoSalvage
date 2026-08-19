@@ -185,8 +185,9 @@ public sealed class ReflectionRenderTests
                 return null;
             }
 
-            return MapAssets.Load(
-                File.ReadAllBytes(map), GameArchives.Open(tf), maximumTextureSize: 64);
+            // Shared: this draws pixels but does not assert on texture DETAIL, so the default size
+            // serves and the load is one the rest of the suite has already paid for.
+            return MapCache.Load();
         }
     }
 }

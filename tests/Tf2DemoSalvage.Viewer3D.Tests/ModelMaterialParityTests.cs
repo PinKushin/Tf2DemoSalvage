@@ -29,7 +29,6 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// </remarks>
 public sealed class ModelMaterialParityTests
 {
-    private const string MapName = "cp_process_final";
 
     [Test]
     public void AModelMaterialCanCarryADetailTexture()
@@ -98,22 +97,7 @@ public sealed class ModelMaterialParityTests
     /// <summary>The map, and how many materials came from its brushwork.</summary>
     private static (MapAssets Assets, int BrushMaterials) LoadTheMap()
     {
-        if (Tf2Install.Folder is not { } game)
-        {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
-
-            throw new InvalidOperationException("unreachable; Assert.Ignore throws");
-        }
-
-        string path = Path.Combine(game, "maps", MapName + ".bsp");
-
-        if (!File.Exists(path))
-        {
-            Assert.Ignore($"{MapName} is not installed.");
-        }
-
-        MapAssets assets = MapAssets.Load(
-            File.ReadAllBytes(path), GameArchives.Open(game), maximumTextureSize: 16);
+        MapAssets assets = MapCache.Load();
 
         return (assets, assets.BrushMaterialCount);
     }

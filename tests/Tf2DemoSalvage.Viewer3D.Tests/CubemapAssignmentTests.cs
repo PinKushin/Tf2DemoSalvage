@@ -281,13 +281,14 @@ public sealed class CubemapAssignmentTests
             Assert.Ignore($"{MapName} is not installed.");
         }
 
-        byte[] map = File.ReadAllBytes(path);
-        GameArchives archives = GameArchives.Open(game);
+        // Shared: this reads material NAMES and VMTs, so the texture size is irrelevant to it and
+        // taking the default means reusing a load rather than paying for a fifth one.
+        byte[] map = MapCache.Bytes();
 
         return (
-            MapAssets.Load(map, archives, maximumTextureSize: 4),
+            MapCache.Load(),
             PakFile.ReadFrom(map),
-            archives,
+            GameArchives.Open(game),
             map);
     }
 }

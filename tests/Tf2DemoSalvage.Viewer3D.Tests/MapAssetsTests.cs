@@ -163,6 +163,12 @@ public sealed class MapAssetsTests
             return;
         }
 
+        // **Deliberately NOT the shared cache, and this is the one place that is true.** The clock
+        // below is the point: this reports what a cold, full-size load costs, and taking a cached
+        // one would report the cache hit and quietly retire the only timing the suite has.
+        //
+        // Everything else that wanted a map at some hand-picked "small enough" size now shares one
+        // load through MapCache. This pays for a real one on purpose.
         Stopwatch clock = Stopwatch.StartNew();
         MapAssets assets = MapAssets.Load(
             File.ReadAllBytes(map), GameArchives.Open(game), maximumTextureSize: 512);

@@ -118,25 +118,11 @@ public sealed class ModulationWiringTests
     }
 
     /// <summary>Loads the reference map, or skips.</summary>
-    private static MapAssets LoadTheMap()
-    {
-        if (Tf2Install.Folder is not { } game)
-        {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
-
-            throw new InvalidOperationException("unreachable; Assert.Ignore throws");
-        }
-
-        string map = Path.Combine(game, "maps", MapName);
-
-        if (!File.Exists(map))
-        {
-            Assert.Ignore($"{MapName} is not installed.");
-        }
-
-        // Small textures deliberately: this measures material STATE, and decoding every texture at
-        // full size would make it one of the slowest tests in the suite for no extra signal.
-        return MapAssets.Load(
-            File.ReadAllBytes(map), GameArchives.Open(game), maximumTextureSize: 64);
-    }
+    /// <summary>Shared with every other test wanting this map at the default size.</summary>
+    /// <remarks>
+    /// This measures material STATE rather than pixels, so it does not care about the texture size
+    /// — which is precisely why it takes the shared one rather than naming a number of its own.
+    /// Six tests naming six "small enough" sizes was six loads.
+    /// </remarks>
+    private static MapAssets LoadTheMap() => MapCache.Load();
 }
