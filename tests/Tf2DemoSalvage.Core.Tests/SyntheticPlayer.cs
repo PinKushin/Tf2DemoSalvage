@@ -437,6 +437,102 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>Class id of the ordinary prop entity, when the schema declares one.</summary>
+    public const int PropClassId = 2;
+
+    /// <summary>
+    /// A demo whose one non-player entity changes its effects flags from tick to tick.
+    /// </summary>
+    /// <param name="intervalPerTick">The server's tick interval.</param>
+    /// <param name="states">One entry per snapshot: the tick, and the effects value on it.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    /// <remarks>
+    /// **A prop rather than a player, because the two land in different lists.** A player goes to
+    /// <c>PlayerTracks</c> and everything else to <c>Props</c>, so a fixture that used a
+    /// <c>CTFPlayer</c> here would leave <c>PropsAt</c> empty and the test would assert nothing.
+    ///
+    /// The entity carries a model index, which is what earns it a track: a prop with no model is
+    /// nothing a viewer can draw.
+    /// </remarks>
+    public static byte[] DemoOfEffects(
+        float intervalPerTick, params (int Tick, int Effects)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        DemoSchema schema = SchemaWithProp();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < states.Length; index++)
+        {
+            (int tick, int effects) = states[index];
+
+            Dictionary<string, PropertyValue> values = new()
+            {
+                ["m_fEffects"] = PropertyValue.FromInt(effects),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            };
+
+            if (index == 0)
+            {
+                values["m_nModelIndex"] = PropertyValue.FromInt(7);
+            }
+
+            DecodedEntity prop = Entity(decoder, PropClassId, 3, values) with
+            {
+                UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+            };
+
+            byte[] body = decoder.EncodeEntities(
+                [prop], [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? states[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 1,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>A schema that also declares an ordinary drawable prop class.</summary>
+    private static DemoSchema SchemaWithProp()
+    {
+        DemoSchema baseline = Schema();
+
+        return new DemoSchema(
+            [
+                .. baseline.Tables,
+                new SendTable("DT_BaseAnimatingProp", NeedsDecoder: true,
+                [
+                    Table("baseanimating", "DT_BaseAnimating"),
+                    VectorXy("m_vecOrigin", bits: 32),
+                    Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+                ]),
+            ],
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(PropClassId, "CBaseAnimating", "DT_BaseAnimatingProp"),
+            ]);
+    }
+
     /// <summary>Builds one entity's update from named property values.</summary>
     private static DecodedEntity Entity(
         EntityDecoder decoder,
