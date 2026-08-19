@@ -239,16 +239,41 @@ placement's escape value resolves to `DEFAULT_CUBEMAP_SIZE` 32, and the texture 
 placement declares 32 in its own header. Every one of the 43 records carries 0, so an implementation
 passing it through `1 << (size - 1)` claims 1,073,741,824 while the file plainly says 32.
 
-**Every baked cubemap is ImageFormat 24, `RGBA16161616F`** — four half-floats per texel, eight bytes.
-That is the HDR pipeline, and it has to be: a reflection carries values above one, which an 8-bit
-format cannot hold. This is the same reason `$color` is unclamped while `$alpha` is not
-([26](26-material-modulation.md)).
+### A prerequisite that was not one — and the instrument again
 
-**So half-float decode is a hard prerequisite, and it is not implemented.** `VtfTexture` throws
-*"VTF pixel format 24 is not supported"*. No amount of shader work reaches a picture until that
-lands — which is worth knowing before writing the shader rather than after, and is the kind of thing
-that is cheap to measure and expensive to discover. There is an assertion holding that fact, so the
-day it changes the test says so.
+**First conclusion, and it was wrong:** every baked cubemap is ImageFormat 24, `RGBA16161616F`, four
+half-floats per texel — so half-float decode is a hard prerequisite, `VtfTexture` throws *"VTF pixel
+format 24 is not supported"*, and no shader work reaches a picture until it lands.
+
+That was written down, committed, and is a statement about **the probe's own file preference**
+rather than about the format. The reader tried `c<x>_<y>_<z>.hdr.vtf` first and fell back to the
+plain name — so of course every result was HDR. It never asked whether the other file existed.
+
+It does. **vbsp bakes both, and cp_process_final carries 43 of each.** The engine samples whichever
+matches the mode it is running in, so which one to read is a *choice*, not a fallback chain — and
+this project draws LDR deliberately ([24](24-reference-capture.md)).
+
+```
+first LDR: 32x32 format 13 mips 6 frames 1 flags 0x0000400c header 96 file 4968
+```
+
+**Format 13 is DXT1, which `VtfTexture` already decodes completely.** The same arithmetic confirms
+the same shape: DXT1 over a 32×32 chain is `512 + 128 + 32 + 8 + 8 + 8 = 696` bytes a face, and
+`4872 / 696 = 7`. Seven faces, as before.
+
+So there is no half-float prerequisite. The reflection needs **face iteration and nothing else** —
+a substantially smaller piece of work than the one that had just been scheduled.
+
+Two things worth keeping from this. The wrong answer was *measured*, on real bytes, and was still
+wrong — a measurement is only as good as the question, and "what format are the cubemaps" quietly
+became "what format are the files I chose to open". That is the third instrument bug in this one
+feature, after the game-archives lookup and the underscore split. And the cost of asking one more
+question before building was one test; the cost of not asking would have been a half-float decoder
+that nothing needed.
+
+The HDR files remain the right source the day this renderer becomes HDR — that conformance gap is
+already recorded as an open skip — so both facts are held by assertions rather than one replacing
+the other.
 
 Valve's own axis note is filed for whoever wires the sampler up, because it inverts the obvious
 mapping onto D3D's `+X −X +Y −Y +Z −Z`:
@@ -262,12 +287,15 @@ The punctuation is Valve's. Not resolved here; recorded so it is not rediscovere
 
 ## Still open
 
-The lump is read and the assignment turns out to be free. What remains is the picture:
+The lump is read, the assignment turns out to be free, and the pixel format turns out to need no new
+decoder. What remains is the picture:
 
-1. **Half-float VTF decode** (`RGBA16161616F`), which everything else waits on.
-2. **Seven faces to six**, discarding the spheremap, with Valve's `+y`/`−y` note above resolved
-   against D3D's face order.
-3. **The shading**, specified by `EnvmapConformanceTests` — six of its eight assertions still
+1. **Seven faces to six**, discarding the spheremap, with Valve's `+y`/`−y` note above resolved
+   against D3D's face order. Reading the LDR bake, this is face iteration over an existing DXT1
+   path.
+2. **The shading**, specified by `EnvmapConformanceTests` — six of its eight assertions still
    skipped.
+
+Half-float decode is *not* on this list, and was on it for a while. See the correction above.
 
 B55.
