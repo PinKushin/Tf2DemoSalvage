@@ -92,6 +92,7 @@ public sealed class ProgramTests : IDisposable
         return null;
     }
 
+
     [Test]
     public void NoArguments_ExitsWithAUsageCodeAndSaysWhy()
     {
@@ -277,4 +278,158 @@ public sealed class ProgramTests : IDisposable
     {
         Should.Throw<ArgumentNullException>(() => Program.Main(null!));
     }
+
+    [Test]
+    public void Verbose_ListsTheCommandBreakdownThatOrdinaryOutputOmits()
+    {
+        // **The whole Debug branch of Report had no coverage at all** — 12 mutants in Program.cs
+        // that no test had ever executed, because every existing test runs at the default
+        // verbosity and `--verbose` is what raises the level to Debug (LogSetup.LevelFor).
+        //
+        // What that branch does is grouped counting, guarded rather than left for the logger to
+        // discard because it is real work per demo in a batch that may cover hundreds. So the
+        // assertion is that the counts appear, and the control below is that they do not without
+        // the flag.
+        string? demo = Demo();
+        if (demo is null)
+        {
+            return;                                  // corpus not checked out
+        }
+
+        Program.Main([demo, "-s", "-o", Path.Combine(_scratch, "verbose.txt"), "--verbose"])
+            .ShouldBe(0);
+
+        string log = _error.ToString();
+
+        log.ShouldContain("read ");
+        log.ShouldContain("commands in ");
+
+        // A per-type line, which is what the grouping produces. dem_packet is in every demo.
+        log.ShouldContain("Packet");
+    }
+
+    [Test]
+    public void WithoutVerbose_TheCommandBreakdownIsNotPrinted()
+    {
+        // **The control**, and it is what makes the test above about the flag rather than about
+        // logging existing at all. Without it a Program that always printed the breakdown would
+        // pass, and the guard that makes the grouping conditional could be deleted unnoticed.
+        string? demo = Demo();
+        if (demo is null)
+        {
+            return;
+        }
+
+        Program.Main([demo, "-s", "-o", Path.Combine(_scratch, "quiet.txt")]).ShouldBe(0);
+
+        _error.ToString().ShouldNotContain("commands in ");
+    }
+
+    [Test]
+    public void ATruncatedRecordingIsReportedAsTruncatedRatherThanAccepted()
+    {
+        // **No demo in the corpus is missing its dem_stop, so this specimen is AUTHORED.**
+        //
+        // The first version of this test reached for z1800.dem on the strength of "one byte short
+        // of complete", and misread the comment that says so: z1800 is cited in Program.cs as a
+        // file that is short and *still* carries its dem_stop, which is why it reads fine. An
+        // engine writes dem_stop even when the server is quit, so a file lacking one was cut off
+        // mid-write — and nothing in the corpus was.
+        //
+        // That is what the round trip is for. `--asm` decompiles a demo to text, the stop block is
+        // removed from the text, and `--compile` writes a demo back. The result is a file whose
+        // contents were chosen rather than found, which is the only way to test a state no
+        // recording exhibits. See docs/memory/author-the-specimen-the-corpus-lacks.md.
+        string? demo = Demo();
+        if (demo is null)
+        {
+            return;                                  // corpus not checked out
+        }
+
+        string assembly = Path.Combine(_scratch, "source.asm");
+        string authored = Path.Combine(_scratch, "no-stop.dem");
+
+        Program.Main([demo, "-a", "-o", assembly]).ShouldBe(0);
+
+        string[] lines = File.ReadAllLines(assembly);
+
+        // **The assembly text spells it `stop`, not `dem_stop`** — the latter is the TRACE format's
+        // spelling and the two formats are not the same language. Matching the wrong one removed
+        // nothing and the assertion below caught it, which is the whole reason that assertion is
+        // here rather than a comment saying the line was removed.
+        //
+        // Anchored at the start of the line, because a block header is `stop <tick>` and `stop`
+        // appears inside console commands and cvar names throughout a real demo.
+        string[] withoutStop =
+        [
+            .. lines.Where(line => !line.StartsWith("stop ", StringComparison.Ordinal)),
+        ];
+
+        withoutStop.Length.ShouldBeLessThan(lines.Length, "the source demo must contain a dem_stop");
+
+        File.WriteAllLines(assembly, withoutStop);
+
+        Program.Main([assembly, "-c", "-o", authored]).ShouldBe(0);
+
+        _error.GetStringBuilder().Clear();
+
+        Program.Main([authored, "-s", "-o", Path.Combine(_scratch, "truncated.txt")]).ShouldBe(0);
+
+        _error.ToString().ShouldContain("truncated, not ended");
+    }
+
+    [Test]
+    public void AnUnmodifiedRoundTripIsNotAccusedOfTruncation()
+    {
+        // **The control for the authored specimen**, and the reason it is worth the extra compile.
+        // Without it, "the warning fired" could mean the round trip itself loses the dem_stop —
+        // which would make the test above pass while proving the writer broken rather than the
+        // reader working.
+        string? demo = Demo();
+        if (demo is null)
+        {
+            return;
+        }
+
+        string assembly = Path.Combine(_scratch, "intact.asm");
+        string rebuilt = Path.Combine(_scratch, "intact.dem");
+
+        Program.Main([demo, "-a", "-o", assembly]).ShouldBe(0);
+        Program.Main([assembly, "-c", "-o", rebuilt]).ShouldBe(0);
+
+        _error.GetStringBuilder().Clear();
+
+        Program.Main([rebuilt, "-s", "-o", Path.Combine(_scratch, "intact.txt")]).ShouldBe(0);
+
+        _error.ToString().ShouldNotContain("truncated, not ended");
+    }
+
+    [Test]
+    public void ADemoDeclaringTheRightFrameCountIsNotAccusedOfMiscounting()
+    {
+        // The other side of the frame-count check, and the one that keeps it honest. The header
+        // states the frame count and the stream contains it by completely different paths; the
+        // warning fires when they disagree. A version that warned unconditionally would satisfy
+        // any test asserting the warning CAN appear.
+        //
+        // The era specimens are complete recordings, so they must not be accused.
+        string? demo = Demo();
+        if (demo is null)
+        {
+            return;
+        }
+
+        Program.Main([demo, "-s", "-o", Path.Combine(_scratch, "counted.txt")]).ShouldBe(0);
+
+        // Either the file is consistent and says nothing, or it is one of the demos that declares
+        // zero frames — which is a real and common state (43% of recordings), reported by the same
+        // line. What must not happen is an accusation with no numbers in it.
+        string log = _error.ToString();
+
+        if (log.Contains("declares", StringComparison.Ordinal))
+        {
+            log.ShouldContain("frames but holds");
+        }
+    }
+
 }

@@ -329,9 +329,17 @@ public static class MessageAssembly
             Integer(tokens, 1), Integer(tokens, 2), Integer(tokens, 3),
             Convert.FromHexString(tokens[4])),
 
+        // **The hex payload is absent when the body is empty, and that is a real state.** The
+        // writer builds this line by interpolation, so an empty body renders as nothing at all and
+        // the line ends after the bit count — four tokens rather than five. Reading tokens[4]
+        // unconditionally threw ArgumentOutOfRangeException on the first demo whose players spoke.
+        //
+        // It survived because the corpus round trip compares the first 600 commands of each demo,
+        // and voice data does not start until someone talks. A cap on stream POSITION hides
+        // whatever only happens late, which is a different blind spot from a cap on size.
         "svc_voicedata" => new VoiceDataMessage(
             Integer(tokens, 1), Integer(tokens, 2), Integer(tokens, 3),
-            Convert.FromHexString(tokens[4])),
+            tokens.Count > 4 ? Convert.FromHexString(tokens[4]) : default),
 
         "svc_usermessage" => new UserMessage(
             Integer(tokens, 1), null, Integer(tokens, 2), null,
