@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests;
@@ -132,6 +134,68 @@ internal static class SyntheticPlayer
         ],
         [new ServerClass(PlayerClassId, "CTFPlayer", "DT_TFPlayer")]);
 
+    /// <summary>Class id of the <c>CTFPlayerResource</c> entity, when the schema declares one.</summary>
+    public const int ResourceClassId = 1;
+
+    /// <summary>Entity slot the resource occupies. Real demos put it low and it never moves.</summary>
+    public const int ResourceEntityIndex = 30;
+
+    /// <summary>How many player slots the resource's arrays cover.</summary>
+    private const int ResourceSlots = 34;
+
+    /// <summary>
+    /// A schema that also declares <c>CTFPlayerResource</c>, where team and class really live.
+    /// </summary>
+    /// <param name="origin">Which exclusive table carries player positions.</param>
+    /// <returns>The schema.</returns>
+    /// <remarks>
+    /// **The array naming here is the whole point of the fixture, and it is not obvious.** Source's
+    /// <c>SendPropArray</c> does not emit one property with an element count — it generates a
+    /// **sub-table named after the array**, whose properties are named <c>000</c>, <c>001</c> and
+    /// so on. Flattened, that makes the owner table <c>m_iTeam</c> and the property <c>001</c>, so
+    /// the key a reader looks up is <c>m_iTeam.001</c> with no <c>DT_</c> prefix anywhere in it.
+    ///
+    /// Reading the code without knowing that leads straight to the wrong conclusion: the flattener
+    /// emits one <c>FlatProperty</c> per array, <c>EntityStateTable</c> keys everything as
+    /// <c>OwnerTable.Name</c>, and nothing in the repository expands an array into indexed keys —
+    /// from which it follows that <c>m_iTeam.001</c> can never match and the resource path is dead.
+    /// It is not dead; every corpus demo reports 100% of sightings with a class through it. The
+    /// missing piece is that the sub-table supplies the prefix.
+    ///
+    /// **Team and health have a fallback to the player entity and class does not**, which is why
+    /// class is the one worth asserting: if this lookup broke, team would quietly keep working and
+    /// only the class would go null.
+    /// </remarks>
+    public static DemoSchema SchemaWithResource(OriginTable origin = OriginTable.NonLocal)
+    {
+        DemoSchema baseline = Schema(origin);
+
+        return new DemoSchema(
+            [
+                .. baseline.Tables,
+                ArrayTable("m_iTeam"),
+                ArrayTable("m_iPlayerClass"),
+                new SendTable("DT_TFPlayerResource", NeedsDecoder: true,
+                [
+                    Table("m_iTeam", "m_iTeam"),
+                    Table("m_iPlayerClass", "m_iPlayerClass"),
+                ]),
+            ],
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(ResourceClassId, "CTFPlayerResource", "DT_TFPlayerResource"),
+            ]);
+    }
+
+    /// <summary>One of Valve's generated array sub-tables: properties named 000, 001, …</summary>
+    private static SendTable ArrayTable(string name) => new(
+        name,
+        NeedsDecoder: true,
+        [
+            .. Enumerable.Range(0, ResourceSlots).Select(
+                slot => Int(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 5)),
+        ]);
+
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()
     {
@@ -229,30 +293,205 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>
+    /// A demo carrying players and a <c>CTFPlayerResource</c> stating each one's team and class.
+    /// </summary>
+    /// <param name="tick">The tick the snapshot is stamped with.</param>
+    /// <param name="players">Player slot, team and class for each.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// The players themselves carry a position and nothing else about their identity, which is the
+    /// modern shape: a reader taking team off the player entity gets it from the fallback and a
+    /// reader taking class off it gets nothing at all.
+    /// </remarks>
+    public static byte[] DemoWithResource(
+        int tick, params (int EntityIndex, int Team, int PlayerClass)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        DemoSchema schema = SchemaWithResource();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities = [];
+
+        foreach ((int entityIndex, _, _) in players.OrderBy(player => player.EntityIndex))
+        {
+            entities.Add(Entity(
+                decoder,
+                PlayerClassId,
+                entityIndex,
+                new Dictionary<string, PropertyValue>
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(entityIndex * 64f, 0f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    ["m_lifeState"] = PropertyValue.FromInt(0),
+                }));
+        }
+
+        // The resource sits after the players, because entity indices are delta-coded and the
+        // encoder writes ascending gaps.
+        Dictionary<string, PropertyValue> arrays = [];
+        foreach ((int entityIndex, int team, int playerClass) in players)
+        {
+            string slot = entityIndex.ToString("D3", CultureInfo.InvariantCulture);
+            arrays[$"m_iTeam.{slot}"] = PropertyValue.FromInt(team);
+            arrays[$"m_iPlayerClass.{slot}"] = PropertyValue.FromInt(playerClass);
+        }
+
+        entities.Add(Entity(decoder, ResourceClassId, ResourceEntityIndex, arrays));
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>
+    /// A demo whose one player is at a different place on each of several ticks.
+    /// </summary>
+    /// <param name="intervalPerTick">
+    /// The server's tick interval, recorded in <c>svc_ServerInfo</c>. Never a constant in real
+    /// demos — early servers ran 33 tick — so it is a parameter here rather than a fixture default.
+    /// </param>
+    /// <param name="positions">One entry per snapshot: the tick, and where the player is on it.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="positions"/> is null.</exception>
+    /// <remarks>
+    /// **Each snapshot after the first is a DELTA, which is what a real demo sends.** A stream of
+    /// full snapshots would decode correctly and exercise none of the delta path — and the delta
+    /// path is where an entity keeps the properties an update does not mention.
+    /// </remarks>
+    public static byte[] DemoOverTicks(
+        float intervalPerTick, params (int Tick, float X, float Y)[] positions)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+
+        DemoSchema schema = Schema();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < positions.Length; index++)
+        {
+            (int tick, float x, float y) = positions[index];
+
+            Dictionary<string, PropertyValue> values = new()
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(x, y),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            };
+
+            // Only the first snapshot introduces the entity; the rest move it. Team and life state
+            // ride on the entering update and are retained, which is the delta behaviour a viewer
+            // depends on.
+            if (index == 0)
+            {
+                values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
+                values["m_lifeState"] = PropertyValue.FromInt(0);
+            }
+
+            DecodedEntity player = Entity(decoder, PlayerClassId, 1, values) with
+            {
+                UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+            };
+
+            byte[] body = decoder.EncodeEntities(
+                [player], [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? positions[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 1,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>Builds one entity's update from named property values.</summary>
+    private static DecodedEntity Entity(
+        EntityDecoder decoder,
+        int classId,
+        int entityIndex,
+        IReadOnlyDictionary<string, PropertyValue> values)
+    {
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(classId);
+        List<DecodedProperty> properties = [];
+
+        foreach ((string name, PropertyValue value) in values)
+        {
+            int index = IndexOf(flat, name);
+            properties.Add(new DecodedProperty(index, flat[index], value));
+        }
+
+        properties.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+        return new DecodedEntity(
+            entityIndex, classId, entityIndex, EntityUpdateType.Enter, properties);
+    }
+
     /// <summary>The flattened index of a property, or a failure naming what was available.</summary>
     /// <remarks>
     /// Throws rather than returning -1 on purpose. A missing property silently encodes nothing,
     /// and the test then fails on an assertion about a value that was never sent — which reads as
-    /// a decoder bug. Naming the table is the useful half of the message, because the usual cause
-    /// is a property put in the wrong one.
+    /// a decoder bug. Listing what the class does hold is the useful half of the message, because
+    /// the usual cause is a property declared in the wrong table.
+    ///
+    /// **Matches the qualified name as well as the bare one, and an array is why.** Valve's
+    /// <c>SendPropArray</c> generates a sub-table named after the array, so an element's own name
+    /// is only <c>001</c> while the key everything else uses is <c>m_iTeam.001</c>. Matching the
+    /// bare name alone finds nothing for those, and matching it alone would also make <c>001</c>
+    /// ambiguous across two arrays.
     /// </remarks>
     private static int IndexOf(IReadOnlyList<FlatProperty> flat, string name)
     {
         for (int i = 0; i < flat.Count; i++)
         {
-            if (string.Equals(flat[i].Property.Name, name, StringComparison.Ordinal))
+            string qualified = $"{flat[i].OwnerTable}.{flat[i].Property.Name}";
+
+            if (string.Equals(flat[i].Property.Name, name, StringComparison.Ordinal) ||
+                string.Equals(qualified, name, StringComparison.Ordinal))
             {
                 return i;
             }
         }
 
         throw new ArgumentException(
-            $"'{name}' is not in the flattened list for CTFPlayer. It holds: " +
+            $"'{name}' is not in the flattened list. It holds: " +
             string.Join(", ", flat.Select(entry => $"{entry.OwnerTable}.{entry.Property.Name}")),
             nameof(name));
     }
 
-    private static ServerInfoMessage ServerInfo() => new(
+    private static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f) => new(
         NetworkProtocol: SyntheticDemo.DefaultProtocol,
         ServerCount: 1,
         IsSourceTv: true,
@@ -262,7 +501,7 @@ internal static class SyntheticPlayer
         MapHash: new byte[16],
         PlayerSlot: 0,
         MaxPlayers: 24,
-        IntervalPerTick: 1f / 66.67f,
+        IntervalPerTick: intervalPerTick,
         Platform: 'w',
         GameDirectory: "tf",
         Map: "cp_process_final",
