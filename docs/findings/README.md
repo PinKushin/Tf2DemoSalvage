@@ -47,6 +47,7 @@ it, because a second copy is a copy that goes stale.
 | [23-drawing-what-the-entity-says.md](23-drawing-what-the-entity-says.md) | Defects that looked like renderer bugs and were this project overriding what the demo already said |
 | [24-reference-capture.md](24-reference-capture.md) | Configuring TF2 so a screenshot is a valid ground truth: why capture must be LDR, and what drifts |
 | [25-gesture-layer.md](25-gesture-layer.md) | How a demo says a player fired: a temp-entity trigger, and the enum ordinal that turned out to be append-only across every era |
+| [26-material-modulation.md](26-material-modulation.md) | `$color` and `$alpha`: a correct citation that produced a wrong implementation, and a coverage instrument that accused the code twice in the same shape |
 
 ## Which of this is original
 

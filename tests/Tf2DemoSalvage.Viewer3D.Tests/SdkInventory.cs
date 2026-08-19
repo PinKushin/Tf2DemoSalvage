@@ -84,6 +84,45 @@ internal static class SdkInventory
             "imaterial.h",
             new Regex(@"MATERIAL_VAR_([A-Z0-9_]+)\s*=\s*\(", RegexOptions.Compiled));
 
+    /// <summary>Every STANDARD material var, which belongs to no shader and to all of them.</summary>
+    /// <remarks>
+    /// **A third axis, and its absence made the other two lie the same way the flags did.**
+    /// <c>$color</c>, <c>$alpha</c> and <c>$color2</c> are not <c>SHADER_PARAM</c> declarations and
+    /// not <c>MATERIAL_VAR_*</c> bits. They are members of <c>ShaderMaterialVars_t</c> in
+    /// <c>public/shaderlib/BaseShader.h:32</c> — registered once by the material system for every
+    /// shader, which is exactly why no shader declares them.
+    ///
+    /// The header says where the names themselves live, and it is somewhere this project cannot
+    /// read:
+    ///
+    /// <code>
+    /// // Note: if you add to these, add to s_StandardParams in CBaseShader.cpp
+    /// </code>
+    ///
+    /// <c>CBaseShader.cpp</c> is in the closed shaderlib. So the enum is **read from published
+    /// source** and the enum-name-to-parameter-name mapping is **interpolated** — lowercase with a
+    /// <c>$</c> — from the four instances the shipped game code confirms by string:
+    /// <c>FindVar( "$alpha" )</c> (alphamaterialproxy.cpp:42), <c>FindVar( "$color" )</c>
+    /// (thermalmaterialproxy.cpp:50), <c>"$color2"</c> (item_import.cpp:1328), and
+    /// <c>$basetexture</c> everywhere. Four of nine is enough to fix the convention and is not a
+    /// reading of the table itself; flagged rather than presented as measured.
+    /// </remarks>
+    public static IReadOnlyCollection<string> StandardMaterialVars() =>
+        Names(
+            Path.Combine("src", "public", "shaderlib"),
+            "BaseShader.h",
+
+            // **Scraped from the enum body rather than listed**, which is the whole point of
+            // generating a denominator from the SDK: a hardcoded member list is a second copy that
+            // goes stale the moment Valve adds one, and it would go stale silently.
+            //
+            // The variable-length lookbehind is what makes that possible — it anchors each match
+            // inside this one enum without consuming the members, so every member is its own hit.
+            // `[^}]*` cannot escape the block, so nothing after the closing brace can match.
+            new Regex(
+                @"(?<=enum\s+ShaderMaterialVars_t\s*\{[^}]*?)^\s*([A-Z][A-Z0-9_]*)\s*(?:=[^,\r\n]*)?,",
+                RegexOptions.Compiled | RegexOptions.Multiline));
+
     /// <summary>Every lump a BSP can carry.</summary>
     public static IReadOnlyCollection<string> BspLumps() =>
         Names(

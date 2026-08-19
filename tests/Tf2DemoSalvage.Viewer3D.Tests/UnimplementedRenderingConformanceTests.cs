@@ -203,6 +203,11 @@ public sealed class UnimplementedRenderingConformanceTests
         // on top of whatever the shader produced. They are per-material rather than per-surface, so
         // ignoring them draws a tinted or faded material at full strength — which on a TF2 map is
         // most often a light haze or a coloured glow rendered as an opaque white one.
+        //
+        // **Four behaviours, all read from CBaseVSShader::ColorVarsToVector**
+        // (BaseVSShader.cpp:677-698), which is the published half of the modulation path.
+        // ComputeModulationColor itself lives in the closed shaderlib, so what is asserted here is
+        // the conversion the SDK does ship — and it is the part an implementation gets wrong.
         RequireImplemented("$color", "no entry yet");
 
         VmtMaterial material = Parse(
@@ -215,8 +220,126 @@ public sealed class UnimplementedRenderingConformanceTests
             }
             """);
 
-        material.Value("$color").ShouldBe("[1 .5 .25]");
-        material.Value("$alpha").ShouldBe("0.5");
+        material.Modulation.ShouldBe((1f, 0.5f, 0.25f, 0.5f));
+    }
+
+    [Test]
+    public void AScalarColourBroadcastsToEveryChannel()
+    {
+        // **The form that is not a vector at all, and the one that throws.** ColorVarsToVector
+        // branches on the var's TYPE:
+        //
+        //     if ( pColorVar->GetType() == MATERIAL_VAR_TYPE_VECTOR )
+        //         pColorVar->GetVecValue( color.Base(), 3 );
+        //     else
+        //         color[0] = color[1] = color[2] = pColorVar->GetFloatValue();
+        //
+        // So "$color" "0.5" is legal and means half brightness on all three channels. A reader that
+        // accepts only the bracketed triple rejects a material the engine draws happily — and this
+        // project's colour helper did exactly that, raising InvalidDataException on "not three
+        // numbers", which would have taken the whole material down rather than the tint.
+        RequireImplemented("$color", "no entry yet");
+
+        Parse(
+            """
+            "UnlitGeneric"
+            {
+                "$basetexture" "effects/glow"
+                "$color" "0.5"
+            }
+            """)
+            .Modulation.ShouldBe((0.5f, 0.5f, 0.5f, 1f));
+    }
+
+    [Test]
+    public void AlphaIsClampedButColourIsNot()
+    {
+        // **The asymmetry, and the discriminator.** The same seven lines clamp one and not the
+        // other:
+        //
+        //     float flAlpha = s_ppParams[alphaVar]->GetFloatValue();
+        //     color[3] = clamp( flAlpha, 0.0f, 1.0f );
+        //
+        // There is no matching clamp on the three colour channels, and that is deliberate rather
+        // than an oversight: SetModulationPixelShaderDynamicState_LinearColorSpace (line 652) reads
+        // `color[i] > 1.0f ? color[i] : GammaToLinear( color[i] )`, which only makes sense for a
+        // channel allowed to exceed one. Over-bright modulation is how a material is made to glow.
+        //
+        // An implementation that clamps both loses that; one that clamps neither lets $alpha above
+        // one turn a blended surface opaque. Asserted with values outside the range in BOTH
+        // directions, because a clamp applied to the wrong operand passes on one side.
+        RequireImplemented("$color", "no entry yet");
+
+        Parse(
+            """
+            "UnlitGeneric"
+            {
+                "$color" "[2 3 4]"
+                "$alpha" "1.75"
+            }
+            """)
+            .Modulation.ShouldBe((2f, 3f, 4f, 1f));
+
+        Parse(
+            """
+            "UnlitGeneric"
+            {
+                "$color" "[-1 0 0]"
+                "$alpha" "-0.25"
+            }
+            """)
+            .Modulation.ShouldBe((-1f, 0f, 0f, 0f));
+    }
+
+    [Test]
+    public void ASecondColourMultipliesTheFirst()
+    {
+        // $color2 is a standard parameter alongside $color (BaseShader.h:45), and the header states
+        // the operation outright on the declaration of its helper:
+        //
+        //     void ApplyColor2Factor( float *pColorOut ) const;   // (*pColorOut) *= COLOR2
+        //
+        // Multiplied, not replaced — so a material naming both gets the product, and one naming
+        // only $color2 is tinted by it alone. This is not hypothetical on TF2 maps: MaterialCensus
+        // records cp_process_final's props carrying `360?$color2`, which is the same parameter
+        // under a platform prefix.
+        //
+        // Half times half is a QUARTER, which no other combination of these two inputs produces:
+        // replacing gives 0.5, adding gives 1.0. The green and blue channels differ from red so a
+        // transposed component cannot pass.
+        RequireImplemented("$color", "no entry yet");
+
+        Parse(
+            """
+            "UnlitGeneric"
+            {
+                "$color" "[0.5 1 0.5]"
+                "$color2" "[0.5 0.5 1]"
+            }
+            """)
+            .Modulation.ShouldBe((0.25f, 0.5f, 0.5f, 1f));
+    }
+
+    [Test]
+    public void AMaterialNamingNeitherModulatesNothing()
+    {
+        // The identity, which is what every one of the hundreds of materials that name no colour
+        // must resolve to. ColorVarsToVector opens `color.Init( 1.0, 1.0, 1.0, 1.0 )` and only
+        // overwrites what the material declared, so absent means one on all four channels.
+        //
+        // **The control for the three tests above.** Without it "modulation is applied" and
+        // "modulation is applied to everything" are indistinguishable — a bug that tinted every
+        // surface would pass all four of the assertions that name a colour.
+        RequireImplemented("$color", "no entry yet");
+
+        Parse(
+            """
+            "LightmappedGeneric"
+            {
+                "$basetexture" "concrete/concretefloor001a"
+            }
+            """)
+            .Modulation.ShouldBe((1f, 1f, 1f, 1f));
     }
 
     /// <summary>Skips unless the census says the parameter is implemented.</summary>

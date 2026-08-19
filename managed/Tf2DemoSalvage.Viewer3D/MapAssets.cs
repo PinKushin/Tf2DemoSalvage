@@ -40,6 +40,12 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// none and the shader API's own default of half applies. Valve overrides the reference only when
 /// the material states one above zero.
 /// </param>
+/// <param name="Modulation">
+/// The colour and alpha the whole material is scaled by — <c>$color</c> times <c>$color2</c>, and
+/// <c>$alpha</c>. White and opaque for the great majority of materials, which name neither. This is
+/// the REST value of the modulation a material proxy animates, so a material with a proxy has it
+/// overwritten each frame and one without keeps this.
+/// </param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -59,7 +65,8 @@ internal readonly record struct MapTexture(
     bool IsNoCull = false,
     bool MultipliesTextures = false,
     bool IsHalfLambert = false,
-    float AlphaTestReference = 0f);
+    float AlphaTestReference = 0f,
+    (float Red, float Green, float Blue, float Alpha)? Modulation = null);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -973,7 +980,12 @@ internal sealed class MapAssets
                     material.IsNoCull,
                     material.IsTwoTexture,
                     material.IsHalfLambert,
-                    material.AlphaTestReference);
+                    material.AlphaTestReference,
+
+                    // **Null rather than white when the material names neither**, so the renderer
+                    // can tell "no modulation" from "modulation that happens to be the identity"
+                    // and the census can report the parameter as consumed only where it is.
+                    material.IsModulated ? material.Modulation : null);
             }
             catch (InvalidDataException failure)
             {
