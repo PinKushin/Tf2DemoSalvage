@@ -131,14 +131,44 @@ internal static class SyntheticDemo
     /// corpus covers that path and a fixture cannot.
     /// </remarks>
     public static CreateStringTableMessage StringTable(
-        string name, IReadOnlyList<string> strings, int maxEntries = 64)
-    {
-        ArgumentNullException.ThrowIfNull(strings);
+        string name, IReadOnlyList<string> strings, int maxEntries = 64) =>
+        StringTable(
+            name,
+            strings.Select(text => (text, (IReadOnlyList<byte>)Array.Empty<byte>())).ToList(),
+            maxEntries);
 
-        List<StringTableEntry> entries =
+    /// <summary>A string table whose entries carry user data as well as text.</summary>
+    /// <param name="name">Table name, e.g. <c>userinfo</c>.</param>
+    /// <param name="entries">Each entry's text and its user data payload.</param>
+    /// <param name="maxEntries">Table capacity, which sizes the index field.</param>
+    /// <returns>The message, complete with its wire form.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entries"/> is null.</exception>
+    /// <remarks>
+    /// **User data is where the roster lives, and it is why this overload exists.** The
+    /// <c>userinfo</c> table's entries are named for the entity index and carry a 132-byte
+    /// <c>player_info_t</c> in their user data — the name, the user id and the Steam id are all in
+    /// there, not in the entry text. A table helper that set only the text could build a
+    /// precache but never a roster.
+    /// </remarks>
+    public static CreateStringTableMessage StringTable(
+        string name,
+        IReadOnlyList<(string Text, IReadOnlyList<byte> UserData)> entries,
+        int maxEntries = 64)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        List<StringTableEntry> built =
         [
-            .. strings.Select((text, index) => new StringTableEntry(index, text, [])),
+            .. entries.Select(
+                (entry, index) => new StringTableEntry(index, entry.Text, entry.UserData)),
         ];
+
+        return Table(name, built, maxEntries);
+    }
+
+    private static CreateStringTableMessage Table(
+        string name, List<StringTableEntry> entries, int maxEntries)
+    {
 
         (byte[] body, int bits) = StringTableCodec.WriteEntries(
             entries, maxEntries, fixedUserData: false, userDataSizeBits: 0);

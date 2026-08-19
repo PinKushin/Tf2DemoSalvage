@@ -361,6 +361,29 @@ public sealed class EntityDecoder
         return writer.Build();
     }
 
+    /// <summary>Encodes a property list on its own, which is what a baseline is.</summary>
+    /// <param name="properties">The properties, in ascending flattened index.</param>
+    /// <returns>The bytes, as <see cref="SetBaseline"/> takes them.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="properties"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// **The inverse of what <see cref="Baseline"/> reads, and it exists so a baseline can be
+    /// WRITTEN rather than only found.** An instance baseline is encoded exactly like an entity
+    /// delta's property block — no separate codec — so this is the same
+    /// <see cref="WriteProperties"/> the snapshot encoder uses, with nothing around it.
+    ///
+    /// Internal rather than public: nothing in the decode path needs it, and the one caller is a
+    /// test fixture building an <c>instancebaseline</c> table. If a demo is ever written with
+    /// baselines it becomes public and gains a conformance test of its own.
+    /// </remarks>
+    internal static byte[] EncodeProperties(IReadOnlyList<DecodedProperty> properties)
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+
+        BitWriter writer = new();
+        WriteProperties(writer, properties);
+        return writer.Build();
+    }
+
     private static void WriteProperties(
         BitWriter writer, IReadOnlyList<DecodedProperty> properties)
     {
