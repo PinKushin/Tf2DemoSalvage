@@ -73,6 +73,39 @@ internal static class SyntheticDemo
             ]);
     }
 
+    /// <summary>A demo built from whole commands, for cases a single packet cannot express.</summary>
+    /// <param name="protocol">Network protocol, recorded in the header.</param>
+    /// <param name="commands">The commands, in stream order, without the terminating stop.</param>
+    /// <returns>The demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="commands"/> is null.</exception>
+    /// <remarks>
+    /// **The entity path needs this and the single-packet form cannot provide it.** A schema
+    /// arrives in <c>dem_datatables</c>, which is a command rather than a message, so anything
+    /// touching entities needs at least two commands in a particular order — the tables before the
+    /// snapshot that references them.
+    /// </remarks>
+    public static byte[] From(ushort protocol, params DemoCommand[] commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+
+        return DemoWriter.Write(
+            Header(protocol),
+            [.. commands, new DemoCommand(DemoCommandType.Stop, 66, ReadOnlyMemory<byte>.Empty)]);
+    }
+
+    /// <summary>A <c>dem_datatables</c> command carrying a schema.</summary>
+    /// <param name="schema">The entity schema.</param>
+    /// <param name="protocol">Protocol, which sizes two of the schema's fields.</param>
+    /// <param name="tick">The tick the command is stamped with.</param>
+    /// <returns>The command.</returns>
+    /// <remarks>
+    /// The payload is length-prefixed and carries no prologue, which is why this needs no
+    /// <c>democmdinfo_t</c> — unlike a packet or a signon.
+    /// </remarks>
+    public static DemoCommand DataTables(
+        Core.Schema.DemoSchema schema, ushort protocol = DefaultProtocol, int tick = 0) =>
+        new(DemoCommandType.DataTables, tick, SyntheticSchema.Write(schema, protocol));
+
     /// <summary>One packet command carrying the given messages.</summary>
     /// <param name="protocol">Network protocol, which the encoder needs.</param>
     /// <param name="tick">The tick the packet is stamped with.</param>

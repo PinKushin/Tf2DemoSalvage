@@ -318,10 +318,22 @@ public sealed class DemoTimeline
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(file[DemoHeader.SizeBytes..])];
 
-        DemoCommand? tables = commands.FirstOrDefault(
+        // **`DemoCommand` is a readonly record STRUCT, so FirstOrDefault yields default(T) rather
+        // than null and a `is not { }` guard on it can never fire.** This block used to read
+        // `DemoCommand? tables = commands.FirstOrDefault(...)`, which compiles, looks like the
+        // familiar reference-type idiom and is dead: the implicit conversion wraps the default
+        // struct in a non-null nullable, so a demo carrying no dem_datatables fell through to
+        // SendTableParser with an empty payload and threw "the payload ends mid-table after 0
+        // bytes" instead of returning an empty timeline.
+        //
+        // Found by a synthetic demo built without the command — every real demo has one, so the
+        // corpus could not reach this path. The type check below is what the nullable pattern was
+        // meant to express: DemoCommandType has no zero member on purpose, so a defaulted struct
+        // cannot collide with a genuine command.
+        DemoCommand dataTables = commands.FirstOrDefault(
             command => command.Type == DemoCommandType.DataTables);
 
-        if (tables is not { } dataTables)
+        if (dataTables.Type != DemoCommandType.DataTables)
         {
             return new DemoTimeline([]);
         }
