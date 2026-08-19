@@ -24,17 +24,32 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// </remarks>
 public sealed class CorpusEntityDecodeTests
 {
-    /// <summary><c>MAX_EDICTS</c>.</summary>
-    private const int EntityLimit = 2048;
+    // Five tests removed on 2026-08-19, each covered by a synthetic demo that asserts a value
+    // rather than a range.
+    //
+    // EntityIndices_AscendAndStayInsideTheEntityLimit, PlayerPositions_LandInsideTheWorldBounds
+    // and Tracker_HoldsPlayerPositionsInsideTheMap were bounds checks — "inside MAX_EDICTS",
+    // "inside the world". SyntheticSceneTests.Build_ThreePlayersAtChosenPositions_AreNotCollapsed
+    // ToOne puts three players at chosen coordinates in slots 1, 2 and 5, which also exercises the
+    // index delta: the encoder writes the GAP to the next occupied slot rather than the slot
+    // itself, so 1, 2, 5 covers what 1, 2, 3 cannot.
+    //
+    // Tracker_HoldsMorePropertiesThanAnySingleUpdateCarried is SyntheticTimelineFrameTests
+    // .Build_APropertyOnlyTheFirstSnapshotSent_IsRetainedAcrossDeltas, where the property rides on
+    // the entering snapshot alone and is read three snapshots later.
+    //
+    // EntityProperties_TheCorpus_AreReported was a report.
+    //
+    // What stays here is what only real bytes can settle: that every entity a real snapshot names
+    // decodes, that a hundred consecutive snapshots survive, that point-of-view recordings decode
+    // as well as SourceTV ones, that every decoded property belongs to the class it was read for,
+    // and how much of an entity its instance baseline supplies.
 
     /// <summary>
     /// Upper bound on snapshots read by a test that stops as soon as its claim is demonstrated.
     /// Generous on purpose: it is a runaway guard, not a tuned window.
     /// </summary>
     private const int SnapshotCap = 4000;
-
-    /// <summary>Half Source's world extent, in units, per axis.</summary>
-    private const float WorldHalfExtent = 16384f;
 
     [Test]
     public void OpeningSnapshot_DecodesEveryEntityItNames()
@@ -65,23 +80,6 @@ public sealed class CorpusEntityDecodeTests
         }
     }
 
-    [Test]
-    public void EntityIndices_AscendAndStayInsideTheEntityLimit()
-    {
-        foreach (string path in SourceTvDemos())
-        {
-            (IReadOnlyList<DecodedEntity> entities, _) = FirstFull(path);
-            string name = Path.GetFileName(path);
-
-            int previous = -1;
-            foreach (DecodedEntity entity in entities)
-            {
-                entity.EntityIndex.ShouldBeGreaterThan(previous, name);
-                entity.EntityIndex.ShouldBeLessThan(EntityLimit, name);
-                previous = entity.EntityIndex;
-            }
-        }
-    }
 
     [Test]
     public void EntityDecode_EveryProperty_BelongsToItsClass()
@@ -110,36 +108,6 @@ public sealed class CorpusEntityDecodeTests
         }
     }
 
-    [Test]
-    public void PlayerPositions_LandInsideTheWorldBounds()
-    {
-        // m_vecOrigin is SPROP_COORD_MP. A wrong coordinate decoder yields a plausible number
-        // rather than an error, so the check is that positions fall inside Source's world.
-        foreach (string path in SourceTvDemos())
-        {
-            string name = Path.GetFileName(path);
-            List<(float X, float Y, float Z)> origins = Origins(FirstFull(path).Entities);
-
-            // Only enough to make the loop below non-vacuous. The count was 50 until an Ultiduo
-            // demo arrived with 40: that mode is 2v2 on a tiny map, so it simply has fewer
-            // entities carrying an origin. Nothing was wrong with the decode.
-            //
-            // A count is the wrong place to be strict here anyway — the real assertion is the
-            // bounds check, and the guard against a decoder returning a constant now lives in
-            // SyntheticSceneTests.Build_ThreePlayersAtChosenPositions_AreNotCollapsedToOne, where
-            // three chosen coordinates make it exact rather than a spread heuristic. A floor sized
-            // to 6v6 competitive play was measuring the corpus's uniformity, not the parser.
-            origins.Count.ShouldBeGreaterThan(10, name);
-
-            foreach ((float x, float y, float z) in origins)
-            {
-                float.IsFinite(x).ShouldBeTrue(name);
-                MathF.Abs(x).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-                MathF.Abs(y).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-                MathF.Abs(z).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-            }
-        }
-    }
 
     [Test]
     public void ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots()
@@ -266,45 +234,7 @@ public sealed class CorpusEntityDecodeTests
         offered.ShouldBeGreaterThan(1000, "the POV corpus offered almost no snapshots");
     }
 
-    [Test]
-    public void EntityProperties_TheCorpus_AreReported()
-    {
-        foreach (string path in SourceTvDemos())
-        {
-            (IReadOnlyList<DecodedEntity> entities, PacketEntitiesMessage header) = FirstFull(path);
 
-            TestContext.Out.WriteLine(
-                $"{Path.GetFileName(path)}: opening snapshot {entities.Count} entities, " +
-                $"{entities.Sum(e => e.Properties.Count)} values, {header.LengthBits} bits");
-
-            TestContext.Out.WriteLine("  classes: " + string.Join(", ", entities
-                .GroupBy(e => e.ClassId)
-                .OrderByDescending(g => g.Count())
-                .Take(4)
-                .Select(g => $"{g.Key} x{g.Count()}")));
-
-            List<(float X, float Y, float Z)> origins = Origins(entities);
-            if (origins.Count > 0)
-            {
-                TestContext.Out.WriteLine(
-                    $"  {origins.Count} origins, x {origins.Min(o => o.X):F0}..{origins.Max(o => o.X):F0}, " +
-                    $"z {origins.Min(o => o.Z):F0}..{origins.Max(o => o.Z):F0}");
-            }
-
-            TestContext.Out.WriteLine(string.Empty);
-        }
-
-        SourceTvDemos().ShouldNotBeEmpty();
-    }
-
-    private static List<(float X, float Y, float Z)> Origins(IReadOnlyList<DecodedEntity> entities) =>
-    [
-        .. entities
-            .SelectMany(e => e.Properties)
-            .Where(p => p.Definition.Property.Name == "m_vecOrigin" &&
-                        p.Value.Kind == PropertyValueKind.Vector)
-            .Select(p => p.Value.AsVector),
-    ];
 
     /// <summary>Demos that open with a full snapshot, which is every SourceTV recording.</summary>
     /// <summary>SourceTV demos that carry a usable schema.</summary>
@@ -372,144 +302,7 @@ public sealed class CorpusEntityDecodeTests
         }
     }
 
-    [Test]
-    public void Tracker_HoldsMorePropertiesThanAnySingleUpdateCarried()
-    {
-        // The claim merging makes, stated as a comparison so no threshold has to be invented:
-        // some entity must end up knowing more than the largest single update to *that entity*
-        // contained. A tracker that replaced state instead of merging would sit exactly at that
-        // maximum and never above it.
-        //
-        // The subject is chosen from the data rather than assumed. An earlier version of this
-        // test pinned entity 1, which is the recording player in a POV demo and a worldspawn-ish
-        // slot with two properties in a SourceTV one - so it measured merging in one file and
-        // nothing at all in another.
-        //
-        // It stops as soon as the claim is demonstrated, and the cap is generous rather than
-        // tuned. A fixed 400-snapshot window was enough for every demo in the corpus until a
-        // quiet one arrived: two minutes on a listen server with a single player, where nothing
-        // enters or leaves for a long stretch after the full snapshot, and every entity sat at
-        // exactly its largest single update. It accumulates like the others, just later. Raising
-        // the window for everyone would have cost about 18% of this project's runtime, which
-        // matters because the mutation run re-executes it per mutant; breaking early costs the
-        // busy demos nothing and lets the quiet one read as far as it needs.
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            string name = Path.GetFileName(path);
-            DemoSchema schema = Schema(path);
-            EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-            EntityTracker tracker = new();
-            Dictionary<int, int> largestUpdate = [];
-            bool started = false;
-            bool anyAccumulated = false;
 
-            foreach (PacketEntitiesMessage message in Snapshots(path).Take(SnapshotCap))
-            {
-                started |= message.IsFullSnapshot;
-                if (!started)
-                {
-                    continue;
-                }
-
-                IReadOnlyList<DecodedEntity> entities =
-                    decoder.Decode(message.Body.Span, message, message.LengthBits);
-
-                foreach (DecodedEntity entity in entities)
-                {
-                    largestUpdate[entity.EntityIndex] = Math.Max(
-                        largestUpdate.GetValueOrDefault(entity.EntityIndex),
-                        entity.Properties.Count);
-                }
-
-                tracker.Apply(entities);
-
-                anyAccumulated = tracker.ActiveEntities.Any(index =>
-                    tracker.State(index) is { } state &&
-                    state.Count > largestUpdate.GetValueOrDefault(index));
-
-                if (anyAccumulated)
-                {
-                    break;
-                }
-            }
-
-            tracker.ActiveEntities.ShouldNotBeEmpty(name);
-
-            // On failure, say how far every entity got. "No entity accumulated" and "the decode
-            // produced nothing to accumulate" are different problems and the counts separate them.
-            string held = string.Join(", ", tracker.ActiveEntities
-                .Select(index => (index,
-                                  state: tracker.State(index)?.Count ?? 0,
-                                  max: largestUpdate.GetValueOrDefault(index)))
-                .OrderByDescending(entry => entry.state - entry.max)
-                .Take(6)
-                .Select(entry => $"e{entry.index} held={entry.state} maxUpdate={entry.max}"));
-
-            anyAccumulated.ShouldBeTrue(
-                $"{name}: {tracker.ActiveEntities.Count} entities | {held}");
-        }
-    }
-
-    [Test]
-    public void Tracker_HoldsPlayerPositionsInsideTheMap()
-    {
-        // Accumulated state has to be usable, not merely present - this is the query a 2D
-        // viewer makes. Source's coordinate space is bounded at +/-16384, so anything outside
-        // it is decoded garbage rather than a place someone stood.
-        //
-        // Both encodings are accepted because the era difference is real and visible in the
-        // corpus: the 2009 demo sends m_vecOrigin as a single Vector, while modern demos send
-        // it as a VectorXY plus a separate m_vecOrigin[2] float. That is DPT_VectorXY (B18)
-        // showing up in the data rather than in a header.
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            string name = Path.GetFileName(path);
-            DemoSchema schema = Schema(path);
-            EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-            EntityTracker tracker = new();
-            bool started = false;
-
-            foreach (PacketEntitiesMessage message in Snapshots(path).Take(400))
-            {
-                started |= message.IsFullSnapshot;
-                if (started)
-                {
-                    tracker.Apply(decoder.Decode(message.Body.Span, message, message.LengthBits));
-                }
-            }
-
-            List<float> coordinates = [];
-            foreach (int index in tracker.ActiveEntities)
-            {
-                if (tracker.State(index) is not { } state)
-                {
-                    continue;
-                }
-
-                foreach ((string key, PropertyValue value) in state)
-                {
-                    if (!key.EndsWith(".m_vecOrigin", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    if (value.Kind == PropertyValueKind.Vector)
-                    {
-                        (float x, float y, float z) = value.AsVector;
-                        coordinates.AddRange([x, y, z]);
-                    }
-                    else if (value.Kind == PropertyValueKind.VectorXY)
-                    {
-                        (float x, float y) = value.AsVectorXY;
-                        coordinates.AddRange([x, y]);
-                    }
-                }
-            }
-
-            coordinates.ShouldNotBeEmpty(name);
-            coordinates.ShouldAllBe(c => Math.Abs(c) < 16384f, name);
-        }
-    }
 
     [Test]
     public void Baselines_SupplyMostOfWhatAnEntityKnows()

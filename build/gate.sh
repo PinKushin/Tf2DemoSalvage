@@ -73,7 +73,7 @@ run Tf2DemoSalvage.Core.Tests     core     1227
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
 run Tf2DemoSalvage.Content.Tests  content   561
-run Tf2DemoSalvage.Corpus.Tests   corpus    105
+run Tf2DemoSalvage.Corpus.Tests   corpus    100
 run Tf2DemoSalvage.Viewer3D.Tests viewer    426
 
 echo
