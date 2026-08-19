@@ -54,7 +54,7 @@ public sealed class CorpusDeadPlayerDrawTests
     {
         string path = Corpus.Demo(MovementDemo);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<ScenePlayer> dead = [];
         List<ScenePlayer> alive = [];

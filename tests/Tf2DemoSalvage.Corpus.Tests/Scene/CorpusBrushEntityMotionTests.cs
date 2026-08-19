@@ -58,7 +58,7 @@ public sealed class CorpusBrushEntityMotionTests
     {
         string path = Corpus.Demo(ProcessDemo);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         IReadOnlyList<ScenePropTrack> brushes =
             [.. timeline.Props.Where(track => track.Kind == SceneModelKind.Brush)];
@@ -127,7 +127,7 @@ public sealed class CorpusBrushEntityMotionTests
         // even when the snapshot omits it. This is what says whether that is true in practice.
         string path = Corpus.Demo(ProcessDemo);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         IReadOnlyList<ScenePropTrack> brushes =
             [.. timeline.Props.Where(track => track.Kind == SceneModelKind.Brush)];

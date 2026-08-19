@@ -32,7 +32,7 @@ public sealed class CorpusAimPitchTests
 
         List<ScenePlayer> players =
         [
-            .. DemoTimeline.Build(File.ReadAllBytes(path))
+            .. TimelineCache.For(path)
                 .Frames
                 .SelectMany(frame => frame.Players)
                 .Where(player => player.IsPlaying),

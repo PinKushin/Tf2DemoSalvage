@@ -25,7 +25,7 @@ public sealed class WeaponClassPairingProbe
     {
         string path = Corpus.Demo("cp_process_f12-2026-08-08-2207");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         Dictionary<(string Weapon, int Class), int> counts = [];
 

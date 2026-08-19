@@ -32,7 +32,7 @@ public sealed class CorpusJumpPhaseTests
 
         List<float> airborne =
         [
-            .. DemoTimeline.Build(File.ReadAllBytes(path))
+            .. TimelineCache.For(path)
                 .Frames
                 .SelectMany(frame => frame.Players)
                 .Where(player => player.IsPlaying && player.AirborneSeconds is not null)
@@ -79,7 +79,7 @@ public sealed class CorpusJumpPhaseTests
 
         List<ScenePlayer> airborne =
         [
-            .. DemoTimeline.Build(File.ReadAllBytes(path))
+            .. TimelineCache.For(path)
                 .Frames
                 .SelectMany(frame => frame.Players)
                 .Where(player => player.IsPlaying && player.AirborneSeconds is not null),

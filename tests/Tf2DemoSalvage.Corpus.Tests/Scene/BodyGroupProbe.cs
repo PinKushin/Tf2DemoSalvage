@@ -25,7 +25,7 @@ public sealed class BodyGroupProbe
     {
         string path = Corpus.Demo("cp_process");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         Dictionary<string, HashSet<int>> bodies = [];
 

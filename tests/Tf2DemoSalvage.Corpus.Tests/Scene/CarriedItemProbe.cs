@@ -39,7 +39,7 @@ public sealed class CarriedItemProbe
 
         foreach (string path in wanted.Length > 0 ? wanted : [.. Corpus.FilesWithSchema().Take(2)])
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             Dictionary<string, int> byModel = [];
 

@@ -30,7 +30,7 @@ public sealed class PlayerFacingTests
 
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Frames.Count == 0)
             {
@@ -98,7 +98,7 @@ public sealed class PlayerFacingTests
         // what the wire actually carries - not what the client would compute if nothing did.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Frames.Count == 0)
             {
@@ -148,7 +148,7 @@ public sealed class PlayerFacingTests
         // measurement, because a derived quantity that comes out wrong is worse than one missing.
         foreach (string path in Corpus.FilesWithSchema().Take(4))
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             Dictionary<int, (float X, float Y, int Tick)> last = [];
             float fastest = 0f;
@@ -210,7 +210,7 @@ public sealed class PlayerFacingTests
 
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
             HashSet<int> yaws = [];
 
             foreach (TimelineFrame frame in timeline.Frames)
