@@ -97,6 +97,37 @@ internal readonly record struct MapDetail(
 /// </remarks>
 internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 
+/// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
+/// <param name="Faces">
+/// The six cube directions in Valve's order, which is <c>+X, −X, +Y, −Y, +Z, −Z</c> — the same
+/// order D3D's <c>TextureCube</c> wants, so this uploads as-is. The file's seventh face is a
+/// fallback spheremap and is not here.
+/// </param>
+/// <param name="Tint">The colour the sample is multiplied by; white unless <c>$envmaptint</c>.</param>
+/// <param name="Contrast">
+/// How far the reflection is pushed toward its own square. **Zero is normal**, which is the
+/// opposite end from <paramref name="Saturation"/>.
+/// </param>
+/// <param name="Saturation">
+/// How much colour the reflection keeps. **One is normal**, zero is greyscale.
+/// </param>
+/// <param name="MaskedByBaseAlpha">
+/// Whether the base texture's alpha masks the reflection — <c>inverted</c>, so an opaque texel
+/// reflects least, and the material then has no transparency because the channel is spent.
+/// </param>
+/// <remarks>
+/// **Not deduplicated, deliberately.** 51 of cp_process_final's materials reference 43 cubemaps, so
+/// interning would save eight copies of a 24 KB image — under 200 KB against a lightmap atlas of
+/// 2048x3485. Keeping one per material makes this list parallel to every other in
+/// <see cref="MapAssets"/>, which is the property the renderer indexes on.
+/// </remarks>
+internal readonly record struct MapCubemap(
+    IReadOnlyList<MapTexture> Faces,
+    (float Red, float Green, float Blue) Tint,
+    float Contrast,
+    float Saturation,
+    bool MaskedByBaseAlpha);
+
 /// <summary>Everything one material resolved to.</summary>
 /// <param name="Texture">The base texture, or null when it could not be found.</param>
 /// <param name="Blend">The second layer of a blend material, or null.</param>
@@ -107,6 +138,7 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// The shader the material names. Carried for the census: a shader decides what its parameters
 /// MEAN, and Modulate declared nothing unfamiliar while drawing entirely differently.
 /// </param>
+/// <param name="Cubemap">The baked reflection this material names, or null.</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -117,7 +149,8 @@ internal readonly record struct ResolvedMaterial(
     MapDetail? Detail,
     MapBump? Bump,
     IReadOnlyCollection<string>? Declared = null,
-    string Shader = "");
+    string Shader = "",
+    MapCubemap? Cubemap = null);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -315,6 +348,7 @@ internal sealed class MapAssets
         IReadOnlyList<MapTexture?> blendTextures,
         IReadOnlyList<MapDetail?> details,
         IReadOnlyList<MapBump?> bumps,
+        IReadOnlyList<MapCubemap?> cubemaps,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
         IReadOnlyList<PropVertex> props,
@@ -325,6 +359,7 @@ internal sealed class MapAssets
         BlendTextures = blendTextures;
         Details = details;
         Bumps = bumps;
+        Cubemaps = cubemaps;
         Materials = materials;
         Lightmaps = lightmaps;
         Props = props;
@@ -376,6 +411,19 @@ internal sealed class MapAssets
     /// wall look like brick rather than like a photograph of one.
     /// </remarks>
     public IReadOnlyList<MapBump?> Bumps { get; }
+
+    /// <summary>The baked reflection for each material, null for those without one.</summary>
+    /// <remarks>
+    /// **The map already decided which cubemap each surface reflects**, so this needs no
+    /// nearest-by-position search. vbsp patched every reflecting brush face's material at compile
+    /// time to name the exact cubemap it baked; this reads that name.
+    ///
+    /// Null covers three different situations that all draw the same: a material that reflects
+    /// nothing, a static prop's material still asking for the literal <c>env_cubemap</c> (which the
+    /// engine binds at runtime by proximity and this does not do yet), and a cubemap that failed to
+    /// decode. The first is much the commonest — on cp_process_final, 51 of 410.
+    /// </remarks>
+    public IReadOnlyList<MapCubemap?> Cubemaps { get; }
 
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
@@ -451,6 +499,7 @@ internal sealed class MapAssets
         List<MapTexture?> blendTextures = new(materials.Count);
         List<MapDetail?> details = new(materials.Count);
         List<MapBump?> bumps = new(materials.Count);
+        List<MapCubemap?> cubemaps = new(materials.Count);
         int resolved = 0;
         int missing = 0;
 
@@ -480,6 +529,7 @@ internal sealed class MapAssets
             blendTextures.Add(material.Blend);
             details.Add(material.Detail);
             bumps.Add(material.Bump);
+            cubemaps.Add(material.Cubemap);
 
             if (material.Texture is null)
             {
@@ -701,6 +751,11 @@ internal sealed class MapAssets
             bumps.Add(null);
         }
 
+        while (cubemaps.Count < textures.Count)
+        {
+            cubemaps.Add(null);
+        }
+
         // **One inventory line covering all four questions**, because the individual counts below
         // each answer a different one and none of them says whether the whole stage worked. The
         // shape is deliberate and standing: ASKED FOR / HAVE / PRODUCED / MISSING. A log reporting
@@ -731,11 +786,19 @@ internal sealed class MapAssets
             $"{bumps.Count(bump => bump is not null)} materials carry a bump map, " +
             $"{bumps.Count(bump => bump is { IsSelfShadowing: true })} of them self-shadowing");
 
+        // **Measured, not assumed**, for the same reason as the detail and bump lines above: a
+        // cubemap chain that resolves nothing still draws a perfectly reasonable map, just a matte
+        // one — which is the state this has been in since the project started (B55).
+        ViewerLog.Write(
+            "assets",
+            $"{cubemaps.Count(cubemap => cubemap is not null)} materials carry a baked cubemap");
+
         return new MapAssets(
             textures,
             blendTextures,
             details,
             bumps,
+            cubemaps,
             materials,
             PackLighting(map),
             props,
@@ -838,7 +901,81 @@ internal sealed class MapAssets
         // the map asked for rather than only what failed. Gathered here because this is the one
         // place the parsed VMT exists; the census itself runs on the single-threaded side.
         return new ResolvedMaterial(
-            first, second, ResolveDetail(), ResolveBump(), material.Keys, material.Shader);
+            first,
+            second,
+            ResolveDetail(),
+            ResolveBump(),
+            material.Keys,
+            material.Shader,
+            ResolveCubemap());
+
+        MapCubemap? ResolveCubemap()
+        {
+            // **A compiled map names a concrete texture here, never `env_cubemap`.** vbsp rewrites
+            // the key at compile time for every brush face it binds; a material still carrying the
+            // literal was never patched — which on this map is every static prop's material,
+            // because Cubemap_CreateTexInfo works on texinfo and a prop has none. Those the engine
+            // binds at runtime by proximity, which this does not do yet.
+            if (material.EnvMap is not { } name || material.WantsMapCubemap)
+            {
+                return null;
+            }
+
+            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                ? name[..^4]
+                : name;
+
+            if (Find("materials/" + bare + ".vtf") is not { } file)
+            {
+                ViewerLog.Warn(
+                    "assets",
+                    $"cubemap materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
+
+                return null;
+            }
+
+            try
+            {
+                List<MapTexture> faces = new(6);
+
+                // **Six of the seven, in file order.** Valve's face names read RIGHT/LEFT/BACK/
+                // FRONT/UP/DOWN and are misleading; LookDir_t declared beside them gives the real
+                // order as +X, -X, +Y, -Y, +Z, -Z, which is D3D's TextureCube order exactly. The
+                // seventh is a fallback spheremap — a different projection, not a seventh
+                // direction — and is dropped.
+                for (int face = 0; face < 6; face++)
+                {
+                    VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize, face);
+
+                    faces.Add(new MapTexture(
+                        decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false));
+                }
+
+                return new MapCubemap(
+                    faces,
+                    material.EnvMapTint,
+                    material.EnvMapContrast,
+                    material.EnvMapSaturation,
+                    material.UsesBaseAlphaAsEnvMapMask);
+            }
+            catch (InvalidDataException failure)
+            {
+                // **The surface survives this.** A cubemap that will not decode costs the material
+                // its shine and nothing else; it must never take the base texture with it.
+                ViewerLog.Warn("assets", $"cubemap for materials/{materialName}.vmt", failure);
+
+                return null;
+            }
+            catch (ArgumentOutOfRangeException failure)
+            {
+                // A VTF that declares the envmap flag and holds fewer than seven faces. Reported
+                // rather than swallowed: it means either a malformed file or a wrong face count,
+                // and both are worth seeing.
+                ViewerLog.Warn("assets", $"cubemap for materials/{materialName}.vmt", failure);
+
+                return null;
+            }
+        }
 
         MapBump? ResolveBump()
         {

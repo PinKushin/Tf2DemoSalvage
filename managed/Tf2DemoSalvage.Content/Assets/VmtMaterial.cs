@@ -450,6 +450,57 @@ public sealed class VmtMaterial
     public bool WantsMapCubemap =>
         string.Equals(EnvMap, "env_cubemap", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The colour the reflection is multiplied by.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( ENVMAPTINT, SHADER_PARAM_TYPE_COLOR, "[1 1 1]", "envmap tint" )</c>. The
+    /// default falls out of <see cref="Colour"/> returning white for an absent key, so a material
+    /// naming no tint reflects the cubemap unchanged.
+    /// </remarks>
+    public (float Red, float Green, float Blue) EnvMapTint => Colour("$envmaptint");
+
+    /// <summary>How much the reflection is pushed toward its own square.</summary>
+    /// <remarks>
+    /// **Zero is normal**, which is the opposite way round from <see cref="EnvMapSaturation"/> and
+    /// is why the two are documented together. Valve's help text says it outright:
+    /// <c>"contrast 0 == normal 1 == color*color"</c> (<c>lightmappedgeneric_dx9.cpp:42</c>), and
+    /// the shader is a lerp toward the end that is not the default:
+    ///
+    /// <code>
+    /// HALF3 specularLightingSquared = specularLighting * specularLighting;
+    /// specularLighting = lerp( specularLighting, specularLightingSquared, g_EnvmapContrast );
+    /// </code>
+    /// </remarks>
+    public float EnvMapContrast => Number("$envmapcontrast", 0f);
+
+    /// <summary>How much colour the reflection keeps.</summary>
+    /// <remarks>
+    /// **One is normal**, where zero is greyscale — <c>"saturation 0 == greyscale 1 == normal"</c>
+    /// (<c>lightmappedgeneric_dx9.cpp:43</c>). So this defaults high and
+    /// <see cref="EnvMapContrast"/> defaults low, and an implementation defaulting both to the same
+    /// number is wrong in one direction or the other for every material on the map.
+    ///
+    /// <code>
+    /// HALF3 greyScale = dot( specularLighting, HALF3( 0.299f, 0.587f, 0.114f ) );
+    /// specularLighting = lerp( greyScale, specularLighting, g_EnvmapSaturation );
+    /// </code>
+    ///
+    /// The weights are Rec.601 luma rather than a third each. They sum to one, so a grey reflection
+    /// is unchanged either way — which is exactly why an average passes a casual check and greens
+    /// what should stay red.
+    /// </remarks>
+    public float EnvMapSaturation => Number("$envmapsaturation", 1f);
+
+    /// <summary>Whether the base texture's alpha masks the reflection instead of blending.</summary>
+    /// <remarks>
+    /// **Inverted, and Valve annotated it:** <c>specularFactor *= 1.0 - blendedAlpha; // Reversing
+    /// alpha blows!</c> An opaque texel reflects LEAST.
+    ///
+    /// It also costs the material its transparency, which is the half that is easy to miss — three
+    /// lines below, <c>alpha *= baseColor.a</c> is guarded by <c>!bBaseAlphaEnvmapMask</c>, because
+    /// the alpha channel has been spent on the mask and cannot also mean opacity.
+    /// </remarks>
+    public bool UsesBaseAlphaAsEnvMapMask => Flag("$basealphaenvmapmask");
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material
