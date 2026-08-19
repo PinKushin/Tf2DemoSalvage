@@ -332,15 +332,69 @@ through it can only ever check your arithmetic against itself.** The independent
 still worth keeping — it catches a misunderstanding of the format — but it is a different
 experiment, and it is now named as one.
 
+## The face names are wrong; the face order is not
+
+The one thing filed as unresolved above turns out to be answerable from the same header, and the
+answer is the reassuring one.
+
+Valve's face enum is annotated in visible bafflement:
+
+```cpp
+enum CubeMapFaceIndex_t
+{
+	CUBEMAP_FACE_RIGHT = 0,
+	CUBEMAP_FACE_LEFT,
+	CUBEMAP_FACE_BACK,	// NOTE: This face is in the +y direction?!?!?
+	CUBEMAP_FACE_FRONT,	// NOTE: This face is in the -y direction!?!?
+	CUBEMAP_FACE_UP,
+	CUBEMAP_FACE_DOWN,
+```
+
+The punctuation is theirs, and it is the tell. Source's convention is X forward, Y left, Z up — so a
+face called BACK pointing at `+y` looks like a defect in the format, and anyone mapping these names
+onto D3D's `+X −X +Y −Y +Z −Z` has to guess.
+
+**The enum eleven lines below settles it**, and nobody has to guess:
+
+```cpp
+enum LookDir_t
+{
+	LOOK_DOWN_X = 0,
+	LOOK_DOWN_NEGX,
+	LOOK_DOWN_Y,
+	LOOK_DOWN_NEGY,
+	LOOK_DOWN_Z,
+	LOOK_DOWN_NEGZ,
+};
+```
+
+Same length, same positions, and the two entries Valve annotated agree exactly: BACK at index 2 with
+`LOOK_DOWN_Y`, FRONT at index 3 with `LOOK_DOWN_NEGY`. The face order is plainly `+X, −X, +Y, −Y,
++Z, −Z`. **The names are wrong; the order never was.**
+
+That is D3D11's `TextureCube` order exactly, so the upload is the identity for faces 0–5 and needs
+no swizzle — provided the reflection vector is computed in Source's own space, which this renderer
+does work in: its height cut reads `input.pos.z` as height, so Z is up and nothing has been
+converted.
+
+Two things this is worth as a method. **A confusing comment is a signal to look at what is declared
+next to it**, not a reason to start guessing — the annotation and its resolution were eleven lines
+apart. And *"no mapping is needed"* is exactly the kind of conclusion that gets quietly reversed
+later by someone reading only the face names, so it is held by an assertion rather than a note.
+
+The spheremap's position is asserted too, for a reason that is not obvious: uploading "the first six
+in order" is also what a reader that never noticed the seventh face would do, and that reader is
+right by accident only as long as the spheremap stays last. It is last — after DOWN, immediately
+before the count — and now something says so.
+
 ## Still open
 
 The lump is read, the assignment turns out to be free, and the pixel format turns out to need no new
 decoder. What remains is the picture:
 
-1. **The upload** — six of the seven faces into a D3D `TextureCube`, discarding the spheremap, with
-   Valve's `+y`/`−y` note above resolved against D3D's `+X −X +Y −Y +Z −Z` order. Face *decoding*
-   is done.
-2. **The shading**, specified by `EnvmapConformanceTests` — six of its eight assertions still
+1. **The upload** — faces 0–5 into a D3D `TextureCube`, in order, dropping the spheremap. Decoding
+   is done and the mapping is the identity; what remains is the D3D resource and its sampler.
+2. **The shading**, specified by `EnvmapConformanceTests` — six of its ten assertions still
    skipped.
 
 Half-float decode is *not* on this list, and was on it for a while. See the correction above.
