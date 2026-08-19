@@ -527,12 +527,28 @@ internal static class SyntheticPlayer
 
         return new DemoSchema(
             [
-                .. baseline.Tables,
+                // **A prop's origin lives on DT_BaseEntity, and the first draft of this fixture put
+                // it on the prop's own table.** EntityState.Origin() searches exactly three tables
+                // — the two player exclusives and DT_BaseEntity — so an origin anywhere else is
+                // not a near miss, it is no match at all.
+                //
+                // The consequence is silent and total: RecordProp returns early for an entity with
+                // neither an origin nor an attachment, so the prop decoded perfectly, carried its
+                // model index, and produced no track. Props came back empty and it read as a
+                // broken precache. See docs/memory/a-property-name-needs-its-declaring-table.md.
+                new SendTable("DT_BaseEntity", NeedsDecoder: true,
+                [
+                    Int("m_nModelIndex", bits: 13),
+                    Int("m_fEffects", bits: 11),
+                    Int("m_iTeamNum", bits: 3),
+                    VectorXy("m_vecOrigin", bits: 32),
+                    Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+                ]),
+                .. baseline.Tables.Where(
+                    table => !string.Equals(table.Name, "DT_BaseEntity", StringComparison.Ordinal)),
                 new SendTable("DT_BaseAnimatingProp", NeedsDecoder: true,
                 [
                     Table("baseanimating", "DT_BaseAnimating"),
-                    VectorXy("m_vecOrigin", bits: 32),
-                    Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
                 ]),
             ],
             [
