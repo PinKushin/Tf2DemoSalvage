@@ -16,11 +16,20 @@ closed. Both on 2026-08-16, within an hour of each other.
   `stdshader_*.dll` (re-verified 2026-08-19 with a positive control, because the claim rests on an
   absence). Correct implementation here is nothing.
 
-  **Do not call it dead.** That was the wording and the owner corrected it: a parameter this game
-  ignores may be live elsewhere in the Source family. Demonstrated for `$vertexcolor`, which is
-  consumed by `cable_dx6.cpp` and the fixed-function `decal.cpp` and merely unreachable from a DX9
-  `LightmappedGeneric` world face. For `$modblend` the origin is unknown — three shipped VMTs
-  declare it, and VMT keys do not appear by accident. Say "no path in this game reaches it".
+  **It was never a shader parameter.** A proxy resolves `srcVar1` by NAME on the material —
+  `pMaterial->FindVar( pSrcVar1, &foundVar, true )` (`functionproxy.cpp:210`,
+  `imaterial.h:484`) — and any key written into a VMT becomes a material var. So `$modblend` is an
+  **artist-authored variable** holding a constant for the `Equals` proxy that is commented out
+  beside it. No shader declares it because none ever could; no binary names it because none would.
+  All three declaring materials are TF2 content and two are MvM (2012), so it is not inherited
+  boilerplate either.
+
+  **Do not call it dead, and do not generalise from it.** "Dead" was the old wording and the owner
+  corrected it: a parameter this game ignores may be live elsewhere in the Source family. That is
+  true for `$vertexcolor` — a `MATERIAL_VAR_*` flag, engine-level, consumed by `cable_dx6.cpp` and
+  the fixed-function `decal.cpp`, merely unreachable from a DX9 `LightmappedGeneric` world face. It
+  is NOT true for `$modblend`, which is a name someone typed. The distinction is flag versus
+  authored key, and it decides whether "unimplemented" means anything.
 - **Game event field widths and signedness** were "outside the SDK, `GameEventManager` is closed".
   They are in the comment block atop `game/mod_hl2mp/resource/modevents.res`: `short` is 16-bit
   **signed**, `long` 32-bit signed, `bool` 1 bit unsigned. Signedness had been assumed, and getting

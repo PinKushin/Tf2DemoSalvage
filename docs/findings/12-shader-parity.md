@@ -268,6 +268,51 @@ unknown.** The implementation advice is unchanged — implement nothing — but 
 is now "no path in this game reaches it" rather than "it is dead", and those differ for anyone
 carrying this reading to another Source project.
 
+### And then the origin turned out to be knowable after all
+
+The paragraph above settled for "origin unknown" and proposed fetching HL2 or an older SDK to
+narrow it. Neither is needed, and two things already in hand say why.
+
+**All three declaring materials are TF2 content, and two are Mann vs Machine.**
+`models/effects/cappoint_logo_blue`, `props_mvm/mvm_revive_hologram`, `robo_marker` — authored for
+TF2 in 2012, not inherited HL2 or CS:S boilerplate. So "another Source game uses it" has a dating
+problem before any binary is opened: the parameter appears only in content written years after the
+games it would have to have come from.
+
+**And `$modblend` was never a shader parameter.** A material proxy resolves its inputs by *name
+lookup on the material* (`functionproxy.cpp:210`):
+
+```cpp
+char const* pSrcVar1 = pKeyValues->GetString( "srcVar1" );
+...
+m_pSrc1 = pMaterial->FindVar( pSrcVar1, &foundVar, true );
+```
+
+against `IMaterial::FindVar( const char *varName, bool *found, bool complain = true )`
+(`imaterial.h:484`). Any key written into a VMT becomes a material var, so a proxy can read a name
+an artist invented. That is a normal Source idiom, not a workaround.
+
+Which makes `$modblend` **an artist-authored variable holding a constant for a proxy to copy**, and
+every piece of evidence falls out of that at once:
+
+| Observation | Explanation |
+|---|---|
+| No shader declares it | It is not a shader parameter and never was |
+| No binary of any era names it | Nothing engine-side would ever name it |
+| Only three VMTs carry it | One authored template, copied twice |
+| Its only consumer is a commented-out `Equals` proxy | That proxy is precisely what it was for |
+
+The `Sine` proxy animating `$alpha` is the replacement: someone wired a constant through `Equals`,
+decided it should pulse instead, and commented out the `Equals` — leaving the constant behind with
+nothing reading it.
+
+**So the `$vertexcolor` analogy does not transfer, and now for a citable reason rather than a
+hunch.** `$vertexcolor` is a `MATERIAL_VAR_*` flag: engine-level, shared across the family by
+construction, and therefore genuinely capable of being live somewhere this game never reaches.
+`$modblend` is a name someone typed. The challenge that produced this section was still worth
+making — it corrected "dead" to something defensible, and it forced the test that turned an
+unexamined absence into a measured one.
+
 ### Two things worth carrying away
 
 **The decompiler was nominated for a question the game's own data files answered.** That is now the
