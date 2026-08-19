@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class WallStripeProbe
 {
     [Test]
-    public void WhatAreTheWallStripes()
+    public void WallStripes_TheirMaterials_AreReported()
     {
         string? path = null;
 

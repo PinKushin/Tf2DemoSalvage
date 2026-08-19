@@ -31,7 +31,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void ForwardTravelsTheSpeedTimesTheDuration()
+    public void FreeFlight_Forward_TravelsSpeedTimesDuration()
     {
         // The whole point of the change: distance is speed times time, so it no longer depends on
         // the keyboard's repeat rate or the frame rate. Half a second at 600 units a second is 300.
@@ -44,7 +44,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void HalfTheFrameIsHalfTheDistance()
+    public void FreeFlight_HalfTheFrame_TravelsHalfTheDistance()
     {
         // Frame-rate independence stated as a property rather than a single value.
         (float X, float Y, float Z) longer =
@@ -57,7 +57,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void ShiftQuadruples()
+    public void FreeFlight_Shift_QuadruplesTheSpeed()
     {
         float normal = FreeFlight.Movement(Held(Keys.W), 0.1, Pitch, Yaw, fast: false).X;
         float fast = FreeFlight.Movement(Held(Keys.W), 0.1, Pitch, Yaw, fast: true).X;
@@ -91,7 +91,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void OpposedKeysCancel()
+    public void FreeFlight_OpposedKeys_Cancel()
     {
         // Holding W and S is a real thing a hand does, and it must not divide by a zero length.
         FreeFlight.Movement(Held(Keys.W, Keys.S), 0.1, Pitch, Yaw, fast: false)
@@ -113,7 +113,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void ControlDropsStraightDown()
+    public void FreeFlight_Control_DropsStraightDown()
     {
         // Either Control reports, because Windows sends the left and right keys as distinct codes
         // and a set built from raw key data can hold either.
@@ -128,7 +128,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void ForwardFollowsTheYaw()
+    public void FreeFlight_Forward_FollowsTheYaw()
     {
         // Turned ninety degrees, forward is +Y rather than +X. Without this the camera would fly
         // where it was first pointed for ever.
@@ -140,7 +140,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void AZeroLengthFrameDoesNotMove()
+    public void FreeFlight_AZeroLengthFrame_DoesNotMove()
     {
         // The first frame after a stall reports no elapsed time, and multiplying by it must not
         // produce a NaN through the normalisation.
@@ -148,7 +148,7 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void OnlyFlightKeysAreTracked()
+    public void FreeFlight_NonFlightKeys_AreNotTracked()
     {
         // The caller keeps a set of held keys; letting every key into it would mean a held F or a
         // held Escape sat in there for ever and Escape is handled elsewhere.

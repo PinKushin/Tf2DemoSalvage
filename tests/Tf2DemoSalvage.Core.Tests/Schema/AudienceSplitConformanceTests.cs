@@ -39,7 +39,7 @@ public sealed class AudienceSplitConformanceTests
     }
 
     [Test]
-    public void TheTwoAudienceProxiesAreExactlyComplementary()
+    public void AudienceSplit_TheTwoProxies_AreExactlyComplementary()
     {
         // basecombatweapon_shared.cpp:2739 and :2761.
         //
@@ -63,7 +63,7 @@ public sealed class AudienceSplitConformanceTests
     }
 
     [Test]
-    public void AnUnownedWeaponSendsNeitherHalfOfTheSplit()
+    public void AudienceSplit_AnUnownedWeapon_SendsNeitherHalf()
     {
         // **The case the examples could not show, and the one a parser has to handle.**
         //
@@ -109,7 +109,7 @@ public sealed class AudienceSplitConformanceTests
     }
 
     [Test]
-    public void TheSplitIsAGeneralMechanismRatherThanAMedigunQuirk()
+    public void AudienceSplit_TheSplit_IsAGeneralMechanismNotAMedigunQuirk()
     {
         // Counted from the SDK rather than listed by hand, so the number cannot go stale the way a
         // transcribed list does. This is the same instrument idea as generating a conformance

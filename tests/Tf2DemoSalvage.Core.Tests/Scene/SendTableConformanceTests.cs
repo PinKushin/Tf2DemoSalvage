@@ -38,7 +38,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class SendTableConformanceTests
 {
     [Test]
-    public void EveryPropertyIsDeclaredInTheTableItIsLookedForIn()
+    public void SendTables_EveryProperty_IsDeclaredInTheTableItIsLookedForIn()
     {
         Dictionary<string, HashSet<string>> tables = SendTables();
 
@@ -72,7 +72,7 @@ public sealed class SendTableConformanceTests
     }
 
     [Test]
-    public void TheScanFindsTheTablesThisTestDependsOn()
+    public void SendTables_TheScan_FindsTheTablesThisTestDependsOn()
     {
         // **The control, and this test is worthless without it.** A regex that matched nothing would
         // make the assertion above vacuous for every table at once — it would report "no such send

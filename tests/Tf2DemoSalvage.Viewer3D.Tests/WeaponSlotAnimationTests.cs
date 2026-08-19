@@ -30,7 +30,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class WeaponSlotAnimationTests
 {
     [Test]
-    public void HoldingASecondaryPlaysADifferentSequenceFromAPrimary()
+    public void WeaponSlotAnimation_ASecondary_PlaysADifferentSequenceFromAPrimary()
     {
         if (Model() is not { } model)
         {
@@ -56,7 +56,7 @@ public sealed class WeaponSlotAnimationTests
     }
 
     [Test]
-    public void TheTwoJumpPhasesResolveToDifferentSequences()
+    public void WeaponSlotAnimation_TheTwoJumpPhases_ResolveToDifferentSequences()
     {
         // **The same wiring question as the slot, asked of the jump clock.** A push-off and a float
         // are separate sequences in every class model, so a player in their first half second must
@@ -87,7 +87,7 @@ public sealed class WeaponSlotAnimationTests
     }
 
     [Test]
-    public void TheMedigunResolvesToTheSecondarySlot()
+    public void WeaponSlotAnimation_TheMedigun_ResolvesToTheSecondarySlot()
     {
         // **The other half of the wiring, asked of the game's data rather than of a literal.** The
         // test above proves the slot changes the sequence; this proves the slot a medigun produces

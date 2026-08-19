@@ -48,7 +48,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void ACubemapIsPlacedByPositionAndNamedAfterIt()
+    public void Envmap_ACubemap_IsPlacedByPositionAndNamedAfterIt()
     {
         // **A map does not name its cubemaps; it places them, and the name is derived.**
         // dcubemapsample_t, bspfile.h:992, is the whole of LUMP_CUBEMAPS 42:
@@ -91,7 +91,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void ACubemapSizeOfZeroMeansTheDefaultRatherThanNothing()
+    public void Envmap_ASizeOfZero_MeansTheDefault()
     {
         // **The inverted default, and the one that silently produces nothing.** The declaration
         // spells out both halves — `0 - default` and `otherwise, 1<<(size-1)` — so zero is an
@@ -110,7 +110,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void TheCubeFaceOrderIsPlainlyPositiveAndNegativeXYZ()
+    public void Envmap_TheCubeFaceOrder_IsPositiveAndNegativeXyz()
     {
         // **Valve's face names are misleading and their ORDER is not.** The enum reads
         // RIGHT, LEFT, BACK, FRONT, UP, DOWN, with two of them annotated in visible bafflement:
@@ -162,7 +162,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void TheSpheremapIsNotUploadedAsASeventhCubeFace()
+    public void Envmap_TheSpheremap_IsNotUploadedAsASeventhFace()
     {
         // A TextureCube has six faces and the file has seven. The seventh is a different
         // PROJECTION of the same room, not a seventh direction, so it is dropped — and dropping it
@@ -185,7 +185,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void TheReflectionIsAddedToTheDiffuseRatherThanBlendedWithIt()
+    public void Envmap_TheReflection_IsAddedToTheDiffuse()
     {
         // **The single most consequential line, and the easiest to get wrong from intuition.**
         // lightmappedgeneric_ps2_3_x.h:548:
@@ -206,7 +206,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void TheReflectionIsScaledByAFresnelTermRaisedToTheFifth()
+    public void Envmap_TheFresnelTerm_IsRaisedToTheFifth()
     {
         // Grazing angles reflect more; a surface faced head-on reflects least. Lines 528-532:
         //
@@ -241,7 +241,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void ContrastAndSaturationDefaultToOppositeEndsOfTheirRanges()
+    public void Envmap_ContrastAndSaturation_DefaultToOppositeEnds()
     {
         // **The pair that cannot both be defaulted to the same number.** Their SHADER_PARAM
         // declarations carry the meaning in their own help text (lightmappedgeneric_dx9.cpp:42-43):
@@ -278,7 +278,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void GreyscaleUsesTheLumaWeightsRatherThanAnAverage()
+    public void Envmap_Greyscale_UsesTheLumaWeights()
     {
         // Line 541:
         //
@@ -298,7 +298,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void TheThreeEnvmapMasksAreMutuallyExclusive()
+    public void Envmap_TheThreeMasks_AreMutuallyExclusive()
     {
         // **Not a choice an implementation gets to make.** A material can mask its reflection three
         // ways — a dedicated $envmapmask texture, the base texture's alpha, or the normal map's
@@ -322,7 +322,7 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
-    public void TheBaseAlphaMaskIsInvertedAndValveSaysSo()
+    public void Envmap_TheBaseAlphaMask_IsInverted()
     {
         // The one whose sense is backwards, annotated in the source by whoever implemented it:
         //

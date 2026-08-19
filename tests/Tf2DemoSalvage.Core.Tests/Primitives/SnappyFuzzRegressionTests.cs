@@ -46,7 +46,7 @@ public sealed class SnappyFuzzRegressionTests
         [0x08, 0x00, 0xFF, 0xFC, 0xFE, 0xFF, 0xFF, 0x7F, 0x09];
 
     [Test]
-    public void ALiteralLengthOfIntMaxIsRefusedRatherThanOverflowing()
+    public void Snappy_ALiteralLengthOfIntMax_IsRefusedNotOverflowed()
     {
         // The contract is narrow on purpose. Snappy.Decompress documents InvalidDataException as
         // its refusal, so ANY other exception is a defect — including the OverflowException or
@@ -60,7 +60,7 @@ public sealed class SnappyFuzzRegressionTests
     }
 
     [Test]
-    public void TheReproducerIsStillTheInputThatWasFound()
+    public void Snappy_TheReproducer_IsStillTheInputThatWasFound()
     {
         // A control on the fixture, not on the decoder. These bytes are meaningless if edited, and
         // an assertion above that passes against a mangled array proves nothing about the defect.

@@ -55,7 +55,7 @@ public sealed class OverlayAndCubemapProbe
     }
 
     [Test]
-    public void HowManyOverlaysAndCubemapsDoesTheMapCarry()
+    public void OverlaysAndCubemaps_TheirCounts_AreReported()
     {
         if (MapFile is not { } path)
         {

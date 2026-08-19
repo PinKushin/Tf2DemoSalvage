@@ -56,7 +56,7 @@ public sealed class WorldLightFalloffTests
     }
 
     [Test]
-    public void NoLightIsWithoutFalloff()
+    public void WorldLights_EveryLight_HasFalloff()
     {
         // **The invariant a light with no attenuation would break.** vrad normalises the
         // all-zero case to constant_attn = 1 (`lightmap.cpp`), and a constant-only light does not

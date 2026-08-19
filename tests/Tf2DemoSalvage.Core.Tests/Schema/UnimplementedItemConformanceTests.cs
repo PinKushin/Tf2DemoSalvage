@@ -53,7 +53,7 @@ public sealed class UnimplementedItemConformanceTests
     }
 
     [Test]
-    public void AnItemsAppearanceIsAnAttributeListRatherThanAModelIndex()
+    public void Items_AnItemsAppearance_IsAnAttributeListNotAModelIndex()
     {
         // econ_item_view.h:157,160 — CNetworkVar( attrib_definition_index_t,
         // m_iAttributeDefinitionIndex ) and CNetworkVar( float, m_flValue ). An attribute is a pair:
@@ -96,7 +96,7 @@ public sealed class UnimplementedItemConformanceTests
     }
 
     [Test]
-    public void AnUnusualIsAnAttributeEffectTypeRatherThanAnItem()
+    public void Items_AnUnusual_IsAnAttributeEffectTypeNotAnItem()
     {
         // econ_item_schema.h:694-700 declares attrib_effect_types_t with ATTRIB_EFFECT_UNUSUAL = 0,
         // then STRANGE, NEUTRAL, POSITIVE and NEGATIVE.
@@ -126,7 +126,7 @@ public sealed class UnimplementedItemConformanceTests
     }
 
     [Test]
-    public void AStyleSelectsADifferentModelForTheSameItemDefinition()
+    public void Items_AStyle_SelectsADifferentModelForOneDefinition()
     {
         // CEconStyleInfo (econ_item_schema.h:959) and its
         // GeneratePrecacheModelStringsForStyle at 991: one item definition, several styles, each
@@ -151,7 +151,7 @@ public sealed class UnimplementedItemConformanceTests
     }
 
     [Test]
-    public void AnAttachedModelIsChosenPerTeamAndAgainForFestivized()
+    public void Items_AnAttachedModel_IsChosenPerTeamAndForFestivized()
     {
         // econ_item_schema.h:1384,1387 — GetAttachedModelData( iTeam, iIdx ) and a separate
         // GetAttachedModelDataFestivized( iTeam, iIdx ).
@@ -177,7 +177,7 @@ public sealed class UnimplementedItemConformanceTests
     }
 
     [Test]
-    public void APaintKitIsItsOwnDefinitionSpaceNotAColour()
+    public void Items_APaintKit_IsItsOwnDefinitionSpaceNotAColour()
     {
         // econ_item_schema.h:2649-2651 — PaintKitItemDefinitionMap_t maps a paint kit definition
         // index to an item definition, with GetPaintKitItemDefinition and a collection lookup beside
@@ -200,7 +200,7 @@ public sealed class UnimplementedItemConformanceTests
     }
 
     [Test]
-    public void TheEconHeadersArePublishedAtAllWhichHadBeenAssumedOtherwise()
+    public void Items_TheEconHeaders_ArePublishedAfterAll()
     {
         // **The control for this whole batch, and the reason it exists.**
         //

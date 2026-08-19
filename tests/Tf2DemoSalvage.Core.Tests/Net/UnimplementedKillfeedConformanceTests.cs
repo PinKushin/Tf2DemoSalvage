@@ -39,7 +39,7 @@ public sealed class UnimplementedKillfeedConformanceTests
     }
 
     [Test]
-    public void EveryDeathFlagIsADistinctSingleBit()
+    public void Killfeed_EveryDeathFlag_IsADistinctSingleBit()
     {
         // TF_DEATH_DOMINATION through TF_DEATH_AUSTRALIUM: eleven flags, 0x0001 to 0x0400, packed
         // into the event's "death_flags" integer.
@@ -79,7 +79,7 @@ public sealed class UnimplementedKillfeedConformanceTests
     }
 
     [Test]
-    public void ADeathCarriesFarMoreThanAnAttackerAndAVictim()
+    public void Killfeed_ADeath_CarriesMoreThanAttackerAndVictim()
     {
         // The fields tf_hud_deathnotice.cpp reads off player_death. Pinned as a set because the
         // finding is the BREADTH: any one of them alone is unremarkable, and together they are the
@@ -106,7 +106,7 @@ public sealed class UnimplementedKillfeedConformanceTests
     }
 
     [Test]
-    public void TheAssisterMayNotBeAPlayerAtAll()
+    public void Killfeed_TheAssister_MayNotBeAPlayer()
     {
         // "assister_fallback" — a STRING beside the numeric assister id, used when the thing that
         // helped was not a player: a sentry gun, or an object with a name rather than a user id.
@@ -126,7 +126,7 @@ public sealed class UnimplementedKillfeedConformanceTests
     }
 
     [Test]
-    public void CustomKillSaysHowRatherThanWithWhat()
+    public void Killfeed_CustomKill_SaysHowNotWithWhat()
     {
         // TF_DMG_CUSTOM_NONE is 0, then HEADSHOT, BACKSTAB, BURNING, and a long tail.
         //

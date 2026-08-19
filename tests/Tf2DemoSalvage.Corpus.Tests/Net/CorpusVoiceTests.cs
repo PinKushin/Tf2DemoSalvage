@@ -81,7 +81,7 @@ public sealed class CorpusVoiceTests
     }
 
     [Test]
-    public void TheSteamIdIdentifiesSpeakersTheClientSlotCannot()
+    public void VoiceData_SteamId_IdentifiesSpeakersTheClientSlotCannot()
     {
         if (!Corpus.AnyDemoUses("steam"))
         {

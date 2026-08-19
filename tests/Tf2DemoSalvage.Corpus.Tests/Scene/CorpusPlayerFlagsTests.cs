@@ -46,7 +46,7 @@ public sealed class CorpusPlayerFlagsTests
     private const int Ducking = 1 << 1;
 
     [Test]
-    public void ARealDemoCarriesTheGroundAndCrouchBits()
+    public void PlayerFlags_ARealDemo_CarriesGroundAndCrouchBits()
     {
         string path = Corpus.Demo(MovementDemo);
 
@@ -80,7 +80,7 @@ public sealed class CorpusPlayerFlagsTests
     }
 
     [Test]
-    public void TheDerivedCrouchAndAirborneFollowTheFlags()
+    public void PlayerFlags_DerivedCrouchAndAirborne_FollowTheFlags()
     {
         // **The output-level half.** The property arriving is not the same as the scene reading it:
         // IsCrouched and IsAirborne are what the viewer actually asks, and a null-safe accessor
@@ -105,7 +105,7 @@ public sealed class CorpusPlayerFlagsTests
     }
 
     [Test]
-    public void APovRecordingCarriesThemToo()
+    public void PlayerFlags_APovRecording_CarriesThemToo()
     {
         // **The claim this settles was stated as a separate defect and turned out to be the same
         // one.** When the flags were read from DT_LocalPlayerExclusive the recorder of a POV demo

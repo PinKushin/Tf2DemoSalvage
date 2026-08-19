@@ -145,7 +145,7 @@ public sealed class BumpedLightmapTests
     }
 
     [Test]
-    public void EveryFacesLightingTilesTheLumpWithNoGapAndNoOverlap()
+    public void BumpedLightmaps_EveryFacesLighting_TilesTheLumpWithoutGapOrOverlap()
     {
         // **The only test here that can falsify the set count, and finding that out cost a wrong
         // one.** The obvious control - the flat set must read identically to before - is blind to

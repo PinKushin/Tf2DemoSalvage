@@ -55,7 +55,7 @@ public sealed class EngineConstantConformanceTests
     }
 
     [Test]
-    public void TheInvalidHandleIsBuiltFromBothHalves()
+    public void EngineConstants_TheInvalidHandle_IsBuiltFromBothHalves()
     {
         // **The one that is arithmetic rather than a lookup, and the one that was wrong first.** A
         // test written against −1 for the invalid handle would have passed for the wrong reason;
@@ -73,7 +73,7 @@ public sealed class EngineConstantConformanceTests
     }
 
     [Test]
-    public void AnInvalidHandleIsRejectedBeforeItIsMasked()
+    public void EngineConstants_AnInvalidHandle_IsRejectedBeforeMasking()
     {
         // **Order of operations, stated as its own claim.** The invalid handle's low MAX_EDICT_BITS
         // bits are 2047, which is a perfectly legal slot — so a decoder that masks first and tests

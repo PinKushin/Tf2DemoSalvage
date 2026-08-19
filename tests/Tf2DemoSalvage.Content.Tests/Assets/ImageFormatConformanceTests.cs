@@ -72,7 +72,7 @@ public sealed class ImageFormatConformanceTests
     }
 
     [Test]
-    public void TheSentinelsDoNotCollideWithARealFormat()
+    public void ImageFormats_TheSentinels_DoNotCollideWithARealFormat()
     {
         // **Two negative values that are ours, not Valve's**, and the reason they must be checked.
         // None is −1 to mirror IMAGE_FORMAT_UNKNOWN, but Unknown is −2 and has no counterpart — it
@@ -88,7 +88,7 @@ public sealed class ImageFormatConformanceTests
     }
 
     [Test]
-    public void TheFormatsWeDoNotDecodeAreTheMajority()
+    public void ImageFormats_TheUndecodedOnes_AreTheMajority()
     {
         // **A coverage statement, and an honest one.** Eight of forty is what this reader handles,
         // and the gap is deliberate: TF2's own content is overwhelmingly DXT1 and DXT5, so the rest
@@ -107,7 +107,7 @@ public sealed class ImageFormatConformanceTests
     }
 
     [Test]
-    public void TheImplicitNumberingWasActuallyCounted()
+    public void ImageFormats_TheImplicitNumbering_WasCountedFromTheSdk()
     {
         // The control, and it is specific rather than a floor. If the parser only saw explicit
         // assignments it would return two entries — UNKNOWN at −1 and RGBA8888 at 0 — and every

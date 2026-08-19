@@ -36,7 +36,7 @@ public sealed class FeetYawConformanceTests
     private const string AnimState = "src/game/shared/Multiplayer/multiplayer_animstate.cpp";
 
     [Test]
-    public void MaxBodyYawIsTheLiteralBesideTheDisabledConfigValue()
+    public void FeetYaw_MaxBodyYaw_IsTheLiteralBesideTheDisabledConfigValue()
     {
         // Matched against the commented-out m_flMaxBodyYawDegrees it stands in for, which is what
         // identifies this 45 as the body-yaw limit rather than any other 45 in the file.
@@ -47,7 +47,7 @@ public sealed class FeetYawConformanceTests
     }
 
     [Test]
-    public void TheFeetStepRoundByThatSameLimit()
+    public void FeetYaw_TheFeetStep_ByThatSameLimit()
     {
         // The limit appears twice - once as the test, once as the step taken when it is exceeded -
         // and FeetYaw.Advance uses one constant for both. If Valve ever made them differ, this is
@@ -59,7 +59,7 @@ public sealed class FeetYawConformanceTests
     }
 
     [Test]
-    public void TheYawRateIsTheLiteralPassedToConvergeYawAngles()
+    public void FeetYaw_TheYawRate_IsTheLiteralPassedToConvergeYawAngles()
     {
         Source().ShouldMatch(
             @"ConvergeYawAngles\(\s*m_flGoalFeetYaw,\s*/\*\s*DOD_BODYYAW_RATE\s*\*/\s*" +
@@ -67,7 +67,7 @@ public sealed class FeetYawConformanceTests
     }
 
     [Test]
-    public void TheFadeThresholdIsTheMacroConvergeDefinesAroundItself()
+    public void FeetYaw_TheFadeThreshold_IsTheMacroConvergeDefines()
     {
         // FADE_TURN_DEGREES is #defined and #undef'd inside ConvergeYawAngles, so it is a named
         // constant that exists for eight lines and cannot be read from any header.
@@ -76,7 +76,7 @@ public sealed class FeetYawConformanceTests
     }
 
     [Test]
-    public void TheMovingThresholdIsTestedOnTheThreeDimensionalLength()
+    public void FeetYaw_TheMovingThreshold_IsTestedOnTheThreeDimensionalLength()
     {
         // **The dimensionality is the load-bearing half, not the number.** `Length()` is 3D, so a
         // player rising in a lift with no horizontal motion counts as moving and their feet follow

@@ -52,7 +52,7 @@ public sealed class DisplacementLightmapTests
     }
 
     [Test]
-    public void EveryTerrainVertexLandsInsideItsOwnLightmap()
+    public void DisplacementLightmaps_EveryTerrainVertex_LandsInsideItsOwnLightmap()
     {
         // **The measurement that found the defect, stated as a rule.** A coordinate outside [0,1]
         // is clamped downstream, so the whole face samples one edge texel and draws flat. Nothing
@@ -98,7 +98,7 @@ public sealed class DisplacementLightmapTests
     }
 
     [Test]
-    public void TerrainCoordinatesSpanTexelCentresRatherThanTheWholeImage()
+    public void DisplacementLightmaps_TerrainCoordinates_SpanTexelCentres()
     {
         // Valve's own assignment runs 0.5 to size + 0.5 luxels, so a corner sits at a texel CENTRE
         // and never at the image edge. Running corner to corner instead samples half a texel of the

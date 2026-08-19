@@ -25,7 +25,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 public sealed class CorpusKillAnnotationTests
 {
     [Test]
-    public void ARealDeathRendersItsCustomKillInWords()
+    public void KillAnnotation_ARealDeath_RendersCustomKillInWords()
     {
         string path = Corpus.Demo("z1800");
         byte[] bytes = File.ReadAllBytes(path);
@@ -48,7 +48,7 @@ public sealed class CorpusKillAnnotationTests
     }
 
     [Test]
-    public void TheKillFeedListsEveryDeathRatherThanTheEventSample()
+    public void KillFeed_ARealDemo_ListsEveryDeath()
     {
         // **Completeness is the entire point of the section**, so it is what gets asserted. The
         // game event section is capped and shows one death; this must show all 407.
@@ -108,7 +108,7 @@ public sealed class CorpusKillAnnotationTests
     }
 
     [Test]
-    public void TheFeedItselfCarriesTheQualifiersNotJustTheEventDump()
+    public void KillFeed_TheFeedLines_CarryTheQualifiers()
     {
         // **The feed shipped with no qualifiers at all and every unit test stayed green.**
         // WriteKillFeedSection resolved the whole field list through PlayerReferences.Render, which
@@ -161,7 +161,7 @@ public sealed class CorpusKillAnnotationTests
     }
 
     [Test]
-    public void EveryKillNamesItsPlayersRatherThanTheirUserIds()
+    public void KillFeed_EveryKill_NamesPlayersNotUserIds()
     {
         // **The roster gap, asserted where it was visible.** Six players in this demo had their
         // entity slots taken over by later joiners and by bots, so a roster keyed by slot had

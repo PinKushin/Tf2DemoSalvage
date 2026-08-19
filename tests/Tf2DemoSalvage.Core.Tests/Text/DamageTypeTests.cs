@@ -36,7 +36,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 public sealed class DamageTypeTests
 {
     [Test]
-    public void ARealCriticalHeadshotReadsAsBulletCriticalAndHitLocations()
+    public void DamageType_ARealCriticalHeadshot_ReadsAsBulletCriticalAndHitLocations()
     {
         // The measured value from z1800.dem's first sampled death.
         KillDescription.DamageTypes(34603010)
@@ -44,7 +44,7 @@ public sealed class DamageTypeTests
     }
 
     [Test]
-    public void TheTfMeaningWinsOverTheBaseGameName()
+    public void DamageType_TheTfMeaning_WinsOverTheBaseGameName()
     {
         // Bit 20 alone. "acid" would be the engine's name for it and is wrong for every TF2 demo.
         KillDescription.DamageTypes(1 << 20).ShouldBe("critical");
@@ -57,7 +57,7 @@ public sealed class DamageTypeTests
     }
 
     [Test]
-    public void OrdinaryDamageKindsKeepTheirEngineNames()
+    public void DamageType_OrdinaryKinds_KeepTheirEngineNames()
     {
         // The low bits TF2 does not alias mean what the engine says.
         KillDescription.DamageTypes(1 << 6).ShouldBe("blast");
@@ -66,13 +66,13 @@ public sealed class DamageTypeTests
     }
 
     [Test]
-    public void NoBitsDescribesNothing()
+    public void DamageType_NoBits_DescribesNothing()
     {
         KillDescription.DamageTypes(0).ShouldBeNull();
     }
 
     [Test]
-    public void AnUnnamedBitIsReportedRatherThanDropped()
+    public void DamageType_AnUnnamedBit_IsReportedNotDropped()
     {
         // Bit 30 is above DMG_BUCKSHOT, the last shared flag, and TF2 names nothing there. Reported
         // so a future addition is visible rather than silently absent.

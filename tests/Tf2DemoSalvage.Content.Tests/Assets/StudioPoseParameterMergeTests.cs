@@ -75,7 +75,7 @@ public sealed class StudioPoseParameterMergeTests
     }
 
     [Test]
-    public void ADuplicateWidensTheSharedRange()
+    public void PoseParameterMerge_ADuplicate_WidensTheSharedRange()
     {
         // The measured case: -45..45 in the base, -45..90 in the animations.
         (IReadOnlyList<StudioPoseParameter> shared, _) = StudioPoseParameterMerge.Merge(
@@ -92,7 +92,7 @@ public sealed class StudioPoseParameterMergeTests
     }
 
     [Test]
-    public void TheWideningTakesTheExtremeOfAllFourEndpoints()
+    public void PoseParameterMerge_TheWidening_TakesTheExtremeOfAllFourEndpoints()
     {
         // Valve nests min/max over start AND end of both, which is not the same as taking the
         // wider of the two ranges when one is inverted. A parameter authored end-before-start is
@@ -108,7 +108,7 @@ public sealed class StudioPoseParameterMergeTests
     }
 
     [Test]
-    public void MatchingIsCaseInsensitive()
+    public void PoseParameterMerge_Matching_IsCaseInsensitive()
     {
         // stricmp, so a model that spells it Move_X shares the slot rather than adding a second one
         // that nothing writes to.

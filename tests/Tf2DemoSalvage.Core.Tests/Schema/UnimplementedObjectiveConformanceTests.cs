@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// That is worth knowing before anyone writes a BSP entity-lump reader to find them.
 ///
 /// The trap in here is an indexing one, and it is the rare case where this project's usual
-/// arithmetic defence cannot help. See <see cref="PerTeamArraysAreTeamMajorAndTheSizeCannotTellYou"/>.
+/// arithmetic defence cannot help. See <see cref="Objectives_PerTeamArrays_AreTeamMajorAndTheSizeCannotSaySo"/>.
 /// </remarks>
 public sealed class UnimplementedObjectiveConformanceTests
 {
@@ -40,7 +40,7 @@ public sealed class UnimplementedObjectiveConformanceTests
     }
 
     [Test]
-    public void PerTeamArraysAreTeamMajorAndTheSizeCannotTellYou()
+    public void Objectives_PerTeamArrays_AreTeamMajorAndTheSizeCannotSaySo()
     {
         // c_team_objectiveresource.h:18
         //
@@ -75,7 +75,7 @@ public sealed class UnimplementedObjectiveConformanceTests
     }
 
     [Test]
-    public void PreviousPointsIsIndexedOnThreeAxesAtOnce()
+    public void Objectives_PreviousPoints_IsIndexedOnThreeAxesAtOnce()
     {
         // c_team_objectiveresource.h:155 — the deepest index in the structure:
         //
@@ -103,7 +103,7 @@ public sealed class UnimplementedObjectiveConformanceTests
     }
 
     [Test]
-    public void CapturePointPositionsAreNetworkedSoTheMapNeedNotBeParsedForThem()
+    public void Objectives_CapturePointPositions_AreNetworkedNotParsedFromTheMap()
     {
         // RecvPropArray( RecvPropVector(RECVINFO(m_vCPPositions[0])), m_vCPPositions )
         //
@@ -123,7 +123,7 @@ public sealed class UnimplementedObjectiveConformanceTests
     }
 
     [Test]
-    public void TheObjectiveResourceCarriesOwnershipProgressAndWhoIsStandingThere()
+    public void Objectives_TheObjectiveResource_CarriesOwnershipProgressAndOccupants()
     {
         // One entity, a dozen parallel arrays: m_iOwner per point, m_flLazyCapPerc for capture
         // progress, m_iNumTeamMembers for who is standing in the zone, m_iTeamReqCappers for how
@@ -152,7 +152,7 @@ public sealed class UnimplementedObjectiveConformanceTests
     }
 
     [Test]
-    public void TheRoundClockIsAnEntityRatherThanADerivedNumber()
+    public void Objectives_TheRoundClock_IsAnEntityNotADerivedNumber()
     {
         // teamplay_round_timer.cpp:121-132 — twelve networked fields, including m_flTimerEndTime,
         // m_bTimerPaused, m_nSetupTimeLength and m_nState.

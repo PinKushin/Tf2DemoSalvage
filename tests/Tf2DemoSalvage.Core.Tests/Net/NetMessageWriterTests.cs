@@ -34,7 +34,7 @@ public sealed class NetMessageWriterTests
     private const int ModernProtocol = 24;
 
     [Test]
-    public void PrefetchRoundTripsAtZeroAndAtItsWidestSoundIndex()
+    public void Write_Prefetch_RoundTripsAtZeroAndAtItsWidestIndex()
     {
         // Zero and the widest value the field holds: a truncated width still reproduces small
         // indices, so a typical one cannot tell a 13-bit field from a 14-bit one.
@@ -43,7 +43,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void SetViewRoundTripsTheEntityIndex()
+    public void Write_SetView_RoundTripsTheEntityIndex()
     {
         RoundTrip(new SetViewMessage(1)).EntityIndex.ShouldBe(1);
 
@@ -52,7 +52,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void SignOnStateRoundTripsBothFields()
+    public void Write_SignOnState_RoundTripsBothFields()
     {
         SignOnStateMessage read = RoundTrip(new SignOnStateMessage(State: 6, SpawnCount: 12345));
 
@@ -64,7 +64,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void FixAngleRoundTripsItsFlagAndThreeAngles()
+    public void Write_FixAngle_RoundTripsItsFlagAndThreeAngles()
     {
         FixAngleMessage read = RoundTrip(new FixAngleMessage(IsRelative: true, 45f, -90f, 180f));
 
@@ -86,7 +86,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void ANegativePitchSurvivesInsteadOfCollapsingToZero()
+    public void Write_ANegativePitch_SurvivesInsteadOfCollapsingToZero()
     {
         // **The regression test for B113, which this file found.** `WriteAngle` cast the scaled
         // float straight to `uint`, and .NET's float-to-unsigned conversions SATURATE — so every
@@ -110,7 +110,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void FixAngleKeepsItsFlagClearWhenAbsolute()
+    public void Write_FixAngleWhenAbsolute_KeepsItsFlagClear()
     {
         // The control for the test above: with only the `true` case asserted, a writer that
         // hardcoded the bit would pass.
@@ -118,7 +118,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void GetCvarValueRoundTripsItsCookieAndName()
+    public void Write_GetCvarValue_RoundTripsItsCookieAndName()
     {
         GetCvarValueMessage read = RoundTrip(new GetCvarValueMessage(0xDEADBEEF, "sv_cheats"));
 
@@ -127,7 +127,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void FileRoundTripsItsTransferIdNameAndDirection()
+    public void Write_File_RoundTripsItsTransferIdNameAndDirection()
     {
         FileMessage read = RoundTrip(new FileMessage(7u, "maps/cp_badlands.bsp", IsRequested: true));
 
@@ -139,7 +139,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void AStringSurvivesNonAsciiCharacters()
+    public void Write_AString_SurvivesNonAsciiCharacters()
     {
         // Every decoder here is UTF-8 and ASCII corrupts a name into a plausible one rather than
         // failing - docs/memory/international-names-are-required.md. A corpus of English demos
@@ -149,7 +149,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void TheTypeFieldIsSixBitsAboveProtocolFifteenAndFiveAtOrBelowIt()
+    public void Write_TheTypeField_IsSixBitsAbove15AndFiveAtOrBelow()
     {
         // Writing six bits unconditionally would shift every message after the first on an old
         // demo, and a single-message round trip would still pass - so this asserts the WIDTH by
@@ -160,7 +160,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void TwoMessagesInOneStreamBothComeBack()
+    public void Write_TwoMessagesInOneStream_BothComeBack()
     {
         // A single message cannot show that the writer left the stream correctly positioned: any
         // trailing-bit error is invisible until something follows it.
@@ -179,7 +179,7 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
-    public void ARefusedMessageWritesNothingAtAll()
+    public void Write_ARefusedMessage_WritesNothingAtAll()
     {
         // "Checked before the type field is written, so a refusal leaves the stream untouched
         // rather than half-written." A refusal that had already emitted its type field would

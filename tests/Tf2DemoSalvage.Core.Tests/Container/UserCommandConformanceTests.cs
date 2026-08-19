@@ -41,7 +41,7 @@ public sealed class UserCommandConformanceTests
     }
 
     [Test]
-    public void EveryFieldIsReadInTheOrderTheEngineWritesIt()
+    public void UserCommand_EveryField_IsReadInTheEnginesOrder()
     {
         List<(string Name, int Bits)> engine = Written();
         IReadOnlyList<(string Name, int Bits)> ours = UserCommand.WireFields;
@@ -95,7 +95,7 @@ public sealed class UserCommandConformanceTests
     }
 
     [Test]
-    public void TheWidthsThatAreNamedConstantsResolveToTheEnginesValues()
+    public void UserCommand_NamedConstantWidths_ResolveToTheEnginesValues()
     {
         // weaponselect is MAX_EDICT_BITS and weaponsubtype is WEAPON_SUBTYPE_BITS — neither is a
         // literal in Valve's source, and both are widths where being one bit out desynchronises
@@ -107,7 +107,7 @@ public sealed class UserCommandConformanceTests
     }
 
     [Test]
-    public void TheExtractionFoundAWriterAtAll()
+    public void UserCommand_TheExtraction_FoundAWriter()
     {
         // The control. Every assertion above is vacuous if the regex matched nothing, and a
         // zero-length list would make the count comparison the only thing that noticed — after the

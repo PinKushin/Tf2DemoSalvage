@@ -69,7 +69,7 @@ public sealed class GameAssetIntegrationTests
     }
 
     [Test]
-    public void TheTexturesArchiveReadsAndHoldsAStockMaterial()
+    public void GameAssets_TheTexturesArchive_HoldsAStockMaterial()
     {
         VpkArchive archive = VpkArchive.Open(Path.Combine(_tf, "tf2_textures_dir.vpk"));
 
@@ -78,7 +78,7 @@ public sealed class GameAssetIntegrationTests
     }
 
     [Test]
-    public void AStockMaterialResolvesToATextureThatDecodes()
+    public void GameAssets_AStockMaterial_ResolvesToADecodableTexture()
     {
         VpkArchive misc = VpkArchive.Open(Path.Combine(_tf, "tf2_misc_dir.vpk"));
         VpkArchive textures = VpkArchive.Open(Path.Combine(_tf, "tf2_textures_dir.vpk"));
@@ -104,7 +104,7 @@ public sealed class GameAssetIntegrationTests
     }
 
     [Test]
-    public void DecodedPixelsAgreeWithTheMapsOwnReflectivity()
+    public void GameAssets_DecodedPixels_AgreeWithTheMapsReflectivity()
     {
         // The cross-check described on this type. Averaging the decoded sRGB pixels and applying
         // the gamma curve must land near a number the map compiler wrote from the same texture.
@@ -156,7 +156,7 @@ public sealed class GameAssetIntegrationTests
     [TestCase("cp_process_final")]
     [TestCase("cp_badlands")]
     [TestCase("koth_viaduct")]
-    public void EveryBrushworkCornerLandsInsideItsOwnLightmap(string map)
+    public void GameAssets_EveryBrushworkCorner_LandsInsideItsLightmap(string map)
     {
         // **The check that says the lightmap coordinates are RIGHT rather than merely present.**
         // Lightmap vectors are shared by every face using a texinfo, and produce coordinates in a
@@ -207,7 +207,7 @@ public sealed class GameAssetIntegrationTests
     }
 
     [Test]
-    public void DisplacementsAreIdentifiedRatherThanSilentlyWrong()
+    public void GameAssets_Displacements_AreIdentifiedNotSilentlyWrong()
     {
         // The control for the exclusion above. If nothing were identified as a displacement, the
         // previous test would be excluding nothing and passing for the wrong reason.
@@ -230,7 +230,7 @@ public sealed class GameAssetIntegrationTests
     }
 
     [Test]
-    public void ACommunityMapsPakfileReadsItsLzmaEntries()
+    public void GameAssets_ACommunityMapsPakfile_ReadsItsLzmaEntries()
     {
         // .NET refuses zip method 14 outright, which is why this project reads the zip itself.
         string map = Path.Combine(_tf, "maps", "cp_process_final.bsp");

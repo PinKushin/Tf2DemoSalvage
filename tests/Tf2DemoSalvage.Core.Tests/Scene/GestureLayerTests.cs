@@ -36,7 +36,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class GestureLayerTests
 {
     [Test]
-    public void CycleIsElapsedOverDuration()
+    public void GestureLayer_Cycle_IsElapsedOverDuration()
     {
         // rate = 1/2 per second; at one second the layer is halfway through.
         GestureLayer layer = new(DurationSeconds: 2f, AutoKill: true);
@@ -45,7 +45,7 @@ public sealed class GestureLayerTests
     }
 
     [Test]
-    public void FreshlyTriggeredCycleIsZero()
+    public void GestureLayer_FreshlyTriggered_HasCycleZero()
     {
         GestureLayer layer = new(DurationSeconds: 2f, AutoKill: true);
 
@@ -53,7 +53,7 @@ public sealed class GestureLayerTests
     }
 
     [Test]
-    public void ExactlyAtDurationTheLayerIsStillActiveAtCycleOne()
+    public void GestureLayer_ExactlyAtDuration_IsStillActiveAtCycleOne()
     {
         // The engine's guard is `> 1.0f`, strictly — at cycle exactly one it has not passed, so the
         // gesture is neither killed nor clamped-early. It holds on its final frame.
@@ -63,7 +63,7 @@ public sealed class GestureLayerTests
     }
 
     [Test]
-    public void PastTheEndAnAutoKillGestureIsGone()
+    public void GestureLayer_PastTheEndWithAutoKill_IsGone()
     {
         // **The discriminator.** Same time, same duration — only the auto-kill flag differs, and it
         // decides whether the layer still exists. A transposed branch would swap these two.
@@ -73,7 +73,7 @@ public sealed class GestureLayerTests
     }
 
     [Test]
-    public void PastTheEndANonAutoKillGestureHoldsOnItsLastFrame()
+    public void GestureLayer_PastTheEndWithoutAutoKill_HoldsOnItsLastFrame()
     {
         // `else { m_flCycle = 1.0f; }` — a gesture without auto-kill freezes at the end rather than
         // vanishing, waiting to be replaced by the next RestartGesture in the same slot.
@@ -83,7 +83,7 @@ public sealed class GestureLayerTests
     }
 
     [Test]
-    public void AZeroDurationLayerNeverAdvances()
+    public void GestureLayer_AZeroDuration_NeverAdvances()
     {
         // Studio_Duration returns 0 when cps is 0, so GetSequenceCycleRate is 0 and the cycle never
         // moves off its initial zero — the gesture plays forever on its first frame rather than

@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
 public sealed class WireBoundsTests
 {
     [Test]
-    public void ACountThatFitsIsAccepted()
+    public void WireBounds_ACountThatFits_IsAccepted()
     {
         Should.NotThrow(() => WireBounds.EnsureCountFits("test", count: 10, minBitsPerItem: 8, bitsRemaining: 80));
     }
@@ -42,7 +42,7 @@ public sealed class WireBoundsTests
     }
 
     [Test]
-    public void ANegativeCountIsRejected()
+    public void WireBounds_ANegativeCount_IsRejected()
     {
         // A 32-bit count read into an int arrives negative above int.MaxValue. Left unchecked it
         // skips the loop silently rather than failing, which hides the corruption.
@@ -51,14 +51,14 @@ public sealed class WireBoundsTests
     }
 
     [Test]
-    public void ZeroItemsAreLegal()
+    public void WireBounds_ZeroItems_AreLegal()
     {
         // Empty is a real message, not a malformed one.
         Should.NotThrow(() => WireBounds.EnsureCountFits("test", count: 0, minBitsPerItem: 8, bitsRemaining: 0));
     }
 
     [Test]
-    public void TheProductIsComputedWithoutOverflowing()
+    public void WireBounds_TheProduct_IsComputedWithoutOverflowing()
     {
         // count x minBitsPerItem overflows int for large counts, and an overflowed product can
         // come out small and POSITIVE - which would let exactly the largest, most damaging counts
@@ -68,7 +68,7 @@ public sealed class WireBoundsTests
     }
 
     [Test]
-    public void TheErrorNamesTheMessageAndTheNumbers()
+    public void WireBounds_TheError_NamesTheMessageAndTheNumbers()
     {
         InvalidDataException error = Should.Throw<InvalidDataException>(
             () => WireBounds.EnsureCountFits("svc_classinfo", count: 65535, minBitsPerItem: 1, bitsRemaining: 200));

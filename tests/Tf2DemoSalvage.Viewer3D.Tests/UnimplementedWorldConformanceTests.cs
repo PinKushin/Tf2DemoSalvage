@@ -39,7 +39,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void AStaticPropFadesOutBetweenTwoDistances()
+    public void World_AStaticProp_FadesOutBetweenTwoDistances()
     {
         // **The most visible of the unread prop fields.** m_FadeMinDist and m_FadeMaxDist are at
         // offsets 36 and 40 in every declared version, and V5 onward adds m_flForcedFadeScale at 56.
@@ -54,7 +54,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void AStaticPropCanBeExcludedByDetailLevel()
+    public void World_AStaticProp_CanBeExcludedByDetailLevel()
     {
         // m_nMinDXLevel and m_nMaxDXLevel, at 60 and 62 from V6 onward. A prop outside the running
         // DirectX level is not drawn AT ALL — this is how maps ship low-end variants alongside
@@ -70,7 +70,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void AStaticPropNamesTheLeavesItOccupies()
+    public void World_AStaticProp_NamesTheLeavesItOccupies()
     {
         // m_FirstLeaf and m_LeafCount at 26 and 28, indexing the leaf list the compiler built. The
         // engine uses them for visibility: a prop is drawn when one of its leaves is visible.
@@ -84,7 +84,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void AStaticPropCarriesItsOwnLightmapResolution()
+    public void World_AStaticProp_CarriesItsOwnLightmapResolution()
     {
         // m_nLightmapResolutionX and Y, at 68 and 70, and only in V10. Props lit per-lightmap rather
         // than per-vertex carry their own texture size here.
@@ -98,7 +98,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void TheThreeDimensionalSkyboxIsDrawnAtASharedScale()
+    public void World_TheThreeDimensionalSkybox_IsDrawnAtASharedScale()
     {
         // **A sky_camera entity states a SCALE**, an integer keyfield read at SkyCamera.cpp:38:
         //
@@ -117,7 +117,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void WaterIsASurfaceWithItsOwnShaderAndAnAboveOrBelowState()
+    public void World_Water_HasItsOwnShaderAndAboveOrBelowState()
     {
         // Water is not a material variation, it is a separate shader with a refraction pass, a
         // reflection pass and an $abovewater flag deciding which side the camera is on
@@ -131,7 +131,7 @@ public sealed class UnimplementedWorldConformanceTests
     }
 
     [Test]
-    public void ABrushEntityIsDrawnAtItsEntitysPositionRatherThanTheWorlds()
+    public void World_ABrushEntity_IsDrawnAtItsEntitysPosition()
     {
         // **B71, and the one with a decode half already done.** A door, a lift or a moving platform
         // is brushwork stored as its own model — dmodel_t index N, referenced by an entity as "*N" —

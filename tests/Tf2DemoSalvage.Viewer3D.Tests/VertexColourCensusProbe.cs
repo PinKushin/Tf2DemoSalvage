@@ -30,7 +30,7 @@ public sealed class VertexColourCensusProbe
 
     [Test]
     [Explicit("A probe: reports what declares vertex colour rather than asserting anything.")]
-    public void WhichShadersDeclareVertexColour()
+    public void VertexColour_DeclaringShaders_AreReported()
     {
         if (Tf2Install.Folder is not { } game)
         {

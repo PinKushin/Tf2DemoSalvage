@@ -87,7 +87,7 @@ public sealed class BspLumpTests
     }
 
     [Test]
-    public void TheDirectoryLengthMatches()
+    public void BspLumps_TheDirectoryLength_Matches()
     {
         // HEADER_LUMPS bounds the directory this project walks. Reading fewer would make later
         // lumps unreachable; reading more walks past the header into the first lump's bytes.
@@ -95,7 +95,7 @@ public sealed class BspLumpTests
     }
 
     [Test]
-    public void TheHdrLumpsAreNotTheLdrOnes()
+    public void BspLumps_TheHdrLumps_AreDistinctFromTheLdrOnes()
     {
         // **The pairing that is easy to get half right**, and the one worth stating separately: a
         // reader that used the LDR index for an HDR map finds stale or empty data and draws a

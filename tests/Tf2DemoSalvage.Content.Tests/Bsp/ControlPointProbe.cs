@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class ControlPointProbe
 {
     [Test]
-    public void WhereAreTheControlPoints()
+    public void ControlPoints_TheirLocations_AreReported()
     {
         string path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

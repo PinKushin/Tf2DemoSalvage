@@ -115,7 +115,7 @@ public sealed class CorpusBrushEntityMotionTests
     }
 
     [Test]
-    public void NoBrushEntityIsPlacedAtTheOrigin()
+    public void BrushEntities_ARecording_AreNeverPlacedAtTheOrigin()
     {
         // **The remaining explanation for a gate in the floor, and it is a decode question.**
         // Delta compression means absent is the DEFAULT, and the default origin is (0,0,0) -- which

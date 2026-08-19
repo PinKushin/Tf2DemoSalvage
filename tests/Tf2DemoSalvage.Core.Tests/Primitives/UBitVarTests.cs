@@ -91,7 +91,7 @@ public sealed class UBitVarTests
     }
 
     [Test]
-    public void ConsumesExactlyTheWidthItReports()
+    public void UBitVar_Reading_ConsumesExactlyTheWidthItReports()
     {
         Gen.UInt.Sample(value =>
         {
@@ -107,7 +107,7 @@ public sealed class UBitVarTests
     }
 
     [Test]
-    public void SmallValuesAreCheaperThanAVarint()
+    public void UBitVar_SmallValues_AreCheaperThanAVarint()
     {
         // The reason this encoding exists: an entity index delta of 3 costs six bits here
         // against a varint's eight, and a demo carries tens of thousands of them.

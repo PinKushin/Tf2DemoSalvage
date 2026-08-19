@@ -72,7 +72,7 @@ public sealed class ShellUiTests
     }
 
     [Test]
-    public void TheShellExposesEveryControlAutomationCanDrive()
+    public void Shell_EveryControl_IsReachableByAutomation()
     {
         // The ids are the contract between the application and every test that will ever drive
         // it. Checked in the LIVE tree rather than on a constructed form: a control can carry a
@@ -86,7 +86,7 @@ public sealed class ShellUiTests
     }
 
     [Test]
-    public void TheActionRowSitsBelowThePlaybackControls()
+    public void Shell_ActionRow_SitsBelowThePlaybackControls()
     {
         // Asked for explicitly: the action buttons are operations on the demo as a whole, the
         // transport is about the moment being watched, so the actions belong underneath.
@@ -123,7 +123,7 @@ public sealed class ShellUiTests
     }
 
     [Test]
-    public void FullScreenHidesTheChromeAndEscapeBringsItBack()
+    public void Shell_FullScreenThenEscape_HidesThenRestoresTheChrome()
     {
         // The full-screen transition is the one piece of this shell that unit tests can only
         // approximate: they assert where controls live, not whether the window actually resizes

@@ -95,7 +95,7 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
-    public void TheTextureQualityValuesArePixelCaps()
+    public void ViewerSettings_TheTextureQualityValues_ArePixelCaps()
     {
         // The enum's values ARE the sizes, so they can be handed to the decoder directly. A
         // renumbering that broke that would silently load the wrong mip.
@@ -205,7 +205,7 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
-    public void TheFormExposesAndChangesTheMode()
+    public void ViewerSettings_TheForm_ExposesAndChangesTheMode()
     {
         // End to end through the shell, since the menu items are what a user actually touches.
         using MainForm form = new();

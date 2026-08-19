@@ -87,7 +87,7 @@ public sealed class StudioVertexLightingTests
     }
 
     [Test]
-    public void EveryCornerIndexesAColourThatExists()
+    public void VertexLighting_EveryCorner_IndexesAColourThatExists()
     {
         // **The contract, stated exactly.** vrad writes one .vhv mesh header per STRIP GROUP and
         // indexes each colour by that group's own vertex number:

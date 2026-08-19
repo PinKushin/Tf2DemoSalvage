@@ -158,7 +158,7 @@ public sealed class MapDownloaderTests
     }
 
     [Test]
-    public void TheDefaultMirrorIsHttps()
+    public void MapDownloader_TheDefaultMirror_IsHttps()
     {
         // A plain-HTTP mirror would let anyone on the path replace a map with a file of their
         // choosing, which is a 40 MB parser input this program will then read.

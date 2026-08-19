@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class VmtModulationTests
 {
     [Test]
-    public void AMaterialNamingNothingModulatesByOne()
+    public void VmtModulation_AMaterialNamingNothing_ModulatesByOne()
     {
         // The identity, and the control for every case below: without it, an implementation that
         // tinted every material would pass all the tests that name a colour.
@@ -32,14 +32,14 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void AMaterialNamingNothingIsNotModulated()
+    public void VmtModulation_AMaterialNamingNothing_IsNotModulated()
     {
         Parse("\"LightmappedGeneric\" { \"$basetexture\" \"concrete/floor\" }")
             .IsModulated.ShouldBeFalse();
     }
 
     [Test]
-    public void AColourAloneLeavesAlphaOpaque()
+    public void VmtModulation_AColourAlone_LeavesAlphaOpaque()
     {
         // Channels chosen all different so a transposed component cannot pass, and alpha asserted
         // because a naive implementation that packs four values from a three-value key shifts it.
@@ -48,21 +48,21 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void AnAlphaAloneLeavesColourWhite()
+    public void VmtModulation_AnAlphaAlone_LeavesColourWhite()
     {
         Parse("\"UnlitGeneric\" { \"$alpha\" \"0.25\" }")
             .Modulation.ShouldBe((1f, 1f, 1f, 0.25f));
     }
 
     [Test]
-    public void EitherHalfOnItsOwnCountsAsModulated()
+    public void VmtModulation_EitherHalfAlone_CountsAsModulated()
     {
         Parse("\"UnlitGeneric\" { \"$color\" \"[1 1 0]\" }").IsModulated.ShouldBeTrue();
         Parse("\"UnlitGeneric\" { \"$alpha\" \"0.5\" }").IsModulated.ShouldBeTrue();
     }
 
     [Test]
-    public void AColourAndAlphaThatAreBothOneIsNotModulated()
+    public void VmtModulation_AColourAndAlphaBothOne_IsNotModulated()
     {
         // **Stated explicitly, not left to the absent case.** A material CAN name the identity, and
         // an implementation asking "did the material declare $color" rather than "is the result
@@ -73,7 +73,7 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void AByteSpellingIsScaledByTwoFiveFive()
+    public void VmtModulation_AByteSpelling_IsScaledBy255()
     {
         // {255 128 0} and [255 128 0] are a factor of 255 apart, and both parse. Reading the brace
         // form as floats gives a tint of 255 and saturates the surface to white — no exception, a
@@ -89,7 +89,7 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void AScalarColourBroadcastsToEveryChannel()
+    public void VmtModulation_AScalarColour_BroadcastsToEveryChannel()
     {
         // ColorVarsToVector's else branch. Not 0.5, because 0.5 is also what a half-alpha would be;
         // 0.3 collides with nothing else in this file.
@@ -98,7 +98,7 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void AScalarColourWithBracketsIsStillRejected()
+    public void VmtModulation_AScalarColourWithBrackets_IsRejected()
     {
         // **The narrowness of the scalar acceptance is the point.** "[0.3]" is a vector var with
         // one component, which the engine reads through GetVecValue for THREE and does not get.
@@ -109,7 +109,7 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void ASecondColourMultipliesTheFirst()
+    public void VmtModulation_ASecondColour_MultipliesTheFirst()
     {
         // Half times half is a quarter — a value neither replacing (0.5) nor adding (1.0) produces.
         Parse("\"UnlitGeneric\" { \"$color\" \"[0.5 1 0.5]\" \"$color2\" \"[0.5 0.5 1]\" }")
@@ -117,7 +117,7 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void ASecondColourAloneTintsOnItsOwn()
+    public void VmtModulation_ASecondColourAlone_TintsOnItsOwn()
     {
         // Absent $color is one, so $color2 alone is the whole factor. An implementation that reads
         // $color2 only when $color is present drops the tint entirely here.
@@ -126,13 +126,13 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void AlphaAboveOneIsClampedDown()
+    public void VmtModulation_AlphaAboveOne_IsClampedDown()
     {
         Parse("\"UnlitGeneric\" { \"$alpha\" \"1.75\" }").Modulation.Alpha.ShouldBe(1f);
     }
 
     [Test]
-    public void AlphaBelowZeroIsClampedUp()
+    public void VmtModulation_AlphaBelowZero_IsClampedUp()
     {
         // The other side, because a one-sided clamp — Math.Min rather than Math.Clamp — passes the
         // test above.
@@ -140,7 +140,7 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void ColourAboveOneIsNotClamped()
+    public void VmtModulation_ColourAboveOne_IsNotClamped()
     {
         // **The asymmetry.** Over-bright modulation is real: the linear-space variant of the
         // modulation setter tests `color[i] > 1.0f` before converting, which is only meaningful for
@@ -150,14 +150,14 @@ public sealed class VmtModulationTests
     }
 
     [Test]
-    public void ColourBelowZeroIsNotClampedEither()
+    public void VmtModulation_ColourBelowZero_IsNotClamped()
     {
         Parse("\"UnlitGeneric\" { \"$color\" \"[-1 0 0]\" }")
             .Modulation.Red.ShouldBe(-1f);
     }
 
     [Test]
-    public void AMalformedColourIsRejectedRatherThanGuessed()
+    public void VmtModulation_AMalformedColour_IsRejected()
     {
         Should.Throw<InvalidDataException>(
             () => Parse("\"UnlitGeneric\" { \"$color\" \"[1 2]\" }").Modulation);

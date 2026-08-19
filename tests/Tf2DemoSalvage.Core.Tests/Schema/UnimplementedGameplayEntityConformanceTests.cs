@@ -39,7 +39,7 @@ public sealed class UnimplementedGameplayEntityConformanceTests
     }
 
     [Test]
-    public void AValueWasInsertedIntoTheMiddleOfTheObserverEnum()
+    public void Gameplay_TheObserverEnum_HadAValueInsertedIntoItsMiddle()
     {
         // shareddefs.h:499, and Valve's own comment is the finding:
         //
@@ -85,7 +85,7 @@ public sealed class UnimplementedGameplayEntityConformanceTests
     }
 
     [Test]
-    public void TheUberchargeLevelIsSentTwiceAtTwoPrecisions()
+    public void Gameplay_TheUberchargeLevel_IsSentTwiceAtTwoPrecisions()
     {
         // tf_weapon_medigun.cpp, three tables, and the split is the point:
         //
@@ -118,7 +118,7 @@ public sealed class UnimplementedGameplayEntityConformanceTests
     }
 
     [Test]
-    public void ABuildingCarriesItsUpgradeStateAndWhetherItIsSapped()
+    public void Gameplay_ABuilding_CarriesUpgradeStateAndWhetherItIsSapped()
     {
         // c_baseobject.cpp:50-70 — health, m_bHasSapper, m_bBuilding, m_flPercentageConstructed,
         // m_iUpgradeLevel, m_iUpgradeMetal, m_iUpgradeMetalRequired.
@@ -148,7 +148,7 @@ public sealed class UnimplementedGameplayEntityConformanceTests
     }
 
     [Test]
-    public void WhoTheCameraIsWatchingIsAnEntityHandleNotAPlayerIndex()
+    public void Gameplay_TheCameraTarget_IsAnEntityHandleNotAPlayerIndex()
     {
         // c_baseplayer.cpp:300-301 — m_iObserverMode with a receive proxy, and m_hObserverTarget as
         // an EHandle rather than an index.

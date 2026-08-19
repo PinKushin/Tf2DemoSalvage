@@ -40,14 +40,14 @@ public sealed class PlayerInfoConformanceTests
     }
 
     [Test]
-    public void TheRecordIsAsLongAsTheEngineDeclaresIt()
+    public void PlayerInfo_TheRecordLength_IsWhatTheEngineDeclares()
     {
         // 132, not 129: filesDownloaded is one byte and the record pads to its widest member.
         Layout().Size.ShouldBe(PlayerInfo.RecordBytes);
     }
 
     [Test]
-    public void EveryFieldWeReadSitsWhereTheEnginePutsIt()
+    public void PlayerInfo_EveryFieldRead_SitsWhereTheEnginePutsIt()
     {
         CLayout record = Layout();
 
@@ -67,7 +67,7 @@ public sealed class PlayerInfoConformanceTests
     }
 
     [Test]
-    public void TheGuidLeavesAGapBeforeFriendsId()
+    public void PlayerInfo_TheGuid_LeavesAGapBeforeFriendsId()
     {
         // **The padding, asserted as its own claim.** guid is SIGNED_GUID_LEN + 1 = 33 bytes
         // starting at 36, so it ends at 69 — and friendsID, being four bytes wide, starts at 72.
@@ -82,7 +82,7 @@ public sealed class PlayerInfoConformanceTests
     }
 
     [Test]
-    public void TheReplayFlagIsAbsentAndItsAbsenceMatters()
+    public void PlayerInfo_TheReplayFlag_IsAbsentAndThatMatters()
     {
         // **The control, and the first version of it measured the wrong quantity.** Asserting that
         // the SIZE differs looks obviously right and is insensitive: isreplay is one byte at 110,

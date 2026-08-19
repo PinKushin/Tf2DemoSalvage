@@ -36,7 +36,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void AJiggleBoneMovesWithoutAnAnimation()
+    public void Models_AJiggleBone_MovesWithoutAnAnimation()
     {
         // **STUDIO_PROC_JIGGLE, procedure type 5** (studio.h:107), with seven behaviour flags at
         // lines 186-192: flexible or rigid, yaw, pitch, angle and length constraints, and a base
@@ -62,7 +62,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void AFlexReshapesTheMeshWithoutMovingABone()
+    public void Models_AFlex_ReshapesTheMeshWithoutMovingABone()
     {
         // mstudioflex_t (studio.h:1144). Flexes are vertex deltas driven by a controller, which is
         // how faces emote and how some weapons deform. Networked as m_flexWeight.
@@ -76,7 +76,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void AnIkRuleHoldsAFootWhereTheAnimationPutIt()
+    public void Models_AnIkRule_HoldsAFootWhereTheAnimationPutIt()
     {
         // mstudioikrule_t (studio.h:557) with mstudioiklink_t (1277). IK rules keep a foot planted
         // while the rest of the body moves, correcting the animation against the ground.
@@ -94,7 +94,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void AHitboxSetDescribesWhereAModelCanBeHit()
+    public void Models_AHitboxSet_DescribesWhereAModelCanBeHit()
     {
         // mstudiobbox_t (453) and mstudiohitboxset_t (1686). Not drawn in a normal view, but this is
         // a demo REVIEW tool: showing where a shot landed relative to a hitbox is the single most
@@ -111,7 +111,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void AModelChoosesALevelOfDetailByDistance()
+    public void Models_LevelOfDetail_IsChosenByDistance()
     {
         // ModelLODHeader_t carries switchPoint, a float distance at which that LOD takes over — this
         // project derives the 12-byte stride in VertexFileStructTests and reads meshes from LOD 0
@@ -128,7 +128,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void CloakAndSheenAreExtraRenderPassesOnAnOrdinaryMaterial()
+    public void Models_CloakAndSheen_AreExtraRenderPasses()
     {
         // **Two of TF2's most recognisable effects, and both are second passes.**
         // vertexlitgeneric_dx9.cpp:92 declares $cloakpassenabled "Enables cloak render in a second
@@ -154,7 +154,7 @@ public sealed class UnimplementedModelConformanceTests
     }
 
     [Test]
-    public void MostOfTheModelFormatIsStillUnread()
+    public void Models_MostOfTheFormat_IsStillUnread()
     {
         // **The honest denominator.** studio.h declares 54 mstudio*_t structures and StudioLayout
         // pins nine. This states the ratio rather than any one gap, so the score cannot drift while

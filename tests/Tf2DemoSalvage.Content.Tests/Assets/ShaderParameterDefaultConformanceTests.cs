@@ -44,7 +44,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     ];
 
     [Test]
-    public void DetailScaleDefaultsToTheDeclaredFour()
+    public void ShaderDefaults_DetailScale_IsFour()
     {
         // Absent, a detail texture tiles four times over the base. Defaulting to 1 would make
         // every detail texture on every surface four times too large.
@@ -59,7 +59,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void DetailBlendFactorDefaultsToTheDeclaredOne()
+    public void ShaderDefaults_DetailBlendFactor_IsOne()
     {
         Declared("DETAILBLENDFACTOR").ShouldBe("1");
 
@@ -67,7 +67,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void DetailBlendModeDefaultsToTheDeclaredZero()
+    public void ShaderDefaults_DetailBlendMode_IsZero()
     {
         // **Zero is a real mode, not "none".** The declaration spells the modes out —
         // "0=normal, 1=additive, 2=alpha blend detail over base, 3=crossfade" — so a material
@@ -78,7 +78,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void DetailTintDefaultsToTheDeclaredWhite()
+    public void ShaderDefaults_DetailTint_IsWhite()
     {
         // White is the multiplicative identity, so the default must not tint at all. Any other
         // value would shift the colour of every detailed surface that does not set it.
@@ -88,7 +88,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void SelfIllumTintDefaultsToTheDeclaredWhite()
+    public void ShaderDefaults_SelfIllumTint_IsWhite()
     {
         Declared("SELFILLUMTINT").ShouldBe("[1 1 1]");
 
@@ -96,7 +96,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void ABooleanParameterIsAnIntegerAndAnyNonZeroIsTrue()
+    public void ShaderDefaults_ABooleanParameter_IsAnIntegerWhereNonZeroIsTrue()
     {
         // **The SDK declares these as integers, not as the string "1".** $ssbump is the readable
         // proof — SHADER_PARAM( SSBUMP, SHADER_PARAM_TYPE_INTEGER, "0", ... ) — and the
@@ -123,7 +123,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void DetailScaleIsSetToFourByTheInitialiserToo()
+    public void ShaderDefaults_DetailScale_IsAlsoFourInTheInitialiser()
     {
         // **A second, stronger citation for the same default.** The SHADER_PARAM declaration is
         // what the material system parses; this is the shader's own initialiser filling the value
@@ -139,7 +139,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void SelfIlluminationIsMaskedByBaseTextureAlpha()
+    public void ShaderDefaults_SelfIllumination_IsMaskedByBaseTextureAlpha()
     {
         // **Where the mask comes from, which is the whole of $selfillum's behaviour.** The glow is
         // not applied to the surface uniformly — the base texture's alpha channel selects which
@@ -170,7 +170,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void AlphaTestReferenceIsZeroWhenUnstatedRatherThanACutoffOfZero()
+    public void ShaderDefaults_AlphaTestReferenceUnstated_IsZeroNotACutoff()
     {
         // **The distinction the whole parameter turns on.** Valve applies the override only when
         // the value is above zero (BaseVSShader.cpp:927), so an absent key means "leave the API's
@@ -205,7 +205,7 @@ public sealed class ShaderParameterDefaultConformanceTests
     }
 
     [Test]
-    public void EveryDefaultCheckedHereWasActuallyFoundInTheSdk()
+    public void ShaderDefaults_EveryDefaultChecked_WasFoundInTheSdk()
     {
         // **The control.** Every assertion above compares against a string this test extracted; if
         // the extraction silently returned nothing, `ShouldBe` would fail — but a regex that

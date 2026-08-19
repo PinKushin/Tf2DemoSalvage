@@ -89,7 +89,7 @@ public sealed class PlayerFacingTests
     }
 
     [Test]
-    public void DoPlayersCarryASequenceAndCycle()
+    public void PlayerFacing_SequenceAndCycle_AreReported()
     {
         // **The measurement that decides whether an animation state has to be emulated at all.**
         // TF2 computes a player's animation client-side in CTFPlayerAnimState, which is why the
@@ -137,7 +137,7 @@ public sealed class PlayerFacingTests
     }
 
     [Test]
-    public void WhatDoesADemoGiveAnAnimationStateToWorkFrom()
+    public void PlayerFacing_AnimationStateInputs_AreReported()
     {
         // **CTFPlayerAnimState needs three things**, and this asks the corpus for each. Horizontal
         // speed decides standing against running (GetOuterXYSpeed against MOVING_MINIMUM_SPEED),

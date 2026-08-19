@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class WeaponClassPairingProbe
 {
     [Test]
-    public void HowOftenIsEachWeaponHeldByEachClass()
+    public void WeaponClassPairing_TheCorpus_IsReported()
     {
         string path = Corpus.Demo("cp_process_f12-2026-08-08-2207");
 

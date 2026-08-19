@@ -38,7 +38,7 @@ public sealed class SendPropFlagConformanceTests
     }
 
     [Test]
-    public void VarintAndNormalAreTheSameBitWithDifferentMeanings()
+    public void SendPropFlags_VarintAndNormal_ShareOneBitWithDifferentMeanings()
     {
         // dt_common.h:78 — `#define SPROP_VARINT SPROP_NORMAL`, with Valve's own reason attached:
         // "reuse existing flag so we don't break demo".
@@ -62,7 +62,7 @@ public sealed class SendPropFlagConformanceTests
     }
 
     [Test]
-    public void OneOfTheSeventeenFlagBitsIsNeverSent()
+    public void SendPropFlags_OneOfTheSeventeenBits_IsNeverSent()
     {
         // Two constants that look interchangeable and are not: SPROP_NUMFLAGBITS is 17 and
         // SPROP_NUMFLAGBITS_NETWORKED is 16. The seventeenth bit,

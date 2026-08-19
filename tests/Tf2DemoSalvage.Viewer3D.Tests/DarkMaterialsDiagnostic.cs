@@ -68,7 +68,7 @@ public sealed class DarkMaterialsDiagnostic
     }
 
     [Test]
-    public void ReportTheDarkestMaterialsByArea()
+    public void DarkestMaterials_ByArea_AreReported()
     {
         if (MapFile is not { } path)
         {

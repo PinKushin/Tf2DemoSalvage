@@ -36,7 +36,7 @@ public sealed class DamageBitConformanceTests
     }
 
     [Test]
-    public void EveryDamageFlagIsADistinctBitAndGenericIsNotOne()
+    public void DamageBits_EveryFlag_IsADistinctBitAndGenericIsNotOne()
     {
         // shareddefs.h — DMG_GENERIC is 0, "generic damage", and every other DMG_ is (1 << n).
         //
@@ -73,7 +73,7 @@ public sealed class DamageBitConformanceTests
     }
 
     [Test]
-    public void TheSharedRangeEndsBelowTheTopOfTheIntegerSoAGameCanExtendIt()
+    public void DamageBits_TheSharedRange_LeavesRoomForAGameToExtendIt()
     {
         // DMG_BUCKSHOT is (1<<29) and DMG_LASTGENERICFLAG is defined as DMG_BUCKSHOT — an alias
         // rather than a new value, marking where the engine's own flags stop.

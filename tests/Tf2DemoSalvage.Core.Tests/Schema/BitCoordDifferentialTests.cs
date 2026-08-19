@@ -52,7 +52,7 @@ public sealed class BitCoordDifferentialTests
     private const float Resolution = 1f / (1 << FractionBits);
 
     [Test]
-    public void OurReaderAgreesWithValvesOverRandomBits()
+    public void BitCoord_OverRandomBits_AgreesWithValve()
     {
         // 20,000 patterns is far more than the encoding has distinct shapes - four flag
         // combinations times the integer and fraction fields - so this is saturating rather than
@@ -85,7 +85,7 @@ public sealed class BitCoordDifferentialTests
     }
 
     [Test]
-    public void AnAbsentCoordinateConsumesTwoBitsAndNoSignBit()
+    public void BitCoord_AnAbsentCoordinate_ConsumesTwoBitsAndNoSign()
     {
         // Both presence flags clear. Valve returns before reading the sign, so a reader that always
         // reads three bits is one ahead from here on - and returns 0 either way, which is why this
@@ -97,7 +97,7 @@ public sealed class BitCoordDifferentialTests
     }
 
     [Test]
-    public void APresentIntegerOfZeroDecodesToOne()
+    public void BitCoord_APresentIntegerOfZero_DecodesToOne()
     {
         // **The plus-one, which is the single most consequential line in the encoding.** A present
         // integer is never zero, because that case is carried by the presence bit, so the encoder
@@ -115,7 +115,7 @@ public sealed class BitCoordDifferentialTests
     }
 
     [Test]
-    public void TheSignIsReadAfterBothFlagsNotBefore()
+    public void BitCoord_TheSign_IsReadAfterBothFlags()
     {
         // Fraction only, negative. If the sign were read first this would decode the sign bit as
         // the fraction flag and come out positive with the wrong magnitude.

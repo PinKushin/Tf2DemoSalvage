@@ -108,7 +108,7 @@ public sealed class CommandLineTests
     }
 
     [Test]
-    public void LastFormatFlagWins()
+    public void Parse_RepeatedFormatFlags_KeepsTheLast()
     {
         // Documenting the rule rather than leaving it to whichever branch happens to run last.
         CommandLine.Parse(["a.dem", "-t", "-s"]).Format.ShouldBe(OutputFormat.Summary);
@@ -176,7 +176,7 @@ public sealed class CommandLineTests
     }
 
     [Test]
-    public void HelpDoesNotCarryADemoPath()
+    public void Parse_HelpFlag_CarriesNoDemoPath()
     {
         CommandLine.Parse(["--help"]).DemoPath.ShouldBeEmpty();
     }

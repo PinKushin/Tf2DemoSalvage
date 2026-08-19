@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 public sealed class UserCommandButtonsTests
 {
     [Test]
-    public void KnownBitsAreNamedInTheirDeclaredOrder()
+    public void UserCommandButtons_KnownBits_AreNamedInDeclaredOrder()
     {
         // Lowest bit first, which is the order the header declares and the order a reader scanning
         // a trace expects. IN_ATTACK is bit 0 and IN_DUCK is bit 2.
@@ -24,7 +24,7 @@ public sealed class UserCommandButtonsTests
     }
 
     [Test]
-    public void NoButtonsIsNamedRatherThanBlank()
+    public void UserCommandButtons_NoButtons_IsNamedNotBlank()
     {
         // Zero is the common case - a player standing still still sends commands - and an empty
         // string in a trace reads as a rendering bug rather than as an idle tick.
@@ -32,7 +32,7 @@ public sealed class UserCommandButtonsTests
     }
 
     [Test]
-    public void AnUnnamedBitIsReportedAsItsValueRatherThanDropped()
+    public void UserCommandButtons_AnUnnamedBit_IsReportedAsItsValue()
     {
         // Bit 25 is IN_ATTACK3 in the live game and is absent from the published header, so it is
         // exactly the case this must not swallow. The residual is the whole point: a name that is

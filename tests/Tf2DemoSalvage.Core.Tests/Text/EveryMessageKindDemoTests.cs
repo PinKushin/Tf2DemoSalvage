@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 /// corpus could only cover the kinds its ten demos held.
 ///
 /// **The list cannot go stale, which is the other half of the design.** Rather than a hand-kept
-/// set of kinds, <see cref="EveryKindTheWriterClaimsToSupportIsExercised"/> asks
+/// set of kinds, <see cref="CanWrite_EveryAcceptedKind_IsExercisedByThisDemo"/> asks
 /// <c>NetMessageWriter.CanWrite</c> what it accepts and fails when something here does not cover
 /// it. A new encoder therefore breaks this test until a specimen is added — the same pattern as
 /// <c>SdkCoverageTests</c>, where the denominator is generated rather than written down.
@@ -37,7 +37,7 @@ public sealed class EveryMessageKindDemoTests
     private const ushort Protocol = 24;
 
     [Test]
-    public void EveryWritableKindSurvivesADemoIntact()
+    public void RoundTrip_EveryWritableKind_KeepsItsFieldValues()
     {
         // The demo is built, written, read back, and each kind is found by type. This is the
         // output-level assertion for the writer: a kind whose encoder silently wrote nothing
@@ -123,7 +123,7 @@ public sealed class EveryMessageKindDemoTests
     }
 
     [Test]
-    public void EveryWritableKindCompilesBackToItsOwnBytes()
+    public void RoundTrip_EveryWritableKind_ReproducesBytes()
     {
         // **The criterion the Quake demo tools set**, applied to a demo built to hold every kind
         // rather than to whatever a server happened to send. Byte-exactness is the only claim
@@ -161,7 +161,7 @@ public sealed class EveryMessageKindDemoTests
     }
 
     [Test]
-    public void ExactlyTheKnownKindsAreStillCarriedAsBits()
+    public void Assemble_EveryWritableKind_LeavesOnlyKnownKindsAsBits()
     {
         // **Measured from the OUTPUT, not from a predicate, which is the mistake this kind of
         // report has made here before.** Asking which types have a text form answers a different
@@ -223,7 +223,7 @@ public sealed class EveryMessageKindDemoTests
     ];
 
     [Test]
-    public void TraceNamesEveryMessageKind()
+    public void Trace_EveryMessageKind_IsNamed()
     {
         // **A different writer over the same demo, and it fails for reasons the assembly cannot.**
         // The trace is the readable artefact — the demo decompiled message by message in stream
@@ -267,7 +267,7 @@ public sealed class EveryMessageKindDemoTests
         output.Contains(token, StringComparison.Ordinal);
 
     [Test]
-    public void TraceExpandsBodiesRatherThanNamingThem()
+    public void Trace_MessageBodies_AreExpandedNotJustNamed()
     {
         // Naming a message is the easy half. These are the parts the trace decodes INTO the line,
         // and each one is a place where a decode can be correct while nothing renders it — the
@@ -289,7 +289,7 @@ public sealed class EveryMessageKindDemoTests
     }
 
     [Test]
-    public void TheDumpAndTheJsonLinesBothSurviveEveryKind()
+    public void DumpAndJsonLines_EveryWritableKind_AreWritten()
     {
         // Neither of these has a round trip to protect it, so the only thing that can fail is an
         // assertion on what they emit. Both walk the same message list and both have thrown on
@@ -314,7 +314,7 @@ public sealed class EveryMessageKindDemoTests
     }
 
     [Test]
-    public void EveryKindTheWriterClaimsToSupportIsExercised()
+    public void CanWrite_EveryAcceptedKind_IsExercisedByThisDemo()
     {
         // **The denominator is generated, so this cannot go stale.** A hand-kept list of kinds is
         // a list that stops matching the code the first time an encoder is added, and it fails

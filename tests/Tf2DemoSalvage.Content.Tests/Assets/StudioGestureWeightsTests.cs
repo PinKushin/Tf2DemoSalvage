@@ -31,7 +31,7 @@ public sealed class StudioGestureWeightsTests
     private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 
     [Test]
-    public void AnUncustomisedSequenceSharesTheDefaultAllOnesTable()
+    public void GestureWeights_AnUncustomisedSequence_SharesTheAllOnesTable()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)
         {
@@ -66,7 +66,7 @@ public sealed class StudioGestureWeightsTests
     }
 
     [Test]
-    public void AHandPosingSequenceRestrictsWhichBonesItTouches()
+    public void GestureWeights_AHandPosingSequence_RestrictsWhichBonesItTouches()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)
         {
@@ -120,7 +120,7 @@ public sealed class StudioGestureWeightsTests
     }
 
     [Test]
-    public void AnAbsentSequenceReturnsNoWeights()
+    public void GestureWeights_AnAbsentSequence_ReturnsNoWeights()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)
         {
@@ -135,7 +135,7 @@ public sealed class StudioGestureWeightsTests
     }
 
     [Test]
-    public void ZeroBonesReturnsNoWeights()
+    public void GestureWeights_ZeroBones_ReturnsNoWeights()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)
         {

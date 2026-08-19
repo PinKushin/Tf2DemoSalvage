@@ -33,7 +33,7 @@ public sealed class IceCipherTests
     private static readonly byte[] TfKey = Encoding.ASCII.GetBytes("E2NcUkG2");
 
     [Test]
-    public void EncryptThenDecryptReturnsTheOriginalBlock()
+    public void IceCipher_EncryptThenDecrypt_ReturnsTheOriginalBlock()
     {
         byte[] plain = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
 
@@ -41,7 +41,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void EveryByteValueSurvivesTheRoundTrip()
+    public void IceCipher_EveryByteValue_SurvivesTheRoundTrip()
     {
         // All-zero and all-ones are the blocks a masking or shifting mistake survives: a bug that
         // drops the top bit of every byte is invisible against 0x00 and against 0x7F.
@@ -56,7 +56,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void CipherTextIsNotThePlainText()
+    public void IceCipher_CipherText_DiffersFromThePlainText()
     {
         // **The control that stops every other test in this file being vacuous.** A cipher whose
         // encrypt and decrypt were both the identity function would satisfy every round trip here.
@@ -69,7 +69,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void ADifferentKeyProducesDifferentCipherText()
+    public void IceCipher_ADifferentKey_ProducesDifferentCipherText()
     {
         // Pins that the key is actually used. A transform that ignored its key entirely would
         // round-trip perfectly and decrypt every real .ctx file into garbage.
@@ -86,7 +86,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void OneChangedInputBitChangesMostOfTheOutput()
+    public void IceCipher_OneChangedInputBit_ChangesMostOfTheOutput()
     {
         // Avalanche. A weak or half-implemented round function still round-trips and still depends
         // on the key, but leaves the output correlated with the input - so this is the test that
@@ -116,7 +116,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void DecryptAllLeavesATrailingPartialBlockEncrypted()
+    public void DecryptAll_ATrailingPartialBlock_IsLeftEncrypted()
     {
         // **Valve's behaviour, reproduced deliberately.** UTIL_DecodeICE loops while at least a
         // whole block remains, so a file whose length is not a multiple of eight ends in up to
@@ -143,7 +143,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void DecryptAllHandlesSeveralBlocksIndependently()
+    public void DecryptAll_SeveralBlocks_AreHandledIndependently()
     {
         // ICE here is ECB - Valve chains nothing - so two identical plaintext blocks must encrypt
         // identically. That is a real property of the format, and it is also how a mistakenly
@@ -164,7 +164,7 @@ public sealed class IceCipherTests
 
     /// <summary>Encrypts a block and decrypts it again with the same key.</summary>
     [Test]
-    public void AKnownAnswerPinsTheTablesThemselves()
+    public void IceCipher_AKnownAnswer_PinsTheTables()
     {
         // **The test the round trips could not be, and the mutation report is what showed it.**
         // After the property suite above, `IceCipher` still had 53 surviving mutants — and the
@@ -194,7 +194,7 @@ public sealed class IceCipherTests
     }
 
     [Test]
-    public void TheKnownAnswerDecryptsBackToItsPlainText()
+    public void IceCipher_TheKnownAnswer_DecryptsBackToItsPlainText()
     {
         // The other direction against the same fixed pair, so a table mutation cannot hide in
         // decrypt alone either.

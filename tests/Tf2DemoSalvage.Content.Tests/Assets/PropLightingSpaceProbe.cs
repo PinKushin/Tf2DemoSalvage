@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class PropLightingSpaceProbe
 {
     [Test]
-    public void ComparePropLightingWithLightmapLighting()
+    public void PropLighting_ComparedWithLightmapLighting_IsReported()
     {
         string map = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
 

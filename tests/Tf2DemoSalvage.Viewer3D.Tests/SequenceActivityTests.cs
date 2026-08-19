@@ -91,7 +91,7 @@ public sealed class SequenceActivityTests
     }
 
     [Test]
-    public void TheMovementActivitiesAreAllPresent()
+    public void SequenceActivity_TheMovementActivities_AreAllPresent()
     {
         // Named individually because these are the ones the activity state machine chooses, and a
         // count cannot say whether the specific one a crouching player needs exists.

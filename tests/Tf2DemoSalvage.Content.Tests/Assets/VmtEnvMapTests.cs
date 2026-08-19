@@ -20,26 +20,26 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class VmtEnvMapTests
 {
     [Test]
-    public void AMaterialNamingNoTintReflectsUnchanged()
+    public void VmtEnvMap_AMaterialNamingNoTint_ReflectsUnchanged()
     {
         Bare().EnvMapTint.ShouldBe((1f, 1f, 1f));
     }
 
     [Test]
-    public void ATintIsReadFromItsKey()
+    public void VmtEnvMap_ATint_IsReadFromItsKey()
     {
         // Channels all different, so a transposed component cannot pass.
         Material("$envmaptint", "[0.25 0.5 0.75]").EnvMapTint.ShouldBe((0.25f, 0.5f, 0.75f));
     }
 
     [Test]
-    public void ContrastDefaultsToZeroWhichIsNormal()
+    public void VmtEnvMap_Contrast_DefaultsToZero()
     {
         Bare().EnvMapContrast.ShouldBe(0f);
     }
 
     [Test]
-    public void SaturationDefaultsToOneWhichIsAlsoNormal()
+    public void VmtEnvMap_Saturation_DefaultsToOne()
     {
         // **The asymmetry, stated beside its opposite.** These two defaults are the reason this
         // file exists: they are declared 0.0 and 1.0 in adjacent SHADER_PARAM lines and mean the
@@ -48,7 +48,7 @@ public sealed class VmtEnvMapTests
     }
 
     [Test]
-    public void TheDefaultsTogetherAreTheIdentity()
+    public void VmtEnvMap_TheDefaultsTogether_AreTheIdentity()
     {
         // Stated as the arithmetic rather than as two numbers, because the numbers alone do not say
         // which way each lerp runs. With the defaults, both lerps must be the identity.
@@ -63,7 +63,7 @@ public sealed class VmtEnvMapTests
     }
 
     [Test]
-    public void ContrastAndSaturationAreReadFromTheirKeys()
+    public void VmtEnvMap_ContrastAndSaturation_AreReadFromTheirKeys()
     {
         Material("$envmapcontrast", "1").EnvMapContrast.ShouldBe(1f);
         Material("$envmapsaturation", "0").EnvMapSaturation.ShouldBe(0f);
@@ -74,7 +74,7 @@ public sealed class VmtEnvMapTests
     }
 
     [Test]
-    public void TheBaseAlphaMaskIsReadAsAFlag()
+    public void VmtEnvMap_TheBaseAlphaMask_IsReadAsAFlag()
     {
         // atoi-shaped like every other material flag, so "1" is true and "0" is false, and an
         // absent key is false rather than defaulting a mask on.
@@ -84,7 +84,7 @@ public sealed class VmtEnvMapTests
     }
 
     [Test]
-    public void ATintCanExceedOne()
+    public void VmtEnvMap_ATint_CanExceedOne()
     {
         // Not clamped, for the same reason $color is not: the reflection is the term that carries
         // values above one, and clamping the tint caps a glow the map author asked for.

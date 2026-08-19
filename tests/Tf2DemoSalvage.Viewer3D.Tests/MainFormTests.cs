@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class MainFormTests
 {
     [Test]
-    public void EveryAddressableControlHasItsAutomationId()
+    public void MainForm_EveryAddressableControl_HasAnAutomationId()
     {
         // Asserted against the constants the shell exposes rather than against literals, so a
         // rename has to happen in one place and the UI tests can reference the same names.
@@ -47,7 +47,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void EveryAddressableControlHasAnAccessibleName()
+    public void MainForm_EveryAddressableControl_HasAnAccessibleName()
     {
         // Separate from the id and not interchangeable with it: the id is a stable identifier
         // that must not be translated, the accessible name is prose a screen reader reads out.
@@ -60,7 +60,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void TheViewportFillsTheWindowBeneathTheMenu()
+    public void MainForm_TheViewport_FillsTheWindowBeneathTheMenu()
     {
         // Docking order is easy to get wrong in a way that looks fine until the window is
         // resized. **WinForms docks in REVERSE collection order** - the last control added docks
@@ -77,7 +77,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void ConstructingTheShellCreatesNoDevice()
+    public void MainForm_ConstructingTheShell_CreatesNoDevice()
     {
         // The property this whole test class depends on. If the constructor built a swap chain,
         // none of these tests could run without a graphics adapter, and the form could not be
@@ -89,7 +89,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void PathsOnTheCommandLineLandInThePlaylist()
+    public void MainForm_PathsOnTheCommandLine_LandInThePlaylist()
     {
         // The file-association path. It goes through the same AddToLibrary the Open buttons use,
         // so this also pins that the two cannot drift: if the command line grew its own loader,
@@ -116,7 +116,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void AnEmptyCommandLineOpensNothing()
+    public void MainForm_AnEmptyCommandLine_OpensNothing()
     {
         using MainForm form = new();
 
@@ -124,7 +124,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void TypingInTheSearchBoxNarrowsThePlaylist()
+    public void MainForm_TypingInTheSearchBox_NarrowsThePlaylist()
     {
         // Three demos, one query, one survivor - with two bystanders that must disappear. A single
         // demo in the folder could not tell "filtered correctly" from "filtered to everything".
@@ -162,7 +162,7 @@ public sealed class MainFormTests
     }
 
     [Test]
-    public void TheSearchBoxSitsAboveThePlaylist()
+    public void MainForm_TheSearchBox_SitsAboveThePlaylist()
     {
         // Layout, pinned because it was got wrong for the transport bar by reasoning about docking
         // instead of measuring it. Both controls share a panel, so their order is a property of

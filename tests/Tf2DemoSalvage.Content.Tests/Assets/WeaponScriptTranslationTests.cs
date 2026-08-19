@@ -31,7 +31,7 @@ public sealed class WeaponScriptTranslationTests
     private const int Engineer = 9;
 
     [Test]
-    public void AWeaponWithNoTranslationForThisClassKeepsItsOwnName()
+    public void WeaponTranslation_NoTranslationForThisClass_KeepsItsOwnName()
     {
         // The shotgun table has an empty entry for the scout, and an empty entry means "this class
         // has no translation", not "this class has no weapon". Returning the empty string would
@@ -40,7 +40,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void AWeaponTranslatesPerClass()
+    public void WeaponTranslation_AWeapon_TranslatesPerClass()
     {
         // The same entity name becomes three different scripts in three different hands. This is
         // the whole reason the table exists, so it is asserted across classes rather than once.
@@ -50,7 +50,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void TheSameWeaponInTwoHandsCanSwapIdentityEntirely()
+    public void WeaponTranslation_TheSameWeaponInTwoHands_CanSwapIdentity()
     {
         // A soldier's bottle is a shovel and a demoman's shovel is a bottle - the table maps both
         // names in both directions. A translation that merely appended a suffix would pass every
@@ -60,7 +60,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void AnUnknownPlayerClassLeavesTheNameAlone()
+    public void WeaponTranslation_AnUnknownPlayerClass_LeavesTheNameAlone()
     {
         // The demo does not always say who is holding a weapon, and null is that case rather than
         // an error. Defaulting to class 0 instead would index a real slot in the table.
@@ -69,7 +69,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void AnOutOfRangeClassLeavesTheNameAloneRatherThanThrowing()
+    public void WeaponTranslation_AnOutOfRangeClass_LeavesTheNameAlone()
     {
         // Both ends, because a bounds check is where an off-by-one lives and a decoder should not
         // throw on a value a malformed demo can carry.
@@ -78,14 +78,14 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void AWeaponWithNoTableAtAllIsUntouched()
+    public void WeaponTranslation_AWeaponWithNoTable_IsUntouched()
     {
         WeaponScriptName.Translate("tf_weapon_rocketlauncher", Soldier)
             .ShouldBe("tf_weapon_rocketlauncher");
     }
 
     [Test]
-    public void TheClassTranslationIsOfferedBeforeTheBaseName()
+    public void WeaponTranslation_TheClassTranslation_IsOfferedBeforeTheBaseName()
     {
         // "The translation goes in FRONT rather than replacing the list" - a translation naming a
         // script the install does not ship still leaves the base one to answer. Order is the
@@ -97,7 +97,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void AnIrregularClassResolvesToTheNameValveChose()
+    public void WeaponTranslation_AnIrregularClass_ResolvesToTheNameValveChose()
     {
         // No naming rule produces these, which is why they are enumerated. A rule-only
         // implementation would return tf_weapon_syringe_gun and find nothing.
@@ -106,7 +106,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void CandidatesNeverRepeatThemselves()
+    public void WeaponTranslation_Candidates_NeverRepeat()
     {
         // When a class's translation IS the base name, the two paths produce the same string. A
         // duplicate costs a wasted archive lookup and, more to the point, means the de-duplication
@@ -117,7 +117,7 @@ public sealed class WeaponScriptTranslationTests
     }
 
     [Test]
-    public void ARegularClassNameIsBrokenAtItsCapitals()
+    public void WeaponTranslation_ARegularClassName_IsBrokenAtItsCapitals()
     {
         // The rule half, which covers most weapons: strip the prefix, lowercase, and split at each
         // capital. A two-word name is the case that distinguishes it from plain lowercasing.

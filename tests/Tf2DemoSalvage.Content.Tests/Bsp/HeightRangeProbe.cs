@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class HeightRangeProbe
 {
     [Test]
-    public void HowIsMapHeightDistributed()
+    public void MapHeight_ItsDistribution_IsReported()
     {
         string path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

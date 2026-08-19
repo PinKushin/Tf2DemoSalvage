@@ -290,7 +290,7 @@ public sealed class DemoTraceWriterTests
     [TestCase("back\\slash", "\"back\\\\slash\"")]
     [TestCase("two\nlines", "\"two\\nlines\"")]
     [TestCase("carriage\rreturn", "\"carriage\\rreturn\"")]
-    public void StringsAreEscapedSoTheTraceCanBeReadBack(string raw, string expected)
+    public void Trace_Strings_AreEscapedSoItCanBeReadBack(string raw, string expected)
     {
         // Each escape case survived mutation individually. They are not cosmetic: an unescaped
         // quote or newline in a server name closes the field early and makes the rest of the

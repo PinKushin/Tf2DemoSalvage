@@ -24,7 +24,7 @@ public sealed class FeetYawTests
     private const float Tick = 1f / 66f;
 
     [Test]
-    public void TheFeetStartUnderTheEyes()
+    public void FeetYaw_AtRest_TheFeetStartUnderTheEyes()
     {
         // `if ( m_flLastAimTurnTime <= 0.0f ) { m_flGoalFeetYaw = m_flEyeYaw; m_flCurrentFeetYaw =
         // m_flEyeYaw; }` — without this a player who has never moved is drawn facing due east while
@@ -38,7 +38,7 @@ public sealed class FeetYawTests
     }
 
     [Test]
-    public void MovingPutsTheFeetUnderTheEyes()
+    public void FeetYaw_WhenMoving_TheFeetGoUnderTheEyes()
     {
         // "The feet match the eye direction when moving - the move yaw takes care of the rest."
         FeetYaw feet = default;
@@ -63,7 +63,7 @@ public sealed class FeetYawTests
     }
 
     [Test]
-    public void StandingStillTheFeetStayPutAndTheTorsoTwists()
+    public void FeetYaw_StandingStill_TheFeetStayPutAndTheTorsoTwists()
     {
         // **The case this whole file exists for.** Standing still and turning the view 30 degrees
         // leaves the feet where they were, because 30 is inside the 45-degree allowance — so the
@@ -84,7 +84,7 @@ public sealed class FeetYawTests
     }
 
     [Test]
-    public void PastTheAllowanceTheFeetStepRound()
+    public void FeetYaw_PastTheAllowance_TheFeetStepRound()
     {
         // Beyond 45 degrees the goal jumps by exactly 45 toward the eyes — `m_flGoalFeetYaw +=
         // ( 45.0f * flSide )` — rather than tracking them. Valve marks the branch as unfinished in
@@ -106,7 +106,7 @@ public sealed class FeetYawTests
     }
 
     [Test]
-    public void TheTurnRateIsBoundedPerStep()
+    public void FeetYaw_TheTurnRate_IsBoundedPerStep()
     {
         // 720 degrees a second at 66 ticks is under 11 degrees a tick, and the fade scales it down
         // further below a 60-degree turn. A single step must therefore never cover a 90-degree turn
@@ -122,7 +122,7 @@ public sealed class FeetYawTests
     }
 
     [Test]
-    public void TurningThroughTheWrapUsesTheRawMagnitudeAndTheNormalisedSign()
+    public void FeetYaw_TurningThroughTheWrap_UsesRawMagnitudeAndNormalisedSign()
     {
         // **Valve takes the magnitude BEFORE normalising and the sign after**, which is not a
         // tidy-up waiting to happen — it changes behaviour at the wrap:

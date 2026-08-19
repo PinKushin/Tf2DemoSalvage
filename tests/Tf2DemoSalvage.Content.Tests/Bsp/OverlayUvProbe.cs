@@ -25,7 +25,7 @@ public sealed class OverlayUvProbe
 {
     [Test]
     [Explicit("Diagnostic. Prints the UV points a map stores for its overlays.")]
-    public void WhatDoOverlaysStore()
+    public void Overlays_TheirStoredFields_AreReported()
     {
         string map = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

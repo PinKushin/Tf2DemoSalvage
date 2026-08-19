@@ -39,7 +39,7 @@ public sealed class GameEventConformanceTests
     }
 
     [Test]
-    public void TheEventIndexWidthIsTheEngines()
+    public void GameEvents_TheEventIndexWidth_IsTheEngines()
     {
         // MAX_EVENT_BITS bounds both the id on the wire and the number of descriptors a list can
         // carry, because the list is indexed by that id. One constant, used twice, and being one
@@ -49,7 +49,7 @@ public sealed class GameEventConformanceTests
     }
 
     [Test]
-    public void EveryTypeWeDecodeIsOneTheEngineDocuments()
+    public void GameEvents_EveryDecodedType_IsOneTheEngineDocuments()
     {
         // **The header's prose is the specification here**, because the resource files servers ship
         // are written against exactly these words: a field declaring "long" is a long. Reading the
@@ -70,7 +70,7 @@ public sealed class GameEventConformanceTests
     }
 
     [Test]
-    public void EveryTypeTheEngineDocumentsIsOneWeDecode()
+    public void GameEvents_EveryDocumentedType_IsDecoded()
     {
         // The other direction, which is the one that finds a gap rather than a mistake. A type this
         // project does not know would stop an event mid-field, and events are length-prefixed only
@@ -85,7 +85,7 @@ public sealed class GameEventConformanceTests
     }
 
     [Test]
-    public void ThreeBitsIsExactlyEnoughForThoseTypes()
+    public void GameEvents_ThreeBits_AreExactlyEnoughForThoseTypes()
     {
         // **Arithmetic, and it constrains the unpublished half.** Seven documented types plus the
         // absent case is eight values, which is three bits with nothing to spare. That says the
@@ -103,7 +103,7 @@ public sealed class GameEventConformanceTests
     }
 
     [Test]
-    public void TheHeaderWasActuallyRead()
+    public void GameEvents_TheHeader_WasActuallyRead()
     {
         // The control: the prose scan is the fragile instrument here, so it says so directly.
         Declared().ShouldContainKey("MAX_EVENT_BITS");

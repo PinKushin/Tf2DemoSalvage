@@ -26,7 +26,7 @@ public sealed class WeaponRolesTests
     private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 
     [Test]
-    public void WeaponsReportTheSlotTheyAreCarriedIn()
+    public void WeaponRoles_AWeapon_ReportsTheSlotItIsCarriedIn()
     {
         if (Reader() is not { } read)
         {
@@ -71,7 +71,7 @@ public sealed class WeaponRolesTests
     }
 
     [Test]
-    public void OneShotgunIsAPrimaryOrASecondaryDependingOnWhoHoldsIt()
+    public void WeaponRoles_TheShotgun_IsPrimaryOrSecondaryByHolder()
     {
         // **The case that proves a weapon's role is not a property of the weapon.**
         // pszWpnEntTranslationList (tf_shareddefs.cpp:1628) rewrites tf_weapon_shotgun into
@@ -107,7 +107,7 @@ public sealed class WeaponRolesTests
     }
 
     [Test]
-    public void AClassWithNoTranslationKeepsTheBaseScript()
+    public void WeaponRoles_AClassWithNoTranslation_KeepsTheBaseScript()
     {
         // The control for the test above: the table has an entry for the shotgun and empty slots
         // inside it, and an empty slot means "no translation" rather than "no weapon". A scout
@@ -126,7 +126,7 @@ public sealed class WeaponRolesTests
     }
 
     [Test]
-    public void SomethingUnknownFallsBackToPrimary()
+    public void WeaponRoles_AnUnknownWeapon_FallsBackToPrimary()
     {
         // **Primary is the engine's default too, not a guess made here.** ActivityList's switch
         // gives TF_WPN_TYPE_PRIMARY the same body as `default:`, so a weapon whose script is

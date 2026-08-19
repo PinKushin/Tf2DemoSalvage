@@ -19,7 +19,7 @@ public sealed class WorldLightProbe
 {
     [Test]
     [Explicit("Diagnostic. Prints a map's world lights and its sun.")]
-    public void WhatLightsDoesTheMapHave()
+    public void WorldLights_TheMapsLights_AreReported()
     {
         string map = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

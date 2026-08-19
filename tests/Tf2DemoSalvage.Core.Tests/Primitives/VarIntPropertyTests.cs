@@ -145,7 +145,7 @@ public sealed class VarIntPropertyTests
     }
 
     [Test]
-    public void ZigZagKeepsSmallMagnitudesShort()
+    public void ZigZag_SmallMagnitudes_StayShort()
     {
         // The reason zig-zag exists: -1 must cost one byte, not five. Without it every
         // negative number sets the high bit and takes the maximum width.

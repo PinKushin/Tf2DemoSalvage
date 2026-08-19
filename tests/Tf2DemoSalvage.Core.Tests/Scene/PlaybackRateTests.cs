@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class PlaybackRateTests
 {
     [Test]
-    public void APoseThatWasNeverToldARatePlaysAtNormalSpeed()
+    public void PlaybackRate_APoseNeverToldARate_PlaysAtNormalSpeed()
     {
         // The engine's default is 1, not 0 — a rate of zero would freeze the animation, which is
         // the wrong reading of "the demo never mentioned it". Valve sets 1 explicitly in several
@@ -39,7 +39,7 @@ public sealed class PlaybackRateTests
     }
 
     [Test]
-    public void TheRateIsCarriedThroughARebuild()
+    public void PlaybackRate_TheRate_IsCarriedThroughARebuild()
     {
         // **The completeness hazard this project keeps hitting**, and the reason this assertion
         // exists at all: ScenePose is rebuilt field by field when a pose is interpolated, and Body,

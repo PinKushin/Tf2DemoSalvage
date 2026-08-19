@@ -86,7 +86,7 @@ public sealed class CorpusSoundTests
     }
 
     [Test]
-    public void EveryRealSoundBodyDecodesWithoutOverrunningItsStatedLength()
+    public void Decode_EveryRealSoundBody_StaysWithinItsStatedLength()
     {
         // The claim that decoding must be TOTAL, which is a property of the corpus rather than of
         // the codec: the engine wrote these bytes and the engine reads them back, so anything

@@ -39,7 +39,7 @@ public sealed class CorpusGameEventTests
             {
                 // Not yet reachable: signon opens with svc_ServerInfo, which is not decoded
                 // yet, and messages carry no length prefix. This flips to a real assertion
-                // the moment ServerInfo lands - see ReportWhereSignonStops.
+                // the moment ServerInfo lands - see SignonProgress_TheCorpus_IsReported.
                 TestContext.Out.WriteLine($"{Path.GetFileName(path)}: event list not yet reachable");
                 continue;
             }
@@ -110,7 +110,7 @@ public sealed class CorpusGameEventTests
     }
 
     [Test]
-    public void ReportWhatTheDemosDefineAndFire()
+    public void GameEvents_TheCorpus_AreReported()
     {
         foreach (string path in Corpus.Files())
         {
@@ -160,7 +160,7 @@ public sealed class CorpusGameEventTests
     }
 
     [Test]
-    public void ReportWhereSignonStops()
+    public void SignonProgress_TheCorpus_IsReported()
     {
         // The signon stream carries everything a joining client needs: the entity schema, the
         // string tables, and the game event definitions. Reaching any of it means decoding

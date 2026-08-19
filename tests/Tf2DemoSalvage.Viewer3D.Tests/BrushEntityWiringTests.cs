@@ -135,7 +135,7 @@ public sealed class BrushEntityWiringTests
     }
 
     [Test]
-    public void TheWorldIsNotAmongThem()
+    public void BrushEntities_TheWorldModel_IsExcluded()
     {
         if (!Directory.Exists(GamePath) || !File.Exists(MapPath))
         {

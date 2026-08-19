@@ -48,7 +48,7 @@ public sealed class SdkConstantResolutionTests
     }
 
     [Test]
-    public void TheFirstDeclarationWinsRatherThanTheLowMemoryStub()
+    public void SdkConstants_TheFirstDeclaration_WinsOverTheLowMemoryStub()
     {
         IReadOnlyDictionary<string, int> constants = SourceSdk.Constants(BspHeader);
 
@@ -59,7 +59,7 @@ public sealed class SdkConstantResolutionTests
     }
 
     [Test]
-    public void TheStubBlockIsStillThereToHaveBeenChosenAgainst()
+    public void SdkConstants_TheStubBlock_IsStillPresentToChooseAgainst()
     {
         // The control. Without this, the test above passes unchanged in a world where the ambiguity
         // it exists to resolve no longer exists — and a passing test that measures nothing is worse
@@ -70,7 +70,7 @@ public sealed class SdkConstantResolutionTests
     }
 
     [Test]
-    public void EveryCapacityInTheStubBlockResolvesAwayFromTwo()
+    public void SdkConstants_EveryStubCapacity_ResolvesAwayFromTwo()
     {
         IReadOnlyDictionary<string, int> constants = SourceSdk.Constants(BspHeader);
 

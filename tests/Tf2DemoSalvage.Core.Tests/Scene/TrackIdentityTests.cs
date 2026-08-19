@@ -37,7 +37,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class TrackIdentityTests
 {
     [Test]
-    public void TheSameSerialInTheSameSlotIsTheSameObject()
+    public void TrackIdentity_TheSameSerialInTheSameSlot_IsTheSameObject()
     {
         ScenePropTrack track = new(entityIndex: 7, modelPath: "a.mdl", serialNumber: 3);
 
@@ -45,7 +45,7 @@ public sealed class TrackIdentityTests
     }
 
     [Test]
-    public void ADifferentSerialIsADifferentObject()
+    public void TrackIdentity_ADifferentSerial_IsADifferentObject()
     {
         // The case the model check could not see: two rockets, one slot, same model.
         ScenePropTrack track = new(entityIndex: 7, modelPath: "a.mdl", serialNumber: 3);
@@ -54,7 +54,7 @@ public sealed class TrackIdentityTests
     }
 
     [Test]
-    public void ChangingModelDoesNotEndATrack()
+    public void TrackIdentity_ChangingModel_DoesNotEndATrack()
     {
         // **The other direction, and the one that was silently wrong until now.** A capture point
         // calls SetModel on every capture (team_control_point.cpp:569), so under the old rule every
@@ -69,7 +69,7 @@ public sealed class TrackIdentityTests
     }
 
     [Test]
-    public void ThereIsNoUnknownSerialToFallBackFrom()
+    public void TrackIdentity_NoUnknownSerial_ExistsToFallBackFrom()
     {
         // **An earlier draft took a nullable serial and treated null as "continue".** That path
         // could never execute: the serial reaching a track comes from an EntityState, whose

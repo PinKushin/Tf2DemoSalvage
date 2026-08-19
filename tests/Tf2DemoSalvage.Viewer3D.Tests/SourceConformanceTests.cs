@@ -38,7 +38,7 @@ public sealed class SourceConformanceTests
         VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes(text));
 
     [Test]
-    public void HalfLambertWrapsTheDirectTerm()
+    public void Lighting_HalfLambert_WrapsTheDirectTerm()
     {
         // common_vs_fxc.h:826 — NDotL = NDotL * 0.5 + 0.5; NDotL = NDotL * NDotL.
         // Without it a surface facing away from a light is black rather than a quarter lit, which
@@ -61,7 +61,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void TwoTextureMaterialsMultiplyRatherThanMix()
+    public void Shading_TwoTextureMaterials_MultiplyRatherThanMix()
     {
         // unlittwotexture_ps2x.fxc — baseColor * baseColor2 * g_DiffuseModulation, alpha forced to
         // one. Sampling only the base draws half the material: TF2's capture point beams put the
@@ -76,7 +76,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void ModulateMaterialsMultiplyTheFramebuffer()
+    public void Shading_ModulateMaterials_MultiplyTheFramebuffer()
     {
         // A shader name is a declaration in itself. Modulate names no unfamiliar parameter, so it
         // passed a census of parameters in silence while painting every capture point as a dark
@@ -94,7 +94,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void NoCullIsAPerMaterialFlag()
+    public void Shading_NoCull_IsAPerMaterialFlag()
     {
         // imaterial.h:369 — MATERIAL_VAR_NOCULL, tested per material by shaders
         // (depthwrite.cpp:93). Everything else culls back faces, front wound clockwise per
@@ -110,7 +110,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void SkinFamiliesIndexAsValveIndexesThem()
+    public void Models_SkinFamilies_IndexAsValveIndexesThem()
     {
         // pSkinref(skin * numskinref + material). A team colour in TF2 is a skin family rather than
         // a tint, so getting this wrong draws both teams in RED — measured on cap_point_base, whose
@@ -125,7 +125,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void BodygroupSelectionMatchesGetBodygroup()
+    public void Models_BodygroupSelection_MatchesGetBodygroup()
     {
         // shared/animation.cpp:876 — (body / pbodypart->base) % pbodypart->nummodels.
         // A capture point's model offers four signs on one part with base 1, so the body number IS
@@ -142,7 +142,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void TextureScrollMatchesTheEnginesWrap()
+    public void Shading_TextureScroll_MatchesTheEnginesWrap()
     {
         // CTextureScrollMaterialProxy::OnBind. The wrap is kept in Valve's two-step form because a
         // modulo is a different function for negative rates: −0.25 must become 0.75.
@@ -271,7 +271,7 @@ public sealed class SourceConformanceTests
     }
 
     [Test]
-    public void TheCensusAgreesWithThisSuite()
+    public void Census_TheSdkSurface_AgreesWithThisSuite()
     {
         // **The cross-check, and the reason both halves exist.** The census measures what a MAP
         // asks for; this suite measures what the ENGINE does. Neither sees everything: the census

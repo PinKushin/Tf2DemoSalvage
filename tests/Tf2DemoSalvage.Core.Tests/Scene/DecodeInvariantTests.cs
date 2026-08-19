@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class DecodeInvariantTests
 {
     [Test]
-    public void EveryAngleIsNormalisedToOneTurn()
+    public void DecodeInvariants_EveryAngle_IsNormalisedToOneTurn()
     {
         // **The 220.997 against −139.003 defect.** The wire sends yaw as 0..360 and everything here
         // stores (−180, 180], so one direction was held as two numbers a full turn apart — and
@@ -47,7 +47,7 @@ public sealed class DecodeInvariantTests
     }
 
     [Test]
-    public void AnAngleAlreadyInRangeIsLeftAlone()
+    public void DecodeInvariants_AnAngleAlreadyInRange_IsLeftAlone()
     {
         // The control. A normaliser that returned zero, or that wrapped everything by a turn, would
         // satisfy the range assertion above and destroy every angle in the file.
@@ -58,7 +58,7 @@ public sealed class DecodeInvariantTests
     }
 
     [Test]
-    public void AnEntityHandleIsMaskedAfterItsInvalidCheck()
+    public void DecodeInvariants_AnEntityHandle_IsMaskedAfterItsInvalidCheck()
     {
         // **RecvProxy_IntToEHandle, client/recvproxy.cpp:90.** A networked handle packs the entity
         // index into the low MAX_EDICT_BITS and a serial number above it, and the invalid value is
@@ -88,7 +88,7 @@ public sealed class DecodeInvariantTests
     }
 
     [Test]
-    public void ADynamicModelIndexIsDecodedFromItsNegativeForm()
+    public void DecodeInvariants_ADynamicModelIndex_IsDecodedFromItsNegativeForm()
     {
         // **ivmodelinfo.h:90.** A model index below −1 is dynamic: the table entry is
         // (−2 − index) >> 1, and the low bit says whether it is client-only or networked. Every TF2
@@ -112,7 +112,7 @@ public sealed class DecodeInvariantTests
     }
 
     [Test]
-    public void AbsentMeansTheDefaultRatherThanUnknown()
+    public void DecodeInvariants_AnAbsentProperty_MeansTheDefaultNotUnknown()
     {
         // **The delta format's own rule, and a trap this project has fallen into twice.** A demo
         // sends only what CHANGED, so a property that never appears is at its default — not

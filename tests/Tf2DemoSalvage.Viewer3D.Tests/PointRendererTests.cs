@@ -46,7 +46,7 @@ public sealed class PointRendererTests
     public void DisposeTarget() => _target?.Dispose();
 
     [Test]
-    public void APointDrawnAtTheCentreLandsInTheMiddleOfTheTarget()
+    public void PointRenderer_APointAtTheCentre_LandsInTheMiddleOfTheTarget()
     {
         // The claim the whole viewer rests on: normalised device coordinates put a thing where
         // the camera said it should be. Asserted on named pixels, so a mirrored Y or a swapped
@@ -58,7 +58,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void NothingIsDrawnWhereNoPointIs()
+    public void PointRenderer_WhereNoPointIs_NothingIsDrawn()
     {
         // The control. Without it, a renderer that filled the entire target with the point colour
         // would pass the test above - and "everything is red" is a real failure mode for a
@@ -71,7 +71,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void PositiveYIsTowardsTheTopOfTheImage()
+    public void PointRenderer_PositiveY_IsTowardsTheTopOfTheImage()
     {
         // Direct3D's clip space has +Y up while an image's rows run downwards, so a point at
         // y = +0.5 must appear in the UPPER half. Getting this wrong mirrors the map, and on a
@@ -85,7 +85,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void EachPointKeepsItsOwnColour()
+    public void PointRenderer_EachPoint_KeepsItsOwnColour()
     {
         // Two points, two colours: a renderer that read the colour from the wrong vertex, or held
         // one colour in a constant buffer, would draw both the same and pass a single-point test.
@@ -101,7 +101,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void DrawingNoPointsLeavesTheTargetAsItWas()
+    public void PointRenderer_NoPoints_LeaveTheTargetUnchanged()
     {
         _target.Clear(0f, 0f, 1f);
         _target.Draw([]);
@@ -120,7 +120,7 @@ public sealed class PointRendererTests
     private static float NdcYForRow(int row) => 1f - (2f * (row + 0.5f) / Size);
 
     [Test]
-    public void AHorizontalLineIsDrawnAcrossTheTarget()
+    public void PointRenderer_AHorizontalLine_IsDrawnAcrossTheTarget()
     {
         // The map is drawn as edges, so this is the primitive the whole overhead view rests on.
         // Measured at three points along it rather than one, because a line that rendered as a
@@ -136,7 +136,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void ALineDoesNotFillTheTarget()
+    public void PointRenderer_ALine_DoesNotFillTheTarget()
     {
         // The control: without it, a renderer that drew a filled quad instead of a line would
         // pass every point sampled along the line itself.
@@ -150,7 +150,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void SegmentsAreIndependentRatherThanOnePolyline()
+    public void PointRenderer_Segments_AreIndependentNotOnePolyline()
     {
         // A line STRIP would join the end of one segment to the start of the next, drawing edges
         // that do not exist - across a map that means a web of lines between unrelated walls.
@@ -166,7 +166,7 @@ public sealed class PointRendererTests
     }
 
     [Test]
-    public void ManyPointsGrowTheBufferWithoutLosingAny()
+    public void PointRenderer_ManyPoints_GrowTheBufferWithoutLoss()
     {
         // The vertex buffer grows in powers of two, and the first and last point are the two a
         // resize is most likely to drop.

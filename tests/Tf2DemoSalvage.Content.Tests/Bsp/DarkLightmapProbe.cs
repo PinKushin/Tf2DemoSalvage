@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class DarkLightmapProbe
 {
     [Test]
-    public void CompareLightingOnDisplacementsAgainstBrushwork()
+    public void Lighting_DisplacementsAgainstBrushwork_IsReported()
     {
         string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
 

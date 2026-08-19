@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class EyePositionTests
 {
     [Test]
-    public void ACamerasOwnOriginComesBackOutOfItsMatrix()
+    public void EyePosition_ACameraMatrix_RecoversItsOrigin()
     {
         // A position with three different, non-zero, non-round components. A transposed or dropped
         // axis cannot pass, and neither can returning the origin.
@@ -43,7 +43,7 @@ public sealed class EyePositionTests
     }
 
     [Test]
-    public void MovingTheCameraMovesTheRecoveredPosition()
+    public void EyePosition_MovingTheCamera_MovesTheRecoveredPosition()
     {
         // **The discriminator against a reader that returns something plausible but fixed.** A
         // camera looking the same way from two places gives two matrices that differ only in
@@ -60,7 +60,7 @@ public sealed class EyePositionTests
     }
 
     [Test]
-    public void TurningTheCameraDoesNotMoveIt()
+    public void EyePosition_TurningTheCamera_DoesNotMoveIt()
     {
         // The other half of the same control: rotation changes most of the matrix and must not
         // change the answer at all. A derivation that picked up a row of the rotation would pass
@@ -77,7 +77,7 @@ public sealed class EyePositionTests
     }
 
     [Test]
-    public void ASingularMatrixHasNoCameraPosition()
+    public void EyePosition_ASingularMatrix_HasNoPosition()
     {
         // **Null rather than the origin**, because a degenerate projection has no eye and returning
         // (0,0,0) would put every reflection on the map at map centre — a plausible picture rather
@@ -86,7 +86,7 @@ public sealed class EyePositionTests
     }
 
     [Test]
-    public void AMatrixOfTheWrongLengthIsRejected()
+    public void EyePosition_AMatrixOfTheWrongLength_IsRejected()
     {
         Should.Throw<ArgumentException>(() => EyePosition.From(new float[15]));
         Should.Throw<ArgumentNullException>(() => EyePosition.From(null!));

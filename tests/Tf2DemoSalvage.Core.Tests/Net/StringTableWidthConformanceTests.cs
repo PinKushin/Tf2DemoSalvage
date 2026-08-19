@@ -42,7 +42,7 @@ public sealed class StringTableWidthConformanceTests
     }
 
     [Test]
-    public void TheTableIdIsWideEnoughForEveryTableTheSdkAllows()
+    public void StringTableWidths_TheTableId_FitsEveryTableTheSdkAllows()
     {
         IReadOnlyDictionary<string, int> tables = SourceSdk.Constants(Header);
 
@@ -61,7 +61,7 @@ public sealed class StringTableWidthConformanceTests
     }
 
     [Test]
-    public void TheCommentBesideThatConstantSaysFourBitsAndIsWrong()
+    public void StringTableWidths_TheCommentBesideThatConstant_IsWrong()
     {
         // The control on the claim above. Without this the class reads as an ordinary width check,
         // and the finding — that a published comment contradicts the published constant — is not

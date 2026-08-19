@@ -29,14 +29,14 @@ public sealed class KillFeedTests
     ];
 
     [Test]
-    public void AnOrdinaryKillReadsAsAttackerWeaponVictim()
+    public void KillFeed_AnOrdinaryKill_ReadsAsAttackerWeaponVictim()
     {
         KillFeed.Line(Death("scout", "medic", "scattergun"))
             .ShouldBe("scout [scattergun] medic");
     }
 
     [Test]
-    public void AQualifiedKillNamesTheQualifier()
+    public void KillFeed_AQualifiedKill_NamesTheQualifier()
     {
         // customkill 1 is TF_DMG_CUSTOM_HEADSHOT, held against the SDK by
         // KillDescriptionConformanceTests.
@@ -45,14 +45,14 @@ public sealed class KillFeedTests
     }
 
     [Test]
-    public void AnAssistedKillNamesTheAssister()
+    public void KillFeed_AnAssistedKill_NamesTheAssister()
     {
         KillFeed.Line(Death("soldier", "spy", "rocketlauncher", assister: "medic"))
             .ShouldBe("soldier [rocketlauncher] spy (assist medic)");
     }
 
     [Test]
-    public void AQualifierAndAnAssistAreBothReported()
+    public void KillFeed_AQualifierAndAnAssist_AreBothReported()
     {
         // The combining case. A kill feed that shows one and drops the other is wrong in a way
         // nobody notices, because each line still looks complete.
@@ -61,7 +61,7 @@ public sealed class KillFeedTests
     }
 
     [Test]
-    public void ASuicideHasNoAttackerToName()
+    public void KillFeed_ASuicide_HasNoAttackerToName()
     {
         // The victim kills themselves, so attacker and userid are the same person. Rendered as the
         // game does — the victim alone — rather than "medic [world] medic", which reads as someone
@@ -70,7 +70,7 @@ public sealed class KillFeedTests
     }
 
     [Test]
-    public void AnAssisterOfMinusOneIsNobody()
+    public void KillFeed_AnAssisterOfMinusOne_IsNobody()
     {
         // **Found by reading the output, not by reasoning about the format.** 407 real kills
         // rendered, and a great many read "(assist -1)".
@@ -86,7 +86,7 @@ public sealed class KillFeedTests
     }
 
     [Test]
-    public void AnAttackerOfZeroIsTheWorld()
+    public void KillFeed_AnAttackerOfZero_IsTheWorld()
     {
         // **The last unresolved line in 407 real kills**, and it was not a roster failure:
         //
@@ -103,7 +103,7 @@ public sealed class KillFeedTests
     }
 
     [Test]
-    public void AMissingAttackerIsNotInvented()
+    public void KillFeed_AMissingAttacker_IsNotInvented()
     {
         // A death from the world - fall damage, a trigger - carries no attacker. Reported as the
         // victim dying rather than attributed to anyone, because attributing it would be a claim

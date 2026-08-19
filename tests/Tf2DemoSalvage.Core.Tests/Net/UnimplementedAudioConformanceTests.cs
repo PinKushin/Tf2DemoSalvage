@@ -34,7 +34,7 @@ public sealed class UnimplementedAudioConformanceTests
     }
 
     [Test]
-    public void ClosedCaptionsAreACompiledHashLookupOverBlocks()
+    public void Audio_ClosedCaptions_AreACompiledHashLookupOverBlocks()
     {
         // captioncompiler.h. A .dat caption file is a header, a directory of CaptionLookup_t entries
         // sorted by a CRC of the sound name, and a blocked payload of UTF-16 text. Blocks are
@@ -75,7 +75,7 @@ public sealed class UnimplementedAudioConformanceTests
     }
 
     [Test]
-    public void ASoundscapeGivesARoomItsAmbienceAndItsReverb()
+    public void Audio_ASoundscape_GivesARoomItsAmbienceAndReverb()
     {
         // c_soundscape.cpp. The server sends an index into scripts/soundscapes_manifest.txt; the
         // client looks up a definition that names looping ambient sounds, positions them at

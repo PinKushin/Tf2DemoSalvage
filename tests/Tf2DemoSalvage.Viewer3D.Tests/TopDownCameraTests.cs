@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class TopDownCameraTests
 {
     [Test]
-    public void TheCentreOfTheBoundsLandsInTheMiddleOfTheViewport()
+    public void TopDownCamera_TheCentreOfTheBounds_LandsInTheMiddleOfTheViewport()
     {
         // The one mapping every other property is measured against.
         TopDownCamera camera = TopDownCamera.Fit(
@@ -34,7 +34,7 @@ public sealed class TopDownCameraTests
     }
 
     [Test]
-    public void AWideViewportDoesNotStretchTheMap()
+    public void TopDownCamera_AWideViewport_DoesNotStretchTheMap()
     {
         // The failure this prevents is a map that looks fine at one window size and subtly
         // distorted at another - players drifting apart horizontally as the window widens.
@@ -52,7 +52,7 @@ public sealed class TopDownCameraTests
     }
 
     [Test]
-    public void EveryFittedPointLandsInsideTheViewport()
+    public void TopDownCamera_EveryFittedPoint_LandsInsideTheViewport()
     {
         // Fitting means exactly this. Asserted over a deliberately lopsided set, since a bug in
         // the offset shows up on the axis with the larger extent.
@@ -73,7 +73,7 @@ public sealed class TopDownCameraTests
     }
 
     [Test]
-    public void WorldYIncreasesUpTheScreen()
+    public void TopDownCamera_WorldY_IncreasesUpTheScreen()
     {
         // Source's Y axis points north and the screen's points down, so one of them has to be
         // flipped. Getting it wrong mirrors the map, which is easy to miss on a symmetric one -
@@ -87,7 +87,7 @@ public sealed class TopDownCameraTests
     }
 
     [Test]
-    public void ASinglePointDoesNotDivideByZero()
+    public void TopDownCamera_ASinglePoint_DoesNotDivideByZero()
     {
         // A demo's first tick may have one entity, and a zero-extent bound is a division waiting
         // to happen. It must produce a usable camera rather than NaN, which would silently
@@ -101,7 +101,7 @@ public sealed class TopDownCameraTests
     }
 
     [Test]
-    public void NoPointsGivesAUsableCameraRatherThanThrowing()
+    public void TopDownCamera_NoPoints_GivesAUsableCamera()
     {
         // Before a demo is loaded there is nothing to fit, and the render loop still runs.
         TopDownCamera camera = TopDownCamera.Fit([], 800, 800);
@@ -113,7 +113,7 @@ public sealed class TopDownCameraTests
     }
 
     [Test]
-    public void ZoomScalesAboutTheCentre()
+    public void TopDownCamera_Zoom_ScalesAboutTheCentre()
     {
         // Zooming has to keep the point under the cursor's centre fixed, or the view lurches.
         TopDownCamera camera = TopDownCamera.Fit([(0f, 0f), (100f, 100f)], 800, 800)

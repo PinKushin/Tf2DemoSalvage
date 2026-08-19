@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class ShowPositionsTests
 {
     [Test]
-    public void WorldPositionsArriveAtTheRendererInClipSpace()
+    public void ShowPositions_WorldPositions_ArriveInClipSpace()
     {
         // Source units are in the thousands. Passing them through unprojected would put every
         // point far outside the [-1, 1] the rasteriser keeps, so the viewport would be empty and
@@ -37,7 +37,7 @@ public sealed class ShowPositionsTests
     }
 
     [Test]
-    public void TheMiddleOfTheWorldEndsUpInTheMiddleOfTheView()
+    public void ShowPositions_TheMiddleOfTheWorld_LandsInTheMiddleOfTheView()
     {
         // Three positions where the third is exactly the centre of the other two, so its
         // projection has a known answer: the origin of clip space.
@@ -56,7 +56,7 @@ public sealed class ShowPositionsTests
     }
 
     [Test]
-    public void ShowingNothingClearsTheScene()
+    public void ShowPositions_ShowingNothing_ClearsTheScene()
     {
         // Scrubbing to a tick before anyone has spawned is an ordinary event, not an error.
         using MainForm form = new();
@@ -68,7 +68,7 @@ public sealed class ShowPositionsTests
     }
 
     [Test]
-    public void EveryPointIsGivenAVisibleColour()
+    public void ShowPositions_EveryPoint_IsGivenAVisibleColour()
     {
         // A point drawn in the clear colour is invisible, and would look exactly like a renderer
         // that drew nothing at all.

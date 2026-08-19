@@ -75,7 +75,7 @@ public sealed class ControlPointAppearanceConformanceTests
     }
 
     [Test]
-    public void TheSkinIsTheTeamNumberOffsetSoRedIsZeroAndUnownedIsTwo()
+    public void ControlPoint_Skin_IsTheTeamNumberOffset()
     {
         // Derived end to end rather than asserted as 0/1/2, because every number in the formula is
         // published: TEAM_UNASSIGNED is 0, LAST_SHARED_TEAM is TEAM_SPECTATOR which is 1, and
@@ -112,7 +112,7 @@ public sealed class ControlPointAppearanceConformanceTests
     }
 
     [Test]
-    public void CaptureChangesTheModelTheBodygroupAndTheSkinTogether()
+    public void ControlPoint_Capture_ChangesModelBodygroupAndSkin()
     {
         // The three lines, pinned as text because their being adjacent is the finding. Reading any
         // one of them alone gives a mechanism that is real and insufficient.

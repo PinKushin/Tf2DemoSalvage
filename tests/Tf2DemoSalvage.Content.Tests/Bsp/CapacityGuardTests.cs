@@ -40,7 +40,7 @@ public sealed class CapacityGuardTests
     }
 
     [Test]
-    public void TheArraySizesMatchExactlyBecauseTheyAreNotBounds()
+    public void CapacityGuards_TheArraySizes_MatchExactlyBecauseTheyAreNotBounds()
     {
         // These three are the size of a fixed array in the format, not a limit on a count. An
         // overlay names OVERLAY_BSP_FACE_COUNT faces because the struct has that many slots; a
@@ -55,7 +55,7 @@ public sealed class CapacityGuardTests
     }
 
     [Test]
-    public void NoModelGuardIsStricterThanTheEngineAllows()
+    public void CapacityGuards_NoModelGuard_IsStricterThanTheEngine()
     {
         // **MAXSTUDIOBONES is 128 and this project caps at 1024**, which is the shape wanted: the
         // cap is there to refuse a corrupt header, not to enforce Valve's limit. A cap of 64 would
@@ -72,7 +72,7 @@ public sealed class CapacityGuardTests
     }
 
     [Test]
-    public void TheDuplicateMapLimitsResolveToThePcOnes()
+    public void CapacityGuards_TheDuplicateMapLimits_ResolveToThePcOnes()
     {
         // **bspfile.h defines MAX_MAP_TEXDATA twice — 2048, then 2.** The second set is under an
         // Xbox 360 branch that forces every static array to be tiny. An extractor taking the LAST

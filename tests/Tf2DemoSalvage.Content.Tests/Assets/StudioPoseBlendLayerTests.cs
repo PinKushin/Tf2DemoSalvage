@@ -32,7 +32,7 @@ public sealed class StudioPoseBlendLayerTests
     ];
 
     [Test]
-    public void ZeroWeightLeavesTheBaseBoneUntouched()
+    public void PoseBlendLayer_ZeroWeight_LeavesTheBaseBoneUntouched()
     {
         // `if (s2 <= 0.0f) continue` — a bone with no weight in the gesture is not blended
         // toward anything, not even fractionally.
@@ -47,7 +47,7 @@ public sealed class StudioPoseBlendLayerTests
     }
 
     [Test]
-    public void AnUnmentionedBoneDefaultsToIdentityNotRestPose()
+    public void PoseBlendLayer_AnUnmentionedBone_DefaultsToIdentityNotRestPose()
     {
         // Confirmed at bone_setup.cpp:599: a STUDIO_DELTA animation's own track, for a bone it
         // does not reach, decodes as (0,0,0,1) and zero position — never the rest pose. Composing
@@ -63,7 +63,7 @@ public sealed class StudioPoseBlendLayerTests
     }
 
     [Test]
-    public void PostCombinesBaseThenScaledDelta()
+    public void PoseBlendLayer_APostLayer_CombinesBaseThenScaledDelta()
     {
         // **The discriminator.** Base is 90° about X, delta is 90° about Y. Composing base⊗delta
         // and delta⊗base give different results because quaternion multiplication does not
@@ -90,7 +90,7 @@ public sealed class StudioPoseBlendLayerTests
     }
 
     [Test]
-    public void NonPostCombinesScaledDeltaThenBase()
+    public void PoseBlendLayer_ANonPostLayer_CombinesScaledDeltaThenBase()
     {
         // The same two rotations, opposite composition order — `QuaternionSM(s2, q2, q1, q1)`
         // multiplies delta first. By hand, p=(0,0.7071,0,0.7071) [delta], q=(0.7071,0,0,0.7071)
@@ -116,7 +116,7 @@ public sealed class StudioPoseBlendLayerTests
     }
 
     [Test]
-    public void PositionAddsLinearlyRegardlessOfPostOrNot()
+    public void PoseBlendLayer_Position_AddsLinearlyEitherWay()
     {
         // `pos1[i] += pos2[i] * s2` is identical in both branches — no quaternion involved, and
         // no reason for POST to change it. Weight 0.5 halves the delta's contribution.
@@ -153,7 +153,7 @@ public sealed class StudioPoseBlendLayerTests
     }
 
     [Test]
-    public void TheBoneWeightListAndTheLayerWeightBothScaleTheStrength()
+    public void PoseBlendLayer_BoneAndLayerWeights_BothScaleTheStrength()
     {
         // strength = layerWeight * boneWeights[i]. A bone weighted 0.5 in the list at a layer
         // weight of 0.5 gets a quarter of the delta's positional push, not half.

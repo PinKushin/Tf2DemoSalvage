@@ -23,7 +23,7 @@ public sealed class TransportUiTests
     private static ViewerApplication _viewer => ViewerSession.App;
 
     [Test]
-    public void TheSpeedReadoutFollowsTheShuttleButtonsIntoReverse()
+    public void Transport_ShuttleIntoReverse_UpdatesTheSpeedReadout()
     {
         // **The readout is the point.** A speed that changes with nothing to show it leaves the
         // user guessing whether the button did anything, and reverse especially needs saying: a
@@ -71,7 +71,7 @@ public sealed class TransportUiTests
     }
 
     [Test]
-    public void JumpingToTheEndMovesTheScrubBar()
+    public void Transport_JumpToEnd_MovesTheScrubBar()
     {
         // A jump is a seek and must be heard as one, unlike playback reporting where it has got
         // to - the two go through different paths in the bar for exactly that reason.

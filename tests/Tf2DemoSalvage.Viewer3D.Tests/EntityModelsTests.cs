@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class EntityModelsTests
 {
     [Test]
-    public void AModelIsPackedInItsOwnCoordinates()
+    public void EntityModels_AModel_IsPackedInItsOwnCoordinates()
     {
         // **Not moved to where the entity stands**, which is the whole difference from the version
         // this replaced. The vertex keeps the model's own coordinates and the matrix carries the
@@ -55,7 +55,7 @@ public sealed class EntityModelsTests
     }
 
     [Test]
-    public void EachInstanceCarriesItsOwnPlacement()
+    public void EntityModels_EachInstance_CarriesItsOwnPlacement()
     {
         // Three entities, one model, three matrices. The translation lives in the last row.
         EntityModelSet models = new();
@@ -92,7 +92,7 @@ public sealed class EntityModelsTests
     }
 
     [Test]
-    public void AFailedModelIsNotRetriedEveryFrame()
+    public void EntityModels_AFailedModel_IsNotRetriedEveryFrame()
     {
         // Asking again sixty times a second buries the log in one repeated line, which is how a
         // real missing asset stops being noticeable.
@@ -144,7 +144,7 @@ public sealed class EntityModelsTests
     }
 
     [Test]
-    public void EveryBatchCoversTheVerticesItClaims()
+    public void EntityModels_EveryBatch_CoversTheVerticesItClaims()
     {
         // Batches index into one shared buffer, so a wrong offset draws another model's triangles
         // with this model's texture - which looks like a texture bug and is an arithmetic one.

@@ -70,7 +70,7 @@ public sealed class PlayerClassModelsTests
     }
 
     [Test]
-    public void EveryPlayingClassResolvesToAModelTheGameActuallyHas()
+    public void PlayerClassModels_EveryPlayingClass_ResolvesToAModelTheGameHas()
     {
         VpkArchive misc = VpkArchive.Open(Path.Combine(_tf, "tf2_misc_dir.vpk"));
 
@@ -92,7 +92,7 @@ public sealed class PlayerClassModelsTests
     }
 
     [Test]
-    public void TheClassNumberingIsTheEnginesRatherThanTheMenusOrder()
+    public void PlayerClassModels_TheClassNumbering_IsTheEnginesNotTheMenus()
     {
         // **The trap this test exists for.** tf_shareddefs.h orders the enum Scout, Sniper,
         // Soldier, Demoman, Medic, Heavy, Pyro, Spy, Engineer - which is not the order the class
@@ -125,7 +125,7 @@ public sealed class PlayerClassModelsTests
     }
 
     [Test]
-    public void EveryClassGetsADistinctModel()
+    public void PlayerClassModels_EveryClass_GetsADistinctModel()
     {
         // The control against a reader that finds one script and reuses it: nine classes wearing
         // the Scout model would satisfy every assertion above.

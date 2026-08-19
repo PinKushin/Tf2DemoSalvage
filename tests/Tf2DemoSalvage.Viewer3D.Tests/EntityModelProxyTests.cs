@@ -42,7 +42,7 @@ public sealed class EntityModelProxyTests
     ];
 
     [Test]
-    public void AnEntityModelsMaterialsBringTheirProxies()
+    public void EntityModelProxies_AnEntityModel_BringsItsMaterialProxies()
     {
         MapAssets assets = LoadWithEntityModels();
 
@@ -73,7 +73,7 @@ public sealed class EntityModelProxyTests
     }
 
     [Test]
-    public void NamingNoEntityModelsBringsNoneOfThem()
+    public void EntityModelProxies_NoEntityModels_BringNone()
     {
         // **The control**, and it is what makes the test above evidence rather than a coincidence.
         // The same map without the model list must NOT contain those proxies — otherwise they were
@@ -94,7 +94,7 @@ public sealed class EntityModelProxyTests
     }
 
     [Test]
-    public void AnEntityModelsMaterialsExtendTheTable()
+    public void EntityModelProxies_AnEntityModel_ExtendsTheMaterialTable()
     {
         // The precondition for either of the above meaning anything: naming models must actually
         // add materials. If the models are not installed this is where it says so, rather than the

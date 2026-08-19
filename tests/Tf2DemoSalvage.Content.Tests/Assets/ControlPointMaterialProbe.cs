@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class ControlPointMaterialProbe
 {
     [Test]
-    public void WhatDoesTheControlPointFloorAskFor()
+    public void ControlPointFloor_ItsMaterialRequests_AreReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 

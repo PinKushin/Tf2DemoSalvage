@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class DarkAreaProbe
 {
     [Test]
-    public void ReportTheDarkestMaterialsWeightedByArea()
+    public void DarkestMaterials_WeightedByArea_AreReported()
     {
         string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
 

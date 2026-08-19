@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class PropBrightnessProbe
 {
     [Test]
-    public void HowBrightAreTheDarkestPropsAfterOverbright()
+    public void PropBrightness_TheDarkestPropsAfterOverbright_AreReported()
     {
         string mapPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

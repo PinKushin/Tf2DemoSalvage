@@ -36,7 +36,7 @@ public sealed class KillDescriptionConformanceTests
     }
 
     [Test]
-    public void TheNamedCustomKillsSitAtTheValuesValveDeclares()
+    public void KillDescription_TheNamedCustomKills_SitAtValvesValues()
     {
         IReadOnlyDictionary<string, int> custom =
             SourceSdk.Enumerators(SharedDefs, "ETFDmgCustom");
@@ -55,7 +55,7 @@ public sealed class KillDescriptionConformanceTests
     }
 
     [Test]
-    public void EveryDeathFlagValveDeclaresIsNamedHere()
+    public void KillDescription_EveryDeathFlagValveDeclares_IsNamedHere()
     {
         // **Swept, so a flag added upstream shows up as a gap rather than as an unnamed bit in
         // someone's kill feed.** This is the assertion that would have to change if TF2 added a

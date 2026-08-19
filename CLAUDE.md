@@ -134,6 +134,42 @@ Phase 1 (see `ROADMAP.md` §3): `managed/Tf2DemoSalvage.Core`, pure C# — conta
 
 Do not start Phase 2 or Phase 3 work before Phase 1 is solid and tested. Do not build toward Phase 4 (demo repair for live-client replay) at all unless explicitly asked — it's parked, see `docs/DECISIONS.md` D1.
 
+## Test naming — `{Subject}_{Scenario}_{Expected}`
+
+**Every test method is named `{Subject}_{Scenario}_{Expected}`.** Classes are `{TypeUnderTest}Tests`,
+and a class whose name contains `Conformance` must keep it, because `docs/CONFORMANCE.md` selects
+those suites with `--filter 'FullyQualifiedName~Conformance'`.
+
+- **Subject** — the method under test where there is one (`Decode`, `Write`, `Parse`); otherwise the
+  operation, for tests that deliberately span layers (`RoundTrip`, `Trace`, `Dump`).
+- **Scenario** — the condition (`AtProtocol23`, `AfterAStopWithoutFlags`, `WithNoStopCommand`).
+- **Expected** — the predicted observation (`Is14Bits`, `InheritsSndStop`, `ReproducesBytes`).
+
+```
+SoundNumberBits_AtProtocol22And23_Are13And14      not  TheSoundIndexIs13BitsThrough22And14BitsAfter
+Decode_SoundAfterAStopWithoutFlags_InheritsSndStop     ASoundAfterAStopInheritsSndStopUnlessItSaysOtherwise
+RoundTrip_EveryWritableKind_ReproducesBytes            EveryWritableKindCompilesBackToItsOwnBytes
+```
+
+**This is written down because its absence is what caused the problem.** The repository grew ~2,132
+prose-named tests across 371 files and no decision was ever recorded for it — one early file set the
+style, every later file matched its neighbours, and nobody compared practice against the standard.
+A convention that lives only in the surrounding code is a convention that drifts, and this one
+drifted to the exact opposite of what was written.
+
+**The reason for converting is debugging cost, not tidiness.** `Failed
+TheTraceNamesEveryKindItWalksPast` names the CLAIM and not the SUBJECT, so a red run starts by
+opening the file to find out what the test even touches. That is paid every time something fails.
+
+Two facts make the conversion safe, and both were checked: **nothing outside the test assemblies
+references a test method name** — no `--filter` pins one, no Stryker config filters by test — and
+**the count cannot change**, because `build/gate.sh`'s floors are exact, so a rename that drops or
+merges a test reddens the gate immediately.
+
+**Do not attempt it with a regex.** Choosing the subject, scenario and expectation means reading
+what the test asserts. A mechanical transform produces plausible names that are wrong, and nobody
+goes back to fix a name that already looks like it follows the rule.
+
 ## The order of work, and where to look
 
 **A conformance test comes first, then unit/integration/UI tests, then the implementation.** The

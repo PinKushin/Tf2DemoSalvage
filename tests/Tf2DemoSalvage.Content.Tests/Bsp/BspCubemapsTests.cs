@@ -38,7 +38,7 @@ public sealed class BspCubemapsTests
     private const int LumpCubemaps = 42;
 
     [Test]
-    public void APlacementIsReadAtItsPosition()
+    public void BspCubemaps_APlacement_IsReadAtItsPosition()
     {
         IReadOnlyList<BspCubemap> cubemaps = BspCubemaps.Read(
             Map(Sample(544, 1952, 929, size: 1)));
@@ -50,7 +50,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void EveryPlacementIsReadAndNoneIsShiftedByPadding()
+    public void BspCubemaps_EveryPlacement_IsReadWithoutPaddingShift()
     {
         // **The stride, and the only arrangement that can measure it.** With one entry a 16-byte
         // reader gets the right answer; with three it reads the second from three bytes early and
@@ -76,7 +76,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ANegativeCoordinateSurvives()
+    public void BspCubemaps_ANegativeCoordinate_Survives()
     {
         // The origin is a SIGNED int — a map's coordinates run either side of zero, and roughly
         // half of any real map is negative. Read as unsigned, a cubemap at -600 lands at
@@ -87,7 +87,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ASizeOfZeroBecomesTheDefaultOfThirtyTwo()
+    public void BspCubemaps_ASizeOfZero_BecomesTheDefaultOf32()
     {
         // **The inverted default.** bspfile.h:997 spells out both halves — `0 - default` and
         // `otherwise, 1<<(size-1)` — so zero is an escape value rather than a value, and
@@ -100,7 +100,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ASizeIsOneShiftedByOneLessThanItsCode()
+    public void BspCubemaps_ASize_IsOneShiftedByOneLessThanItsCode()
     {
         // Both ends of the range that actually appears, and neither is 32 — a reader that returned
         // the default unconditionally would pass the test above and fail here.
@@ -110,7 +110,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void AMapWithNoCubemapLumpReadsAsEmptyRatherThanThrowing()
+    public void BspCubemaps_AMapWithNoCubemapLump_ReadsAsEmpty()
     {
         // Older maps and tool-only maps carry none, and a map with no reflections is a map that
         // draws matte — not a map that fails to open.
@@ -118,7 +118,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ATruncatedFinalRecordIsDroppedRatherThanReadPastTheEnd()
+    public void BspCubemaps_ATruncatedFinalRecord_IsDropped()
     {
         // A lump whose length is not a whole number of records is corruption, and the answer is the
         // records that are whole. Reading the partial one would compose an origin from whatever
@@ -134,7 +134,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ACubemapsTextureNameIsBuiltFromTheMapAndThePosition()
+    public void BspCubemaps_ATextureName_IsBuiltFromTheMapAndPosition()
     {
         // vbsp builds it, so this is transcription rather than invention
         // (vbsp/cubemap.cpp:511, via GeneratePatchedName( "c", info, false, ... )):
@@ -151,7 +151,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ATextureNameIsLowercasedTheWayVbspWroteIt()
+    public void BspCubemaps_ATextureName_IsLowercasedAsVbspWroteIt()
     {
         // GeneratePatchedName ends with Q_strlower, so the name in the pakfile is lowercase
         // whatever case the map was compiled under. A lookup that preserves the caller's case
@@ -162,7 +162,7 @@ public sealed class BspCubemapsTests
     }
 
     [Test]
-    public void ANegativePositionKeepsItsSignInTheName()
+    public void BspCubemaps_ANegativePosition_KeepsItsSignInTheName()
     {
         // vbsp formats with %d, so a negative coordinate carries its minus into the filename. The
         // separator is an underscore and the sign is a hyphen, which is why they do not collide.

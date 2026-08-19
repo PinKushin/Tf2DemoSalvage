@@ -103,7 +103,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ARadiusCullsBeyondIt()
+    public void LocalLights_ARadius_CullsBeyondIt()
     {
         // dist2 = 100 against range^2 = 25, so the light is culled entirely.
         AmbientCube lit = LocalLights.AddTo(
@@ -164,7 +164,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void OnlyTheFourStrongestLightsApply()
+    public void LocalLights_OnlyTheFourStrongest_Apply()
     {
         // The engine carries four: LightDesc_t m_LocalLightDescs[4]. Five identical lights at the
         // same distance must contribute as four, not five.

@@ -26,7 +26,7 @@ public sealed class MapSurfacesTests
         SurfaceProperties.None);
 
     [Test]
-    public void APolygonBecomesATriangleFan()
+    public void MapSurfaces_APolygon_BecomesATriangleFan()
     {
         // Four points is two triangles, six vertices. A quad drawn as one triangle loses half of
         // every floor in the map.
@@ -37,20 +37,20 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void ATriangleIsOneTriangle()
+    public void MapSurfaces_ATriangle_IsOneTriangle()
     {
         MapSurfaces.FromFaces([Face(0f, (0f, 0f), (10f, 0f), (10f, 10f))]).Triangles.Count.ShouldBe(3);
     }
 
     [Test]
-    public void ADegenerateFaceContributesNothing()
+    public void MapSurfaces_ADegenerateFace_ContributesNothing()
     {
         // Two points cannot be filled. Real maps contain these.
         MapSurfaces.FromFaces([Face(0f, (0f, 0f), (10f, 0f))]).Triangles.ShouldBeEmpty();
     }
 
     [Test]
-    public void TheFanKeepsTheFacesWinding()
+    public void MapSurfaces_TheFan_KeepsTheFacesWinding()
     {
         // The fan must be (0,1,2), (0,2,3) - sharing the first vertex and walking the rest. A fan
         // built any other way produces bowties on a four-point face.
@@ -68,7 +68,7 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void HigherSurfacesAreDrawnAfterLowerOnes()
+    public void MapSurfaces_HigherSurfaces_AreDrawnAfterLowerOnes()
     {
         // **The whole reason this is not just "fill the faces".** Seen from above, a roof and the
         // floor beneath it occupy the same pixels, and there is no depth buffer - so draw order IS
@@ -86,7 +86,7 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void HeightDecidesShade()
+    public void MapSurfaces_Height_DecidesShade()
     {
         // A flat grey map reads as a blob. Shading by height is what makes a roof legible as
         // something above the floor rather than a shape drawn on it.
@@ -105,7 +105,7 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void AFlatMapIsNotBlack()
+    public void MapSurfaces_AFlatMap_IsNotBlack()
     {
         // The degenerate case of shading by height: every face at one height gives a zero range,
         // and dividing by it would make the whole map the darkest possible shade - or NaN.
@@ -123,7 +123,7 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void FacesOutsideTheAreaAreNotDrawn()
+    public void MapSurfaces_FacesOutsideTheArea_AreNotDrawn()
     {
         // The 3D skybox room again. Drawing it is harmless - it falls outside the view - but
         // letting it into the HEIGHT RANGE is not: it sits at a Z far from the map's own, so every
@@ -147,7 +147,7 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void AFacePartlyInsideTheAreaIsKept()
+    public void MapSurfaces_AFacePartlyInsideTheArea_IsKept()
     {
         // Judged on any corner, not all of them. A face straddling the edge of the main cluster is
         // part of the map, and dropping it would eat the outermost ring of every map.
@@ -159,7 +159,7 @@ public sealed class MapSurfacesTests
     }
 
     [Test]
-    public void NoFacesGivesNoTriangles()
+    public void MapSurfaces_NoFaces_GivesNoTriangles()
     {
         MapSurfaces.FromFaces([]).Triangles.ShouldBeEmpty();
     }

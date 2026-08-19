@@ -20,7 +20,7 @@ public sealed class GestureSequenceProbe
     private const int StudioDelta = 0x0004;
 
     [Test]
-    public void IsTheJumpLandGestureAdditive()
+    public void JumpLandGesture_ItsAdditiveFlag_IsReported()
     {
         if (!Directory.Exists(Game))
         {

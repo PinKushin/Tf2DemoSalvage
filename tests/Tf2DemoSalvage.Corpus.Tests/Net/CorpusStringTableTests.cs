@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 public sealed class CorpusStringTableTests
 {
     [Test]
-    public void ReportStringTables()
+    public void StringTables_TheCorpus_AreReported()
     {
         foreach (string path in Corpus.Files())
         {

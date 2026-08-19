@@ -39,7 +39,7 @@ public sealed class SdkCoverageTests
         "docs", "SDK-COVERAGE.md"));
 
     [Test]
-    public void TheSdkSurfaceIsCountedAndReported()
+    public void SdkCoverage_TheSdkSurface_IsCountedAndReported()
     {
         if (SdkInventory.Root is null)
         {
@@ -95,7 +95,7 @@ public sealed class SdkCoverageTests
     }
 
     [Test]
-    public void TheStandardMaterialVarsAreActuallyFound()
+    public void SdkCoverage_TheStandardMaterialVars_AreFound()
     {
         // **The positive control for the axis added beside it.** A scrape that finds nothing makes
         // EveryMaterialParameterWeClaim pass more easily, not less — an empty denominator can only

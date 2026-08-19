@@ -18,14 +18,14 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class BspModelsTests
 {
     [Test]
-    public void AStarReferenceNamesAModelIndex()
+    public void BspModels_AStarReference_NamesAModelIndex()
     {
         BspModels.IndexOf("*12").ShouldBe(12);
         BspModels.IndexOf("*0").ShouldBe(0);
     }
 
     [Test]
-    public void AnOrdinaryModelPathIsNotASubmodel()
+    public void BspModels_AnOrdinaryModelPath_IsNotASubmodel()
     {
         // **The control.** A rule that answered for real paths too would send every health pack
         // through the brushwork path and draw none of them.
@@ -36,7 +36,7 @@ public sealed class BspModelsTests
     }
 
     [Test]
-    public void ARealMapDeclaresAWorldAndSubmodelsThatDoNotOverlap()
+    public void BspModels_ARealMap_DeclaresAWorldAndNonOverlappingSubmodels()
     {
         string? path = null;
 

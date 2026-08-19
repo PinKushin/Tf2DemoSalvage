@@ -38,7 +38,7 @@ public sealed class VtfCubeFaceTests
     private const int HeaderSize = 64;
 
     [Test]
-    public void AFlatTextureReportsOneFace()
+    public void VtfCubeFaces_AFlatTexture_ReportsOneFace()
     {
         // The control for everything below: a texture without the flag is not a cubemap, and asking
         // it for face 0 must behave exactly as it always has.
@@ -49,7 +49,7 @@ public sealed class VtfCubeFaceTests
     }
 
     [Test]
-    public void AnEnvmapReportsSevenFaces()
+    public void VtfCubeFaces_AnEnvmap_ReportsSevenFaces()
     {
         VtfTexture texture = VtfTexture.Decode(Bgra(4, 4, faces: 7, flags: EnvmapFlag));
 
@@ -58,7 +58,7 @@ public sealed class VtfCubeFaceTests
     }
 
     [Test]
-    public void EachFaceDecodesToItsOwnPixels()
+    public void VtfCubeFaces_EachFace_DecodesToItsOwnPixels()
     {
         // **The selection, and why every face gets a distinct value.** A reader that ignored the
         // face argument, or applied it with the wrong stride, would return face 0 for everything —
@@ -79,7 +79,7 @@ public sealed class VtfCubeFaceTests
     }
 
     [Test]
-    public void TheDefaultFaceIsTheFirst()
+    public void VtfCubeFaces_TheDefaultFace_IsTheFirst()
     {
         // Every existing caller passes no face, and a cubemap reaching one of those must not
         // silently change which image it gets.
@@ -87,7 +87,7 @@ public sealed class VtfCubeFaceTests
     }
 
     [Test]
-    public void AFaceOutsideTheRangeIsRejected()
+    public void VtfCubeFaces_AFaceOutsideTheRange_IsRejected()
     {
         // Not clamped. A caller asking for face 7 of a seven-face texture has an off-by-one, and
         // returning face 6 hides it behind a picture that is merely wrong.
@@ -99,7 +99,7 @@ public sealed class VtfCubeFaceTests
     }
 
     [Test]
-    public void AFaceOnAFlatTextureIsRejectedBeyondTheFirst()
+    public void VtfCubeFaces_AFaceBeyondTheFirstOnAFlatTexture_IsRejected()
     {
         // A flat texture has one face, so anything past zero is a caller bug rather than a format
         // question — and the same check catches it.
@@ -108,7 +108,7 @@ public sealed class VtfCubeFaceTests
     }
 
     [Test]
-    public void EveryMipBelowTheChosenOneIsSkippedForEveryFace()
+    public void VtfCubeFaces_MipsBelowTheChosenOne_AreSkippedForEveryFace()
     {
         // **The stride that a one-mip fixture cannot test.** Mip data is stored smallest first, and
         // each level below the wanted one costs frames x FACES, not frames. A reader multiplying by

@@ -68,7 +68,7 @@ public sealed class FullScreenTests
     }
 
     [Test]
-    public void ThePlaylistsContainerIsWhatGetsHidden()
+    public void FullScreen_ThePlaylistContainer_IsHidden()
     {
         // The specific case, named. The panel is what occupies the width, so the panel is what has
         // to go - checking only the invariant above would pass on a form that hid nothing at all
@@ -95,7 +95,7 @@ public sealed class FullScreenTests
     }
 
     [Test]
-    public void TheTransportBarSurvivesTheRoundTrip()
+    public void FullScreen_TheTransportBar_SurvivesTheRoundTrip()
     {
         // The bar is removed from a form and added to a window and back. If the overlay disposed
         // it on close, this is where that shows up - as a disposed control that throws on the
@@ -113,7 +113,7 @@ public sealed class FullScreenTests
     }
 
     [Test]
-    public void EscapeLeavesFullScreenAndIsIgnoredWhenWindowed()
+    public void FullScreen_Escape_LeavesFullScreenAndIsIgnoredWhenWindowed()
     {
         // Escape must not be swallowed while windowed, or it stops cancelling dialogs and
         // closing menus - so the windowed case is asserted as well as the full-screen one.
@@ -137,7 +137,7 @@ public sealed class FullScreenTests
     }
 
     [Test]
-    public void SettingTheSameModeTwiceDoesNothing()
+    public void FullScreen_TheSameModeTwice_DoesNothing()
     {
         // Idempotent because the menu item is a checkbox and its CheckedChanged also calls this:
         // without the guard, entering full screen from the menu would re-enter it from the

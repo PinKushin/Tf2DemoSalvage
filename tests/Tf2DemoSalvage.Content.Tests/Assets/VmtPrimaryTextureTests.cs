@@ -70,7 +70,7 @@ public sealed class VmtPrimaryTextureTests
     }
 
     [Test]
-    public void AModulateMaterialIsNotOpaque()
+    public void VmtPrimaryTexture_AModulateMaterial_IsNotOpaque()
     {
         // **The exact material that made a capture point a dark slab**, reduced to the keys that
         // decide it. Modulate declares neither $translucent nor $additive and its $alpha is a
@@ -110,7 +110,7 @@ public sealed class VmtPrimaryTextureTests
     }
 
     [Test]
-    public void AModulateMaterialWithoutModTwiceDoesNotDouble()
+    public void VmtPrimaryTexture_AModulateWithoutModTwice_DoesNotDouble()
     {
         // $mod2x is what lets a modulating material brighten as well as darken, so the two want
         // different blend factors and cannot be collapsed into one flag.

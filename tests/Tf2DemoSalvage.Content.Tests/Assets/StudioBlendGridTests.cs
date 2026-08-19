@@ -56,7 +56,7 @@ public sealed class StudioBlendGridTests
     }
 
     [Test]
-    public void BackpedallingLandsAtTheBottom()
+    public void BlendGrid_Backpedalling_LandsAtTheBottom()
     {
         // **The control for the one above.** A mapping that ignored the value would answer the
         // same for both ends, and running backwards is exactly the case the owner reported.
@@ -91,7 +91,7 @@ public sealed class StudioBlendGridTests
     }
 
     [Test]
-    public void TheGridClampsRatherThanRunningOff()
+    public void BlendGrid_OutOfRangeInput_IsClamped()
     {
         // Valve's mstudioseqdesc_t::anim clamps both coordinates, which matters because the blend
         // arithmetic reaches index + 1 at the top of each axis by design.
@@ -102,7 +102,7 @@ public sealed class StudioBlendGridTests
     }
 
     [Test]
-    public void TheThreeWeightsAlwaysSumToOne()
+    public void BlendGrid_TheThreeWeights_AlwaysSumToOne()
     {
         // **The property that has to hold everywhere, so it is checked everywhere.** A blend whose
         // weights do not sum to one scales the whole pose: bones shrink toward the origin, which
@@ -131,7 +131,7 @@ public sealed class StudioBlendGridTests
     }
 
     [Test]
-    public void AtACornerTheWholeWeightGoesToThatCorner()
+    public void BlendGrid_AtACorner_TheWholeWeightGoesToThatCorner()
     {
         // The decisive case: at (0,0) of an even cell the point IS the first corner, so nothing
         // else may contribute. A blend that spread weight here would mix in a neighbouring

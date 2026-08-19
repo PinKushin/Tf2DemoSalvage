@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Core.Tests.Primitives;
 public sealed class DecodeProgressTests
 {
     [Test]
-    public void AnAdvancingPositionIsAccepted()
+    public void DecodeProgress_AnAdvancingPosition_IsAccepted()
     {
         DecodeProgress progress = new("test", 0);
 
@@ -52,7 +52,7 @@ public sealed class DecodeProgressTests
     }
 
     [Test]
-    public void TheErrorNamesWhatStalled()
+    public void DecodeProgress_TheError_NamesWhatStalled()
     {
         // A decoder that stalls without saying which loop it was leaves the reader to guess
         // between every buffer-walking loop in the parser.
@@ -66,7 +66,7 @@ public sealed class DecodeProgressTests
     }
 
     [Test]
-    public void EachAcceptedPositionBecomesTheNewFloor()
+    public void DecodeProgress_EachAcceptedPosition_BecomesTheNewFloor()
     {
         // The check is against the previous iteration, not against the start. Comparing to the
         // start would accept a loop that advanced once and then stalled forever after.

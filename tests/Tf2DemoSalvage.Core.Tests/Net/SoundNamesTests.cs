@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 public sealed class SoundNamesTests
 {
     [Test]
-    public void AnIndexResolvesToThePrecachedPath()
+    public void SoundNames_AnIndex_ResolvesToThePrecachedPath()
     {
         SoundNames names = new();
         names.Add(Table(
@@ -53,7 +53,7 @@ public sealed class SoundNamesTests
     }
 
     [Test]
-    public void OnlyTheSoundTableIsUsed()
+    public void SoundNames_OnlyTheSoundTable_IsUsed()
     {
         // Every string table flows past the same reader. Taking entries from the wrong one would
         // resolve sound indices to model or decal paths - a confident, plausible, wrong answer.
@@ -69,7 +69,7 @@ public sealed class SoundNamesTests
     }
 
     [Test]
-    public void AnUnknownIndexIsUnresolvedRatherThanGuessed()
+    public void SoundNames_AnUnknownIndex_IsUnresolvedNotGuessed()
     {
         SoundNames names = new();
         names.Add(Table((1, "player/footsteps/concrete1.wav")));
@@ -79,7 +79,7 @@ public sealed class SoundNamesTests
     }
 
     [Test]
-    public void AnEmptyOrUndecodedTableResolvesNothing()
+    public void SoundNames_AnEmptyOrUndecodedTable_ResolvesNothing()
     {
         // A compressed table this project cannot read yields no entries and a reason. That must
         // leave indices unresolved rather than throwing: the rest of the demo still decodes, and
@@ -96,7 +96,7 @@ public sealed class SoundNamesTests
     }
 
     [Test]
-    public void AnEntryWithNoTextIsNotAName()
+    public void SoundNames_AnEntryWithNoText_IsNotAName()
     {
         // Table entries may carry user data and no string at all. Those are real entries and
         // must not resolve to an empty name that reads like a sound called "".

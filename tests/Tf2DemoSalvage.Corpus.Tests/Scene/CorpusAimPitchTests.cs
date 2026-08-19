@@ -26,7 +26,7 @@ public sealed class CorpusAimPitchTests
     private const string MovementDemo = "movement-test-stv-cp_process";
 
     [Test]
-    public void ARecordingCarriesWhereEachPlayerIsLooking()
+    public void AimPitch_ARecording_CarriesWhereEachPlayerLooks()
     {
         string path = Corpus.Demo(MovementDemo);
 

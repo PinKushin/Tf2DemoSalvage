@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class ToolMaterialFlagsProbe
 {
     [Test]
-    public void ReportFlagsForEveryToolMaterial()
+    public void ToolMaterialFlags_EveryToolMaterial_IsReported()
     {
         string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
         string custom = "C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/maps/cp_process_f12.bsp";

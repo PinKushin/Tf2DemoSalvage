@@ -115,7 +115,7 @@ public sealed class MoveYawConformanceTests
     }
 
     [Test]
-    public void ADiagonalIsPushedOutToTheCorner()
+    public void MoveYaw_ADiagonal_IsPushedOutToTheCorner()
     {
         // cos 45 = -sin 45 magnitude = 0.7071, and MAX of the two is 0.7071, so both become ±1.
         // Without the push-out this is (0.707, -0.707), which lands mid-cell and never reaches the

@@ -105,7 +105,7 @@ public sealed class EntityAssemblyTests
     }
 
     [Test]
-    public void TheRenderedTextNamesTheProperties()
+    public void EntityAssembly_TheRenderedText_NamesTheProperties()
     {
         // A viewer's reason for this format existing. Asserted on the exact values, not on
         // "contains something": a renderer that emitted every property with the same value would

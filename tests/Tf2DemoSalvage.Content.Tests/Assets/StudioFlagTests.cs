@@ -69,7 +69,7 @@ public sealed class StudioFlagTests
     }
 
     [Test]
-    public void TheTwoRotationPrecisionsAreDistinctBits()
+    public void StudioFlags_TheTwoRotationPrecisions_AreDistinctBits()
     {
         // **Stated separately because they mean the same thing at different widths.** Both say "a
         // raw quaternion follows"; only their values say how many bytes it is. Anything that folded
@@ -82,7 +82,7 @@ public sealed class StudioFlagTests
     }
 
     [Test]
-    public void TheAnimationFlagsAreSingleDistinctBitsWithinOneByte()
+    public void StudioFlags_TheAnimationFlags_AreSingleDistinctBitsInOneByte()
     {
         // The control. These six live in a byte-wide field in mstudioanim_t, so a value that needed
         // more than eight bits would mean the field itself was misread — and two sharing a bit

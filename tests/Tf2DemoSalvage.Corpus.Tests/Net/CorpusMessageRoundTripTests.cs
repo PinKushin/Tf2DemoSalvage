@@ -25,7 +25,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// - <see cref="EveryWritableMessage_ReproducesItsOwnBitsExactly"/> is a **gate**. Any message the
 ///   writer claims it can write has to come back identical, on every demo in the corpus. It fails
 ///   naming the demo, the message type and the bit offset.
-/// - <see cref="ReportHowMuchOfThePayloadRoundTrips"/> reports the share of each demo's payload
+/// - <see cref="PayloadRoundTrip_TheCorpus_IsReported"/> reports the share of each demo's payload
 ///   that is reproducible, and now that the share is 100% on every demo held here, it also holds
 ///   it there.
 ///
@@ -93,7 +93,7 @@ public sealed class CorpusMessageRoundTripTests
     }
 
     [Test]
-    public void ReportHowMuchOfThePayloadRoundTrips()
+    public void PayloadRoundTrip_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.Files())
         {

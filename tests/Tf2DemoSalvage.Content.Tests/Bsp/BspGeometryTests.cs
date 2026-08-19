@@ -194,7 +194,7 @@ public sealed class BspGeometryTests
         });
 
     [Test]
-    public void AFaceBecomesAPolygonOfItsVertices()
+    public void BspGeometry_AFace_BecomesAPolygonOfItsVertices()
     {
         BspGeometry geometry = BspGeometry.Read(Square());
 
@@ -206,7 +206,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void ANegativeSurfedgeReadsItsEdgeBackwards()
+    public void BspGeometry_ANegativeSurfedge_ReadsItsEdgeBackwards()
     {
         // The sign convention: a positive surfedge reads the edge's first vertex then its second,
         // a negative one reads the reverse. Ignoring the sign gives a polygon whose points jump
@@ -231,7 +231,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AFaceCarriesTheNormalOfItsPlane()
+    public void BspGeometry_AFace_CarriesTheNormalOfItsPlane()
     {
         BspGeometry geometry = BspGeometry.Read(Square(normalZ: 1f));
 
@@ -239,7 +239,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void SideFlippedFacesUseTheOppositeNormal()
+    public void BspGeometry_ASideFlippedFace_UsesTheOppositeNormal()
     {
         // A face on the back side of its plane has side = 1 and faces the other way. Ignoring
         // that makes half the world's ceilings look like floors - which is precisely the
@@ -259,7 +259,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AFaceIndexingPastTheSurfedgeLumpIsRejected()
+    public void BspGeometry_AFacePastTheSurfedgeLump_IsRejected()
     {
         // Every cross-lump index is a number from an untrusted file. D32's rule is to bounds
         // check at USE, even though the lump it came from already validated.
@@ -276,7 +276,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AnEdgeIndexingPastTheVertexLumpIsRejected()
+    public void BspGeometry_AnEdgePastTheVertexLump_IsRejected()
     {
         byte[] file = BuildBsp(new Dictionary<int, byte[]>
         {
@@ -294,7 +294,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AFaceNamingAPlaneThatDoesNotExistIsRejected()
+    public void BspGeometry_AFaceNamingAMissingPlane_IsRejected()
     {
         byte[] file = BuildBsp(new Dictionary<int, byte[]>
         {
@@ -309,7 +309,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void CeilingsAreDroppedFromTheOverheadView()
+    public void BspGeometry_Ceilings_AreDroppedFromTheOverheadView()
     {
         // What was asked for: freecam looking down, without the ceilings that occlude when zoomed
         // out. A ceiling's normal points down into the room, so it is exactly the downward set.
@@ -321,7 +321,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void WallsSurviveTheOverheadFilter()
+    public void BspGeometry_Walls_SurviveTheOverheadFilter()
     {
         // Near-vertical faces give a top-down view its room outlines, so the filter must drop
         // only what points downward rather than everything that is not a floor.
@@ -336,7 +336,7 @@ public sealed class BspGeometryTests
     [TestCase(SurfaceProperties.Trigger)]
     [TestCase(SurfaceProperties.Hint)]
     [TestCase(SurfaceProperties.Skip)]
-    public void SkyAndToolSurfacesAreLeftOutOfTheOverheadView(SurfaceProperties flags)
+    public void BspGeometry_SkyAndToolSurfaces_AreLeftOutOfTheOverheadView(SurfaceProperties flags)
     {
         // The skybox would cover the map, and tool surfaces are invisible in game - drawn here,
         // trigger volumes and nodraw brushes would appear as solid boxes sitting on top of it.
@@ -347,7 +347,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AnOrdinarySurfaceIsKept()
+    public void BspGeometry_AnOrdinarySurface_IsKept()
     {
         // The control. Without it a filter that dropped everything would pass all six cases
         // above, and an empty map looks exactly like a correctly filtered one.
@@ -357,7 +357,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void FlagsThatAreNotAboutVisibilityDoNotHideASurface()
+    public void BspGeometry_NonVisibilityFlags_DoNotHideASurface()
     {
         // Translucent glass and bump-lit walls are ordinary visible geometry. A filter written as
         // "keep only flagless faces" would drop them, and half the map with them.
@@ -368,7 +368,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AFaceWithNoTexinfoIsKeptRatherThanRejected()
+    public void BspGeometry_AFaceWithNoTexinfo_IsKept()
     {
         // A texinfo index of -1 is legal and means the face has no texture information. It is not
         // a claim about anything, so rejecting the file over it would lose a map to one odd face.
@@ -386,7 +386,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void AFaceNamingATexinfoThatDoesNotExistIsRejected()
+    public void BspGeometry_AFaceNamingAMissingTexinfo_IsRejected()
     {
         byte[] file = BuildBsp(new Dictionary<int, byte[]>
         {
@@ -402,7 +402,7 @@ public sealed class BspGeometryTests
     }
 
     [Test]
-    public void ADegenerateFaceIsSkippedRatherThanFatal()
+    public void BspGeometry_ADegenerateFace_IsSkipped()
     {
         // Real maps contain faces with no edges. One should not cost the rest of the map.
         byte[] file = BuildBsp(new Dictionary<int, byte[]>

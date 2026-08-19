@@ -33,7 +33,7 @@ public sealed class CorpusActiveWeaponTests
     private const string MovementDemo = "movement-test-pov-cp_process";
 
     [Test]
-    public void APlayerReportsTheWeaponTheyAreHolding()
+    public void ActiveWeapon_APlayer_ReportsTheWeaponHeld()
     {
         string path = Corpus.Demo(MovementDemo);
 
@@ -69,7 +69,7 @@ public sealed class CorpusActiveWeaponTests
     }
 
     [Test]
-    public void TheWeaponIsAnEntityThatExists()
+    public void ActiveWeapon_TheHandle_ResolvesToAnExistingEntity()
     {
         // **The half a class name cannot check.** A handle decoded with the mask applied before the
         // invalid test yields 2047 — a legal-looking slot naming whatever occupies it — so a name

@@ -37,7 +37,7 @@ public sealed class SkinOverrideConformanceTests
     }
 
     [Test]
-    public void APlayersSkinIsComputedFromTeamRatherThanReceived()
+    public void SkinOverride_APlayersSkin_IsComputedFromTeam()
     {
         // The passing half, and the reason the MainForm hardcode stays. Pinned so that a future
         // reader who notices "we retain m_nSkin now, why is this derived?" finds the answer already
@@ -49,7 +49,7 @@ public sealed class SkinOverrideConformanceTests
     }
 
     [Test]
-    public void TheZombieOverrideRewritesTheSkinPerClass()
+    public void SkinOverride_TheZombieOverride_RewritesTheSkinPerClass()
     {
         // c_tf_player.cpp:725 — AdjustSkinIndexForZombie( m_iClass, m_nSkin ), applied straight
         // after the team assignment and gated on BRenderAsZombie().
@@ -69,7 +69,7 @@ public sealed class SkinOverrideConformanceTests
     }
 
     [Test]
-    public void TheGoldenWrenchRagdollIsRecognisedByTwoRoutesForOldDemos()
+    public void SkinOverride_TheGoldenWrenchRagdoll_IsRecognisedByTwoRoutes()
     {
         // The gold ragdoll check, and Valve's comment on it is the finding:
         //

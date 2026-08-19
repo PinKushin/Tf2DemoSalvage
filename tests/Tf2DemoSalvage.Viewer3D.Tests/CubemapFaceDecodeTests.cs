@@ -26,7 +26,7 @@ public sealed class CubemapFaceDecodeTests
     private const string MapName = "cp_process_final";
 
     [Test]
-    public void ABakedCubemapReportsSevenFaces()
+    public void CubemapFaces_ABakedCubemap_ReportsSeven()
     {
         VtfTexture texture = VtfTexture.Decode(FirstCubemap());
 
@@ -35,7 +35,7 @@ public sealed class CubemapFaceDecodeTests
     }
 
     [Test]
-    public void EveryFaceOfEveryBakedCubemapDecodes()
+    public void CubemapFaces_EveryBakedCubemap_DecodesEveryFace()
     {
         // A face that lands outside the file throws, so this is a real bounds check across 43 files
         // and 301 faces rather than a smoke test — and it is the cheapest way to catch a stride
@@ -60,7 +60,7 @@ public sealed class CubemapFaceDecodeTests
     }
 
     [Test]
-    public void TheReadersLastFaceReachesTheLastByteOfTheFile()
+    public void CubemapFaces_TheLastFace_ReachesTheLastByte()
     {
         // **The one that is sensitive to the reader's own arithmetic**, and the reason the test
         // below it is not enough.
@@ -87,7 +87,7 @@ public sealed class CubemapFaceDecodeTests
     }
 
     [Test]
-    public void TheFormatItselfPutsTheSeventhFaceAtTheEndOfTheFile()
+    public void CubemapFaces_TheSeventhFace_SitsAtTheEndOfTheFile()
     {
         // The same boundary computed from the header, independently of the reader. This checks the
         // UNDERSTANDING of the format rather than the implementation of it — worth having, and not
@@ -113,7 +113,7 @@ public sealed class CubemapFaceDecodeTests
     }
 
     [Test]
-    public void TheSixCubeFacesAreNotAllTheSameImage()
+    public void CubemapFaces_TheSixCubeFaces_DifferFromEachOther()
     {
         // **The control against a reader that ignores the face argument entirely.** Returning face 0
         // for every request passes every bounds check and every size assertion above.
@@ -140,7 +140,7 @@ public sealed class CubemapFaceDecodeTests
     }
 
     [Test]
-    public void TheSpheremapFaceIsNotOneOfTheSix()
+    public void CubemapFaces_TheSpheremap_IsNotOneOfTheSix()
     {
         // Face 6 is a fallback spheremap, a different projection of the same room rather than a
         // seventh direction. It has to be dropped before upload, and this says it is a distinct

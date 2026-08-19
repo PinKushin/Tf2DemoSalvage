@@ -19,7 +19,7 @@ public sealed class ClassScriptProbe
 {
     [Test]
     [Explicit("Diagnostic. Run by hand when the class scripts move.")]
-    public void WhereAreTheClassScripts()
+    public void ClassScripts_TheirLocation_IsReported()
     {
         string tf = Environment.GetEnvironmentVariable("TF2_FOLDER")
             ?? @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf";

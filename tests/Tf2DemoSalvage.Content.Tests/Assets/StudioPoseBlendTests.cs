@@ -50,7 +50,7 @@ public sealed class StudioPoseBlendTests
     ];
 
     [Test]
-    public void AtZeroTheResultIsTheFirstPose()
+    public void PoseBlend_AtZero_IsTheFirstPose()
     {
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
             TwoBones, [Pose(0, (1f, 2f, 3f))], [Pose(0, (100f, 200f, 300f))], 0f);
@@ -59,7 +59,7 @@ public sealed class StudioPoseBlendTests
     }
 
     [Test]
-    public void AtOneTheResultIsTheSecondPose()
+    public void PoseBlend_AtOne_IsTheSecondPose()
     {
         // The other end, because a weight applied to the wrong operand passes at zero.
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
@@ -69,7 +69,7 @@ public sealed class StudioPoseBlendTests
     }
 
     [Test]
-    public void AtAQuarterThePositionIsThreeQuartersOfTheFirst()
+    public void PoseBlend_AtAQuarter_IsThreeQuartersOfTheFirst()
     {
         // **Not a half**, deliberately: at 0.5 a transposed weight gives the same answer, so the
         // test could not tell `s` from `1 - s`. At 0.25 the two differ.
@@ -82,7 +82,7 @@ public sealed class StudioPoseBlendTests
     }
 
     [Test]
-    public void EveryBoneIsNamedEvenWhenNeitherPoseMovedIt()
+    public void PoseBlend_ABoneNeitherPoseMoved_IsStillNamed()
     {
         // **The expansion, which is why the result can be blended again.** Neither pose mentions
         // bone 1, so it must come back at its REST position rather than being absent or zero -
@@ -99,7 +99,7 @@ public sealed class StudioPoseBlendTests
     }
 
     [Test]
-    public void ABoneOnlyTheSecondPoseMovesStillBlendsFromItsRest()
+    public void PoseBlend_ABoneOnlyOnePoseMoves_BlendsFromItsRest()
     {
         // The asymmetric case: bone 1 is moved by one pose and not the other, so its result is the
         // rest position blended toward the moved one. Half way from (10,20,30) to (20,20,30) is
@@ -112,7 +112,7 @@ public sealed class StudioPoseBlendTests
     }
 
     [Test]
-    public void TheResultIsAlwaysANormalisedRotation()
+    public void PoseBlend_TheResult_IsAlwaysANormalisedRotation()
     {
         // A linear mix of two unit quaternions is NOT unit, so the normalise at the end is
         // load-bearing: an un-normalised rotation scales the bone it drives.
@@ -128,7 +128,7 @@ public sealed class StudioPoseBlendTests
     }
 
     [Test]
-    public void AnOppositelySignedRotationIsAlignedBeforeBlending()
+    public void PoseBlend_AnOppositelySignedRotation_IsAlignedFirst()
     {
         // **The discriminator, and the one an implementation actually gets wrong.** q and -q name
         // the SAME rotation. Blending toward -q without flipping it first travels the long way

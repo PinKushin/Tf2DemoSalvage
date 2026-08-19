@@ -25,7 +25,7 @@ public sealed class UserMessageNamesTests
     private const int Modern = 24;
 
     [Test]
-    public void TheStableHeadIsNamedAtEveryProtocol()
+    public void UserMessageNames_TheStableHead_IsNamedAtEveryProtocol()
     {
         // Confirmed at protocols 11, 14, 15, 16 and 24 with matching body widths, and then
         // confirmed a second time against all six binaries, which agree entry for entry.
@@ -36,7 +36,7 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
-    public void TheLaunchTableEndsAtPlayerStatsUpdate()
+    public void UserMessageNames_TheLaunchTable_EndsAtPlayerStatsUpdate()
     {
         // The 2007 server and client both register exactly 29 messages, ending here. That the
         // number matches the previously-derived "last stable id" is a genuine agreement: one
@@ -51,7 +51,7 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
-    public void TheTailIsNamedFromTheEraThatRecordedIt()
+    public void UserMessageNames_TheTail_IsNamedFromTheRecordingEra()
     {
         // The four ids that were unnamed until the binaries were read. CheapBreakModel moves
         // because messages were inserted before it; its 85-bit body identified it long before
@@ -62,7 +62,7 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
-    public void TheHapticsBlockFollowsTheGameTable()
+    public void UserMessageNames_TheHapticsBlock_FollowsTheGameTable()
     {
         // The finding that resolved three ids at once. Each sits exactly four past the end of
         // its own era's table - 40, 48, 78 - because HapSetDrag is the fourth of six haptics
@@ -79,7 +79,7 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
-    public void EachEraOmitsWhatItsBuildHadNotShippedYet()
+    public void UserMessageNames_EachEra_OmitsWhatItsBuildHadNotShipped()
     {
         // MapStatsUpdate is absent from the 2009 and 2011 clients, so id 29 is PlayerIgnited in
         // both and MapStatsUpdate in the modern table. This is the mechanism behind every shift
@@ -94,7 +94,7 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
-    public void TheEraTablesEndWhereTheirBuildsDo()
+    public void UserMessageNames_TheEraTables_EndWhereTheirBuildsDo()
     {
         // Lengths are the era fingerprint: 29 / 41 / 49 / 79 game messages, each plus six
         // haptics from 2009 on. An off-by-one anywhere in the derivation moves one of these.
@@ -108,7 +108,7 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
-    public void AnUnspecimenedProtocolIsNamedOnlyWhereEveryEraAgrees()
+    public void UserMessageNames_AnUnspecimenedProtocol_IsNamedOnlyWhereErasAgree()
     {
         // Protocols 17-23 have no surviving client and no demo, so the only defensible table is
         // the head every measured era shares. Naming id 40 here would be a guess between two

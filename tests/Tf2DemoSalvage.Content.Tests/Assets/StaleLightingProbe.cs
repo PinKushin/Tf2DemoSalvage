@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class StaleLightingProbe
 {
     [Test]
-    public void ReportPropsWhoseBakedLightingDoesNotMatchTheirModel()
+    public void StaleLighting_PropsMismatchingTheirModel_AreReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
         string mapPath = Path.Combine(tf, "maps", "cp_process_final.bsp");

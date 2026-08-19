@@ -64,7 +64,7 @@ public sealed class VertexFileStructTests
     }
 
     [Test]
-    public void TheTopologyVariantsAreEightBytesLarger()
+    public void VertexFileStructs_TheTopologyVariants_AreEightBytesLarger()
     {
         // **The gap this suite cannot close, asserted for what it can.** Later builds add
         // numTopologyIndices and topologyOffset to both strip structures under a define the
@@ -78,7 +78,7 @@ public sealed class VertexFileStructTests
     }
 
     [Test]
-    public void ThePackingIsWhatMakesTheseSizesOdd()
+    public void VertexFileStructs_ThePacking_ExplainsTheOddSizes()
     {
         // **The control for the pack(1) argument, and it is a real distinction.** StripHeader_t ends
         // with a short and a byte among ints; packed it is 27, naturally aligned it is 28. If the
@@ -95,7 +95,7 @@ public sealed class VertexFileStructTests
     }
 
     [Test]
-    public void TheVtxVersionIsTheOneTheReaderTargets()
+    public void VertexFileStructs_TheVtxVersion_IsTheOneTheReaderTargets()
     {
         SourceSdk.Constants(VtxFile)["OPTIMIZED_MODEL_FILE_VERSION"]
             .ShouldBe(VertexFileLayout.VtxVersion);
@@ -112,7 +112,7 @@ public sealed class VertexFileStructTests
     }
 
     [Test]
-    public void TheVvdVersionAndLodCountAreTheEnginesOwn()
+    public void VertexFileStructs_TheVvdVersionAndLodCount_AreTheEngines()
     {
         IReadOnlyDictionary<string, int> studio = SourceSdk.Constants(VvdFile);
 

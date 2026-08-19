@@ -54,7 +54,7 @@ public sealed class EventAssemblyTests
         ]);
 
     [Test]
-    public void AnEventListRoundTripsEveryFieldTypeInOrder()
+    public void EventAssembly_AnEventList_RoundTripsEveryFieldTypeInOrder()
     {
         GameEventListMessage list = new([EveryType]);
 
@@ -75,7 +75,7 @@ public sealed class EventAssemblyTests
     }
 
     [Test]
-    public void SeveralDefinitionsKeepTheirOwnIdsAndFields()
+    public void EventAssembly_SeveralDefinitions_KeepTheirOwnIdsAndFields()
     {
         // One definition round-trips even if the id is ignored and the position used instead, so
         // there are three with ids that are deliberately not their positions.
@@ -97,7 +97,7 @@ public sealed class EventAssemblyTests
     }
 
     [Test]
-    public void ADefinitionWithNoFieldsSurvives()
+    public void EventAssembly_ADefinitionWithNoFields_Survives()
     {
         // An event with no payload is real - several round-state events carry nothing - and an
         // empty block is exactly what a block parser gets wrong.
@@ -111,7 +111,7 @@ public sealed class EventAssemblyTests
     }
 
     [Test]
-    public void AFiredEventRoundTripsItsValues()
+    public void EventAssembly_AFiredEvent_RoundTripsItsValues()
     {
         NetDecodeState state = NewState();
         state.AddEventDefinitions([EveryType]);
@@ -143,7 +143,7 @@ public sealed class EventAssemblyTests
     }
 
     [Test]
-    public void ANegativeShortAndAFalseBoolSurvive()
+    public void EventAssembly_ANegativeShortAndFalseBool_Survive()
     {
         // The controls for the test above. A bool asserted only as true passes against a writer
         // that hardcodes it, and a short is where a sign is lost silently.
@@ -170,7 +170,7 @@ public sealed class EventAssemblyTests
     }
 
     [Test]
-    public void AStringValueSurvivesQuotesAndNonAscii()
+    public void EventAssembly_AStringValue_SurvivesQuotesAndNonAscii()
     {
         NetDecodeState state = NewState();
         state.AddEventDefinitions(

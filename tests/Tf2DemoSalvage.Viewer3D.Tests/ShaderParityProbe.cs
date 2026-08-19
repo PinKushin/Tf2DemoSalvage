@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class ShaderParityProbe
 {
     [Test]
-    public void WhatDoTheMapsMaterialsAskFor()
+    public void ShaderParameters_TheMapsMaterials_AreReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
         string mapPath = Path.Combine(

@@ -23,7 +23,7 @@ public sealed class UnlitSurfaceProbe
 {
     [Test]
     [Explicit("Diagnostic. Measures how many surfaces carry no light at all.")]
-    public void HowMuchOfTheMapIsNeverLit()
+    public void UnlitSurfaces_TheirShareOfTheMap_IsReported()
     {
         string map = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

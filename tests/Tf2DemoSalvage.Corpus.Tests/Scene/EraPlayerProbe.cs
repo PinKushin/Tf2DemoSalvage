@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class EraPlayerProbe
 {
     [Test]
-    public void WhereDoTheOtherPlayersGo()
+    public void OtherPlayers_TheCorpus_AreReported()
     {
         foreach (string path in Corpus.FilesWithSchema())
         {
