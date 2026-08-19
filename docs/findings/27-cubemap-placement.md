@@ -285,14 +285,61 @@ CUBEMAP_FACE_FRONT,	// NOTE: This face is in the -y direction!?!?
 
 The punctuation is Valve's. Not resolved here; recorded so it is not rediscovered.
 
+## Face iteration, and a test that could not fail
+
+Reading one face is two changes: the face count multiplies every mip's stride, and it selects within
+the chosen mip.
+
+```csharp
+for (int smaller = mipCount - 1; smaller > level; smaller--)
+    at += SizeOf(format, MipSize(width, smaller), MipSize(height, smaller)) * frames * faces;
+
+at += face * bytes;
+```
+
+The `* faces` on the mip skip is the whole difficulty. Without it every offset on a 32×32 cubemap
+lands **1,104 bytes early** — and that is the interesting number, because 1,104 bytes early is still
+*inside the file*. The data decodes. It yields six different-looking images. Nothing throws.
+
+**Five tests were written against real baked cubemaps and all five passed with that bug applied.**
+301 faces decoded across 43 files, every one the right size, six distinct images per cubemap, the
+spheremap distinct from all of them — every assertion satisfied by a reader reading the wrong bytes.
+
+The one that looked strongest was the worst of them:
+
+> **The decisive assertion is that the last face ends exactly at the end of the file.** Any error in
+> the mip stride, the face stride, or the face count moves that boundary.
+
+True, and useless, because it computed the boundary *from the header* and never asked the reader
+where it had read. It tests the understanding of the format, not the implementation of it. That is
+the *wrong instrument* case: measuring a faithful proxy for something that is not the variable.
+
+What works is putting the reader on the boundary and then moving it:
+
+```csharp
+Should.NotThrow(() => VtfTexture.Decode(file, face: 6));
+
+Should.Throw<InvalidDataException>(() => VtfTexture.Decode(file[..^1], face: 6));
+```
+
+If the last face genuinely ends at the last byte, removing one byte makes it unreadable. If the
+offsets are short, the truncated file still satisfies them. The pair pins the boundary *through* the
+code. Under the sabotage it is the only test in the file that goes red.
+
+Worth stating generally, because the instinct on finding an insensitive test is to strengthen the
+assertion and that was not the fix here: **an assertion computed alongside the code rather than
+through it can only ever check your arithmetic against itself.** The independent computation is
+still worth keeping — it catches a misunderstanding of the format — but it is a different
+experiment, and it is now named as one.
+
 ## Still open
 
 The lump is read, the assignment turns out to be free, and the pixel format turns out to need no new
 decoder. What remains is the picture:
 
-1. **Seven faces to six**, discarding the spheremap, with Valve's `+y`/`−y` note above resolved
-   against D3D's face order. Reading the LDR bake, this is face iteration over an existing DXT1
-   path.
+1. **The upload** — six of the seven faces into a D3D `TextureCube`, discarding the spheremap, with
+   Valve's `+y`/`−y` note above resolved against D3D's `+X −X +Y −Y +Z −Z` order. Face *decoding*
+   is done.
 2. **The shading**, specified by `EnvmapConformanceTests` — six of its eight assertions still
    skipped.
 
