@@ -107,7 +107,7 @@ public sealed class CorpusPlayerTests
     }
 
     [Test]
-    public void ReportRosters()
+    public void Rosters_TheCorpus_AreReported()
     {
         foreach (string path in Corpus.Files())
         {

@@ -84,7 +84,7 @@ public sealed class CorpusEntityDecodeTests
     }
 
     [Test]
-    public void EveryPropertyBelongsToTheClassItWasReadFor()
+    public void EntityDecode_EveryProperty_BelongsToItsClass()
     {
         // Class names arrive from dem_datatables and entity data from the bit stream -
         // independent paths. That they agree across hundreds of thousands of properties is the
@@ -280,7 +280,7 @@ public sealed class CorpusEntityDecodeTests
     }
 
     [Test]
-    public void ReportWhatTheEntitiesSay()
+    public void EntityProperties_TheCorpus_AreReported()
     {
         foreach (string path in SourceTvDemos())
         {

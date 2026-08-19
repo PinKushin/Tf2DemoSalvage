@@ -26,7 +26,7 @@ public sealed class CorpusJumpPhaseTests
     private const string MovementDemo = "movement-test-stv-cp_process";
 
     [Test]
-    public void AJumpIsSeenInBothOfItsPhases()
+    public void JumpPhase_ARealJump_IsSeenInBothPhases()
     {
         string path = Corpus.Demo(MovementDemo);
 
@@ -66,7 +66,7 @@ public sealed class CorpusJumpPhaseTests
     }
 
     [Test]
-    public void ARocketJumpAirWalksAndAnOrdinaryJumpDoesNot()
+    public void JumpPhase_RocketJumpVersusOrdinary_DiffersInAirWalk()
     {
         // **The threshold is chosen to separate exactly these two**, which is why both halves are
         // asserted on one recording. An ordinary TF2 jump leaves the ground at 268 units a second

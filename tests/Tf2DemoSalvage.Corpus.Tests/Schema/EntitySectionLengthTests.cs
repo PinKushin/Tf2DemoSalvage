@@ -27,7 +27,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 public sealed class EntitySectionLengthTests
 {
     [Test]
-    public void TheEntitySectionEncodesToExactlyWhatItDecodedFrom()
+    public void EntitySection_Encode_ReproducesWhatItDecodedFrom()
     {
         Dictionary<int, int> deltas = [];
         long snapshots = 0;

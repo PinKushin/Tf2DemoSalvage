@@ -109,7 +109,7 @@ public sealed class CorpusTraceTests
     }
 
     [Test]
-    public void ReportTraceShape()
+    public void TraceShape_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.Files())
         {
@@ -125,7 +125,7 @@ public sealed class CorpusTraceTests
     }
 
     [Test]
-    public void NoMessageIsAnonymous()
+    public void Trace_EveryMessage_IsNamed()
     {
         // Phase 1's finish line for the message layer. Every message type the corpus contains is
         // now reported with its own fields; none falls back to SkippedMessage, whose rendering is
@@ -151,7 +151,7 @@ public sealed class CorpusTraceTests
     }
 
     [Test]
-    public void UserCommandsAndConsoleCommandsAreExpandedRatherThanCounted()
+    public void Trace_UserAndConsoleCommands_AreExpandedNotCounted()
     {
         // Both were bare one-line blocks until the payload behind them was decoded, which is a
         // failure mode worth naming: a trace listing `block dem_usercmd tick 72;` reads as
@@ -187,7 +187,7 @@ public sealed class CorpusTraceTests
     }
 
     [Test]
-    public void SoundsAreNamedFromTheSoundPrecacheTable()
+    public void Trace_Sounds_AreNamedFromThePrecacheTable()
     {
         // A svc_Sounds body carries an index into soundprecache, never a name, and the table is
         // per-server and per-map - so the number alone is the one part of the sound that does not

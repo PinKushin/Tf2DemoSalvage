@@ -66,7 +66,7 @@ public sealed class CorpusCodecCoverageTests
     };
 
     [Test]
-    public void ReportHowMuchOfTheCodecIsDeciphered()
+    public void CodecCoverage_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.Files())
         {

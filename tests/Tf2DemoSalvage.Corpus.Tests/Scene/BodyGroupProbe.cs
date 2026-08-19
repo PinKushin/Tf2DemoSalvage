@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class BodyGroupProbe
 {
     [Test]
-    public void WhatBodyNumbersDoesTheDemoCarry()
+    public void BodyNumbers_TheCorpus_AreReported()
     {
         string path = Corpus.Demo("cp_process");
 

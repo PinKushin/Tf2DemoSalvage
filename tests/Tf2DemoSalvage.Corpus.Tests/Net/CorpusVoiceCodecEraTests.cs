@@ -48,7 +48,7 @@ public sealed class CorpusVoiceCodecEraTests
     private const string Celt = "vaudio_celt";
 
     [Test]
-    public void EveryEraSpecimenFromTwoThousandSevenToThirteenDeclaresSpeex()
+    public void VoiceInit_EraSpecimens2007To2013_DeclareSpeex()
     {
         // Swept rather than sampled: the claim is about a RANGE holding without exception, so one
         // demo cannot support it and a gap in the middle would be the interesting result.
@@ -70,7 +70,7 @@ public sealed class CorpusVoiceCodecEraTests
     }
 
     [Test]
-    public void TheModernSpecimenDeclaresCeltInstead()
+    public void VoiceInit_TheModernSpecimen_DeclaresCelt()
     {
         // The control for the sweep above. Without it, "every demo says speex" is equally consistent
         // with a decoder that returns a constant, and the assertion would pass against a broken
@@ -81,7 +81,7 @@ public sealed class CorpusVoiceCodecEraTests
     }
 
     [Test]
-    public void TheCorpusStraddlesTheCodecChangeWithoutDatingIt()
+    public void VoiceInit_TheCorpus_StraddlesTheCodecChangeWithoutDatingIt()
     {
         // **What the corpus cannot say, said explicitly.** Both codecs are present, so the change is
         // bracketed — after the 2013 build and at or before z1800's date — and the corpus contains

@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class WeaponEntityProbe
 {
     [Test]
-    public void WhatDoWeaponEntitiesCarry()
+    public void WeaponEntities_TheCorpus_AreReported()
     {
         string path = Corpus.Demo("cp_process");
 

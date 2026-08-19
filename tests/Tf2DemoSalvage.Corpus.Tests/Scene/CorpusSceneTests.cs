@@ -95,7 +95,7 @@ public sealed class CorpusSceneTests
     }
 
     [Test]
-    public void BothExclusiveTablesAreExercisedSomewhereInTheCorpus()
+    public void Scene_BothExclusiveTables_AreExercisedInTheCorpus()
     {
         // This test began as an assertion that a point-of-view demo resolves through the local
         // table and a SourceTV demo through the non-local one. That rule is FALSE, and the corpus

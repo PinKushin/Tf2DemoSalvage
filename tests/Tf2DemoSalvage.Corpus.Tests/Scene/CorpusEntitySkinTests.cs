@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class CorpusEntitySkinTests
 {
     [Test]
-    public void ARealDemoCarriesMoreThanOneSkinIntoItsPoses()
+    public void Timeline_ARealDemo_CarriesMoreThanOneSkin()
     {
         string path = Corpus.Demo("stv-cp_foundry");
 

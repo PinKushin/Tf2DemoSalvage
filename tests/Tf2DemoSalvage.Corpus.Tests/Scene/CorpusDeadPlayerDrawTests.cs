@@ -50,7 +50,7 @@ public sealed class CorpusDeadPlayerDrawTests
     private const string MovementDemo = "movement-test-stv-cp_process";
 
     [Test]
-    public void NoDeadPlayerIsEverDrawn()
+    public void Timeline_DeadPlayers_AreNeverDrawn()
     {
         string path = Corpus.Demo(MovementDemo);
 

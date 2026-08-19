@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class CarriedItemProbe
 {
     [Test]
-    public void WhatDoesADemoSayAboutCarriedItems()
+    public void CarriedItems_TheCorpus_AreReported()
     {
         // **The modern demos, not the era ones.** A 2007 recording carries a handful of weapon
         // models and no cosmetics at all, because cosmetics did not exist yet — so measuring the

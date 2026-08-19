@@ -21,7 +21,7 @@ public sealed class CorpusPacketEntitiesTests
     private const int MaxEdicts = 2048;
 
     [Test]
-    public void EntityCountsStayWithinEngineLimits()
+    public void PacketEntities_EntityCounts_StayWithinEngineLimits()
     {
         foreach (string path in Corpus.Files())
         {
@@ -42,7 +42,7 @@ public sealed class CorpusPacketEntitiesTests
     }
 
     [Test]
-    public void AlmostEverySnapshotIsADelta()
+    public void PacketEntities_Snapshots_AreAlmostAlwaysDeltas()
     {
         // Delta compression has to start from a full snapshot somewhere, but we cannot yet
         // assert it is the *first* one we see: the true first snapshot arrives during signon,
@@ -61,7 +61,7 @@ public sealed class CorpusPacketEntitiesTests
     }
 
     [Test]
-    public void DeltasReferenceTicksThatHaveAlreadyHappened()
+    public void PacketEntities_DeltaFromTick_IsAlwaysInThePast()
     {
         // A delta against a future tick would mean the header is being misread.
         //
@@ -85,7 +85,7 @@ public sealed class CorpusPacketEntitiesTests
     }
 
     [Test]
-    public void ReportSnapshotShape()
+    public void SnapshotShape_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.Files())
         {

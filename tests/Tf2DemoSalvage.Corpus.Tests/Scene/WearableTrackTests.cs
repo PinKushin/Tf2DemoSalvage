@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class WearableTrackTests
 {
     [Test]
-    public void CosmeticsAreRecordedAndNameTheirWearer()
+    public void WearableTracks_Cosmetics_NameTheirWearer()
     {
         // **A modern match, not an era specimen.** The committed demos are the owner's own solo
         // recordings, so they carry no other players and no worn items at all — measured: 11 props
@@ -93,7 +93,7 @@ public sealed class WearableTrackTests
     }
 
     [Test]
-    public void OrdinaryPropsNameNoWearer()
+    public void WearableTracks_OrdinaryProps_NameNoWearer()
     {
         // **The bystander.** A health pack stands at its own origin, and a change that gave every
         // prop an owner would pass the test above while breaking the entire map.

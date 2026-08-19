@@ -88,7 +88,7 @@ public sealed class CorpusTempEntityTests
     }
 
     [Test]
-    public void ReportWhatTheEffectsAre()
+    public void TempEntityEffects_TheCorpus_AreReported()
     {
         // What a viewer would draw. Explosions, tracers and impacts all arrive as temp entities,
         // so this is the first look the project has had at any of them.
@@ -122,7 +122,7 @@ public sealed class CorpusTempEntityTests
     }
 
     [Test]
-    public void ReportPlayerAnimEvents()
+    public void PlayerAnimEvents_TheCorpus_AreReported()
     {
         // **The trigger for the gesture layer (B112 slice 3b), measured before any enum is ported.**
         // m_iEvent is a PlayerAnimEvent_t ordinal, and inserting an enum member shifts every value

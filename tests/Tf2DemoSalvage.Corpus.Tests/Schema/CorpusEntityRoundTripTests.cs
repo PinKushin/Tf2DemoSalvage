@@ -44,7 +44,7 @@ public sealed class CorpusEntityRoundTripTests
     private const int CommandLimit = 900;
 
     [Test]
-    public void ReportHowManyEntitySnapshotsReEncodeExactly()
+    public void EntityRoundTrip_TheCorpus_IsReported()
     {
         long snapshots = 0;
         long exact = 0;

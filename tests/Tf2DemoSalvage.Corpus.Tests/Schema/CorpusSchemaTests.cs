@@ -124,7 +124,7 @@ public sealed class CorpusSchemaTests
     }
 
     [Test]
-    public void ReportSchemaShape()
+    public void SchemaShape_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.FilesWithSchema())
         {
@@ -203,7 +203,7 @@ public sealed class CorpusSchemaTests
     }
 
     [Test]
-    public void ReportFlattenedShape()
+    public void FlattenedShape_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.FilesWithSchema())
         {
@@ -226,7 +226,7 @@ public sealed class CorpusSchemaTests
     }
 
     [Test]
-    public void ReportHowMuchOfTheSchemaIsDecodable()
+    public void SchemaDecodability_TheCorpus_IsReported()
     {
         // Quantifies what the coordinate encodings actually cost. SPROP_COORD_MP is
         // undocumented in VDC and unimplemented here, and this says how much of the schema

@@ -23,10 +23,10 @@ public sealed class CorpusNetMessageTests
     // Removed: an assertion that the first decodable message is always net_Tick. It held
     // only because packets opening with svc_GameEvent used to yield nothing at all; once
     // GameEvent was implemented they decoded, and some packets genuinely do lead with an
-    // event rather than a tick. MostPacketsBeginWithNetTick below carries the real claim.
+    // event rather than a tick. Packets_TheCorpus_MostlyBeginWithNetTick below carries the real claim.
 
     [Test]
-    public void MostPacketsBeginWithNetTick()
+    public void Packets_TheCorpus_MostlyBeginWithNetTick()
     {
         // A floor, not an equality: it guards against a regression that stops decoding
         // net_Tick entirely, without pinning a number that shifts as more messages land.
@@ -157,7 +157,7 @@ public sealed class CorpusNetMessageTests
             .Select(packet => (packet, FirstMessage(packet, protocol)));
 
     [Test]
-    public void ReportHowFarIntoPacketsWeCurrentlyGet()
+    public void PacketProgress_TheCorpus_IsReported()
     {
         foreach (string path in Corpus.Files())
         {

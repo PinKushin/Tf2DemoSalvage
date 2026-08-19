@@ -71,7 +71,7 @@ public sealed class CorpusUserCommandTests
     }
 
     [Test]
-    public void ViewAnglesAgreeWithTheCameraTrackTheEngineWroteSeparately()
+    public void UserCommand_ViewAngles_AgreeWithTheCameraTrack()
     {
         // **The one check here that does not depend on this project's reading of Valve's source.**
         // Everything else - the fixtures, the round trip - tests the codec against the same
@@ -129,7 +129,7 @@ public sealed class CorpusUserCommandTests
     }
 
     [Test]
-    public void ThePaddingBitsAreThePreviousCommandsRatherThanForeignMemory()
+    public void UserCommand_PaddingBits_AreThePreviousCommands()
     {
         // This test exists because the first account of the padding was wrong. It was written up
         // as uninitialised process memory - a leak - on the strength of the bits being non-zero
@@ -209,7 +209,7 @@ public sealed class CorpusUserCommandTests
         BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
     [Test]
-    public void PlayerInputVariesRatherThanSittingAtItsDefaults()
+    public void UserCommand_PlayerInput_VariesFromItsDefaults()
     {
         // The control for the test above. Re-encoding a payload whose every presence bit is zero
         // is nearly free, so a codec that silently produced empty commands would pass it on any
