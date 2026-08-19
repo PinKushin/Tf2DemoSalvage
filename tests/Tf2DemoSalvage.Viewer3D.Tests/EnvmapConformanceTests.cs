@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -65,10 +66,20 @@ public sealed class EnvmapConformanceTests
         // lump — MapAssetsTests records patch VMTs in the map's own pakfile named
         // `icarus/glasschrome001_544_1952_929.vmt`, and those three numbers are an origin.
         //
-        // 13 bytes, not 16: three ints and a byte, with no padding declared. A reader assuming a
-        // four-byte-aligned record walks off by three bytes per entry and every cubemap after the
-        // first lands somewhere arbitrary — plausible positions, no error.
+        // **16 bytes, not 13, and this comment said the opposite when it was written.** Three ints
+        // and a byte is thirteen bytes of content; C++ pads the struct to its own four-byte
+        // alignment and `SwapLumpToDisk<dcubemapsample_t>` (bsplib.cpp:4891) writes `sizeof`, so
+        // three unnamed bytes are on disk. `DECLARE_BYTESWAP_DATADESC()` adds none of it — it
+        // expands to static members and friend templates only (datamap.h:318).
+        //
+        // The wrong version is kept here rather than quietly replaced, because of how it failed:
+        // the reader built on it produced a FIRST cubemap at (0, 0, 608), entirely plausible, and a
+        // second at (-2147483648, -2147483642, 1879048200). Ten synthetic tests passed against it,
+        // because their fixtures were 13 bytes wide to match the same belief.
+        // docs/findings/27-cubemap-placement.md.
         RequireCubemapsRead();
+
+        BspCubemaps.Stride.ShouldBe(16, "sizeof(dcubemapsample_t), padding included");
 
         string source = Sdk("src/public/bspfile.h");
 

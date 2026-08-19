@@ -1,0 +1,140 @@
+# Cubemap placement — a struct that is bigger than its declaration
+
+`LUMP_CUBEMAPS` is the smallest lump this project has read: an array of four fields, three of them
+the same type. It took two wrong answers to get right, and the first one passed ten tests.
+
+## What the lump is (evidence: read from published source)
+
+`dcubemapsample_t`, `bspfile.h:992`, is the whole of it:
+
+```cpp
+struct dcubemapsample_t
+{
+    DECLARE_BYTESWAP_DATADESC();
+    int           origin[3];   // position of light snapped to the nearest integer
+                               // the filename for the vtf file is derived from the position
+    unsigned char size;        // 0 - default
+                               // otherwise, 1<<(size-1)
+};
+```
+
+Two of the four lines of comment are load-bearing, and both invert an obvious reading.
+
+**A cubemap has no name. The position is the name.** That comment is the specification for
+resolving `$envmap "env_cubemap"`: a material says "the nearest one", and the renderer has to find
+it by position and then construct a filename from those three integers.
+
+**`size` of 0 means the default, not a size.** `DEFAULT_CUBEMAP_SIZE` is 32 (`vbsp/cubemap.cpp:280`).
+Passing the escape value through the shift anyway is not subtly wrong — `1 << (0 - 1)` in C# is
+`1 << 31`, because the shift count is masked to five bits. The first run of this reader reported a
+cubemap of 1,073,741,824 pixels a side.
+
+## The stride, which is not 13
+
+Three 4-byte ints and one `unsigned char` is thirteen bytes of content, and thirteen is what this
+reader was written to. It is wrong. C++ pads a struct to its own alignment — four, from the ints —
+so `sizeof(dcubemapsample_t)` is **16**, with three unnamed bytes at the end, and the lump is
+written with
+
+```cpp
+SwapLumpToDisk<dcubemapsample_t>( LUMP_CUBEMAPS );    // bsplib.cpp:4891
+```
+
+which writes `sizeof` per element. The padding is on disk.
+
+The `DECLARE_BYTESWAP_DATADESC()` at the top of the struct is a red herring worth ruling out
+explicitly, since it looks like it might add a vtable or a member. It expands to
+`DECLARE_SIMPLE_DATADESC()`, which is `static` members and friend templates only
+(`datamap.h:318`) — no instance data.
+
+**The arithmetic settles it without any of that reasoning.** On `cp_process_final` the lump is 688
+bytes. 688 = 43 × 16 exactly, and is not divisible by 13. One division would have answered the
+question before a line of code was written — the same move as
+[length arithmetic identifies a layout](../memory/length-arithmetic-identifies-a-layout.md), not
+made here until after the fact.
+
+## How it failed, and why ten tests said it hadn't
+
+The failure mode is the interesting part. Reading a 16-byte record at 13 does not produce garbage
+from the start; it produces **one correct answer and then drift**, because each subsequent record is
+composed from the tail of one and the head of the next:
+
+```
+43 cubemaps on cp_process_final
+  (0, 0, 608)                                    <- correct
+  (-2147483648, -2147483642, 1879048200)         <- not
+```
+
+A first entry that is plainly plausible is exactly the shape that stops someone looking further.
+
+Ten synthetic tests passed against this. They covered the position, the sign, both ends of the size
+range, the escape value, an absent lump, and a truncated record. Several used three entries
+specifically to catch a stride error, and the file's own remarks said so — *"a stride bug is
+invisible at one"*.
+
+They could not catch it, because **the fixture builder was 13 bytes wide too**. The tests and the
+reader were built from one belief, so the whole suite was a single hypothesis wearing ten
+assertions. This is [fixtures are the weak point](../memory/fixtures-are-the-weak-point.md) in its
+purest form: not a fixture with a bug in it, but a fixture that is a faithful expression of the bug.
+
+What falsified it was one test reading a map vbsp actually compiled. Not a count — a count of 52 is
+as plausible as 43 — but **whether the positions are somewhere a map could be**. A stride error puts
+coordinates outside Source's own ±16384 world limit, and a correct one cannot, because vbsp took
+these positions from entities the compiler had already bounds-checked.
+
+That is the general form worth keeping: when the synthetic data is authored by whoever authored the
+reader, the assertion has to be against a property the real data must satisfy and the wrong reading
+cannot.
+
+## The filename derivation (evidence: read from published source)
+
+vbsp builds it, so this is transcription (`vbsp/cubemap.cpp:508-525`):
+
+```cpp
+const char *pSeparator = bMaterialName ? "_" : "";
+int nLen = Q_snprintf( pBuffer, nMaxLen, "maps/%s/%s%s%d_%d_%d", info.m_pMapName,
+    pMaterialName, pSeparator, info.m_pOrigin[0], info.m_pOrigin[1], info.m_pOrigin[2] );
+...
+BackSlashToForwardSlash( pBuffer );
+Q_strlower( pBuffer );
+```
+
+Called two ways, and the difference is one character:
+
+| Call | Separator | Result |
+|---|---|---|
+| `GeneratePatchedName( pMaterialName, info, true, … )` | `_` | `maps/<map>/<material>_<x>_<y>_<z>` — the patch **VMT** |
+| `GeneratePatchedName( "c", info, false, … )` | *(none)* | `maps/<map>/c<x>_<y>_<z>` — the baked **VTF** |
+
+This project had already seen the material form without reading the lump: `MapAssetsTests` records
+`maps/cp_process_final/icarus/glasschrome001_544_1952_929.vmt` in the map's own pakfile, and noted
+at the time that "the numbers are the cubemap's position". Copying that shape across to the texture
+gives `c_544_…`, which exists nowhere.
+
+The trailing `Q_strlower` matters here in a way it would not on a filesystem: these archives are
+matched by name rather than by an OS, so the case is ours to get right.
+
+**Verified against the real thing, which is the only reason to believe any of it:** all 43 derived
+names resolve inside `cp_process_final`'s 3,413-entry pakfile. A wrong separator, a wrong case or a
+dropped sign finds zero, so this is one assertion that cannot be nearly right.
+
+That test's own first version looked in the **game's** archives and found zero of 43 — which was a
+fact about the instrument, not about the naming, and for a few minutes looked like the naming was
+still wrong. A baked cubemap is baked from *this map's* geometry and exists nowhere but this map's
+pakfile. Compare
+[instrument bugs outnumber decoder bugs](../memory/instrument-bugs-outnumber-decoder-bugs.md).
+
+## What is measured on cp_process_final
+
+- **43 cubemaps**, every one inside the world bounds.
+- **Every one at the default size**, 32 — so `size` is 0 in all 43 records, and the escape value is
+  not a corner case on this map but the only case. A reader that got it wrong would produce
+  1,073,741,824 forty-three times.
+- **43 of 43 textures present** in the pakfile under their derived names.
+
+## Still open
+
+Reading the lump is one of three parts. Nothing yet assigns a cubemap to a surface — Source picks
+the nearest by position, and the patch VMTs in the pakfile already record which material got which
+one — and nothing samples it. `EnvmapConformanceTests` specifies the shading half, and six of its
+eight assertions are still skipped pending that. B55.
