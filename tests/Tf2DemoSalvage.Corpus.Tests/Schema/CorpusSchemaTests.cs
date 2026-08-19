@@ -103,161 +103,23 @@ public sealed class CorpusSchemaTests
         }
     }
 
-    [Test]
-    public void Schema_PropertiesLookLikeSourceEngineFields()
-    {
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
-
-            foreach (SendProperty property in schema.Tables.SelectMany(t => t.Properties))
-            {
-                property.Name.ShouldNotBeNullOrEmpty();
-                property.Name.Length.ShouldBeLessThan(128);
-                property.Name.ShouldAllBe(c => !char.IsControl(c));
-                Enum.IsDefined(property.Type).ShouldBeTrue();
-
-                // 32 is the widest a networked value gets.
-                property.BitCount.ShouldBeInRange(0, 32);
-            }
-        }
-    }
-
-    [Test]
-    public void SchemaShape_TheCorpus_IsReported()
-    {
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
-            SendTable player = schema.FindTable("DT_TFPlayer")!;
-
-            TestContext.Out.WriteLine(
-                $"{Path.GetFileName(path)}: {schema.Tables.Count} tables, " +
-                $"{schema.ServerClasses.Count} classes, " +
-                $"{schema.Tables.Sum(t => t.Properties.Count)} properties");
-            TestContext.Out.WriteLine(
-                $"  DT_TFPlayer: {player.Properties.Count} props - " +
-                string.Join(", ", player.Properties.Take(4).Select(p => $"{p.Type} {p.Name}")));
-
-            int changesOften = schema.Tables.SelectMany(t => t.Properties).Count(p => p.ChangesOften);
-            int excluded = schema.Tables.SelectMany(t => t.Properties).Count(p => p.IsExcluded);
-            TestContext.Out.WriteLine($"  {changesOften} changes-often, {excluded} exclusions");
-            TestContext.Out.WriteLine(string.Empty);
-        }
-
-        Corpus.Files().ShouldNotBeEmpty();
-    }
-
-    [Test]
-    public void Flatten_ProducesPlausibleListsForEveryClass()
-    {
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
-
-            foreach (ServerClass serverClass in schema.ServerClasses)
-            {
-                IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, serverClass);
-
-                // MAX_DATATABLE_PROPS from the SDK. Exceeding it would mean the flattener is
-                // duplicating properties, most likely by following a cycle.
-                flat.Count.ShouldBeLessThanOrEqualTo(4096, serverClass.ClassName);
-
-                // Changes-often properties must form an unbroken prefix. This is the ordering
-                // rule entity deltas depend on, checked on real data rather than fixtures.
-                int firstSlow = -1;
-                for (int i = 0; i < flat.Count; i++)
-                {
-                    if (!flat[i].Property.ChangesOften)
-                    {
-                        firstSlow = i;
-                    }
-                    else if (firstSlow >= 0)
-                    {
-                        Assert.Fail(
-                            $"{Path.GetFileName(path)} {serverClass.ClassName}: changes-often " +
-                            $"property at {i} follows a normal one at {firstSlow}");
-                    }
-                }
-            }
-        }
-    }
-
-    [Test]
-    public void Flatten_PlayerClassContainsTheFieldsAViewerNeeds()
-    {
-        // The properties Phase 2 and 3 exist to draw. If flattening dropped a table or applied
-        // an exclusion too broadly, these would quietly go missing.
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
-            ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
-
-            string[] names = [.. SchemaFlattener.Flatten(schema, player)
-                .Select(f => f.Property.Name)];
-
-            names.ShouldContain("m_vecOrigin", Path.GetFileName(path));
-            names.ShouldContain("m_iHealth", Path.GetFileName(path));
-            names.ShouldContain("m_iTeamNum", Path.GetFileName(path));
-        }
-    }
-
-    [Test]
-    public void FlattenedShape_TheCorpus_IsReported()
-    {
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
-            ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
-            IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, player);
-
-            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: CTFPlayer flattens to {flat.Count} props, " +
-                             $"{flat.Count(f => f.Property.ChangesOften)} changes-often, " +
-                             $"from {flat.Select(f => f.OwnerTable).Distinct().Count()} tables");
-            TestContext.Out.WriteLine("  first 6: " + string.Join(", ", flat.Take(6)
-                .Select(f => $"{f.OwnerTable}.{f.Property.Name}")));
-
-            int biggest = schema.ServerClasses.Max(c => SchemaFlattener.Flatten(schema, c).Count);
-            TestContext.Out.WriteLine($"  largest class flattens to {biggest} props");
-            TestContext.Out.WriteLine(string.Empty);
-        }
-
-        Corpus.Files().ShouldNotBeEmpty();
-    }
-
-    [Test]
-    public void SchemaDecodability_TheCorpus_IsReported()
-    {
-        // Quantifies what the coordinate encodings actually cost. SPROP_COORD_MP is
-        // undocumented in VDC and unimplemented here, and this says how much of the schema
-        // that leaves out of reach rather than leaving it to be guessed at.
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoSchema schema = ParseSchema(path).ShouldNotBeNull();
-            ServerClass player = schema.ServerClasses.First(c => c.ClassName == "CTFPlayer");
-            IReadOnlyList<FlatProperty> flat = SchemaFlattener.Flatten(schema, player);
-
-            int decodable = flat.Count(f => SendPropDecoder.IsSupported(f.Property));
-            string[] blocked = [.. flat
-                .Where(f => !SendPropDecoder.IsSupported(f.Property))
-                .Select(f => f.Property.Name)
-                .Distinct()
-                .Take(6)];
-
-            TestContext.Out.WriteLine(
-                $"{Path.GetFileName(path)}: CTFPlayer {decodable}/{flat.Count} properties " +
-                $"decodable ({100.0 * decodable / flat.Count:F1}%)");
-            TestContext.Out.WriteLine($"  blocked examples: {string.Join(", ", blocked)}");
-
-            int allProps = schema.ServerClasses.Sum(c => SchemaFlattener.Flatten(schema, c).Count);
-            int allOk = schema.ServerClasses.Sum(c =>
-                SchemaFlattener.Flatten(schema, c).Count(f => SendPropDecoder.IsSupported(f.Property)));
-            TestContext.Out.WriteLine($"  across all classes: {allOk}/{allProps} ({100.0 * allOk / allProps:F1}%)");
-            TestContext.Out.WriteLine(string.Empty);
-        }
-
-        Corpus.Files().ShouldNotBeEmpty();
-    }
+    // Six tests removed on 2026-08-19 and covered elsewhere.
+    //
+    // Schema_PropertiesLookLikeSourceEngineFields, Flatten_ProducesPlausibleListsForEveryClass
+    // and Flatten_PlayerClassContainsTheFieldsAViewerNeeds were plausibility checks - every
+    // name under 128 characters and free of control characters, every bit count between 0 and
+    // 32, every list non-empty. Those catch a schema read at the wrong offset and say nothing
+    // about ORDER, which is the whole contract: an update names properties by position, so a
+    // flattener producing the right set in the wrong sequence decodes every property into its
+    // neighbour's slot with every value still plausible.
+    //
+    // SyntheticFlatteningTests states the expected order outright, which found data cannot do
+    // without reimplementing the flattener to find out. It covers the parent-before-child rule,
+    // SPROP_CHANGES_OFTEN sorting forward, exclusions removing rather than emitting, and the
+    // owner table travelling with each property.
+    //
+    // SchemaShape, FlattenedShape and SchemaDecodability were reports whose only assertion was
+    // Corpus.Files().ShouldNotBeEmpty() - a guard on the fixture rather than on the code.
 
     /// <summary>The demo's schema, parsed once per process by <see cref="Corpus"/>.</summary>
     /// <remarks>
