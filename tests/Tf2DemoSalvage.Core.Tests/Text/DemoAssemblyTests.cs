@@ -45,6 +45,44 @@ public sealed class DemoAssemblyTests
     }
 
     [Test]
+    public void AServerNameWithACarriageReturn_DoesNotSplitTheLine()
+    {
+        // **Player index 13 broke the round trip on a real demo, and this is the smallest form of
+        // it.** TF2's `teamplay_point_captured` carries `cappers` as a string of raw player-index
+        // BYTES, so a capture by the player in slot 13 puts 0x0D inside a string. The writer
+        // escaped `\n` and not `\r`; TextReader.ReadLine treats a bare carriage return as a line
+        // break, so the line split in two and the dangling `"` assembled to a single empty token —
+        // "Unknown message ''", against a file of three million lines.
+        //
+        // **It has to be tested HERE rather than in MessageAssemblyTests**, and that is the
+        // instrument lesson. The message-level round trip hands lines to the parser directly and
+        // never forms a stream, so it cannot split one: the same two assertions passed there
+        // against the broken writer. Only a test that writes to a TextWriter and reads back
+        // through a TextReader can see it.
+        //
+        // Of the ten corpus demos, nine round-trip byte-identical over their whole length and
+        // z1800 is the only one where somebody in slot 13 capped a point.
+        DemoHeader header = Header(server: "slot\rthirteen");
+
+        RoundTrip(header).Header.ServerName.ShouldBe("slot\rthirteen");
+    }
+
+    [Test]
+    public void ANewlineAndACarriageReturnAreNotConfusedForEachOther()
+    {
+        // **The control on the fix.** Mapping `\r` onto the same escape as `\n` would satisfy the
+        // test above and silently rewrite every string containing either — a repair that looks
+        // like it worked, which is the failure mode this project keeps finding.
+        //
+        // One string carrying both, so a swap cannot pass.
+        DemoHeader parsed = RoundTrip(Header(server: "line\nreturn\rend")).Header;
+
+        parsed.ServerName.ShouldBe("line\nreturn\rend");
+        parsed.ServerName.IndexOf('\n', StringComparison.Ordinal).ShouldBe(4);
+        parsed.ServerName.IndexOf('\r', StringComparison.Ordinal).ShouldBe(11);
+    }
+
+    [Test]
     public void AServerNameWithSpaces_SurvivesTheRoundTrip()
     {
         // Unquoted, the parser would take "Uncle" as the value and drop the rest. Real server

@@ -511,16 +511,30 @@ public static class DemoAssembly
 
             // A message may consume further lines of its own - a sounds block, a class list - so
             // it is handed a way to pull them rather than being given one line at a time.
-            MessageAssembly.Assemble(
-                line,
-                () =>
-                {
-                    string? next = reader.ReadLine();
-                    return next is null ? null : Strip(next);
-                },
-                writer,
-                state,
-                entities);
+            //
+            // **Wrapped so a failure names the line it failed on.** Without this the message was
+            // "Unknown message ''" against a file of three million lines, which is a report that a
+            // problem exists and nothing more. Diagnosing one meant bisecting the input, and the
+            // bisect misled: a truncated prefix fails for its own reasons, so it converged on the
+            // last line rather than the bad one.
+            try
+            {
+                MessageAssembly.Assemble(
+                    line,
+                    () =>
+                    {
+                        string? next = reader.ReadLine();
+                        return next is null ? null : Strip(next);
+                    },
+                    writer,
+                    state,
+                    entities);
+            }
+            catch (InvalidDataException failure)
+            {
+                throw new InvalidDataException(
+                    $"{failure.Message} (assembling: {line})", failure);
+            }
         }
 
         throw new InvalidDataException("A packet block was not closed with 'end'.");
@@ -558,8 +572,19 @@ public static class DemoAssembly
         writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {name} {value}"));
 
     /// <summary>Writes a string field, quoted so a map name with spaces survives.</summary>
+    /// <remarks>
+    /// **Shares <c>MessageAssembly.Quote</c> rather than having its own, because it had its own and
+    /// they disagreed.** This escaped the quote character and nothing else — not the backslash that
+    /// makes escaping work, not the newline, not the carriage return that ends a line for
+    /// <c>ReadLine</c>. A server name containing any of those could not survive the round trip,
+    /// while the same string inside a message could.
+    ///
+    /// Two implementations of one rule is the shape that drifts: the message side gained backslash
+    /// and newline escaping at some point and this did not, and nothing failed, because no test put
+    /// an awkward character in a header. One function, so the next escape added is added once.
+    /// </remarks>
     private static void WriteField(TextWriter writer, string name, string value) =>
-        writer.WriteLine($"  {name} \"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"");
+        writer.WriteLine($"  {name} {MessageAssembly.Quote(value)}");
 
     /// <summary>Removes a trailing comment and surrounding whitespace.</summary>
     /// <remarks>
@@ -586,14 +611,22 @@ public static class DemoAssembly
         return line.Trim();
     }
 
+    /// <summary>The inverse of <see cref="MessageAssembly.Quote"/>.</summary>
+    /// <remarks>
+    /// **Delegates for the same reason the writer above does.** This unescaped only
+    /// <c>\"</c>, so a value written with a backslash, a newline or a carriage return came back
+    /// wrong — and a value ending in a backslash came back with its closing quote absorbed. The
+    /// escape rule now has one writer and one reader rather than two of each.
+    /// </remarks>
     private static string Unquote(string value)
     {
         string trimmed = value.Trim();
+
         if (trimmed.Length < 2 || trimmed[0] != '"' || trimmed[^1] != '"')
         {
             return trimmed;
         }
 
-        return trimmed[1..^1].Replace("\\\"", "\"", StringComparison.Ordinal);
+        return MessageAssembly.Unquote(trimmed);
     }
 }

@@ -78,6 +78,43 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
+    public void AStringCarryingACarriageReturnSurvivesTheTextForm()
+    {
+        // **Player index 13 broke the round trip, and this is not a contrived case.** TF2's
+        // `teamplay_point_captured` carries its `cappers` field as a string of raw player-index
+        // BYTES, so a capture by the player in slot 13 puts 0x0D inside a string.
+        //
+        // The writer escaped `\n` and not `\r`, so that byte was emitted literally — and
+        // TextReader.ReadLine treats a bare carriage return as a line break. The line split in
+        // two, leaving a dangling `"` that assembled to a single empty token and threw
+        // "Unknown message ''".
+        //
+        // Found by round-tripping whole demos: of ten in the corpus, nine are byte-identical and
+        // z1800 is the only one where somebody in slot 13 capped a point.
+        const string Cappers = "\r";
+
+        TextRoundTrip(new PrintMessage(Cappers)).ShouldBeOfType<PrintMessage>()
+            .Text.ShouldBe(Cappers);
+    }
+
+    [Test]
+    public void ANewlineAndACarriageReturnAreNotConfusedForEachOther()
+    {
+        // **The control on the fix.** Escaping `\r` by mapping it onto the same escape as `\n`
+        // would satisfy the test above and silently corrupt every string containing either — the
+        // repair looking like it worked, which is the failure mode this project keeps finding.
+        //
+        // Asserted in both directions and in one string, so a swap cannot pass.
+        const string Both = "line\nreturn\rend";
+
+        PrintMessage read = TextRoundTrip(new PrintMessage(Both)).ShouldBeOfType<PrintMessage>();
+
+        read.Text.ShouldBe(Both);
+        read.Text.IndexOf('\n', System.StringComparison.Ordinal).ShouldBe(4);
+        read.Text.IndexOf('\r', System.StringComparison.Ordinal).ShouldBe(11);
+    }
+
+    [Test]
     public void AnEmptyStringIsNotTheSameAsAMissingOne()
     {
         // An empty quoted string is a real value and a token the tokenizer has to keep. Dropping
