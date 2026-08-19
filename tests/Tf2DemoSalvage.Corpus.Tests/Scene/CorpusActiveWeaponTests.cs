@@ -37,7 +37,7 @@ public sealed class CorpusActiveWeaponTests
     {
         string path = Corpus.Demo(MovementDemo);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<ScenePlayer> armed =
         [
@@ -77,7 +77,7 @@ public sealed class CorpusActiveWeaponTests
         // entity with a model, which a mis-decoded slot would not reliably be.
         string path = Corpus.Demo(MovementDemo);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<int> weapons =
         [

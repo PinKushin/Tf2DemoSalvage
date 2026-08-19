@@ -52,7 +52,7 @@ public sealed class CorpusPlayerFlagsTests
 
         List<ScenePlayer> players =
         [
-            .. DemoTimeline.Build(File.ReadAllBytes(path))
+            .. TimelineCache.For(path)
                 .Frames
                 .SelectMany(frame => frame.Players)
                 .Where(player => player.IsPlaying),
@@ -90,7 +90,7 @@ public sealed class CorpusPlayerFlagsTests
 
         List<ScenePlayer> players =
         [
-            .. DemoTimeline.Build(File.ReadAllBytes(path))
+            .. TimelineCache.For(path)
                 .Frames
                 .SelectMany(frame => frame.Players)
                 .Where(player => player.IsPlaying && player.Flags is not null),
@@ -120,7 +120,7 @@ public sealed class CorpusPlayerFlagsTests
 
         List<ScenePlayer> stated =
         [
-            .. DemoTimeline.Build(File.ReadAllBytes(path))
+            .. TimelineCache.For(path)
                 .Frames
                 .SelectMany(frame => frame.Players)
                 .Where(player => player.IsPlaying && player.Flags is not null),

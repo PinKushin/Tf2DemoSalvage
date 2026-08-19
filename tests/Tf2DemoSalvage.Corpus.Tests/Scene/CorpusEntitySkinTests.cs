@@ -32,7 +32,7 @@ public sealed class CorpusEntitySkinTests
     {
         string path = Corpus.Demo("stv-cp_foundry");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         HashSet<int> skins =
         [

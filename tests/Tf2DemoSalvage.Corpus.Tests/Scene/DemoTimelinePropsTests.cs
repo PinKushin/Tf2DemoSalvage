@@ -24,7 +24,7 @@ public sealed class DemoTimelinePropsTests
     {
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             int keyframes = timeline.Props.Sum(track => track.KeyframeCount);
             int distinct = timeline.Props
@@ -68,7 +68,7 @@ public sealed class DemoTimelinePropsTests
         // and the design would be wrong.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Props.Count == 0 || timeline.Frames.Count == 0)
             {
@@ -95,7 +95,7 @@ public sealed class DemoTimelinePropsTests
         // and the map would fill with the debris of the whole match.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Props.Count == 0 || timeline.Frames.Count == 0)
             {
@@ -142,7 +142,7 @@ public sealed class DemoTimelinePropsTests
         // what says the fix took.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Frames.Count < 4)
             {
@@ -195,7 +195,7 @@ public sealed class DemoTimelinePropsTests
 
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             int hiddenHere = 0;
             int returnedHere = 0;
@@ -246,7 +246,7 @@ public sealed class DemoTimelinePropsTests
         // dropped weapons move, so at least one track must carry more than one pose.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Props.Count == 0)
             {

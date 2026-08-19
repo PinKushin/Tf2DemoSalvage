@@ -27,7 +27,7 @@ public sealed class DemoTimelineTests
     {
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             TestContext.Out.WriteLine(
                 $"TIMELINE {Path.GetFileName(path)}: {timeline.Frames.Count} frames, " +
@@ -54,7 +54,7 @@ public sealed class DemoTimelineTests
         // full of statues. Players move; the question is whether the frames record it.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             Dictionary<int, HashSet<(float, float)>> seen = [];
 
@@ -97,7 +97,7 @@ public sealed class DemoTimelineTests
 
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.Frames.Count == 0)
             {
@@ -160,7 +160,7 @@ public sealed class DemoTimelineTests
         // comes from svc_ServerInfo and the corpus is asked what it actually contains.
         foreach (string path in Corpus.FilesWithSchema())
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            DemoTimeline timeline = TimelineCache.For(path);
 
             if (timeline.IntervalPerTick <= 0f)
             {
@@ -187,7 +187,7 @@ public sealed class DemoTimelineTests
         // positions rather than nothing at all, or the map blinks empty between updates.
         string path = Corpus.FilesWithSchema()[0];
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         TimelineFrame middle = timeline.Frames[timeline.Frames.Count / 2];
 

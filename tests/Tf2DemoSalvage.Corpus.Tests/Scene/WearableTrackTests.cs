@@ -31,7 +31,7 @@ public sealed class WearableTrackTests
         // measuring nothing, so this one names the demo it needs and skips when it is absent.
         string path = Corpus.Demo("cp_process");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         // **The demo's own midpoint, never a round number.** This file's first packet is already
         // past tick 20000, so a hardcoded tick walks nothing and reports an empty world with no
@@ -103,7 +103,7 @@ public sealed class WearableTrackTests
         // measuring nothing, so this one names the demo it needs and skips when it is absent.
         string path = Corpus.Demo("cp_process");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         int tick = timeline.Frames[timeline.Frames.Count / 2].Tick;
 
