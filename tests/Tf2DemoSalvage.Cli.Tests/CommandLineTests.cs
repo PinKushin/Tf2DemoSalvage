@@ -92,7 +92,7 @@ public sealed class CommandLineTests
     }
 
     [Test]
-    public void NoArguments_IsAnError()
+    public void Parse_NoArguments_IsAnError()
     {
         CommandLine.Parse([]).Error.ShouldNotBeNull();
     }
@@ -116,7 +116,7 @@ public sealed class CommandLineTests
     }
 
     [Test]
-    public void WithNoFlags_EntitiesAreOffAndUnlimited()
+    public void Parse_NoFlags_LeavesEntitiesOffAndUnlimited()
     {
         // The defaults, asserted rather than assumed. Mutation testing found this: flipping
         // the initial value of `entities` to true survived the entire suite, because every

@@ -94,7 +94,7 @@ public sealed class ProgramTests : IDisposable
 
 
     [Test]
-    public void NoArguments_ExitsWithAUsageCodeAndSaysWhy()
+    public void Main_NoArguments_ExitsWithAUsageCodeAndSaysWhy()
     {
         Program.Main([]).ShouldBe(2);
 
@@ -239,7 +239,7 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Test]
-    public void WithNoOutputPath_ItWritesToStandardOutput()
+    public void Main_NoOutputPath_WritesToStandardOutput()
     {
         string? demo = Demo();
         if (demo is null)
@@ -309,7 +309,7 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Test]
-    public void WithoutVerbose_TheCommandBreakdownIsNotPrinted()
+    public void Main_NotVerbose_OmitsTheCommandBreakdown()
     {
         // **The control**, and it is what makes the test above about the flag rather than about
         // logging existing at all. Without it a Program that always printed the breakdown would

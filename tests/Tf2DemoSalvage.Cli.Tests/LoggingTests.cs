@@ -26,7 +26,7 @@ public sealed class LoggingTests
     }
 
     [Test]
-    public void WithoutAFlag_VerbosityIsNormal()
+    public void Parse_NoVerbosityFlag_LeavesVerbosityNormal()
     {
         CommandLine.Parse(["demo.dem"]).Verbosity.ShouldBe(Verbosity.Normal);
     }

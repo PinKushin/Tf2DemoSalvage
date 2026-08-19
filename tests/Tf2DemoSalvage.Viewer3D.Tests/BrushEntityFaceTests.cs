@@ -80,7 +80,7 @@ public sealed class BrushEntityFaceTests
     }
 
     [Test]
-    public void WithNoModels_EveryFaceIsStillBuilt()
+    public void BrushEntityFaces_NoModels_StillBuildsEveryFace()
     {
         // The boundary is unknown when the models lump was not read, and an unknown boundary must
         // not silently discard geometry. This pins the fallback: absent means build everything,

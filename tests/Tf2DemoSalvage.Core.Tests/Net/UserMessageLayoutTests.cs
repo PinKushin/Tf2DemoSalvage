@@ -493,7 +493,7 @@ public sealed class UserMessageLayoutTests
     }
 
     [Test]
-    public void WhenBothCandidatesRefuse_NeitherNameIsClaimed()
+    public void UserMessageLayout_BothCandidatesRefuse_ClaimsNeitherName()
     {
         // Two wrong answers do not make a right one. PlayerTauntSoundLoopEnd is one byte and
         // HapMeleeContact is registered at zero, so a 32-bit body is neither, and the honest

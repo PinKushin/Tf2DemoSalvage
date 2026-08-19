@@ -260,7 +260,7 @@ public sealed class EntityTrackerTests
     }
 
     [Test]
-    public void WithoutABaselineSource_BehaviourIsUnchanged()
+    public void EntityTracker_NoBaselineSource_LeavesBehaviourUnchanged()
     {
         // The control. Baselines are optional, and a caller that has none must get exactly the
         // old behaviour rather than an empty state or a throw.
