@@ -31,7 +31,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void AProxyRunsOnBindRatherThanOnAClock()
+    public void MaterialProxy_Evaluation_RunsOnBindNotOnAClock()
     {
         // **The question "does it need to be per frame" has a precise answer, and it is no.**
         // IMaterialProxy has three methods and none of them is a tick:
@@ -55,7 +55,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void ASinePeriodOfZeroBecomesOneRatherThanHoldingStill()
+    public void MaterialProxy_ASinePeriodOfZero_BecomesOne()
     {
         // **The divergence this file was written to catch.** mathproxy.cpp:408:
         //
@@ -82,7 +82,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void TheSineRangeIsMappedTheWayValveWritesIt()
+    public void MaterialProxy_TheSineRange_IsMappedAsValveWritesIt()
     {
         // Valve maps to [0,1] first and then onto [min,max] (mathproxy.cpp:412-413):
         //
@@ -104,7 +104,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void ASineTakesATimeOffsetThisProjectDoesNotImplement()
+    public void MaterialProxy_ASineTimeOffset_IsNotImplemented()
     {
         // `timeOffset`, default 0, subtracted from curtime before the division
         // (mathproxy.cpp:393 and 412). It shifts the phase, which is how two materials running the
@@ -119,7 +119,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void TheProxyArgumentNamesAndDefaultsAreValves()
+    public void MaterialProxy_ArgumentNamesAndDefaults_AreValves()
     {
         // **The names a VMT actually writes, and what a missing one means.** These are the strings
         // an implementation matches against, so getting one wrong silently disables the proxy: a
@@ -143,7 +143,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void AProxyNamesItsDestinationWithResultVarAndTheScrollDoesNot()
+    public void MaterialProxy_ResultVar_NamesTheDestinationExceptForScroll()
     {
         // **Two different conventions, and mixing them up disables one of the two proxies.**
         //
@@ -159,7 +159,7 @@ public sealed class MaterialProxyConformanceTests
     }
 
     [Test]
-    public void AResultVarMayNameOneComponentOfAVector()
+    public void MaterialProxy_AResultVar_MayNameOneVectorComponent()
     {
         // `resultVar` accepts an array subscript — `$color[1]` writes only green
         // (functionproxy.cpp:118-130). An implementation that treats the whole string as a name

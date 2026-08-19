@@ -44,7 +44,7 @@ public sealed class CubemapTextureLayoutTests
     private const uint EnvmapFlag = 0x00004000;
 
     [Test]
-    public void ABakedCubemapDeclaresItselfAnEnvmap()
+    public void CubemapLayout_ABakedCubemap_DeclaresItselfAnEnvmap()
     {
         // The flag is what tells a reader to expect faces at all, so it is worth confirming that a
         // real baked cubemap sets it rather than relying on the filename.
@@ -57,7 +57,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void TheImageDataDividesEvenlyBySevenFacesAndNotBySix()
+    public void CubemapLayout_TheImageData_DividesBySevenNotSix()
     {
         // **The measurement, and it is a discriminating one.** Total image bytes divided by the
         // bytes one face occupies across the whole mip chain gives the face count outright. If the
@@ -82,7 +82,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void EveryBakedCubemapOnTheMapHasTheSameShape()
+    public void CubemapLayout_EveryBakedCubemap_HasTheSameShape()
     {
         // **The control against reading one lucky file.** A conclusion drawn from a single specimen
         // is a conclusion about that specimen; 43 of them agreeing is a fact about the format as
@@ -111,7 +111,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void TheBakedTextureIsTheSizeTheLumpSaidItWould()
+    public void CubemapLayout_TheBakedTexture_IsTheSizeTheLumpDeclared()
     {
         // **A third independent recording of one number.** dcubemapsample_t.size is a CODE that
         // resolves to an edge length, and the VTF baked from that placement carries the edge
@@ -133,7 +133,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void BothAnLdrAndAnHdrCubemapAreBakedForEveryPlacement()
+    public void CubemapLayout_EveryPlacement_BakesBothLdrAndHdr()
     {
         // **The question that decides how much work the reflection is**, and it is worth asking
         // before writing a half-float decoder rather than after.
@@ -170,7 +170,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void TheLdrCubemapsAreInAFormatThisProjectAlreadyDecodes()
+    public void CubemapLayout_TheLdrBake_IsAFormatAlreadyDecoded()
     {
         // The payoff from asking the question above: the LDR bake is an ordinary compressed format,
         // so the reflection needs no new pixel decoder at all — only face iteration.
@@ -193,7 +193,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void TheHdrCubemapsAreHalfFloatAndNothingHereCanDecodeThat()
+    public void CubemapLayout_TheHdrBake_IsHalfFloatAndUndecoded()
     {
         // **A prerequisite, measured rather than assumed.** Every baked cubemap on this map is
         // ImageFormat 24, RGBA16161616F — four half-floats per texel, eight bytes. That is the HDR

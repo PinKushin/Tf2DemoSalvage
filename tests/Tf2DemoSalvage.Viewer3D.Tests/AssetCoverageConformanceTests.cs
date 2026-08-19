@@ -75,7 +75,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
-    public void TheCensusExaminesPropsAndNotOnlyBrushwork()
+    public void Census_APropHeavyMap_ExaminesPropsNotOnlyBrushwork()
     {
         // **The B81 catcher, and the most important test in this file.** The census reported a
         // clean bill for months while never looking at a single prop material — an instrument
@@ -102,7 +102,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
-    public void NoPropsBakedLightingWasRefused()
+    public void Census_PropBakedLighting_IsNeverRefused()
     {
         // **A refusal is this project failing on data the game uses.** The prop then draws with
         // white vertex colours and is indistinguishable from one the compiler never lit, which is
@@ -126,7 +126,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
-    public void EveryUnimplementedParameterTheMapAsksForIsAlreadyKnown()
+    public void Census_UnimplementedParameters_AreAllAlreadyKnown()
     {
         // **A gap stated is a decision; a gap unstated is an oversight.** The point is not that
         // this project implements everything — it plainly does not — but that the list of what it
@@ -153,7 +153,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
-    public void TheMapAsksForThingsThisProjectDoesNotDo()
+    public void Census_ARealMap_AsksForUnimplementedFeatures()
     {
         // **This test exists to SKIP, and the skip is the point.** The assertion above checks that
         // no NEW gap has appeared, which is worth having and is also a green tick over 44

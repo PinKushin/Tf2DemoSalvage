@@ -33,7 +33,7 @@ public sealed class CubemapAssignmentTests
     private const string MapName = "cp_process_final";
 
     [Test]
-    public void EveryEnvmapAMaterialNamesIsACubemapTheLumpPlaces()
+    public void CubemapAssignment_EveryNamedEnvmap_IsPlacedByTheLump()
     {
         // **The agreement, and the reason to trust either.** Every $envmap value on this map should
         // be one of the 43 names derived from the lump's positions — and both sides were produced
@@ -87,7 +87,7 @@ public sealed class CubemapAssignmentTests
     }
 
     [Test]
-    public void BrushMaterialsArePatchedAtCompileTimeAndPropMaterialsAreNot()
+    public void CubemapAssignment_BrushVersusPropMaterials_OnlyBrushArePatched()
     {
         // **The split, which is the finding this file exists for.** Cubemap_CreateTexInfo works on
         // TEXINFO — brush faces — and a static prop has none. So vbsp patches the material on a
@@ -144,7 +144,7 @@ public sealed class CubemapAssignmentTests
     }
 
     [Test]
-    public void ThePatchedMaterialNameCarriesTheSamePositionAsItsCubemap()
+    public void CubemapAssignment_APatchedMaterialName_CarriesItsCubemapPosition()
     {
         // **The strongest form of the agreement.** A patched material is named
         // `<material>_<x>_<y>_<z>` and its $envmap is `c<x>_<y>_<z>` — the SAME three numbers,

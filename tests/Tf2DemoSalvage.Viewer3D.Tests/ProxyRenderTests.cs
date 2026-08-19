@@ -32,7 +32,7 @@ public sealed class ProxyRenderTests
         }.ToMatrix();
 
     [Test]
-    public void AProxiedMaterialDrawsDifferentlyAtDifferentTimes()
+    public void ProxyRender_AProxiedMaterial_DrawsDifferentlyOverTime()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -71,7 +71,7 @@ public sealed class ProxyRenderTests
     }
 
     [Test]
-    public void AMaterialWithNoProxyIsUnaffectedByTime()
+    public void ProxyRender_AMaterialWithNoProxy_IsUnaffectedByTime()
     {
         // **The control.** Without it, "the picture changed" could be anything else in the renderer
         // that varies with time, and there would be no evidence the proxy caused it.
@@ -101,7 +101,7 @@ public sealed class ProxyRenderTests
     }
 
     [Test]
-    public void TheMapRunsProxiesWorthEvaluating()
+    public void ProxyRender_TheMap_RunsProxiesWorthEvaluating()
     {
         // A count, so the two tests above cannot both skip silently on a map that happens to
         // declare none — which would leave the whole feature unmeasured with a green suite.

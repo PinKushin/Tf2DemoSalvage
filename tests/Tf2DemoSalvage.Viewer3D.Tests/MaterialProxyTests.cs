@@ -39,7 +39,7 @@ public sealed class MaterialProxyTests
     }
 
     [Test]
-    public void TheOffsetWrapsIntoOneRepeat()
+    public void MaterialProxy_TheOffset_WrapsIntoOneRepeat()
     {
         // 7 seconds at rate 1 is 7 whole repeats, which is the same picture as none. Valve takes
         // the fractional part for exactly this reason: unbounded growth loses precision, and on a
@@ -65,7 +65,7 @@ public sealed class MaterialProxyTests
     }
 
     [Test]
-    public void TheScaleSitsOnTheDiagonal()
+    public void MaterialProxy_TheScale_SitsOnTheDiagonal()
     {
         // textureScale multiplies the coordinate, so it belongs at [0][0] and [1][1] — the same
         // places the identity puts its ones. Putting it in the translation column would scroll
@@ -77,7 +77,7 @@ public sealed class MaterialProxyTests
     }
 
     [Test]
-    public void TheIdentityLeavesACoordinateAlone()
+    public void MaterialProxy_TheIdentity_LeavesACoordinateAlone()
     {
         // **The control for the whole type**, and the value a material without a transform gets.
         // A zeroed struct would pass an "is it a transform" check and send every coordinate to the
@@ -93,7 +93,7 @@ public sealed class MaterialProxyTests
     }
 
     [Test]
-    public void TheSineRunsBetweenItsBounds()
+    public void MaterialProxy_TheSine_RunsBetweenItsBounds()
     {
         // The dark blue capture point sign: period .3, from .6 to .7. Sampled across a full cycle,
         // it must reach both ends and never leave them.
@@ -136,7 +136,7 @@ public sealed class MaterialProxyTests
     }
 
     [Test]
-    public void AProxyArgumentFallsBackToTheEnginesDefault()
+    public void MaterialProxy_AMissingArgument_FallsBackToTheEngineDefault()
     {
         // Absent, blank and unparseable all mean "the material did not say", and the engine's Init
         // supplies the default — rate 1, angle 0, scale 1. Reading a missing key as zero would

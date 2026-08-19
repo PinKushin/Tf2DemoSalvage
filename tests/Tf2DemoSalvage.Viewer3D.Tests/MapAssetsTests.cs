@@ -147,7 +147,7 @@ public sealed class MapAssetsTests
     }
 
     [Test]
-    public void LoadingARealMapResolvesAlmostEveryMaterial()
+    public void MapAssets_ARealMap_ResolvesAlmostEveryMaterial()
     {
         if (GameFolder is not { } game)
         {
@@ -191,7 +191,7 @@ public sealed class MapAssetsTests
     }
 
     [Test]
-    public void AMapsOwnContentIsMostlyPatchesOverStockMaterials()
+    public void MapAssets_AMapsOwnContent_IsMostlyPatchesOverStockMaterials()
     {
         // **A map's pakfile is not a self-contained copy of what it needs**, which is worth
         // knowing before promising anything about a machine without TF2.

@@ -44,7 +44,7 @@ public sealed class ReflectionRenderTests
         }.ToMatrix();
 
     [Test]
-    public void AReflectiveSurfaceChangesColourWithItsNormal()
+    public void ReflectionRender_AReflectiveSurface_ChangesColourWithItsNormal()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -82,7 +82,7 @@ public sealed class ReflectionRenderTests
     }
 
     [Test]
-    public void ASurfaceWithNoCubemapDoesNotChangeWithItsNormal()
+    public void ReflectionRender_ASurfaceWithNoCubemap_DoesNotChangeWithItsNormal()
     {
         // **The control, and it is the half that makes the test above mean anything.** If some
         // other part of the shader varied with the normal, the difference measured there would not

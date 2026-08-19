@@ -49,7 +49,7 @@ public sealed class BlendStateConformanceTests
     }
 
     [Test]
-    public void AdditiveIsSourceOnePlusDestinationOne()
+    public void BlendState_Additive_IsOnePlusOne()
     {
         // BT_ADD: "src * one + dst * one". Both factors are one, so a dark texel contributes
         // nothing and a light cone brightens what it covers instead of covering it.
@@ -64,7 +64,7 @@ public sealed class BlendStateConformanceTests
     }
 
     [Test]
-    public void TranslucentIsSourceAlphaOverOneMinusSourceAlpha()
+    public void BlendState_Translucent_IsSrcAlphaOverInvSrcAlpha()
     {
         // BT_BLEND: "src * srcAlpha + dst * (1-srcAlpha)" - the ordinary over operator, and the
         // one whose factors this project previously recorded as interpolated.
@@ -79,7 +79,7 @@ public sealed class BlendStateConformanceTests
     }
 
     [Test]
-    public void ModulateMultipliesTheFramebufferByTheTexture()
+    public void BlendState_Modulate_MultipliesFramebufferByTexture()
     {
         // **Not a BlendType_t mode**, because Modulate is a shader rather than a blend flag - so
         // this one is asserted on its own terms. DestColor times zero-source is the framebuffer
@@ -93,7 +93,7 @@ public sealed class BlendStateConformanceTests
     }
 
     [Test]
-    public void EveryStateWritesEveryChannel()
+    public void BlendState_EveryState_WritesEveryChannel()
     {
         // A write mask short of All silently drops a channel, which looks like a colour bug rather
         // than a state bug. Asserted across all three because it is the kind of field that gets
@@ -107,7 +107,7 @@ public sealed class BlendStateConformanceTests
     }
 
     [Test]
-    public void TheEquationsWereActuallyFoundInTheHeader()
+    public void BlendState_TheEquations_AreFoundInTheSdkHeader()
     {
         // **The control.** Both assertions above compare against strings this test extracted, and a
         // regex that matched nothing would make them fail confusingly rather than clearly. This

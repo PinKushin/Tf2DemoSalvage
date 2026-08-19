@@ -21,7 +21,7 @@ public sealed class CubemapLoadingTests
     private const string MapName = "cp_process_final";
 
     [Test]
-    public void TheMapsPatchedMaterialsArriveCarryingTheirCubemap()
+    public void CubemapLoading_PatchedMaterials_ArriveCarryingTheirCubemap()
     {
         MapAssets assets = LoadTheMap();
 
@@ -42,7 +42,7 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
-    public void EveryCarriedCubemapHasSixDecodedFaces()
+    public void CubemapLoading_EveryCarriedCubemap_HasSixDecodedFaces()
     {
         // Six, not seven: the file's last face is a fallback spheremap rather than a direction, and
         // a TextureCube has six. Uploading seven is not possible, so a wrong count here surfaces as
@@ -62,7 +62,7 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
-    public void TheSixFacesAreNotAllTheSameImage()
+    public void CubemapLoading_TheSixFaces_DifferFromEachOther()
     {
         // **The one that catches a face argument that is ignored.** Six identical faces satisfy
         // every count and size assertion above, and a room does not reflect the same image in all
@@ -87,7 +87,7 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
-    public void TheShadingParametersComeThroughAtTheirEngineDefaults()
+    public void CubemapLoading_ShadingParameters_ArriveAtEngineDefaults()
     {
         // **Defaults are the failure that looks like art direction.** Contrast is normal at ZERO
         // and saturation at ONE; a loader that defaulted both the same way would grey out or square
@@ -113,7 +113,7 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
-    public void AMaterialCarryingACubemapEitherWasPatchedOrNamedOneItself()
+    public void CubemapLoading_AMaterialWithACubemap_WasPatchedOrNamedOne()
     {
         // **This test used to assert that ONLY map-patched materials carry a cubemap, and that was
         // true because of a bug.** Model materials were appended to three of the seven lists

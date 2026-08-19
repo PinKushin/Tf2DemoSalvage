@@ -40,7 +40,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void AStaticPropCarriesItsOwnSkinIndex()
+    public void Rendering_AStaticProp_CarriesItsOwnSkinIndex()
     {
         // **Implemented, so this is now the real assertion rather than the placeholder.** It was
         // written as a skipping specification — "the placement must expose the index and the
@@ -65,7 +65,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void AlphaTestReferenceOverridesTheCutoffAndOnlyWhenAboveZero()
+    public void Rendering_AlphaTestReference_OverridesTheCutoffOnlyAboveZero()
     {
         // **The renderer hardcodes 0.5 and the engine does not always use it.** WorldRenderer's
         // pixel shader is `clip(albedo.a - 0.5f)` for every alpha-tested surface, but Valve's own
@@ -103,7 +103,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void SeamlessScaleOfZeroMeansOrdinaryMapping()
+    public void Rendering_ASeamlessScaleOfZero_MeansOrdinaryMapping()
     {
         // **The inverted default.** WorldVertexTransition_dx8.cpp:176 enables seamless mapping only
         // when the value IS DEFINED AND non-zero, and line 187 sets it to 0 when absent. So zero is
@@ -134,7 +134,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void DistanceAlphaSoftensAnEdgeOverARangeThatCountsDown()
+    public void Rendering_DistanceAlpha_SoftensAnEdgeOverADescendingRange()
     {
         // **TF2's signage.** unlitgeneric_dx9.cpp:47 describes $distancealpha as "distance-coded
         // alpha generated from hi-res texture by vtex" — the texture stores distance from the
@@ -160,7 +160,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void AnOutlineIsDrawnFromTheSameDistanceFieldAsTheGlyph()
+    public void Rendering_AnOutline_UsesTheGlyphsDistanceField()
     {
         // $outline and its six companions are declared on the same shader as $distancealpha
         // (unlitgeneric_dx9.cpp:63-70) and are meaningless without it: the outline is a second
@@ -175,7 +175,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void BlendModulateChoosesWhereTwoTexturesMeet()
+    public void Rendering_BlendModulate_ChoosesWhereTwoTexturesMeet()
     {
         // $blendmodulatetexture supplies a per-pixel mask for the transition between $basetexture
         // and $basetexture2 on a blended surface, replacing the straight vertex-alpha ramp with a
@@ -197,7 +197,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void ColourAndAlphaModulateTheWholeMaterial()
+    public void Rendering_ColourAndAlpha_ModulateTheWholeMaterial()
     {
         // $color and $alpha scale a material's output, and the engine applies them as a modulation
         // on top of whatever the shader produced. They are per-material rather than per-surface, so
@@ -224,7 +224,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void AScalarColourBroadcastsToEveryChannel()
+    public void Rendering_AScalarColour_BroadcastsToEveryChannel()
     {
         // **The form that is not a vector at all, and the one that throws.** ColorVarsToVector
         // branches on the var's TYPE:
@@ -252,7 +252,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void AlphaIsClampedButColourIsNot()
+    public void Rendering_Alpha_IsClampedWhileColourIsNot()
     {
         // **The asymmetry, and the discriminator.** The same seven lines clamp one and not the
         // other:
@@ -292,7 +292,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void ASecondColourMultipliesTheFirst()
+    public void Rendering_ASecondColour_MultipliesTheFirst()
     {
         // $color2 is a standard parameter alongside $color (BaseShader.h:45), and the header states
         // the operation outright on the declaration of its helper:
@@ -321,7 +321,7 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     [Test]
-    public void AMaterialNamingNeitherModulatesNothing()
+    public void Rendering_AMaterialNamingNeither_ModulatesNothing()
     {
         // The identity, which is what every one of the hundreds of materials that name no colour
         // must resolve to. ColorVarsToVector opens `color.Init( 1.0, 1.0, 1.0, 1.0 )` and only

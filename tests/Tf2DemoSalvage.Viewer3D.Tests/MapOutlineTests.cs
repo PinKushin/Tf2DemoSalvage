@@ -21,7 +21,7 @@ public sealed class MapOutlineTests
         new(points, (0f, 0f, 1f), SurfaceProperties.None);
 
     [Test]
-    public void APolygonBecomesAClosedLoopOfSegments()
+    public void MapOutline_APolygon_BecomesAClosedLoopOfSegments()
     {
         // Three points make three segments, not two: the last joins back to the first, and a
         // reader that forgets that draws a map full of gaps at every corner.
@@ -33,7 +33,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void HeightIsDroppedButXAndYSurvive()
+    public void MapOutline_Height_IsDroppedWhileXAndYSurvive()
     {
         // A top-down view is the XY plane of Source's Z-up space, so Z is what goes.
         MapOutline outline = MapOutline.FromFaces(
@@ -43,7 +43,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void TheMainBoundsIgnoreADistantDetachedRoom()
+    public void MapOutline_ADistantDetachedRoom_IsIgnoredByTheMainBounds()
     {
         // **The 3D skybox room.** It is ordinary world geometry placed far from the map at reduced
         // scale, so from above it lands in a corner of its own and stretches the extent the camera
@@ -76,7 +76,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void TheMainBoundsKeepASingleConnectedMap()
+    public void MapOutline_ASingleConnectedMap_IsKeptWhole()
     {
         // The control, and the one that matters most. A map with no detached room must not be
         // trimmed at all - a rule that shrinks every map to its densest part would be the vertex
@@ -91,7 +91,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void TheMainBoundsFollowTheLARGERClusterNotTheFirst()
+    public void MapOutline_TwoClusters_FollowTheLargerNotTheFirst()
     {
         // Order must not decide it. The small cluster is built first, so a rule that kept whichever
         // component it happened to visit first would pass every other test in this file.
@@ -107,7 +107,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void TheMainBoundsOfAnEmptyMapAreTheFullBounds()
+    public void MapOutline_AnEmptyMap_HasMainBoundsEqualToFull()
     {
         MapOutline outline = MapOutline.FromFaces([]);
 
@@ -115,7 +115,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void TheBoundsCoverEveryPoint()
+    public void MapOutline_TheBounds_CoverEveryPoint()
     {
         // The camera fits to these, so a bound that missed a corner would push part of the map
         // off screen with nothing to say why.
@@ -132,7 +132,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void AFaceWithOneVertexProducesNoSegments()
+    public void MapOutline_AFaceWithOneVertex_ProducesNoSegments()
     {
         // Degenerate faces reach here from real maps. A single point has no edge, and emitting a
         // zero-length segment would put a stray dot on the map.
@@ -142,7 +142,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void NoFacesGivesAnEmptyOutlineRatherThanThrowing()
+    public void MapOutline_NoFaces_GivesAnEmptyOutline()
     {
         // A map that could not be found or read still has to leave the viewer usable.
         MapOutline outline = MapOutline.FromFaces([]);
@@ -152,7 +152,7 @@ public sealed class MapOutlineTests
     }
 
     [Test]
-    public void ATwoPointFaceIsASingleSegmentNotTwo()
+    public void MapOutline_ATwoPointFace_IsASingleSegment()
     {
         // Closing a two-point polygon would emit the same edge twice, doubling the work for every
         // such face and drawing over itself.

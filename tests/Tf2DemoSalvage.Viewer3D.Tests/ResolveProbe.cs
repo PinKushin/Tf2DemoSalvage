@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class ResolveProbe
 {
     [Test]
-    public void CanTheSearchPathFindTheHydroPipeMaterial()
+    public void SearchPath_TheHydroPipeMaterial_IsReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 

@@ -106,7 +106,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void ASecondLibraryIsSearchedWhenTheFirstDoesNotHaveTheGame()
+    public void MapLocator_TheFirstLibraryLacksTheGame_SearchesTheSecond()
     {
         // The case this exists for: Steam under Program Files, the game on another drive. A
         // locator that stopped at the first library would find nothing.
@@ -122,7 +122,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void OurOwnFolderIsUsedWhenTheGameDoesNotHaveTheMap()
+    public void MapLocator_TheGameLacksTheMap_UsesOurOwnFolder()
     {
         // Community maps are not in the install. This is where a downloaded one lands, and it is
         // deliberately not inside the user's game folder - see DECISIONS.md D32.
@@ -137,7 +137,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void TheGameInstallWinsWhenBothHaveTheMap()
+    public void MapLocator_BothHaveTheMap_PrefersTheGameInstall()
     {
         // The user's own copy is the one the game would load, so it is the one a viewer should
         // show. It is also the copy nobody downloaded from a stranger.
@@ -152,7 +152,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void AMissingMapIsNullRatherThanAnException()
+    public void MapLocator_AMissingMap_IsNullNotAnException()
     {
         // A demo can name a map nobody has. The viewer still plays the demo without one.
         string library = CreateLibrary("GameDrive", "cp_badlands");
@@ -164,7 +164,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void AMissingLibraryFileIsNotFatal()
+    public void MapLocator_AMissingLibraryFile_IsNotFatal()
     {
         // Steam may not be installed at all; the viewer is not a game launcher and must still run.
         MapLocator locator = new(
@@ -175,7 +175,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void AMapNameWithAPathInItIsRefused()
+    public void MapLocator_AMapNameContainingAPath_IsRefused()
     {
         // The map name comes from a demo header, which is untrusted input. Without this, a header
         // naming "..\\..\\Windows\\System32\\config\\SAM" would send the locator wherever it liked.
@@ -188,7 +188,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void AUserConfiguredFolderBeatsTheDetectedInstall()
+    public void MapLocator_AUserConfiguredFolder_BeatsTheDetectedInstall()
     {
         // Someone only sets this when detection got it wrong, or when their maps live somewhere
         // the scheme does not cover - a portable install, a network share, a folder of community
@@ -207,7 +207,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void AConfiguredFolderThatDoesNotHaveTheMapFallsThrough()
+    public void MapLocator_AConfiguredFolderLackingTheMap_FallsThrough()
     {
         // The override adds a place to look; it does not replace the others.
         string library = CreateLibrary("GameDrive", "koth_lakeside_final");
@@ -221,7 +221,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
-    public void TheLibraryPathsEscapedBackslashesAreUnescaped()
+    public void MapLocator_EscapedBackslashesInLibraryPaths_AreUnescaped()
     {
         // A VDF stores Windows paths with doubled backslashes. Reading them literally produces a
         // path that exists nowhere and a locator that silently finds nothing.

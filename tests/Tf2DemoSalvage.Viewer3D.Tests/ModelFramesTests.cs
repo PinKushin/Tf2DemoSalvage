@@ -54,7 +54,7 @@ public sealed class ModelFramesTests
     }
 
     [Test]
-    public void DoubleTheRateReachesTheSameFrameInHalfTheTime()
+    public void ModelFrames_DoubleTheRate_ReachesTheSameFrameInHalfTheTime()
     {
         // **The assertion that was missing when playback rate was wired in**, and the reason the
         // rule now says an output-level check is part of finishing the work. `m_flPlaybackRate` was
@@ -74,7 +74,7 @@ public sealed class ModelFramesTests
     }
 
     [Test]
-    public void AStoppedRateHoldsTheFirstFrame()
+    public void ModelFrames_AStoppedRate_HoldsTheFirstFrame()
     {
         // Rate zero is a real value — the engine uses it to freeze an animation — and it must not
         // be confused with "no rate was sent", which is 1. A cycle that advances at zero stays where

@@ -29,7 +29,7 @@ public sealed class ModulationWiringTests
     private const string MapName = "cp_process_final.bsp";
 
     [Test]
-    public void ARealMapsDeclaredColoursReachTheMaterialState()
+    public void Modulation_ARealMapsDeclaredColours_ReachTheMaterialState()
     {
         MapAssets assets = LoadTheMap();
 
@@ -52,7 +52,7 @@ public sealed class ModulationWiringTests
     }
 
     [Test]
-    public void ACarriedModulationIsNeverTheIdentity()
+    public void Modulation_ACarriedModulation_IsNeverTheIdentity()
     {
         // A modulation of exactly white and opaque changes nothing, so carrying one is pure cost.
         // The producing side filters on IsModulated; this is the assertion that it does, measured
@@ -70,7 +70,7 @@ public sealed class ModulationWiringTests
     }
 
     [Test]
-    public void ACarriedModulationHoldsTheValueItsOwnVmtDeclares()
+    public void Modulation_ACarriedModulation_HoldsTheValueItsVmtDeclares()
     {
         // **The value, not just the presence.** A wiring that passed a constant, or passed the
         // detail tint by mistake, satisfies both tests above and fails here.

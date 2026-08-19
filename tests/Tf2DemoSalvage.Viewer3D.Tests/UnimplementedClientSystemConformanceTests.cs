@@ -38,7 +38,7 @@ public sealed class UnimplementedClientSystemConformanceTests
     }
 
     [Test]
-    public void ThePotentiallyVisibleSetDecidesWhatIsDrawnFromWhereTheCameraIs()
+    public void ClientSystems_ThePotentiallyVisibleSet_DecidesWhatIsDrawn()
     {
         // LUMP_VISIBILITY is lump 4 and dvis_t is at bspfile.h:904 — a cluster count followed by a
         // per-cluster pair of byte offsets, one for the PVS and one for the PAS (audible set). Each
@@ -70,7 +70,7 @@ public sealed class UnimplementedClientSystemConformanceTests
     }
 
     [Test]
-    public void ABumpedLightmapCarriesThreeSamplesPerLuxelRatherThanOne()
+    public void ClientSystems_ABumpedLightmap_CarriesThreeSamplesPerLuxel()
     {
         // NUM_BUMP_VECTS is 3 (bumpvects.h:25). A face whose material has a bump map is lit with FOUR
         // lightmap samples per luxel, not one: a flat sample followed by three taken along the basis
@@ -97,7 +97,7 @@ public sealed class UnimplementedClientSystemConformanceTests
     }
 
     [Test]
-    public void HermiteIsTheEnginesDefaultAndLinearIsTheOptOut()
+    public void ClientSystems_Interpolation_DefaultsToHermiteWithLinearAsOptOut()
     {
         // **The polarity is the finding.** INTERPOLATE_LINEAR_ONLY is (1<<4) in interpolatedvar.h:36
         // and its comment reads "don't do hermite interpolation". Linear is the flag; Hermite is what
@@ -127,7 +127,7 @@ public sealed class UnimplementedClientSystemConformanceTests
     }
 
     [Test]
-    public void AnimationAndSimulationAreInterpolatedOnSeparateClocks()
+    public void ClientSystems_AnimationAndSimulation_UseSeparateClocks()
     {
         // LATCH_ANIMATION_VAR and LATCH_SIMULATION_VAR (interpolatedvar.h:30-31) select which of two
         // timestamps a variable's history is sampled against: m_flAnimTime or m_flSimulationTime.
@@ -154,7 +154,7 @@ public sealed class UnimplementedClientSystemConformanceTests
     }
 
     [Test]
-    public void TheHudIsWhereADecodedEventBecomesSomethingSeen()
+    public void ClientSystems_TheHud_IsWhereADecodedEventBecomesVisible()
     {
         // **This said TF2's HUD is not in the public SDK and that a decompiler or the live client
         // would be needed. That was wrong.** src/game/client/tf carries 125 HUD sources, including

@@ -31,7 +31,7 @@ public sealed class ModelMaterialParityTests
 {
 
     [Test]
-    public void AModelMaterialCanCarryADetailTexture()
+    public void ModelMaterials_AModelMaterial_CanCarryADetailTexture()
     {
         // **Measured beyond the brush count**, because the bug was specific to materials appended
         // after the map's own. A test that looked at the whole table would pass on the brushwork
@@ -49,7 +49,7 @@ public sealed class ModelMaterialParityTests
     }
 
     [Test]
-    public void AModelMaterialCanCarryABumpMap()
+    public void ModelMaterials_AModelMaterial_CanCarryABumpMap()
     {
         (MapAssets assets, int brushes) = LoadTheMap();
 
@@ -63,7 +63,7 @@ public sealed class ModelMaterialParityTests
     }
 
     [Test]
-    public void EveryListIndexedByMaterialIsTheSameLength()
+    public void ModelMaterials_EveryListIndexedByMaterial_IsTheSameLength()
     {
         // **The invariant itself, asserted rather than trusted.** These seven are indexed by one
         // number, so any disagreement in length means some material's properties belong to a
@@ -81,7 +81,7 @@ public sealed class ModelMaterialParityTests
     }
 
     [Test]
-    public void TheMapHasModelMaterialsToMeasure()
+    public void ModelMaterials_TheMap_HasModelMaterialsToMeasure()
     {
         // The control. Without it the two counts above are taken over an empty range and pass
         // having compared nothing — which is exactly how the original bug stayed invisible.

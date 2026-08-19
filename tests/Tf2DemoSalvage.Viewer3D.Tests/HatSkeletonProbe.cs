@@ -27,7 +27,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class HatSkeletonProbe
 {
     [Test]
-    public void WhatDoesAHatHangOff()
+    public void HatSkeleton_TheCorpus_IsReported()
     {
         if (Environment.GetEnvironmentVariable("TF2_FOLDER") is not { Length: > 0 } folder ||
             !Directory.Exists(folder))

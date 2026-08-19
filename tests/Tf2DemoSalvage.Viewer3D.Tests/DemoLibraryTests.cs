@@ -47,7 +47,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void ASingleFileBecomesAPlaylistOfOne()
+    public void DemoLibrary_ASingleFile_BecomesAPlaylistOfOne()
     {
         string demo = Demo("solo.dem");
 
@@ -58,7 +58,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void AFolderBecomesAPlaylistOfItsDemos()
+    public void DemoLibrary_AFolder_BecomesAPlaylistOfItsDemos()
     {
         Demo("a.dem");
         Demo("b.dem");
@@ -70,7 +70,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void AnOrdinaryFolderIncludesItsSubfolders()
+    public void DemoLibrary_AnOrdinaryFolder_IncludesItsSubfolders()
     {
         // The case the owner asked for: a folder of demos organised into subfolders is one
         // playlist, not several.
@@ -88,7 +88,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void TheGamesAssetFoldersAreSkipped()
+    public void DemoLibrary_TheGamesAssetFolders_AreSkipped()
     {
         // Pointing at the game's `tf` folder and walking everything would trawl the whole
         // install - materials, models and sound are gigabytes - to find the handful of demos the
@@ -111,7 +111,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void AFolderNamedLikeAnAssetFolderElsewhereIsStillSkipped()
+    public void DemoLibrary_AFolderNamedLikeAnAssetFolder_IsStillSkipped()
     {
         // The rule is by name at any depth, which is the trade being made deliberately: a demo
         // genuinely stored in a folder called "sound" is missed. That is worth it against
@@ -126,7 +126,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void NonDemoFilesAreIgnored()
+    public void DemoLibrary_NonDemoFiles_AreIgnored()
     {
         Demo("keep.dem");
         File.WriteAllText(Path.Combine(_root, "notes.txt"), "not a demo");
@@ -138,7 +138,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void SeveralFoldersCanBeOpenAtOnce()
+    public void DemoLibrary_SeveralFolders_CanBeOpenAtOnce()
     {
         // Explicitly wanted: open an arbitrary number of folders and choose what to play from
         // across all of them.
@@ -154,7 +154,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void OpeningTheSameFolderTwiceDoesNotDuplicateIt()
+    public void DemoLibrary_TheSameFolderTwice_IsNotDuplicated()
     {
         Demo("only.dem");
 
@@ -167,7 +167,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void AMissingPathAddsNothingRatherThanThrowing()
+    public void DemoLibrary_AMissingPath_AddsNothing()
     {
         // A folder can vanish between being chosen and being read - a network share, a removed
         // drive. The viewer reports an empty playlist; it does not fall over.
@@ -178,7 +178,7 @@ public sealed class DemoLibraryTests
     }
 
     [Test]
-    public void EntriesKnowWhichFolderTheyCameFrom()
+    public void DemoLibrary_Entries_KnowWhichFolderTheyCameFrom()
     {
         // The side panel groups by folder, so every entry has to carry its own.
         Demo("season12/match.dem");

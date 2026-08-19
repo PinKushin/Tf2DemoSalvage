@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class StandingPoseProbe
 {
     [Test]
-    public void DoesAStandingSequenceStandTheModelUp()
+    public void StandingPose_ASequence_IsReported()
     {
         if (Environment.GetEnvironmentVariable("TF2_FOLDER") is not { Length: > 0 } folder ||
             !Directory.Exists(folder))
@@ -213,7 +213,7 @@ public sealed class StandingPoseProbe
     }
 
     [Test]
-    public void AStandingSequenceIsFoundByItsExactName()
+    public void StandingPose_ASequence_IsFoundByItsExactName()
     {
         // **The regression that matters, stated as a height.** A sequence is looked up by label,
         // and matching on a substring takes the first LONGER label embedding it —

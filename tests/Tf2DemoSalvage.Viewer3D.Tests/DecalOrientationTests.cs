@@ -54,7 +54,7 @@ public sealed class DecalOrientationTests
             BasisV: (0f, 1f, 0f));
 
     [Test]
-    public void ADecalsTextureRunsAcrossTheAxisItsQuadIsLongest()
+    public void DecalOrientation_AWideQuad_RunsTheTextureAcrossIt()
     {
         // The quad is four times as long along BasisU as along BasisV, and so is the texture. So
         // the two corners that share a BasisU coordinate must share a U coordinate: nothing varies
@@ -77,7 +77,7 @@ public sealed class DecalOrientationTests
     }
 
     [Test]
-    public void ADecalsTextureRunsDownTheAxisItsQuadIsShortest()
+    public void DecalOrientation_ATallQuad_RunsTheTextureDownIt()
     {
         // The control for the test above. Asserting only about U would pass against an
         // implementation that gave every corner the same V, which draws a single row of texels

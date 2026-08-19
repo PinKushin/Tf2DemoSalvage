@@ -40,7 +40,7 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
-    public void EnvMapIsACubemapReflectionAddedAfterLighting()
+    public void Features_EnvMap_IsACubemapReflectionAddedAfterLighting()
     {
         // **79 materials on cp_process_final, the largest single gap (B55), and what B83 turns on.**
         //
@@ -70,7 +70,7 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
-    public void VertexColourTintsTheBaseTextureByTheBakedPerVertexColour()
+    public void Features_VertexColour_TintsTheBaseTexturePerVertex()
     {
         // **66 materials, and it is not clear that any work is owed.** This was written as a plain
         // gap; measuring it turned it into an open question, and the question is worth more than
@@ -137,7 +137,7 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
-    public void DecalScaleSizesADecalIndependentlyOfItsTexture()
+    public void Features_DecalScale_SizesADecalIndependentlyOfItsTexture()
     {
         // **58 materials.** A decal's world size is its texture size divided by $decalscale, so a
         // reader ignoring it draws every decal at texture scale — which is right only when the
@@ -158,7 +158,7 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
-    public void AProxyBlockDrivesAMaterialParameterOverTime()
+    public void Features_AProxyBlock_DrivesAMaterialParameterOverTime()
     {
         // **B80. The arithmetic is ported and nothing parses the block**, so every transform sits at
         // identity: the capture point beams do not scroll and the signs do not pulse.
@@ -203,7 +203,7 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
-    public void PhongIsAModelSpecularTermDrivenByAMaskAndAnExponent()
+    public void Features_Phong_IsAModelSpecularTermFromAMaskAndExponent()
     {
         // **B60.** vertexlitgeneric_dx9.cpp gates the whole pass on $phong, then reads $phongexponent
         // (sharpness), $phongboost (intensity) and $phongfresnelranges (grazing-angle falloff). The
@@ -229,7 +229,7 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
-    public void AnAttachmentPlacesAnItemAtAPointRatherThanAtABone()
+    public void Features_AnAttachment_PlacesAnItemAtAPointNotABone()
     {
         // **B82, and the layout is already pinned by StudioStructTests** — mstudioattachment_t is 92
         // bytes with localbone at 8 and a 3x4 matrix at 12. Nothing reads it, so a halo or a canteen

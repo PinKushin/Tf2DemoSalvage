@@ -62,7 +62,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void TheHeaderIsReadWithoutDecodingTheWholeDemo()
+    public void LoadedDemo_TheHeader_IsReadWithoutDecodingTheWholeDemo()
     {
         // The transport needs a length before playback starts, and a header read is bounded work
         // - a 39 MB demo must not be walked end to end just to enable a scrub bar.
@@ -76,7 +76,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void TheDurationComesFromTheHeader()
+    public void LoadedDemo_TheDuration_ComesFromTheHeader()
     {
         LoadedDemo demo = LoadedDemo.Load(WriteDemo("koth_product", ticks: 6600, seconds: 100f));
 
@@ -84,7 +84,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void ADemoTooShortToHoldAHeaderIsRejectedAsSuch()
+    public void LoadedDemo_ADemoTooShortForAHeader_IsRejected()
     {
         // The message matters: "not a demo" is actionable where an IndexOutOfRange from inside a
         // parser is not, and a truncated file is the normal case for this project.
@@ -95,7 +95,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void LoadingFromThePlaylistFillsTheTransport()
+    public void LoadedDemo_LoadingFromThePlaylist_FillsTheTransport()
     {
         // The end-to-end wiring: a demo in the library, selected, loaded, and the scrub bar comes
         // alive with the right length. Without the last part the controls stay disabled and the
@@ -114,7 +114,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void ADemoThatWillNotParseLeavesTheApplicationUsable()
+    public void LoadedDemo_ADemoThatWillNotParse_LeavesTheApplicationUsable()
     {
         // Expected, not exceptional: opening files other software rejects is the point of this
         // project, so a bad one reports itself and the user picks another from the same playlist.
@@ -131,7 +131,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void ATruncatedDemoGetsItsLengthMeasuredRatherThanBelieved()
+    public void LoadedDemo_ATruncatedDemo_HasItsLengthMeasured()
     {
         // The reported bug, reduced. `esea_match_13977649.dem` holds 110,238 frames of
         // cp_process_final and declares zero, because the engine writes the header's counts by
@@ -146,7 +146,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void AMeasuredLengthAlsoGivesADuration()
+    public void LoadedDemo_AMeasuredLength_AlsoGivesADuration()
     {
         // A dead scrub bar and a 00:00 duration are the same bug seen from two places. TF2 runs at
         // 66.667 ticks per second, so 8400 ticks is a little over two minutes.
@@ -156,7 +156,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void ACompleteDemoIsNotMeasured()
+    public void LoadedDemo_ACompleteDemo_IsNotMeasured()
     {
         // The control. Measuring means walking the whole file, and doing that to confirm a number
         // the header already states would make opening a large demo feel broken.
@@ -166,7 +166,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void ATruncatedDemoEnablesTheTransport()
+    public void LoadedDemo_ATruncatedDemo_EnablesTheTransport()
     {
         // What the user actually saw: play unavailable, no timeline, after double-clicking a demo
         // that is 110,000 frames long. The transport is right to refuse a zero-length demo, so the
@@ -214,7 +214,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void OneFileOnTheCommandLineIsOpenedNotJustListed()
+    public void LoadedDemo_OneFileOnTheCommandLine_IsOpened()
     {
         // The file-association case. Double-clicking a .dem in Explorer has to end with the demo
         // on screen: listing it in a playlist and waiting is not what opening a file means
@@ -228,7 +228,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void AFolderOnTheCommandLineIsListedNotOpened()
+    public void LoadedDemo_AFolderOnTheCommandLine_IsListedNotOpened()
     {
         // The control, and the reason the check is on file-ness rather than on count. A folder
         // means "here is a playlist"; picking one of its demos to start would be guessing which.
@@ -241,7 +241,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void SeveralFilesOnTheCommandLineAreListedNotOpened()
+    public void LoadedDemo_SeveralFilesOnTheCommandLine_AreListedNotOpened()
     {
         // Multi-select from Explorer. Same reasoning as a folder: several files are a playlist.
         string first = WriteDemo("cp_process_final", ticks: 100, seconds: 2f);
@@ -253,7 +253,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void AMissingFileSaysWhichFile()
+    public void LoadedDemo_AMissingFile_SaysWhichFile()
     {
         Should.Throw<FileNotFoundException>(
             () => LoadedDemo.Load(Path.Combine(_folder, "absent.dem")));

@@ -30,7 +30,7 @@ public sealed class CubemapPlacementTests
     private const int WorldLimit = 16384;
 
     [Test]
-    public void ARealMapBakesCubemapsAndTheyAllStandInsideTheWorld()
+    public void CubemapPlacement_ARealMap_PlacesThemAllInsideTheWorld()
     {
         IReadOnlyList<BspCubemap> cubemaps = BspCubemaps.Read(LoadTheMap());
 
@@ -51,7 +51,7 @@ public sealed class CubemapPlacementTests
     }
 
     [Test]
-    public void EveryBakedSizeIsAPowerOfTwoWithinWhatATextureCanBe()
+    public void CubemapPlacement_EveryBakedSize_IsAValidPowerOfTwo()
     {
         // The size is stored as a shift count, so anything that comes back must be a power of two —
         // and must be a plausible texture edge. This is what catches the escape value being fed
@@ -70,7 +70,7 @@ public sealed class CubemapPlacementTests
     }
 
     [Test]
-    public void EveryCubemapsDerivedTextureNameIsActuallyInTheMapsArchives()
+    public void CubemapPlacement_EveryDerivedTextureName_IsInTheMapArchives()
     {
         // **The one that can fail when the naming is wrong.** The synthetic test asserts the format
         // string; this asserts that the string names a file vbsp really wrote.

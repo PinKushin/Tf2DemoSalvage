@@ -44,7 +44,7 @@ public sealed class DeadShaderParameterConformanceTests
     }
 
     [Test]
-    public void NoPublishedShaderDeclaresModblendWhileNeighbouringParametersAbound()
+    public void ShaderParameters_Modblend_IsDeclaredByNoPublishedShader()
     {
         // The controls come first deliberately. If these are zero the search is broken, and the
         // interesting result below would be an artefact of the instrument rather than a fact about
@@ -61,7 +61,7 @@ public sealed class DeadShaderParameterConformanceTests
     }
 
     [Test]
-    public void ModulateIsARealShaderSoTheMaterialsCarryingItAreNotBroken()
+    public void ShaderParameters_Modulate_IsARealShader()
     {
         // The materials that declare $modblend use the Modulate shader, which IS published. So they
         // are ordinary working materials carrying one parameter nothing reads — not broken files,
