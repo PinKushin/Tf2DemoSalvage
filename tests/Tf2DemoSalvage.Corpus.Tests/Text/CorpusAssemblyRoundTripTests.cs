@@ -26,23 +26,35 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 /// </remarks>
 public sealed class CorpusAssemblyRoundTripTests
 {
-    /// <summary>
-    /// Commands per demo. A prefix, because this suite runs once per mutant on the measurement
-    /// box.
-    /// </summary>
-    /// <remarks>
-    /// The full corpus is 833 MB, and decompiling all of it to text and back took the corpus suite
-    /// from 48 seconds to four and a half minutes - which, multiplied by 1,300 mutants, is the
-    /// difference between an overnight mutation run and one that does not finish. A prefix rebuilds
-    /// a prefix of the file, so nothing about byte-exactness is weakened; only the number of bytes
-    /// compared changes.
-    ///
-    /// Cut again to 600 when entity snapshots were promoted out of hex: decoding, re-encoding and
-    /// verifying every snapshot is most of the cost, and 2,000 commands per demo took the suite
-    /// back to a minute. Coverage is unaffected in the way that matters - all 24 demos and all five
-    /// protocols still round-trip, just over fewer commands each.
-    /// </remarks>
-    private const int CommandLimit = 600;
+    // **There is no command limit any more, and removing it is the point of this comment.**
+    //
+    // This read the first 600 commands of each demo. The reasoning was sound at the time — the
+    // suite runs once per mutant, the full corpus is 833 MB, and an uncapped run took it from 48
+    // seconds to four and a half minutes, which multiplied by 1,300 mutants is the difference
+    // between an overnight mutation run and one that does not finish. The comment even argued that
+    // coverage was unaffected: "a prefix rebuilds a prefix of the file, so nothing about
+    // byte-exactness is weakened; only the number of bytes compared changes."
+    //
+    // That last sentence is the wrong one, and it cost two real bugs on 2026-08-19:
+    //
+    // - An empty voice body could not be assembled back. Voice data does not appear until players
+    //   start talking, which is thousands of commands in.
+    // - A carriage return inside a string split the line. It came from `cappers` on
+    //   teamplay_point_captured, whose field is raw player-index bytes, so the player in slot 13
+    //   put 0x0D in a string. A point capture is also thousands of commands in.
+    //
+    // Both were found by round-tripping WHOLE demos through the CLI, and neither could have been
+    // found here. **A cap on stream POSITION is not the same as a cap on size**: it does not sample
+    // the file, it removes the entire late half of it, and a demo's late half is where anything
+    // that depends on the match having started lives. Signon and the first seconds are the most
+    // uniform part of a recording and the least likely to hold a surprise.
+    //
+    // The cost is affordable now for two reasons that were not true when the cap was written.
+    // Daily mutation moved to the Oracle box, which has no GitHub six-hour job ceiling and runs on
+    // a schedule with margin. And D25 split the projects: the daily mutation workhorse is
+    // Core.Tests, which is entirely synthetic, while this project is weekly and overnight by
+    // design. Slowing an overnight job to catch bugs the fast one structurally cannot is the trade
+    // this suite exists to make.
 
     [Test]
     public void EveryDemo_CompilesBackToItsOwnBytes()
@@ -63,8 +75,7 @@ public sealed class CorpusAssemblyRoundTripTests
 
             DemoHeader header = DemoHeader.Parse(original.AsSpan(0, DemoHeader.SizeBytes));
             List<DemoCommand> commands =
-                [.. DemoCommandReader.Read(original.AsMemory(DemoHeader.SizeBytes))
-                    .Take(CommandLimit)];
+                [.. DemoCommandReader.Read(original.AsMemory(DemoHeader.SizeBytes))];
 
             StringWriter text = new() { NewLine = "\n" };
             DemoAssembly.Write(text, header, commands);
