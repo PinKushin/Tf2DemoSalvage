@@ -247,11 +247,21 @@ public static class EventAssembly
         }
     }
 
-    private static string Quote(string value) =>
-        "\"" + value
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal) + "\"";
+    /// <summary>Quotes a value, shared with the rest of the text form.</summary>
+    /// <remarks>
+    /// **This was the THIRD copy of the escape rule, and the third to be missing a case.** The
+    /// header had one that escaped only the quote character; this one escaped backslash, quote and
+    /// newline; the message one escaped those and, eventually, the carriage return. Nothing failed
+    /// while they disagreed, because no test put an awkward character through more than one of
+    /// them.
+    ///
+    /// The carriage return is what exposed it, and through this copy specifically: TF2's
+    /// <c>teamplay_point_captured</c> carries <c>cappers</c> as a string of raw player-index BYTES,
+    /// so a capture by the player in slot 13 writes <c>0x0D</c> into an event field. Fixing
+    /// <c>MessageAssembly</c> alone left the demo still broken, because game events come through
+    /// here.
+    /// </remarks>
+    private static string Quote(string value) => MessageAssembly.Quote(value);
 
     private static List<string> Tokens(string line)
     {
@@ -265,7 +275,16 @@ public static class EventAssembly
         {
             if (escaped)
             {
-                current.Append(character == 'n' ? '\n' : character);
+                // The inverse of Quote, and it has to stay the inverse: this is the reading half
+                // of the fourth copy of one escape rule. `r` is distinct from `n` because mapping
+                // both onto a newline round-trips a carriage return into something else.
+                current.Append(character switch
+                {
+                    'n' => '\n',
+                    'r' => '\r',
+                    _ => character,
+                });
+
                 escaped = false;
                 continue;
             }

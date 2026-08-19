@@ -347,7 +347,16 @@ public static class MessageAssembly
 
         "svc_sounds" => BuildSounds(tokens, nextLine, state),
 
-        _ => throw new InvalidDataException($"Unknown message '{tokens[0]}'."),
+        // **The whole line, not just the first token.** This read `Unknown message '{tokens[0]}'`,
+        // which on a real failure printed `Unknown message ''` — a message naming nothing, about a
+        // line it did not show, from a file of three million of them. Diagnosing it meant bisecting
+        // the input, and the bisect was itself unreliable because a truncated prefix fails for its
+        // own reasons.
+        //
+        // An error about malformed input has to carry the input. Same rule as the logs: state what
+        // was measured, not only that something was wrong.
+        _ => throw new InvalidDataException(
+            $"Unknown message '{tokens[0]}' in: {string.Join(' ', tokens)}"),
     };
 
     private static string WriteServerInfo(ServerInfoMessage info) => string.Create(
@@ -615,11 +624,40 @@ public static class MessageAssembly
     /// Console commands and convar values routinely contain spaces, and a server name can contain
     /// a quote. Neither is exotic enough to leave to chance.
     /// </remarks>
-    private static string Quote(string value) =>
+    /// <remarks>
+    /// **Both line breaks are escaped, and leaving out the carriage return was a real bug.** The
+    /// text form is read back with <c>TextReader.ReadLine</c>, which ends a line at <c>\n</c>,
+    /// <c>\r\n</c> OR a bare <c>\r</c> — so an unescaped carriage return splits a line in two and
+    /// the remainder assembles as nonsense.
+    ///
+    /// That is not a hypothetical string. TF2's <c>teamplay_point_captured</c> carries its
+    /// <c>cappers</c> field as a string of raw player-index BYTES, so a capture by the player in
+    /// slot 13 puts <c>0x0D</c> inside a string. One corpus demo contains one, and it was the only
+    /// one of ten that would not compile back.
+    ///
+    /// Backslash goes first, or the escapes introduced below would themselves be escaped.
+    /// </remarks>
+    internal static string Quote(string value) =>
         "\"" + value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal) + "\"";
+            .Replace("\n", "\\n", StringComparison.Ordinal)
+            .Replace("\r", "\\r", StringComparison.Ordinal) + "\"";
+
+    /// <summary>Reads one quoted token back, undoing <see cref="Quote"/>.</summary>
+    /// <param name="quoted">A token including its surrounding quotes.</param>
+    /// <returns>The value.</returns>
+    /// <remarks>
+    /// Shared with <c>DemoAssembly</c>'s header fields, which used to unescape only the quote
+    /// character. Expressed through <see cref="Tokenize"/> so there is exactly one implementation
+    /// of the escape rule rather than one per caller.
+    /// </remarks>
+    internal static string Unquote(string quoted)
+    {
+        List<string> tokens = Tokenize(quoted);
+
+        return tokens.Count > 0 ? tokens[0] : string.Empty;
+    }
 
     /// <summary>Splits a line into bare tokens and quoted strings.</summary>
     private static List<string> Tokenize(string line)
@@ -634,7 +672,16 @@ public static class MessageAssembly
         {
             if (escaped)
             {
-                current.Append(character == 'n' ? '\n' : character);
+                // The inverse of Quote, and `r` is distinct from `n` on purpose: mapping both onto
+                // a newline would round-trip a carriage return into something else, which is the
+                // repair that looks like it worked.
+                current.Append(character switch
+                {
+                    'n' => '\n',
+                    'r' => '\r',
+                    _ => character,
+                });
+
                 escaped = false;
                 continue;
             }
