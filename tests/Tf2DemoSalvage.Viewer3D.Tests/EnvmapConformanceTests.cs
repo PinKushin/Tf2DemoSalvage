@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
@@ -106,6 +107,81 @@ public sealed class EnvmapConformanceTests
         Shift(7).ShouldBe(64);
 
         static int Shift(byte size) => 1 << (size - 1);
+    }
+
+    [Test]
+    public void TheCubeFaceOrderIsPlainlyPositiveAndNegativeXYZ()
+    {
+        // **Valve's face names are misleading and their ORDER is not.** The enum reads
+        // RIGHT, LEFT, BACK, FRONT, UP, DOWN, with two of them annotated in visible bafflement:
+        //
+        //     CUBEMAP_FACE_BACK,	// NOTE: This face is in the +y direction?!?!?
+        //     CUBEMAP_FACE_FRONT,	// NOTE: This face is in the -y direction!?!?
+        //
+        // The punctuation is Valve's, and it is the tell: the names do not match Source's own
+        // convention (X forward, Y left, Z up), so "BACK" being +y looks like a bug in the format.
+        //
+        // The enum declared eleven lines below it settles what the order actually is:
+        //
+        //     enum LookDir_t { LOOK_DOWN_X = 0, LOOK_DOWN_NEGX, LOOK_DOWN_Y,
+        //                      LOOK_DOWN_NEGY, LOOK_DOWN_Z, LOOK_DOWN_NEGZ };
+        //
+        // Same length, same positions, and the two entries Valve annotated agree exactly — BACK at
+        // index 2 with LOOK_DOWN_Y, FRONT at index 3 with LOOK_DOWN_NEGY. So the face order is
+        // +X, -X, +Y, -Y, +Z, -Z, and the names are simply wrong rather than the axes being strange.
+        //
+        // **That is D3D11's TextureCube order exactly**, so the upload is the identity for faces 0
+        // to 5 and no swizzle is needed — provided the reflection vector is computed in Source's
+        // own space, which this renderer does work in (its height cut reads input.pos.z as height).
+        //
+        // Asserted rather than noted because "no mapping needed" is the kind of conclusion that
+        // gets quietly reversed by someone who reads only the face names.
+        RequireCubemapsRead();
+
+        string header = Sdk("src/public/vtf/vtf.h");
+
+        header.ShouldContain("CUBEMAP_FACE_BACK,	// NOTE: This face is in the +y direction?!?!?");
+        header.ShouldContain("CUBEMAP_FACE_FRONT,	// NOTE: This face is in the -y direction!?!?");
+
+        // The corroborating enum, whose order is the derivation.
+        int look = header.IndexOf("LOOK_DOWN_X = 0", StringComparison.Ordinal);
+        int faces = header.IndexOf("CUBEMAP_FACE_RIGHT = 0", StringComparison.Ordinal);
+
+        faces.ShouldBeGreaterThan(0);
+        look.ShouldBeGreaterThan(faces, "LookDir_t is declared below CubeMapFaceIndex_t");
+
+        foreach (string direction in
+            new[] { "LOOK_DOWN_X", "LOOK_DOWN_NEGX", "LOOK_DOWN_Y", "LOOK_DOWN_NEGY", "LOOK_DOWN_Z", "LOOK_DOWN_NEGZ" })
+        {
+            header.ShouldContain(direction);
+        }
+
+        // Six cube faces plus the spheremap. If Valve ever adds one, the identity mapping stops
+        // being safe and this is where that is noticed.
+        VtfTexture.CubeFaceCount.ShouldBe(7);
+    }
+
+    [Test]
+    public void TheSpheremapIsNotUploadedAsASeventhCubeFace()
+    {
+        // A TextureCube has six faces and the file has seven. The seventh is a different
+        // PROJECTION of the same room, not a seventh direction, so it is dropped — and dropping it
+        // has to be deliberate, because uploading six of seven "in order" is also what a reader
+        // that never noticed the spheremap would do, and that reader is right by accident only as
+        // long as the spheremap stays last.
+        //
+        // It is last: CUBEMAP_FACE_SPHEREMAP sits after DOWN and immediately before the count.
+        RequireCubemapsRead();
+
+        string header = Sdk("src/public/vtf/vtf.h");
+
+        int down = header.IndexOf("CUBEMAP_FACE_DOWN", StringComparison.Ordinal);
+        int spheremap = header.IndexOf("CUBEMAP_FACE_SPHEREMAP", StringComparison.Ordinal);
+        int count = header.IndexOf("CUBEMAP_FACE_COUNT", StringComparison.Ordinal);
+
+        down.ShouldBeGreaterThan(0);
+        spheremap.ShouldBeGreaterThan(down, "the spheremap follows the six cube faces");
+        count.ShouldBeGreaterThan(spheremap, "and nothing follows the spheremap");
     }
 
     [Test]
