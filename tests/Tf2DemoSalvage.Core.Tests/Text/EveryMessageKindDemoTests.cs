@@ -223,6 +223,97 @@ public sealed class EveryMessageKindDemoTests
     ];
 
     [Test]
+    public void TraceNamesEveryMessageKind()
+    {
+        // **A different writer over the same demo, and it fails for reasons the assembly cannot.**
+        // The trace is the readable artefact — the demo decompiled message by message in stream
+        // order — and it is the only one a person reads. A message the assembly reproduces
+        // perfectly can still be missing from the trace, or named wrongly there, and no
+        // round-trip test would notice: they are separate code paths over the same input.
+        //
+        // This is the assertion the project's own rule asks for. A unit test proves a component
+        // works when called with the values the test chose; only an assertion on the rendered
+        // artefact can fail when production does not call it.
+        // **These are the trace's own names, taken from the writer rather than guessed, and two
+        // of them are not what the message is called anywhere else.** `svc_StringCmd` renders as
+        // `svc_stufftext` and a chat line renders as `svc_chat` rather than as the
+        // `svc_usermessage` it arrived in. Both are deliberate — the trace is written to read like
+        // the engine's own vocabulary, not like this project's type names.
+        //
+        // Pinning the vocabulary is the point. This is the artefact a person reads, so a rename
+        // in it should be a deliberate act rather than a side effect.
+        string trace = Trace();
+
+        foreach (string expected in new[]
+        {
+            "svc_serverinfo", "svc_print", "svc_stufftext", "net_signonstate",
+            "svc_classinfo", "svc_prefetch", "svc_setview", "svc_fixangle", "svc_file",
+            "svc_getcvarvalue", "svc_bspdecal", "svc_voiceinit", "svc_voicedata",
+            "svc_entitymessage", "svc_tempentities", "svc_usermessage", "svc_sounds",
+            "svc_packetentities", "svc_chat", "net_tick",
+        })
+        {
+            // The subject goes in the message, so a failure says which kind is missing instead of
+            // printing "trace should contain" and leaving the reader to open the file.
+            //
+            // Written as an explicit predicate rather than ShouldContain(text, message): Shouldly
+            // binds that overload to its IEnumerable<char> form and the message is lost.
+            Names(trace, expected).ShouldBeTrue($"the trace never names {expected}");
+        }
+    }
+
+    /// <summary>Whether rendered output contains a token, for an assertion that names it.</summary>
+    private static bool Names(string output, string token) =>
+        output.Contains(token, StringComparison.Ordinal);
+
+    [Test]
+    public void TraceExpandsBodiesRatherThanNamingThem()
+    {
+        // Naming a message is the easy half. These are the parts the trace decodes INTO the line,
+        // and each one is a place where a decode can be correct while nothing renders it — the
+        // failure that shipped three no-ops here with a green suite.
+        string trace = Trace();
+
+        // A game event's fields, by name and value, not just its id.
+        Names(trace, "player_death").ShouldBeTrue("the trace does not name the event that fired");
+        Names(trace, "scattergun")
+            .ShouldBeTrue("the trace does not expand a game event's string field");
+
+        // Chat rendered as what was said, which is the whole reason chat is lifted out of
+        // svc_UserMessage in the first place.
+        Names(trace, "spah sappin mah sentry")
+            .ShouldBeTrue("the trace does not render what was said in chat");
+
+        // The map, from the header rather than from ServerInfo, so the two paths agree.
+        Names(trace, "cp_process_final").ShouldBeTrue("the trace does not carry the map name");
+    }
+
+    [Test]
+    public void TheDumpAndTheJsonLinesBothSurviveEveryKind()
+    {
+        // Neither of these has a round trip to protect it, so the only thing that can fail is an
+        // assertion on what they emit. Both walk the same message list and both have thrown on
+        // unfamiliar shapes before.
+        StringWriter dump = new() { NewLine = "\n" };
+        StringWriter json = new() { NewLine = "\n" };
+
+        (DemoHeader header, IReadOnlyList<DemoCommand> commands) = Read(Demo());
+
+        DemoTextDumper.Write(dump, "synthetic.dem", header, commands, options: null);
+        DemoJsonLinesWriter.Write(json, "synthetic.dem", header, commands);
+
+        dump.ToString().ShouldContain("cp_process_final");
+
+        // JSON Lines means one complete object per line, so a writer that emitted a pretty-printed
+        // document would still contain the map name and be unusable. Checked structurally.
+        string[] lines = json.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        lines.Length.ShouldBeGreaterThan(1);
+        lines.ShouldAllBe(line => line.StartsWith('{') && line.EndsWith('}'));
+    }
+
+    [Test]
     public void EveryKindTheWriterClaimsToSupportIsExercised()
     {
         // **The denominator is generated, so this cannot go stale.** A hand-kept list of kinds is
@@ -311,14 +402,25 @@ public sealed class EveryMessageKindDemoTests
 
     private static string Assemble(byte[] demo)
     {
-        DemoHeader header = DemoHeader.Parse(demo.AsSpan(0, DemoHeader.SizeBytes));
-        List<DemoCommand> commands =
-            [.. DemoCommandReader.Read(demo.AsMemory(DemoHeader.SizeBytes))];
+        (DemoHeader header, IReadOnlyList<DemoCommand> commands) = Read(demo);
 
         StringWriter text = new() { NewLine = "\n" };
         DemoAssembly.Write(text, header, commands);
         return text.ToString();
     }
+
+    private static string Trace()
+    {
+        (DemoHeader header, IReadOnlyList<DemoCommand> commands) = Read(Demo());
+
+        StringWriter text = new() { NewLine = "\n" };
+        DemoTraceWriter.Write(text, "synthetic.dem", header, commands);
+        return text.ToString();
+    }
+
+    private static (DemoHeader Header, IReadOnlyList<DemoCommand> Commands) Read(byte[] demo) =>
+        (DemoHeader.Parse(demo.AsSpan(0, DemoHeader.SizeBytes)),
+            [.. DemoCommandReader.Read(demo.AsMemory(DemoHeader.SizeBytes))]);
 
     private static ServerInfoMessage ServerInfo() => new(
         NetworkProtocol: Protocol,
