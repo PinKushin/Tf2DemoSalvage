@@ -387,16 +387,44 @@ in order" is also what a reader that never noticed the seventh face would do, an
 right by accident only as long as the spheremap stays last. It is last — after DOWN, immediately
 before the count — and now something says so.
 
-## Still open
+## Drawn, and measured through the GPU
 
-The lump is read, the assignment turns out to be free, and the pixel format turns out to need no new
-decoder. What remains is the picture:
+All of it landed. The census, which reported `$envmap` on 79 of 410 materials as the map's largest
+unimplemented parameter, now reports 43 unimplemented with the largest at 66 — `$envmap`,
+`$envmaptint` and `$basealphaenvmapmask` are gone from it. All ten of `EnvmapConformanceTests`
+activated.
 
-1. **The upload** — faces 0–5 into a D3D `TextureCube`, in order, dropping the spheremap. Decoding
-   is done and the mapping is the identity; what remains is the D3D resource and its sampler.
-2. **The shading**, specified by `EnvmapConformanceTests` — six of its ten assertions still
-   skipped.
+**The shader is the one part of this that map data cannot falsify**, and it turned out to be
+measurable anyway. This project renders offscreen and reads pixels back, so the reflection can be
+observed through the real pipeline:
 
-Half-float decode is *not* on this list, and was on it for a while. See the correction above.
+| Material | Normal up | Normal side |
+|---|---|---|
+| 95, reflective | `(129, 115, 125)` | `(69, 68, 69)` |
+| 0, matte | `(32, 29, 26)` | `(32, 29, 26)` |
 
-B55.
+**The discriminator is the surface normal**, because a reflection vector is the view direction
+mirrored about it — two otherwise identical surfaces facing different ways sample different texels.
+And the control is exact: a material with no cubemap comes back byte-identical, so nothing else in
+the world path varies with the normal and the difference above *is* the reflection. Forcing the
+envmap branch off reddens the first row and leaves the second untouched.
+
+Two things nearly stopped this being measurable at all.
+
+**The existing offscreen tests use an identity camera matrix, and an identity matrix has no eye
+position.** Inverting it and taking the third row gives `w = 0` — parallel rays converging nowhere —
+so `EyePosition` correctly reports no camera and the shader correctly skips the reflection. A test
+written on the established harness would have measured nothing and passed. It needed a real
+perspective camera.
+
+**And a shader resource slot keeps whatever was bound last.** A material with no cubemap would have
+sampled the previous material's, so the slot is set on every draw — null when there is nothing —
+rather than only when there is something. The shader's guard is what stops the read; the binding is
+what stops the staleness. Getting only one of those right produces reflections on matte surfaces
+that follow draw order, which is about as hard to diagnose as this project's defects get.
+
+**What is still not verified: whether it looks right.** A pixel that changes with the normal is
+evidence that the cube is sampled, not that the picture is correct. Brightness, falloff and whether
+a given wall reflects the room it is in are questions for someone looking at the screen.
+
+B55 closed.

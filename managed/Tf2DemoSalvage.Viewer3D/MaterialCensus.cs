@@ -59,6 +59,16 @@ internal static class MaterialCensus
         "$detailtint",
         "$translucent",
 
+        // The map's baked reflection. $envmap on a compiled map names a concrete texture rather
+        // than the literal env_cubemap — vbsp rewrote it at compile time for every brush face it
+        // bound — and the three shading parameters are read with Valve's own defaults, which point
+        // opposite ways: contrast normal at 0, saturation normal at 1.
+        "$envmap",
+        "$envmaptint",
+        "$envmapcontrast",
+        "$envmapsaturation",
+        "$basealphaenvmapmask",
+
         // The per-material modulation. $color2 MULTIPLIES $color rather than replacing it
         // (BaseShader.h:271 states the operation on the helper's declaration), and $alpha is
         // clamped to 0..1 where the colour channels deliberately are not. All three reach the

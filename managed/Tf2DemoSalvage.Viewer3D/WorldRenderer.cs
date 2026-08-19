@@ -187,6 +187,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float3 vc  : TEXCOORD3;
             float3 nrm : TEXCOORD5;
             float  ls  : TEXCOORD4;
+
+            // **World position, for the reflection vector.** The vertex shader already computes
+            // this on the way to clip space; it was simply thrown away. A cubemap sample is the
+            // direction from the eye to this point, mirrored about the normal, so the pixel shader
+            // needs the point rather than only its depth.
+            float3 wpos : TEXCOORD8;
         };
 
         cbuffer Camera : register(b0)
@@ -201,6 +207,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //    hallways into last on cp_process being the case that asked for it. Zero draws
             //    everything.
             float4 surfaceColours;
+
+            // **Where the camera is, in world units.** Needed for the reflection vector and for
+            // nothing else — a cubemap sample is the direction from the eye to the surface,
+            // mirrored about the surface normal, so without this every reflective surface shows
+            // the same texel wherever it is looked at from.
+            //
+            // Not plumbed from the cameras: it is recovered from the matrix above, which already
+            // determines it. See EyePosition.
+            float4 eyePosition;
         };
 
         // **The model transform, which is Valve's own shape.** IMaterialSystem::LoadBoneMatrix
@@ -307,6 +322,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // capture point's beam is stripes TIMES a colour, and mixed by alpha instead it is
             // whichever of the two the vertices happen to ask for.
             float4 combine;
+
+            // **The baked reflection's shading, xyz tint and w contrast.** Packed together because
+            // a constant buffer is sized in whole float4s and these are three floats and one.
+            //
+            // Contrast is normal at ZERO — `lerp(reflection, reflection * reflection, contrast)` —
+            // which is the opposite end from the saturation below. Getting the pair the same way
+            // round greys out or squares every reflection on the map, and neither is an error.
+            float4 envmapTint;
+
+            // x: saturation, normal at ONE. `lerp(greyscale, reflection, saturation)`.
+            // y: 1 when the base texture's alpha masks the reflection, INVERTED — an opaque texel
+            //    reflects least, and Valve annotated their own line "Reversing alpha blows!"
+            // z: 1 when this material has a cubemap bound at all, 0 otherwise. A material without
+            //    one still gets a sampler bound, because the slot is set once per draw and a stale
+            //    cube from the previous material would otherwise reflect on a matte surface.
+            // w: unused.
+            float4 envmapControl;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -320,6 +352,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         Texture2D    blendMap    : register(t2);
         Texture2D    detailMap   : register(t3);
         Texture2D    bumpMap     : register(t4);
+
+        // The map's own baked reflection for this material, six faces in Valve's order — which is
+        // +X, -X, +Y, -Y, +Z, -Z and therefore D3D's order unchanged.
+        TextureCube  envMap      : register(t5);
+
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -470,6 +507,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
+            output.wpos = world.xyz;
             // **Both coordinate sets, from one incoming pair, exactly as the engine builds them.**
             // The coordinate is extended to a float4 with w = 1 so the transform's fourth column
             // translates — that is what a scrolling material writes into, and with an identity
@@ -712,6 +750,55 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, albedo.a);
             }
 
+            // **The baked reflection, ADDED rather than blended.** Valve's line is
+            // `result = diffuseComponent + specularLighting` (lightmappedgeneric_ps2_3_x.h:548) —
+            // not a lerp and not a multiply. A reflection makes a surface brighter; blending
+            // instead darkens every reflective surface toward the cubemap's average, which reads as
+            // a wash rather than as shine and is the failure that looks almost right.
+            //
+            // Addition is also what makes "no cubemap" correct rather than merely absent: the term
+            // starts black, so a material without one adds nothing.
+            if (envmapControl.z > 0.5f && eyePosition.w > 0.5f)
+            {
+                float3 toEye = eyePosition.xyz - input.wpos;
+                float3 eyeDirection = normalize(toEye);
+                float3 surfaceNormal = normalize(input.nrm);
+
+                // The mirrored view direction. reflect() takes the INCIDENT direction, which is
+                // from the eye toward the surface, so the eye vector is negated.
+                float3 reflection = reflect(-eyeDirection, surfaceNormal);
+
+                float3 specular = envMap.Sample(wrapSampler, reflection).rgb;
+
+                specular *= envmapTint.rgb;
+
+                // **Contrast then saturation then fresnel, in that order.** Squaring is not linear,
+                // so squaring before scaling by fresnel is a different picture from squaring after,
+                // and Valve's order is tint, contrast, saturation, fresnel (lines 537-544).
+                specular = lerp(specular, specular * specular, envmapTint.w);
+
+                // Rec.601 luma, not a third each. The weights sum to one, so a grey reflection is
+                // unchanged either way -- which is why an average passes a casual check and greens
+                // what should stay red.
+                float grey = dot(specular, float3(0.299f, 0.587f, 0.114f));
+                specular = lerp(float3(grey, grey, grey), specular, envmapControl.x);
+
+                // Schlick: grazing angles reflect most, head-on least. Without it every metal
+                // surface becomes a chrome ball.
+                float fresnel = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
+                specular *= fresnel;
+
+                // **Inverted, and Valve said so: "Reversing alpha blows!"** An opaque texel
+                // reflects LEAST. Getting this backwards puts the shine exactly where the artist
+                // masked it out.
+                if (envmapControl.y > 0.5f)
+                {
+                    specular *= 1.0f - albedo.a;
+                }
+
+                lit += specular;
+            }
+
             return float4(lit, albedo.a);
         }
         """;
@@ -888,6 +975,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>The bump map for each material, empty where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _bumps = [];
+
+    /// <summary>The baked reflection for each material, as a cube view, or a null handle.</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _cubemaps = [];
 
     /// <summary>Scale, blend factor, mode and tint per material, in the shader's own layout.</summary>
     /// <remarks>
@@ -1363,6 +1453,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             (float Red, float Green, float Blue, float Alpha) tint =
                 surface?.Modulation ?? (1f, 1f, 1f, 1f);
 
+            // **The baked reflection's shading, resting at "no reflection".** The defaults matter
+            // and point opposite ways: contrast is normal at ZERO and saturation at ONE, so a
+            // resting value of zero for both would grey out every reflection the moment one was
+            // bound.
+            MapCubemap? reflection = index < assets.Cubemaps.Count ? assets.Cubemaps[index] : null;
+
+            (float Red, float Green, float Blue) envmapTint = reflection?.Tint ?? (1f, 1f, 1f);
+            float envmapContrast = reflection?.Contrast ?? 0f;
+            float envmapSaturation = reflection?.Saturation ?? 1f;
+            float envmapMask = reflection is { MaskedByBaseAlpha: true } ? 1f : 0f;
+            float hasEnvmap = reflection is null ? 0f : 1f;
+
+            _cubemaps.Add(reflection is { } cube ? UploadCube(device, cube) : default);
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -1395,6 +1499,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
                     multiplies, wrapsLight, 0f, 0f,
+
+                    // The baked reflection's tint and contrast, then its saturation, mask and
+                    // whether there is one at all. White, zero, one and zero is "reflect nothing",
+                    // which is what the great majority of materials want.
+                    envmapTint.Red, envmapTint.Green, envmapTint.Blue, envmapContrast,
+                    envmapSaturation, envmapMask, hasEnvmap, 0f,
                 ]
                 :
                 [
@@ -1421,6 +1531,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
                     multiplies, wrapsLight, 0f, 0f,
+
+                    // The baked reflection's tint and contrast, then its saturation, mask and
+                    // whether there is one at all. White, zero, one and zero is "reflect nothing",
+                    // which is what the great majority of materials want.
+                    envmapTint.Red, envmapTint.Green, envmapTint.Blue, envmapContrast,
+                    envmapSaturation, envmapMask, hasEnvmap, 0f,
                 ]);
         }
 
@@ -1606,12 +1722,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _bumps[batch.MaterialIndex]
                     : _white;
 
+            // **Bound for every draw, not only the reflecting ones.** A shader resource slot keeps
+            // whatever was set last, so a material with no cubemap would sample the previous
+            // material's — and the shader's own guard is what stops it being read, not the absence
+            // of a binding. Setting a null view here is deliberate: it makes the slot empty rather
+            // than stale.
+            ComPtr<ID3D11ShaderResourceView> reflection =
+                batch.MaterialIndex >= 0 && batch.MaterialIndex < _cubemaps.Count
+                    ? _cubemaps[batch.MaterialIndex]
+                    : default;
+
             SetMaterial(context, batch.MaterialIndex);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref blend);
             context.PSSetShaderResources(3, 1, ref detail);
             context.PSSetShaderResources(4, 1, ref bump);
+            context.PSSetShaderResources(5, 1, ref reflection);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
@@ -1651,7 +1778,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             BufferDesc description = new()
             {
-                ByteWidth = sizeof(float) * 20,
+                ByteWidth = sizeof(float) * CameraConstants,
                 Usage = Usage.Dynamic,
                 BindFlags = (uint)BindFlag.ConstantBuffer,
                 CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -1664,12 +1791,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _camera = buffer;
         }
 
-        // The matrix, then a float4 whose first component is the category-view switch. Constant
-        // buffers are sized in whole sixteen-byte registers, so the padding is not optional.
+        // **Recovered rather than passed.** The matrix determines where the camera is, so asking
+        // every caller for it as well would be two sources for one fact — and one of the two camera
+        // types does not hold a position to give. A degenerate projection has no eye; the zero
+        // below leaves reflections at map centre, which is why EyePosition returns null rather than
+        // guessing and the shader is told there is no cubemap in that case.
+        (float X, float Y, float Z) eye = EyePosition.From(matrix) ?? (0f, 0f, 0f);
+        float hasEye = EyePosition.From(matrix) is null ? 0f : 1f;
+
+        // The matrix, then a float4 whose first component is the category-view switch, then the
+        // eye. Constant buffers are sized in whole sixteen-byte registers, so the padding is not
+        // optional.
         float[] contents =
         [
             .. matrix,
             surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), 0f, 0f,
+            eye.X, eye.Y, eye.Z, hasEye,
         ];
 
         MappedSubresource mapped = default;
@@ -1679,8 +1816,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         fixed (float* source = contents)
         {
+            // **Sized from the array, not from a literal.** This was a hardcoded twenty and the
+            // buffer has now grown by a float4 — the same edit that gets forgotten and leaves the
+            // tail holding whatever the previous frame wrote.
             System.Buffer.MemoryCopy(
-                source, mapped.PData, sizeof(float) * 20, sizeof(float) * 20);
+                source,
+                mapped.PData,
+                sizeof(float) * CameraConstants,
+                sizeof(float) * contents.Length);
         }
 
         context.Unmap(_camera, 0);
@@ -1831,6 +1974,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
     private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4 + 4;
+
+    /// <summary>Floats in the camera buffer: the matrix, the view switches, and the eye.</summary>
+    /// <remarks>
+    /// **Named rather than written twice**, because it appears in the buffer's size and in the copy
+    /// that fills it, and those two disagreeing is the exact failure the material buffer already
+    /// hit: a short copy leaves the tail holding whatever was there before, which reads as one
+    /// frame borrowing the previous one's state rather than as an error.
+    /// </remarks>
+    private const int CameraConstants = 16 + 4 + 4;
 
     /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
     private const int BoneConstants = MaxBones * 3 * 4;
@@ -2306,7 +2458,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void ReleaseTextures()
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
-                 _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps)
+                 _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
@@ -2316,6 +2468,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _blendTextures.Clear();
         _details.Clear();
         _bumps.Clear();
+        _cubemaps.Clear();
         _sortedTranslucent = [];
         _decals = [];
         _detailParameters.Clear();
@@ -2745,6 +2898,102 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         texture.Dispose();
         return view;
+    }
+
+    /// <summary>Uploads a baked reflection's six faces as a cube texture.</summary>
+    /// <remarks>
+    /// **The faces go up in file order because that order is already D3D's.** Valve's names read
+    /// RIGHT, LEFT, BACK, FRONT, UP, DOWN and are misleading — <c>LookDir_t</c>, declared beside
+    /// them in the same header, gives the real order as <c>+X, −X, +Y, −Y, +Z, −Z</c>, which is
+    /// what a <c>TextureCube</c> wants. The seventh face in the file is a fallback spheremap and
+    /// was dropped when the cubemap was decoded.
+    ///
+    /// **Not sRGB, unlike every other texture here.** A cubemap is light rather than a picture: it
+    /// is added to the lit result, so it belongs in the same space as the lightmap, which is also
+    /// uploaded linear. Treating it as sRGB darkens every reflection by the gamma curve — a
+    /// plausible-looking result rather than an obviously wrong one.
+    /// </remarks>
+    private static ComPtr<ID3D11ShaderResourceView> UploadCube(
+        ComPtr<ID3D11Device> device, MapCubemap cubemap)
+    {
+        if (cubemap.Faces.Count != 6)
+        {
+            // A cube has six faces and nothing else can be uploaded as one. Reported rather than
+            // padded: a short list means the decode changed shape, and inventing a face would draw
+            // a seam that looks like a texture bug.
+            ViewerLog.Warn(
+                "assets",
+                $"a cubemap carries {cubemap.Faces.Count} faces rather than six and was not uploaded");
+
+            return default;
+        }
+
+        int size = cubemap.Faces[0].Width;
+
+        Texture2DDesc description = new()
+        {
+            Width = (uint)size,
+            Height = (uint)size,
+
+            // One level. A 32-pixel cube reflected on a wall does not benefit from a mip chain,
+            // and generating one would need the render-target binding every face.
+            MipLevels = 1,
+            ArraySize = 6,
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.ShaderResource,
+            MiscFlags = (uint)ResourceMiscFlag.Texturecube,
+        };
+
+        // **One contiguous buffer, pinned once.** D3D wants six pointers that stay put for the
+        // duration of the call; six separate pins would need six nested `fixed` blocks, and
+        // copying into one array makes it a single pin over memory that is already a copy.
+        int faceBytes = size * size * 4;
+        byte[] all = new byte[faceBytes * 6];
+
+        for (int face = 0; face < 6; face++)
+        {
+            cubemap.Faces[face].Pixels.Span.CopyTo(all.AsSpan(face * faceBytes));
+        }
+
+        SubresourceData[] faces = new SubresourceData[6];
+
+        fixed (byte* pixels = all)
+        {
+            for (int face = 0; face < 6; face++)
+            {
+                faces[face] = new SubresourceData
+                {
+                    PSysMem = pixels + (face * faceBytes),
+                    SysMemPitch = (uint)(size * 4),
+                };
+            }
+
+            ComPtr<ID3D11Texture2D> texture = default;
+
+            fixed (SubresourceData* data = faces)
+            {
+                SilkMarshal.ThrowHResult(device.CreateTexture2D(in description, data, ref texture));
+            }
+
+            ShaderResourceViewDesc view = new()
+            {
+                Format = description.Format,
+                ViewDimension = Silk.NET.Core.Native.D3DSrvDimension.D3D11SrvDimensionTexturecube,
+            };
+
+            view.TextureCube.MipLevels = 1;
+            view.TextureCube.MostDetailedMip = 0;
+
+            ComPtr<ID3D11ShaderResourceView> resource = default;
+            SilkMarshal.ThrowHResult(
+                device.CreateShaderResourceView(texture, in view, ref resource));
+
+            texture.Dispose();
+
+            return resource;
+        }
     }
 
     /// <summary>Anisotropy asked of the sampler, matching the reference capture config.</summary>
