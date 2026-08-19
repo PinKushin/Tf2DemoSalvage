@@ -464,10 +464,18 @@ internal static class SyntheticPlayer
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
+        // **A prop earns a track by resolving its model index through the precache**, so without
+        // this table the entity decodes correctly, gets no model, and never becomes a prop the
+        // timeline can report. Index 7 is what the entity below names.
+        List<string> models = [.. Enumerable.Repeat(string.Empty, 7), "models/props_gameplay/resupply_locker.mdl"];
+
         List<DemoCommand> commands =
         [
             SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(intervalPerTick),
+                SyntheticDemo.StringTable("modelprecache", models, maxEntries: 1024)),
             SyntheticDemo.DataTables(schema),
         ];
 
@@ -513,7 +521,7 @@ internal static class SyntheticPlayer
     }
 
     /// <summary>A schema that also declares an ordinary drawable prop class.</summary>
-    private static DemoSchema SchemaWithProp()
+    internal static DemoSchema SchemaWithProp()
     {
         DemoSchema baseline = Schema();
 
