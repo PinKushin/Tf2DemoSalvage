@@ -1470,3 +1470,104 @@ how a screenshot looks.
 is stated inline in `public/bspfile.h`, the ambient reconstruction is `Mod_LeafAmbientColorAtPos` in
 `utils/vrad/leaf_ambient_lighting.cpp`, and `utils/` generally holds the compilers that WRITE the
 data the engine reads. See the `nothing-is-closed` memory.
+
+## D24 — the test suite runs on synthetic demos; the corpus keeps only what real bytes alone can prove
+
+**Owner's direction, 2026-08-19**, given in several steps over one session. Recorded together
+because the reasoning only makes sense as a sequence, and because two of the steps reversed an
+earlier position of mine.
+
+**The starting instruction** was operational: *"all the corpus tests should be changed to
+synthetics, thats the only way we are going to be able to run them on any box, or github"*, and
+*"using the real corpus is not and should not be needed for anything but the cli tests"*. The
+corpus needs 305 MB of Git LFS, which means it cannot run on the measurement boxes and costs
+bandwidth on every CI job.
+
+Enabled by something the project already had and I had lost track of — the owner had to point it
+out: *"you should be able to synthetically make a demo from scratch if you cant find a demo already
+with something, thats the great thing about being able to compile back to dem format, we can create
+demos to test things."* Followed by *"make sure to make a note of that, because its something we
+worked on early, and while i hadnt forgotten, you seem to have."* Hence
+`docs/memory/author-the-specimen-the-corpus-lacks.md`.
+
+**Where the synthetic replacements live: `Core.Tests`, not `Corpus.Tests`.** The owner's instinct
+was the opposite — *"the replacements you were making could go into the corpus project, instead of
+anywhere else"* — and accepted the counter-argument, which is worth keeping because it is not
+obvious: Stryker runs per project, the `corpus` mutation route is permanently closed on the
+measurement box, so a synthetic test placed there is one **nothing ever mutates**.
+
+**What killed most of the remaining corpus tests was the owner's question**, not the audit:
+*"why do we need to verify a demo has anything? that is not a test we should really have to be
+making, unless we are checking to make sure we decode that and or encode it properly."*
+
+That collapsed a whole category. Those tests assert that a real recording contains a crouch, a
+death, a mid-game join, and justify it as a control — *"if the recording contained no death the
+assertion below measures nothing."* But that guard exists only because **the corpus is an
+uncontrolled fixture**. A synthetic test constructs the death; there is nothing to guard. And the
+other thing such a test appears to prove — that this occurs in real gameplay — is a claim about
+TF2, not about this parser, and a test does not establish it. Reading the SDK does, which is what
+the conformance suites are for.
+
+**The final scope**, owner's words: *"if something really cant be converted than that is fine, but
+the corpus suite should be basically nothing at this point, it was serving more like a bad
+conformance test then the good ones we have, and it was slow."*
+
+So what stays is only what real engine bytes alone can prove:
+
+- byte-exact round trips of real demos, which is the project's flagship criterion
+- the differential against an independent parser
+- voice codec payloads, which cannot be synthesised as valid compressed audio at all
+- totality — the engine wrote these bytes and reads them back, so anything failing to decode is
+  our defect
+- facts about specific real files, such as the launch-build SourceTV schema truncating at 64 KiB
+
+Everything else converts. Where a corpus test asserted a plausibility RANGE — "inside the world
+bounds", "more than ten distinct positions" — the synthetic version asserts the value, because a
+written demo knows the answer and found data does not.
+
+## D25 — test names are `{Subject}_{Scenario}_{Expected}`, converted repo-wide
+
+**Owner's decision, 2026-08-19, and a reversal within the same session.** First position:
+*"just dont change it, its no big deal"* and *"im not wasting time and money fixing this."* Then,
+after I said the prose names cost me a file-open to learn what a failing test even touched:
+*"if its a problem for you too then we will convert the names, this is going to suck balls and i
+hate you, but we have to do it, start using the standard industry convention."*
+
+**The deciding reason is the owner's and it is not aesthetic:** *"i will ignore it, even though it
+actually makes me hand debugging and figuring out what failed in a test harder."* A failure reading
+`TheTraceNamesEveryKindItWalksPast` names the CLAIM and not the SUBJECT, so a red run begins by
+opening the file. That cost is paid on every failure, by both of us.
+
+880 methods across five projects were converted. The convention itself is in `CLAUDE.md`; what
+belongs here is why it was worth doing rather than what it is.
+
+**No decision ever produced the old convention.** Checked against this file, `CLAUDE.md` and every
+memory entry: it drifted. One early file used prose names, each later file matched its neighbours
+because matching surrounding style is the default instruction, and nobody compared practice against
+the written standard until it reached 2,132 tests. The owner's summary: *"the guilty party is many
+many previous sessions models."* Writing the convention down is therefore the actual fix; the
+renames are cleanup.
+
+Declined at the same time, and worth recording so it is not re-proposed: splitting `Core.Tests` by
+area into `Core.Decode.Tests` and similar, and renaming `Corpus.Tests` to match what it tests.
+Owner: *"just dont change it, its no big deal, we are moving out of corpus.tests anyway which it
+the weird one."*
+
+## D26 — no scripted edits to source files, restated after a live near-miss
+
+The global standards already ban editing source with `sed`/Python. It happened anyway on
+2026-08-19, and the failure is worth recording because it is the exact one the rule predicts.
+
+A `sed` rewriting 33 call sites of `DemoTimeline.Build` to `TimelineCache.For` also rewrote the
+cache's own body into `() => TimelineCache.For(key)` — which compiles, and recurses until the stack
+dies. It was caught only because the file was re-read afterwards.
+
+Owner: *"thats why your not supposed to script like that."*
+
+The distinction that makes the rule workable rather than absolute: **choosing** a change is
+judgement and must be done by reading; **applying** an already-chosen identifier rename across many
+files can be scripted, but only with a per-substitution assertion that the old token existed, that
+the new one did not already exist, and that the counts match afterwards. That is what
+`build/`-adjacent rename tooling did for the 880 test renames, and it caught four crefs that a
+free-hand edit would have left dangling. It did not save the call-site rewrite above, because that
+edit had no such guard.

@@ -94,73 +94,27 @@ public sealed class CorpusSceneTests
         demosWithPlayers.ShouldBeGreaterThan(0, "no demo produced a player");
     }
 
-    [Test]
-    public void Scene_BothExclusiveTables_AreExercisedInTheCorpus()
-    {
-        // This test began as an assertion that a point-of-view demo resolves through the local
-        // table and a SourceTV demo through the non-local one. That rule is FALSE, and the corpus
-        // said so: the 2013 SourceTV demo is 21 non-local against 2 local, but a modern demos.tf
-        // SourceTV recording came back 12 local and 0 non-local.
-        //
-        // So which table a recording uses is not a property of the recording mode, and any
-        // reader branching on POV-versus-SourceTV would be wrong on some era. What can be
-        // asserted is the thing that actually matters: every positioned player resolved through
-        // one of the two, and neither branch of the resolver is dead code that no demo reaches.
-        int viaLocal = 0;
-        int viaNonLocal = 0;
-        int demos = 0;
-
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            string name = Path.GetFileName(path);
-            (EntityStateTable table, int snapshots) = Accumulate(path, packetLimit: 3000);
-
-            if (snapshots == 0)
-            {
-                continue;
-            }
-
-            EntityState[] players =
-                [.. table.OfClass(PlayerClass).Where(p => p.Origin() is not null)];
-
-            if (players.Length == 0)
-            {
-                continue;
-            }
-
-            demos++;
-            int local = players.Count(HasLocalOrigin);
-            viaLocal += local;
-            viaNonLocal += players.Length - local;
-
-            TestContext.Out.WriteLine(
-                $"{name}: {(HasUserCommands(path) ? "POV" : "STV")} " +
-                $"{players.Length} positioned ({local} local, {players.Length - local} non-local)");
-        }
-
-        demos.ShouldBeGreaterThan(1, "only one demo reached the scene, so nothing was compared");
-
-        // Both branches reached. Either being zero would mean half the resolver is untested and
-        // the corpus cannot say whether it works.
-        viaLocal.ShouldBeGreaterThan(0, "no player in the corpus resolved through the local table");
-        viaNonLocal.ShouldBeGreaterThan(
-            0, "no player in the corpus resolved through the non-local table");
-
-        TestContext.Out.WriteLine($"{viaLocal} players via the local table, {viaNonLocal} via non-local");
-    }
+    // Scene_BothExclusiveTables_AreExercisedInTheCorpus moved to
+    // SyntheticSceneTests.Build_EitherExclusiveTable_ResolvesAPosition on 2026-08-19.
+    //
+    // It asserted that both the local and non-local exclusive tables turn up somewhere across the
+    // corpus, so neither branch of the origin resolver is dead code. That is a claim about the
+    // resolver wearing a claim about the corpus: a synthetic demo can be written with either table
+    // and assert the branch directly, which is what the replacement does.
+    //
+    // **The falsified hypothesis it recorded is kept, because it is the valuable part.** The test
+    // began as an assertion that a point-of-view demo resolves through the local table and a
+    // SourceTV demo through the non-local one. That rule is FALSE and the corpus said so: the 2013
+    // SourceTV demo is 21 non-local against 2 local, while a modern demos.tf SourceTV recording
+    // came back 12 local and 0 non-local. Which table a recording uses is not a property of the
+    // recording mode, and any reader branching on POV-versus-SourceTV is wrong on some era.
+    //
+    // That paragraph now lives on SyntheticPlayer.OriginTable, where the fixture axis is declared.
 
     /// <summary>Whether any of the three tables sent this entity an origin at all.</summary>
     private static bool HasAnyOriginProperty(EntityState player) =>
         player.Properties.Keys.Any(
             key => key.EndsWith(".m_vecOrigin", StringComparison.Ordinal));
-
-    private static bool HasLocalOrigin(EntityState player) =>
-        player.Properties.ContainsKey("DT_TFLocalPlayerExclusive.m_vecOrigin");
-
-    private static bool HasUserCommands(string path) =>
-        DemoCommandReader
-            .Read(File.ReadAllBytes(path).AsMemory(DemoHeader.SizeBytes))
-            .Any(command => command.Type == DemoCommandType.UserCmd);
 
     /// <summary>Walks a demo's packets into an accumulated world.</summary>
     private static (EntityStateTable Table, int Snapshots) Accumulate(string path, int packetLimit)

@@ -123,61 +123,18 @@ public sealed class DemoTimelinePropsTests
         }
     }
 
-    [Test]
-    public void PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains()
-    {
-        // **Players go through the same interpolator as everything else**, because in the engine
-        // they are the same code: m_vecOrigin is registered on C_BaseEntity, and a player is a
-        // C_BaseEntity. This is the measurement that they actually do - a position asked for
-        // between two frames must be one that no frame states, or the interpolation is not
-        // reaching players and they are stepping at the packet rate.
-        //
-        // **This measured zero when first written, and that was B47.** A player's model is not
-        // networked - CTFPlayerClassShared::GetModelName resolves it locally from m_iClass - so a
-        // CTFPlayer sends no m_nModelIndex, got no track, and PlayersAt had nothing to interpolate
-        // through. It silently fell back to the stated frame position.
-        //
-        // The fix was to recognise a player by class and give it a track with no model, since the
-        // poses are what the interpolator needs and the model comes from the install. This test is
-        // what says the fix took.
-        foreach (string path in Corpus.FilesWithSchema())
-        {
-            DemoTimeline timeline = TimelineCache.For(path);
-
-            if (timeline.Frames.Count < 4)
-            {
-                continue;
-            }
-
-            int between = 0;
-            List<ScenePlayer> shown = [];
-
-            foreach (TimelineFrame frame in timeline.Frames)
-            {
-                timeline.PlayersAt(frame.Tick + 0.5, shown);
-
-                foreach (ScenePlayer player in shown)
-                {
-                    ScenePlayer stated = frame.Players.FirstOrDefault(
-                        other => other.EntityIndex == player.EntityIndex);
-
-                    // A whole unit of world space, which is well beyond float noise and far below
-                    // any real movement: players run at several hundred units a second, so half a
-                    // tick of motion is tens of units.
-                    if (stated.EntityIndex == player.EntityIndex &&
-                        (Math.Abs(stated.X - player.X) > 1f || Math.Abs(stated.Y - player.Y) > 1f))
-                    {
-                        between++;
-                    }
-                }
-            }
-
-            TestContext.Out.WriteLine(
-                $"INTERP {Path.GetFileName(path)}: {between} player samples off a stated position");
-
-            between.ShouldBeGreaterThan(0, path);
-        }
-    }
+    // PlayersAt_BetweenFrames_MovesThroughPositionsNoFrameContains moved to
+    // SyntheticInterpolationTests on 2026-08-19.
+    //
+    // It counted player samples that sat more than a unit off a stated position, which says the
+    // interpolator was reached and nothing about whether the position is right. A written demo
+    // makes it arithmetic: the engine draws targettime = now - interp, this track uses a
+    // seven-tick delay, and the blend between two keyframes is a number workable on paper.
+    //
+    // The delay is also why a naive fixture measures nothing. Two keyframes a hundred ticks apart
+    // never interpolate, because the later one is stated after the tick being asked for and the
+    // causality rule refuses to be pulled toward an update that has not arrived (B94). Both
+    // branches are asserted there; neither could be here.
 
     [Test]
     public void EntitiesAreHiddenAndComeBack_RatherThanLingering()

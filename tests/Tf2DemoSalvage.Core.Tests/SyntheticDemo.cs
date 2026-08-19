@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
@@ -105,6 +106,51 @@ internal static class SyntheticDemo
     public static DemoCommand DataTables(
         Core.Schema.DemoSchema schema, ushort protocol = DefaultProtocol, int tick = 0) =>
         new(DemoCommandType.DataTables, tick, SyntheticSchema.Write(schema, protocol));
+
+    /// <summary>A <c>svc_CreateStringTable</c> carrying the given strings, in order.</summary>
+    /// <param name="name">Table name, e.g. <c>modelprecache</c>.</param>
+    /// <param name="strings">The entries, whose positions become their indices.</param>
+    /// <param name="maxEntries">Table capacity, which sizes the index field.</param>
+    /// <returns>The message, complete with the wire form the writer needs.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="strings"/> is null.</exception>
+    /// <remarks>
+    /// **A string table is the one message this project could not previously build in a test, and
+    /// it blocked a whole group of them.** <c>NetMessageWriter.CanWrite</c> accepts a
+    /// <c>CreateStringTableMessage</c> only when its <c>Wire</c> is not null — that is, only when
+    /// it came off a real demo — because a table built from values alone has no wire form to
+    /// reproduce and inventing one would be re-encoding a different message.
+    ///
+    /// That is the right rule for the writer and the wrong obstacle for a fixture, and
+    /// <c>StringTableCodec.WriteEntries</c> resolves it: the entry encoding is derivable from the
+    /// entries when nothing reuses history, which is exactly the case a fixture wants. So the wire
+    /// form here is genuine rather than fabricated — it is what a sender that never used the
+    /// back-reference would have written.
+    ///
+    /// What this deliberately does NOT do is compression. A compressed payload has to reproduce a
+    /// particular Snappy implementation's output byte for byte, which no parser can promise; the
+    /// corpus covers that path and a fixture cannot.
+    /// </remarks>
+    public static CreateStringTableMessage StringTable(
+        string name, IReadOnlyList<string> strings, int maxEntries = 64)
+    {
+        ArgumentNullException.ThrowIfNull(strings);
+
+        List<StringTableEntry> entries =
+        [
+            .. strings.Select((text, index) => new StringTableEntry(index, text, [])),
+        ];
+
+        (byte[] body, int bits) = StringTableCodec.WriteEntries(
+            entries, maxEntries, fixedUserData: false, userDataSizeBits: 0);
+
+        return new CreateStringTableMessage(
+            name,
+            maxEntries,
+            entries,
+            IsCompressed: false,
+            UndecodedReason: null,
+            Wire: new CreateStringTableWire(entries.Count, bits, body, null, 0));
+    }
 
     /// <summary>One packet command carrying the given messages.</summary>
     /// <param name="protocol">Network protocol, which the encoder needs.</param>

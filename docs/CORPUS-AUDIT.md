@@ -125,19 +125,46 @@ should shed their range assertions to `Core.Tests`, where the answer is known ra
 3. **Delete `EntitiesAreOff_UnlessAskedFor`**, superseded and weaker.
 4. **Move the eight plausibility ranges**, keeping their existence half here.
 
-5. **Delete the pure corpus-composition tests.** `Scene_BothExclusiveTables_AreExercisedInTheCorpus`,
-   `Timeline_ARealDemo_CarriesMoreThanOneSkin` and `PlayerPositions_AreSpreadAcrossTheMap` measure
-   the demos rather than the code. If the corpus needs a property, `manifest.json` is where to say
-   so — a failing test there means someone added a demo, not that the parser broke.
+5. ~~**Delete the pure corpus-composition tests.**~~ **Withdrawn — all three were mis-classified.**
+   See below.
 
 Nothing in A or B should move. C keeps only the half that says *the decoder produced this field
 from real bytes*, and sheds the existence-controls that exist solely because found data is an
 uncontrolled fixture.
 
-## The correction worth keeping
+## What was actually removed
 
-The first draft of this audit treated C as a legitimate third category and recommended keeping all
-of it. That was wrong, and the reason is worth stating because it is easy to repeat: a control that
-guards against **the fixture** having drifted looks exactly like a control that guards against
-**the code** being wrong. Both read as `ShouldNotBeEmpty("or the assertion below measures
-nothing")`. Only the second is a test.
+Three probes, and only three.
+
+- **`BodyGroupProbe`** and **`WeaponEntityProbe`** both require `cp_process`, which lives in the
+  uncommitted local corpus — so on the gate and in CI they **skip and contribute nothing**. Their
+  questions are settled and written up in findings 19 and 22.
+- **`CarriedItemProbe`** asserted nothing, and on gcor took a fallback path that its own remarks
+  say measures the wrong thing: *"measuring the oldest files first answers a question about 2007
+  rather than about what a viewer has to draw today."* Its last output — the 2007 build carrying no
+  carried-weapon entity where the 2008 build carries one — is recorded in
+  `docs/findings/22-bone-merged-attachments.md` as an **open observation**, explicitly labelled
+  confounded: one demo per build, different sessions, so a demoman who never switched weapons reads
+  identically to a build that does not send them.
+
+## Two corrections worth keeping
+
+**First: category C.** The first draft treated it as a legitimate third category and recommended
+keeping all of it. That was wrong, and the reason is easy to repeat: a control that guards against
+**the fixture** having drifted looks exactly like a control that guards against **the code** being
+wrong. Both read as `ShouldNotBeEmpty("or the assertion below measures nothing")`. Only the second
+is a test.
+
+**Second, and more embarrassing: three tests were listed for deletion on the strength of their
+names.** Reading what they assert reversed every one.
+
+| test | what the name suggests | what it asserts |
+|---|---|---|
+| `Timeline_ARealDemo_CarriesMoreThanOneSkin` | the corpus contains two skins | a **regression test** — before the fix this set was `{0}` for every demo ever parsed, because the property was filtered out before the pose was built |
+| `PlayerPositions_AreSpreadAcrossTheMap` | the corpus is varied | the **control for the bounds check above it** — without it, a decoder returning a constant passes |
+| `Scene_BothExclusiveTables_AreExercisedInTheCorpus` | corpus composition | a **falsified hypothesis**, recorded: POV↔local and STV↔non-local is FALSE, and neither resolver branch is dead code |
+
+All three stay. The lesson is the one the naming convention exists for, arriving from the other
+direction: **a test's name is not a summary of its assertion**, and an audit conducted over names
+is an audit of names. Every classification in this document that was not read line by line should
+be treated as a hypothesis.
