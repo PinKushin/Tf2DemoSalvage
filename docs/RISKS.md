@@ -3122,7 +3122,35 @@ and goes wrong wherever anything new is introduced:
 space the pipeline is in. Doing it in the engine's space means Valve's own numbers can be used
 directly, which is the whole reason this project reads the SDK.
 
-## B55 — `$envmap` is not implemented, and 43 of 189 map materials ask for it — OPEN
+## B55 — `$envmap` is not implemented, and 43 of 189 map materials ask for it — CLOSED 2026-08-19
+
+**Closed.** Reflections are drawn. The census that named this — `$envmap` on 79 of
+cp_process_final's 410 materials, its largest unimplemented parameter — now reports 43 unimplemented
+with the largest at 66; `$envmap`, `$envmaptint` and `$basealphaenvmapmask` are gone from it, and
+all ten of `EnvmapConformanceTests` activated.
+
+**The expensive-looking half did not exist.** The obvious design is a nearest-by-position search at
+load; vbsp did the assignment at compile time and this project only had to read it. Measured as two
+independent recordings agreeing: 51 patched materials, all 51 naming one of the 43 placements in
+`LUMP_CUBEMAPS`, and all 51 with the position in the material's name matching the position in its
+`$envmap` value.
+
+**Verified through the GPU, not only against map data.** A reflective material's pixel changes with
+the surface normal — `(129, 115, 125)` facing up against `(69, 68, 69)` facing sideways — while a
+matte material's is byte-identical both ways. The control is what makes the first row mean
+something.
+
+**Not verified: whether it looks right.** A pixel that changes with the normal says the cube is
+sampled, not that the picture is correct.
+
+Three things found on the way are recorded in `docs/findings/27-cubemap-placement.md`: a struct
+three bytes larger than its declaration, a `$envmap` "half-float prerequisite" that was a fact about
+the probe's own file preference, and — much the largest — that **every `Patch` material this project
+had ever resolved was a no-op**, which is its own entry below.
+
+The original text follows.
+
+## B55 (original) — `$envmap` is not implemented, and 43 of 189 map materials ask for it
 
 **Measured, not estimated.** On cp_process_f12, **42 of 189 materials declare `$envmap`** — 22% of
 the map's surfaces, including every pane of glass, the polished floor tiles at both second points,

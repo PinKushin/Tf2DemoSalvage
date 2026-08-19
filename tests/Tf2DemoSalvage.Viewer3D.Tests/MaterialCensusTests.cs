@@ -23,20 +23,27 @@ public sealed class MaterialCensusTests
     [Test]
     public void AParameterTheRendererIgnores_IsCountedByHowManyMaterialsAskForIt()
     {
-        // The real finding this was written for, in miniature: two materials want a cubemap and
-        // one wants a phong highlight, and neither is implemented.
+        // The real finding this was written for, in miniature: two materials want a phong highlight
+        // and one wants a rim light, and neither is implemented.
+        //
+        // **These examples were $envmap and $phong, and $envmap graduated** — it is implemented now,
+        // so the census correctly stopped reporting it and this test correctly failed. That churn
+        // is the feature rather than a nuisance: an example here is a claim about what this project
+        // does NOT do, and it should stop compiling the moment that stops being true. Whoever
+        // implements phong will land in this file, which is the right place to be reminded that the
+        // census's own examples are load-bearing.
         IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
         [
-            ["$basetexture", "$envmap"],
-            ["$basetexture", "$envmap", "$phong"],
+            ["$basetexture", "$phong"],
+            ["$basetexture", "$phong", "$rimlight"],
         ]);
 
         census.Count.ShouldBe(2);
 
-        census[0].Parameter.ShouldBe("$envmap", "the commonest unimplemented parameter comes first");
+        census[0].Parameter.ShouldBe("$phong", "the commonest unimplemented parameter comes first");
         census[0].Materials.ShouldBe(2);
 
-        census[1].Parameter.ShouldBe("$phong");
+        census[1].Parameter.ShouldBe("$rimlight");
         census[1].Materials.ShouldBe(1);
     }
 
@@ -67,7 +74,7 @@ public sealed class MaterialCensusTests
         // declarations rather than materials would report more materials than the map contains,
         // which is the kind of number that gets quoted into a document and then disbelieved.
         IReadOnlyList<(string Parameter, int Materials)> census =
-            MaterialCensus.Unimplemented([["$envmap", "$envmap", "$ENVMAP"]]);
+            MaterialCensus.Unimplemented([["$phong", "$phong", "$PHONG"]]);
 
         census.Single().Materials.ShouldBe(1);
     }
