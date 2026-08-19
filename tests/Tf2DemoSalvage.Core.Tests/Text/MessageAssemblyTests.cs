@@ -241,6 +241,45 @@ public sealed class MessageAssemblyTests
     }
 
     /// <summary>Renders a message to text, assembles it back to bits, and decodes it.</summary>
+    [Test]
+    public void VoiceDataWithAnEmptyBodySurvivesTheTextForm()
+    {
+        // **A real crash, found by round-tripping a WHOLE demo rather than a prefix.** The writer
+        // emits `svc_voicedata {client} {proximity} {bodyBits} {hex}`, and an empty body makes
+        // Convert.ToHexString return "" — so the line splits into four tokens and the reader's
+        // unguarded `Convert.FromHexString(tokens[4])` threw ArgumentOutOfRangeException.
+        //
+        // **The corpus round trip could not have caught it**, and the reason is structural rather
+        // than bad luck: that suite compares the first 600 commands of each demo, a limit chosen so
+        // mutation runs finish overnight, and voice data does not appear until players start
+        // talking — which is thousands of commands in. A cap on stream position systematically
+        // hides whatever only happens late.
+        VoiceDataMessage empty = new(Client: 3, Proximity: 1, BodyBits: 0, Body: default);
+
+        VoiceDataMessage read = TextRoundTrip(empty).ShouldBeOfType<VoiceDataMessage>();
+
+        read.Client.ShouldBe(3);
+        read.Proximity.ShouldBe(1);
+        read.BodyBits.ShouldBe(0);
+        read.Body.Length.ShouldBe(0);
+    }
+
+    [Test]
+    public void VoiceDataWithABodyStillSurvivesTheTextForm()
+    {
+        // **The control.** A fix that returned an empty body unconditionally would satisfy the test
+        // above and silently drop every real voice packet — which is the failure this project keeps
+        // finding, where the repair is worse than the fault because it looks like it worked.
+        VoiceDataMessage spoken = new(
+            Client: 7, Proximity: 0, BodyBits: 24, Body: new byte[] { 0xDE, 0xAD, 0xBE });
+
+        VoiceDataMessage read = TextRoundTrip(spoken).ShouldBeOfType<VoiceDataMessage>();
+
+        read.Client.ShouldBe(7);
+        read.BodyBits.ShouldBe(24);
+        read.Body.ToArray().ShouldBe(new byte[] { 0xDE, 0xAD, 0xBE });
+    }
+
     private static INetMessage TextRoundTrip(INetMessage message)
     {
         IReadOnlyList<string> lines = MessageAssembly.Write(message, Protocol, null)
