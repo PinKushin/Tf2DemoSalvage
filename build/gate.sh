@@ -59,12 +59,22 @@ run() {
 
 rm -f /tmp/gate-*.log
 
-run Tf2DemoSalvage.Core.Tests     core     1000
-run Tf2DemoSalvage.Cli.Tests      cli        63
-run Tf2DemoSalvage.Audio.Tests    audio      16
-run Tf2DemoSalvage.Content.Tests  content   420
-run Tf2DemoSalvage.Corpus.Tests   corpus    130
-run Tf2DemoSalvage.Viewer3D.Tests viewer    340
+# **The floors are the CURRENT counts, not a comfortable distance below them.**
+#
+# A floor exists to catch a run that reported success while executing a fraction of the suite —
+# a crashed test host does exactly that, and prints "Passed!" with a truncated total. A floor
+# with slack in it cannot: core's sat at 1000 against 1163 actual, so 163 tests could vanish
+# silently. That is the same defect as B104, where 34 guarded 352.
+#
+# Set to the exact count, so adding tests keeps passing and REMOVING them fails until the number
+# is lowered on purpose. The ratchet is the feature — every lowering should be a deliberate edit
+# in the same commit that deleted the tests, which is what makes a silent loss impossible.
+run Tf2DemoSalvage.Core.Tests     core     1163
+run Tf2DemoSalvage.Cli.Tests      cli        68
+run Tf2DemoSalvage.Audio.Tests    audio      28
+run Tf2DemoSalvage.Content.Tests  content   561
+run Tf2DemoSalvage.Corpus.Tests   corpus    136
+run Tf2DemoSalvage.Viewer3D.Tests viewer    426
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
