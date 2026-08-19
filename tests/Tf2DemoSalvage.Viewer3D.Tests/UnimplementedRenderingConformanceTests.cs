@@ -343,8 +343,19 @@ public sealed class UnimplementedRenderingConformanceTests
     }
 
     /// <summary>Skips unless the census says the parameter is implemented.</summary>
+    /// <remarks>
+    /// <c>TF2DEMOSALVAGE_CHECK_SPEC=1</c> lifts the guard, which checks the SPECIFICATION rather
+    /// than the code — see <see cref="EnvmapConformanceTests"/>, where the reasoning is written out.
+    /// A conformance test that only ever skips is unverified prose, and a wrong citation in one
+    /// surfaces months later as a failure blamed on whoever implemented the feature.
+    /// </remarks>
     private static void RequireImplemented(string parameter, string entry)
     {
+        if (Environment.GetEnvironmentVariable("TF2DEMOSALVAGE_CHECK_SPEC") is "1")
+        {
+            return;
+        }
+
         if (!MaterialCensus.ImplementedParameters.Contains(parameter, StringComparer.OrdinalIgnoreCase))
         {
             Assert.Ignore(

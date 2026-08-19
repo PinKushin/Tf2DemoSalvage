@@ -3187,6 +3187,36 @@ three times.
 
 `$AlphaTestReference` on 2 materials is B50, now measured rather than assumed.
 
+**`$color` and `$alpha` were on this list and are now implemented** (2026-08-18). They were the
+easiest entries on it and were worth doing first for a reason worth recording: the renderer already
+had a modulation constant, already uploaded it, and already multiplied by it — inside the
+two-texture branch of a ternary, because that is where Valve's line
+`baseColor * baseColor2 * g_DiffuseModulation` was found. The citation was correct and the
+generalisation from it was not: every ordinary tinted surface had its colour decoded, uploaded, and
+multiplied by nothing. `docs/findings/26-material-modulation.md`.
+
+**The specification for `$envmap` now exists, written before any of it is built**
+(`EnvmapConformanceTests`, 8 tests, 2026-08-18). It skips today and states what the engine does,
+with citations, so it cannot become a description of whatever gets built. Three of its eight exist
+because the obvious reading is backwards:
+
+- `dcubemapsample_t.size` of **0 means the default size** (`bspfile.h:997`), and feeding it to
+  `1 << (size - 1)` in C# gives `1 << 31` because the shift count is masked to five bits.
+- `$envmapcontrast` defaults to **0** where 0 is normal, `$envmapsaturation` defaults to **1** where
+  1 is normal — the pair defaults to opposite ends and means opposite things at the same number.
+- `$basealphaenvmapmask` is **inverted**, annotated in Valve's own source as
+  `specularFactor *= 1.0 - blendedAlpha; // Reversing alpha blows!`, and it costs the material its
+  transparency because the alpha channel cannot also mean opacity.
+
+Also pinned there: the reflection is **added** to the diffuse rather than blended
+(`result = diffuseComponent + specularLighting`), the Fresnel term is `pow(1 - N·E, 5)` applied
+**last** after tint/contrast/saturation, greyscale uses the Rec.601 luma weights rather than an
+average, and the three mask sources are mutually exclusive by the shader's own SKIP list.
+
+Run with `TF2DEMOSALVAGE_CHECK_SPEC=1` to execute those assertions against the SDK rather than
+skipping them — every one is a claim about the engine, so all eight are checkable today, and they
+are. A conformance test that only ever skips is unverified prose.
+
 ## B56 — the POV camera has no view interpolation, and no weapon models are drawn — OPEN, decided
 
 **Two owner decisions, recorded so neither is relitigated:** the recorded view is to be
