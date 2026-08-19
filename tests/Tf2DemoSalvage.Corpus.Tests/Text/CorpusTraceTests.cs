@@ -62,7 +62,7 @@ public sealed class CorpusTraceTests
     }
 
     [Test]
-    public void WithEntities_PropertiesAreNamedAndValued()
+    public void Trace_WithEntities_NamesAndValuesProperties()
     {
         // The whole claim of the project in one assertion: the demo carries its own schema, so
         // properties come out named without this parser knowing anything about TF2's layout.
@@ -76,7 +76,7 @@ public sealed class CorpusTraceTests
     }
 
     [Test]
-    public void WithoutProperties_EntitiesStillAppearWithACount()
+    public void Trace_WithoutProperties_StillShowsEntitiesWithACount()
     {
         // The middle setting: which entities a snapshot touched, without the values that make
         // up most of the volume.
