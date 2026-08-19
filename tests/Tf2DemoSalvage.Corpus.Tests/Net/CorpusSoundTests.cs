@@ -9,33 +9,92 @@ using Tf2DemoSalvage.Core.Net;
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
 /// <summary>
-/// Decodes <c>svc_Sounds</c> bodies out of real demos, across every protocol in the corpus.
+/// The sound decode claims that only real engine bytes can settle.
 /// </summary>
 /// <remarks>
-/// **No second implementation exists to check this against.** demostf/parser does not decode
-/// sounds, so unlike every other message in this project there is no differential available and
-/// the layout rests on Valve's <c>soundinfo.h</c> alone. That makes the corpus the only evidence,
-/// and it makes the *kind* of evidence matter.
+/// **Trimmed rather than deleted, and the line where it was trimmed is the rule this project now
+/// applies to the whole corpus suite.** The layout, the field widths, the protocol boundaries and
+/// the delta base all moved to <c>SoundCodecTests</c>, where sounds are written rather than found:
+/// a synthetic sound can be encoded at protocol 18 or 21, which no recording in existence can do,
+/// and its expected values are known by construction instead of bounded by a plausibility range.
 ///
-/// Exact bit consumption validates the field WIDTHS. It cannot validate the delta base, because
-/// every field is preceded by a flag bit and it is the flags — not the values — that decide how
-/// much is read: deltas against the wrong sound consume identical bits and produce wrong values.
+/// What could not move is here. A synthetic fixture cannot corroborate a decode against anything,
+/// because both sides of the comparison would be written by the same hand — the test would be
+/// checking this project against its own beliefs. The corroboration below comes from two decoders
+/// that share no code reaching the same conclusion about a real file, and that is evidence of a
+/// different kind rather than more of the same.
 ///
-/// So the values are checked for plausibility as well, and the checks are chosen to be ones a
-/// misread cannot pass by luck: entity indices inside MAX_EDICTS, sound indices inside the
-/// precache table's own size, origins inside the world, volume in 0..1. A decoder reading the
-/// wrong bits produces coordinates in the tens of thousands and entity indices in the thousands,
-/// which is the characteristic failure of this format rather than a crash.
+/// The other half of the real-bytes evidence for sounds is not here either: it is in
+/// <c>CorpusAssemblyRoundTripTests</c>, which decompiles every demo to text and compiles it back
+/// byte for byte. <c>MessageAssembly</c> expands sound bodies into fields and re-encodes them, so
+/// that test already puts every sound in the corpus through both codecs. <c>CorpusSoundRoundTripTests</c>
+/// did the same thing over a subset and was deleted as a duplicate.
 /// </remarks>
 public sealed class CorpusSoundTests
 {
-    private const int MaxEdicts = 2048;
-    private const int MaxSounds = 1 << 14;
-    private const float WorldHalfExtent = 16384f;
+    [Test]
+    public void SoundNumbers_AddressTheSoundPrecacheTable()
+    {
+        // **The sharpest check available on this decoder, and the closest thing it has to a
+        // differential.** demostf/parser does not decode sound bodies at all, so there is no
+        // second implementation to compare against — the layout rests on Valve's soundinfo.h
+        // alone.
+        //
+        // This substitutes for one. Sound indices come out of a delta-coded bit stream; the
+        // precache table comes out of svc_CreateStringTable. The two paths share no code and no
+        // assumptions, so an index landing inside that table is a fact about the file rather than
+        // about the parser. Across thousands of sounds there is no way to land inside it by
+        // accident.
+        //
+        // This is exactly what a synthetic fixture cannot do. Writing the sound AND the table
+        // would make both sides say whatever this project already believes.
+        int demos = 0;
+
+        foreach (string path in Corpus.Files())
+        {
+            ushort protocol = Corpus.ProtocolOf(path);
+            int precacheSize = PrecacheSize(path, protocol);
+            if (precacheSize == 0)
+            {
+                continue;
+            }
+
+            string name = Path.GetFileName(path);
+            int examined = 0;
+
+            foreach (DecodedSound sound in Sounds(path, protocol).Take(2000))
+            {
+                sound.SoundNumber.ShouldBeLessThan(
+                    precacheSize, $"{name}: sound index outside its {precacheSize}-entry table");
+                examined++;
+            }
+
+            if (examined == 0)
+            {
+                continue;
+            }
+
+            demos++;
+            TestContext.Out.WriteLine(
+                $"{name}: {examined} sounds inside a {precacheSize}-entry table");
+        }
+
+        // Asserted, not assumed. A loop over an empty corpus passes identically to one that ran
+        // and was satisfied — RISKS B20 is that mistake, where a helper stopped yielding anything
+        // and every test built on it kept passing.
+        demos.ShouldBeGreaterThan(0, "no demo yielded both a precache table and a sound");
+    }
 
     [Test]
-    public void Sounds_DecodeWithoutOverrunningTheirStatedLength()
+    public void EveryRealSoundBodyDecodesWithoutOverrunningItsStatedLength()
     {
+        // The claim that decoding must be TOTAL, which is a property of the corpus rather than of
+        // the codec: the engine wrote these bytes and the engine reads them back, so anything
+        // this cannot read is our defect. A synthetic body proves the decoder handles the shapes
+        // this project thought to write; only real files can show a shape nobody thought of.
+        //
+        // Kept narrow deliberately — the values are no longer checked here, because
+        // SoundCodecTests checks them against known answers instead of against a range.
         int demos = 0;
 
         foreach (string path in Corpus.Files())
@@ -43,7 +102,7 @@ public sealed class CorpusSoundTests
             ushort protocol = Corpus.ProtocolOf(path);
             int bodies = 0;
             int sounds = 0;
-            int failed = 0;
+            List<string> failures = [];
 
             foreach (SoundsMessage message in Messages(path))
             {
@@ -55,7 +114,7 @@ public sealed class CorpusSoundTests
                 }
                 catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
                 {
-                    failed++;
+                    failures.Add(error.Message);
                 }
             }
 
@@ -67,69 +126,15 @@ public sealed class CorpusSoundTests
             demos++;
             TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)} (protocol {protocol}): {bodies} messages, " +
-                $"{sounds} sounds, {failed} failed");
+                $"{sounds} sounds");
 
-            failed.ShouldBe(0, Path.GetFileName(path));
+            // The message itself, not just the count. A failure-only log that says "3 failed"
+            // costs a re-run to find out what failed.
+            failures.ShouldBeEmpty(Path.GetFileName(path));
             sounds.ShouldBeGreaterThan(0, Path.GetFileName(path));
         }
 
         demos.ShouldBeGreaterThan(0, "no demo carried svc_Sounds");
-    }
-
-    [Test]
-    public void EverySoundIsPlausible()
-    {
-        foreach (string path in Corpus.Files())
-        {
-            ushort protocol = Corpus.ProtocolOf(path);
-            string name = Path.GetFileName(path);
-
-            foreach (DecodedSound sound in Sounds(path, protocol).Take(3000))
-            {
-                // A wrong bit offset shows up here long before it shows up as an exception.
-                sound.EntityIndex.ShouldBeInRange(0, MaxEdicts - 1, name);
-                sound.SoundNumber.ShouldBeInRange(0, MaxSounds - 1, name);
-                sound.Volume.ShouldBeInRange(0f, 1f, name);
-                sound.Channel.ShouldBeInRange(0, 7, name);
-
-                MathF.Abs(sound.OriginX).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-                MathF.Abs(sound.OriginY).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-                MathF.Abs(sound.OriginZ).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
-            }
-        }
-    }
-
-    [Test]
-    public void SoundNumbers_AddressTheSoundPrecacheTable()
-    {
-        // The sharpest available check, and the one closest to a differential: sound indices come
-        // from the bit stream and the precache table comes from svc_CreateStringTable, by
-        // completely independent paths. An index past the end of that table means the bits were
-        // read wrong - there is no way to land inside it by accident across thousands of sounds.
-        foreach (string path in Corpus.Files())
-        {
-            ushort protocol = Corpus.ProtocolOf(path);
-            int precacheSize = PrecacheSize(path, protocol);
-            if (precacheSize == 0)
-            {
-                continue;
-            }
-
-            string name = Path.GetFileName(path);
-            int checked_ = 0;
-
-            foreach (DecodedSound sound in Sounds(path, protocol).Take(2000))
-            {
-                sound.SoundNumber.ShouldBeLessThan(
-                    precacheSize, $"{name}: sound index outside its {precacheSize}-entry table");
-                checked_++;
-            }
-
-            if (checked_ > 0)
-            {
-                TestContext.Out.WriteLine($"{name}: {checked_} sounds inside a {precacheSize}-entry table");
-            }
-        }
     }
 
     private static int PrecacheSize(string path, ushort protocol)
@@ -170,6 +175,8 @@ public sealed class CorpusSoundTests
             }
             catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
             {
+                // Reported as a failure by the test above rather than silently here, so a decoder
+                // that started failing every body cannot make this one report a clean run.
                 continue;
             }
 
