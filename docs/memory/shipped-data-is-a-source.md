@@ -10,10 +10,17 @@ game's own shipped data**, and that fifth source settled two questions this proj
 closed. Both on 2026-08-16, within an hour of each other.
 
 - **`$modblend`** was the standing worked example for "the SDK cannot answer this, decompile it". No
-  decompiler needed. It is declared in three shipped VMTs and read by **nothing** — the only
+  decompiler needed. It is declared in three shipped VMTs and read by **nothing in TF2** — the only
   consumer is an `Equals` proxy **commented out four lines below it** in the same file. No published
-  shader declares it and no shipped binary contains the string, so the material system ignores it.
-  Dead parameter; correct implementation is nothing.
+  shader declares it, and it is absent from 21 TF2 binaries across six eras including all five
+  `stdshader_*.dll` (re-verified 2026-08-19 with a positive control, because the claim rests on an
+  absence). Correct implementation here is nothing.
+
+  **Do not call it dead.** That was the wording and the owner corrected it: a parameter this game
+  ignores may be live elsewhere in the Source family. Demonstrated for `$vertexcolor`, which is
+  consumed by `cable_dx6.cpp` and the fixed-function `decal.cpp` and merely unreachable from a DX9
+  `LightmappedGeneric` world face. For `$modblend` the origin is unknown — three shipped VMTs
+  declare it, and VMT keys do not appear by accident. Say "no path in this game reaches it".
 - **Game event field widths and signedness** were "outside the SDK, `GameEventManager` is closed".
   They are in the comment block atop `game/mod_hl2mp/resource/modevents.res`: `short` is 16-bit
   **signed**, `long` 32-bit signed, `bool` 1 bit unsigned. Signedness had been assumed, and getting
