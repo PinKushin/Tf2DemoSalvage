@@ -415,6 +415,41 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsModulated => Modulation is not (1f, 1f, 1f, 1f);
 
+    /// <summary>The cubemap or texture this material reflects, or null.</summary>
+    /// <remarks>
+    /// **After a map is compiled this is a concrete texture name, never the literal
+    /// <c>env_cubemap</c>.** vbsp's <c>PatchEnvmapForMaterialAndDependents</c>
+    /// (<c>vbsp/cubemap.cpp:531</c>) rewrites it, and only for a material whose original value IS
+    /// <c>env_cubemap</c>:
+    ///
+    /// <code>
+    /// bool bShouldPatchEnvCubemap = DoesMaterialHaveKeyValuePair( pMaterialName, "$envmap", "env_cubemap" );
+    /// ...
+    /// pPatchInfo[nPatchCount].m_pKey = "$envmap";
+    /// pPatchInfo[nPatchCount].m_pRequiredOriginalValue = "env_cubemap";
+    /// pPatchInfo[nPatchCount].m_pValue = pCubemapTexture;
+    /// </code>
+    ///
+    /// So the map has already done the assignment: a face's material names the exact baked cubemap
+    /// it reflects, and no nearest-by-position search is needed at load. A material still reading
+    /// <c>env_cubemap</c> after resolution was NOT patched — it sits where the compiler found no
+    /// cubemap to bind, which is a real state rather than a decode failure.
+    ///
+    /// A material naming a specific texture is deliberately left alone by vbsp ("Do *NOT* patch the
+    /// material if there is an $envmap specified and it's not 'env_cubemap'"), so a stock skybox
+    /// reflection survives compilation unchanged.
+    /// </remarks>
+    public string? EnvMap => Value("$envmap");
+
+    /// <summary>Whether the material asks for the map's own baked reflection.</summary>
+    /// <remarks>
+    /// True only for an UNPATCHED material, which on a compiled map means one the compiler bound to
+    /// no cubemap. Distinguished from <see cref="EnvMap"/> being null, which means the material
+    /// reflects nothing at all.
+    /// </remarks>
+    public bool WantsMapCubemap =>
+        string.Equals(EnvMap, "env_cubemap", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material
@@ -489,8 +524,12 @@ public sealed class VmtMaterial
         Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
         string shader = string.Empty;
         string? pendingKey = null;
-        int depth = 0;
         int at = 0;
+
+        // **The name of every block currently open, not just how many.** Depth alone cannot tell a
+        // patch's `replace` block from a `Proxies` block, and the two need opposite treatment: a
+        // patch's overrides ARE the material's keys, and a proxy's are emphatically not.
+        List<string> blocks = [];
 
         while (at < text.Length)
         {
@@ -509,13 +548,17 @@ public sealed class VmtMaterial
             }
             else if (character == '{')
             {
-                depth++;
+                blocks.Add(pendingKey ?? string.Empty);
                 at++;
                 pendingKey = null;
             }
             else if (character == '}')
             {
-                depth--;
+                if (blocks.Count > 0)
+                {
+                    blocks.RemoveAt(blocks.Count - 1);
+                }
+
                 at++;
                 pendingKey = null;
             }
@@ -528,7 +571,7 @@ public sealed class VmtMaterial
                     break;
                 }
 
-                if (depth == 0)
+                if (blocks.Count == 0)
                 {
                     // Outside any block: this is the shader name.
                     if (shader.Length == 0)
@@ -542,9 +585,7 @@ public sealed class VmtMaterial
                 }
                 else
                 {
-                    // Only the top-level block's keys describe the surface. A Proxies block or a
-                    // shader fallback carries its own $basetexture that is not the one to draw.
-                    if (depth == 1)
+                    if (DescribesTheSurface(blocks))
                     {
                         values[PlatformIndependent(pendingKey)] = token;
                     }
@@ -557,6 +598,43 @@ public sealed class VmtMaterial
         return new VmtMaterial(shader, values);
     }
 
+    /// <summary>Whether the key currently being read is one of the material's own.</summary>
+    /// <param name="blocks">The names of every block open right now, outermost first.</param>
+    /// <remarks>
+    /// **Two rules, and each one exists because of a bug the other would cause.**
+    ///
+    /// The material's top-level block is the obvious case. Anything deeper is somebody else's by
+    /// default — a <c>Proxies</c> block carries its own <c>$basetexture</c> naming the texture a
+    /// proxy animates, and taking that as the surface's draws the wrong picture.
+    ///
+    /// **The exception is a patch's <c>replace</c> and <c>insert</c> blocks, whose keys ARE the
+    /// material's**, and missing it made every patch on every map a silent no-op. <c>Parse</c>
+    /// returned a patch carrying <c>include</c> and nothing else; <c>ApplyPatch</c> drops
+    /// <c>include</c> and overlays the rest, so it overlaid nothing and the merged material was the
+    /// stock one exactly. On cp_process_final that is 51 materials, every cubemap reflection among
+    /// them.
+    ///
+    /// <code>
+    /// "patch"
+    /// {
+    ///     "include"  "materials/ICARUS/GLASSCHROME001.vmt"
+    ///     "replace"
+    ///     {
+    ///         "$envmap"  "maps/cp_process_final/c1568_1728_976"
+    ///     }
+    /// }
+    /// </code>
+    ///
+    /// **Keyed on depth AND name rather than on the name alone**, because a <c>replace</c> block
+    /// nested inside <c>Proxies</c> is a proxy's, not a patch's. Matching the name anywhere would
+    /// swap one bug for a rarer one.
+    /// </remarks>
+    private static bool DescribesTheSurface(List<string> blocks) =>
+        blocks.Count == 1 ||
+        (blocks.Count == 2 &&
+            (blocks[1].Equals("replace", StringComparison.OrdinalIgnoreCase) ||
+                blocks[1].Equals("insert", StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>Merges a patch over the material it includes.</summary>
     /// <param name="patch">The patch material.</param>
     /// <param name="included">The material it includes.</param>
@@ -564,8 +642,16 @@ public sealed class VmtMaterial
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// A patch's own keys sit under <c>replace</c> or <c>insert</c> blocks in the original format;
-    /// this reader flattens those into the top level, so applying the patch is a straight overlay.
-    /// The shader comes from the included material, because that is what actually draws.
+    /// <see cref="Parse"/> flattens those into the top level, so applying the patch is a straight
+    /// overlay. The shader comes from the included material, because that is what actually draws.
+    ///
+    /// **This comment claimed that flattening for months while the parser did not do it**, and the
+    /// consequence was invisible from here: a patch parsed to <c>include</c> and nothing else, this
+    /// method dropped <c>include</c> and overlaid the remaining zero keys, and the merged material
+    /// was the stock one exactly. Every patch on every map, silently. Nothing in this method was
+    /// wrong — it faithfully applied what it was given — which is why the bug survived a test of
+    /// it: the test's fixture put the keys at the patch's top level, a shape real VMTs never use.
+    /// <c>VmtPatchBlockTests</c> now uses a byte-for-byte real one.
     /// </remarks>
     public static VmtMaterial ApplyPatch(VmtMaterial patch, VmtMaterial included)
     {
