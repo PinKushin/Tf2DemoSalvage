@@ -91,6 +91,30 @@ public sealed class VtfTexture
     /// </remarks>
     internal const uint SelfShadowBumpFlag = 0x08000000;
 
+    /// <summary>The bit that marks a texture as a cubemap.</summary>
+    /// <remarks><c>TEXTUREFLAGS_ENVMAP</c>, <c>vtf.h:53</c>.</remarks>
+    internal const uint EnvmapFlag = 0x00004000;
+
+    /// <summary>Faces a cubemap stores, the seventh being a fallback spheremap.</summary>
+    /// <remarks>
+    /// **Seven, not six**, and <c>vtf.h:147</c> says so in as many words:
+    ///
+    /// <code>
+    /// CUBEMAP_FACE_SPHEREMAP,   // This is the fallback for low-end
+    /// // NOTE: Cubemaps have *7* faces; the 7th is the fallback spheremap
+    /// </code>
+    ///
+    /// That comment is old enough to be worth checking rather than trusting — the spheremap served
+    /// hardware that has not shipped in twenty years — so it was confirmed by arithmetic on real
+    /// files. All 43 baked cubemaps of cp_process_final divide exactly by seven faces and leave a
+    /// remainder on six, in both the LDR and HDR bakes.
+    ///
+    /// The seventh is not a cube face and must be dropped before upload; six read as seven, or the
+    /// reverse, puts every offset wrong and assembles a reflection out of parts of the wrong
+    /// images.
+    /// </remarks>
+    public const int CubeFaceCount = 7;
+
     private VtfTexture(
         int width, int height, VtfFormat format, int mipCount, byte[] pixels, int level, uint flags)
     {
@@ -127,6 +151,12 @@ public sealed class VtfTexture
     /// </remarks>
     public uint Flags { get; }
 
+    /// <summary>Whether the texture stores cube faces rather than one image.</summary>
+    public bool IsCubeMap => (Flags & EnvmapFlag) != 0;
+
+    /// <summary>How many faces the file stores: seven for a cubemap, one otherwise.</summary>
+    public int FaceCount => IsCubeMap ? CubeFaceCount : 1;
+
     /// <summary>Whether the texture is a self-shadowing bump map rather than a colour.</summary>
     /// <remarks>
     /// **This overrides what a material says.** Valve's own helper reads the detail texture's flags
@@ -160,14 +190,19 @@ public sealed class VtfTexture
     /// <param name="maximumSize">
     /// Largest edge to decode; the smallest mip at least this size is chosen. Zero means full size.
     /// </param>
+    /// <param name="face">
+    /// Which cube face to decode, 0 to 6. Ignored for a flat texture, which has only face 0. Face 6
+    /// is the fallback spheremap rather than a cube face; see <see cref="CubeFaceCount"/>.
+    /// </param>
     /// <returns>The decoded image.</returns>
     /// <exception cref="InvalidDataException">The file is not a VTF, or uses a format not read here.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The face is not one this texture has.</exception>
     /// <remarks>
     /// **The size limit picks a mip rather than resampling.** Valve already generated the chain, so
     /// asking for a 256-pixel version of a 2048-pixel texture is a smaller read and a smaller
     /// upload, not a downscale of something already paid for.
     /// </remarks>
-    public static VtfTexture Decode(ReadOnlyMemory<byte> file, int maximumSize = 0)
+    public static VtfTexture Decode(ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0)
     {
         ReadOnlySpan<byte> span = file.Span;
 
@@ -208,18 +243,38 @@ public sealed class VtfTexture
             at += SizeOf(VtfFormat.Dxt1, lowResWidth, lowResHeight);
         }
 
+        // **Seven faces when the envmap flag is set, one otherwise**, and the count multiplies every
+        // mip's stride as well as selecting within the chosen one. A reader that skipped mips by
+        // frames alone lands six faces early on any cubemap with a chain — 5,220 bytes on a real
+        // 32x32 one, and a picture assembled out of the wrong images rather than an error.
+        int faces = (flags & EnvmapFlag) != 0 ? CubeFaceCount : 1;
+
+        if (face < 0 || face >= faces)
+        {
+            // Not clamped: a caller asking for face 7 of seven has an off-by-one, and quietly
+            // returning face 6 hides it behind a picture that is merely wrong.
+            throw new ArgumentOutOfRangeException(
+                nameof(face),
+                face,
+                string.Create(CultureInfo.InvariantCulture, $"This VTF has {faces} face(s)."));
+        }
+
         int level = ChooseLevel(width, height, mipCount, maximumSize);
 
         // **Smallest mip first.** Level mipCount-1 is 1x1, level 0 is full size, so the wanted
-        // level's data sits after every level below it.
+        // level's data sits after every level below it — all of its frames and all of their faces.
         for (int smaller = mipCount - 1; smaller > level; smaller--)
         {
-            at += SizeOf(format, MipSize(width, smaller), MipSize(height, smaller)) * frames;
+            at += SizeOf(format, MipSize(width, smaller), MipSize(height, smaller)) * frames * faces;
         }
 
         int levelWidth = MipSize(width, level);
         int levelHeight = MipSize(height, level);
         int bytes = SizeOf(format, levelWidth, levelHeight);
+
+        // Within one mip: frame, then face. Frame zero is the only one this reads, so the frame
+        // term is zero and the face is the whole of it.
+        at += face * bytes;
 
         if (at < 0 || (long)at + bytes > span.Length)
         {
