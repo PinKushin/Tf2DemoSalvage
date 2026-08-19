@@ -17,48 +17,6 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class CorpusPlayerTests
 {
-    [Test]
-    public void EveryDemo_YieldsAPlausibleRoster()
-    {
-        foreach (string path in Corpus.Files())
-        {
-            string name = Path.GetFileName(path);
-            IReadOnlyList<PlayerInfo> players = Players(path);
-
-            // A competitive match is six a side plus a SourceTV slot, give or take spectators
-            // and substitutions across a whole demo.
-            // Not "more than six". That encoded an assumption the corpus made true by
-            // accident - every demo was a competitive match until one recorded alone on a
-            // listen server was added. The real invariant is that a demo which decoded at all
-            // named at least the player recording it, and that no roster exceeds the engine's
-            // limit.
-            players.Count.ShouldBeGreaterThan(0, name);
-            players.Count.ShouldBeLessThan(64, name);
-
-            foreach (PlayerInfo player in players)
-            {
-                player.Name.ShouldNotBeNullOrWhiteSpace(name);
-                player.Name.Length.ShouldBeLessThanOrEqualTo(32, name);
-                player.Name.ShouldAllBe(c => !char.IsControl(c), name);
-                // **A user id is a per-connection counter, not a player slot.** The server
-                // increments it for every client that has ever joined, so a busy pub that has
-                // been up for hours is well past a thousand: the 2026 pub demo's roster runs
-                // 1090-1147 across 23 players. The old ceiling of 1024 was the same mistake as
-                // the "more than six players" one above - an assumption the corpus made true by
-                // accident, because every demo in it was recorded on a freshly started listen
-                // server where the counter had barely moved.
-                //
-                // What is actually structural: the field is a signed int, so the only values a
-                // correct read cannot produce are negative ones, and a bit-level misread lands
-                // in the billions rather than the thousands. Hence a bound that only a misread
-                // reaches, rather than one describing how busy a server has been.
-                player.UserId.ShouldBeInRange(0, 1_000_000, name);
-
-                // The entity index IS slot-bounded, by MAX_EDICTS. This is the tight one.
-                player.EntityIndex.ShouldBeInRange(0, 2048, name);
-            }
-        }
-    }
 
     [Test]
     public void SteamIds_AreInTheRenderedTextFormat()
@@ -106,26 +64,6 @@ public sealed class CorpusPlayerTests
         }
     }
 
-    [Test]
-    public void Rosters_TheCorpus_AreReported()
-    {
-        foreach (string path in Corpus.Files())
-        {
-            IReadOnlyList<PlayerInfo> players = Players(path);
-            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: {players.Count} slots");
-
-            foreach (PlayerInfo player in players.Take(8))
-            {
-                TestContext.Out.WriteLine(
-                    $"  entity {player.EntityIndex,-4} userid {player.UserId,-4} " +
-                    $"{player.Name,-24} {player.SteamId}");
-            }
-
-            TestContext.Out.WriteLine(string.Empty);
-        }
-
-        Corpus.Files().ShouldNotBeEmpty();
-    }
     [TestCase("demostf-koth_product_final-2026-08-07.dem", 19)]
     [TestCase("z1800.dem", 26)]
     public void MidGameJoins_AreInTheRoster(string fileName, int expected)

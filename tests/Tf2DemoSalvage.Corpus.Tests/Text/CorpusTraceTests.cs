@@ -53,76 +53,24 @@ public sealed class CorpusTraceTests
         }
     }
 
-    [Test]
-    public void EntitiesAreOff_UnlessAskedFor()
-    {
-        // The default has to stay cheap: expanding entities turns a 39 MB demo into gigabytes
-        // of text, so it cannot be what an unqualified trace produces.
-        Trace(Corpus.Files()[0]).ShouldNotContain("        entity ");
-    }
-
-    [Test]
-    public void Trace_WithEntities_NamesAndValuesProperties()
-    {
-        // The whole claim of the project in one assertion: the demo carries its own schema, so
-        // properties come out named without this parser knowing anything about TF2's layout.
-        string trace = Trace(
-            Corpus.Files()[0],
-            new DemoTraceOptions { IncludeEntities = true, EntitySnapshotLimit = 5 });
-
-        trace.ShouldContain("entity ");
-        trace.ShouldContain("DT_");
-        trace.ShouldContain("m_flSimulationTime");
-    }
-
-    [Test]
-    public void Trace_WithoutProperties_StillShowsEntitiesWithACount()
-    {
-        // The middle setting: which entities a snapshot touched, without the values that make
-        // up most of the volume.
-        string trace = Trace(
-            Corpus.Files()[0],
-            new DemoTraceOptions
-            {
-                IncludeEntities = true,
-                IncludeEntityProperties = false,
-                EntitySnapshotLimit = 5,
-            });
-
-        trace.ShouldContain("props ");
-        trace.ShouldNotContain("m_flSimulationTime");
-    }
-
-    [Test]
-    public void SnapshotLimit_StopsExpandingAfterTheStatedCount()
-    {
-        string limited = Trace(
-            Corpus.Files()[0],
-            new DemoTraceOptions { IncludeEntities = true, EntitySnapshotLimit = 2 });
-        string more = Trace(
-            Corpus.Files()[0],
-            new DemoTraceOptions { IncludeEntities = true, EntitySnapshotLimit = 20 });
-
-        // Past the limit, snapshots still appear as messages - they simply stop being expanded.
-        limited.Length.ShouldBeLessThan(more.Length);
-        limited.ShouldContain("svc_packetentities");
-    }
-
-    [Test]
-    public void TraceShape_TheCorpus_IsReported()
-    {
-        foreach (string path in Corpus.Files())
-        {
-            string trace = Trace(path);
-            string[] lines = trace.Split('\n');
-
-            TestContext.Out.WriteLine(
-                $"{Path.GetFileName(path)}: {lines.Length} lines from 400 commands, " +
-                $"{lines.Count(l => l.StartsWith("block", StringComparison.Ordinal))} blocks");
-        }
-
-        Corpus.Files().ShouldNotBeEmpty();
-    }
+    // Six tests removed on 2026-08-19, all covered by synthetic demos.
+    //
+    // EntitiesAreOff_UnlessAskedFor and Trace_WithEntities_NamesAndValuesProperties are now
+    // EntityAssemblyDemoTests.Trace_ASnapshotWithASchema_ExpandsEntitiesRatherThanCountingThem,
+    // which asserts BOTH halves of the opt-in rather than one each.
+    //
+    // Trace_WithoutProperties_StillShowsEntitiesWithACount and
+    // SnapshotLimit_StopsExpandingAfterTheStatedCount are SyntheticTraceOptionTests. They only
+    // ever needed a demo with entities in it.
+    //
+    // Trace_UserAndConsoleCommands_AreExpandedNotCounted is UserCommandTraceTests, which can
+    // choose which buttons were pressed - a point-of-view field no SourceTV recording carries.
+    //
+    // Trace_Sounds_AreNamedFromThePrecacheTable was blocked until svc_CreateStringTable became
+    // writable in a fixture; it is SyntheticTraceOptionTests now, with the index chosen so an
+    // off-by-one names a different sound rather than the right one.
+    //
+    // TraceShape_TheCorpus_IsReported was a report whose only assertion guarded the fixture.
 
     [Test]
     public void Trace_EveryMessage_IsNamed()
@@ -150,77 +98,6 @@ public sealed class CorpusTraceTests
         }
     }
 
-    [Test]
-    public void Trace_UserAndConsoleCommands_AreExpandedNotCounted()
-    {
-        // Both were bare one-line blocks until the payload behind them was decoded, which is a
-        // failure mode worth naming: a trace listing `block dem_usercmd tick 72;` reads as
-        // complete, because nothing about it says a payload went unread.
-        int expanded = 0;
-
-        foreach (string path in Corpus.Files())
-        {
-            string trace = Trace(path);
-
-            if (!trace.Contains("block dem_usercmd", StringComparison.Ordinal))
-            {
-                // SourceTV recordings have no player behind the camera and so carry none.
-                continue;
-            }
-
-            expanded++;
-            string name = Path.GetFileName(path);
-
-            // The block must open rather than terminate, and it must carry the resolved command
-            // number - the field whose absent form means one rather than zero.
-            trace.ShouldContain("block dem_usercmd tick ", Case.Sensitive, name);
-            trace.ShouldNotContain("block dem_usercmd tick 0;", Case.Sensitive, name);
-            trace.ShouldContain("    command ", Case.Sensitive, name);
-
-            // A player who was moving at all produces angles, and every corpus demo opens with
-            // someone already in the world.
-            trace.ShouldContain("    angles ", Case.Sensitive, name);
-        }
-
-        expanded.ShouldBeGreaterThan(0, "no point-of-view demo reached the trace");
-        TestContext.Out.WriteLine($"{expanded} demos expanded their user commands");
-    }
-
-    [Test]
-    public void Trace_Sounds_AreNamedFromThePrecacheTable()
-    {
-        // A svc_Sounds body carries an index into soundprecache, never a name, and the table is
-        // per-server and per-map - so the number alone is the one part of the sound that does not
-        // travel. This is the check that the resolution actually happens on real demos, where the
-        // table arrives compressed in the signon stream rather than as a fixture.
-        int named = 0;
-
-        foreach (string path in Corpus.Files())
-        {
-            string trace = Trace(path);
-            string name = Path.GetFileName(path);
-
-            if (!trace.Contains("        sound ", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            // Every sound line either carries a quoted path or is one this demo genuinely never
-            // precached. Requiring at least one named sound per demo with sounds is the assertion
-            // that has teeth: a resolver keyed on the wrong table, or on list position instead of
-            // the entry index, resolves nothing at all.
-            bool anyNamed = trace
-                .Split('\n')
-                .Any(line => line.TrimStart().StartsWith("sound ", StringComparison.Ordinal) &&
-                             line.Contains(".wav", StringComparison.OrdinalIgnoreCase));
-
-            anyNamed.ShouldBeTrue($"{name}: no sound resolved to a precached path");
-            named++;
-        }
-
-        named.ShouldBeGreaterThan(0, "no demo in the corpus rendered a sound");
-        TestContext.Out.WriteLine($"{named} demos resolved sound names");
-    }
 
     /// <summary>Whether a trace line is a bare "name bits N", which is how a skip renders.</summary>
     private static bool IsAnonymous(string line)

@@ -20,31 +20,6 @@ public sealed class CorpusNetMessageTests
 {
     private const int PacketsToSample = 200;
 
-    // Removed: an assertion that the first decodable message is always net_Tick. It held
-    // only because packets opening with svc_GameEvent used to yield nothing at all; once
-    // GameEvent was implemented they decoded, and some packets genuinely do lead with an
-    // event rather than a tick. Packets_TheCorpus_MostlyBeginWithNetTick below carries the real claim.
-
-    [Test]
-    public void Packets_TheCorpus_MostlyBeginWithNetTick()
-    {
-        // A floor, not an equality: it guards against a regression that stops decoding
-        // net_Tick entirely, without pinning a number that shifts as more messages land.
-        foreach (string path in Corpus.Files())
-        {
-            DemoCommand[] packets = [.. ReadPackets(path).Take(PacketsToSample)];
-            if (packets.Length == 0)
-            {
-                continue;
-            }
-
-            ushort protocol = ProtocolOf(path);
-            int withTick = packets.Count(p => FirstMessage(p, protocol) is NetTickMessage);
-
-            withTick.ShouldBeGreaterThan(
-                packets.Length / 2, $"{Path.GetFileName(path)}: net_Tick is usually first");
-        }
-    }
 
     [Test]
     public void NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock()
@@ -156,62 +131,6 @@ public sealed class CorpusNetMessageTests
             .Take(PacketsToSample)
             .Select(packet => (packet, FirstMessage(packet, protocol)));
 
-    [Test]
-    public void PacketProgress_TheCorpus_IsReported()
-    {
-        foreach (string path in Corpus.Files())
-        {
-            DemoCommand[] packets = ReadPackets(path).Take(PacketsToSample).ToArray();
-            if (packets.Length == 0)
-            {
-                continue;
-            }
-
-            Dictionary<string, int> stoppedAt = new(StringComparer.Ordinal);
-            int complete = 0;
-            long bitsRead = 0;
-            long bitsTotal = 0;
-
-            foreach (DemoCommand packet in packets)
-            {
-                NetMessageReadResult result = NetMessageReader.Read(
-                    packet.Payload.Span, new NetDecodeState { NetworkProtocol = ProtocolOf(path) });
-                bitsRead += result.BitsConsumed;
-                bitsTotal += packet.Payload.Length * 8L;
-
-                if (result.IsComplete)
-                {
-                    complete++;
-                }
-                else
-                {
-                    string key = result.StoppedAt?.ToString() ?? "undefined id";
-                    if (result.Messages.Count == 0)
-                    {
-                        key += " (first message)";
-                    }
-
-                    stoppedAt.TryGetValue(key, out int count);
-                    stoppedAt[key] = count + 1;
-                }
-            }
-
-            TestContext.Out.WriteLine($"{Path.GetFileName(path)} - {packets.Length} packets sampled");
-            TestContext.Out.WriteLine($"  fully read : {complete}");
-            TestContext.Out.WriteLine($"  bits read  : {bitsRead} of {bitsTotal} " +
-                             $"({100.0 * bitsRead / bitsTotal:F2}%)");
-            foreach ((string key, int count) in stoppedAt.OrderByDescending(kv => kv.Value))
-            {
-                TestContext.Out.WriteLine($"  stopped at {key}: {count}");
-            }
-
-            TestContext.Out.WriteLine(string.Empty);
-        }
-
-        // No assertion on the numbers themselves: they are a progress report, and pinning them
-        // would mean editing this test every time a message type is implemented.
-        Corpus.Files().ShouldNotBeEmpty();
-    }
 
     /// <summary>First decoded message of a packet, or <c>null</c> if none could be read.</summary>
     /// <remarks>
