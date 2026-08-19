@@ -83,3 +83,4 @@
 - [Put the real file in the fixture](put-the-real-file-in-the-fixture.md) — three bugs in one session survived their own tests because the fixture was authored from the same belief as the code.
 - [Author the specimen the corpus lacks](author-the-specimen-the-corpus-lacks.md) — the writer is a test instrument; a case no demo contains can be written rather than hunted for.
 - [Test naming convention](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}; prose names cost a file-open on every red run, so they are being converted.
+- [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — FirstOrDefault plus `is not { }` compiles and never fires; this repo is full of record structs.
