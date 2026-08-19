@@ -85,6 +85,24 @@ public sealed class CorpusEntityRoundTripTests
         // Guards against the two ways this could report a clean run while measuring nothing: a
         // corpus that stopped being read, and a decoder that started failing every snapshot.
         snapshots.ShouldBeGreaterThan(1000);
+
+        // **This was a REPORT until 2026-08-19, and that was the mistake.** It counted exact
+        // re-encodes, printed a percentage, and asserted only the guard above — so entity
+        // byte-fidelity, which is one of the larger claims this project makes, could have fallen
+        // from 100% to 3% and the suite would have stayed green with the number in the log.
+        //
+        // The measured answer is 4,017 of 4,017 across every era in the corpus, protocols 11
+        // through 24, point-of-view and SourceTV alike. That is not a threshold to be tuned; a
+        // snapshot that does not re-encode to its own bits means a property was read and
+        // discarded, and the reader stays aligned while the information is gone.
+        //
+        // So it is asserted at 100% rather than at a floor. A floor here would be a decision to
+        // tolerate losing entity data, and there is no version of this project where that is
+        // acceptable — see docs/memory/decode-must-be-total.md.
+        exact.ShouldBe(
+            snapshots,
+            "every entity snapshot must re-encode to the bits it came from; anything less means a " +
+            "property was read and discarded, which no length check can see");
         TestContext.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"total: {exact:N0} of {snapshots:N0} ({100.0 * exact / snapshots:F2}%) " +
