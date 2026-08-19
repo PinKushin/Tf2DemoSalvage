@@ -37,7 +37,7 @@ public sealed class EntityMessageConformanceTests
     }
 
     [Test]
-    public void BothMessageIdsAreTheEngines()
+    public void EntityMessage_BothMessageIds_AreTheEngines()
     {
         SourceSdk.Constants(BaseEntity)["BASEENTITY_MSG_REMOVE_DECALS"]
             .ShouldBe(EntityMessageNames.RemoveDecals);
@@ -47,7 +47,7 @@ public sealed class EntityMessageConformanceTests
     }
 
     [Test]
-    public void TheyCollideAndThatIsWhyTheClassDecides()
+    public void EntityMessage_TheCollidingIds_AreResolvedByTheClass()
     {
         // **Asserted rather than described.** If these ever stopped colliding, a single global
         // id-to-name table would become correct and the class-aware lookup would be unnecessary

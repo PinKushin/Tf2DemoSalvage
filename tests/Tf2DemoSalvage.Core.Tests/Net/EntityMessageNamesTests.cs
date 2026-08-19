@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 public sealed class EntityMessageNamesTests
 {
     [Test]
-    public void TheSameByteIsNamedDifferentlyByTheReceivingClass()
+    public void EntityMessageNames_TheSameByte_IsNamedByTheReceivingClass()
     {
         // The measured case: every entity message in the corpus is CBaseAnimating type 1, which
         // inherits C_BaseEntity's handler because CBaseAnimating declares no ReceiveMessage.
@@ -26,7 +26,7 @@ public sealed class EntityMessageNamesTests
     }
 
     [Test]
-    public void AnUnknownByteOrClassIsNotNamed()
+    public void EntityMessageNames_AnUnknownByteOrClass_IsNotNamed()
     {
         // Nothing in the inherited set defines a second case, so any other byte is unnamed rather
         // than guessed - the number is still reported by the caller.
@@ -39,7 +39,7 @@ public sealed class EntityMessageNamesTests
     }
 
     [Test]
-    public void AClassMerelyContainingPlayerIsNotAPlayer()
+    public void EntityMessageNames_AClassMerelyContainingPlayer_IsNotAPlayer()
     {
         // The suffix match is deliberate and this is its control. TF2 ships CTFPlayerResource and
         // CTFPlayerDestructionLogic, neither of which is a C_BasePlayer, and both of which would

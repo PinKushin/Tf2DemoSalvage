@@ -147,7 +147,7 @@ public sealed class LzssTests
     }
 
     [Test]
-    public void OutputStopsAtTheDeclaredLength()
+    public void Lzss_Output_StopsAtTheDeclaredLength()
     {
         // The declared length is the contract. Producing more than it says means the stream
         // disagrees with its own header, which is corruption rather than a longer answer.

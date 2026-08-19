@@ -44,20 +44,20 @@ public sealed class BitCoordMpDifferentialTests
     private const int FractionBitsLowPrecision = 3;
 
     [Test]
-    public void TheMultiplayerCoordinateAgreesWithValve()
+    public void BitCoordMp_TheMultiplayerCoordinate_AgreesWithValve()
     {
         AgreeOverRandomBits(SendPropDecoder.CoordMpFlag, integral: false, lowPrecision: false);
     }
 
     [Test]
-    public void TheLowPrecisionCoordinateAgreesWithValve()
+    public void BitCoordMp_TheLowPrecisionCoordinate_AgreesWithValve()
     {
         AgreeOverRandomBits(
             SendPropDecoder.CoordMpLowPrecisionFlag, integral: false, lowPrecision: true);
     }
 
     [Test]
-    public void TheIntegralCoordinateAgreesWithValve()
+    public void BitCoordMp_TheIntegralCoordinate_AgreesWithValve()
     {
         // The odd one out: two flag bits instead of three, no fraction at all, and the sign carried
         // in the low bit of the integer field rather than as its own bit.
@@ -66,7 +66,7 @@ public sealed class BitCoordMpDifferentialTests
     }
 
     [Test]
-    public void AnIntegralCoordinateWithNoIntegerConsumesTwoBits()
+    public void BitCoordMp_AnIntegralWithNoInteger_ConsumesTwoBits()
     {
         // Valve returns 0 without reading anything further, so only the two flag bits are consumed.
         // A reader that always read three would be one bit ahead for the rest of the entity.
@@ -79,7 +79,7 @@ public sealed class BitCoordMpDifferentialTests
     }
 
     [Test]
-    public void TheInBoundsBitSelectsTheNarrowerIntegerField()
+    public void BitCoordMp_TheInBoundsBit_SelectsTheNarrowerIntegerField()
     {
         // **The bit that decides a width, which is the dangerous kind.** In bounds reads an 11-bit
         // integer, out of bounds reads 14. Inverting it misreads the integer AND leaves the reader

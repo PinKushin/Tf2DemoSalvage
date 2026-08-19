@@ -18,7 +18,7 @@ public sealed class EntityStateTableTests
     private const string PlayerClass = "CTFPlayer";
 
     [Test]
-    public void ADeltaKeepsPropertiesEarlierSnapshotsSet()
+    public void EntityState_ADelta_KeepsPropertiesEarlierSnapshotsSet()
     {
         // The whole point of the accumulator. A player who stops moving stops sending an origin,
         // and a table that forgot it would place them at the world origin - a real position, in
@@ -42,7 +42,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void ADeltaCarryingNoSerialNumberStillKeepsEarlierProperties()
+    public void EntityState_ADeltaWithNoSerialNumber_StillKeepsEarlierProperties()
     {
         // **The shape the decoder actually produces, which the test above does not use.** Only an
         // Enter update carries a serial number on the wire; EntityDecoder passes zero for a Delta
@@ -73,7 +73,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void LeavingTheVisibleSetIsNotBeingDestroyed()
+    public void EntityState_LeavingTheVisibleSet_IsNotDestruction()
     {
         // `Leave` and `Delete` are different messages and mean different things: an entity that
         // leaves the potentially-visible set still exists and will come back with a DELTA, not a
@@ -104,7 +104,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void ADeletedEntityIsGone()
+    public void EntityState_ADeletedEntity_IsGone()
     {
         EntityStateTable table = new();
         table.Apply(Entity(5, EntityUpdateType.Enter,
@@ -116,7 +116,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void AReusedSlotDoesNotInheritTheLastOccupantsProperties()
+    public void EntityState_AReusedSlot_DoesNotInheritTheLastOccupantsProperties()
     {
         // Entity indices are recycled when a player disconnects, and the serial number is what
         // distinguishes the new occupant. Without this the new entity inherits the old one's
@@ -141,7 +141,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void OriginResolvesFromWhicheverExclusiveTableCarriedIt()
+    public void EntityState_Origin_ResolvesFromWhicheverExclusiveTableCarriedIt()
     {
         // The trap this class exists for. TF2 sends a player's position through
         // DT_TFLocalPlayerExclusive for the recording client and
@@ -172,7 +172,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void TheLaunchEraSendsOriginAsOneVectorRatherThanSplitInTwo()
+    public void EntityState_TheLaunchEra_SendsOriginAsOneVector()
     {
         // An era change, found by this accumulator producing zero positioned players on the 2007
         // demo while every later demo worked. At protocol 11 m_vecOrigin is a full three-component
@@ -192,7 +192,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void ANonPlayerEntityPositionsFromTheBaseEntityTable()
+    public void EntityState_ANonPlayerEntity_PositionsFromTheBaseEntityTable()
     {
         // Players are the special case, not the rule. Everything else - projectiles, buildings,
         // ammo packs - sends its position through DT_BaseEntity, and a viewer that drew only
@@ -207,7 +207,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void AnEntityWithNoOriginHasNoPositionRatherThanTheWorldOrigin()
+    public void EntityState_AnEntityWithNoOrigin_HasNoPosition()
     {
         // Absence has to be representable. (0,0,0) is a real place on every map, so returning it
         // for "not known" puts unpositioned entities in the middle of the world and calls it
@@ -221,7 +221,7 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
-    public void TheClassNameIsCarriedSoCallersNeedNotHoldTheSchema()
+    public void EntityState_TheClassName_IsCarriedWithTheEntity()
     {
         EntityStateTable table = new();
         table.SetClassName(212, PlayerClass);

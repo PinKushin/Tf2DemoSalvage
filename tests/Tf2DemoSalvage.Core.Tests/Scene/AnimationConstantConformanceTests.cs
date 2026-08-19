@@ -39,7 +39,7 @@ public sealed class AnimationConstantConformanceTests
     private const string Const = "src/public/const.h";
 
     [Test]
-    public void TheAirwalkRiseSpeedIsTheLiteralGuardingTheAirwalkBranch()
+    public void AnimationConstants_TheAirwalkRiseSpeed_IsTheLiteralGuardingTheBranch()
     {
         // Matched with its neighbours - the class check and the duck check - because the number
         // alone says nothing: 300 appears in the file for unrelated reasons, and it is this
@@ -50,7 +50,7 @@ public sealed class AnimationConstantConformanceTests
     }
 
     [Test]
-    public void TheJumpPhaseSplitIsTheLiteralComparedAgainstTheJumpStart()
+    public void AnimationConstants_TheJumpPhaseSplit_IsTheLiteralComparedAgainstJumpStart()
     {
         // **Written without an `f` suffix in the SDK, unlike its neighbours**, so the pattern
         // accepts either. That is not pedantry: `0.5` and `0.5f` are the same value here, and a
@@ -62,7 +62,7 @@ public sealed class AnimationConstantConformanceTests
     }
 
     [Test]
-    public void TheMovingThresholdIsTheDefineItWasTakenFrom()
+    public void AnimationConstants_TheMovingThreshold_IsTheDefineItCameFrom()
     {
         Text(BaseAnimState).ShouldMatch(
             @"#define\s+MOVING_MINIMUM_SPEED\s+" +
@@ -70,7 +70,7 @@ public sealed class AnimationConstantConformanceTests
     }
 
     [Test]
-    public void TheTickIntervalIsTheEnginesDefault()
+    public void AnimationConstants_TheTickInterval_IsTheEnginesDefault()
     {
         // The value every per-tick duration in the scene layer is derived from, so a wrong one
         // scales every animation's timing at once rather than breaking anything visibly.

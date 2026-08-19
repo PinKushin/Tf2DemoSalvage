@@ -80,7 +80,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void CrouchingBeatsRunning()
+    public void PlayerActivity_Crouching_BeatsRunning()
     {
         // **The precedence, not the mapping.** HandleDucking runs before HandleMoving and returns
         // true, so a moving crouched player never reaches the running case. An implementation that
@@ -106,7 +106,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void AJumpStartsBeforeItFloats()
+    public void PlayerActivity_AJump_StartsBeforeItFloats()
     {
         // **Half a second, strictly** — `gpGlobals->curtime - m_flJumpStartTime > 0.5` in
         // CTFPlayerAnimState::HandleJumping, so exactly the threshold is still the push-off. Both
@@ -122,7 +122,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void AirWalkingBeatsBothJumpPhases()
+    public void PlayerActivity_AirWalking_BeatsBothJumpPhases()
     {
         // **HandleJumping checks the air-walk BEFORE the jump and it supersedes it**, so a
         // fast-rising player runs in the air rather than tucking — whatever the jump clock says.
@@ -137,7 +137,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void DuckingCancelsTheAirWalk()
+    public void PlayerActivity_Ducking_CancelsTheAirWalk()
     {
         // `( bValidAirWalkClass && ( vecVelocity.z > 300.0f || m_bInAirWalk ) && !bInDuck )` — a
         // crouched rocket jump tucks rather than running in the air, which is what a crouch-jump
@@ -148,7 +148,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void WithoutTheAirWalkTheJumpPhasesStillApply()
+    public void PlayerActivity_WithoutTheAirWalk_TheJumpPhasesStillApply()
     {
         // The control for the two above: the air-walk must not swallow every airborne case. This
         // is the same input with the flag cleared, and it has to answer differently.
@@ -158,13 +158,13 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void TheAirWalkHasItsOwnName()
+    public void PlayerActivity_TheAirWalk_HasItsOwnName()
     {
         PlayerActivityState.NameOf(PlayerActivity.Airwalk).ShouldBe("ACT_MP_AIRWALK_PRIMARY");
     }
 
     [Test]
-    public void AnUnknownAirborneTimeFloats()
+    public void PlayerActivity_AnUnknownAirborneTime_Floats()
     {
         // Null is "cannot tell", not "just left the ground". The float is what a jump spends most
         // of its time in and is what this drew before the phases existed, so an absent clock keeps
@@ -174,7 +174,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void TheJumpPhasesHaveTheirOwnNames()
+    public void PlayerActivity_TheJumpPhases_HaveTheirOwnNames()
     {
         // The land is deliberately not here: ACT_MP_JUMP_LAND is started with
         // RestartGesture( GESTURE_SLOT_JUMP, ... ), so it is a layered gesture over whatever the
@@ -188,7 +188,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void WaterStopsTheJump()
+    public void PlayerActivity_Water_StopsTheJump()
     {
         // HandleJumping clears the jump the moment the water reaches the waist, before it can
         // return true. So a player who leaps into water swims rather than falling with their legs
@@ -201,7 +201,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void TheWaistIsWhereSwimmingStarts()
+    public void PlayerActivity_TheWaist_IsWhereSwimmingStarts()
     {
         // **WL_Waist is 2**, from Valve's own comment at player.cpp:1961 — 0 dry, 1 feet, 2 waist,
         // 3 eyes — and both HandleJumping and HandleSwimming test `>= WL_Waist`. Feet-deep water is
@@ -217,7 +217,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void CrouchingBeatsSwimming()
+    public void PlayerActivity_Crouching_BeatsSwimming()
     {
         // HandleDucking is asked before HandleSwimming. Ordering these the other way is the kind of
         // thing that looks right in shallow water and wrong in deep.
@@ -249,7 +249,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void EveryActivityHasTheEnginesName()
+    public void PlayerActivity_EveryActivity_HasTheEnginesName()
     {
         // **The name is the lookup.** studio.h says mstudioseqdesc_t.activity is "initialized at
         // loadtime to game DLL values", so a model file stores the activity's NAME rather than its
@@ -273,7 +273,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void AnUnknownActivityThrows()
+    public void PlayerActivity_AnUnknownActivity_Throws()
     {
         // Rather than defaulting, because a wrong name resolves to no sequence and a model frozen
         // in its reference pose reads as a model fault rather than a lookup one.

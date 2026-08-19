@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 public sealed class EntityMessageTests
 {
     [Test]
-    public void TheLeadingByteIsReportedAsTheMessageType()
+    public void EntityMessage_TheLeadingByte_IsTheMessageType()
     {
         // Every svc_EntityMessage in the corpus is exactly this: 8 bits, class 1, type 1 - one
         // byte selecting RemoveAllDecals, with no payload after it.

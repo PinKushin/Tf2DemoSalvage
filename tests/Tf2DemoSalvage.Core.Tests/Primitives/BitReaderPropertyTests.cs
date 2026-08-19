@@ -69,7 +69,7 @@ public sealed class BitReaderPropertyTests
     }
 
     [Test]
-    public void ReadingAdvancesByExactlyTheWidthRequested()
+    public void BitReader_Reading_AdvancesByExactlyTheWidthRequested()
     {
         Gen.Select(Gen.UInt, Gen.Int[1, 32]).Sample(t =>
         {
@@ -87,7 +87,7 @@ public sealed class BitReaderPropertyTests
     }
 
     [Test]
-    public void ValuesAreAlwaysZeroExtended()
+    public void BitReader_Values_AreAlwaysZeroExtended()
     {
         // No read may return bits above its requested width, whatever surrounds it.
         Gen.Select(Gen.UInt, Gen.Int[1, 31]).Sample(t =>
@@ -107,7 +107,7 @@ public sealed class BitReaderPropertyTests
     }
 
     [Test]
-    public void BitsReadAndBitsRemainingAlwaysSumToTheBufferSize()
+    public void BitReader_BitsReadAndRemaining_AlwaysSumToTheBufferSize()
     {
         Gen.Byte.Array[1, 64].Select(Gen.Int[0, 200]).Sample(t =>
         {

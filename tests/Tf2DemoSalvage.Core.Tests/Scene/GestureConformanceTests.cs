@@ -35,7 +35,7 @@ public sealed class GestureConformanceTests
     private const string Activities = "src/game/shared/ai_activity.h";
 
     [Test]
-    public void EveryPlayerAnimEventHasTheOrdinalTheSdkGivesIt()
+    public void Gestures_EveryPlayerAnimEvent_HasTheSdkOrdinal()
     {
         if (!SourceSdk.Available)
         {
@@ -64,7 +64,7 @@ public sealed class GestureConformanceTests
     }
 
     [Test]
-    public void TheEnumIsStillAppendOnlyRatherThanMerelyMatchingToday()
+    public void Gestures_TheEnum_IsStillAppendOnly()
     {
         // **The claim `docs/findings/25-gesture-layer.md` rests on**: ordinals 0-29 are identical
         // across every era, so one mapping decodes every protocol. Today's SDK agreeing is
@@ -91,7 +91,7 @@ public sealed class GestureConformanceTests
     }
 
     [Test]
-    public void EveryGestureSlotHasTheOrdinalTheSdkGivesIt()
+    public void Gestures_EveryGestureSlot_HasTheSdkOrdinal()
     {
         if (!SourceSdk.Available)
         {
@@ -123,7 +123,7 @@ public sealed class GestureConformanceTests
     }
 
     [Test]
-    public void EveryActivityTheMappingNamesIsRealInTheSdk()
+    public void Gestures_EveryMappedActivity_IsRealInTheSdk()
     {
         // **The only one of these three that catches a typo.** The activities are STRINGS in
         // PlayerGestureEvent, resolved against a model at run time, and a misspelling resolves to

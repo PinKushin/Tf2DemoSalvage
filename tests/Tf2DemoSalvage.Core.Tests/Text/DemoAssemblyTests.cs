@@ -68,7 +68,7 @@ public sealed class DemoAssemblyTests
     }
 
     [Test]
-    public void ANewlineAndACarriageReturnAreNotConfusedForEachOther()
+    public void DemoAssembly_ANewlineAndACarriageReturn_AreNotConfused()
     {
         // **The control on the fix.** Mapping `\r` onto the same escape as `\n` would satisfy the
         // test above and silently rewrite every string containing either — a repair that looks

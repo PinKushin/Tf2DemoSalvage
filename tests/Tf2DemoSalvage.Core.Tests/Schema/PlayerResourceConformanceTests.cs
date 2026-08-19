@@ -31,7 +31,7 @@ public sealed class PlayerResourceConformanceTests
     }
 
     [Test]
-    public void TheAmmoArrayIsIndexedByTypeDespiteBeingSizedBySlots()
+    public void PlayerResource_TheAmmoArray_IsIndexedByTypeThoughSizedBySlots()
     {
         // shareddefs.h:124-125, adjacent lines:
         //
@@ -72,7 +72,7 @@ public sealed class PlayerResourceConformanceTests
     }
 
     [Test]
-    public void TheTeamEntityCarriesScoreRoundsAndItsRoster()
+    public void PlayerResource_TheTeamEntity_CarriesScoreRoundsAndRoster()
     {
         // c_team.cpp:33-40 — m_iTeamNum, m_iScore, m_iRoundsWon, m_szTeamname, and a networked
         // player array.

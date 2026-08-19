@@ -18,7 +18,7 @@ public sealed class SteamVoicePayloadTests
     private const int SampleRate = 24000;
 
     [Test]
-    public void TheSpeakerIsTheSteamAccountRatherThanTheClientSlot()
+    public void SteamVoice_TheSpeaker_IsTheSteamAccountNotTheClientSlot()
     {
         // The reason this decoding is worth having at all. svc_VoiceData already gives a client
         // slot, but a slot is only meaningful against the roster at that instant and is reused
@@ -35,7 +35,7 @@ public sealed class SteamVoicePayloadTests
     }
 
     [Test]
-    public void AnFfffSizeTerminatesTheBlockRatherThanDeclaringAChunk()
+    public void SteamVoice_AnFfffSize_TerminatesTheBlock()
     {
         // The finding that closed B31. Sixty-three of 1397 corpus blocks ended two bytes short of
         // their declared length, and those two bytes were FFFF every time - a terminator read
@@ -52,7 +52,7 @@ public sealed class SteamVoicePayloadTests
     }
 
     [Test]
-    public void ABlockWithoutATerminatorIsStillComplete()
+    public void SteamVoice_ABlockWithoutATerminator_IsStillComplete()
     {
         // The control for the case above. Most blocks - 1334 of 1397 - simply run to the end of
         // their declared length with no sentinel, so a decoder that required one would reject the
@@ -66,7 +66,7 @@ public sealed class SteamVoicePayloadTests
     }
 
     [Test]
-    public void SeveralChunksArriveInOneBlockAndKeepTheirSequence()
+    public void SteamVoice_SeveralChunksInOneBlock_KeepTheirSequence()
     {
         // A voice packet carries a burst of frames, and the sequence numbers are what order them
         // when packets are dropped or arrive out of order. Losing them would leave audio that
@@ -85,7 +85,7 @@ public sealed class SteamVoicePayloadTests
     }
 
     [Test]
-    public void ASilencePacketCarriesNoAudioAtAll()
+    public void SteamVoice_ASilencePacket_CarriesNoAudio()
     {
         // The 18-byte packets: a sample rate, a type 0x00 with a 16-bit payload, and the tail.
         // 55 of the corpus's 1452 look like this. They must decode rather than be rejected,
@@ -100,7 +100,7 @@ public sealed class SteamVoicePayloadTests
     }
 
     [Test]
-    public void APayloadThatDoesNotConsumeExactlyIsRejected()
+    public void SteamVoice_APayloadNotConsumedExactly_IsRejected()
     {
         // A voice body has no checksum over its framing, so a wrong field width shows up only as
         // leftover bytes. Reporting that is the difference between refusing a packet and handing

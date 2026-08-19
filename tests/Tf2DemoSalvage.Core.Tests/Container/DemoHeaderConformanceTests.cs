@@ -41,7 +41,7 @@ public sealed class DemoHeaderConformanceTests
     }
 
     [Test]
-    public void TheHeaderSizeIsDerivedFromValvesStructure()
+    public void DemoHeader_TheHeaderSize_IsDerivedFromValvesStructure()
     {
         string source = SourceSdk.Text(DemoFormat).ShouldNotBeNull();
 
@@ -62,7 +62,7 @@ public sealed class DemoHeaderConformanceTests
     }
 
     [Test]
-    public void TheStampAndCommandNamesAreValvesOwn()
+    public void DemoHeader_TheStampAndCommandNames_AreValvesOwn()
     {
         string source = SourceSdk.Text(DemoFormat).ShouldNotBeNull();
 

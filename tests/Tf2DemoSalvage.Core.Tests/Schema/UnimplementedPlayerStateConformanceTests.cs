@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// conditions is showing the least interesting half of what happened.
 ///
 /// The trap is in how they are transmitted, and it is the kind that produces a partial answer rather
-/// than an error. See <see cref="ConditionsSpanFiveSeparatelyNamedNetworkedWords"/>.
+/// than an error. See <see cref="PlayerState_Conditions_SpanFiveSeparatelyNamedWords"/>.
 /// </remarks>
 public sealed class UnimplementedPlayerStateConformanceTests
 {
@@ -41,7 +41,7 @@ public sealed class UnimplementedPlayerStateConformanceTests
     }
 
     [Test]
-    public void ConditionsSpanFiveSeparatelyNamedNetworkedWords()
+    public void PlayerState_Conditions_SpanFiveSeparatelyNamedWords()
     {
         // tf_player_shared.cpp:359,419,424,425,438 — RecvPropInt for m_nPlayerCond, then
         // m_nPlayerCondEx, Ex2, Ex3 and Ex4. Five 32-bit integers, 160 bits, holding a bit set whose
@@ -84,7 +84,7 @@ public sealed class UnimplementedPlayerStateConformanceTests
     }
 
     [Test]
-    public void TheClassIndexOrderIsNotTheOrderPlayersSee()
+    public void PlayerState_TheClassIndexOrder_IsNotTheOrderPlayersSee()
     {
         // tf_shareddefs.h:205-221. The networked order is SCOUT, SNIPER, SOLDIER, DEMOMAN, MEDIC,
         // HEAVYWEAPONS, PYRO, SPY, ENGINEER — which is not the class-selection order players know,
@@ -108,7 +108,7 @@ public sealed class UnimplementedPlayerStateConformanceTests
     }
 
     [Test]
-    public void CivilianIsAPlayableClassIndexThatNoOneCanPlay()
+    public void PlayerState_Civilian_IsAPlayableIndexNoOneCanPlay()
     {
         // tf_shareddefs.h:218 — TF_CLASS_CIVILIAN, marked in a comment as TF_LAST_NORMAL_CLASS, so
         // it sits INSIDE the normal class range rather than after it.
@@ -127,7 +127,7 @@ public sealed class UnimplementedPlayerStateConformanceTests
     }
 
     [Test]
-    public void WhoAppliedAConditionIsNetworkedSeparatelyFromWhetherItIsSet()
+    public void PlayerState_WhoAppliedACondition_IsNetworkedSeparately()
     {
         // tf_player_shared.cpp:436 — RecvPropUtlVectorDataTable( m_ConditionData, TF_COND_LAST,
         // DT_TFPlayerConditionSource ). A second, parallel structure: one entry per condition,

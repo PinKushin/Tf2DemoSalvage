@@ -43,7 +43,7 @@ public sealed class WireEncodingConformanceTests
     }
 
     [Test]
-    public void TheCoordinateWidthsAreTheEngines()
+    public void WireEncoding_TheCoordinateWidths_AreTheEngines()
     {
         IReadOnlyDictionary<string, int> coords = SourceSdk.Constants(CoordSize);
 
@@ -55,7 +55,7 @@ public sealed class WireEncodingConformanceTests
     }
 
     [Test]
-    public void TheTwoPrecisionsAreGenuinelyDifferent()
+    public void WireEncoding_TheTwoPrecisions_AreGenuinelyDifferent()
     {
         // **Stated separately because a decoder using one pair everywhere mostly works.** The
         // multiplayer origin encoding is three bits narrower in range and two coarser in precision;
@@ -74,7 +74,7 @@ public sealed class WireEncodingConformanceTests
     }
 
     [Test]
-    public void TheStringLengthAndFlagWidthsAreTheEngines()
+    public void WireEncoding_TheStringLengthAndFlagWidths_AreTheEngines()
     {
         IReadOnlyDictionary<string, int> tables = SourceSdk.Constants(DataTable);
 
@@ -83,7 +83,7 @@ public sealed class WireEncodingConformanceTests
     }
 
     [Test]
-    public void TheFlagsFieldIsTheNetworkedWidthNotTheFullOne()
+    public void WireEncoding_TheFlagsField_IsTheNetworkedWidthNotTheFull()
     {
         // **The trap the header itself warns about.** SPROP_NUMFLAGBITS is 17 and only 16 are sent;
         // dt_common.h says so in a comment next to the constant. Reading 17 eats a bit belonging to
@@ -96,7 +96,7 @@ public sealed class WireEncodingConformanceTests
     }
 
     [Test]
-    public void TheStopFlagIsTheEnginesSoundFlag()
+    public void WireEncoding_TheStopFlag_IsTheEnginesSoundFlag()
     {
         // SND_STOP is declared as (1 << 2), which is the form most of Valve's flag sets use. A
         // sound message carrying it has none of the fields that describe playback, so reading the

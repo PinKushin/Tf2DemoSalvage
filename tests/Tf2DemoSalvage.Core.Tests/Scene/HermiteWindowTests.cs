@@ -86,7 +86,7 @@ public sealed class HermiteWindowTests
     }
 
     [Test]
-    public void AStationaryDoorDoesNotDrift()
+    public void HermiteWindow_AStationaryDoor_DoesNotDrift()
     {
         // **The other half of what was seen: a slow rise "for no reason".** Between two samples
         // holding the same value the pose must hold too. Linear interpolation between equal values
@@ -136,7 +136,7 @@ public sealed class HermiteWindowTests
     }
 
     [Test]
-    public void AClosingDoorDoesNotUndershootPastShut()
+    public void HermiteWindow_AClosingDoor_DoesNotUndershootPastShut()
     {
         // **The other half of what was seen: it now stops at closed for a moment and then sinks
         // into the floor.** A demo states no pose below the closed height — measured across every

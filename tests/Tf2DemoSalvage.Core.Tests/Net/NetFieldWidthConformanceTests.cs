@@ -37,7 +37,7 @@ public sealed class NetFieldWidthConformanceTests
     }
 
     [Test]
-    public void AnEntityIndexIsMaxEdictBitsWideEverywhereItAppears()
+    public void NetFieldWidths_AnEntityIndex_IsMaxEdictBitsEverywhere()
     {
         // **One constant, three fields, and they must not drift apart.** An entity index is an
         // entity index whether it arrives in svc_SetView, svc_EntityMessage or a decal — so all
@@ -51,7 +51,7 @@ public sealed class NetFieldWidthConformanceTests
     }
 
     [Test]
-    public void AModelIndexIsTheEnginesModelIndexWidth()
+    public void NetFieldWidths_AModelIndex_IsTheEnginesWidth()
     {
         // SP_MODEL_INDEX_BITS is 13, which is what a precached model index is sent as. Twelve would
         // silently halve the reachable range of the model precache table, so every model past 4096
@@ -61,14 +61,14 @@ public sealed class NetFieldWidthConformanceTests
     }
 
     [Test]
-    public void AServerClassIsMaxServerClassBitsWide()
+    public void NetFieldWidths_AServerClass_IsMaxServerClassBitsWide()
     {
         NetMessageReader.EntityMessageClassBits
             .ShouldBe(SourceSdk.Constants(Const)["MAX_SERVER_CLASS_BITS"]);
     }
 
     [Test]
-    public void TheWidthsWithNoPublishedSourceAreNamedAsSuch()
+    public void NetFieldWidths_WidthsWithNoPublishedSource_AreNamedAsSuch()
     {
         // **A list of what this class cannot check, kept beside what it can.** Every width below
         // came from binary scanning and is held up by the corpus decoding end to end, not by a

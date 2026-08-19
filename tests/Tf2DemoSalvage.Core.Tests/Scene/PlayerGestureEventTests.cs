@@ -19,7 +19,7 @@ public sealed class PlayerGestureEventTests
     private static GestureContext Plain => new();
 
     [Test]
-    public void PrimaryFireStandsByDefault()
+    public void GestureEvent_PrimaryFire_StandsByDefault()
     {
         // else-branch of the TF override: bInDuck ? CROUCH : STAND, no swim variant for a plain gun.
         GestureTrigger trigger = Map(PlayerAnimEvent.AttackPrimary, Plain);
@@ -31,14 +31,14 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void PrimaryFireCrouchesWhenDucking()
+    public void GestureEvent_PrimaryFireWhileDucking_Crouches()
     {
         Map(PlayerAnimEvent.AttackPrimary, new GestureContext(InDuck: true))
             .ActivityName.ShouldBe("ACT_MP_ATTACK_CROUCH_PRIMARYFIRE");
     }
 
     [Test]
-    public void MinigunPrimaryFireSwimsWhenInWater()
+    public void GestureEvent_MinigunPrimaryFireInWater_Swims()
     {
         // The minigun branch is the only primary-fire path with a swim variant; swim wins over duck.
         Map(PlayerAnimEvent.AttackPrimary, new GestureContext(IsMinigun: true, InSwim: true))
@@ -46,14 +46,14 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void ZoomedSniperFiresADeployedGesture()
+    public void GestureEvent_AZoomedSniper_FiresADeployedGesture()
     {
         Map(PlayerAnimEvent.AttackPrimary, new GestureContext(IsSniperZoomed: true))
             .ActivityName.ShouldBe("ACT_MP_ATTACK_STAND_PRIMARYFIRE_DEPLOYED");
     }
 
     [Test]
-    public void SecondaryFireSwimsAtWaistDeep()
+    public void GestureEvent_SecondaryFireAtWaistDeep_Swims()
     {
         // ATTACK_SECONDARY tests GetWaterLevel() >= WL_Waist directly, so InSwim alone drives it.
         Map(PlayerAnimEvent.AttackSecondary, new GestureContext(InSwim: true))
@@ -61,7 +61,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void ReloadStandsByDefaultAndCrouchesAndSwims()
+    public void GestureEvent_Reload_StandsCrouchesAndSwims()
     {
         Map(PlayerAnimEvent.Reload, Plain).ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
         Map(PlayerAnimEvent.Reload, new GestureContext(InDuck: true)).ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH");
@@ -69,7 +69,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void ReloadTakesTheAirwalkVariantWhenAirWalking()
+    public void GestureEvent_ReloadWhileAirWalking_TakesTheAirwalkVariant()
     {
         // The TF override's own case: airwalk beats the base stand/crouch/swim choice entirely.
         Map(PlayerAnimEvent.Reload, new GestureContext(InAirWalk: true))
@@ -77,7 +77,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void DuckAndSwimResolveOppositelyForReloadAndForAttacks()
+    public void GestureEvent_DuckAndSwim_ResolveOppositelyForReloadAndAttacks()
     {
         // **The precedence discriminator.** A ducking player who is also waist-deep exposes the one
         // difference between the two orderings: base reload picks duck FIRST
@@ -91,7 +91,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void FlinchGoesToItsOwnSlot()
+    public void GestureEvent_Flinch_GoesToItsOwnSlot()
     {
         GestureTrigger trigger = Map(PlayerAnimEvent.FlinchHead, Plain);
 
@@ -100,7 +100,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void DoubleJumpUsesTheJumpSlotAndTheLoserVariant()
+    public void GestureEvent_DoubleJump_UsesTheJumpSlotAndLoserVariant()
     {
         Map(PlayerAnimEvent.DoubleJump, Plain).Slot.ShouldBe(GestureSlot.Jump);
         Map(PlayerAnimEvent.DoubleJump, Plain).ActivityName.ShouldBe("ACT_MP_DOUBLEJUMP");
@@ -109,7 +109,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void PreFireHoldsForANormalWeaponAndAutoKillsForAMinigun()
+    public void GestureEvent_PreFire_HoldsForANormalWeaponAndAutoKillsForAMinigun()
     {
         // bAutoKillPreFire = bIsMinigun. A sniper's aim-start prefire holds until the shot; the
         // minigun's windup auto-kills so the fire loop can take over cleanly.
@@ -119,7 +119,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void PostFireAutoKills()
+    public void GestureEvent_PostFire_AutoKills()
     {
         GestureTrigger trigger = Map(PlayerAnimEvent.AttackPost, Plain);
 
@@ -128,7 +128,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void StunBeginHoldsAndStunEndAutoKills()
+    public void GestureEvent_StunBeginAndEnd_HoldThenAutoKill()
     {
         // BEGIN and MIDDLE pass bAutoKill=false explicitly; END takes the default true.
         Map(PlayerAnimEvent.StunBegin, Plain).Slot.ShouldBe(GestureSlot.Custom);
@@ -138,7 +138,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void VoiceCommandGestureCarriesItsActivityInData()
+    public void GestureEvent_AVoiceCommand_CarriesItsActivityInData()
     {
         // RestartGesture( GESTURE_SLOT_ATTACK_AND_RELOAD, (Activity)nData ) — the activity is dynamic.
         GestureTrigger trigger = Map(
@@ -150,7 +150,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void CustomGestureCarriesItsActivityInData()
+    public void GestureEvent_ACustomGesture_CarriesItsActivityInData()
     {
         GestureTrigger trigger = Map(
             PlayerAnimEvent.CustomGesture, new GestureContext(NData: 1088));
@@ -160,14 +160,14 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void GrenadeThrowUsesTheGrenadeSlot()
+    public void GestureEvent_GrenadeThrow_UsesTheGrenadeSlot()
     {
         Map(PlayerAnimEvent.AttackGrenade, Plain).Slot.ShouldBe(GestureSlot.Grenade);
         Map(PlayerAnimEvent.AttackGrenade, Plain).ActivityName.ShouldBe("ACT_MP_ATTACK_STAND_GRENADE");
     }
 
     [Test]
-    public void SuperPrimaryFireHasItsOwnActivity()
+    public void GestureEvent_SuperPrimaryFire_HasItsOwnActivity()
     {
         Map(PlayerAnimEvent.AttackPrimarySuper, Plain).ActivityName.ShouldBe("ACT_MP_ATTACK_STAND_PRIMARY_SUPER");
         Map(PlayerAnimEvent.AttackPrimarySuper, new GestureContext(InSwim: true))
@@ -175,7 +175,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void EventsThatDriveTheMainSequenceStartNoGesture()
+    public void GestureEvent_EventsDrivingTheMainSequence_StartNoGesture()
     {
         // These call RestartMainSequence / ClearAnimationState / a pose reset, never RestartGesture.
         // The main sequence is this project's PlayerActivityState, which already handles them.
@@ -190,7 +190,7 @@ public sealed class PlayerGestureEventTests
     }
 
     [Test]
-    public void EventsThatAreDeadInTheSdkStartNoGesture()
+    public void GestureEvent_EventsDeadInTheSdk_StartNoGesture()
     {
         // Grenade draw/throw have no handler; CustomGestureSequence and DoubleJumpCrouch are
         // commented out. A null here is the faithful result, not a missing implementation —

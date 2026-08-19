@@ -38,7 +38,7 @@ public sealed class HapticMessageConformanceTests
     }
 
     [Test]
-    public void TheBlockIsSixMessagesInThisOrderWithTheseSizes()
+    public void HapticMessages_TheBlock_IsSixMessagesInOrderWithTheseSizes()
     {
         string source = SourceSdk.Text(HapticMessages).ShouldNotBeNull();
 
@@ -78,7 +78,7 @@ public sealed class HapticMessageConformanceTests
     }
 
     [Test]
-    public void TheHapticsCodeIsInThePublicTreeNotTheGameTree()
+    public void HapticMessages_TheCode_IsInThePublicTreeNotTheGameTree()
     {
         // **The reason the earlier search missed it**, pinned so the correction keeps its
         // explanation. The registrations are in public/, shared by every game; TF2 additionally has

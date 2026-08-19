@@ -313,7 +313,7 @@ public sealed class ScenePropTrackTests
     }
 
     [Test]
-    public void EveryDiscreteFieldSurvivesInterpolation()
+    public void ScenePropTrack_EveryDiscreteField_SurvivesInterpolation()
     {
         // **The test that was missing, and the bug it would have caught.** At rebuilds the pose
         // field by field, and m_nBody was simply not in the list — so between two keyframes the

@@ -56,7 +56,7 @@ public sealed class SendPropEncoderTests
     [TestCase(1f, 2 + 1 + 14)]
     [TestCase(0.5f, 2 + 1 + 5)]
     [TestCase(-1.5f, 2 + 1 + 14 + 5)]
-    public void APresentPartCostsItsOwnField(float value, int expectedBits)
+    public void SendPropEncoder_APresentPart_CostsItsOwnField(float value, int expectedBits)
     {
         // The widths, pinned as literals. Zero is the case worth stating: two clear bits and no
         // sign, because a sign bit nobody reads would shift every message after this one.

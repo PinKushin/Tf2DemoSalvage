@@ -480,7 +480,7 @@ public sealed class UserMessageLayoutTests
     }
 
     [Test]
-    public void TheAlternateIsOnlyReachedWhenThePrimaryActuallyRefuses()
+    public void UserMessageLayout_TheAlternate_IsReachedOnlyWhenThePrimaryRefuses()
     {
         // The control, and the reason the fallback is safe. A one-byte body IS a valid
         // PlayerLoadoutUpdated, so the primary stands and the alternate is never consulted -

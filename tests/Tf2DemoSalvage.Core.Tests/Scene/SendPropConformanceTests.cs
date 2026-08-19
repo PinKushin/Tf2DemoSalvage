@@ -59,7 +59,7 @@ public sealed class SendPropConformanceTests
     }
 
     [Test]
-    public void MoveparentIsARealSendPropDeclaredUnderAnAlias()
+    public void SendProps_Moveparent_IsARealSendPropUnderAnAlias()
     {
         // **This test used to assert the opposite, and the opposite was false.** It read:
         //
@@ -90,7 +90,7 @@ public sealed class SendPropConformanceTests
     }
 
     [Test]
-    public void TheEyeAnglesWeReadAreSentAsAnArray()
+    public void SendProps_TheEyeAngles_AreSentAsAnArray()
     {
         // A player's view angles arrive as m_angEyeAngles with two components, which this project
         // reads as [0] and [1]. If the engine ever sent them as separate scalars the indexed form

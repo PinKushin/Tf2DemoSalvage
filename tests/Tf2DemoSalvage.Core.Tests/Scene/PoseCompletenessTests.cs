@@ -112,7 +112,7 @@ public sealed class PoseCompletenessTests
     }
 
     [Test]
-    public void TheDerivedFieldsAreFilledInByPropsAt()
+    public void PoseCompleteness_TheDerivedFields_AreFilledInByPropsAt()
     {
         // **The other half of the exclusion above, and without it that list is just new silence.**
         // Speed, move_x and move_y are excluded from the survival test because they are properties

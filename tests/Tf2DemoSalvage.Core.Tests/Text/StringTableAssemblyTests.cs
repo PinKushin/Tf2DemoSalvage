@@ -35,7 +35,7 @@ public sealed class StringTableAssemblyTests
     private const int MaxEntries = 32;
 
     [Test]
-    public void APlainTableRoundTripsItsHeaderAndEntries()
+    public void StringTableAssembly_APlainTable_RoundTripsItsHeaderAndEntries()
     {
         CreateStringTableMessage table = Create(
             "userinfo",
@@ -59,7 +59,7 @@ public sealed class StringTableAssemblyTests
     }
 
     [Test]
-    public void AnEntryKeepsItsHistoryReuseRatherThanJustItsText()
+    public void StringTableAssembly_AnEntry_KeepsItsHistoryReuseNotJustItsText()
     {
         // **The case the decoded text cannot express.** Two entries with identical text can have
         // been sent completely differently - one in full, one as "reuse 6 characters of history
@@ -91,7 +91,7 @@ public sealed class StringTableAssemblyTests
     }
 
     [Test]
-    public void UserDataSurvivesIncludingItsLength()
+    public void StringTableAssembly_UserData_SurvivesIncludingItsLength()
     {
         CreateStringTableMessage table = Create(
             "instancebaseline",
@@ -109,7 +109,7 @@ public sealed class StringTableAssemblyTests
     }
 
     [Test]
-    public void AnEntryWithNoTextIsNotAnEntryWithEmptyText()
+    public void StringTableAssembly_AnEntryWithNoText_DiffersFromEmptyText()
     {
         // A null string and a zero-length string are different on the wire - one sends no string
         // at all, the other sends a terminator. Conflating them is invisible in any assertion
@@ -124,7 +124,7 @@ public sealed class StringTableAssemblyTests
     }
 
     [Test]
-    public void AnInternationalNameSurvives()
+    public void StringTableAssembly_AnInternationalName_Survives()
     {
         // userinfo carries player names, and players are not all anglophone -
         // docs/memory/international-names-are-required.md.
@@ -135,7 +135,7 @@ public sealed class StringTableAssemblyTests
     }
 
     [Test]
-    public void ACompressedTableKeepsItsPayloadAndSaysSoInItsHeader()
+    public void StringTableAssembly_ACompressedTable_KeepsItsPayloadAndSaysSo()
     {
         // **A documented limit, asserted rather than assumed.** Reproducing a compressed payload
         // means reproducing one compressor's exact output, which no parser can promise - so the
@@ -174,7 +174,7 @@ public sealed class StringTableAssemblyTests
     }
 
     [Test]
-    public void AnUpdateRoundTripsAgainstItsTableCapacity()
+    public void StringTableAssembly_AnUpdate_RoundTripsAgainstItsTableCapacity()
     {
         (byte[] body, int bits) = StringTableCodec.WriteEntries(
             [Entry(0, "alpha"), Entry(1, "beta")], MaxEntries, fixedUserData: false, userDataSizeBits: 0);

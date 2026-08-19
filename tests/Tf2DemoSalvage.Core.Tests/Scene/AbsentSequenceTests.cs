@@ -35,7 +35,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class AbsentSequenceTests
 {
     [Test]
-    public void APoseThatWasNeverToldASequenceIsPlayingSequenceZero()
+    public void AbsentSequence_APoseNeverToldASequence_IsPlayingSequenceZero()
     {
         ScenePose pose = new();
 
@@ -43,7 +43,7 @@ public sealed class AbsentSequenceTests
     }
 
     [Test]
-    public void AnAbsentSequenceFollowedByZeroIsNotACut()
+    public void AbsentSequence_AnAbsentSequenceThenZero_IsNotACut()
     {
         // **The behaviour the sentinel changed.** Two keyframes, the first never told a sequence and
         // the second explicitly on sequence 0 — the same animation throughout, so the cycle must

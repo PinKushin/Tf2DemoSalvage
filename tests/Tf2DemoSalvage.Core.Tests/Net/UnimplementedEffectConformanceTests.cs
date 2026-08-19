@@ -34,7 +34,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void EveryTempEntityIsAOneShotEffectWithItsOwnClass()
+    public void Effects_EveryTempEntity_IsAOneShotEffectWithItsOwnClass()
     {
         // **39 effect classes, one file each**, declared as C_TE* in game/client/c_te_*.cpp. Each is
         // a one-shot the server fires and the client plays: explosions, sparks, blood, tracers,
@@ -56,7 +56,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void ABspDecalIsPlacedOnTheWorldAtAPosition()
+    public void Effects_ABspDecal_IsPlacedOnTheWorldAtAPosition()
     {
         // TE_BSPDecal (c_te.cpp:59) places a decal on world geometry at a position, naming the
         // texture by index into the decal precache string table. This project decodes the message —
@@ -73,7 +73,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void AnAnimationLayerBlendsOverTheBaseSequence()
+    public void Effects_AnAnimationLayer_BlendsOverTheBaseSequence()
     {
         // **A player is not one animation.** C_BaseAnimatingOverlay carries m_AnimOverlay, a vector
         // of C_AnimationLayer, and the client composes them over the base sequence — which is how a
@@ -94,7 +94,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void APoseParameterDrivesASequencesBlendGrid()
+    public void Effects_APoseParameter_DrivesASequencesBlendGrid()
     {
         // StudioSequences already reads paramindex, paramstart and paramend, and StudioLayout pins
         // all three — so this project knows a sequence is a GRID and which pose parameters drive it.
@@ -109,7 +109,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void FogIsControlledByAnEntityWithAStartAndEndDistance()
+    public void Effects_Fog_IsControlledByAnEntityWithStartAndEndDistance()
     {
         // c_env_fog_controller declares the fog's colour, start and end distances and density. TF2's
         // maps use it heavily and this project draws no fog at all, so distance reads flat and the
@@ -127,7 +127,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void RopesAndSpritesAreEntitiesWithTheirOwnDrawing()
+    public void Effects_RopesAndSprites_AreEntitiesWithTheirOwnDrawing()
     {
         // c_rope.cpp and c_sprite.cpp: a rope is a simulated catenary between keyframe entities and
         // a sprite is a camera-facing quad, often additive. TF2 maps use ropes for cables and
@@ -150,7 +150,7 @@ public sealed class UnimplementedEffectConformanceTests
     }
 
     [Test]
-    public void TwoServerMessagesAreNotDecodedAtAll()
+    public void Effects_TwoServerMessages_AreNotDecodedAtAll()
     {
         // The gaps in NetMessageType's numbering, from NetMessageConformanceTests: the engine
         // declares handlers for SendTable and CrosshairAngle and this project handles neither.

@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 public sealed class KillDescriptionTests
 {
     [Test]
-    public void AHeadshotIsNamedRatherThanNumbered()
+    public void KillDescription_AHeadshot_IsNamedNotNumbered()
     {
         // TF_DMG_CUSTOM_HEADSHOT = 1, pinned against the SDK by
         // UnimplementedItemConformanceTests and GameEventTypeWidthConformanceTests.
@@ -33,7 +33,7 @@ public sealed class KillDescriptionTests
     }
 
     [Test]
-    public void AnOrdinaryKillHasNoCustomDescription()
+    public void KillDescription_AnOrdinaryKill_HasNoCustomDescription()
     {
         // TF_DMG_CUSTOM_NONE. Null rather than "none" or an empty string: the caller decides how an
         // absent qualifier reads, and most kills are this.
@@ -41,7 +41,7 @@ public sealed class KillDescriptionTests
     }
 
     [Test]
-    public void AnUnnamedCustomKillIsReportedAsItsNumber()
+    public void KillDescription_AnUnnamedCustomKill_IsReportedAsItsNumber()
     {
         // The 87-value tail. Reported honestly rather than guessed at or silently dropped — a
         // reader seeing "custom 61" can look it up; a reader seeing nothing cannot know there was
@@ -50,7 +50,7 @@ public sealed class KillDescriptionTests
     }
 
     [Test]
-    public void DeathFlagsAreNamedIndividuallyAndCombine()
+    public void KillDescription_DeathFlags_AreNamedIndividuallyAndCombine()
     {
         // TF_DEATH_DOMINATION 0x0001, TF_DEATH_ASSISTER_DOMINATION 0x0002, TF_DEATH_FIRST_BLOOD
         // 0x0010, TF_DEATH_GIBBED 0x0080 — a BIT FIELD, so more than one can be set and the
@@ -64,7 +64,7 @@ public sealed class KillDescriptionTests
     }
 
     [Test]
-    public void NoFlagsDescribesNothing()
+    public void KillDescription_NoFlags_DescribesNothing()
     {
         // The common case, and zero is "no bits set" rather than a named state — the same shape as
         // TF_FLAGINFO_HOME.
@@ -72,7 +72,7 @@ public sealed class KillDescriptionTests
     }
 
     [Test]
-    public void AnUnknownFlagBitIsReportedRatherThanDropped()
+    public void KillDescription_AnUnknownFlagBit_IsReportedNotDropped()
     {
         // Bit 15 is not one of the eleven declared flags. Reporting it keeps the description
         // faithful to the data: silently dropping unknown bits would make a future TF2 update

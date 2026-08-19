@@ -60,7 +60,7 @@ public sealed class GameEventTypeWidthConformanceTests
     }
 
     [Test]
-    public void ValveDocumentsTheOrderingInTheInterfaceHeader()
+    public void GameEventTypes_TheOrdering_IsDocumentedInTheInterfaceHeader()
     {
         // The citation the enum already carried, verified rather than trusted. It was checked
         // during this batch precisely because an earlier grep of this header for "TYPE_" and "enum"
@@ -83,7 +83,7 @@ public sealed class GameEventTypeWidthConformanceTests
     }
 
     [Test]
-    public void TheShippedResourceFileDocumentsEachTypesWidthAndSign()
+    public void GameEventTypes_WidthAndSign_AreDocumentedInTheShippedResource()
     {
         // The new citation, and the one that was actually missing. Each line is asserted separately
         // so a failure names which type moved rather than reporting that a block of text changed.
@@ -112,7 +112,7 @@ public sealed class GameEventTypeWidthConformanceTests
     }
 
     [Test]
-    public void EveryNetworkedTypeFitsInTheThreeBitTag()
+    public void GameEventTypes_EveryNetworkedType_FitsTheThreeBitTag()
     {
         // The arithmetic that was the ONLY support for this before, kept because it is still what
         // rules out the rival hypothesis: CS:GO's protobuf ordering puts val_uint64 eighth and

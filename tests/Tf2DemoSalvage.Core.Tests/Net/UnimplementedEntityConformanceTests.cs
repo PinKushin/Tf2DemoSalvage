@@ -36,7 +36,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void ARagdollReplacesTheModelWhenAPlayerDies()
+    public void Entities_ARagdoll_ReplacesTheModelWhenAPlayerDies()
     {
         // ragdoll.cpp and c_ragdoll_manager.cpp. On death the client swaps the animated model for a
         // physically simulated one, carrying the last pose and the damage force as its initial
@@ -59,7 +59,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void AViewmodelIsDrawnInItsOwnSpaceWithFlippedCulling()
+    public void Entities_AViewmodel_IsDrawnInItsOwnSpaceWithFlippedCulling()
     {
         // c_baseviewmodel.cpp:375-379 — the same passage this project already cites for
         // MATERIAL_CULLMODE_CCW. A viewmodel is drawn with a separate field of view, in view space
@@ -81,7 +81,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void AParticleSystemIsAnEntityNamingAnEffectByIndex()
+    public void Entities_AParticleSystem_NamesAnEffectByIndex()
     {
         // C_ParticleSystem (c_particle_system.cpp:20) networks m_iEffectIndex — an index into the
         // particle manifest — plus a start flag and control points. So the demo says WHICH effect
@@ -103,7 +103,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void AProjectedTextureIsADynamicLightWithAFrustum()
+    public void Entities_AProjectedTexture_IsADynamicLightWithAFrustum()
     {
         // c_env_projectedtexture.cpp. A projected texture is a spotlight with a real frustum and,
         // optionally, a shadow map — TF2 uses them for flashlights and for the lamps that light
@@ -121,7 +121,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void ASoundCarriesThePositionItWasPlayedFrom()
+    public void Entities_ASound_CarriesThePositionItWasPlayedFrom()
     {
         // **The non-visual gap, and for a review tool a real one.** SoundInfo_t (soundinfo.h:72)
         // carries an origin and a direction alongside the sound index, and the engine spatialises
@@ -140,7 +140,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void AGameEventIsDecodedAndNeverShown()
+    public void Entities_AGameEvent_IsDecodedAndNeverShown()
     {
         // Game events ARE decoded here — GameEventCodec reads the list and the events, and
         // GameEventConformanceTests pins the widths. What nothing does is present them.
@@ -161,7 +161,7 @@ public sealed class UnimplementedEntityConformanceTests
     }
 
     [Test]
-    public void MaterialOverridesRecolourAnEntityWithoutChangingItsModel()
+    public void Entities_MaterialOverrides_RecolourWithoutChangingTheModel()
     {
         // An übercharged player, a disguised Spy and a burning enemy all draw with a material
         // OVERRIDE — the same model with a different material forced over it — rather than with a

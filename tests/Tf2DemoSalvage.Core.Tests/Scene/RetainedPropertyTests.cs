@@ -40,7 +40,7 @@ public sealed class RetainedPropertyTests
     private const string AnimatingTable = "DT_BaseAnimating";
 
     [Test]
-    public void TheAnimatingTableKeepsEverythingThePoseIsBuiltFrom()
+    public void RetainedProperties_TheAnimatingTable_KeepsEverythingThePoseNeeds()
     {
         // Each name here is read by ScenePose construction in DemoTimeline. The list is asserted
         // whole so that adding a field to the pose without retaining it — or retaining one and

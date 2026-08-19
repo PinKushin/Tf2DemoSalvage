@@ -26,7 +26,7 @@ public sealed class UserCommandTests
     private const int BitsWhenEmpty = 13;
 
     [Test]
-    public void AnAllZeroPayloadMeansCommandOneNotCommandZero()
+    public void UserCommand_AnAllZeroPayload_MeansCommandOneNotZero()
     {
         // Thirteen zero presence bits, which is the smallest legal command and the one the engine
         // writes constantly. Two bytes, because bf_write pads to a byte boundary.
@@ -50,7 +50,7 @@ public sealed class UserCommandTests
     }
 
     [Test]
-    public void EveryFieldIsReadInValvesOrderAtValvesWidth()
+    public void UserCommand_EveryField_IsReadInValvesOrderAndWidth()
     {
         // One decisive fixture with every presence bit set, each field carrying a value that
         // could not be produced by reading a neighbouring field: any transposed pair, or any
@@ -93,7 +93,7 @@ public sealed class UserCommandTests
     }
 
     [Test]
-    public void TheWeaponSubtypeBitExistsOnlyInsideTheWeaponSelectBranch()
+    public void UserCommand_TheWeaponSubtypeBit_ExistsOnlyInsideWeaponSelect()
     {
         // The one nested field, and the only place in the layout where a presence bit is
         // conditional. A decoder that reads the subtype bit unconditionally consumes one bit too
@@ -135,7 +135,7 @@ public sealed class UserCommandTests
     }
 
     [Test]
-    public void APayloadThatDoesNotEndWhereTheFieldsDoIsRejected()
+    public void UserCommand_APayloadEndingElsewhere_IsRejected()
     {
         // The stated length is the only check available: the command carries no count, no
         // terminator and no checksum, so a misread width shows up as leftover bytes or as running
@@ -148,7 +148,7 @@ public sealed class UserCommandTests
     }
 
     [Test]
-    public void ACommandSurvivesReEncoding()
+    public void UserCommand_ACommand_SurvivesReEncoding()
     {
         // Byte-exact, not field-exact. The presence bits are recoverable from the values because
         // the baseline is a constant, so unlike svc_sounds this record does not have to carry the
@@ -177,7 +177,7 @@ public sealed class UserCommandTests
     }
 
     [Test]
-    public void ATickCountOfOneIsIndistinguishableFromAnAbsentOneOnTheWire()
+    public void UserCommand_ATickCountOfOne_IsIndistinguishableFromAbsent()
     {
         // Not a defect, and worth pinning: the writer's condition is value-based, so the encoder
         // must clear the bit for exactly the value the steady-increment rule would produce. A
@@ -192,7 +192,7 @@ public sealed class UserCommandTests
     }
 
     [Test]
-    public void TheBitsAfterTheLastFieldAreCarriedRatherThanZeroed()
+    public void UserCommand_TheBitsAfterTheLastField_AreCarriedNotZeroed()
     {
         // The regression fixture for the finding this test file was written to catch. The engine
         // writes user commands into an uninitialised stack buffer, and bf_write's tail is a

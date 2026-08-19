@@ -102,7 +102,7 @@ public sealed class NetMessageConformanceTests
     }
 
     [Test]
-    public void TheGapsInOurNumberingAreMessagesTheEngineDeclares()
+    public void NetMessageNumbering_TheGaps_AreMessagesTheEngineDeclares()
     {
         // **The assertion the old comment would have failed.** If the missing ids were genuinely
         // unused, nothing would fill them. The engine declares SendTable and CrosshairAngle and this
@@ -129,7 +129,7 @@ public sealed class NetMessageConformanceTests
     }
 
     [Test]
-    public void TheNumberingHasTheGapsWeThinkItHas()
+    public void NetMessageNumbering_TheGaps_AreWhereWeThinkTheyAre()
     {
         // Stated as a fact about the enum rather than a prose claim, because the prose version of
         // this was the thing that was wrong. B3's demo carries id 1; the rest are unimplemented
@@ -138,7 +138,7 @@ public sealed class NetMessageConformanceTests
     }
 
     [Test]
-    public void TheHandlerListWasActuallyRead()
+    public void NetMessageNumbering_TheHandlerList_WasActuallyRead()
     {
         // The control. Every assertion above passes trivially against an empty set.
         Declared().Count.ShouldBeGreaterThan(25, $"no handlers were extracted from {Handlers}");

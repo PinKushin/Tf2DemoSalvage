@@ -37,7 +37,7 @@ public sealed class MessageAssemblyTests
     private const ushort Protocol = 24;
 
     [Test]
-    public void NetNopRendersItsKeywordAndComesBack()
+    public void MessageAssembly_NetNop_RendersItsKeywordAndComesBack()
     {
         // The keyword is pinned because Assemble dispatches on it: a message rendered under the
         // wrong name still round-trips if the parser is wrong the same way.
@@ -47,7 +47,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void NetTickCarriesItsRawCountersRatherThanSeconds()
+    public void MessageAssembly_NetTick_CarriesRawCountersNotSeconds()
     {
         // "The fields are wire values, not display values" - seconds are a division, and a
         // division does not compile back to the same bits.
@@ -65,7 +65,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void APrintedStringSurvivesSpacesQuotesAndBackslashes()
+    public void MessageAssembly_APrintedString_SurvivesSpacesQuotesAndBackslashes()
     {
         // **The case the corpus cannot supply.** Every string in the text form is quoted, so a
         // quote or a backslash inside one has to be escaped and unescaped exactly. Real demos
@@ -78,7 +78,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void AStringCarryingACarriageReturnSurvivesTheTextForm()
+    public void MessageAssembly_AStringWithACarriageReturn_SurvivesTheTextForm()
     {
         // **Player index 13 broke the round trip, and this is not a contrived case.** TF2's
         // `teamplay_point_captured` carries its `cappers` field as a string of raw player-index
@@ -98,7 +98,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void ANewlineAndACarriageReturnAreNotConfusedForEachOther()
+    public void MessageAssembly_ANewlineAndACarriageReturn_AreNotConfused()
     {
         // **The control on the fix.** Escaping `\r` by mapping it onto the same escape as `\n`
         // would satisfy the test above and silently corrupt every string containing either — the
@@ -115,7 +115,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void AnEmptyStringIsNotTheSameAsAMissingOne()
+    public void MessageAssembly_AnEmptyString_DiffersFromAMissingOne()
     {
         // An empty quoted string is a real value and a token the tokenizer has to keep. Dropping
         // it shifts every later token, so this fails loudly rather than subtly if it regresses.
@@ -124,7 +124,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void AStringCommandSurvivesNonAsciiCharacters()
+    public void MessageAssembly_AStringCommand_SurvivesNonAscii()
     {
         const string International = "name \"Ω_переменная_名前\"";
 
@@ -133,7 +133,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void ConVarPairsKeepTheirOrderAndValues()
+    public void MessageAssembly_ConVarPairs_KeepTheirOrderAndValues()
     {
         // **A LIST of pairs, not a dictionary, and the test is written to that shape on purpose.**
         // The wire carries an ordered sequence and the decode preserves it, so order is part of
@@ -155,7 +155,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void ASingleConVarStillCarriesItsCount()
+    public void MessageAssembly_ASingleConVar_StillCarriesItsCount()
     {
         SetConVarMessage read = TextRoundTrip(
             new SetConVarMessage([new KeyValuePair<string, string>("sv_gravity", "800")]))
@@ -167,7 +167,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void SignOnStateRendersBothFieldsInOrder()
+    public void MessageAssembly_SignOnState_RendersBothFieldsInOrder()
     {
         MessageAssembly.Write(new SignOnStateMessage(6, 12345), Protocol, null)![0]
             .ShouldBe("net_signonstate 6 12345");
@@ -180,7 +180,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void SetViewAndPrefetchRoundTripAtTheirWidestValues()
+    public void MessageAssembly_SetViewAndPrefetch_RoundTripAtTheirWidestValues()
     {
         TextRoundTrip(new SetViewMessage(2047)).ShouldBeOfType<SetViewMessage>()
             .EntityIndex.ShouldBe(2047);
@@ -190,7 +190,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void FixAngleRoundTripsThroughTextIncludingItsFlag()
+    public void MessageAssembly_FixAngle_RoundTripsThroughTextWithItsFlag()
     {
         const float AngleStep = 360f / 65536f;
 
@@ -208,7 +208,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void AFileNameWithSpacesSurvivesTheTextForm()
+    public void MessageAssembly_AFileNameWithSpaces_SurvivesTheTextForm()
     {
         // A path with a space is the ordinary case that breaks a whitespace tokenizer, and map
         // and download paths genuinely contain them.
@@ -221,7 +221,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void GetCvarValueRoundTripsItsCookieAtFullWidth()
+    public void MessageAssembly_GetCvarValue_RoundTripsItsCookieAtFullWidth()
     {
         // A 32-bit cookie with the top bit set: a signed/unsigned slip survives small values.
         GetCvarValueMessage read = TextRoundTrip(new GetCvarValueMessage(0xDEADBEEF, "sv_cheats"))
@@ -232,7 +232,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void RawBitsGoBackExactlyIncludingThePartialTrailingByte()
+    public void MessageAssembly_RawBits_GoBackExactlyIncludingThePartialByte()
     {
         // `raw` is the fallback every un-promoted message uses, so it carries most of a demo
         // before the text forms exist. The bit count is what makes it exact: 12 bits is a byte
@@ -251,7 +251,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void CanWriteAgreesWithWhatWriteActuallyProduces()
+    public void MessageAssembly_CanWrite_AgreesWithWhatWriteProduces()
     {
         // The two are separate switches over the same type list, which is exactly the shape that
         // drifts. A message CanWrite claims but Write returns null for would silently fall back to
@@ -279,7 +279,7 @@ public sealed class MessageAssemblyTests
 
     /// <summary>Renders a message to text, assembles it back to bits, and decodes it.</summary>
     [Test]
-    public void VoiceDataWithAnEmptyBodySurvivesTheTextForm()
+    public void MessageAssembly_VoiceDataWithAnEmptyBody_SurvivesTheTextForm()
     {
         // **A real crash, found by round-tripping a WHOLE demo rather than a prefix.** The writer
         // emits `svc_voicedata {client} {proximity} {bodyBits} {hex}`, and an empty body makes
@@ -302,7 +302,7 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
-    public void VoiceDataWithABodyStillSurvivesTheTextForm()
+    public void MessageAssembly_VoiceDataWithABody_SurvivesTheTextForm()
     {
         // **The control.** A fix that returned an empty body unconditionally would satisfy the test
         // above and silently drop every real voice packet — which is the failure this project keeps

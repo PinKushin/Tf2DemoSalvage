@@ -46,7 +46,7 @@ public sealed class LocalTableConformanceTests
     }
 
     [Test]
-    public void DisguiseIntentIsLocalAndDisguiseStateIsShared()
+    public void LocalTables_DisguiseIntentAndState_AreLocalAndSharedRespectively()
     {
         // tf_player_shared.cpp:334 opens DT_TFPlayerSharedLocal, holding m_nDesiredDisguiseTeam and
         // m_nDesiredDisguiseClass. The shared table at 400-401 holds m_nDisguiseTeam and
@@ -71,7 +71,7 @@ public sealed class LocalTableConformanceTests
     }
 
     [Test]
-    public void StealthTimersAreLocalSoAnStvDemoNeverCarriesThem()
+    public void LocalTables_StealthTimers_AreLocalSoAnStvDemoLacksThem()
     {
         // m_flStealthNoAttackExpire and m_flStealthNextChangeTime, both in DT_TFPlayerSharedLocal.
         //
@@ -92,7 +92,7 @@ public sealed class LocalTableConformanceTests
     }
 
     [Test]
-    public void FlagStatusIsABitFieldWhoseHomeStateIsNoBitsSet()
+    public void LocalTables_FlagStatus_IsABitFieldWhoseHomeStateIsZero()
     {
         // tf_shareddefs.h:874 onward:
         //
@@ -126,7 +126,7 @@ public sealed class LocalTableConformanceTests
     }
 
     [Test]
-    public void TheFlagTypeDistinguishesGameModesThatShareOneEntity()
+    public void LocalTables_TheFlagType_DistinguishesGameModesSharingOneEntity()
     {
         // TF_FLAGTYPE_CTF = 0, then ATTACK_DEFEND, TERRITORY_CONTROL, INVADE, RESOURCE_CONTROL,
         // ROBOT_DESTRUCTION, PLAYER_DESTRUCTION — one entity class serving seven game modes.

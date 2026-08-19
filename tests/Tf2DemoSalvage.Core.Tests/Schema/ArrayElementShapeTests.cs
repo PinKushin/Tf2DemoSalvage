@@ -74,7 +74,7 @@ public sealed class ArrayElementShapeTests
     }
 
     [Test]
-    public void EachElementsShapeSurvivesTheRoundTrip()
+    public void ArrayElements_EachElementsShape_SurvivesTheRoundTrip()
     {
         // Shapes deliberately differ between elements. Equal shapes would make a decoder that
         // returns one shape for the whole array indistinguishable from a correct one - the same
@@ -93,13 +93,13 @@ public sealed class ArrayElementShapeTests
     }
 
     [Test]
-    public void AnArrayReEncodesToTheExactBytesItDecodedFrom()
+    public void ArrayElements_AnArray_ReEncodesToTheExactBytesItDecodedFrom()
     {
         // **This checks decode/encode SYMMETRY, not encoder correctness, and the difference is
         // worth stating because it is easy to overclaim.** The body here is produced by our own
         // encoder, so an error applied uniformly appears in both the original and the re-encode
         // and they match anyway. Sabotaging the encoder to use element 0's shape for every
-        // element leaves this test green; only EachElementsShapeSurvivesTheRoundTrip notices.
+        // element leaves this test green; only ArrayElements_EachElementsShape_SurvivesTheRoundTrip notices.
         //
         // What it does catch is the two halves drifting apart - a decoder that stops recording
         // shapes, or an encoder that stops honouring them, which is exactly how B27 arose. For

@@ -34,7 +34,7 @@ public sealed class BitPrimitiveDifferentialTests
     private const int AngleBits = 16;
 
     [Test]
-    public void TheAngleReaderAgreesWithValve()
+    public void BitPrimitives_TheAngleReader_AgreesWithValve()
     {
         Random random = new(20260816);
         byte[] bits = new byte[8];
@@ -55,7 +55,7 @@ public sealed class BitPrimitiveDifferentialTests
     }
 
     [Test]
-    public void TheNormalReaderAgreesWithValve()
+    public void BitPrimitives_TheNormalReader_AgreesWithValve()
     {
         Random random = new(20260816);
         byte[] bits = new byte[8];
@@ -79,7 +79,7 @@ public sealed class BitPrimitiveDifferentialTests
     }
 
     [Test]
-    public void TheVariableWidthIntegerAgreesWithValve()
+    public void BitPrimitives_TheVariableWidthInteger_AgreesWithValve()
     {
         Random random = new(20260816);
         byte[] bits = new byte[8];
@@ -104,7 +104,7 @@ public sealed class BitPrimitiveDifferentialTests
     }
 
     [Test]
-    public void TheNarrowestEncodingConsumesSixBitsAndTheWidestThirtyFour()
+    public void BitPrimitives_TheEncodingWidths_AreSixAndThirtyFourBits()
     {
         // **The rewind, stated as bit counts.** Valve reads six then seeks back four, so the widest
         // encoding costs two selector bits plus thirty-two, not six plus thirty-two. A reader that
