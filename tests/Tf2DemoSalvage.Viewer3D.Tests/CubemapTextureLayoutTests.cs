@@ -133,7 +133,67 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void TheBakedCubemapsAreHalfFloatAndNothingHereCanDecodeThat()
+    public void BothAnLdrAndAnHdrCubemapAreBakedForEveryPlacement()
+    {
+        // **The question that decides how much work the reflection is**, and it is worth asking
+        // before writing a half-float decoder rather than after.
+        //
+        // vbsp bakes `c<x>_<y>_<z>.vtf` and `c<x>_<y>_<z>.hdr.vtf`, and the engine samples whichever
+        // matches the mode it is running in. This project draws LDR — the reference captures are
+        // configured that way deliberately (24-reference-capture.md) — so if the plain file is
+        // present it is the correct one to read AND it is an ordinary 8-bit format this project
+        // already decodes.
+        byte[] map = MapBytes();
+        PakFile pak = PakFile.ReadFrom(map);
+
+        int ldr = 0;
+        int hdr = 0;
+
+        foreach (BspCubemap cubemap in BspCubemaps.Read(map))
+        {
+            string name = BspCubemaps.TextureName(MapName, cubemap);
+
+            if (pak.Contains($"materials/{name}.vtf"))
+            {
+                ldr++;
+            }
+
+            if (pak.Contains($"materials/{name}.hdr.vtf"))
+            {
+                hdr++;
+            }
+        }
+
+        TestContext.Out.WriteLine($"{ldr} LDR cubemaps, {hdr} HDR cubemaps");
+
+        ldr.ShouldBeGreaterThan(0, "an LDR cubemap is what a non-HDR renderer samples");
+    }
+
+    [Test]
+    public void TheLdrCubemapsAreInAFormatThisProjectAlreadyDecodes()
+    {
+        // The payoff from asking the question above: the LDR bake is an ordinary compressed format,
+        // so the reflection needs no new pixel decoder at all — only face iteration.
+        //
+        // Named formats rather than "not 24", because "some 8-bit format" is not a decodable claim
+        // and the assertion has to fail if a map turns up in something unsupported.
+        List<Header> ldr = AllCubemaps(preferHdr: false);
+
+        TestContext.Out.WriteLine(
+            "LDR formats: " + string.Join(", ", ldr.Select(header => header.Format).Distinct()));
+
+        TestContext.Out.WriteLine($"first LDR: {ldr[0]}");
+
+        foreach (Header header in ldr)
+        {
+            header.Format.ShouldBeOneOf(
+                [13, 14, 15, 12, 2, 3],
+                $"{header.Name} is format {header.Format}, which VtfTexture does not decode");
+        }
+    }
+
+    [Test]
+    public void TheHdrCubemapsAreHalfFloatAndNothingHereCanDecodeThat()
     {
         // **A prerequisite, measured rather than assumed.** Every baked cubemap on this map is
         // ImageFormat 24, RGBA16161616F — four half-floats per texel, eight bytes. That is the HDR
@@ -236,7 +296,7 @@ public sealed class CubemapTextureLayoutTests
     }
 
     /// <summary>Every baked cubemap's header, read straight from the pakfile.</summary>
-    private static List<Header> AllCubemaps()
+    private static List<Header> AllCubemaps(bool preferHdr = true)
     {
         byte[] map = MapBytes();
         PakFile pak = PakFile.ReadFrom(map);
@@ -247,9 +307,11 @@ public sealed class CubemapTextureLayoutTests
         {
             string name = BspCubemaps.TextureName(MapName, cubemap);
 
-            // HDR first: a modern map bakes both, and the HDR one is what the game samples.
-            byte[]? bytes =
-                pak.ReadFile($"materials/{name}.hdr.vtf") ?? pak.ReadFile($"materials/{name}.vtf");
+            // A modern map bakes BOTH, and the engine samples whichever matches the mode it runs
+            // in. Which one this reads is therefore a choice, not a fallback chain.
+            byte[]? bytes = preferHdr
+                ? pak.ReadFile($"materials/{name}.hdr.vtf") ?? pak.ReadFile($"materials/{name}.vtf")
+                : pak.ReadFile($"materials/{name}.vtf") ?? pak.ReadFile($"materials/{name}.hdr.vtf");
 
             if (bytes is { Length: >= 64 } && Parse(name, bytes) is { } header)
             {
