@@ -72,13 +72,39 @@ public sealed class UnimplementedFeatureConformanceTests
     [Test]
     public void VertexColourTintsTheBaseTextureByTheBakedPerVertexColour()
     {
-        // **66 materials, and the failure is a flat-looking surface rather than an obviously wrong
-        // one**, which is why it went unnoticed longer than $envmap did.
+        // **66 materials, and it is not clear that any work is owed.** This was written as a plain
+        // gap; measuring it turned it into an open question, and the question is worth more than
+        // the guess it replaced.
         //
-        // $vertexcolor tells the shader to multiply the base texture by the per-vertex colour vbsp
-        // baked; $vertexalpha does the same for the alpha channel. Both are declared on the material
-        // and consumed by the vertex format, so an implementation has to change what is UPLOADED as
-        // well as what is drawn — a shader-only change silently does nothing.
+        // **The gate is in the VERTEX shader, not the pixel shader**
+        // (lightmappedgeneric_vs20.fxc:213):
+        //
+        //     if (!g_bVertexColor)
+        //         o.vertexColor = float4( 1.0f, 1.0f, 1.0f, cModulationColor.a );
+        //     else
+        //         o.vertexColor = v.vColor;
+        //
+        // and the pixel shader then applies it unconditionally — `albedo.xyz *= i.vertexColor` at
+        // lightmappedgeneric_ps2_3_x.h:427. So the flag chooses the VALUE, and a material without
+        // it is multiplied by white rather than skipping a multiply.
+        //
+        // This renderer multiplies by its own per-vertex colour with no gate at all. For a brush
+        // face that channel holds white, so the two agree today for every material that does NOT
+        // declare the flag — which is the great majority.
+        //
+        // **What is undecided is where `v.vColor` comes from for the ones that do.** Measured on
+        // cp_process_final: 64 LightmappedGeneric and 2 UnLitGeneric materials declare it, always
+        // paired with $vertexalpha, and they are overlays, decals, signs and stains —
+        // `overlays/stain016`, `signs/factory_label02`, `OVERLAYS/DUST_GRADIENT01`. The BSP gives
+        // no colour for those: `doverlay_t` (bspfile.h:1007) carries an id, a texinfo, faces and
+        // texture coordinates, and no colour at all.
+        //
+        // So either the engine's world mesh builder supplies one — and that is engine code the SDK
+        // does not ship — or these declarations are inert, which would make this $modblend again:
+        // declared in shipped VMTs, read by nothing, correct implementation nothing.
+        //
+        // **Not guessed either way.** The assertion below is the part that is settled: the pairing,
+        // and that the absent case is white rather than skipped.
         RequireImplemented("$vertexcolor", "no entry yet");
 
         VmtMaterial material = Parse(
@@ -93,6 +119,21 @@ public sealed class UnimplementedFeatureConformanceTests
 
         material.Value("$vertexcolor").ShouldBe("1");
         material.Value("$vertexalpha").ShouldBe("1");
+
+        // **$vertexalpha is already half-consumed, which is the trap in the census number.** It
+        // makes a material translucent — VmtMaterial.IsTranslucent reads it — so it is implemented
+        // for the sorting decision and unimplemented for the colour. That is the same shape as
+        // $alpha before the modulation work, and it is why "66 materials want this" does not
+        // translate into 66 materials drawn wrongly.
+        material.IsTranslucent.ShouldBeTrue("$vertexalpha alone makes a material blend");
+
+        Parse("""
+            "LightmappedGeneric"
+            {
+                "$basetexture" "wood/planks"
+            }
+            """)
+            .IsTranslucent.ShouldBeFalse("and a material declaring neither must stay opaque");
     }
 
     [Test]
@@ -212,6 +253,15 @@ public sealed class UnimplementedFeatureConformanceTests
     /// </remarks>
     private static void RequireImplemented(string parameter, string entry)
     {
+        // TF2DEMOSALVAGE_CHECK_SPEC=1 runs the assertions anyway, to check the SPECIFICATION rather
+        // than the code — see EnvmapConformanceTests, where the reasoning is written out. A
+        // conformance test that only ever skips is unverified prose, and a wrong citation in one
+        // surfaces months later as a failure blamed on whoever implemented the feature.
+        if (Environment.GetEnvironmentVariable("TF2DEMOSALVAGE_CHECK_SPEC") is "1")
+        {
+            return;
+        }
+
         bool implemented = MaterialCensus.ImplementedParameters
             .Contains(parameter, StringComparer.OrdinalIgnoreCase);
 

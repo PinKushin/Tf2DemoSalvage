@@ -49,6 +49,7 @@ it, because a second copy is a copy that goes stale.
 | [25-gesture-layer.md](25-gesture-layer.md) | How a demo says a player fired: a temp-entity trigger, and the enum ordinal that turned out to be append-only across every era |
 | [26-material-modulation.md](26-material-modulation.md) | `$color` and `$alpha`: a correct citation that produced a wrong implementation, and a coverage instrument that accused the code twice in the same shape |
 | [27-cubemap-placement.md](27-cubemap-placement.md) | A struct three bytes bigger than its declaration, and ten synthetic tests that could not catch it because the fixture was built from the same belief |
+| [28-vertex-colour.md](28-vertex-colour.md) | A census's largest remaining entry that turned into an open question when measured, and the half of it that was already implemented |
 
 ## Which of this is original
 
