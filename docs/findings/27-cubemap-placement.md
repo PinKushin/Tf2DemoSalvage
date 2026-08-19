@@ -204,9 +204,70 @@ written down.
 reverting the fix rather than assumed — the surrounding comment says 208 of 211, and it would have
 been easy and wrong to claim the improvement.
 
+## The baked texture, measured because the loader is not published
+
+`src/vtf/` is not in the SDK, so the question that decides the whole read — how many faces are on
+disk — cannot be answered by reading Valve's loader. The header states an answer:
+
+```cpp
+enum CubeMapFaceIndex_t
+{
+    CUBEMAP_FACE_RIGHT = 0, LEFT, BACK, FRONT, UP, DOWN,
+    CUBEMAP_FACE_SPHEREMAP,          // This is the fallback for low-end
+    // NOTE: Cubemaps have *7* faces; the 7th is the fallback spheremap
+    CUBEMAP_FACE_COUNT
+};
+```
+
+Seven — but that comment is old, the spheremap fallback served hardware that has not shipped in
+twenty years, and a header comment is not a statement about what a 2026 TF2 map contains. So the
+arithmetic settles it, and it is exact:
+
+```
+32x32 format 24 mips 6 frames 1 flags 0x0000600c header 96 file 76536
+76440 image bytes / 10920 per face = 7.000 faces
+```
+
+`10920 = 8 × (32² + 16² + 8² + 4² + 2² + 1²)`. **Seven, on all 43 cubemaps.** Six would leave a
+remainder, so this is a division that cannot come out right for both answers — which is the whole
+reason it is worth writing as a test rather than as a note.
+
+Three things fell out of the same measurement.
+
+**The VTF is 32×32 and the lump said `size` 0.** A third independent recording of one number: the
+placement's escape value resolves to `DEFAULT_CUBEMAP_SIZE` 32, and the texture baked from that
+placement declares 32 in its own header. Every one of the 43 records carries 0, so an implementation
+passing it through `1 << (size - 1)` claims 1,073,741,824 while the file plainly says 32.
+
+**Every baked cubemap is ImageFormat 24, `RGBA16161616F`** — four half-floats per texel, eight bytes.
+That is the HDR pipeline, and it has to be: a reflection carries values above one, which an 8-bit
+format cannot hold. This is the same reason `$color` is unclamped while `$alpha` is not
+([26](26-material-modulation.md)).
+
+**So half-float decode is a hard prerequisite, and it is not implemented.** `VtfTexture` throws
+*"VTF pixel format 24 is not supported"*. No amount of shader work reaches a picture until that
+lands — which is worth knowing before writing the shader rather than after, and is the kind of thing
+that is cheap to measure and expensive to discover. There is an assertion holding that fact, so the
+day it changes the test says so.
+
+Valve's own axis note is filed for whoever wires the sampler up, because it inverts the obvious
+mapping onto D3D's `+X −X +Y −Y +Z −Z`:
+
+```cpp
+CUBEMAP_FACE_BACK,	// NOTE: This face is in the +y direction?!?!?
+CUBEMAP_FACE_FRONT,	// NOTE: This face is in the -y direction!?!?
+```
+
+The punctuation is Valve's. Not resolved here; recorded so it is not rediscovered.
+
 ## Still open
 
-Reading the lump is one of three parts. Nothing yet assigns a cubemap to a surface — Source picks
-the nearest by position, and the patch VMTs in the pakfile already record which material got which
-one — and nothing samples it. `EnvmapConformanceTests` specifies the shading half, and six of its
-eight assertions are still skipped pending that. B55.
+The lump is read and the assignment turns out to be free. What remains is the picture:
+
+1. **Half-float VTF decode** (`RGBA16161616F`), which everything else waits on.
+2. **Seven faces to six**, discarding the spheremap, with Valve's `+y`/`−y` note above resolved
+   against D3D's face order.
+3. **The shading**, specified by `EnvmapConformanceTests` — six of its eight assertions still
+   skipped.
+
+B55.
