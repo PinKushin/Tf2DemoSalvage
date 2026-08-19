@@ -134,14 +134,29 @@ internal static class MaterialProxies
     /// static here, which is why the owner saw no brightness change at all.
     ///
     /// Valve's <c>CSineProxy</c> is the same shape as the scroll: a function of <c>curtime</c>
-    /// mapped onto a range. A period of zero would divide by zero, so it is treated as "no
-    /// oscillation" and answers the maximum — the value a material sits at when nothing drives it.
+    /// mapped onto a range.
+    ///
+    /// **A period of zero becomes a period of ONE, and this used to hold at the maximum instead.**
+    /// <c>mathproxy.cpp:408</c> is one line and unambiguous:
+    ///
+    /// <code>
+    /// if (flSinePeriod == 0)
+    ///     flSinePeriod = 1;
+    /// </code>
+    ///
+    /// The old reasoning — "a material naming no period is not asking to oscillate, and must not
+    /// divide by zero" — is sound engineering and is not what the engine does. It had a passing
+    /// test, written alongside the implementation, so the two agreed with each other rather than
+    /// with Valve. Caught by <c>MaterialProxyConformanceTests</c>, which reads the source instead.
+    ///
+    /// A NEGATIVE period is left alone, as the engine leaves it: the guard is <c>== 0</c>, and a
+    /// negative period simply runs the phase backwards.
     /// </remarks>
     public static float Sine(double seconds, float period, float minimum, float maximum)
     {
-        if (period <= 0f)
+        if (period == 0f)
         {
-            return maximum;
+            period = 1f;
         }
 
         // Half the span either side of the midpoint, which is what a sine between two bounds is.

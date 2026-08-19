@@ -113,14 +113,26 @@ public sealed class MaterialProxyTests
     }
 
     [Test]
-    public void ASineWithNoPeriod_HoldsStillRatherThanDividingByZero()
+    public void ASineWithNoPeriod_RunsAtOneSecondAsTheEngineDoes()
     {
-        // A material naming no period is not asking for an oscillation, and it must not produce a
-        // NaN that silently blanks the surface it paints.
-        float value = MaterialProxies.Sine(3d, period: 0f, minimum: 0.2f, maximum: 0.9f);
+        // **This test asserted the opposite and was wrong.** It said a period of zero holds at the
+        // maximum, reasoning that a material naming no period is not asking to oscillate and must
+        // not divide by zero. Sound engineering; not what Valve does. mathproxy.cpp:408:
+        //
+        //     if (flSinePeriod == 0)
+        //         flSinePeriod = 1;
+        //
+        // The implementation and this test were written together, so they agreed with each other
+        // rather than with the engine — the exact failure mode this project keeps finding. Caught
+        // by MaterialProxyConformanceTests, which reads the source rather than the code.
+        //
+        // Three quarters of the way through a one-second period a sine is at its MINIMUM, which is
+        // the far end from what the old behaviour returned. A time where the two agree would not
+        // have caught anything.
+        float value = MaterialProxies.Sine(0.75d, period: 0f, minimum: 0.2f, maximum: 0.9f);
 
-        value.ShouldBe(0.9f);
-        float.IsFinite(value).ShouldBeTrue();
+        value.ShouldBe(0.2f, 0.0001f);
+        float.IsFinite(value).ShouldBeTrue("and it still must not divide by zero");
     }
 
     [Test]
