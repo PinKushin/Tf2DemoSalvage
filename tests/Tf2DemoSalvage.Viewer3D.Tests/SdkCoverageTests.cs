@@ -95,6 +95,45 @@ public sealed class SdkCoverageTests
     }
 
     [Test]
+    public void TheStandardMaterialVarsAreActuallyFound()
+    {
+        // **The positive control for the axis added beside it.** A scrape that finds nothing makes
+        // EveryMaterialParameterWeClaim pass more easily, not less — an empty denominator can only
+        // shrink the set of accusations, so a broken regex there looks exactly like a clean result.
+        //
+        // Five absence claims in this project have turned out to be facts about the search rather
+        // than about the thing searched for, which is why an axis is not trusted until something
+        // asserts it found what it must.
+        if (SdkInventory.Root is null)
+        {
+            Assert.Ignore("source-sdk-2013 is not available; set SOURCE_SDK to run this.");
+            return;
+        }
+
+        IReadOnlyCollection<string> standard = SdkInventory.StandardMaterialVars();
+
+        TestContext.Out.WriteLine(
+            $"{standard.Count} standard material vars: {string.Join(", ", standard.Order())}");
+
+        // The three this project reads, named individually. A count alone would pass on any
+        // thirteen identifiers the regex happened to catch elsewhere in the header.
+        standard.ShouldContain("COLOR");
+        standard.ShouldContain("COLOR2");
+        standard.ShouldContain("ALPHA");
+
+        // **The negative half, and it matters as much.** The lookbehind is what keeps the match
+        // inside the enum; without it the same regex sweeps the whole header and picks up members
+        // of BlendType_t, which sits directly below it. BT_NONE appearing here would mean the
+        // denominator had quietly become "every capitalised identifier in the file", which would
+        // never accuse anything of anything again.
+        standard.ShouldNotContain("BT_NONE");
+        standard.ShouldNotContain("BT_BLEND");
+
+        standard.Count.ShouldBeGreaterThan(
+            8, "ShaderMaterialVars_t declares thirteen members before its count");
+    }
+
+    [Test]
     public void EveryMaterialParameterWeClaim_IsOneTheEngineDeclares()
     {
         // **The claim checked in the other direction.** A parameter in our implemented set that the
@@ -107,13 +146,21 @@ public sealed class SdkCoverageTests
             return;
         }
 
-        // **Both axes, because the engine splits them.** A shader parameter is what a shader reads;
-        // a material flag is set on the material itself and lives in imaterial.h at line 355.
-        // Checking against parameters alone reported eight of ours as undeclared, and every one was
-        // a flag — the inventory had the wrong model of the engine, not the code.
+        // **All three axes, because the engine splits them three ways.** A shader parameter is what
+        // a shader reads; a material flag is a bit set on the material itself and lives in
+        // imaterial.h at line 355; a STANDARD var belongs to every shader at once and is declared
+        // in shaderlib/BaseShader.h:32.
+        //
+        // The same mistake has now been made twice with this list, in the same shape both times.
+        // Checking against parameters alone reported eight of ours as undeclared and every one was
+        // a flag. Adding flags left $color, $color2 and $alpha reported the same way, and every one
+        // of those is a standard var. On neither occasion was the code wrong — the inventory had
+        // the wrong model of the engine, and said so with an assertion that reads like a finding
+        // about our code. Worth remembering before believing this test's next accusation.
         HashSet<string> declared = new(
             SdkInventory.ShaderParameters()
                 .Concat(SdkInventory.MaterialFlags())
+                .Concat(SdkInventory.StandardMaterialVars())
                 .Select(name => name.Replace("_", string.Empty, StringComparison.Ordinal)),
             StringComparer.OrdinalIgnoreCase);
 

@@ -558,8 +558,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // colour belongs on the multiply — it is what $color and $alpha drive, and what a Sine
             // proxy pulses.
             float4 albedo = combine.x > 0.5f
-                ? first * second * modulation
+                ? first * second
                 : lerp(first, second, saturate(input.a));
+
+            // **Every material, not only the two-texture ones.** The multiply above used to carry
+            // `* modulation` inside its branch, which meant $color and $alpha reached exactly the
+            // materials drawn by UnLitTwoTexture and no others — so a tinted haze or a coloured
+            // glow on any ordinary shader was decoded, uploaded, and then multiplied by nothing.
+            //
+            // g_DiffuseModulation is not a two-texture idea. LightmappedGeneric, VertexLitGeneric
+            // and UnlitGeneric all fold it into albedo the same way, which is why it is applied
+            // here, once, after whichever combine produced the colour. Alpha goes with it: the
+            // alpha test below reads albedo.a, and in the engine the test sees the shader's OUTPUT
+            // alpha, modulation included.
+            albedo *= modulation;
 
             // **The detail goes in before the lighting, as Valve's shader does it.** It modifies
             // the albedo - the surface's own colour - and the lightmap then multiplies the result.
@@ -1344,6 +1356,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // shade and reading as a silhouette.
             float wrapsLight = surface is { IsHalfLambert: true } ? 1f : 0f;
 
+            // **The material's own $color and $alpha, which is the rest value of the same slot a
+            // proxy animates.** White and opaque for a material naming neither, which is the great
+            // majority — so this changes nothing for them and is the whole effect for a tinted
+            // haze or a coloured glow.
+            (float Red, float Green, float Blue, float Alpha) tint =
+                surface?.Modulation ?? (1f, 1f, 1f, 1f);
+
             _detailParameters.Add(detail is { } values
                 ?
                 [
@@ -1365,11 +1384,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // whose proxies move them has them overwritten per frame by SetMaterial; these
                     // are the values for one that does not, and they have to be the identity rather
                     // than zero.
+                    //
+                    // **The modulation's rest value is the material's own $color and $alpha**, not
+                    // a hardcoded white — that was the gap: a material declaring a tint and no
+                    // proxy had it decoded and then overwritten with one here.
                     1f, 0f, 0f, 0f,
                     0f, 1f, 0f, 0f,
                     1f, 0f, 0f, 0f,
                     0f, 1f, 0f, 0f,
-                    1f, 1f, 1f, 1f,
+                    tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
                     multiplies, wrapsLight, 0f, 0f,
                 ]
@@ -1387,11 +1410,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // whose proxies move them has them overwritten per frame by SetMaterial; these
                     // are the values for one that does not, and they have to be the identity rather
                     // than zero.
+                    //
+                    // **The modulation's rest value is the material's own $color and $alpha**, not
+                    // a hardcoded white — that was the gap: a material declaring a tint and no
+                    // proxy had it decoded and then overwritten with one here.
                     1f, 0f, 0f, 0f,
                     0f, 1f, 0f, 0f,
                     1f, 0f, 0f, 0f,
                     0f, 1f, 0f, 0f,
-                    1f, 1f, 1f, 1f,
+                    tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
                     multiplies, wrapsLight, 0f, 0f,
                 ]);

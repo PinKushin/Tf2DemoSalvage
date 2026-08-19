@@ -366,6 +366,55 @@ public sealed class VmtMaterial
     /// <summary>The colour the self-illuminated part is tinted by.</summary>
     public (float Red, float Green, float Blue) SelfIllumTint => Colour("$selfillumtint");
 
+    /// <summary>The colour and alpha the whole material's output is scaled by.</summary>
+    /// <remarks>
+    /// **The per-material modulation, from <c>CBaseVSShader::ColorVarsToVector</c>**
+    /// (<c>BaseVSShader.cpp:677-698</c>). Every shader that draws anything folds this in; ignoring
+    /// it renders a coloured glow as a white one and a half-faded haze at full strength.
+    ///
+    /// <code>
+    /// color.Init( 1.0, 1.0, 1.0, 1.0 );
+    /// if ( colorVar != -1 ) { ...vector, else broadcast the float... }
+    /// if ( alphaVar != -1 ) color[3] = clamp( s_ppParams[alphaVar]->GetFloatValue(), 0.0f, 1.0f );
+    /// </code>
+    ///
+    /// Three details that are each wrong under the obvious reading:
+    ///
+    /// - **Alpha is clamped and colour is not.** Deliberate rather than an oversight — the linear
+    ///   space variant at line 652 reads <c>color[i] &gt; 1.0f ? color[i] : GammaToLinear(color[i])</c>,
+    ///   which only has a meaning for a channel allowed above one. Over-bright modulation is how a
+    ///   material is made to glow.
+    /// - **<c>$color2</c> multiplies rather than replaces.** <c>BaseShader.h:271</c> states the
+    ///   operation on the declaration itself: <c>ApplyColor2Factor( float* ) // (*pColorOut) *= COLOR2</c>.
+    /// - **A scalar <c>$color</c> broadcasts.** See <see cref="Colour"/>.
+    ///
+    /// <c>ComputeModulationColor</c> itself is in the closed shaderlib, so what is reproduced here
+    /// is the published conversion it is built on rather than the whole engine path — the render
+    /// state it feeds (per-instance colour, alpha from a fading entity) is not a material property
+    /// and does not belong here.
+    /// </remarks>
+    public (float Red, float Green, float Blue, float Alpha) Modulation
+    {
+        get
+        {
+            (float red, float green, float blue) = Colour("$color");
+            (float red2, float green2, float blue2) = Colour("$color2");
+
+            return (
+                red * red2,
+                green * green2,
+                blue * blue2,
+                Math.Clamp(Number("$alpha", 1f), 0f, 1f));
+        }
+    }
+
+    /// <summary>Whether the modulation is anything other than the identity.</summary>
+    /// <remarks>
+    /// Asked so a renderer can skip the work for the overwhelming majority of materials that name
+    /// no colour, and so the census can report the parameter as consumed only where it is.
+    /// </remarks>
+    public bool IsModulated => Modulation is not (1f, 1f, 1f, 1f);
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material
@@ -641,6 +690,25 @@ public sealed class VmtMaterial
 
         string[] parts = trimmed.Split(
             [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        // **A single number is legal and means all three channels**, which is not a tolerance but
+        // the engine's own branch. CBaseVSShader::ColorVarsToVector (BaseVSShader.cpp:681-690)
+        // switches on the material var's TYPE, and a value written without brackets is a float var
+        // rather than a vector one:
+        //
+        //     if ( pColorVar->GetType() == MATERIAL_VAR_TYPE_VECTOR )
+        //         pColorVar->GetVecValue( color.Base(), 3 );
+        //     else
+        //         color[0] = color[1] = color[2] = pColorVar->GetFloatValue();
+        //
+        // Rejecting it threw InvalidDataException, which costs the caller the whole material rather
+        // than the tint.
+        if (parts.Length == 1 && !isBytes && !isFloats)
+        {
+            float single = Component(key, text, parts[0], scale: 1f);
+
+            return (single, single, single);
+        }
 
         if (parts.Length != 3)
         {
