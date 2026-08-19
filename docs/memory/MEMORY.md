@@ -82,3 +82,4 @@
 - [Struct padding is on disk](struct-padding-is-on-disk.md) — lump stride is sizeof(), not the field sum; ten tests passed the wrong stride because the fixture shared the belief.
 - [Put the real file in the fixture](put-the-real-file-in-the-fixture.md) — three bugs in one session survived their own tests because the fixture was authored from the same belief as the code.
 - [Author the specimen the corpus lacks](author-the-specimen-the-corpus-lacks.md) — the writer is a test instrument; a case no demo contains can be written rather than hunted for.
+- [Test naming convention](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}; prose names cost a file-open on every red run, so they are being converted.
