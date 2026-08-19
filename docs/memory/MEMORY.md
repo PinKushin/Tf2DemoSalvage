@@ -79,3 +79,4 @@
 - [A property name needs its declaring table](a-property-name-needs-its-declaring-table.md) — m_fFlags and m_flCycle were both in the wrong table and both silent; check the pair, not the name.
 - [A floor must track the number it guards](a-floor-must-track-the-number-it-guards.md) — the count floor sat at 34 against 352, so a truncated run passed; --filter also drops every [Explicit] test.
 - [Material variables split three ways](material-variables-split-three-ways.md) — shader params, MATERIAL_VAR flags and standard vars; the coverage test has accused correct code twice for knowing only two.
+- [Struct padding is on disk](struct-padding-is-on-disk.md) — lump stride is sizeof(), not the field sum; ten tests passed the wrong stride because the fixture shared the belief.
