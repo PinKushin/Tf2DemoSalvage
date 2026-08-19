@@ -100,12 +100,7 @@ internal static class PropModels
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own embedded content, searched before the game's.</param>
     /// <param name="archives">The game's archives and folders.</param>
-    /// <param name="materials">The map's material table, extended in place with the props'.</param>
-    /// <param name="textures">The decoded textures, extended in step with the table.</param>
-/// <param name="blendTextures">
-/// Each material's SECOND texture, kept in step with <paramref name="textures"/>. A material with
-/// none contributes null, because the renderer indexes both lists by one number.
-/// </param>
+    /// <param name="materialTable">The map's material table, extended in place with the props'. Every list it holds grows together.</param>
     /// <param name="load">Resolves a material to its textures, or returns null.</param>
     /// <param name="refusedLighting">
     /// Collects the placements whose baked lighting existed and was refused, when supplied. Passed
@@ -118,16 +113,13 @@ internal static class PropModels
         ReadOnlyMemory<byte> map,
         PakFile pak,
         GameArchives archives,
-        List<BspMaterial> materials,
-        List<MapTexture?> textures,
-        List<MapTexture?> blendTextures,
+        MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         List<string>? refusedLighting = null)
     {
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
-        ArgumentNullException.ThrowIfNull(materials);
-        ArgumentNullException.ThrowIfNull(textures);
+        ArgumentNullException.ThrowIfNull(materialTable);
         ArgumentNullException.ThrowIfNull(load);
 
         IReadOnlyList<BspStaticProp> placements;
@@ -147,7 +139,7 @@ internal static class PropModels
             return [];
         }
 
-        int brushMaterialCount = textures.Count;
+        int brushMaterialCount = materialTable.Count;
         // **Sequential, and not because nobody has looked.** Loading props is the largest stage of
         // a map load - 2.97s against 0.65s for materials and 1.17s for lightmaps on
         // cp_process_f12 - and the decode itself would parallelise, since each model's .mdl, .vvd
@@ -184,7 +176,7 @@ internal static class PropModels
             if (!loaded.TryGetValue(placement.Model, out LoadedModel? model))
             {
                 model = Read(
-                    placement.Model, pak, archives, materials, textures, blendTextures, materialIndices, load);
+                    placement.Model, pak, archives, materialTable, materialIndices, load);
                 loaded[placement.Model] = model;
             }
 
@@ -264,9 +256,9 @@ internal static class PropModels
 
         int transparent = 0;
 
-        for (int index = brushMaterialCount; index < textures.Count; index++)
+        for (int index = brushMaterialCount; index < materialTable.Count; index++)
         {
-            if (textures[index] is { IsTransparent: true })
+            if (materialTable.Textures[index] is { IsTransparent: true })
             {
                 transparent++;
             }
@@ -283,7 +275,7 @@ internal static class PropModels
             $"ASKED FOR {placed} placements across {loaded.Count} models; " +
             $"HAVE baked lighting for {placed - unlit}; " +
             $"PRODUCED {world.Count / 3} triangles, {transparent} of " +
-            $"{textures.Count - brushMaterialCount} prop materials alpha tested; " +
+            $"{materialTable.Count - brushMaterialCount} prop materials alpha tested; " +
             $"MISSING {skipped} models that would not load, {unlit - refused.Count} placements the " +
             $"compiler never lit, {refused.Count} whose baked lighting exists and was REFUSED");
 
@@ -428,12 +420,7 @@ internal static class PropModels
     /// <param name="path">The model path, as modelprecache named it.</param>
     /// <param name="pak">The map's embedded files, which override the game's.</param>
     /// <param name="archives">The game's own archives.</param>
-    /// <param name="materials">Material table to register this model's materials in.</param>
-    /// <param name="textures">Texture list, kept in step with the materials.</param>
-/// <param name="blendTextures">
-/// Each material's SECOND texture, kept in step with <paramref name="textures"/>. A material with
-/// none contributes null, because the renderer indexes both lists by one number.
-/// </param>
+    /// <param name="materialTable">The map's material table, extended in place with the props'. Every list it holds grows together.</param>
     /// <param name="load">Resolves a material path to a texture.</param>
     /// <returns>The triangles, or <c>null</c> when the model could not be read.</returns>
     /// <remarks>
@@ -450,22 +437,15 @@ internal static class PropModels
         string path,
         PakFile pak,
         GameArchives archives,
-        List<BspMaterial> materials,
-        List<MapTexture?> textures,
-        List<MapTexture?> blendTextures,
+        MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load) =>
-        Read(path, pak, archives, materials, textures, blendTextures, [], load)?.Corners;
+        Read(path, pak, archives, materialTable, [], load)?.Corners;
 
     /// <summary>Reads one model once per frame of its animation.</summary>
     /// <param name="path">The model path, as modelprecache named it.</param>
     /// <param name="pak">The map's embedded files, which override the game's.</param>
     /// <param name="archives">The game's own archives.</param>
-    /// <param name="materials">Material table to register this model's materials in.</param>
-    /// <param name="textures">Texture list, kept in step with the materials.</param>
-/// <param name="blendTextures">
-/// Each material's SECOND texture, kept in step with <paramref name="textures"/>. A material with
-/// none contributes null, because the renderer indexes both lists by one number.
-/// </param>
+    /// <param name="materialTable">The map's material table, extended in place with the props'. Every list it holds grows together.</param>
     /// <param name="load">Resolves a material path to a texture.</param>
     /// <returns>One geometry per frame, or <c>null</c> when the model could not be read.</returns>
     /// <remarks>
@@ -485,12 +465,10 @@ internal static class PropModels
         string path,
         PakFile pak,
         GameArchives archives,
-        List<BspMaterial> materials,
-        List<MapTexture?> textures,
-        List<MapTexture?> blendTextures,
+        MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         bool mustSkin = false) =>
-        Read(path, pak, archives, materials, textures, blendTextures, [], load, mustSkin)?.Frames;
+        Read(path, pak, archives, materialTable, [], load, mustSkin)?.Frames;
 
     /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
     /// <remarks>
@@ -502,9 +480,7 @@ internal static class PropModels
         string path,
         PakFile pak,
         GameArchives archives,
-        List<BspMaterial> materials,
-        List<MapTexture?> textures,
-        List<MapTexture?> blendTextures,
+        MaterialTable materialTable,
         Dictionary<string, int> materialIndices,
         Func<string, ResolvedMaterial?> load,
         bool mustSkin = false)
@@ -695,9 +671,7 @@ internal static class PropModels
                 materialByMesh[index] = Register(
                     model,
                     model.Meshes[index].MaterialIndex,
-                    materials,
-                    textures,
-                    blendTextures,
+                    materialTable,
                     materialIndices,
                     load);
             }
@@ -732,7 +706,7 @@ internal static class PropModels
                     }
 
                     int swapped = Register(
-                        model, skinTable[at], materials, textures, blendTextures, materialIndices, load);
+                        model, skinTable[at], materialTable, materialIndices, load);
 
                     if (swapped >= 0 && materialByMesh[index] >= 0)
                     {
@@ -779,7 +753,7 @@ internal static class PropModels
                                 $"[{at}] part {mesh.BodyPart} alt {mesh.BodyModel} " +
                                 $"mdl {mesh.VertexCount}v vtx {(at < meshes.Count ? meshes[at].Count : -1)}c " +
                         $"mat {(at < materialByMesh.Length ? materialByMesh[at] : -1)}" +
-                        $" '{(at < materialByMesh.Length && materialByMesh[at] >= 0 && materialByMesh[at] < materials.Count ? materials[materialByMesh[at]].Name : "?")}'")));
+                        $" '{(at < materialByMesh.Length && materialByMesh[at] >= 0 && materialByMesh[at] < materialTable.Count ? materialTable.Materials[materialByMesh[at]].Name : "?")}'")));
                 }
 
                 for (int index = 0; index < materialByMesh.Length; index++)
@@ -971,9 +945,7 @@ internal static class PropModels
     private static int Register(
         StudioModelInfo model,
         int materialIndex,
-        List<BspMaterial> materials,
-        List<MapTexture?> textures,
-        List<MapTexture?> blendTextures,
+        MaterialTable materialTable,
         Dictionary<string, int> indices,
         Func<string, ResolvedMaterial?> load)
     {
@@ -998,25 +970,25 @@ internal static class PropModels
                 continue;
             }
 
-            // **The table and the textures grow together**, because the renderer indexes both by
-            // the same number. Appending to one without the other silently paints every prop from
-            // that point on with the wrong image.
-            int index = materials.Count;
-
-            materials.Add(new BspMaterial(candidate, (0.5f, 0.5f, 0.5f), painted.Width, painted.Height));
-            textures.Add(painted);
-
-            // **Three lists, not two, and for the same reason the comment above gives.** A material
-            // with a second texture is indexed by the same number as its first, so a prop that
-            // appends to one list and not the other leaves the renderer reading another material's
-            // second texture — or, as it did, nothing at all: the slots were padded with null and
-            // every prop fell back to sampling its base twice.
+            // **Seven lists, and the count is why this is one call.** Every list the renderer
+            // indexes by material number has to grow together, and this appended to three of them
+            // — texture, second texture and the table entry — while detail, bump, cubemap and
+            // proxies were padded with nulls afterwards by the caller.
             //
-            // That is invisible for a vertex-alpha mix, which is an identity against itself, and
-            // very visible for UnLitTwoTexture, which squares it instead of multiplying by the
-            // texture the material named. It is why a capture point beam kept its stripes only for
-            // BLU, whose base texture IS the stripes.
-            blendTextures.Add(texture.Blend);
+            // So every model material silently lost all four. That is not visible as an error; it
+            // is a prop that is slightly flat, which is indistinguishable from art direction, and
+            // it is why a capture point's Sine proxy never ran: `cappoint_logo_blue` is an entity
+            // model, and its proxies were being thrown away here.
+            //
+            // The history is that this comment used to read "**Three lists, not two**", added when
+            // the second texture went missing the same way and a capture point beam kept its
+            // stripes only for BLU. Adding one more `Add` beside the others fixes it until the next
+            // list appears. MaterialTable.Add appends all seven, so there is no longer a way to
+            // append one and forget the rest.
+            int index = materialTable.Add(
+                new BspMaterial(candidate, (0.5f, 0.5f, 0.5f), painted.Width, painted.Height),
+                texture);
+
             indices[candidate] = index;
 
             return index;
