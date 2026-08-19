@@ -110,6 +110,14 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         return null;
     }
 
+    /// <summary>Playback time handed to material proxies, which are functions of it.</summary>
+    /// <remarks>
+    /// Settable here so a test can draw the same geometry at two times and compare — which is the
+    /// only way to observe a proxy from outside, since its whole effect is that the picture differs
+    /// between them.
+    /// </remarks>
+    public double Seconds { get; set; }
+
     /// <summary>
     /// Draws world geometry through the real world shader, for tests with no screen.
     /// </summary>
@@ -152,6 +160,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world ??= WorldRenderer.Create(_device);
         _world.DrawDetail = detail;
         _world.DrawBumped = bumped;
+        _world.Seconds = Seconds;
 
         // **Textures first, because the shader clips on their alpha.** With none bound the sample
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".

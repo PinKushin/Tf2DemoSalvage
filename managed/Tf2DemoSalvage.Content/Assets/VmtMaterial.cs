@@ -7,6 +7,34 @@ using System.Text;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
+/// <summary>One proxy a material runs, and the arguments it was written with.</summary>
+/// <param name="Name">The proxy's name, as the engine registers it — <c>Sine</c>, <c>TextureScroll</c>.</param>
+/// <remarks>
+/// **Arguments are matched case-insensitively because KeyValues is, and TF2's own files rely on
+/// it.** <c>cappoint_logo_blue</c> writes <c>Sineperiod</c> and <c>SineMax</c> where the engine's
+/// <c>CSineProxy::Init</c> reads <c>"sinePeriod"</c> and <c>"sineMax"</c>. A case-sensitive reader
+/// finds neither, silently takes the defaults, and oscillates at the wrong rate — a failure that
+/// looks like a wrong number rather than a missing lookup.
+/// </remarks>
+public sealed record MaterialProxy(string Name)
+{
+    private readonly Dictionary<string, string> _arguments =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Reads one argument, or null when the material did not state it.</summary>
+    /// <param name="key">The argument name, matched case-insensitively.</param>
+    /// <returns>The raw text, or null.</returns>
+    /// <remarks>
+    /// Null rather than empty so a caller can tell "not stated" from "stated as nothing" and apply
+    /// the engine's own default rather than parsing an empty string as zero.
+    /// </remarks>
+    public string? Argument(string key) =>
+        _arguments.TryGetValue(key, out string? value) ? value : null;
+
+    /// <summary>Records an argument while parsing.</summary>
+    internal void Add(string key, string value) => _arguments[key] = value;
+}
+
 /// <summary>
 /// A Valve Material file: which shader a surface uses, and which textures it names.
 /// </summary>
@@ -34,11 +62,25 @@ public sealed class VmtMaterial
 {
     private readonly Dictionary<string, string> _values;
 
-    private VmtMaterial(string shader, Dictionary<string, string> values)
+    private VmtMaterial(
+        string shader, Dictionary<string, string> values, List<MaterialProxy>? proxies = null)
     {
         Shader = shader;
         _values = values;
+        Proxies = proxies ?? [];
     }
+
+    /// <summary>The proxies this material runs, in the order it declares them.</summary>
+    /// <remarks>
+    /// **Kept, but kept separate.** A proxy's arguments are not the material's keys — a
+    /// <c>TextureScroll</c> names a <c>$basetexture</c> that is the texture it animates rather than
+    /// the surface's — so folding them in would draw the wrong picture. That is the same rule the
+    /// parser already applied by dropping the block; this keeps the contents without merging them.
+    ///
+    /// Order matters: two proxies writing the same variable resolve last-wins, which is only well
+    /// defined if the order survives.
+    /// </remarks>
+    public IReadOnlyList<MaterialProxy> Proxies { get; }
 
     /// <summary>The shader the material uses, such as <c>LightMappedGeneric</c>.</summary>
     public string Shader { get; }
@@ -582,6 +624,8 @@ public sealed class VmtMaterial
         // patch's overrides ARE the material's keys, and a proxy's are emphatically not.
         List<string> blocks = [];
 
+        List<MaterialProxy> proxies = [];
+
         while (at < text.Length)
         {
             char character = text[at];
@@ -600,6 +644,16 @@ public sealed class VmtMaterial
             else if (character == '{')
             {
                 blocks.Add(pendingKey ?? string.Empty);
+
+                // A block opening directly inside Proxies IS a proxy, and its name is the key that
+                // introduced it. Created here rather than when its first argument appears, so a
+                // proxy written with no arguments still exists — the engine would run it on its
+                // defaults.
+                if (IsAProxyName(blocks))
+                {
+                    proxies.Add(new MaterialProxy(blocks[^1]));
+                }
+
                 at++;
                 pendingKey = null;
             }
@@ -640,13 +694,19 @@ public sealed class VmtMaterial
                     {
                         values[PlatformIndependent(pendingKey)] = token;
                     }
+                    else if (IsAProxyArgument(blocks))
+                    {
+                        // The block one level up is the proxy's name, and it was created when its
+                        // brace opened — so there is always one to add to here.
+                        proxies[^1].Add(pendingKey, token);
+                    }
 
                     pendingKey = null;
                 }
             }
         }
 
-        return new VmtMaterial(shader, values);
+        return new VmtMaterial(shader, values, proxies);
     }
 
     /// <summary>Whether the key currently being read is one of the material's own.</summary>
@@ -680,6 +740,13 @@ public sealed class VmtMaterial
     /// nested inside <c>Proxies</c> is a proxy's, not a patch's. Matching the name anywhere would
     /// swap one bug for a rarer one.
     /// </remarks>
+    /// <summary>Whether the block just opened is a proxy: one level inside <c>Proxies</c>.</summary>
+    private static bool IsAProxyName(List<string> blocks) =>
+        blocks.Count == 3 && blocks[1].Equals("Proxies", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether the key being read is an argument of the proxy currently open.</summary>
+    private static bool IsAProxyArgument(List<string> blocks) => IsAProxyName(blocks);
+
     private static bool DescribesTheSurface(List<string> blocks) =>
         blocks.Count == 1 ||
         (blocks.Count == 2 &&

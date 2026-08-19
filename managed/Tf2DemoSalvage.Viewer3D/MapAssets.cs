@@ -133,6 +133,7 @@ internal readonly record struct MapCubemap(
 /// <param name="Blend">The second layer of a blend material, or null.</param>
 /// <param name="Detail">The detail pattern, or null.</param>
 /// <param name="Bump">The bump map, or null.</param>
+/// <param name="Proxies">The proxies the material runs, evaluated per bind.</param>
 /// <param name="Declared">Every parameter the VMT named, for reporting the unimplemented ones.</param>
 /// <param name="Shader">
 /// The shader the material names. Carried for the census: a shader decides what its parameters
@@ -148,6 +149,7 @@ internal readonly record struct ResolvedMaterial(
     MapTexture? Blend,
     MapDetail? Detail,
     MapBump? Bump,
+    IReadOnlyList<MaterialProxy>? Proxies = null,
     IReadOnlyCollection<string>? Declared = null,
     string Shader = "",
     MapCubemap? Cubemap = null);
@@ -349,6 +351,7 @@ internal sealed class MapAssets
         IReadOnlyList<MapDetail?> details,
         IReadOnlyList<MapBump?> bumps,
         IReadOnlyList<MapCubemap?> cubemaps,
+        IReadOnlyList<IReadOnlyList<MaterialProxy>> proxies,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas lightmaps,
         IReadOnlyList<PropVertex> props,
@@ -360,6 +363,7 @@ internal sealed class MapAssets
         Details = details;
         Bumps = bumps;
         Cubemaps = cubemaps;
+        Proxies = proxies;
         Materials = materials;
         Lightmaps = lightmaps;
         Props = props;
@@ -424,6 +428,15 @@ internal sealed class MapAssets
     /// decode. The first is much the commonest — on cp_process_final, 51 of 410.
     /// </remarks>
     public IReadOnlyList<MapCubemap?> Cubemaps { get; }
+
+    /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
+    /// <remarks>
+    /// **Evaluated per BIND rather than per frame**, which is what the engine does:
+    /// <c>IMaterialProxy</c> has <c>Init</c>, <c>OnBind</c> and <c>Release</c> and no tick at all.
+    /// So a material drawn twice evaluates twice and one that is off screen evaluates never — the
+    /// cost follows what is drawn rather than what the map contains.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies { get; }
 
     /// <summary>The map's texture table, for reflectivity where a texture is missing.</summary>
     public IReadOnlyList<BspMaterial> Materials { get; }
@@ -500,6 +513,7 @@ internal sealed class MapAssets
         List<MapDetail?> details = new(materials.Count);
         List<MapBump?> bumps = new(materials.Count);
         List<MapCubemap?> cubemaps = new(materials.Count);
+        List<IReadOnlyList<MaterialProxy>> proxies = new(materials.Count);
         int resolved = 0;
         int missing = 0;
 
@@ -530,6 +544,7 @@ internal sealed class MapAssets
             details.Add(material.Detail);
             bumps.Add(material.Bump);
             cubemaps.Add(material.Cubemap);
+            proxies.Add(material.Proxies ?? []);
 
             if (material.Texture is null)
             {
@@ -751,6 +766,11 @@ internal sealed class MapAssets
             bumps.Add(null);
         }
 
+        while (proxies.Count < textures.Count)
+        {
+            proxies.Add([]);
+        }
+
         while (cubemaps.Count < textures.Count)
         {
             cubemaps.Add(null);
@@ -799,6 +819,7 @@ internal sealed class MapAssets
             details,
             bumps,
             cubemaps,
+            proxies,
             materials,
             PackLighting(map),
             props,
@@ -905,6 +926,7 @@ internal sealed class MapAssets
             second,
             ResolveDetail(),
             ResolveBump(),
+            material.Proxies,
             material.Keys,
             material.Shader,
             ResolveCubemap());

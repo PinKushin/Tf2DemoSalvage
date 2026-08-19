@@ -7,6 +7,7 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Diagnostics;
 
@@ -979,6 +980,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The baked reflection for each material, as a cube view, or a null handle.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _cubemaps = [];
 
+    /// <summary>The proxies each material runs, empty for the great majority.</summary>
+    private IReadOnlyList<IReadOnlyList<MaterialProxy>> _proxies = [];
+
+    /// <summary>Playback time, standing in for the engine's <c>gpGlobals-&gt;curtime</c>.</summary>
+    /// <remarks>
+    /// **The one input every time-driven proxy takes.** Demo playback time rather than wall clock,
+    /// so a paused demo holds its beams still and a seek moves them to where they were — which is
+    /// what makes a capture point look the same on two viewings of the same tick.
+    /// </remarks>
+    public double Seconds { get; set; }
+
     /// <summary>Scale, blend factor, mode and tint per material, in the shader's own layout.</summary>
     /// <remarks>
     /// **Eight floats each, built once at upload.** A mode of -1 means the material has no detail,
@@ -1382,6 +1394,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 _translucent.Add(index);
             }
         }
+
+        // **Kept rather than baked into the constants, because a proxy is a function of time.**
+        // Everything else in the material buffer is decided once at load; these are the values that
+        // have to be recomputed each time the material is bound.
+        _proxies = assets.Proxies;
 
         foreach (MapTexture? texture in assets.BlendTextures)
         {
@@ -2189,6 +2206,115 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// **Bound to the pixel stage only**, because only the pixel shader reads it - unlike the camera
     /// buffer, which both stages read and which spent a session bound to one of them.
     /// </remarks>
+    /// <summary>Where each proxy-writable value sits in the material constant buffer.</summary>
+    /// <remarks>
+    /// Named rather than written as literals at the write sites, because these are offsets into an
+    /// array whose layout is declared somewhere else entirely — the <c>cbuffer Material</c> in the
+    /// shader — and a silent disagreement between the two is a material borrowing another's scroll.
+    /// </remarks>
+    private const int BaseTransformRow0 = 16;
+    private const int BaseTransformRow1 = 20;
+    private const int SecondTransformRow0 = 24;
+    private const int SecondTransformRow1 = 28;
+    private const int ModulationRed = 32;
+    private const int ModulationAlpha = 35;
+
+    /// <summary>Runs a material's proxies for the current playback time.</summary>
+    /// <param name="contents">The material's constants, already copied.</param>
+    /// <param name="proxies">What the VMT declared, in declaration order.</param>
+    /// <remarks>
+    /// **In order, because last wins.** Two proxies writing the same variable is legal and the
+    /// engine resolves it by running them in the order the file lists them.
+    ///
+    /// **Only the time-driven ones.** A proxy reading entity state — team colour, health, a
+    /// player's item — needs the entity, which this layer does not have. An unrecognised proxy is
+    /// skipped rather than guessed at, which leaves the material at its resting value: the same
+    /// picture as before proxies existed, rather than a wrong one.
+    /// </remarks>
+    private void ApplyProxies(float[] contents, IReadOnlyList<MaterialProxy> proxies)
+    {
+        foreach (MaterialProxy proxy in proxies)
+        {
+            if (proxy.Name.Equals("Sine", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplySine(contents, proxy);
+            }
+            else if (proxy.Name.Equals("TextureScroll", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyTextureScroll(contents, proxy);
+            }
+        }
+    }
+
+    /// <summary>Oscillates whichever variable the proxy names.</summary>
+    /// <remarks>
+    /// Valve's defaults, from <c>CSineProxy::Init</c>: period 1, max 1, min 0. A period of zero
+    /// becomes one rather than holding still — see <see cref="MaterialProxies.Sine"/>.
+    /// </remarks>
+    private void ApplySine(float[] contents, MaterialProxy proxy)
+    {
+        float value = MaterialProxies.Sine(
+            Seconds,
+            MaterialProxies.Number(proxy.Argument("sinePeriod"), 1f),
+            MaterialProxies.Number(proxy.Argument("sineMin"), 0f),
+            MaterialProxies.Number(proxy.Argument("sineMax"), 1f));
+
+        // A maths proxy names its destination with resultVar (CResultProxy::Init). The subscript
+        // form -- $color[1] for green alone -- is not handled here, and a name carrying one falls
+        // through to no write rather than being mistaken for the whole variable.
+        switch (proxy.Argument("resultVar"))
+        {
+            case { } alpha when alpha.Equals("$alpha", StringComparison.OrdinalIgnoreCase):
+                contents[ModulationAlpha] = value;
+                break;
+
+            case { } colour when colour.Equals("$color", StringComparison.OrdinalIgnoreCase):
+                contents[ModulationRed] = value;
+                contents[ModulationRed + 1] = value;
+                contents[ModulationRed + 2] = value;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>Scrolls whichever texture transform the proxy names.</summary>
+    /// <remarks>
+    /// **A texture scroll does NOT use <c>resultVar</c>.** It reads <c>textureScrollVar</c>
+    /// (<c>texturescrollmaterialproxy.cpp:54</c>), because what it writes is a matrix rather than a
+    /// number and it is not a <c>CResultProxy</c> at all. Reading the wrong key silently disables
+    /// it.
+    /// </remarks>
+    private void ApplyTextureScroll(float[] contents, MaterialProxy proxy)
+    {
+        TextureTransform transform = MaterialProxies.TextureScroll(
+            Seconds,
+            MaterialProxies.Number(proxy.Argument("textureScrollRate"), 1f),
+            MaterialProxies.Number(proxy.Argument("textureScrollAngle"), 0f),
+            MaterialProxies.Number(proxy.Argument("textureScale"), 1f));
+
+        // Which of the material's two transforms this drives. The second texture's is named
+        // differently by different shaders, so both spellings are accepted.
+        int row0 = proxy.Argument("textureScrollVar") switch
+        {
+            { } name when name.Contains('2', StringComparison.Ordinal) => SecondTransformRow0,
+            _ => BaseTransformRow0,
+        };
+
+        int row1 = row0 == SecondTransformRow0 ? SecondTransformRow1 : BaseTransformRow1;
+
+        contents[row0] = transform.Row0.X;
+        contents[row0 + 1] = transform.Row0.Y;
+        contents[row0 + 2] = transform.Row0.Z;
+        contents[row0 + 3] = transform.Row0.W;
+
+        contents[row1] = transform.Row1.X;
+        contents[row1 + 1] = transform.Row1.Y;
+        contents[row1 + 2] = transform.Row1.Z;
+        contents[row1 + 3] = transform.Row1.W;
+    }
+
     private void SetMaterial(ComPtr<ID3D11DeviceContext> context, int materialIndex)
     {
         if (_material.Handle is null)
@@ -2215,6 +2341,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 contents[8] = 0f;
             }
+        }
+
+        // **This is the engine's OnBind.** IMaterialProxy has Init, OnBind and Release and no tick,
+        // so a proxy runs when its material is bound for a draw — which is here. A material drawn
+        // twice evaluates twice; one nothing draws evaluates never.
+        if (materialIndex >= 0 && materialIndex < _proxies.Count && _proxies[materialIndex].Count > 0)
+        {
+            // Copied before writing, for the same reason as the switches above: the stored array is
+            // the material's resting state, and a proxy must not bake this frame's value into it.
+            contents = [.. contents];
+
+            ApplyProxies(contents, _proxies[materialIndex]);
         }
 
         MappedSubresource mapped = default;

@@ -191,9 +191,22 @@ public sealed class SourceConformanceTests
         // WHAT YOU SEE: a capture point's beam does not scroll and its sign does not pulse. The
         // scene is correct and static, which reads as lifeless rather than as broken.
         //
-        // TO IMPLEMENT: parse Proxies from the VMT, evaluate per frame against playback time, and
-        // write the result into the material constants that already exist. Filed as B80.
-        Assert.Ignore("Proxies: parsed by nothing; beams static, signs do not pulse. B80.");
+        // **Partly done, and the remaining part is named rather than left vague.** The Proxies
+        // block is now parsed, carried through the load, and evaluated at bind time — which is what
+        // the engine does, since IMaterialProxy has Init, OnBind and Release and no tick at all.
+        // Sine and TextureScroll are wired to the modulation colour and the texture transforms.
+        //
+        // What is NOT done, measured on cp_process_final: the seven proxies its materials declare
+        // are Subtract, PlayerProximity, Clamp, PlayerTeamMatch, Divide and Multiply — entity-state
+        // and chained-maths proxies, none of which this evaluates. The materials that DO run a Sine
+        // are entity models (models/effects/cappoint_logo_blue), and entity models resolve through
+        // PropModels rather than the map's material table, so they never reach the proxy list.
+        //
+        // TO FINISH: carry proxies through the entity model path, and decide what a proxy reading
+        // entity state should do here — it needs the entity, which this layer does not have.
+        Assert.Ignore(
+            "Proxies: parsed and evaluated for world materials; entity models do not carry them, " +
+            "and this map's own proxies are all entity-state ones. B80.");
     }
 
     [Test]
