@@ -51,7 +51,7 @@ public sealed class RemainingParityProbe
     }
 
     [Test]
-    public void WhichMaterialFeaturesStillCoverTheMap()
+    public void MaterialFeatureParity_TheMap_IsReported()
     {
         if (MapFile is not { } path)
         {

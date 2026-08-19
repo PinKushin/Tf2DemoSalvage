@@ -52,7 +52,7 @@ public sealed class VmtProxyBlockTests
         """;
 
     [Test]
-    public void ARealMaterialsProxyIsRead()
+    public void VmtProxies_ARealMaterialsProxy_IsRead()
     {
         VmtMaterial material = Parse(CapPointLogo);
 
@@ -61,7 +61,7 @@ public sealed class VmtProxyBlockTests
     }
 
     [Test]
-    public void ACommentedOutProxyIsNotRead()
+    public void VmtProxies_ACommentedOutProxy_IsNotRead()
     {
         // The `Equals` proxy above is commented out line by line. A parser that stripped comments
         // only at the top level, or that matched block names before stripping them, would find two
@@ -70,7 +70,7 @@ public sealed class VmtProxyBlockTests
     }
 
     [Test]
-    public void AProxysArgumentsAreReadCaseInsensitively()
+    public void VmtProxies_Arguments_AreReadCaseInsensitively()
     {
         // **The case inconsistency is in Valve's own shipped file.** It writes `Sineperiod` and
         // `SineMax`; the engine's Init reads "sinePeriod" and "sineMax". KeyValues does not care
@@ -86,7 +86,7 @@ public sealed class VmtProxyBlockTests
     }
 
     [Test]
-    public void AnAbsentArgumentIsNullRatherThanEmpty()
+    public void VmtProxies_AnAbsentArgument_IsNullNotEmpty()
     {
         // So the caller can tell "not stated" from "stated as nothing" and apply the engine's
         // default rather than parsing an empty string as zero.
@@ -94,7 +94,7 @@ public sealed class VmtProxyBlockTests
     }
 
     [Test]
-    public void AProxysKeysDoNotBecomeTheMaterialsOwn()
+    public void VmtProxies_AProxysKeys_DoNotBecomeTheMaterialsOwn()
     {
         // **The rule the parser already had, which must survive.** A proxy's `$basetexture` names
         // the texture it animates, not the surface's.
@@ -119,7 +119,7 @@ public sealed class VmtProxyBlockTests
     }
 
     [Test]
-    public void SeveralProxiesAreKeptInOrder()
+    public void VmtProxies_SeveralProxies_AreKeptInOrder()
     {
         // A material may run more than one, and they are applied in the order written — two proxies
         // writing the same variable means the last wins, which is only well defined if the order
@@ -141,7 +141,7 @@ public sealed class VmtProxyBlockTests
     }
 
     [Test]
-    public void AMaterialWithNoProxiesHasNone()
+    public void VmtProxies_AMaterialWithNone_HasNone()
     {
         // The control, and the common case: an empty list rather than a null one, so no caller
         // needs a guard.

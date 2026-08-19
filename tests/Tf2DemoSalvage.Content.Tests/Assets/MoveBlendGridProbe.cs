@@ -28,7 +28,7 @@ public sealed class MoveBlendGridProbe
     private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 
     [Test]
-    public void WhichCellDoesForwardRunningSelect()
+    public void MoveBlendGrid_ForwardRunning_IsReported()
     {
         if (!Directory.Exists(Game))
         {
@@ -80,7 +80,7 @@ public sealed class MoveBlendGridProbe
     }
 
     [Test]
-    public void WhatGroundSpeedDoesTheRunBlendReport()
+    public void MoveBlendGrid_TheRunBlendGroundSpeed_IsReported()
     {
         if (!Directory.Exists(Game))
         {

@@ -50,7 +50,7 @@ public sealed class StaticPropConformanceTests
     }
 
     [Test]
-    public void TheFieldsThisReaderUsesAreAtOneOffsetInEveryVersion()
+    public void StaticProp_TheFieldsThisReaderUses_ShareOneOffsetAcrossVersions()
     {
         // **The claim the reader's design rests on.** If any version moved origin, angles or prop
         // type, reading without dispatching on the version would place props from that era
@@ -72,7 +72,7 @@ public sealed class StaticPropConformanceTests
     }
 
     [Test]
-    public void TheVersionsOnlyEverAppend()
+    public void StaticProp_TheVersions_OnlyEverAppend()
     {
         // **Stated as the general property rather than the three instances above.** Each version is
         // a prefix of the next, so any reader that stops early is safe at any version — which is a
@@ -95,7 +95,7 @@ public sealed class StaticPropConformanceTests
     }
 
     [Test]
-    public void TheOldestVersionIsTheSmallestRecordWeWillAccept()
+    public void StaticProp_TheOldestVersion_IsTheSmallestAcceptedRecord()
     {
         // BspStaticProps refuses a lump whose stride is below the smallest declared shape, which is
         // the bound that stops a corrupt count producing millions of props. 56 is not a number
@@ -104,7 +104,7 @@ public sealed class StaticPropConformanceTests
     }
 
     [Test]
-    public void TheFlagsFieldMovedAndWidenedAtVersionTen()
+    public void StaticProp_TheFlagsField_MovedAndWidenedAtVersionTen()
     {
         // **Recorded because it is the one thing a naive reader would get wrong**, and because
         // BspStaticProps does not read flags today. When something does, this is the trap: V4

@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class EraGeometryProbe
 {
     [Test]
-    public void Probe()
+    public void EraGeometry_TheCorpus_IsReported()
     {
         string old = "F:/tf2-builds/tf2-2008/tf/maps";
         string now = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps";

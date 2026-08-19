@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class StaleModelProbe
 {
     [Test]
-    public void WhichModelDoesTheMapPackAgainstItsLighting()
+    public void PackedModels_AgainstTheirLighting_AreReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
         string mapPath = Path.Combine(

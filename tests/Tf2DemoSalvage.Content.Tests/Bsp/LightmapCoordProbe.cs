@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class LightmapCoordProbe
 {
     [Test]
-    public void ReportHowManyFacesHaveCoordinatesOutsideTheirOwnLightmap()
+    public void LightmapCoords_FacesOutsideTheirOwnLightmap_AreReported()
     {
         string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
 

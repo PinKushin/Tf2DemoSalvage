@@ -114,7 +114,7 @@ public sealed class StudioStructTests
     }
 
     [Test]
-    public void AnAttachmentCarriesItsOwnTransform()
+    public void StudioStructs_AnAttachment_CarriesItsOwnTransform()
     {
         // **The fact B82's fix turns on, stated where it cannot be forgotten.** An attachment is not
         // just a bone reference: it carries a 3x4 matrix positioning the point relative to that
@@ -154,7 +154,7 @@ public sealed class StudioStructTests
     }
 
     [Test]
-    public void TheQuaternionAndEulerRotationsAreSeparateFields()
+    public void StudioStructs_QuaternionAndEulerRotations_AreSeparateFields()
     {
         // **Stated as its own claim because they are both rotations and both correct at rest.** A
         // reader that took quat where the engine takes rot poses a standing model perfectly and
@@ -315,7 +315,7 @@ public sealed class StudioStructTests
     }
 
     [Test]
-    public void TheseDescribeTheVersionTheReadersTarget()
+    public void StudioStructs_TheseSizes_DescribeTheTargetedVersion()
     {
         // **A layout is only meaningful next to a version.** studio.h declares one, and if it ever
         // moves the constants here describe a file this project no longer reads.
@@ -323,7 +323,7 @@ public sealed class StudioStructTests
     }
 
     [Test]
-    public void TheParserAgreesWithAStructureWhoseSizeIsNotInDispute()
+    public void StudioStructs_TheParser_AgreesOnAnUndisputedStructure()
     {
         // The control. mstudiomodelgroup_t is two ints and nothing else, in a declaration short
         // enough to verify by reading: a parser dropping members would report fewer than two.

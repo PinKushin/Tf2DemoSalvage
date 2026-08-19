@@ -50,7 +50,7 @@ public sealed class WeaponTranslationConformanceTests
     }
 
     [Test]
-    public void EveryCellOfTheTranslationTableMatchesTheSdk()
+    public void WeaponTranslation_EveryTableCell_MatchesTheSdk()
     {
         Dictionary<string, string[]> sdk = TranslationList();
 
@@ -86,7 +86,7 @@ public sealed class WeaponTranslationConformanceTests
     }
 
     [Test]
-    public void EveryWeaponTheSdkTranslatesIsOneThisProjectKnows()
+    public void WeaponTranslation_EverySdkTranslatedWeapon_IsKnownHere()
     {
         // The other direction: a weapon Valve translates and this project has never heard of would
         // silently keep its base script in every class. Checked separately from the cell sweep

@@ -47,7 +47,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void TheIdentAndVersionAreRead()
+    public void BspHeader_TheIdentAndVersion_AreRead()
     {
         BspHeader header = BspHeader.Parse(Header(version: 20));
 
@@ -55,7 +55,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void SomethingThatIsNotABspIsRejected()
+    public void BspHeader_AFileThatIsNotABsp_IsRejected()
     {
         // A demo, a text file, or an HTML error page saved by a failed download - all plausible
         // things to find where a map was expected.
@@ -63,13 +63,13 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void AFileTooShortForAHeaderIsRejected()
+    public void BspHeader_AFileTooShortForAHeader_IsRejected()
     {
         Should.Throw<InvalidDataException>(() => BspHeader.Parse(new byte[100]));
     }
 
     [Test]
-    public void ALumpReachingPastTheEndOfTheFileIsRejected()
+    public void BspHeader_ALumpPastTheEndOfTheFile_IsRejected()
     {
         // The central D32 rule. A length is a number in the file, and believing it is how a
         // parser is made to read - or allocate - whatever the author chose.
@@ -79,7 +79,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void ALumpOffsetInsideTheHeaderIsRejected()
+    public void BspHeader_ALumpOffsetInsideTheHeader_IsRejected()
     {
         // Pointing a lump at the header itself makes the directory describe its own bytes, which
         // no honest compiler emits and which invites a reader into a loop.
@@ -89,7 +89,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void ANegativeOffsetOrLengthIsRejected()
+    public void BspHeader_ANegativeOffsetOrLength_IsRejected()
     {
         // A 32-bit field read as a signed int arrives negative above int.MaxValue, and a negative
         // length sails past a "too large" check - the exact shape of the Snappy defect the fuzzer
@@ -102,7 +102,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void OffsetPlusLengthIsCheckedWithoutOverflowing()
+    public void BspHeader_OffsetPlusLength_IsCheckedWithoutOverflowing()
     {
         // Two large positive numbers whose sum wraps: computed in int, the sum is negative and
         // passes a naive "fits in the file" test. This is the same overflow that let a Snappy
@@ -114,7 +114,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void AnEmptyLumpIsLegal()
+    public void BspHeader_AnEmptyLump_IsLegal()
     {
         // Most maps use nothing like all 64 lumps; an unused one is zero offset and zero length,
         // and rejecting that would reject every real map.
@@ -124,7 +124,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void ALumpThatFitsIsReadable()
+    public void BspHeader_ALumpThatFits_IsReadable()
     {
         byte[] file = Header(
             lumpIndex: 4, lumpOffset: HeaderSize, lumpLength: 32, totalSize: HeaderSize + 32);
@@ -136,7 +136,7 @@ public sealed class BspHeaderTests
     }
 
     [Test]
-    public void AskingForALumpOutsideTheDirectoryIsRejected()
+    public void BspHeader_ALumpOutsideTheDirectory_IsRejected()
     {
         BspHeader header = BspHeader.Parse(Header());
 

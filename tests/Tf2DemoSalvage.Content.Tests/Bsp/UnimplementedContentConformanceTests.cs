@@ -35,7 +35,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void DetailPropsAreASecondPropSystemInTheSameLump()
+    public void Content_DetailProps_AreASecondPropSystemInTheSameLump()
     {
         // **`dprp`, a sibling of `sprp` that this project does not open.** gamebspfile.h:26 declares
         // GAMELUMP_DETAIL_PROPS alongside GAMELUMP_STATIC_PROPS at line 28, both inside LUMP_GAME —
@@ -55,7 +55,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void CubemapSamplesArePositionedAndSized()
+    public void Content_CubemapSamples_ArePositionedAndSized()
     {
         // **What $envmap needs, and the reason B55 is more than a shader change.** dcubemapsample_t
         // (bspfile.h:992) is an integer position and a size byte, where "0 - default, otherwise
@@ -72,7 +72,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void ALightStyleAnimatesAFacesLighting()
+    public void Content_ALightStyle_AnimatesAFacesLighting()
     {
         // A face carries styles[MAXLIGHTMAPS] — four bytes at offset 16 (bspfile.h:728) — naming up
         // to four light styles, each with its own lightmap layer. Style 0 is the static light; the
@@ -92,7 +92,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void TheOcclusionAndAreaportalLumpsBoundVisibility()
+    public void Content_TheOcclusionAndAreaportalLumps_BoundVisibility()
     {
         // LUMP_OCCLUSION (9) and LUMP_AREAPORTALS (21) are how the engine stops drawing what a
         // doorway or an occluder hides. Neither is read here, which — like the leaf lists — makes
@@ -112,7 +112,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void OverlaysCarryARenderOrderThatDecidesWhatSitsOnTop()
+    public void Content_Overlays_CarryARenderOrder()
     {
         // This project reads overlays and draws them (B68). What it does not use is the render
         // ORDER, packed into the top two bits of m_nFaceCountAndRenderOrder at offset 6 —
@@ -132,7 +132,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void DisplacementsBlendTwoTexturesByPerVertexAlpha()
+    public void Content_Displacements_BlendTwoTexturesByPerVertexAlpha()
     {
         // CDispVert carries m_flAlpha, at offset 16 of the 20-byte record and already derived by
         // DisplacementConformanceTests. On a WorldVertexTransition material that alpha chooses
@@ -150,7 +150,7 @@ public sealed class UnimplementedContentConformanceTests
     }
 
     [Test]
-    public void TheMapNamesTheCubemapAndLightingItWasCompiledFor()
+    public void Content_TheMap_NamesTheCubemapAndLightingItWasCompiledFor()
     {
         // **HDR and LDR are two complete sets of lighting data**, and a map compiled for HDR carries
         // its real lighting in LUMP_LIGHTING_HDR (53) with the LDR lump (8) holding something stale

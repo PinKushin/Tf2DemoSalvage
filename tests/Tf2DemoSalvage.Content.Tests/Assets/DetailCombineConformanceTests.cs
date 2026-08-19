@@ -76,7 +76,7 @@ public sealed class DetailCombineConformanceTests
     }
 
     [Test]
-    public void TheHighestModeIsTheEnginesHighest()
+    public void DetailCombineModes_TheHighest_MatchesTheEngine()
     {
         // **Derived, because this bound is what rejects a malformed material.** A VMT is untrusted
         // input and $detailblendmode is just a number in it; the guard is only correct if it knows
@@ -89,7 +89,7 @@ public sealed class DetailCombineConformanceTests
     }
 
     [Test]
-    public void TheModesAreContiguousFromZero()
+    public void DetailCombineModes_TheRange_IsContiguousFromZero()
     {
         // The control, and a real property: the modes are a dense range because they index a shader
         // combo. A gap would mean the extraction missed one — which is exactly what happened before

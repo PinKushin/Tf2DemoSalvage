@@ -33,7 +33,7 @@ public sealed class IncludedAnimationProbe
     private const int GroupStride = 8;
 
     [Test]
-    public void WhichModelsDoesAPlayerModelInclude()
+    public void IncludedAnimations_APlayerModel_AreReported()
     {
         if (!Directory.Exists(Game))
         {

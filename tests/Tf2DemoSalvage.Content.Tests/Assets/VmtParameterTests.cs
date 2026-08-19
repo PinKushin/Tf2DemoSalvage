@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class VmtParameterTests
 {
     [Test]
-    public void NoCullIsReadFromItsKey()
+    public void VmtParameters_NoCull_IsReadFromItsKey()
     {
         Material("$nocull", "1").IsNoCull.ShouldBeTrue();
         Material("$nocull", "0").IsNoCull.ShouldBeFalse();
@@ -34,7 +34,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void HalfLambertIsReadFromItsKey()
+    public void VmtParameters_HalfLambert_IsReadFromItsKey()
     {
         Material("$halflambert", "1").IsHalfLambert.ShouldBeTrue();
         Material("$halflambert", "0").IsHalfLambert.ShouldBeFalse();
@@ -42,7 +42,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void SelfIlluminationIsReadFromItsKey()
+    public void VmtParameters_SelfIllumination_IsReadFromItsKey()
     {
         Material("$selfillum", "1").IsSelfIlluminated.ShouldBeTrue();
         Material("$selfillum", "0").IsSelfIlluminated.ShouldBeFalse();
@@ -50,7 +50,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void SelfShadowingBumpIsReadFromItsKey()
+    public void VmtParameters_SelfShadowingBump_IsReadFromItsKey()
     {
         Material("$ssbump", "1").IsSelfShadowingBump.ShouldBeTrue();
         Material("$ssbump", "0").IsSelfShadowingBump.ShouldBeFalse();
@@ -58,7 +58,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void ModulateIsDecidedByTheShaderNotAKey()
+    public void VmtParameters_Modulate_IsDecidedByTheShaderNotAKey()
     {
         // Modulate is the SHADER, so a key of that name means nothing. Testing it like the others
         // would pass against an implementation reading a $modulate key that does not exist.
@@ -71,7 +71,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void ModulateTwiceNeedsBothTheShaderAndTheKey()
+    public void VmtParameters_ModulateTwice_NeedsBothTheShaderAndTheKey()
     {
         // An AND of two conditions, so each has to be shown to matter on its own - otherwise a
         // mutant that drops either half survives.
@@ -85,7 +85,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void AToolMaterialNeedsBothItsShaderAndItsNoDrawFlag()
+    public void VmtParameters_AToolMaterial_NeedsBothShaderAndNoDrawFlag()
     {
         // Also an AND, and the one whose halves are least alike: a shader name prefix and a
         // percent-prefixed compile flag.
@@ -97,7 +97,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void TwoTextureIsDrivenByTheSecondTextureKey()
+    public void VmtParameters_TwoTexture_IsDrivenByTheSecondTextureKey()
     {
         // **It is an AND of a specific SHADER and the key**, which this test's first version got
         // wrong: it used WorldTwoTextureBlend, a real Source shader that is not this one, and
@@ -118,7 +118,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void DetailKeysAreReadWithTheirDocumentedDefaults()
+    public void VmtParameters_DetailKeys_UseTheirDocumentedDefaults()
     {
         VmtMaterial detailed = Parse(
             "LightmappedGeneric\n{\n\t\"$detail\" \"detail/rock\"\n" +
@@ -140,7 +140,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void ABumpMapIsReadAndIsAbsentWhenUnstated()
+    public void VmtParameters_ABumpMap_IsReadAndAbsentWhenUnstated()
     {
         Material("$bumpmap", "models/player/scout_normal").BumpMap
             .ShouldBe("models/player/scout_normal");
@@ -149,7 +149,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void PrimaryTextureFallsBackToAColourBearingParameterWhenThereIsNoBaseTexture()
+    public void VmtParameters_NoBaseTexture_FallsBackToAColourBearingParameter()
     {
         // **The fallback is why this property exists**, and a material with a $basetexture cannot
         // exercise it. Several shipped materials carry no base texture and name their image under
@@ -171,7 +171,7 @@ public sealed class VmtParameterTests
     }
 
     [Test]
-    public void ValueIsCaseInsensitiveOnTheKeyAndKeepsTheValueAsWritten()
+    public void VmtParameters_Value_IsCaseInsensitiveOnTheKeyOnly()
     {
         VmtMaterial material = Parse(
             "LightmappedGeneric\n{\n\t\"$BaseTexture\" \"Concrete/Wall\"\n}\n");

@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class FindMaterialProbe
 {
     [Test]
-    public void WhereDoesTheHydroPipeMaterialLive()
+    public void HydroPipeMaterial_ItsLocation_IsReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 

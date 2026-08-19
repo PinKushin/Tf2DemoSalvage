@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class BumpMapPrevalenceProbe
 {
     [Test]
-    public void HowManyMaterialsUseWhichKindOfBumpMap()
+    public void BumpMaps_ByKind_AreReported()
     {
         string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
         string map = Path.Combine(tf, "maps", "cp_process_final.bsp");

@@ -23,7 +23,7 @@ public sealed class ClassAirwalkTests
     private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
 
     [Test]
-    public void TheClassScriptsSayWhoAirWalks()
+    public void ClassScripts_AirWalkingClasses_AreDeclared()
     {
         if (Reader() is not { } read)
         {

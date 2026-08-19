@@ -34,7 +34,7 @@ public sealed class StudioMotionTests
     [TestCase("models/player/scout_animations.mdl", 400f)]
     [TestCase("models/player/soldier_animations.mdl", 240f)]
     [TestCase("models/player/heavy_animations.mdl", 230f)]
-    public void TheForwardRunTravelsAtTheClassSpeed(string path, float expected)
+    public void StudioMotion_TheForwardRun_TravelsAtTheClassSpeed(string path, float expected)
     {
         if (Read(path) is not { } file)
         {
@@ -46,7 +46,7 @@ public sealed class StudioMotionTests
     }
 
     [Test]
-    public void RunningBackwardTravelsAtTheSameSpeed()
+    public void StudioMotion_RunningBackward_TravelsAtTheSameSpeed()
     {
         // **The control for the direction, and it has to be equal rather than merely non-zero.**
         // A blend cell is chosen by the pose parameters, so if the wrong cells were being asked

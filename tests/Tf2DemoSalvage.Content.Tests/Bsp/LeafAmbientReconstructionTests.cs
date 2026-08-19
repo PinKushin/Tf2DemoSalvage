@@ -99,7 +99,7 @@ public sealed class LeafAmbientReconstructionTests
     }
 
     [Test]
-    public void EveryFaceIsWeightedIndependently()
+    public void LeafAmbient_EveryFace_IsWeightedIndependently()
     {
         // The loop runs over all six faces. A transcription that blended one face and copied the
         // rest would pass every test above, since those use grey cubes throughout.

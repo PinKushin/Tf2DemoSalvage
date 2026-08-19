@@ -54,7 +54,7 @@ public sealed class OverlayCoverageProbe
     }
 
     [Test]
-    public void HowMuchOfEachDecalLandsOnTheFacesItNames()
+    public void OverlayCoverage_EachDecalOnItsNamedFaces_IsReported()
     {
         if (MapFile is not { } path)
         {

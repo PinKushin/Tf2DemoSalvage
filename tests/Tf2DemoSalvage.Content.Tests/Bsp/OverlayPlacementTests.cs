@@ -53,7 +53,7 @@ public sealed class OverlayPlacementTests
     }
 
     [Test]
-    public void AnOverlayFacesTheSameWayAsTheSurfacesItIsPinnedTo()
+    public void OverlayPlacement_AnOverlay_FacesTheSameWayAsItsSurfaces()
     {
         // **The check that the basis means what it is being read to mean.** A decal is painted on a
         // surface, so its normal and that surface's normal point the same way. If BasisNormal were
@@ -168,7 +168,7 @@ public sealed class OverlayPlacementTests
     }
 
     [Test]
-    public void AnOverlaySitsOnTheSurfaceRatherThanFloatingAboveIt()
+    public void OverlayPlacement_AnOverlay_SitsOnTheSurfaceNotAboveIt()
     {
         // **Distance from the face's plane, which is what "pinned to" has to mean.** A decal is on
         // the surface: its origin lies in that surface's plane, give or take the small offset the
@@ -225,7 +225,7 @@ public sealed class OverlayPlacementTests
     }
 
     [Test]
-    public void TheWorldCornersSpanRealGroundRatherThanCollapsing()
+    public void OverlayPlacement_TheWorldCorners_SpanRealGround()
     {
         // The bystander for the projection itself. Corners projected through the basis must
         // enclose actual area: a swapped or zeroed basis axis produces a line or a point, which

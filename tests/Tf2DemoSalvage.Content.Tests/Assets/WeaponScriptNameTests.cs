@@ -29,7 +29,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class WeaponScriptNameTests
 {
     [Test]
-    public void EveryWeaponInTheSdkResolvesToItsOwnScriptName()
+    public void WeaponScriptNames_EveryWeaponInTheSdk_ResolvesToItsOwnScriptName()
     {
         Dictionary<string, string> pairs = Pairs();
 
@@ -57,7 +57,7 @@ public sealed class WeaponScriptNameTests
     }
 
     [Test]
-    public void ARegularNameNeedsNoException()
+    public void WeaponScriptNames_ARegularName_NeedsNoException()
     {
         // **The half the exception list must not swallow.** If every pair were listed explicitly the
         // test above would pass while the rule did nothing, so this pins a few the rule has to get

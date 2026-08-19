@@ -74,7 +74,7 @@ public sealed class SurfaceFlagTests
     }
 
     [Test]
-    public void TheFlagsWeDoNotModelAreNamed()
+    public void SurfaceFlags_TheUnmodelledOnes_AreNamed()
     {
         // **A gap stated is a decision; a gap unstated is an oversight.** These four are real flags
         // this project reads past: none of them changes whether a surface is drawn, which is why
@@ -106,7 +106,7 @@ public sealed class SurfaceFlagTests
     }
 
     [Test]
-    public void TheSolidContentsBitIsTheEngines()
+    public void SurfaceFlags_TheSolidContentsBit_IsTheEngines()
     {
         // **A different axis in the same header, and the only one of it this project reads.**
         // CONTENTS_* describe what fills a leaf; SURF_* describe a face. BspLeafTree tests this one
@@ -117,7 +117,7 @@ public sealed class SurfaceFlagTests
     }
 
     [Test]
-    public void TheSelfShadowBumpTextureFlagIsTheEngines()
+    public void SurfaceFlags_TheSelfShadowBumpFlag_IsTheEngines()
     {
         // TEXTUREFLAGS_SSBUMP, from vtf/vtf.h rather than bspflags.h. It is checked here because it
         // is the last constant in this project citing an engine name without a test: the texture's
@@ -128,7 +128,7 @@ public sealed class SurfaceFlagTests
     }
 
     [Test]
-    public void EveryFlagIsASingleDistinctBit()
+    public void SurfaceFlags_EveryFlag_IsASingleDistinctBit()
     {
         // The control. An enum of flags where two entries share a bit, or one holds two, tests as
         // fine against any individual value and misbehaves only in combination.

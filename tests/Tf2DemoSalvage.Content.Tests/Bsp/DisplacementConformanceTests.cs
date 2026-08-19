@@ -41,7 +41,7 @@ public sealed class DisplacementConformanceTests
     }
 
     [Test]
-    public void TheNeighbourStructuresAreWhatTheEngineDeclares()
+    public void Displacement_TheNeighbourStructures_MatchTheEngine()
     {
         // A sub-neighbour is an index and three single bytes: five bytes of content in a structure
         // aligned to two, so it occupies six. That trailing pad is the kind of thing hand-counting
@@ -53,7 +53,7 @@ public sealed class DisplacementConformanceTests
     }
 
     [Test]
-    public void TheDisplacementVertexIsWhatTheReaderReads()
+    public void Displacement_TheVertexStruct_MatchesWhatTheReaderReads()
     {
         // CDispVert is a class too, so this was never checked either. A vector, a distance and an
         // alpha: twenty bytes, which is the stride BspTerrain walks.
@@ -66,7 +66,7 @@ public sealed class DisplacementConformanceTests
     }
 
     [Test]
-    public void TheDisplacementRecordIsWhatTheReaderSteps()
+    public void Displacement_TheRecordStruct_MatchesWhatTheReaderSteps()
     {
         CLayout info = Layout("ddispinfo_t", Composites());
 
@@ -77,7 +77,7 @@ public sealed class DisplacementConformanceTests
     }
 
     [Test]
-    public void TheAllowedVertexArrayIsSizedByTheMaximumPower()
+    public void Displacement_TheAllowedVertexArray_IsSizedByTheMaximumPower()
     {
         // **The bound is an expression, and the arithmetic is worth stating because it is not
         // obvious.** MAX_DISPVERTS is (2^4 + 1)^2 = 289 vertices at the highest allowed power;

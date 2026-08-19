@@ -24,7 +24,7 @@ public sealed class BlackMaterialProbe
 {
     [Test]
     [Explicit("Diagnostic. Lists the materials covering the most faces.")]
-    public void WhichMaterialsCoverTheMap()
+    public void MaterialCoverage_TheMap_IsReported()
     {
         string map = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

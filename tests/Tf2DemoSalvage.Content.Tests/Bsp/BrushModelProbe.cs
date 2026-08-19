@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class BrushModelProbe
 {
     [Test]
-    public void DoBrushModelsCarryAnOriginOfTheirOwn()
+    public void BrushModels_TheirOwnOrigin_IsReported()
     {
         string path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

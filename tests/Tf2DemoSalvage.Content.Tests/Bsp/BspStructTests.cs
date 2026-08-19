@@ -166,7 +166,7 @@ public sealed class BspStructTests
     }
 
     [Test]
-    public void TheOlderLeafIsTheNewerOnePlusACube()
+    public void BspStructs_TheOlderLeaf_IsTheNewerOnePlusACube()
     {
         // **Arithmetic on two facts the header states**, which is the strongest form available for
         // a field that was deleted from the declaration. bspfile.h says the CompressedLightCube was
@@ -194,7 +194,7 @@ public sealed class BspStructTests
     }
 
     [Test]
-    public void TheParserAgreesWithAStructureWhoseSizeIsNotInDispute()
+    public void BspStructs_TheParser_AgreesOnAnUndisputedStructure()
     {
         // **The control, and it is not decoration.** Every assertion above is only as good as the
         // layout computation behind it, and a parser that quietly returned zero for an unrecognised

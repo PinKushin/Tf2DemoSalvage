@@ -50,13 +50,13 @@ public sealed class VmtPatchBlockTests
         """;
 
     [Test]
-    public void AReplaceBlocksKeysAreReadAsTheMaterialsOwn()
+    public void VmtPatch_AReplaceBlocksKeys_BecomeTheMaterialsOwn()
     {
         Parse(RealPatch).EnvMap.ShouldBe("maps/cp_process_final/c1568_1728_976");
     }
 
     [Test]
-    public void AReplaceBlockDoesNotHideTheInclude()
+    public void VmtPatch_AReplaceBlock_DoesNotHideTheInclude()
     {
         // The control on the fix: flattening must not lose what already worked.
         VmtMaterial patch = Parse(RealPatch);
@@ -66,7 +66,7 @@ public sealed class VmtPatchBlockTests
     }
 
     [Test]
-    public void AnInsertBlockIsReadTheSameWay()
+    public void VmtPatch_AnInsertBlock_IsReadTheSameWay()
     {
         // vbsp writes `replace`; hand-authored VMTs use `insert` for a key the included material
         // does not have. Both are patch payloads and both were being dropped.
@@ -85,7 +85,7 @@ public sealed class VmtPatchBlockTests
     }
 
     [Test]
-    public void BothBlocksApplyWhenAPatchCarriesThem()
+    public void VmtPatch_APatchCarryingBoth_AppliesBoth()
     {
         VmtMaterial patch = Parse(
             """
@@ -102,7 +102,7 @@ public sealed class VmtPatchBlockTests
     }
 
     [Test]
-    public void APatchsReplacementActuallyReachesTheMergedMaterial()
+    public void VmtPatch_AReplacement_ReachesTheMergedMaterial()
     {
         // **The end-to-end claim, which is the one that was false.** Parsing the block is only
         // useful if ApplyPatch then overlays it — and ApplyPatch worked all along, having been
@@ -126,7 +126,7 @@ public sealed class VmtPatchBlockTests
     }
 
     [Test]
-    public void AProxiesBlockIsStillNotFlattened()
+    public void VmtPatch_AProxiesBlock_IsNotFlattened()
     {
         // **The control that keeps the fix honest, and the reason depth-1-only existed.** A Proxies
         // block carries its own keys that are NOT the surface's — a proxy animating a texture names
@@ -151,7 +151,7 @@ public sealed class VmtPatchBlockTests
     }
 
     [Test]
-    public void AReplaceBlockNestedInsideProxiesIsStillIgnored()
+    public void VmtPatch_AReplaceNestedInProxies_IsIgnored()
     {
         // The two rules meet here: `replace` is only a patch payload at the material's top level.
         // A block of that name deeper in is somebody else's, and a fix keyed on the NAME alone
