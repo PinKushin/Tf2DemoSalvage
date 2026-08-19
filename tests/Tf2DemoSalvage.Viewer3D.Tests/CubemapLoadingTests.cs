@@ -164,23 +164,5 @@ public sealed class CubemapLoadingTests
         patched.ShouldBeGreaterThan(namedItself);
     }
 
-    private static MapAssets LoadTheMap()
-    {
-        if (Tf2Install.Folder is not { } game)
-        {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
-
-            throw new InvalidOperationException("unreachable; Assert.Ignore throws");
-        }
-
-        string path = Path.Combine(game, "maps", MapName + ".bsp");
-
-        if (!File.Exists(path))
-        {
-            Assert.Ignore($"{MapName} is not installed.");
-        }
-
-        return MapAssets.Load(
-            File.ReadAllBytes(path), GameArchives.Open(game), maximumTextureSize: 32);
-    }
+    private static MapAssets LoadTheMap() => MapCache.Load();
 }

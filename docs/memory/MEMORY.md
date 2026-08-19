@@ -81,3 +81,4 @@
 - [Material variables split three ways](material-variables-split-three-ways.md) — shader params, MATERIAL_VAR flags and standard vars; the coverage test has accused correct code twice for knowing only two.
 - [Struct padding is on disk](struct-padding-is-on-disk.md) — lump stride is sizeof(), not the field sum; ten tests passed the wrong stride because the fixture shared the belief.
 - [Put the real file in the fixture](put-the-real-file-in-the-fixture.md) — three bugs in one session survived their own tests because the fixture was authored from the same belief as the code.
+- [Author the specimen the corpus lacks](author-the-specimen-the-corpus-lacks.md) — the writer is a test instrument; a case no demo contains can be written rather than hunted for.

@@ -191,22 +191,24 @@ public sealed class SourceConformanceTests
         // WHAT YOU SEE: a capture point's beam does not scroll and its sign does not pulse. The
         // scene is correct and static, which reads as lifeless rather than as broken.
         //
-        // **Partly done, and the remaining part is named rather than left vague.** The Proxies
-        // block is now parsed, carried through the load, and evaluated at bind time — which is what
-        // the engine does, since IMaterialProxy has Init, OnBind and Release and no tick at all.
-        // Sine and TextureScroll are wired to the modulation colour and the texture transforms.
+        // **The time-driven half is done and measured through the GPU.** The Proxies block is
+        // parsed, carried through both the world and the entity model paths, and evaluated at BIND
+        // — which is what the engine does, since IMaterialProxy has Init, OnBind and Release and no
+        // tick at all. Naming the capture point models brings in Sine x6 and TextureScroll x6, and
+        // ProxyRenderTests draws one at two playback times and gets two different pictures while an
+        // unproxied control stays byte-identical.
         //
-        // What is NOT done, measured on cp_process_final: the seven proxies its materials declare
-        // are Subtract, PlayerProximity, Clamp, PlayerTeamMatch, Divide and Multiply — entity-state
-        // and chained-maths proxies, none of which this evaluates. The materials that DO run a Sine
-        // are entity models (models/effects/cappoint_logo_blue), and entity models resolve through
-        // PropModels rather than the map's material table, so they never reach the proxy list.
+        // What remains is the ENTITY-STATE half. cp_process_final's own materials run Subtract,
+        // PlayerProximity, Clamp, PlayerTeamMatch, Divide and Multiply, and none of those is a
+        // function of time: they read the entity the material is drawn on — its team, a player's
+        // distance — which this layer does not have. An unrecognised proxy leaves the material at
+        // its resting value rather than being guessed at.
         //
-        // TO FINISH: carry proxies through the entity model path, and decide what a proxy reading
-        // entity state should do here — it needs the entity, which this layer does not have.
+        // TO FINISH: give the material bind an entity, so a proxy can read team and proximity.
+        // That is a scene-layer change rather than a material one, which is why it is not here.
         Assert.Ignore(
-            "Proxies: parsed and evaluated for world materials; entity models do not carry them, " +
-            "and this map's own proxies are all entity-state ones. B80.");
+            "Proxies: time-driven ones evaluated on both paths; entity-state ones need the entity " +
+            "the material is drawn on. B80.");
     }
 
     [Test]

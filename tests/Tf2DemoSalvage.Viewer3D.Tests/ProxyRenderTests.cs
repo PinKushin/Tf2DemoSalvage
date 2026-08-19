@@ -167,16 +167,15 @@ public sealed class ProxyRenderTests
     {
         get
         {
-            if (Tf2Install.Folder is not { } tf)
-            {
-                return null;
-            }
-
-            string map = Path.Combine(tf, "maps", MapName + ".bsp");
-
-            return File.Exists(map)
-                ? MapAssets.Load(File.ReadAllBytes(map), GameArchives.Open(tf), maximumTextureSize: 64)
-                : null;
+            // **Entity models named, because that is where a time-driven proxy lives.** A map on
+            // its own yields only entity-state proxies — Subtract, PlayerProximity, Clamp — and
+            // this test would skip forever without ever being wrong. The capture point's materials
+            // run the Sine and the TextureScroll that this renderer evaluates.
+            // Shared with EntityModelProxyTests, which asks for the same models — so the two files
+            // together cost one load rather than three.
+            return MapCache.Load(
+                entityModels:
+                ["models/props_gameplay/cap_point_base.mdl", "models/effects/cappoint_hologram.mdl"]);
         }
     }
 }
