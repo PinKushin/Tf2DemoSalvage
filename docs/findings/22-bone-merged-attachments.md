@@ -193,3 +193,31 @@ the networked table and draws a confidently wrong model.
 The pattern across all three: each was a confident answer to a question the measurement had not
 been pointed at. Only the property dump — asking the entity what it holds rather than asking
 whether a field we had already named was present — settled it.
+
+## An open observation, deliberately not turned into a test
+
+*Evidence class: measured on the corpus, and CONFOUNDED — see below.*
+
+The probe that produced the findings above was deleted on 2026-08-19, because it asserted nothing
+and its fallback path measured the wrong thing. Its last output is worth keeping, and worth
+labelling honestly:
+
+```
+tf2-2007-build3258-pov-cp_granary.dem   110 prop tracks, 57 models, weapons:
+tf2-2008-build3420-pov-cp_granary.dem    75 prop tracks, 43 models, weapons: 1x w_stickybomb_launcher.mdl
+```
+
+The 2007 recording carries **no carried-weapon entity at all**; the 2008 one carries a sticky
+launcher for 220 ticks. That looks like an era change in how weapons are networked, and it may well
+be one.
+
+**It is not evidence of that, and the reason is worth stating.** One demo per build, recorded in
+different sessions by a player who was doing different things. A demoman who never switched weapons
+and a scout who never fired produce the same "no weapon entity" reading as a build that does not
+send them. Attributing the difference to the build is the confound this project has walked into
+before — a measurement whose condition varies on more than the axis being tested.
+
+Settling it needs the pairing the corpus already uses elsewhere: two recordings of **one session**,
+or two builds recorded doing the **same thing**. Until then this is a question, not a finding, and
+it is written here rather than asserted in a test so that nobody has to rediscover the confound to
+explain why the test is failing.

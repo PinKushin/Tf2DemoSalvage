@@ -33,13 +33,43 @@ internal static class SyntheticPlayer
     /// <summary>Class id the player entity is created with.</summary>
     public const int PlayerClassId = 0;
 
+    /// <summary>Which exclusive table carries a player's position.</summary>
+    /// <remarks>
+    /// **Not a property of the recording mode, and the corpus settled that.** The obvious rule —
+    /// a point-of-view demo resolves through the local table and a SourceTV recording through the
+    /// non-local one — is FALSE: the 2013 SourceTV demo is 21 non-local against 2 local, and a
+    /// modern demos.tf SourceTV recording came back 12 local and 0 non-local. Any reader branching
+    /// on POV-versus-SourceTV is wrong on some era.
+    ///
+    /// What matters is that the resolver reaches both, which is why this is a fixture axis: a
+    /// synthetic demo can be written with either table rather than hoping the corpus contains one
+    /// of each.
+    /// </remarks>
+    public enum OriginTable
+    {
+        /// <summary><c>DT_TFNonLocalPlayerExclusive</c>.</summary>
+        NonLocal,
+
+        /// <summary><c>DT_TFLocalPlayerExclusive</c>.</summary>
+        Local,
+    }
+
     /// <summary>A schema with the tables a player's position and pose are read from.</summary>
     /// <remarks>
     /// Nested through <c>DT_TFPlayer</c> by DataTable properties, because that is how inheritance
     /// is expressed on the wire and how <c>SchemaFlattener</c> reaches the parent tables. Listing
     /// them side by side without the nesting produces a flattened list with none of them in it.
     /// </remarks>
-    public static DemoSchema Schema() => new(
+    public static DemoSchema Schema() => Schema(OriginTable.NonLocal);
+
+    /// <summary>A schema carrying the player's position in the chosen exclusive table.</summary>
+    /// <param name="origin">Which of the two mutually exclusive tables to declare.</param>
+    /// <returns>The schema.</returns>
+    /// <remarks>
+    /// One or the other, never both — a demo carries whichever the server sent for that player, and
+    /// a fixture declaring both would describe a combination no recording contains.
+    /// </remarks>
+    public static DemoSchema Schema(OriginTable origin) => new(
         [
             new SendTable("DT_BaseEntity", NeedsDecoder: true,
             [
@@ -67,11 +97,14 @@ internal static class SyntheticPlayer
                 Table("baseanimating", "DT_BaseAnimating"),
             ]),
 
-            // The non-local exclusive table, which is where a SourceTV recording carries every
-            // other player's position. The local one is its complement and is deliberately absent:
-            // a POV demo carries one and an STV demo the other, and a fixture with both would
-            // exercise a combination no recording contains.
-            new SendTable("DT_TFNonLocalPlayerExclusive", NeedsDecoder: true,
+            // One exclusive table, named by the caller. They are complements — a player's position
+            // arrives in one or the other, never both — so declaring both would describe a
+            // combination no recording contains.
+            new SendTable(
+                origin == OriginTable.Local
+                    ? "DT_TFLocalPlayerExclusive"
+                    : "DT_TFNonLocalPlayerExclusive",
+                NeedsDecoder: true,
             [
                 // **VectorXY, not Vector, and the two are different ERAS rather than a style
                 // choice.** A three-component vector is the launch shape and carries height
@@ -90,12 +123,16 @@ internal static class SyntheticPlayer
                 Int("m_nWaterLevel", bits: 2),
                 Int("m_iTeamNum", bits: 3),
                 Table("baseplayer", "DT_BasePlayer"),
-                Table("nonlocaldata", "DT_TFNonLocalPlayerExclusive"),
+                Table(
+                    "exclusivedata",
+                    origin == OriginTable.Local
+                        ? "DT_TFLocalPlayerExclusive"
+                        : "DT_TFNonLocalPlayerExclusive"),
             ]),
         ],
         [new ServerClass(PlayerClassId, "CTFPlayer", "DT_TFPlayer")]);
 
-    /// <summary>A decoder over <see cref="Schema"/>, which the encoder also needs.</summary>
+    /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()
     {
         DemoSchema schema = Schema();
@@ -112,36 +149,67 @@ internal static class SyntheticPlayer
     /// <exception cref="ArgumentNullException"><paramref name="values"/> is null.</exception>
     /// <exception cref="ArgumentException">A named property is not in the flattened list.</exception>
     public static byte[] Demo(
-        IReadOnlyDictionary<string, PropertyValue> values, int entityIndex = 1, int tick = 66)
-    {
-        ArgumentNullException.ThrowIfNull(values);
+        IReadOnlyDictionary<string, PropertyValue> values, int entityIndex = 1, int tick = 66) =>
+        Demo(OriginTable.NonLocal, tick, (entityIndex, values));
 
-        DemoSchema schema = Schema();
+    /// <summary>A demo whose single snapshot creates several players at once.</summary>
+    /// <param name="origin">Which exclusive table carries their positions.</param>
+    /// <param name="tick">The tick the snapshot is stamped with.</param>
+    /// <param name="players">One entry per player: its slot and its properties.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// **Several entities in one snapshot is a different code path from one repeated.** Entity
+    /// indices are delta-coded, so the encoder writes the GAP to the next slot rather than the slot
+    /// itself — a demo with players in slots 1, 2 and 5 exercises that, and three separate
+    /// single-player demos do not.
+    /// </remarks>
+    public static byte[] Demo(
+        OriginTable origin,
+        int tick,
+        params (int EntityIndex, IReadOnlyDictionary<string, PropertyValue> Values)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        DemoSchema schema = Schema(origin);
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
         IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PlayerClassId);
-        List<DecodedProperty> properties = [];
+        List<DecodedEntity> entities = [];
 
-        foreach ((string name, PropertyValue value) in values)
+        // Ascending, because a snapshot's entity indices are delta-coded and the encoder writes the
+        // gap to the next slot. Out of order it encodes negative gaps, which is not a stream any
+        // server produces.
+        foreach ((int entityIndex, IReadOnlyDictionary<string, PropertyValue> values) in
+            players.OrderBy(player => player.EntityIndex))
         {
-            int index = IndexOf(flat, name);
-            properties.Add(new DecodedProperty(index, flat[index], value));
+            ArgumentNullException.ThrowIfNull(values);
+
+            List<DecodedProperty> properties = [];
+            foreach ((string name, PropertyValue value) in values)
+            {
+                int index = IndexOf(flat, name);
+                properties.Add(new DecodedProperty(index, flat[index], value));
+            }
+
+            // Sorted by property index, for the same reason: properties are delta-coded against
+            // the previous index. Out of order they encode to a stream that decodes to different
+            // properties entirely.
+            properties.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+            entities.Add(new DecodedEntity(
+                entityIndex,
+                PlayerClassId,
+
+                // A distinct serial per slot, so two players are two tracks rather than one slot
+                // being reused. TrackIdentity keys on the pair.
+                SerialNumber: entityIndex,
+                EntityUpdateType.Enter,
+                properties));
         }
 
-        // Sorted by property index, because a snapshot's properties are delta-coded against the
-        // previous index and the encoder writes the gaps. Out of order they encode to a stream
-        // that decodes to different properties entirely.
-        properties.Sort((left, right) => left.Index.CompareTo(right.Index));
-
-        DecodedEntity player = new(
-            entityIndex,
-            PlayerClassId,
-            SerialNumber: 1,
-            EntityUpdateType.Enter,
-            properties);
-
-        byte[] body = decoder.EncodeEntities([player], [], isDelta: false, 0, out int bits);
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
 
         return SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
@@ -155,7 +223,7 @@ internal static class SyntheticPlayer
                     IsDelta: false,
                     DeltaFromTick: null,
                     BaselineIndex: false,
-                    UpdatedEntries: 1,
+                    UpdatedEntries: entities.Count,
                     LengthBits: bits,
                     UpdateBaseline: false,
                     Body: body)));

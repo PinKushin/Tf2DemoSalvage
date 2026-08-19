@@ -125,9 +125,10 @@ public sealed class CorpusEntityDecodeTests
             // entities carrying an origin. Nothing was wrong with the decode.
             //
             // A count is the wrong place to be strict here anyway — the real assertion is the
-            // bounds check, and PlayerPositions_AreSpreadAcrossTheMap carries the guard against a
-            // decoder returning a constant. A floor sized to 6v6 competitive play was measuring
-            // the corpus's uniformity, not the parser.
+            // bounds check, and the guard against a decoder returning a constant now lives in
+            // SyntheticSceneTests.Build_ThreePlayersAtChosenPositions_AreNotCollapsedToOne, where
+            // three chosen coordinates make it exact rather than a spread heuristic. A floor sized
+            // to 6v6 competitive play was measuring the corpus's uniformity, not the parser.
             origins.Count.ShouldBeGreaterThan(10, name);
 
             foreach ((float x, float y, float z) in origins)
@@ -137,20 +138,6 @@ public sealed class CorpusEntityDecodeTests
                 MathF.Abs(y).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
                 MathF.Abs(z).ShouldBeLessThanOrEqualTo(WorldHalfExtent, name);
             }
-        }
-    }
-
-    [Test]
-    public void PlayerPositions_AreSpreadAcrossTheMap()
-    {
-        // Without this, a decoder returning a constant passes the bounds check above.
-        foreach (string path in SourceTvDemos())
-        {
-            List<(float X, float Y, float Z)> origins = Origins(FirstFull(path).Entities);
-            string name = Path.GetFileName(path);
-
-            origins.Select(o => o.X).Distinct().Count().ShouldBeGreaterThan(10, name);
-            (origins.Max(o => o.X) - origins.Min(o => o.X)).ShouldBeGreaterThan(100f, name);
         }
     }
 
