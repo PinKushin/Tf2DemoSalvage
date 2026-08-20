@@ -84,13 +84,56 @@ public static class PlayerEye
         return DuckViewHeight;
     }
 
-    /// <summary>Eye height while dead, before the ragdoll takes over.</summary>
+    /// <summary>
+    /// Eye height when SPECTATING a player in first person, which is not the per-class height.
+    /// </summary>
+    /// <param name="ducking">Whether the spectated player is crouched.</param>
+    /// <returns>Units above their origin.</returns>
     /// <remarks>
-    /// <c>VEC_DEAD_VIEWHEIGHT</c>, 14 units — a camera near the floor. TF2 never animates a dying
-    /// player and the corpse is a separate <c>CTFRagdoll</c> entity, so this is the height of the
-    /// brief view between the two.
+    /// **The spectator camera and the player's own camera use different numbers, and this was got
+    /// wrong here first.** <c>C_HLTVCamera::CalcInEyeCamView</c>
+    /// (<c>src/game/client/hltvcamera.cpp:314</c>) adds the FLAT vectors:
+    ///
+    /// <code>
+    /// m_vCamOrigin = pPlayer->GetAbsOrigin();
+    /// if ( pPlayer->GetFlags() &amp; FL_DUCKING ) { m_vCamOrigin += VEC_DUCK_VIEW; }
+    /// else                                      { m_vCamOrigin += VEC_VIEW; }
+    /// </code>
+    ///
+    /// <c>VEC_VIEW</c> is <c>g_TFViewVectors.m_vView</c>, a single 72 for everyone — not
+    /// <c>g_TFClassViewVectors</c>. The per-class table reaches a player's OWN view through
+    /// <c>SetViewOffset( IsDucked() ? VEC_DUCK_VIEW_SCALED(this) : GetClassEyeHeight() )</c>
+    /// (<c>tf_player.cpp:16932</c>), and otherwise drives bots and sentry auto-aim.
+    ///
+    /// So spectating a sniper in TF2 puts the camera three units BELOW where that sniper's own
+    /// client would have put it, and spectating a scout seven units above. That is the engine's
+    /// behaviour rather than an approximation of it, and copying it is the point.
     /// </remarks>
-    public const float Dead = 14f;
+    public static float Spectated(bool ducking) => ducking ? DuckViewHeight : GenericViewHeight;
+
+    /// <summary>Height a CHASE camera looks over a dead player's ragdoll from.</summary>
+    /// <remarks>
+    /// <c>VEC_DEAD_VIEWHEIGHT</c>, 14 units. **This is not an in-eye height**, which is the
+    /// mistake this comment exists to prevent: <c>CalcInEyeCamView</c> does not use it, it
+    /// abandons first person entirely —
+    ///
+    /// <code>
+    /// if ( !pPlayer->IsAlive() )
+    /// {
+    ///     // if dead, show from 3rd person
+    ///     CalcChaseCamView( eyeOrigin, eyeAngles, fov );
+    ///     return;
+    /// }
+    /// </code>
+    ///
+    /// — and the chase camera then raises its TARGET by this much, with the comment "look over
+    /// ragdoll, not through" (<c>hltvcamera.cpp:129</c>). A first-person camera dropped to 14
+    /// units would sit inside the corpse, which is exactly what the engine is avoiding.
+    /// </remarks>
+    public const float DeadChaseTarget = 14f;
+
+    /// <summary><c>VEC_VIEW</c> from <c>g_TFViewVectors</c>: the flat, class-agnostic height.</summary>
+    private const float GenericViewHeight = 72f;
 
     /// <summary><c>VEC_DUCK_VIEW</c> from <c>g_TFViewVectors</c>.</summary>
     private const float DuckViewHeight = 45f;

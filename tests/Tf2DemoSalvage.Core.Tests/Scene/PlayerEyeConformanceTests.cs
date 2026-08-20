@@ -89,11 +89,45 @@ public sealed class PlayerEyeConformanceTests
     }
 
     [Test]
-    public void Dead_IsTheGroundLevelViewHeight()
+    public void Spectated_IsTheFlatHeight_NotThePerClassTable()
     {
-        // VEC_DEAD_VIEWHEIGHT, 14 units — a camera near the floor, which is what the engine shows
-        // between dying and the ragdoll being taken over.
-        PlayerEye.Dead.ShouldBe(14f);
+        // **Two different numbers, and which applies depends on WHOSE camera it is.**
+        // C_HLTVCamera::CalcInEyeCamView (hltvcamera.cpp:314) adds VEC_VIEW — a single 72 — while
+        // a player's own client adds GetClassEyeHeight() via
+        // SetViewOffset( IsDucked() ? VEC_DUCK_VIEW_SCALED(this) : GetClassEyeHeight() )
+        // at tf_player.cpp:16932.
+        //
+        // So spectating a scout sits seven units above where that scout's own view was, and a
+        // sniper three below. That is the engine's behaviour, not an approximation of it.
+        PlayerEye.Spectated(ducking: false).ShouldBe(72f);
+
+        // The disagreement with the per-class table is the point, so it is asserted rather than
+        // left implied.
+        PlayerEye.Standing(1).ShouldBe(65f);
+        PlayerEye.Standing(2).ShouldBe(75f);
+    }
+
+    [Test]
+    public void Spectated_Ducking_IsTheOneHeightBothPathsShare()
+    {
+        // VEC_DUCK_VIEW, used by both the spectator camera and a player's own view. Pinned because
+        // an edit that unified the two paths would break standing and leave this looking correct.
+        PlayerEye.Spectated(ducking: true).ShouldBe(45f);
+        PlayerEye.Ducking(1).ShouldBe(45f);
+    }
+
+    [Test]
+    public void DeadChaseTarget_IsAChaseHeight_NotAnInEyeOne()
+    {
+        // VEC_DEAD_VIEWHEIGHT, 14 units. **This is not a first-person height**, which is the
+        // mistake this test exists to prevent — CalcInEyeCamView does not use it, it abandons
+        // first person entirely:
+        //
+        //     if ( !pPlayer->IsAlive() ) { CalcChaseCamView( ... ); return; }
+        //
+        // and the chase camera then raises its TARGET by this much, commented "look over ragdoll,
+        // not through". An in-eye camera dropped to 14 would sit inside the corpse.
+        PlayerEye.DeadChaseTarget.ShouldBe(14f);
     }
 
     [Test]
@@ -106,7 +140,7 @@ public sealed class PlayerEyeConformanceTests
         for (int playerClass = 0; playerClass <= 10; playerClass++)
         {
             PlayerEye.Standing(playerClass).ShouldBeGreaterThan(PlayerEye.Ducking(playerClass));
-            PlayerEye.Ducking(playerClass).ShouldBeGreaterThan(PlayerEye.Dead);
+            PlayerEye.Ducking(playerClass).ShouldBeGreaterThan(PlayerEye.DeadChaseTarget);
         }
     }
 }

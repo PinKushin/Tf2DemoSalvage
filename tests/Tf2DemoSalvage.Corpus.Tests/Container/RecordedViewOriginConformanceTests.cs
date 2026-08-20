@@ -29,9 +29,16 @@ namespace Tf2DemoSalvage.Core.Tests.Container;
 ///
 /// — so the question was whether the recorder wrote down <c>GetAbsOrigin()</c> or
 /// <c>EyePosition()</c>. **It writes the origin.** Measured 2026-08-19 against every point-of-view
-/// demo in the corpus: the recorded view and the recorder's own networked origin agree to the
-/// hundredth at every tick, with a median difference of exactly zero over 3,807 ticks on the 2007
-/// specimen alone.
+/// demo in the corpus: while the recorder is ALIVE, the recorded view and their own networked
+/// origin agree to the hundredth at every tick — a median difference of exactly zero over 3,807
+/// ticks on the 2007 specimen alone.
+///
+/// **While the recorder is DEAD the two part company**, because the camera follows whoever they
+/// are spectating and this project's timeline holds a dead player's last position instead. Three
+/// of the four demos carrying dead ticks still measure zero — the recorder was watching from near
+/// where they fell — and the 2009 badlands demo measures −168.97, which is somebody spectating
+/// across the map. That is why the identity above is stated for living ticks and asserted over
+/// them only.
 ///
 /// **The obvious hypothesis was the wrong one**, and it is worth saying why it was plausible: a
 /// recorder writing down "where the camera is" would write the eye. It does not — the client adds
@@ -91,6 +98,16 @@ public sealed class RecordedViewOriginConformanceTests
                     continue;
                 }
 
+                // **Alive ticks only, and that restriction is measured rather than tidy.** While
+                // dead the recorder spectates someone else and the two quantities part company —
+                // 168.97 units apart on the 2009 demo. Taking the median over every tick still
+                // reports zero, because dead stretches are a minority, so it would be a true
+                // number arrived at by luck.
+                if (!matches[0].IsAlive)
+                {
+                    continue;
+                }
+
                 rises.Add(view.Origin.Z - matches[0].Z);
 
                 if (samples.Count < 3)
@@ -138,6 +155,88 @@ public sealed class RecordedViewOriginConformanceTests
             "no point-of-view demo could be matched to its recorder, so nothing was measured");
 
         TestContext.Out.WriteLine(string.Join(Environment.NewLine, measured));
+    }
+
+    [Test]
+    public void RecordedView_WhileTheRecorderIsDead_StillTracksTheirEntityOrigin()
+    {
+        // **Does the identity survive death?** While dead a player spectates someone else, and
+        // both the recorded view and the recorder's own entity are said to follow the spectated
+        // target — the entity because a dead player's slot moves with the camera, the view because
+        // that is what the client computed. If both move together the difference stays zero and
+        // the recorded view needs no special case; if they diverge, a first-person camera has to
+        // know which one to believe.
+        //
+        // Measured rather than reasoned, because the engine path is intricate enough to get wrong:
+        // CalcInEyeCamView uses the TARGET's origin plus the SPECTATOR's own view offset (Valve's
+        // comment there is "hack hack"), and OBS_MODE_IN_EYE is the one observer mode that does
+        // not zero that offset.
+        List<string> report = [];
+        List<string> divergent = [];
+
+        foreach (string path in Corpus.Files().Where(IsPointOfView))
+        {
+            if (Recorder(path) is not { } slot)
+            {
+                continue;
+            }
+
+            DemoTimeline timeline = TimelineCache.For(path);
+            List<float> alive = [];
+            List<float> dead = [];
+
+            foreach ((int tick, RecordedView view) in Views(path))
+            {
+                List<ScenePlayer> matches =
+                [
+                    .. timeline.PlayersAt(tick).Where(player => player.EntityIndex == slot + 1),
+                ];
+
+                if (matches.Count == 0)
+                {
+                    continue;
+                }
+
+                (matches[0].IsAlive ? alive : dead).Add(view.Origin.Z - matches[0].Z);
+            }
+
+            report.Add(
+                $"{Path.GetFileName(path)}: {alive.Count} alive ticks, {dead.Count} dead ticks" +
+                (dead.Count > 0 ? $", dead median {Median(dead):0.##}" : string.Empty));
+
+            if (dead.Count > 0 && Math.Abs(Median(dead)) > 1f)
+            {
+                divergent.Add(Path.GetFileName(path));
+            }
+        }
+
+        TestContext.Out.WriteLine(string.Join(Environment.NewLine, report));
+
+        report.ShouldNotBeEmpty("nothing was measured");
+
+        // **Measured 2026-08-19, and the answer is that it does NOT hold while dead.** Four
+        // point-of-view demos carry dead ticks; three give a median difference of zero and the
+        // 2009 badlands demo gives −168.97. The recorder was spectating someone across the map,
+        // and this project's own timeline HOLDS a dead player's last position rather than
+        // following the camera — so the two quantities genuinely part company.
+        //
+        // Asserted as "at least one demo diverges" rather than as a number, because the size of
+        // the divergence is a fact about where somebody happened to be standing. What is being
+        // pinned is that the identity is alive-only: a future change that made the dead case agree
+        // everywhere would mean the timeline had started following the spectated target, which is
+        // a real behavioural change and should not pass silently.
+        divergent.ShouldNotBeEmpty(
+            "every dead stretch tracked the recorder's own entity, so the recorded view is no " +
+            "longer following the spectated player — see docs/findings/01-container.md");
+    }
+
+    /// <summary>The middle value of a sorted copy, so one odd tick cannot decide an answer.</summary>
+    private static float Median(List<float> values)
+    {
+        List<float> sorted = [.. values];
+        sorted.Sort();
+
+        return sorted[sorted.Count / 2];
     }
 
     /// <summary>The recording player's slot, from <c>svc_ServerInfo</c>.</summary>

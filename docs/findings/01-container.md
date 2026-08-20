@@ -515,3 +515,40 @@ our own reading of it.
 or both are absent — and only the raw samples separate them. The first version of the test asserted
 before printing them, so the failure message hid the numbers that settle it; the samples are now
 written out first for that reason.
+
+### While the recorder is dead, the recorded view leaves their entity behind
+*(measured across the corpus — 19 August 2026)*
+
+The identity above — recorded view origin equals the recorder's networked origin — holds **while
+they are alive**. It does not survive death, and the owner said so before it was measured: a dead
+player's camera follows whoever they are spectating.
+
+Four point-of-view demos in the corpus carry dead ticks:
+
+| Demo | alive ticks | dead ticks | dead median |
+|---|---|---|---|
+| 2008 granary | 2298 | 466 | 0 |
+| 2009 badlands | 10309 | 690 | **−168.97** |
+| 2011 viaduct | 1777 | 653 | −0.01 |
+| 2013 badlands | 5000 | 2838 | 0 |
+
+Three measure zero because the recorder was watching from near where they fell; the 2009 demo is
+somebody spectating across the map. **The divergence is the real behaviour and the zeroes are the
+coincidence**, which is the opposite of how it looks at first glance.
+
+The other half of the explanation is ours rather than Valve's: `DemoTimeline` deliberately HOLDS a
+dead player's last stated position rather than following their entity, because the entity's own
+track follows the spectated player and interpolating it would drag the corpse across the map. So
+the two quantities are measuring different things the moment somebody dies.
+
+**Consequence for a first-person camera: on a point-of-view demo, use `democmdinfo_t` and do not
+reconstruct.** The recorded view is the client's own computed camera and already handles death,
+spectating, and every observer mode; rebuilding it from the recorder's entity would be right while
+they lived and wrong for the rest.
+
+**A near miss worth recording.** The test that established the living identity took its median over
+every tick, alive and dead together, and reported zero for all five demos — including the one that
+diverges by 169 units, because 690 dead ticks against 10,309 living ones cannot move a median. It
+was a true number reached by luck, and it would have gone on being true until somebody recorded a
+demo where they died more than they lived. The assertion is now restricted to living ticks, and the
+dead case has a test of its own that fails if the divergence ever disappears.

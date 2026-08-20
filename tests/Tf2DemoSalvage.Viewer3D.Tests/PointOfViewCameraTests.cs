@@ -36,7 +36,6 @@ public sealed class PointOfViewCameraTests
             new RecordedView((100f, -200f, 300f), (10f, 20f, 0f), IsCut: false),
             Soldier,
             ducking: false,
-            alive: true,
             aspect: 16f / 9f);
 
         camera.Origin.X.ShouldBe(100f, 0.001f);
@@ -53,8 +52,8 @@ public sealed class PointOfViewCameraTests
         // nobody would find by looking.
         RecordedView view = new((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false);
 
-        FreeCamera scout = FreeCamera.AtEye(view, Scout, false, true, 1f);
-        FreeCamera soldier = FreeCamera.AtEye(view, Soldier, false, true, 1f);
+        FreeCamera scout = FreeCamera.AtEye(view, Scout, false, 1f);
+        FreeCamera soldier = FreeCamera.AtEye(view, Soldier, false, 1f);
 
         scout.Origin.Z.ShouldBe(65f, 0.001f);
         soldier.Origin.Z.ShouldBe(68f, 0.001f);
@@ -67,22 +66,11 @@ public sealed class PointOfViewCameraTests
         // a height. Both are asserted, because "flat" is the claim.
         RecordedView view = new((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false);
 
-        FreeCamera.AtEye(view, Scout, ducking: true, alive: true, aspect: 1f)
+        FreeCamera.AtEye(view, Scout, ducking: true, aspect: 1f)
             .Origin.Z.ShouldBe(45f, 0.001f);
 
-        FreeCamera.AtEye(view, Soldier, ducking: true, alive: true, aspect: 1f)
+        FreeCamera.AtEye(view, Soldier, ducking: true, aspect: 1f)
             .Origin.Z.ShouldBe(45f, 0.001f);
-    }
-
-    [Test]
-    public void AtEye_ADeadPlayer_DropsToTheGroundLevelViewHeight()
-    {
-        // VEC_DEAD_VIEWHEIGHT. Death beats ducking: a player who died crouched is dead, not
-        // crouched, and the engine's own view drops to the floor either way.
-        RecordedView view = new((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false);
-
-        FreeCamera.AtEye(view, Soldier, ducking: true, alive: false, aspect: 1f)
-            .Origin.Z.ShouldBe(14f, 0.001f);
     }
 
     [Test]
@@ -95,11 +83,58 @@ public sealed class PointOfViewCameraTests
             new RecordedView((0f, 0f, 0f), (-12.5f, 175.25f, 0f), IsCut: false),
             Soldier,
             false,
-            true,
             1f);
 
         camera.Angles.Pitch.ShouldBe(-12.5f, 0.001f);
         camera.Angles.Yaw.ShouldBe(175.25f, 0.001f);
+        camera.Angles.Roll.ShouldBe(0f, 0.001f);
+    }
+
+    [Test]
+    public void SpectatingEye_UsesTheFlatHeight_NotThePerClassOne()
+    {
+        // **The engine uses two different numbers and this file asserted the wrong one first.**
+        // C_HLTVCamera::CalcInEyeCamView adds the flat VEC_VIEW; a player's own client adds
+        // GetClassEyeHeight(). So spectating a scout is 72 where that scout's own view was 65 —
+        // seven units, which is most of a head.
+        //
+        // Both classes are asserted at the same height, because "flat" is the claim and one
+        // sample cannot make it.
+        FreeCamera.SpectatingEye((0f, 0f, 0f), 0f, 0f, ducking: false, aspect: 1f)
+            .Origin.Z.ShouldBe(72f, 0.001f);
+
+        // The per-class factory disagrees, and that disagreement is the finding rather than a bug.
+        FreeCamera.AtEye(
+            new RecordedView((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false), Scout, false, 1f)
+            .Origin.Z.ShouldBe(65f, 0.001f);
+    }
+
+    [Test]
+    public void SpectatingEye_ADuckedPlayer_UsesTheSameDuckHeightAsTheirOwnView()
+    {
+        // VEC_DUCK_VIEW is the one number both paths share, so this is where they agree — worth
+        // pinning, because a future edit that unified the two would break standing and leave
+        // ducking looking fine.
+        FreeCamera.SpectatingEye((0f, 0f, 0f), 0f, 0f, ducking: true, aspect: 1f)
+            .Origin.Z.ShouldBe(45f, 0.001f);
+    }
+
+    [Test]
+    public void SpectatingEye_TakesThePlayersOwnAngles_SoAnStvDemoCanBeWatchedInFirstPerson()
+    {
+        // **This is how a SourceTV demo gets a first-person view at all.** An STV recording leaves
+        // democmdinfo_t zeroed, so there is no recorded camera — the view is built from the
+        // spectated player's networked position and eye angles, exactly as the engine does when
+        // you spectate in game.
+        FreeCamera camera = FreeCamera.SpectatingEye(
+            (512f, -256f, 64f), pitch: -20f, yaw: 135f, ducking: false, aspect: 1f);
+
+        camera.Origin.X.ShouldBe(512f, 0.001f);
+        camera.Origin.Y.ShouldBe(-256f, 0.001f);
+        camera.Origin.Z.ShouldBe(136f, 0.001f);
+
+        camera.Angles.Pitch.ShouldBe(-20f, 0.001f);
+        camera.Angles.Yaw.ShouldBe(135f, 0.001f);
         camera.Angles.Roll.ShouldBe(0f, 0.001f);
     }
 
@@ -113,7 +148,6 @@ public sealed class PointOfViewCameraTests
             new RecordedView((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false),
             Soldier,
             false,
-            true,
             aspect: 4f / 3f)
             .Aspect.ShouldBe(4f / 3f, 0.001f);
     }
