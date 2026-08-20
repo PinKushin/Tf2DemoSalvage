@@ -2504,10 +2504,27 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _blendTextures[batch.MaterialIndex]
                     : texture;
 
+            // The same lookup as every other path, for the same reason models needed it: `_white`
+            // is the missing-material chequer, so binding it as a detail paints magenta squares
+            // onto any material whose combine mode is not −1. No decal in the corpus has been seen
+            // to declare one — this is the second instance of one fault, fixed with it rather than
+            // left to be found again from a screenshot.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                batch.MaterialIndex < _details.Count &&
+                _details[batch.MaterialIndex].Handle is not null
+                    ? _details[batch.MaterialIndex]
+                    : _white;
+
+            ComPtr<ID3D11ShaderResourceView> bump =
+                batch.MaterialIndex < _bumps.Count &&
+                _bumps[batch.MaterialIndex].Handle is not null
+                    ? _bumps[batch.MaterialIndex]
+                    : _white;
+
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
-            context.PSSetShaderResources(3, 1, ref _white);
-            context.PSSetShaderResources(4, 1, ref _white);
+            context.PSSetShaderResources(3, 1, ref detail);
+            context.PSSetShaderResources(4, 1, ref bump);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
@@ -2938,10 +2955,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _blendTextures[material]
                     : texture;
 
+            // **The detail and the bump, looked up the way every other draw path looks them up.**
+            // This bound `_white` unconditionally, and `_white` is not white — it is the
+            // missing-material chequer, magenta and black. The shader combines a detail whenever
+            // the material's mode is not −1, so every model material declaring `$detail` had a
+            // magenta chequer multiplied into its albedo: a medic's coat came out in purple and
+            // grey squares while the texture itself decodes perfectly.
+            //
+            // The three paths that draw the world, the translucent pass and the blended pass all do
+            // the lookup below. This one did not, which is why the fault was confined to models —
+            // and why the map, the props and the world looked right in the same frame.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                material >= 0 && material < _details.Count &&
+                _details[material].Handle is not null
+                    ? _details[material]
+                    : _white;
+
+            ComPtr<ID3D11ShaderResourceView> bump =
+                material >= 0 && material < _bumps.Count &&
+                _bumps[material].Handle is not null
+                    ? _bumps[material]
+                    : _white;
+
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
-            context.PSSetShaderResources(3, 1, ref _white);
-            context.PSSetShaderResources(4, 1, ref _white);
+            context.PSSetShaderResources(3, 1, ref detail);
+            context.PSSetShaderResources(4, 1, ref bump);
 
             SetMaterial(context, material);
 
