@@ -322,3 +322,55 @@ not** — which is why the test was written against the demo rather than against
 and asserted only that *something* was compared, so the fix could not have been proved by it. An
 empty disagreement list is also what "this demo stopped resolving a weapon at all" looks like, so it
 now names the two-viewmodel demo explicitly and requires a comparison from it.
+
+### Cloak is computed, not recorded — and how much of it depends on who is watching
+
+The blur is client-only, and the SDK says exactly how much of it we would have to compute.
+
+**`m_flInvisibility` is not on the wire.** It has no SendProp; the only cloak value networked is
+`m_flCloakMeter` (the ammo). The invisibility level is recomputed every frame in
+`CTFPlayerShared::InvisibilityThink` from conditions and timers — `IsStealthed()`,
+`m_flInvisChangeCompleteTime`, `TF_COND_STEALTHED_BLINK`, and for motion cloak the player's own
+speed. What a demo carries is `m_nPlayerCond`, a networked varint bitfield (`tf_player_shared.cpp:536`).
+So cloak is reproducible from the recording, but only by re-running the engine's arithmetic — which
+is the same shape as the feet-yaw and air-walk work already in `DemoTimeline`. *(evidence class:
+read from published source)*
+
+**The viewmodel never goes fully invisible.** `CViewModelInvisProxy::OnBind` (`tf_viewmodel.cpp:432`)
+remaps the player's invisibility into a narrow band:
+
+```cpp
+#define TF_VM_MIN_INVIS  0.22
+#define TF_VM_MAX_INVIS  0.5
+
+flWeaponInvis = ( flPercentInvisible < 0.01 ) ? 0.0
+              : RemapVal( flPercentInvisible, 0.0, 1.0, TF_VM_MIN_INVIS, TF_VM_MAX_INVIS );
+```
+
+At 100% cloak the weapon sits at 0.5, and a blink pins it to 0.3. That is why the owner's
+full-cloak screenshot still shows a sliver of the model rather than nothing: the first-person case
+tops out half-transparent by design.
+
+Incidentally the proxy finds its player through `pVM->GetOwner()` — the same `m_hOwner` this project
+reads off `DT_BaseViewModel`, arrived at independently.
+
+**For other players the spy is not blurry, he is gone — unless you are spectating.**
+`C_TFPlayer::GetEffectiveInvisibilityLevel` splits on the viewer:
+
+```cpp
+bool bLimitedInvis = !IsEnemyPlayer() || bHalloweenSpellStealth;
+
+// If this is a teammate of the local player or viewer is observer,
+// dont go above a certain max invis
+if ( bLimitedInvis ) { flPercentInvisible = min( flPercentInvisible, tf_teammate_max_invis ); }
+```
+
+`tf_teammate_max_invis` defaults to **0.95** (`c_tf_player.cpp:1702`). An enemy gets the unclamped
+1.0 and sees nothing at all, which is the whole point of the ability; a teammate or an observer gets
+0.95, a faint shimmer rather than a blur.
+
+**That second branch is the one this project is in.** `IsEnemyPlayer()` returns false when there is
+no local player, which is exactly a demo. So the reference behaviour for a viewer here is the 0.95
+clamp — a cloaked spy should be drawn barely-there, not culled — and it matches what spectating in
+the live game looks like. Getting this backwards would mean a spy vanishing from a demo the engine
+would have shown. *(evidence class: read from published source, prompted by the owner's account)*
