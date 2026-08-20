@@ -1087,6 +1087,11 @@ public sealed class DemoTimeline
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
         track.AttachedTo = attachedTo;
 
+        // **Which point on the wearer, for the items that hang from one rather than merging.**
+        // Kept current for the same reason the wearer is: it can arrive on a later delta than the
+        // model, and a track fixed at the first answer would leave the item wherever it started.
+        track.AttachmentPoint = state.ParentAttachment();
+
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
 
         // **A player faces where its EYES point, not where m_angRotation says.** A player's
@@ -1260,7 +1265,7 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo));
+                    track.AttachedTo, track.AttachmentPoint));
             }
         }
     }

@@ -925,7 +925,12 @@ internal static class PropModels
                         : null,
                     IlluminationOf(modelFile),
                     byFamily,
-                    model.BodyParts));
+                    model.BodyParts,
+
+                    // Read for every model rather than only for wearers: which models get worn is
+                    // not known here, and a table of a few dozen entries costs nothing next to the
+                    // geometry beside it.
+                    StudioAttachment.Read(modelFile)));
         }
         catch (InvalidDataException failure)
         {
@@ -1590,6 +1595,10 @@ internal static class PropModels
     /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
     /// <param name="SkinSwaps">Per extra skin family, how each material of family zero is replaced.</param>
     /// <param name="BodyParts">Each body part's place value and alternative count, for m_nBody.</param>
+    /// <param name="Attachments">
+    /// The named points other entities hang from, in the model's own order. Indexed ONE-based by
+    /// <c>m_iParentAttachment</c>, because the engine stores them that way.
+    /// </param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -1603,7 +1612,13 @@ internal static class PropModels
         SkinnedModel? Skinned = null,
         (float X, float Y, float Z) Illumination = default,
         IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null,
-        IReadOnlyList<(int Base, int Count)>? BodyParts = null)
+        IReadOnlyList<(int Base, int Count)>? BodyParts = null,
+
+        // **The named points other entities hang from.** A hat merges bones by name; a halo, a
+        // canteen, a spellbook and a spy's sapper share no bone name with their wearer and hang
+        // from one of these instead. Kept on the WEARER's model, because m_iParentAttachment indexes
+        // the parent's table — the spellbook itself declares none at all, while a scout declares 29.
+        IReadOnlyList<StudioAttachment>? Attachments = null)
     {
         /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
         /// <remarks>

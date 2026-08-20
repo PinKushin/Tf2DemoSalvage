@@ -740,6 +740,11 @@ internal sealed class EntityModelSet
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
+            // Set only for an item hanging from a named attachment, which cannot be expressed as a
+            // PropTransform: the point carries the bone's rotation as well as its position, and
+            // decomposing that back into angles to rebuild it would be work for no gain.
+            float[]? placement = null;
+
             // **Lit from where it stands, which is what the engine does.** A model has no
             // lightmap, so vrad's per-leaf ambient cube is the light it gets - sampled at the
             // origin rather than per vertex, exactly as the client samples it once per model.
@@ -961,6 +966,39 @@ internal sealed class EntityModelSet
                 bones = Merge(prop.ModelPath, bones, worn);
                 transform = worn.Where;
 
+                // **An item can hang from a named point instead of merging, and bone merging cannot
+                // place it.** A hat shares bone names with the player and takes their matrices; a
+                // halo, an MvM canteen, a spellbook and a spy's sapper share none — the spellbook's
+                // only bone is called `mvm` and no player has one — so Merge matches nothing and
+                // the item keeps the wearer's transform, which on a player is their feet (B82).
+                //
+                // The engine hangs those off the WEARER's attachment table:
+                // `ConcatTransforms( GetBone( iBone ), pattachment.local, world )`, one-based.
+                if (prop.AttachmentPoint is { } point &&
+                    _frames.TryGetValue(worn.ModelPath, out PropModels.ModelFrames? wearerModel) &&
+                    wearerModel.Attachments is { Count: > 0 } attachments &&
+                    point >= 1 && point <= attachments.Count)
+                {
+                    StudioAttachment attachment = attachments[point - 1];
+
+                    if (attachment.Bone >= 0 && attachment.Bone < worn.Bones.Count)
+                    {
+                        placement = AttachmentPlacement.Matrix(
+                            worn.Bones[attachment.Bone],
+                            attachment.Local,
+                            worn.Where.ToMatrix(),
+                            attachment.IsWorldAligned);
+
+                        if (_reportedPoses.Add(prop.ModelPath + "#attached"))
+                        {
+                            ViewerLog.Write(
+                                "props",
+                                $"attached {prop.ModelPath} to {attachment.Name} " +
+                                $"(point {point}, bone {attachment.Bone}) on {worn.ModelPath}");
+                        }
+                    }
+                }
+
                 // **Measured AFTER the merge, which is the only measurement that answers it.** The
                 // extents reported above are of the item's own pose, before it was put on anybody
                 // - so they say nothing about where it ends up. What decides whether a hat is on a
@@ -997,7 +1035,7 @@ internal sealed class EntityModelSet
 
             into.Add(new ModelInstance(
                 prop.ModelPath,
-                transform.ToMatrix(),
+                placement ?? transform.ToMatrix(),
                 light,
 
                 // Cached alongside the cube, because the sun costs more than it looks: it traces a

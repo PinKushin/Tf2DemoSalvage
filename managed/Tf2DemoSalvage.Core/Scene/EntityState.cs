@@ -449,6 +449,34 @@ public sealed class EntityState
             : Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
     }
 
+    /// <summary>Which of its parent's attachment points this entity hangs from.</summary>
+    /// <returns>A one-based attachment number, or <c>null</c> when it hangs from none.</returns>
+    /// <remarks>
+    /// **The other way an item rides a wearer, and the one that puts things on the floor when it is
+    /// missing.** A hat shares bone names with the player and is bone-merged; a halo, an MvM
+    /// canteen and a spellbook do not — <c>hwn_spellbook_complete.mdl</c> has one bone called
+    /// <c>mvm</c> and no player skeleton has it, so nothing matches and the item falls back to the
+    /// wearer's transform, at their feet (RISKS B82).
+    ///
+    /// **One-based, because the engine stores attachments that way.**
+    /// <c>SetupBones_AttachmentHelper</c> ends with <c>PutAttachment( i + 1, world )</c>, so zero
+    /// means "not attached" rather than "the first one". Returned as null for zero so a caller
+    /// cannot accidentally index a real point with it — the mistake would hang every such item off
+    /// a genuine but wrong place, which looks like a placement bug rather than an off-by-one.
+    ///
+    /// **It names a point on the PARENT, not on the item.** Measured: the spellbook declares no
+    /// attachments at all, while a scout declares 29 — <c>head</c>, <c>back_upper</c>,
+    /// <c>partyhat</c> and the rest. So this is an index into the wearer's table.
+    ///
+    /// <c>DT_BaseEntity.m_iParentAttachment</c>, 6 bits unsigned
+    /// (<c>NUM_PARENTATTACHMENT_BITS</c>, <c>baseentity_shared.h:41</c>), carried by every demo in
+    /// the corpus from the 2007 build onward.
+    /// </remarks>
+    public int? ParentAttachment() =>
+        Integer($"{BaseEntityTable}.m_iParentAttachment") is { } attachment && attachment > 0
+            ? attachment
+            : null;
+
     /// <summary>Which entity is the weapon this one is holding, or null when it holds none.</summary>
     /// <returns>The weapon's entity slot.</returns>
     /// <remarks>
