@@ -292,8 +292,30 @@ public sealed class EntityState
     /// PVS, which is a different thing from being deleted and a different thing again from being
     /// told not to draw.
     /// </remarks>
-    public bool IsDrawn =>
-        IsVisible && ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & NoDraw) == 0;
+    public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
+
+    /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
+    /// <remarks>
+    /// **Two tables, because a viewmodel declares its own copy.** <c>DT_BaseViewModel</c> is
+    /// <c>BEGIN_NETWORK_TABLE_NOBASE</c> and so inherits no <c>DT_BaseEntity</c> — but NOBASE means
+    /// it inherits nothing, not that it can declare nothing, and
+    /// <c>baseviewmodel_shared.cpp:565</c> sends <c>m_fEffects</c> at ten bits unsigned.
+    ///
+    /// **This was written down backwards and cost the off hand.** The comment on
+    /// <see cref="ViewModelTable"/> asserted "no origin, no angles, no <c>m_fEffects</c>" — right
+    /// about the first two, wrong about the third — and because the lookup was hardcoded to
+    /// <c>DT_BaseEntity</c>, a viewmodel answered null, which reads as no flags and therefore as
+    /// "draw it". The engine hides the spy's watch with exactly this flag:
+    /// <c>CTFWeaponInvis::SetWeaponVisible</c> resolves the viewmodel and calls
+    /// <c>vm->AddEffects( EF_NODRAW )</c>. See <c>ViewmodelVisibilityConformanceTests</c>.
+    ///
+    /// Resolved here rather than at each call site so there is one answer to "is this drawn",
+    /// whatever kind of entity is asking. A class declares one of these tables, never both.
+    /// </remarks>
+    private int Effects() =>
+        Integer($"{BaseEntityTable}.{EffectsProperty}") ??
+        Integer($"{ViewModelTable}.{EffectsProperty}") ??
+        0;
 
     /// <summary>Which model the entity is, as an index into <c>modelprecache</c>.</summary>
     /// <returns>The index, or <c>null</c> when the entity never sent one.</returns>
@@ -312,9 +334,14 @@ public sealed class EntityState
     /// <remarks>
     /// **Its own table and nothing else.** <c>baseviewmodel_shared.cpp:557</c> declares it
     /// <c>BEGIN_NETWORK_TABLE_NOBASE</c>, so a viewmodel inherits no <c>DT_BaseEntity</c> — no
-    /// origin, no angles, no <c>m_fEffects</c>, and an owner handle under a different name. Every
-    /// other reader on this class looks in <c>DT_BaseEntity</c> and would answer null for a
-    /// viewmodel that is perfectly well described on the wire.
+    /// origin, no angles, and an owner handle under a different name. Every other reader on this
+    /// class looks in <c>DT_BaseEntity</c> and would answer null for a viewmodel that is perfectly
+    /// well described on the wire.
+    ///
+    /// **It does send <c>m_fEffects</c>, and this comment used to say it did not.** NOBASE stops it
+    /// inheriting a property; it does not stop the table declaring one, and line 565 declares this
+    /// one. The mistake was invisible because the reader looked in <c>DT_BaseEntity</c> and got
+    /// null, which means "draw it" — see <see cref="Effects"/>.
     /// </remarks>
     private const string ViewModelTable = "DT_BaseViewModel";
 

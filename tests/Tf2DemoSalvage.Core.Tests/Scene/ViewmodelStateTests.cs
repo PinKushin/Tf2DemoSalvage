@@ -107,6 +107,38 @@ public sealed class ViewmodelStateTests
     }
 
     [Test]
+    public void IsDrawn_AViewmodelFlaggedNoDraw_IsFalse()
+    {
+        // **The flag is how the engine hides the off hand, and it is on the viewmodel's own table.**
+        // `CTFWeaponInvis::SetWeaponVisible` resolves `pOwner->GetViewModel( m_nViewModelIndex )`
+        // and calls `vm->AddEffects( EF_NODRAW )`, so the watch's ENTITY stays and stops drawing.
+        //
+        // Measured on z1800: `DT_BaseViewModel.m_fEffects 32` appears in the first 400 snapshots,
+        // and 32 is EF_NODRAW. A reader that misses it draws a watch in every player's left hand
+        // for the whole match, because every player carries a slot-1 viewmodel at all times —
+        // 23 of them in that same sample, in a game with one spy.
+        Viewmodel(modelIndex: 535, owner: Owner, slot: 1, effects: 0x020).IsDrawn.ShouldBeFalse();
+    }
+
+    [Test]
+    public void IsDrawn_AViewmodelWithOtherFlagsSet_IsTrue()
+    {
+        // **The control, and it is the one that fails against `effects != 0`.** EF_NODRAW is one bit
+        // of a field carrying a dozen unrelated flags; EF_NOINTERP (0x008) and EF_NOSHADOW (0x010)
+        // together are 24, which is non-zero and says nothing about visibility.
+        Viewmodel(modelIndex: 535, owner: Owner, slot: 1, effects: 0x008 | 0x010)
+            .IsDrawn.ShouldBeTrue();
+    }
+
+    [Test]
+    public void IsDrawn_AViewmodelThatSentNoEffects_IsTrue()
+    {
+        // Silence is not concealment. An early-protocol demo that never sends the property must
+        // still draw, or the fix for the off hand would blank the main hand everywhere.
+        Viewmodel(modelIndex: 535, owner: Owner).IsDrawn.ShouldBeTrue();
+    }
+
+    [Test]
     public void ViewmodelLookups_OnAnOrdinaryEntity_AnswerNothing()
     {
         // **The control.** Every assertion above is that a viewmodel reads where an ordinary
@@ -132,9 +164,15 @@ public sealed class ViewmodelStateTests
         int? ownerHandle = null,
         int sequence = 0,
         float playbackRate = 1f,
-        int slot = 0)
+        int slot = 0,
+        int? effects = null)
     {
         EntityState state = new(entityIndex: 9, classId: 1, serialNumber: 1, className: "CTFViewModel");
+
+        if (effects is { } flags)
+        {
+            state.Set("DT_BaseViewModel.m_fEffects", PropertyValue.FromInt(flags));
+        }
 
         state.Set("DT_BaseViewModel.m_nModelIndex", PropertyValue.FromInt(modelIndex));
         state.Set("DT_BaseViewModel.m_nSequence", PropertyValue.FromInt(sequence));

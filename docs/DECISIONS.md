@@ -1723,6 +1723,39 @@ recording carries; the demo names the entity and the model, and which hand it ap
 at draw time by `C_BaseViewModel::InternalDrawModel` switching to `MATERIAL_CULLMODE_CW` when the
 model is mirrored.
 
+### D42 outcome, 2026-08-20 — the off hand is drawn, and the gap was a missing property
+
+The known absence above is closed. `MainForm.AddViewmodel` now draws the off hand beside the weapon,
+under its own entity index because all three models are on screen together.
+
+**What made it a piece of work rather than a second lookup was a property this file said did not
+exist.** The comment on `EntityState.ViewModelTable` read "a viewmodel inherits no `DT_BaseEntity` —
+no origin, no angles, no `m_fEffects`". The first two are true. The third is not:
+`baseviewmodel_shared.cpp:565` declares `m_fEffects` on `DT_BaseViewModel` itself, ten bits
+unsigned. NOBASE stops a table INHERITING a property; it does not stop it declaring one.
+
+That mattered because **a slot-1 entity is not a watch in a hand.** Every player carries both
+viewmodels for their whole life. Drawing every slot-1 entity would have put a watch in eighteen
+players' hands for a whole match, and the engine's answer is exactly the property we had written off:
+`CTFWeaponInvis::SetWeaponVisible` resolves `pOwner->GetViewModel( m_nViewModelIndex )` and calls
+`vm->AddEffects( EF_NODRAW )` on it.
+
+Nothing failed while the claim was wrong. `IsDrawn` looked in `DT_BaseEntity`, a viewmodel answered
+null, and null reads as "no flags set" and therefore as "draw it". Third time in this repository that
+a right property name in the wrong table has been silent — see
+`docs/memory/a-property-name-needs-its-declaring-table.md`.
+
+**Two ways a viewmodel leaves the screen, and both are now handled in one place.** `EF_NODRAW`, and a
+model index of zero, which is what an unused off hand sends — all 22 of z1800's do. Both are recorded
+onto the sample rather than filtered at record time, because a viewmodel that is emptied or hidden
+must not leave its last drawable sample standing: the lookup keeps the newest match, so a skipped
+update means a watch that was put away stays in frame for the rest of the demo.
+
+**Measured on z1800 afterwards: 190 of 9,165 sampled player-ticks, three distinct models, every one a
+spy watch** — the stock Invis Watch, the Enthusiast's Timepiece and the Quäckenbirdt. The corpus
+agreeing with the SDK that only `CTFWeaponInvis` claims slot 1, and confirming the off hand needs no
+weapon merged onto it: each path is a complete model, not arms.
+
 **Nothing here needed a decompiler, and it was proposed that it might.** The concern was reasonable
 — the defect appears only on older demos, and the SDK is the 2013 tree — but a demo carries the
 schema that describes it, so "did the 2009 build send this property" is a question the 2009 file

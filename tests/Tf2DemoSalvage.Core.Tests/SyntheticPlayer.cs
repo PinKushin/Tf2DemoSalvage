@@ -719,6 +719,15 @@ internal static class SyntheticPlayer
     /// <summary>Source's <c>SPROP_UNSIGNED</c>.</summary>
     private const int UnsignedFlag = 1 << 0;
 
+    /// <summary>The later tick at which <c>offHandHiddenLater</c> flags the off hand.</summary>
+    /// <remarks>
+    /// **A second tick is what separates two designs that both pass on one.** Recording a hidden
+    /// viewmodel as hidden and skipping it at record time are indistinguishable when the demo has
+    /// only ever described it once. They differ the moment a watch is put away: skipping leaves the
+    /// last recorded sample saying "visible", and the lookup keeps answering with it for ever.
+    /// </remarks>
+    internal const int HiddenTick = 132;
+
     /// <summary>A demo carrying a player and the weapon they see in their own hands.</summary>
     /// <param name="owner">
     /// The entity the viewmodel names as its owner, or <c>null</c> for the point-of-view shape
@@ -740,8 +749,23 @@ internal static class SyntheticPlayer
     /// second would let a lookup that requires an owner pass, and that lookup finds nothing on
     /// eight of the nine corpus demos.
     /// </remarks>
+    /// <param name="offHandHidden">Flag the off hand <c>EF_NODRAW</c> from the first tick.</param>
+    /// <param name="offHandHiddenLater">
+    /// Describe the scene a second time at <see cref="HiddenTick"/> with the off hand flagged, which
+    /// is a watch being put away.
+    /// </param>
+    /// <param name="offHandStowedLater">
+    /// The same second tick, but with the off hand's MODEL cleared to index 0 rather than flagged.
+    /// The other way a viewmodel leaves the screen, and a separate chance to get it wrong.
+    /// </param>
     public static byte[] DemoWithViewmodel(
-        int? owner, int? offHandModelIndex = null, int? offHandOwner = null, bool secondUnowned = false)
+        int? owner,
+        int? offHandModelIndex = null,
+        int? offHandOwner = null,
+        bool secondUnowned = false,
+        bool offHandHidden = false,
+        bool offHandHiddenLater = false,
+        bool offHandStowedLater = false)
     {
         DemoSchema schema = SchemaWithViewmodel();
         EntityDecoder decoder = new(
@@ -779,14 +803,28 @@ internal static class SyntheticPlayer
                 Viewmodel(
                     offHand,
                     slot: secondUnowned ? 0 : 1,
-                    secondUnowned ? null : offHandOwner ?? owner)));
+                    secondUnowned ? null : offHandOwner ?? owner,
+                    hidden: offHandHidden)));
         }
 
         byte[] body = decoder.EncodeEntities(
             [.. entities], [], isDelta: false, 0, out int bits);
 
-        return SyntheticDemo.From(
-            SyntheticDemo.DefaultProtocol,
+        // **The same scene again with the watch put away**, sent whole rather than as a delta so
+        // the fixture exercises the timeline rather than the delta decoder.
+        List<DemoCommand> later = [];
+
+        if ((offHandHiddenLater || offHandStowedLater) && offHandModelIndex is { } present)
+        {
+            // Stowing clears the MODEL; hiding sets EF_NODRAW. Two different ways the engine takes
+            // a viewmodel off screen, and a reader can get one right and the other wrong.
+            int stowed = offHandStowedLater ? 0 : present;
+
+            later.Add(SecondTick(decoder, owner, offHandOwner, stowed, hidden: offHandHiddenLater));
+        }
+
+        List<DemoCommand> commands =
+        [
             SyntheticDemo.Packet(
                 SyntheticDemo.DefaultProtocol,
                 0,
@@ -811,7 +849,61 @@ internal static class SyntheticPlayer
                     UpdatedEntries: entities.Count,
                     LengthBits: bits,
                     UpdateBaseline: false,
-                    Body: body)));
+                    Body: body)),
+            .. later,
+        ];
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>The same scene at <see cref="HiddenTick"/>, with the off hand flagged EF_NODRAW.</summary>
+    /// <remarks>
+    /// Whole rather than a delta, because what is under test is what the TIMELINE does with a
+    /// viewmodel that stops being drawn — routing it through the delta decoder would put a second
+    /// subject in an experiment that already has one.
+    /// </remarks>
+    private static DemoCommand SecondTick(
+        EntityDecoder decoder, int? owner, int? offHandOwner, int offHandModelIndex, bool hidden)
+    {
+        List<DecodedEntity> entities =
+        [
+            Entity(
+                decoder,
+                PlayerClassId,
+                1,
+                new Dictionary<string, PropertyValue>
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    ["m_lifeState"] = PropertyValue.FromInt(0),
+                }),
+            Entity(
+                decoder,
+                ViewmodelClassId,
+                ViewmodelEntityIndex,
+                Viewmodel(modelIndex: 4, slot: 0, owner)),
+            Entity(
+                decoder,
+                ViewmodelClassId,
+                OffHandEntityIndex,
+                Viewmodel(offHandModelIndex, slot: 1, offHandOwner ?? owner, hidden)),
+        ];
+
+        byte[] body = decoder.EncodeEntities(
+            [.. entities], [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.Packet(
+            SyntheticDemo.DefaultProtocol,
+            HiddenTick,
+            new PacketEntitiesMessage(
+                MaxEntries: 64,
+                IsDelta: false,
+                DeltaFromTick: null,
+                BaselineIndex: false,
+                UpdatedEntries: entities.Count,
+                LengthBits: bits,
+                UpdateBaseline: false,
+                Body: body));
     }
 
     /// <summary>One viewmodel's properties, as <c>DT_BaseViewModel</c> carries them.</summary>
@@ -820,8 +912,12 @@ internal static class SyntheticPlayer
     /// <param name="owner">
     /// The owning player, or <c>null</c> for the point-of-view shape where the demo names nobody.
     /// </param>
+    /// <param name="hidden">
+    /// Whether to set <c>EF_NODRAW</c>, as <c>CTFWeaponInvis::SetWeaponVisible</c> does on the
+    /// watch's viewmodel when it is not deployed.
+    /// </param>
     private static Dictionary<string, PropertyValue> Viewmodel(
-        int modelIndex, int slot, int? owner)
+        int modelIndex, int slot, int? owner, bool hidden = false)
     {
         Dictionary<string, PropertyValue> properties = new()
         {
@@ -829,6 +925,10 @@ internal static class SyntheticPlayer
             ["m_nSequence"] = PropertyValue.FromInt(7),
             ["m_flPlaybackRate"] = PropertyValue.FromFloat(1f),
             ["m_nViewModelIndex"] = PropertyValue.FromInt(slot),
+
+            // Always sent, hidden or not, because the engine sends the whole field and a fixture
+            // that omitted it when clear would not distinguish "no flags" from "never said".
+            ["m_fEffects"] = PropertyValue.FromInt(hidden ? 0x020 : 0),
         };
 
         // Absent rather than zero: an unset handle is how a POV demo says "mine", and zero would
@@ -866,6 +966,13 @@ internal static class SyntheticPlayer
                     // slot 1 arrive as -1 and the fixture would agree with a reader that never
                     // matched it.
                     UnsignedInt("m_nViewModelIndex", bits: 1),
+
+                    // **Ten bits unsigned, and the reason this table needed correcting.** NOBASE
+                    // means a viewmodel inherits no DT_BaseEntity, and this project read that as
+                    // "so it has no m_fEffects" — but the table declares its own
+                    // (`baseviewmodel_shared.cpp:565`), and EF_NODRAW on it is how the engine hides
+                    // the spy's watch. A fixture without it would agree with the wrong reader.
+                    UnsignedInt("m_fEffects", bits: 10),
                 ]),
             ],
             [

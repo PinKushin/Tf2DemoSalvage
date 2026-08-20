@@ -73,11 +73,11 @@ rm -f /tmp/gate-*.log
 # Set to the exact count, so adding tests keeps passing and REMOVING them fails until the number
 # is lowered on purpose. The ratchet is the feature — every lowering should be a deliberate edit
 # in the same commit that deleted the tests, which is what makes a silent loss impossible.
-run Tf2DemoSalvage.Core.Tests     core     1438
+run Tf2DemoSalvage.Core.Tests     core     1448
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
 run Tf2DemoSalvage.Content.Tests  content   588
-run Tf2DemoSalvage.Corpus.Tests   corpus     85
+run Tf2DemoSalvage.Corpus.Tests   corpus     86
 run Tf2DemoSalvage.Viewer3D.Tests viewer    505
 
 echo

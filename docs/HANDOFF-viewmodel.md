@@ -19,6 +19,7 @@ Read `docs/findings/30-viewmodel-drawing.md` for the reasoning — this file is 
 | Drawing both in their own pass | `ViewmodelPass`, `Device3D.DrawViewmodels` |
 | Items hung from a named attachment | `StudioAttachment`, `AttachmentPlacement` |
 | Matrix boundary, in one place | `MatrixConvention` |
+| The spy's watch, beside the weapon | `DemoTimeline.OffHandViewmodelAt`, `SceneViewmodel.IsOnScreen` |
 
 Verified by capture on z1800: a sniper's arms and rifle in first person, players in correct
 materials, a sapper on a sentry's `build_point_0`.
@@ -114,9 +115,10 @@ because the second implementation is how the two would drift.
 
 ## Still open
 
-- **The off hand is read but not drawn.** `OffHandViewmodelAt` exists and is tested; wiring it into
-  `AddViewmodel` beside the main hand is the remaining step. Both are on screen at once in game — a
-  cloaking spy has weapon and watch, and the watch is the only user of slot 1.
+- ~~The off hand is read but not drawn.~~ **Done** — see D42's outcome and findings/30. It needed a
+  property this project had recorded as absent: `DT_BaseViewModel` does send `m_fEffects`, and
+  `EF_NODRAW` on it is what separates "this player has an off-hand entity" (everyone, always) from
+  "draw a watch" (190 of 9,165 sampled player-ticks on z1800).
 - **Bob, lag and shake** are deliberately absent. All three are functions of movement and elapsed
   time rather than anything a demo records, so implementing them would be inventing motion.
 - **Cloak is computed, not recorded.** `m_flInvisibility` is not networked; only `m_flCloakMeter` is.

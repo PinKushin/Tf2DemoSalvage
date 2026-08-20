@@ -24,9 +24,18 @@ the weapon in in the right, unless you use left handed viewmodels, then its the 
 **Why:** a lookup blind to the slot keeps whichever entity it walked past last. That is right by
 luck on every demo carrying one viewmodel, and on the 2009 badlands POV it put `v_watch_spy` in a
 soldier's hands and held it there across a change of class. `ViewmodelAt` and `OffHandViewmodelAt`
-now both exist and share one walk, since the owner rule is identical and duplicating it is how the
-two would diverge. The off hand is read and tested but **not yet drawn** by `MainForm.AddViewmodel`
-(D42).
+share one walk, since the owner rule is identical and duplicating it is how the two would diverge.
+Both are drawn (D42).
+
+**A slot-1 entity is not a watch in a hand, and this is the part that surprises.** Every player
+carries BOTH viewmodels for their whole life — z1800 sends 23 slot-1 entities in a match with two
+spies, 22 of them with model index 0. What separates "exists" from "draw it" is `EF_NODRAW`, which
+`CTFWeaponInvis::SetWeaponVisible` sets on the VIEWMODEL rather than on the weapon. It arrives on
+`DT_BaseViewModel.m_fEffects` — a property this project had recorded as not existing, because NOBASE
+was read as "declares nothing" rather than "inherits nothing"
+([[a-property-name-needs-its-declaring-table]]).
+
+Measured after the fix: 190 of 9,165 sampled player-ticks, three models, all spy watches.
 
 **How to apply:** anything reading a viewmodel filters on the slot. An absent `m_nViewModelIndex`
 means slot 0, because `CBaseViewModel`'s constructor sets it to zero — see

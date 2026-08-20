@@ -541,3 +541,86 @@ sniper rifle with its scope, in the sniper's hands.
 weapon needed no animation at all — and both failed silently, in the same pass, for reasons that
 looked identical from outside. "Drawn and invisible" has now had five distinct causes in this one
 feature: not loaded, not uploaded, wrong sequence, wrong owner, and wrong posing mechanism.
+
+## The off hand, and the property we said was not there
+
+*Measured 2026-08-20. Evidence: read from published source, plus counts on `z1800`.*
+
+Drawing the second viewmodel looked like a second call to the lookup that already existed. It was
+not, and the reason is a claim this project had written down three times and never checked.
+
+### A slot-1 entity is not a watch in a hand
+
+`z1800`, over its first 400 entity snapshots:
+
+```
+m_nViewModelIndex 0   24
+m_nViewModelIndex 1   23
+m_nModelIndex     0   24
+```
+
+Every player carries **both** viewmodels for their whole life, whether or not anything occupies the
+off hand — this is a nine-versus-nine Highlander match with one spy per team, and there are 23
+slot-1 entities. Drawing each of them would have put a watch in eighteen players' hands.
+
+### `DT_BaseViewModel` sends `m_fEffects`, and we had recorded that it did not
+
+The comment on `EntityState.ViewModelTable` read:
+
+> a viewmodel inherits no `DT_BaseEntity` — no origin, no angles, no `m_fEffects`
+
+The first two are true. The third is not. `baseviewmodel_shared.cpp:565`:
+
+```cpp
+BEGIN_NETWORK_TABLE_NOBASE(CBaseViewModel, DT_BaseViewModel)
+	SendPropInt		(SENDINFO(m_fEffects),		10, SPROP_UNSIGNED),
+```
+
+**`NOBASE` stops a table INHERITING a property. It does not stop it declaring one.** The inference
+was reasonable and every other item on the list was correct, which is what made it durable.
+
+It is also exactly the flag the engine uses here. `CTFWeaponInvis::SetWeaponVisible` does not flag
+the weapon — it resolves the viewmodel and flags **that**:
+
+```cpp
+vm = pOwner->GetViewModel( m_nViewModelIndex );
+...
+vm->AddEffects( EF_NODRAW );
+```
+
+So the answer to "is the watch out" was on the wire the whole time. `m_fEffects 32` — 32 is
+`EF_NODRAW` — appears in those same 400 snapshots.
+
+**Nothing failed while the claim was wrong.** `IsDrawn` looked in `DT_BaseEntity`; a viewmodel
+answered `null`; `null` means no flags set, which means draw it. Third time in this repository that a
+correct property name in the wrong table has been silent, after `m_fFlags` and `m_flCycle`.
+
+### Two ways off the screen, and why neither may be dropped at record time
+
+A viewmodel stops being drawn either by `EF_NODRAW` or by its model index going to 0. Both are now
+recorded **onto the sample** rather than filtered as the demo is read.
+
+That is not tidiness. The lookup walks forward and keeps the newest match, so a skipped update leaves
+an older, drawable sample standing — a watch put away would stay in frame for the rest of the demo.
+The distinction is invisible on a demo that describes the viewmodel once, which is why the tests for
+it need a second tick; with one tick, "record it as hidden" and "skip it" are the same experiment.
+
+### What the corpus then said
+
+Sampling 400 ticks of `z1800` and asking for every player's off hand:
+
+```
+9,165 player-ticks sampled, 190 offered an off hand, 3 distinct models
+  models/weapons/v_models/v_watch_leather_spy.mdl
+  models/weapons/v_models/v_watch_pocket_spy.mdl
+  models/weapons/v_models/v_watch_spy.mdl
+```
+
+The stock Invis Watch, the Enthusiast's Timepiece and the Quäckenbirdt — **every off hand in the
+match is a spy watch**, which is the corpus agreeing with the SDK that only `CTFWeaponInvis` claims
+slot 1, and with the owner, who said so first: "tf2 only has the spy watch for offhand".
+
+It also settles what to draw. Each path is a **complete** model, so unlike the main hand — arms that
+need a client-built weapon merged onto them — the off hand needs nothing attached. Valve's own
+comment gives the reason: "Watch uses the player model as its viewmodel, because it's never seen
+being carried by the player."

@@ -398,7 +398,11 @@ public sealed class DemoTimeline
             }
         }
 
-        return found;
+        // **Filtered at the END, on the latest state, never while walking.** Rejecting hidden
+        // samples inside the loop would leave `found` holding an older visible one, which is the
+        // stale-sample bug this whole flag exists to avoid: a spy who puts the watch away would
+        // keep it in frame for the rest of the demo.
+        return found is { IsOnScreen: true } ? found : null;
     }
 
     /// <summary>Every distinct viewmodel model the demo ever describes.</summary>
@@ -978,17 +982,26 @@ public sealed class DemoTimeline
                 continue;
             }
 
-            if (precache.Path(ModelPrecache.Unpack(rawIndex, protocol)) is not { Length: > 0 } path)
-            {
-                continue;
-            }
+            // **Recorded even when it resolves to nothing, for the same reason a hidden one is.**
+            // Model index 0 means "no model", and an unused off hand sends exactly that — all 22 of
+            // z1800's do. Skipping those here would be right for a viewmodel that is always empty
+            // and wrong for one that is emptied: the last sample would keep saying "watch", and the
+            // lookup would answer with it for the rest of the demo. `IsOnScreen` decides instead,
+            // in one place, on the latest state.
+            string path = precache.Path(ModelPrecache.Unpack(rawIndex, protocol)) ?? string.Empty;
 
+            // **Recorded whether or not it is drawn, and this is deliberate.** Skipping a hidden
+            // viewmodel here would leave the last recorded sample for that entity saying "visible",
+            // and the lookup walks forward keeping the last match — so a watch put away would carry
+            // on being answered for the rest of the demo. The flag has to travel with the sample so
+            // that the latest state is the one that wins.
             SceneViewmodel weapon = new(
                 path,
                 entity.ViewmodelSequence() ?? 0,
                 entity.ViewmodelPlaybackRate() ?? 1f,
                 entity.ViewmodelOwner(),
-                entity.ViewmodelSlot());
+                entity.ViewmodelSlot(),
+                entity.IsDrawn);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (last.TryGetValue(entity.EntityIndex, out SceneViewmodel before) &&

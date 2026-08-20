@@ -1976,6 +1976,52 @@ internal class MainForm : Form
             viewmodelProps.Add(gun);
         }
 
+        // **The off hand, drawn beside the weapon rather than instead of it.** Only the spy's watch
+        // uses slot 1 — `CTFWeaponInvis::Spawn` calls `SetViewModelIndex( 1 )` — so this is nothing
+        // for eight classes and most of the ninth's time. The lookup has already applied the two
+        // rules that decide it: EF_NODRAW on the viewmodel's own table, which is how
+        // `SetWeaponVisible` puts the watch away, and a model index of zero, which is what an unused
+        // off hand sends. All 22 of z1800's send exactly that.
+        //
+        // Posed at the camera like the arms, and with no weapon merged onto it, because the watch's
+        // viewmodel IS the item's player model rather than a pair of arms.
+        if (timeline.OffHandViewmodelAt(_transport.CurrentTick, follower) is { } offHand)
+        {
+            SceneProp watch = new(
+                OffHandEntityIndex,
+                offHand.ModelPath,
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = camera.Origin.X,
+                    Y = camera.Origin.Y,
+                    Z = camera.Origin.Z,
+                    Pitch = camera.Angles.Pitch,
+                    Yaw = camera.Angles.Yaw,
+                    Roll = camera.Angles.Roll,
+                    Sequence = offHand.Sequence,
+                    PlaybackRate = offHand.PlaybackRate,
+                });
+
+            grew |= _models.Add([watch], ModelGeometry);
+
+            // Asked after packing, like the arms, and allowed to answer nothing: a watch is a world
+            // model and carries no ACT_*_VM_* activity, so the demo's own sequence stands.
+            int watchIdle = _models.SequenceByActivity(offHand.ModelPath, "VM_IDLE");
+
+            if (watchIdle >= 0 && watchIdle != offHand.Sequence)
+            {
+                watch = watch with { Pose = watch.Pose with { Sequence = watchIdle } };
+            }
+
+            viewmodelProps.Add(watch);
+
+            ViewerLog.Write(
+                "render",
+                $"off hand {offHand.ModelPath} seq {offHand.Sequence} at tick " +
+                $"{_transport.CurrentTick}");
+        }
+
         if (grew && _device is { } packed)
         {
             packed.UploadModels(_models);
@@ -2132,6 +2178,23 @@ internal class MainForm : Form
     /// slot so it cannot collide with an entity the demo describes.
     /// </remarks>
     private const int ViewmodelEntityIndex = 4096;
+
+    /// <summary>The slot the off-hand viewmodel is drawn under.</summary>
+    /// <remarks>
+    /// **A third index, because all three are on screen together.** The owner, who has played the
+    /// class: "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
+    /// everything goes transparent". So the off hand is a model BESIDE the weapon, not instead of
+    /// it, and sharing an index with either would have one overwrite the other's geometry.
+    ///
+    /// **It needs no weapon of its own, and that is measured rather than reasoned.** Every off hand
+    /// z1800 ever offers is a complete watch model — <c>v_watch_spy</c>,
+    /// <c>v_watch_leather_spy</c>, <c>v_watch_pocket_spy</c>, three of them across 190 of 9,165
+    /// player-ticks — where a modern main-hand viewmodel is a pair of arms that needs a
+    /// client-built weapon merged onto it. Valve's comment on
+    /// <c>CTFWeaponInvis::GetViewModel</c> says why: "Watch uses the player model as its viewmodel,
+    /// because it's never seen being carried by the player".
+    /// </remarks>
+    private const int OffHandEntityIndex = 4098;
 
     /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
     /// <remarks>

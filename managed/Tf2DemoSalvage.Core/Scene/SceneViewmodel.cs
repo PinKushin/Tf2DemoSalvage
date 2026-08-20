@@ -13,6 +13,9 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// Which of the player's two viewmodels this is: 0 for the weapon in hand, 1 for the off hand, and
 /// <c>null</c> when the demo never sent the property.
 /// </param>
+/// <param name="Drawn">
+/// Whether the engine would draw it, which is <c>EF_NODRAW</c> on the viewmodel's own table.
+/// </param>
 /// <remarks>
 /// **Not a <see cref="SceneProp"/>, because it has nowhere to be.** A viewmodel's table is
 /// declared <c>BEGIN_NETWORK_TABLE_NOBASE</c>, so it inherits no origin and no angles at all — the
@@ -29,7 +32,8 @@ public readonly record struct SceneViewmodel(
     int Sequence,
     float PlaybackRate,
     int? OwnerEntityIndex,
-    int? Slot)
+    int? Slot,
+    bool Drawn = true)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;
@@ -62,4 +66,23 @@ public readonly record struct SceneViewmodel(
     /// reader states the wire; the consumer applies the default.
     /// </remarks>
     public bool IsMainHand => Slot is null or MainHand;
+
+    /// <summary>Whether this sample is one to put on screen.</summary>
+    /// <remarks>
+    /// **A slot-1 entity is not a watch in a hand.** Every player carries both viewmodels for their
+    /// whole life, whether or not anything occupies the off hand — z1800 sends 23 of them in its
+    /// first 400 snapshots, in a match with one spy. What separates "exists" from "draw it" is
+    /// <c>EF_NODRAW</c>, which <c>CTFWeaponInvis::SetWeaponVisible</c> puts on the VIEWMODEL rather
+    /// than on the weapon:
+    ///
+    /// <code>
+    /// vm = pOwner->GetViewModel( m_nViewModelIndex );
+    /// ...
+    /// vm->AddEffects( EF_NODRAW );
+    /// </code>
+    ///
+    /// A model path is still required, because index 0 means "no model" and a viewmodel sitting
+    /// unused sends exactly that — 24 of them in the same sample.
+    /// </remarks>
+    public bool IsOnScreen => Drawn && ModelPath.Length > 0;
 }
