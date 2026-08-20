@@ -90,3 +90,4 @@
 - [The demo dates its own fields](the-demo-dates-its-own-fields.md) — an era question about a property is answered by that demo's embedded schema, not by the SDK snapshot or a decompiler.
 - [Foreground is not focus](foreground-is-not-focus.md) — a window can own the foreground with nothing inside it focused, and then no key arrives; hiding a focused control is the hazard.
 - [A count cannot see past a pruner](a-count-cannot-see-past-a-pruner.md) — waiting for a file count to grow breaks once retention caps the folder; compare the set instead.
+- [A neutral default must be neutral](a-neutral-default-must-be-neutral.md) — `_white` is the magenta chequer; binding it as a detail texture chequered every model while the map looked fine.
