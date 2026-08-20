@@ -7101,7 +7101,7 @@ between D34 and D35. Scrolling to the end to find the highest number gives the w
 
 ---
 
-### B119 — the spy's knife is drawn at the camera, not in the hand — OPEN
+### B119 — the spy's knife is drawn at the camera, not in the hand — FIXED
 
 **Confirmed by looking**, 2026-08-20, `z1800` entity 11 tick 47601 in first person. The arms and the
 watch are both correct; the right hand is empty, fingers curled around nothing.
@@ -7149,6 +7149,60 @@ hypothesis. Everything after that depends on the number.
 merged, instanced, drawn", and the flat-colour capture — where a blade against a near-white wall
 would be unmissable — showed nothing in the hand. `docs/memory/output-level-assertion-or-it-is-not-done.md`
 again, one level further out: even an output-level count can agree while the picture is wrong.
+
+#### Resolution, 2026-08-20 — two causes, and the instrument was already there
+
+**The instrument the section above asks for existed the whole time.** `EntityModels.Merge` already
+logged `N of M bones matched`, with the matched and missing names. The reason no such line appeared
+for the knife is that `Merge` never reached it — the first guard returns early when the model has no
+skeleton, and says nothing.
+
+**Cause one: the knife was baked, so it had no skeleton to merge.** `WornModelPaths()` decides
+`mustSkin`, and it only walks `timeline.Props`. The first-person weapon is not a prop track — the
+client creates it (`econ_entity.cpp:1153`) so no demo carries it, and `AddViewmodel` builds it ad hoc.
+It therefore never entered the worn set, was loaded unskinned, and baking pre-transforms the vertices
+by one pose and discards the bone indices. `Merge` then returns the model's own matrices while the
+caller has already set the transform to the WEARER's — the camera. A fourteen-unit knife against a
+near plane of one clips away entirely.
+
+**This is the same defect as the cosmetics-at-ankle-height one that `mustSkin` was created for**, and
+the remarks on `WornModelPaths` describe it exactly. The knife simply took a route into the renderer
+that bypasses the set the flag is built from. Fixed by adding `HeldWeaponModels(timeline)` to that
+set, which already existed and already fed the LOAD set.
+
+After it: `skinning c_knife.mdl: 5,808 corners against a budget of 371,712, so it is posed on the GPU`
+and `bone merge c_knife.mdl onto c_spy_arms.mdl: 5 of 6 bones matched; matched weapon_bone,
+vm_weapon_bone, vm_weapon_bone_1..3; missing c_weapon_stattrack`. The only miss is a StatTrak counter
+bone, which correctly keeps its own matrix.
+
+**Cause two: the viewer was overriding the recorded animation.** With the knife visible it sat at the
+bottom of the frame, which the owner caught: "the knifes there its jkust super low". `AddViewmodel`
+substituted the model's `VM_IDLE` for the demo's sequence whenever they differed — on this spy,
+replacing the recorded 34 with 3 on every frame, posing the arms for a weapon they were not holding.
+
+The owner's rule, and it is the correct one: **"we shouldnt be forcing any sequence only stuff from
+the demo or how valve does it"**. The engine agrees — `C_BaseViewModel` plays `m_nSequence` as it
+arrives and nothing in the viewmodel path picks an idle. Substitution removed from both hands; the
+knife moved into the grip.
+
+**The log was reporting the recorded sequence while drawing the substituted one**, so `seq 34`
+appeared in every line while 3 was on screen. It now prints all three — recorded, what `VM_IDLE`
+would have been, and what is actually played. That line would have shown this a fortnight ago.
+
+**One worry raised and then killed by measurement.** A recorded sequence indexes the weapon's own
+table, while ours is merged from two models and 98 entries deep, so the two could disagree silently
+and produce a plausible wrong animation. They agree: `demo says 34, VM_IDLE would be 3, playing 34`
+poses a correct spy knife. Worth re-checking on a model whose merge has a different shape.
+
+**Still owed: a regression test.** The invariant is "anything drawn with `AttachedTo` must be loaded
+skinned", and there is no seam to assert it through — `WornModelPaths` is private on a `Form` and
+cannot be reached without opening a window. That missing seam is the real work, and it is why this
+was fixed before it was tested, against the standing rule.
+
+**What made the fix checkable was determinism.** Two identical launches produce byte-identical
+captures (`352EBD85…` twice), so a frame hash is a valid regression instrument for this viewer: after
+the merge fix `B2192859…`, after the sequence fix `08C14B3E…`. Each change was proved to have done
+something before the picture was even looked at.
 
 ---
 

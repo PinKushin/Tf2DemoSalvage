@@ -94,3 +94,4 @@
 - [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — the first-person weapon is a client-side entity no demo contains; the item index plus `items_game.txt` rebuilds it.
 - [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — bones stay Valve column-vector and reach the shader raw; crossing to the row-vector model matrix belongs in one place, and its test needs a rotation.
 - [A default is not a constant](a-default-is-not-a-constant.md) — `viewmodel_fov` 54 is a cvar default, not a fixed value; grep for `ConVar` before writing an SDK number in.
+- [A launch notification is not an exit](a-launch-notification-is-not-an-exit.md) — the task "completed" reports the wrapper; ask Get-Process, and never read a still-growing log as a crash.

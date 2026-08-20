@@ -1595,6 +1595,21 @@ internal class MainForm : Form
             }
         }
 
+        // **The first-person weapon is bone-merged too, and it is not a prop track.** It is built in
+        // `AddViewmodel` with `AttachedTo` set to the viewmodel, because the client creates it rather
+        // than the demo carrying it — so walking `timeline.Props` for merged models cannot see it and
+        // it was loaded without `mustSkin`, baked, and skipped by `Merge` (B119).
+        //
+        // The failure is the one the remarks above describe, moved to a place where it is far more
+        // visible: a merged model that cannot merge draws at its WEARER's transform, which for a
+        // cosmetic is the player's feet and for a viewmodel is the camera. A knife is fourteen units
+        // long against a viewmodel near plane of one, so it clipped away entirely and the spy's hand
+        // was empty — with `asked for 3, produced 3` in the log and no warning anywhere.
+        foreach (string weapon in HeldWeaponModels(timeline))
+        {
+            paths.Add(weapon);
+        }
+
         return paths;
     }
 
@@ -1954,25 +1969,35 @@ internal class MainForm : Form
         // It said so on every frame: "a model was posed but the renderer has no geometry for it".
         bool grew = _models.Add([prop], ModelGeometry);
 
-        // **Asked AFTER packing, because the sequence table does not exist until then.** The first
-        // version of this asked first and got −1 every time — the model had no packed frames yet —
-        // which read as "this model has no viewmodel idle" when it has one at merged index 3.
+        // **The demo's sequence is played, never one chosen here.** This used to substitute the
+        // model's `VM_IDLE` whenever it differed, which on the spy meant replacing the recorded
+        // sequence 34 with 3 on every frame — the recording says what the weapon was doing and
+        // overriding it is this viewer inventing motion, which is the one thing it exists not to do.
+        // The owner's rule, and it is the right one: "we shouldnt be forcing any sequence only stuff
+        // from the demo or how valve does it".
         //
-        // **Merged sequence 1 on an arms model is `r_handposes`**, a one-frame pose holder whose
-        // root bone sits at identity, leaving the arms in their authored Y-up space and off screen.
-        // The animations a viewmodel plays start at 2 and carry ACT_*_VM_IDLE.
-        int idle = _models.SequenceByActivity(weapon.ModelPath, "VM_IDLE");
-
-        if (idle >= 0 && idle != weapon.Sequence)
-        {
-            prop = prop with { Pose = prop.Pose with { Sequence = idle } };
-        }
-
+        // The engine agrees. `C_BaseViewModel` plays `m_nSequence` as it arrives; nothing anywhere
+        // in the viewmodel path picks an idle for it.
+        //
+        // **The substitution was added for a real symptom and cost the placement.** Merged sequence
+        // 1 on an arms model is `r_handposes`, a one-frame pose holder whose root sits at identity,
+        // which leaves the arms off screen — so forcing VM_IDLE made them appear. It also replaced
+        // the spy's recorded 34 with 3, which posed the arms for a weapon they were not holding and
+        // dropped the knife to the bottom of the frame. The owner spotted that as "the knifes there
+        // its jkust super low", and removing the substitution put it in the grip.
+        //
+        // **The recorded index means what the engine means by it, measured rather than assumed.**
+        // The worry was that a demo's sequence number indexes the weapon's own table while ours is
+        // merged from two models and 98 sequences deep, so the two might disagree silently. They do
+        // not: 34 plays a correct spy knife pose on z1800. Worth re-checking on any model whose
+        // merge is a different shape, since the failure would be a plausible wrong animation.
         ViewerLog.Write(
             "render",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"viewmodel sequence: demo says {weapon.Sequence}, VM_IDLE is {idle}"));
+                $"viewmodel sequence: demo says {weapon.Sequence}, " +
+                $"VM_IDLE would be {_models.SequenceByActivity(weapon.ModelPath, "VM_IDLE")}, " +
+                $"playing {prop.Pose.Sequence}"));
 
         List<SceneProp> viewmodelProps = [prop];
 
@@ -2045,17 +2070,9 @@ internal class MainForm : Form
 
             grew |= _models.Add([watch], ModelGeometry);
 
-            // Asked after packing, like the arms, and allowed to answer nothing: a watch is a world
-            // model and carries no ACT_*_VM_* activity, so the demo's own sequence stands.
-            int watchIdle = _models.SequenceByActivity(offHand.ModelPath, "VM_IDLE");
-
-            if (watchIdle >= 0 && watchIdle != offHand.Sequence)
-            {
-                watch = watch with { Pose = watch.Pose with { Sequence = watchIdle } };
-            }
-
             viewmodelProps.Add(watch);
 
+            // The recorded sequence, like the main hand: nothing is substituted here either.
             ViewerLog.Write(
                 "render",
                 $"off hand {offHand.ModelPath} seq {offHand.Sequence} at tick " +
