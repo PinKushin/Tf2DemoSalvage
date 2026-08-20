@@ -257,11 +257,23 @@ internal sealed class EntityModelSet
         // That mistake cost a full round of investigation, and it is the same one as measuring at
         // a tick the demo does not contain: an instrument answering confidently about the wrong
         // quantity.
+        // **The root bone's own matrix, because extents cannot separate a rotation from a move.**
+        // Two poses of one model came out as the same three ranges with the axes cycled, which is
+        // a basis change rather than a different pose — but the extents alone cannot say whether
+        // the translation came with it. The matrix can: its last column is where the root sits and
+        // its first three are what it does to the axes.
+        string root = bones.Count > 0 && bones[0] is { Length: >= 12 } first
+            ? $"root [{first[0]:0.##} {first[1]:0.##} {first[2]:0.##} | " +
+              $"{first[4]:0.##} {first[5]:0.##} {first[6]:0.##} | " +
+              $"{first[8]:0.##} {first[9]:0.##} {first[10]:0.##}] " +
+              $"at ({first[3]:0.#}, {first[7]:0.#}, {first[11]:0.#})"
+            : "root none";
+
         ViewerLog.Write(
             "props",
             $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
             $"{bones.Count} bones, x {minimumX:0.#}..{maximumX:0.#} " +
-            $"y {minimumY:0.#}..{maximumY:0.#} z {minimumZ:0.#}..{maximumZ:0.#}");
+            $"y {minimumY:0.#}..{maximumY:0.#} z {minimumZ:0.#}..{maximumZ:0.#}, {root}");
     }
 
     /// <summary>Every packed model's triangles, in model space.</summary>
@@ -860,7 +872,8 @@ internal sealed class EntityModelSet
                 {
                     ViewerLog.Write(
                         "render",
-                        $"skinned {prop.ModelPath}: sequence {sequence}, " +
+                        $"skinned {prop.ModelPath}: sequence {sequence}" +
+                        $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}, " +
                         $"{skinned.Frames(sequence)} frames at " +
                         $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
                         $"phase {phase:0.###} -> frame {posedFrame}");

@@ -247,3 +247,50 @@ to the camera is lost or never applied.
 matrix for `c_demo_arms.mdl` at sequence 1 frame 0 and compare its translation against what the
 extents imply. A rotation that arrives without its translation is a specific, checkable defect, and
 it is one this project has met before in another form.
+
+### The root bone, measured — and two more hypotheses dead
+
+The pose report now prints the root bone's matrix, because extents cannot separate a rotation from a
+move. One frame, three arms models:
+
+```
+c_engineer_arms  seq 0   root [0 -0 1 | 1 0 -0 | -0 1 0]  at (0,0,0)   z 31.1..62.1
+c_spy_arms       seq 0   root [0  0 1 | 1 -0 -0 | 0 1 -0]  at (0,0,0)   z 39..70.5
+c_demo_arms      seq 1   root [1  0 0 | 0  1  0 |  0 0 1]  at (0,0,0)   y 31.7..65.9
+```
+
+**The arms are authored Y-up, and the root bone's rotation is the permutation that stands them up.**
+Two of the three carry it; the one this project poses for the viewmodel does not, and its extents are
+the same numbers with the axes cycled. The root's translation is zero in every case, so nothing is
+being lost on the way to the camera — the model really is at the origin of its own space, and the
+question is only which way up.
+
+Two explanations tested and killed:
+
+**A delta animation applied as absolute.** `bone_setup.cpp:379` returns a raw quaternion outright
+while the Euler path honours `STUDIO_ANIM_DELTA`, so a raw-rotation delta applied as absolute would
+replace a rest rotation with whatever the animation held. Our reader already defaults `rotation` to
+`rest.Rotation` and only overwrites it when the animation carries one, which is
+`bone_setup.cpp:392`'s rule exactly:
+
+```c
+if ( !(panim->flags & STUDIO_ANIM_ANIMROT) )
+{
+    if (panim->flags & STUDIO_ANIM_DELTA) q.Init( 0,0,0,1 );
+    else                                  q = baseQuat;
+}
+```
+
+**A delta SEQUENCE played instead of layered.** `STUDIO_DELTA` (0x4) marks a sequence the engine adds
+on top of an already-posed skeleton rather than playing, and posing one alone builds a skeleton out
+of differences — which produces exactly a bone left at identity. `StudioSequence.IsDelta` now reads
+it and the viewer reports it. Sequence 1 is **not** a delta. Both checks are kept: they are one line
+each and they turn a guess into a measurement.
+
+**So the root rotation is being set to identity by ordinary animation data**, which leaves the
+question the previous section raised and did not settle: whether merged sequence 1 is the sequence
+the engine calls 1. The arms carry 74 merged sequences across 2 models and the merge here is
+base-first; Source's `CVirtualModel` also deduplicates by name and resolves forward declarations
+(`STUDIO_OVERRIDE`, which this project does read). The next measurement is to list our merged table
+with each entry's name and source group and compare index 1 against what the model itself calls it —
+a name, not a number, is what makes the comparison possible.

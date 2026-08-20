@@ -1459,6 +1459,21 @@ internal static class PropModels
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
 
+        /// <summary>Whether a merged sequence is a DELTA, meant to be layered rather than played.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether it carries <c>STUDIO_DELTA</c>.</returns>
+        /// <remarks>
+        /// Reported rather than acted on for now: a delta posed on its own builds a skeleton from
+        /// differences with nothing underneath, and the tell is a bone sitting at identity where its
+        /// rest rotation carried a real orientation. Knowing whether the viewmodel's sequence is one
+        /// separates "we are playing the wrong sequence" from "we are playing it the wrong way".
+        /// </remarks>
+        public bool IsDelta(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].IsDelta;
+
         /// <summary>How many frames the animation behind a sequence has.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>The frame count, or one when the sequence does not resolve.</returns>
