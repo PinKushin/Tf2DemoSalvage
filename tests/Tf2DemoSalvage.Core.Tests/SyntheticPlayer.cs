@@ -520,6 +520,46 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>A demo carrying a schema and <c>svc_TempEntities</c> effects that share a class.</summary>
+    /// <param name="count">How many effects the message carries.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **A temp entity is a one-shot effect and never enters the entity table**, so it exercises a
+    /// decode path a snapshot does not reach: no entity index, no serial number, and a class id
+    /// that an effect may omit to repeat the previous one. Two effects rather than one for exactly
+    /// that reason — the repeat is only expressible from the second onwards, and a decoder that
+    /// treats each effect independently desynchronises there rather than at the first.
+    ///
+    /// The effects carry one property each, because "an effect with fields" and "an effect with
+    /// none" render differently and both are worth having available.
+    /// </remarks>
+    public static byte[] DemoWithTempEntities(int count = 2)
+    {
+        DemoSchema schema = SchemaWithProp();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PropClassId);
+        int effects = IndexOf(flat, "m_fEffects");
+
+        DecodedTempEntity effect = new(
+            ClassId: PropClassId,
+            DelaySeconds: 0f,
+            Properties: [new DecodedProperty(effects, flat[effects], PropertyValue.FromInt(3))]);
+
+        byte[] body = decoder.EncodeTempEntities(
+            [.. Enumerable.Repeat(effect, count)], reliable: false, lengthBits: 0);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                66,
+                new TempEntitiesMessage(
+                    Count: count, BodyBits: body.Length * 8, Body: body)));
+    }
+
     /// <summary>A schema that also declares an ordinary drawable prop class.</summary>
     internal static DemoSchema SchemaWithProp()
     {

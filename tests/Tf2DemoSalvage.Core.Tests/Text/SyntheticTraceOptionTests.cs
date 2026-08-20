@@ -124,33 +124,7 @@ public sealed class SyntheticTraceOptionTests
     }
 
     /// <summary>A demo carrying a schema and two temp entities that share a class.</summary>
-    private static byte[] EffectDemo()
-    {
-        DemoSchema schema = SyntheticPlayer.SchemaWithProp();
-        EntityDecoder decoder = new(
-            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-
-        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(SyntheticPlayer.PropClassId);
-        int effects = flat.Select((entry, index) => (entry, index))
-            .First(pair => pair.entry.Property.Name == "m_fEffects").index;
-
-        DecodedTempEntity effect = new(
-            ClassId: SyntheticPlayer.PropClassId,
-            DelaySeconds: 0f,
-            Properties: [new DecodedProperty(effects, flat[effects], PropertyValue.FromInt(3))]);
-
-        byte[] body = decoder.EncodeTempEntities(
-            [effect, effect], reliable: false, lengthBits: 0);
-
-        return SyntheticDemo.From(
-            SyntheticDemo.DefaultProtocol,
-            SyntheticDemo.DataTables(schema),
-            SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol,
-                66,
-                new TempEntitiesMessage(
-                    Count: 2, BodyBits: body.Length * 8, Body: body)));
-    }
+    private static byte[] EffectDemo() => SyntheticPlayer.DemoWithTempEntities();
 
     /// <summary>A demo with one positioned player and a schema.</summary>
     private static byte[] PlayerDemo() =>
