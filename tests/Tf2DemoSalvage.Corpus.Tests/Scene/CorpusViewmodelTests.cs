@@ -75,6 +75,42 @@ public sealed class CorpusViewmodelTests
             "no demo resolved a viewmodel owner to a player, so the handle decode is wrong");
     }
 
+    [Test]
+    public void Viewmodel_TheTimeline_OffersAWeaponForTheRecorderOnAPointOfViewDemo()
+    {
+        // **The plumbing the viewer actually calls.** Everything above walks the entity stream by
+        // hand; this asks the timeline, which is what the renderer will do — and a unit test on a
+        // written demo proves the lookup arithmetic while saying nothing about whether production
+        // populates it.
+        List<string> found = [];
+
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = TimelineCache.For(path);
+
+            if (timeline.RecorderEntityIndex is not { } recorder)
+            {
+                continue;
+            }
+
+            if (timeline.ViewmodelAt(timeline.LastTick, recorder) is not { } weapon)
+            {
+                continue;
+            }
+
+            found.Add($"{Path.GetFileName(path)}: {weapon.ModelPath} seq {weapon.Sequence}");
+
+            // A resolved path, not an empty one. An index that failed to resolve would come back
+            // as a blank string and reach a model loader as a missing asset.
+            weapon.ModelPath.ShouldNotBeNullOrWhiteSpace();
+        }
+
+        TestContext.Out.WriteLine(string.Join(Environment.NewLine, found));
+
+        found.ShouldNotBeEmpty(
+            "no demo offered the recorder a viewmodel through the timeline");
+    }
+
     /// <summary>Counts viewmodels, how many name an owner, and how many owners are players.</summary>
     private static (int Viewmodels, int Owned, int Matched) Survey(string path)
     {

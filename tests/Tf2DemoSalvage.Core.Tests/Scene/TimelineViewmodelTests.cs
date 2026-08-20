@@ -1,0 +1,78 @@
+using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Core.Schema;
+
+namespace Tf2DemoSalvage.Core.Tests.Scene;
+
+/// <summary>
+/// The weapon in the followed player's hands, as the timeline reports it.
+/// </summary>
+/// <remarks>
+/// **A viewmodel has no origin and no angles, so it cannot be a prop track like anything else.**
+/// Its table is <c>BEGIN_NETWORK_TABLE_NOBASE</c>; the demo names the model and the pose and the
+/// client works out where it goes, which for a viewmodel is the camera. That makes it a question a
+/// caller asks about a tick rather than an entry in the scene — the viewer already knows where the
+/// camera is, and nothing else in the scene wants a model with no position.
+///
+/// **Two cases, both measured rather than assumed** (<c>docs/findings/04-entities.md</c>): a
+/// point-of-view recording carries exactly ONE viewmodel and never says whose it is, because you
+/// only ever receive your own; a modern SourceTV recording carries one per player and every owner
+/// handle resolves. So the lookup takes the player being followed and answers with theirs.
+/// </remarks>
+public sealed class TimelineViewmodelTests
+{
+    /// <summary>The player being followed in these fixtures.</summary>
+    private const int Follower = 1;
+
+    [Test]
+    public void ViewmodelAt_APointOfViewDemo_AnswersWithTheSingleUnownedViewmodel()
+    {
+        // **The POV case, and the one an owner join would get wrong.** The demo carries one
+        // viewmodel and no owner handle at all, so a lookup that required a match would find
+        // nothing and the weapon would simply never appear — which is exactly how this feature
+        // would have failed silently.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: null));
+
+        SceneViewmodel weapon = timeline.ViewmodelAt(66, Follower).ShouldNotBeNull();
+
+        weapon.ModelPath.ShouldBe("models/weapons/v_scattergun.mdl");
+        weapon.Sequence.ShouldBe(7);
+    }
+
+    [Test]
+    public void ViewmodelAt_ASourceTvDemo_AnswersWithTheOneOwnedByThatPlayer()
+    {
+        // The STV case: several viewmodels, each naming its owner, and the follower gets theirs.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: Follower));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull()
+            .ModelPath.ShouldBe("models/weapons/v_scattergun.mdl");
+    }
+
+    [Test]
+    public void ViewmodelAt_AnotherPlayersViewmodel_IsNotOffered()
+    {
+        // **The control, and it is the difference between a weapon and somebody else's weapon.**
+        // A lookup that ignored the owner would satisfy both tests above and put the wrong gun in
+        // frame whenever a SourceTV demo carries more than one.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: 9));
+
+        timeline.ViewmodelAt(66, Follower).ShouldBeNull();
+    }
+
+    [Test]
+    public void ViewmodelAt_ADemoWithNone_IsNothing()
+    {
+        // Every era demo before the modern ones carries a viewmodel, but a recording that does not
+        // must not produce an empty model path that a loader would then report as missing.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.Demo(
+            new System.Collections.Generic.Dictionary<string, PropertyValue>
+            {
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }));
+
+        timeline.ViewmodelAt(66, Follower).ShouldBeNull();
+    }
+}

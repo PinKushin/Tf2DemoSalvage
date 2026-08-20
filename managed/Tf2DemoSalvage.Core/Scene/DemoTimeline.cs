@@ -240,13 +240,22 @@ public sealed class DemoTimeline
     /// </remarks>
     private readonly List<(int Tick, RecordedView View)> _recordedViews = [];
 
+    /// <summary>Each tick a viewmodel was described, and what it said.</summary>
+    /// <remarks>
+    /// Sampled per tick rather than stored per frame, for the same reason the recorded views are:
+    /// the viewer draws between packets and wants the most recent answer, not an exact match.
+    /// </remarks>
+    private readonly List<(int Tick, SceneViewmodel Weapon)> _viewmodels = [];
+
     private DemoTimeline(
         List<TimelineFrame> frames,
         List<ScenePropTrack>? props = null,
         List<ScenePropTrack>? playerTracks = null,
-        List<(int Tick, RecordedView View)>? recordedViews = null)
+        List<(int Tick, RecordedView View)>? recordedViews = null,
+        List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null)
     {
         _recordedViews = recordedViews ?? [];
+        _viewmodels = viewmodels ?? [];
 
         _frames = frames;
         _props = props ?? [];
@@ -291,6 +300,42 @@ public sealed class DemoTimeline
     /// <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
     /// </remarks>
     public int? RecorderEntityIndex { get; private init; }
+
+    /// <summary>The weapon a player is holding, as they would see it.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="playerEntityIndex">The player whose view is being shown.</param>
+    /// <returns>Their viewmodel, or <c>null</c> when the demo describes none for them.</returns>
+    /// <remarks>
+    /// **Two cases, both measured rather than assumed.** A point-of-view recording carries exactly
+    /// one viewmodel and never names an owner — you only ever receive your own — so an unowned one
+    /// belongs to whoever is being followed. A modern SourceTV recording carries one per player and
+    /// names each, so it is matched by owner. Requiring an owner would find nothing on eight of the
+    /// nine corpus demos, and the weapon would simply never appear.
+    ///
+    /// At or before the tick, like every other per-tick lookup here: the demo speaks at packet
+    /// ticks and the viewer draws between them.
+    /// </remarks>
+    public SceneViewmodel? ViewmodelAt(int tick, int playerEntityIndex)
+    {
+        SceneViewmodel? found = null;
+
+        foreach ((int at, SceneViewmodel weapon) in _viewmodels)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            // Unowned belongs to the follower by definition; owned has to match.
+            if (weapon.OwnerEntityIndex is null ||
+                weapon.OwnerEntityIndex == playerEntityIndex)
+            {
+                found = weapon;
+            }
+        }
+
+        return found;
+    }
 
     /// <summary>Whether this demo carries a recorded camera at all.</summary>
     /// <remarks>
@@ -459,6 +504,7 @@ public sealed class DemoTimeline
         List<ScenePropTrack> playerTracks = [];
         List<(int Tick, RecordedView View)> recordedViews = [];
         int? recorderSlot = null;
+        List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
 
         foreach (DemoCommand command in commands)
         {
@@ -562,6 +608,12 @@ public sealed class DemoTimeline
 
                 moved = true;
             }
+
+            // **After the packet's messages, not before.** Sampling first reads the table as it
+            // stood at the PREVIOUS tick, so an entity that enters on this packet is missed
+            // entirely — and on a demo whose viewmodel enters once and never changes, that means
+            // it is never recorded at all.
+            RecordViewmodels(entities, precache, protocol, command.Tick, viewmodels);
 
             if (!moved)
             {
@@ -775,7 +827,7 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames, props, playerTracks, recordedViews)
+        return new DemoTimeline(frames, props, playerTracks, recordedViews, viewmodels)
         {
             IntervalPerTick = interval,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
@@ -800,6 +852,51 @@ public sealed class DemoTimeline
     /// no model: the poses are what the interpolator needs, and the model is resolved from the
     /// installed game by whoever draws it.
     /// </remarks>
+    /// <summary>Samples any viewmodel the entity table currently describes.</summary>
+    /// <remarks>
+    /// **Read from the entity table rather than from the snapshot's changed properties**, because
+    /// a viewmodel is mostly silent: its model index arrives once and then only the sequence
+    /// changes, so a reader looking at what a packet CHANGED would see a weapon with no model for
+    /// almost every tick of the demo.
+    ///
+    /// Only recorded when something differs from the last sample. A viewmodel that has not changed
+    /// costs nothing, which matters because z1800 carries 37 of them across 95,480 updates.
+    /// </remarks>
+    private static void RecordViewmodels(
+        EntityStateTable entities,
+        ModelPrecache precache,
+        int protocol,
+        int tick,
+        List<(int Tick, SceneViewmodel Weapon)> into)
+    {
+        foreach (EntityState entity in entities.All)
+        {
+            if (entity.ViewmodelModelIndex() is not { } rawIndex)
+            {
+                continue;
+            }
+
+            if (precache.Path(ModelPrecache.Unpack(rawIndex, protocol)) is not { Length: > 0 } path)
+            {
+                continue;
+            }
+
+            SceneViewmodel weapon = new(
+                path,
+                entity.ViewmodelSequence() ?? 0,
+                entity.ViewmodelPlaybackRate() ?? 1f,
+                entity.ViewmodelOwner());
+
+            // Unchanged since the last sample, so there is nothing new to record.
+            if (into.Count > 0 && into[^1].Weapon == weapon)
+            {
+                continue;
+            }
+
+            into.Add((tick, weapon));
+        }
+    }
+
     private static string? ModelFor(EntityState state, ModelPrecache precache, int protocol)
     {
         if (PlayerClass.Equals(state.ClassName, StringComparison.Ordinal))

@@ -700,6 +700,118 @@ internal static class SyntheticPlayer
     /// <summary>Bytes of <c>democmdinfo_t</c> and the sequence numbers before a packet's body.</summary>
     private const int PrologueBytes = 76 + 8;
 
+    /// <summary>Class id of the viewmodel entity, when the schema declares one.</summary>
+    public const int ViewmodelClassId = 3;
+
+    /// <summary>Entity slot the viewmodel occupies.</summary>
+    private const int ViewmodelEntityIndex = 8;
+
+    /// <summary>A demo carrying a player and the weapon they see in their own hands.</summary>
+    /// <param name="owner">
+    /// The entity the viewmodel names as its owner, or <c>null</c> for the point-of-view shape
+    /// where the demo names nobody.
+    /// </param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **Both shapes are real and the corpus has both.** A point-of-view recording carries exactly
+    /// one viewmodel and never names an owner, because a client only ever receives its own; a
+    /// modern SourceTV recording carries one per player and names each. A fixture offering only the
+    /// second would let a lookup that requires an owner pass, and that lookup finds nothing on
+    /// eight of the nine corpus demos.
+    /// </remarks>
+    public static byte[] DemoWithViewmodel(int? owner)
+    {
+        DemoSchema schema = SchemaWithViewmodel();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        Dictionary<string, PropertyValue> weapon = new()
+        {
+            ["m_nModelIndex"] = PropertyValue.FromInt(4),
+            ["m_nSequence"] = PropertyValue.FromInt(7),
+            ["m_flPlaybackRate"] = PropertyValue.FromFloat(1f),
+        };
+
+        // Absent rather than zero: an unset handle is how a POV demo says "mine", and zero would
+        // be entity slot zero, which is the world.
+        if (owner is { } slot)
+        {
+            weapon["m_hOwner"] = PropertyValue.FromInt(slot);
+        }
+
+        DecodedEntity player = Entity(
+            decoder,
+            PlayerClassId,
+            1,
+            new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            });
+
+        DecodedEntity viewmodel =
+            Entity(decoder, ViewmodelClassId, ViewmodelEntityIndex, weapon);
+
+        byte[] body = decoder.EncodeEntities(
+            [player, viewmodel], [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+
+                // The precache is what turns the model index into a path, and without it the
+                // viewmodel decodes perfectly and resolves to nothing.
+                SyntheticDemo.StringTable(
+                    "modelprecache",
+                    ["", "a.mdl", "b.mdl", "c.mdl", "models/weapons/v_scattergun.mdl"],
+                    maxEntries: 1024)),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                66,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 2,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>A schema that also declares a viewmodel class, with no base table.</summary>
+    /// <remarks>
+    /// **<c>DT_BaseViewModel</c> and nothing else, which is the point.** The real table is declared
+    /// <c>BEGIN_NETWORK_TABLE_NOBASE</c>, so a viewmodel inherits no <c>DT_BaseEntity</c> — no
+    /// origin, no angles, and an owner under <c>m_hOwner</c> rather than <c>m_hOwnerEntity</c>. A
+    /// fixture that gave it a base table would let a reader looking in the wrong place pass.
+    /// </remarks>
+    private static DemoSchema SchemaWithViewmodel()
+    {
+        DemoSchema baseline = Schema();
+
+        return new DemoSchema(
+            [
+                .. baseline.Tables,
+                new SendTable("DT_BaseViewModel", NeedsDecoder: true,
+                [
+                    Int("m_nModelIndex", bits: 13),
+                    Int("m_nSequence", bits: 8),
+                    Float("m_flPlaybackRate", low: -4f, high: 12f, bits: 8),
+                    Int("m_hOwner", bits: 21),
+                ]),
+            ],
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(ViewmodelClassId, "CTFViewModel", "DT_BaseViewModel"),
+            ]);
+    }
+
     /// <summary>A schema that also declares an ordinary drawable prop class.</summary>
     internal static DemoSchema SchemaWithProp()
     {
