@@ -647,6 +647,59 @@ internal static class SyntheticPlayer
                     Count: count, BodyBits: body.Length * 8, Body: body)));
     }
 
+    /// <summary>A demo whose packets carry chosen recorded views in their prologues.</summary>
+    /// <param name="views">One entry per packet: the tick, and the view origin to record.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="views"/> is null.</exception>
+    /// <remarks>
+    /// **The prologue is normally zeroed by <see cref="SyntheticDemo.Packet"/>**, which is right
+    /// for every other fixture — the bytes are opaque to this project and writing them back as
+    /// read is what makes a demo reproduce. Here they are the subject, so they are filled in.
+    ///
+    /// Angles are derived from the origin rather than passed separately, because no test so far
+    /// needs to choose them independently and a parameter nothing varies is a parameter that gets
+    /// passed wrongly. <c>democmdinfo_t</c>'s layout is int flags, then viewOrigin, viewAngles and
+    /// localViewAngles, then a resampled copy of all three.
+    /// </remarks>
+    public static byte[] DemoWithRecordedViews(
+        params (int Tick, (float X, float Y, float Z) Origin)[] views)
+    {
+        ArgumentNullException.ThrowIfNull(views);
+
+        DemoSchema schema = Schema();
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        foreach ((int tick, (float x, float y, float z)) in views)
+        {
+            byte[] prologue = new byte[PrologueBytes];
+
+            // Flags stay zero, so the ORIGINAL copy is the live one rather than the resampled.
+            BitConverter.GetBytes(x).CopyTo(prologue, 4);
+            BitConverter.GetBytes(y).CopyTo(prologue, 8);
+            BitConverter.GetBytes(z).CopyTo(prologue, 12);
+
+            // Pitch and yaw scaled off the origin so two packets differ in both, which is what
+            // catches a lookup that finds the right tick and reads the wrong field.
+            BitConverter.GetBytes(x / 10f).CopyTo(prologue, 16);
+            BitConverter.GetBytes(y / 10f).CopyTo(prologue, 20);
+
+            commands.Add(
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick) with
+                {
+                    Prologue = prologue,
+                });
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>Bytes of <c>democmdinfo_t</c> and the sequence numbers before a packet's body.</summary>
+    private const int PrologueBytes = 76 + 8;
+
     /// <summary>A schema that also declares an ordinary drawable prop class.</summary>
     internal static DemoSchema SchemaWithProp()
     {

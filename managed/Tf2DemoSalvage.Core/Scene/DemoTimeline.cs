@@ -231,11 +231,23 @@ public sealed class DemoTimeline
 
     private readonly List<ScenePropTrack> _playerTracks;
 
+    /// <summary>Each packet's recorded camera and the tick it was stated at, in order.</summary>
+    /// <remarks>
+    /// A sorted list rather than a dictionary because the question asked is "what was the camera at
+    /// or before this tick" — the viewer draws between packets, so an exact-match lookup answers
+    /// nothing on most frames. Binary search over the ticks is what makes that cheap enough to do
+    /// per frame.
+    /// </remarks>
+    private readonly List<(int Tick, RecordedView View)> _recordedViews = [];
+
     private DemoTimeline(
         List<TimelineFrame> frames,
         List<ScenePropTrack>? props = null,
-        List<ScenePropTrack>? playerTracks = null)
+        List<ScenePropTrack>? playerTracks = null,
+        List<(int Tick, RecordedView View)>? recordedViews = null)
     {
+        _recordedViews = recordedViews ?? [];
+
         _frames = frames;
         _props = props ?? [];
         _playerTracks = playerTracks ?? [];
@@ -267,6 +279,52 @@ public sealed class DemoTimeline
 
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
+
+    /// <summary>Whether this demo carries a recorded camera at all.</summary>
+    /// <remarks>
+    /// **A SourceTV recording has no local player and leaves <c>democmdinfo_t</c> zeroed**, so the
+    /// point-of-view camera has nothing to follow and the viewer has to offer something else —
+    /// spectating a chosen player, as the engine does. Asked once, because a per-frame null check
+    /// cannot tell "not yet" from "never".
+    /// </remarks>
+    public bool HasRecordedView => _recordedViews.Count > 0;
+
+    /// <summary>The camera the recording was made through at a tick.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <returns>The most recently stated view, or <c>null</c> before the first one.</returns>
+    /// <remarks>
+    /// **At or before, not exactly at.** The demo speaks at packet ticks and the viewer draws
+    /// between them, so an exact-match lookup answers nothing on most frames and the view would
+    /// flicker back to another camera. Before the first packet the answer really is nothing —
+    /// inventing the first view would place the camera somewhere the recording never was.
+    /// </remarks>
+    public RecordedView? RecordedViewAt(int tick)
+    {
+        if (_recordedViews.Count == 0 || tick < _recordedViews[0].Tick)
+        {
+            return null;
+        }
+
+        int low = 0;
+        int high = _recordedViews.Count - 1;
+
+        while (low < high)
+        {
+            // Rounded up, so the search moves towards the later entry and cannot stall on low.
+            int middle = low + ((high - low + 1) / 2);
+
+            if (_recordedViews[middle].Tick <= tick)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return _recordedViews[low].View;
+    }
 
     /// <summary>The first tick with positions, or zero when the demo has none.</summary>
     public int FirstTick => _frames.Count > 0 ? _frames[0].Tick : 0;
@@ -387,12 +445,31 @@ public sealed class DemoTimeline
         Dictionary<int, ScenePropTrack> tracks = [];
         List<ScenePropTrack> props = [];
         List<ScenePropTrack> playerTracks = [];
+        List<(int Tick, RecordedView View)> recordedViews = [];
 
         foreach (DemoCommand command in commands)
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;
+            }
+
+            // **The recorder's own camera, kept while the file is already open.** A viewer asking
+            // for it per frame cannot re-walk a 39 MB demo, and this loop is the only pass over
+            // the commands there is.
+            //
+            // A zeroed structure is not a camera at the world origin, it is the absence of one:
+            // SourceTV recordings have no local player and leave every one of these blank, so they
+            // are skipped rather than recorded as a view at (0, 0, 0) that would put the camera in
+            // the middle of the map.
+            if (command.Prologue.Length >= RecordedView.SizeBytes)
+            {
+                RecordedView view = RecordedView.Parse(command.Prologue.Span);
+
+                if (view.Origin != (0f, 0f, 0f))
+                {
+                    recordedViews.Add((command.Tick, view));
+                }
             }
 
             bool moved = false;
@@ -679,7 +756,10 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames, props, playerTracks) { IntervalPerTick = interval };
+        return new DemoTimeline(frames, props, playerTracks, recordedViews)
+        {
+            IntervalPerTick = interval,
+        };
     }
 
     /// <summary>Records where a model-bearing entity was, if this update said anything about it.</summary>

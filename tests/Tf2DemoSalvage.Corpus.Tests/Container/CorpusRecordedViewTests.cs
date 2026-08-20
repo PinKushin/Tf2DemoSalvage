@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Scene;
 
 // Namespaced to match its neighbour rather than to the assembly: inside
 // `Tf2DemoSalvage.Corpus.Tests.*` the name `Corpus` binds to the namespace rather than to the
@@ -110,6 +111,43 @@ public sealed class CorpusRecordedViewTests
                 view.Origin.ShouldBe(
                     (0f, 0f, 0f), $"{Path.GetFileName(path)} carries a recorded view");
             }
+        }
+    }
+
+    [Test]
+    public void Timeline_OffersARecordedCamera_ForPointOfViewDemosAndNotForSourceTv()
+    {
+        // **The plumbing the viewer actually calls, on real files.** Everything above tests the
+        // parser; this tests that the timeline collected what the parser produced and can answer
+        // by tick. A unit test on a written demo proves the lookup arithmetic and says nothing
+        // about whether production populates it.
+        // **FilesWithSchema, not Files.** One corpus demo carries a schema truncated at 64 KiB by
+        // the recording client — the writer's cap, established by recording the same session from
+        // both points of view — so no timeline can be built for it at all. That is a known
+        // condition rather than a failure of this feature, and it has its own tests elsewhere.
+        IReadOnlyList<string> buildable = Corpus.FilesWithSchema();
+
+        buildable.ShouldNotBeEmpty("no corpus demo has a usable schema");
+
+        foreach (string path in buildable)
+        {
+            DemoTimeline timeline = TimelineCache.For(path);
+            bool pointOfView = IsPointOfView(path);
+
+            timeline.HasRecordedView.ShouldBe(
+                pointOfView,
+                $"{Path.GetFileName(path)} is {(pointOfView ? "POV" : "SourceTV")}");
+
+            if (!pointOfView)
+            {
+                continue;
+            }
+
+            // And it answers at a tick the demo actually contains. Asking at tick zero would be
+            // answered by "before the first packet" on most demos and prove nothing — demo ticks
+            // do not start at zero.
+            timeline.RecordedViewAt(timeline.LastTick).ShouldNotBeNull(
+                $"{Path.GetFileName(path)} has no view at its own last tick");
         }
     }
 
