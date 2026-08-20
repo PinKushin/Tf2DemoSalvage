@@ -5686,6 +5686,31 @@ spotlights**, 108 surface, 77 point, 1 sky, 1 sky ambient. Spotlights dominate a
 (`stopdot`, `stopdot2`, `exponent`) are the main case rather than an extra. Every point light on the
 map is pure inverse-square: constant 0, linear 0, quadratic 1.
 
+**The cost, measured 2026-08-20 on z1800 in a lamplit interior (B120, filed as new and folded back
+here).** Every model in one frame, sampled at its own position:
+
+```
+lbtf_medal_participant_demo 0.0934    c_spy_arms       0.1111
+c_proto_backpack            0.0946    c_knife          0.1112
+homefront_blindfold         0.1037    spr17_upgrade    0.1114
+fob_e_sniperrifle           0.1050    ghost_aspect     0.1191
+v_watch_leather_spy         0.1086    c_engineer_arms  0.1192
+```
+
+**Twenty unrelated models between 0.09 and 0.12**, in a room with three ceiling lamps directly
+overhead, while the walls and floor around them read as correctly lit. That contrast is the whole of
+this defect made visible: the brushes carry the lamps in their lightmaps and the models cannot receive
+them, so the split is not subtle and it is not confined to dark corners.
+
+The owner noticed it as a spy's gloves looking flat black. The gloves are a red herring — a spy's
+gloves are genuinely black — but they are where a scene-wide tenth becomes obvious first, because a
+dark albedo times a tenth is indistinguishable from nothing.
+
+**A before-figure to check an implementation against:** these numbers should rise for the models
+under those lamps and stay put for anything genuinely in shade. Since this viewer renders
+deterministically — two identical launches produce byte-identical captures — a frame hash plus this
+table is a usable check that the change did something and did it where expected.
+
 ### B96 — no visibility culling, so a roof hides the map from above — OPEN, owner-diagnosed
 
 **Not a lighting defect, and it was nearly chased as one.** The large black regions in the viewer's
@@ -7217,7 +7242,22 @@ something before the picture was even looked at.
 
 ---
 
-### B120 — every model in the scene is lit at about a tenth — OPEN
+### B120 — every model in the scene is lit at about a tenth — DUPLICATE OF B95
+
+**Filed as new and it is not: this is B95, "local lights are still not applied", measured from the
+other end.** B95 says no prop receives direct light from a point or spot light, because the renderer
+applies the ambient cube and the sun and nothing else. The room in this capture has three ceiling
+lamps. The world's brushes carry them in baked lightmaps and look correctly lit; the models cannot
+receive them at all, so they sit at ambient-only — which is the ~0.1 below.
+
+Kept rather than deleted because the numbers are new and belong to B95: they turn "no prop receives
+direct light" from a statement about the code into a measured consequence, and they give whoever
+implements it a before-figure to check against.
+
+**Recording the mistake too.** The risks log was searched for this symptom and not for its cause —
+`LocalLights.cs` cites B95 in a comment three lines long, and reading that first would have skipped
+the entire filing. Same shape as B118's duplicate decision numbers, one document over: a register
+only works if it is read before it is written to.
 
 Noticed by the owner as "the gloves look dark too but im not sure if thats lighting ot what", on the
 same capture. The gloves are a red herring — a spy's gloves are genuinely black — but the instinct
