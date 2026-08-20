@@ -20,6 +20,10 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="SkinSwap">Which material replaces which for its team, or null.</param>
 /// <param name="BodyParts">The model's body parts, for reading its body number.</param>
 /// <param name="Body">Which alternative each body part shows, as m_nBody packs it.</param>
+/// <param name="Mirrored">
+/// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
+/// flip with it or the weapon draws inside out.
+/// </param>
 internal readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -30,7 +34,8 @@ internal readonly record struct ModelInstance(
     IReadOnlyList<float[]>? Bones = null,
     IReadOnlyDictionary<int, int>? SkinSwap = null,
     IReadOnlyList<(int Base, int Count)>? BodyParts = null,
-    int Body = 0);
+    int Body = 0,
+    bool Mirrored = false);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.

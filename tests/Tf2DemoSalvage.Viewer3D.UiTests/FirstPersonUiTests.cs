@@ -132,6 +132,19 @@ public sealed class FirstPersonUiTests
             throwOnTimeout: true,
             timeoutMessage: "V did not enter the first-person view, so there is nothing to capture.");
 
+        // **Wait for the viewmodel to be RESOLVED, not drawn.** Whether it draws depends on the
+        // installed game: a demo's precache names the model the recording used, and TF2 replaced
+        // the v_models with c_models around 2011 — so a 2013 recording can name
+        // v_scattergun_scout.mdl at a tick where the current install has no such file. The
+        // renderer reports that honestly as "no-batches" and draws nothing, which is correct
+        // behaviour rather than a defect.
+        //
+        // So the condition is that the lookup happened. A capture with empty hands is still the
+        // right capture when the model is not on this machine.
+        Retry.WhileFalse(
+            () => Viewer.Count("viewmodel models/") > 0,
+            TimeSpan.FromSeconds(15));
+
         Viewer.PressKey(VirtualKeyShort.F12);
 
         // The only assertion: that a capture was actually taken. Without it a failure to press the

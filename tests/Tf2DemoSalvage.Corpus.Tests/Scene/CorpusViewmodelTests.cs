@@ -93,6 +93,13 @@ public sealed class CorpusViewmodelTests
                 continue;
             }
 
+            // FIRST tick as well as last: the viewer opens a demo parked at the beginning, so a
+            // weapon that only exists later means the first-person view shows empty hands until
+            // somebody scrubs. Reported rather than asserted — it is a property of the recording.
+            TestContext.Out.WriteLine(
+                $"{Path.GetFileName(path)}: first tick {timeline.FirstTick} " +
+                $"{(timeline.ViewmodelAt(timeline.FirstTick, recorder) is null ? "NO weapon" : "has a weapon")}");
+
             if (timeline.ViewmodelAt(timeline.LastTick, recorder) is not { } weapon)
             {
                 continue;

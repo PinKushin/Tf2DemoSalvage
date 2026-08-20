@@ -1761,6 +1761,96 @@ internal class MainForm : Form
         return true;
     }
 
+    /// <summary>Puts the followed player's weapon in front of the camera.</summary>
+    /// <param name="seconds">Demo time, for advancing the weapon's own animation.</param>
+    /// <remarks>
+    /// **A viewmodel has no position of its own, so this is where it gets one.** Its table is
+    /// declared <c>BEGIN_NETWORK_TABLE_NOBASE</c> and carries no origin and no angles at all — the
+    /// demo names the model and the pose, and <c>CBaseViewModel::CalcViewModelView</c> starts it at
+    /// the eye:
+    ///
+    /// <code>
+    /// QAngle vmangles = eyeAngles;
+    /// Vector vmorigin = eyePosition;
+    /// </code>
+    ///
+    /// **The bob, the lag and the shake that follow in the engine are deliberately not copied.**
+    /// Every one of them is a function of movement and elapsed time rather than of anything the
+    /// recording holds, so reproducing them would be this viewer inventing motion — which is the
+    /// one thing it exists not to do. What is drawn is where the weapon was; how it swayed is not
+    /// in the file.
+    ///
+    /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
+    /// wrong does not fail, it draws the weapon inside out.
+    /// </remarks>
+    private void AddViewmodel(double seconds)
+    {
+        if (!_firstPerson ||
+            _timeline is not { } timeline ||
+            FollowedEntity() is not { } follower ||
+            FirstPersonCamera() is not { } camera)
+        {
+            return;
+        }
+
+        if (timeline.ViewmodelAt(_transport.CurrentTick, follower) is not { } weapon)
+        {
+            ViewerLog.Warn(
+                "render",
+                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
+            return;
+        }
+
+        SceneProp prop = new(
+            ViewmodelEntityIndex,
+            weapon.ModelPath,
+            SceneModelKind.Studio,
+            new ScenePose
+            {
+                X = camera.Origin.X,
+                Y = camera.Origin.Y,
+                Z = camera.Origin.Z,
+                Pitch = camera.Angles.Pitch,
+                Yaw = camera.Angles.Yaw,
+                Roll = camera.Angles.Roll,
+                Sequence = weapon.Sequence,
+                PlaybackRate = weapon.PlaybackRate,
+            });
+
+        // Packed on demand like any other model, so a weapon seen for the first time is loaded
+        // rather than skipped — and skipped silently, since a missing model draws nothing.
+        _models.Add([prop], ModelGeometry);
+        _models.Instances([prop], _viewmodelInstances, LightAt, SunAt, seconds);
+
+        // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
+        // and then yields no instance is indistinguishable on screen from one that was never
+        // looked up — and that distinction is exactly what went wrong the first time this ran.
+        ViewerLog.Write(
+            "render",
+            $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
+            $"{_transport.CurrentTick}: {_viewmodelInstances.Count} instances");
+
+        foreach (ModelInstance instance in _viewmodelInstances)
+        {
+            _instances.Add(instance with { Mirrored = true });
+        }
+
+        _viewmodelInstances.Clear();
+    }
+
+    /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
+    private readonly List<ModelInstance> _viewmodelInstances = [];
+
+    /// <summary>
+    /// The entity slot the viewmodel is drawn under, which is not a real one.
+    /// </summary>
+    /// <remarks>
+    /// A viewmodel is not in the scene the timeline builds — it has no position, so it is not a
+    /// prop — and it still needs an index to be packed and posed like one. Chosen above every real
+    /// slot so it cannot collide with an entity the demo describes.
+    /// </remarks>
+    private const int ViewmodelEntityIndex = 4096;
+
     /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
     /// <remarks>
     /// **The same choice the camera makes, asked separately** — the camera needs a position and
@@ -2274,6 +2364,8 @@ internal class MainForm : Form
         long posedAt = Stopwatch.GetTimestamp();
 
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
+
+        AddViewmodel(seconds);
 
         _posingTicks += Stopwatch.GetTimestamp() - posedAt;
 
