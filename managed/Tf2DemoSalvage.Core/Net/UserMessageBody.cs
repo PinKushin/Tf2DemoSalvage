@@ -726,14 +726,38 @@ public static class UserMessageBody
     private static SendProperty Coordinate { get; } =
         new(SendPropType.Float, "damage_origin", 1 << 1, string.Empty, 0f, 0f, 0, 0);
 
+    /// <summary>Strings a <c>TextMsg</c> carries: the key and its four substitutions.</summary>
+    private const int TextMsgStrings = 5;
+
     /// <summary>
     /// <c>TextMsg</c> — a destination, a localisation key, and up to four substitutions.
     /// </summary>
     /// <remarks>
-    /// The string count is not stated; the body simply ends. Reading until the bits run out is
-    /// therefore the format, not a shortcut, and it is why the exact-consumption check matters
-    /// more here than anywhere else: an over-read runs into whatever follows and still produces
-    /// strings.
+    /// **The count is fixed at five and this file used to read until the body ran out**, which is
+    /// the difference between a layout and a guess that usually agrees with one. Both ends of the
+    /// wire say five, so the loop below is a citation rather than an inference:
+    ///
+    /// <code>
+    /// // src/game/server/util.cpp, UTIL_ClientPrintFilter
+    /// WRITE_BYTE( msg_dest );
+    /// WRITE_STRING( msg_name );
+    /// if ( param1 ) WRITE_STRING( param1 ); else WRITE_STRING( "" );
+    /// ... param2, param3, param4 the same way
+    ///
+    /// // src/game/client/hud_basechat.cpp, CBaseHudChat::MsgFunc_TextMsg
+    /// int msg_dest = msg.ReadByte();
+    /// for ( int i=0; i&lt;5; ++i ) msg.ReadString( szString, sizeof(szString) );
+    /// </code>
+    ///
+    /// An empty parameter is sent as an empty string rather than omitted, so the count never
+    /// varies with how many substitutions the caller supplied.
+    ///
+    /// **What the open-ended version cost is the whole point of the exact-consumption rule.** Any
+    /// whole-byte body that happens to end on a NUL was accepted and named <c>TextMsg</c> —
+    /// measured on a 512-byte body of zeros, which decoded as 511 empty strings and reported
+    /// fields. The length check cannot catch that, because reading to the end consumes the body
+    /// exactly by construction: the layout had made itself unfalsifiable. Five is what restores
+    /// the check.
     /// </remarks>
     private static List<KeyValuePair<string, object?>>? TextMsg(
         ReadOnlySpan<byte> body, int bodyBits)
@@ -747,8 +771,7 @@ public static class UserMessageBody
             [new("destination", (int)body[0])];
 
         int offset = 1;
-        int index = 0;
-        while (offset < ByteLength(bodyBits))
+        for (int index = 0; index < TextMsgStrings; index++)
         {
             if (!ReadString(body, ByteLength(bodyBits), ref offset, out string value))
             {
@@ -767,8 +790,6 @@ public static class UserMessageBody
             {
                 fields.Add(new(Substitution(index), value));
             }
-
-            index++;
         }
 
         return offset == ByteLength(bodyBits) ? fields : null;

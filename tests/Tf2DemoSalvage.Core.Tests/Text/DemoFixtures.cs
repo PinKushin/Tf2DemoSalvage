@@ -50,8 +50,12 @@ internal static class DemoFixtures
     public static IReadOnlyList<DemoCommand> TextMessage(
         int tick = 7, string text = "#Game_connected", string param = "Sassy")
     {
+        // **Five strings, always**: the key and four substitution slots, empty ones written as
+        // empty rather than left out (UTIL_ClientPrintFilter, src/game/server/util.cpp). This
+        // fixture wrote one or two and passed, because the layout used to read until the body ran
+        // out — a shape no server produces.
         List<byte> body = [3];                               // destination
-        foreach (string value in param.Length == 0 ? new[] { text } : new[] { text, param })
+        foreach (string value in new[] { text, param, string.Empty, string.Empty, string.Empty })
         {
             body.AddRange(System.Text.Encoding.UTF8.GetBytes(value));
             body.Add(0);
