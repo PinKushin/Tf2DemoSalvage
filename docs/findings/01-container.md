@@ -485,3 +485,33 @@ always empty, ignore it". The probe mis-walked the command stream; the reader un
 correct, and the tests written against it disagreed with the probe. That is the fifth time in this
 project an instrument has been wrong before a decoder was — see
 `docs/memory/instrument-bugs-outnumber-decoder-bugs.md`.
+
+### The recorded origin is the recorder's FEET, and that was the wrong guess
+*(measured differentially across the corpus — 19 August 2026)*
+
+The obvious hypothesis was that a recorder writes down where the camera is, which is the eye. It
+does not. Measured against every point-of-view demo in the corpus, the recorded view origin and the
+recorder's own networked origin agree **to the hundredth at every tick** — a median difference of
+exactly zero over 3,807 ticks on the 2007 specimen, sampling `view z -287.88 / entity z -287.88`.
+
+The SDK cannot settle this, which is why it is measured: the half of the engine that FILLS
+`democmdinfo_t` is `cl_demo.cpp`, and that is not in `source-sdk-2013`. What the SDK supplies is the
+relationship a live client uses, `EyePosition() = GetAbsOrigin() + GetViewOffset()`. The demo
+carries the first term; the client adds the second when it draws.
+
+**So a first-person camera has to add the offset itself, and the offset is per class.**
+`tf_gamerules.cpp:1330` lists them — 65 for a scout, 68 for soldier, demoman and pyro, with the
+generic `VEC_VIEW` at 72. One number for everyone would sit a few units wrong for most of the
+roster.
+
+**A cross-check falls out of this for free.** The recorded view and the entity stream are decoded by
+two entirely unrelated paths — a fixed-layout struct in the command prologue, and a delta-compressed
+bit stream against a networked schema — and they land on the same float. That makes this a test of
+the entity decode as much as of the container, which is the `two-recordings-of-one-value` pattern:
+a value stored twice by unrelated routes checks the decode against the engine rather than against
+our own reading of it.
+
+**A median of exactly zero nearly went unexamined.** Zero has two explanations — the values agree,
+or both are absent — and only the raw samples separate them. The first version of the test asserted
+before printing them, so the failure message hid the numbers that settle it; the samples are now
+written out first for that reason.
