@@ -127,3 +127,64 @@ holds, and this project already knows that pose parameters live in the included 
 base one (`docs/memory/pose-parameters-live-in-the-included-model.md`) — the same trap that once ran
 every player backwards. An arms model posed without them is not the pose the engine would produce,
 and the bounding box says exactly that: it is somewhere a viewmodel never is.
+
+---
+
+## The arms are authored in body space, and the sequence rotates them
+
+*(20 August 2026, after the pass was built)*
+
+With the pass correct — 54 degrees, near plane 1, depth range 0…0.1 — still nothing. The reason is
+not the projection, and the poser's own log says what it is. Three arms models, same family, in one
+frame:
+
+```
+c_engineer_arms  sequence 0   x -7.3..9.1    y -23.6..23.6   z 31.1..62.1
+c_spy_arms       sequence 0   x -7.2..11.1   y -20.8..20.8   z 39..70.5
+c_demo_arms      sequence 1   x -24.3..24.3  y 31.7..65.9    z -9..6.8
+```
+
+The first two are worn by players and stand correctly: a pair of arms about 30 units tall, 31 to 70
+units up. **The third has the same extents with the axes permuted** — what the others carry in Z it
+carries in Y.
+
+Forcing it to sequence 0 confirms the sequence is the whole difference:
+
+```
+c_demo_arms      sequence 0   x -9..6.8      y -24.3..24.3   z 31.6..65.9
+```
+
+Identical in shape to the engineer's. So sequence 1 rotates the skeleton, and neither sequence puts
+the model anywhere near a camera: **both leave the arms 32 to 66 units from the model origin**,
+because `c_*_arms` are authored in PLAYER BODY SPACE — they are the same arms the player model wears.
+
+Placed at the eye, they are therefore a body's height above it in one sequence and a body's length
+along Y in the other. Off screen either way, which is exactly what four captures show.
+
+**So "put the model at the eye and rotate by the view angles" cannot be the whole placement**, even
+though `CalcViewModelView` really does only that:
+
+```cpp
+SetLocalOrigin( vmorigin );   // the eye
+SetLocalAngles( vmangles );   // the view angles
+```
+
+The missing step is between those and the vertices, and it is the animation. A viewmodel plays
+sequences that come from the WEAPON, merged into the arms model — the soldier's arms report "98
+merged sequences from 2 models" — and it is those that carry the hands from body space to in front
+of the camera. `m_nSequence` indexes that merged list.
+
+**Which makes this the same trap as the pose parameters, one level up.** This project already knows
+that a paramindex is local to its group and that reading it against the base model ran every player
+backwards (`docs/memory/pose-parameters-live-in-the-included-model.md`). A sequence index has the
+same shape: if our merge order does not match the engine's, `m_nSequence` selects a real animation
+that is the wrong one — which is precisely what a rotated skeleton looks like.
+
+**The next measurement, stated so it is not guessed at again:** dump the merged sequence list for
+`c_demo_arms.mdl` with each sequence's source model and name, and find which entry the engine would
+call 1. If the list is `[arms sequences…, weapon sequences…]` and the engine's is the other way
+round, the fix is the merge order and nothing else.
+
+Four captures were spent moving a model that was never going to be visible where it was pointed.
+The bounding box distinguished the two sequences in one line, and comparing it against the two arms
+models already on screen is what named the space.
