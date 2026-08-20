@@ -188,3 +188,62 @@ round, the fix is the merge order and nothing else.
 Four captures were spent moving a model that was never going to be visible where it was pointed.
 The bounding box distinguished the two sequences in one line, and comparing it against the two arms
 models already on screen is what named the space.
+
+---
+
+## Two corrections from the owner, and what the measurement says now
+
+**The viewmodel field of view is a setting in TF2, and shipping it as a constant was a miss.** The
+SDK was read, the convar was quoted, its clamp was quoted — and then 54 was written into the code as
+though it were a fact rather than a default. `docs/findings/13-settings-parity.md` states the rule:
+if TF2 lets you change it, this should too. It is `viewmodel_fov` in the settings file now, named as
+the game names it, clamped to the game's own 54…70 rather than refused outside it — a ConVar with
+bounds clamps, so a config asking for 90 gets 70 in both.
+
+Worth noting the shape of the error: reading the source produced a correct number and an incorrect
+conclusion, because the number was the only part being looked for.
+
+**The owner also asked whether this is the same problem as the canteen at a player's feet.** It is
+the same *class* and not the same *code path*, which is worth stating precisely because the answer
+decides whether one fix serves both.
+
+`docs/RISKS.md` B82, still open: a halo, an MvM canteen and a spellbook sit at the wearer's feet
+because they are parented to a named ATTACHMENT rather than bone-merged —
+`hwn_spellbook_complete.mdl` has one bone called `mvm`, no player skeleton has a bone by that name,
+so nothing matches and the item falls back to the wearer's transform. Neither
+`mstudioattachment_t` nor `m_iParentAttachment` is read here.
+
+The viewmodel arms fail the same way in outline — the thing that should place them is not
+implemented, so they fall back to the entity's own transform — but the missing mechanism is the
+animation rather than an attachment. Fixing B82 will not put a weapon in anyone's hands, and fixing
+this will not lift a canteen off the floor. Both are worth doing; neither is the other.
+
+### Where the sequence lead actually stands
+
+```
+c_demo_arms.mdl     3452 frames over 74 merged sequences from 2 models
+c_sniperrifle.mdl   1 frame  over  1 merged sequence  from 1 model
+```
+
+**The weapon model carries one sequence and includes nothing**, so the viewmodel animations are not
+in the weapon — they are in whatever the arms include. That kills the reading in the previous section
+that had `m_nSequence` indexing a weapon-first merged list; the merge here is arms-first and the
+weapon contributes nothing to it.
+
+And the two poses are not merely different. They are the same numbers with the axes cycled:
+
+```
+sequence 0   x -9..6.8      y -24.3..24.3   z 31.6..65.9
+sequence 1   x -24.3..24.3  y 31.7..65.9    z -9..6.8
+```
+
+`(x, y, z)` becomes `(y, z, x)` exactly. An animation that merely posed the arms differently would
+not reproduce three extents to the decimal in a rotated order — that is a basis change, which is
+what a viewmodel animation's root bone does when it takes the arms out of body space. So sequence 1
+is plausibly the RIGHT animation applying the rotation half of the transform while the translation
+to the camera is lost or never applied.
+
+**The next measurement is therefore the root bone, not the sequence list:** dump the root bone's
+matrix for `c_demo_arms.mdl` at sequence 1 frame 0 and compare its translation against what the
+extents imply. A rotation that arrives without its translation is a specific, checkable defect, and
+it is one this project has met before in another form.

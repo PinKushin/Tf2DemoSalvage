@@ -1965,7 +1965,7 @@ internal class MainForm : Form
             Angles = camera.Angles,
             Aspect = camera.Aspect,
             FarZ = camera.FarZ,
-            FieldOfView = ViewmodelPass.FieldOfView,
+            FieldOfView = _settings.ViewmodelFieldOfView,
             NearZ = ViewmodelPass.NearPlane,
         };
     }

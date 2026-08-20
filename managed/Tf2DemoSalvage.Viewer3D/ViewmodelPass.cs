@@ -35,6 +35,16 @@ internal static class ViewmodelPass
     /// </remarks>
     public const float FieldOfView = 54f;
 
+    /// <summary>The lowest field of view TF2 allows, which is also the default.</summary>
+    /// <remarks>
+    /// The ConVar's own bounds, <c>view.cpp:111</c>: <c>true, 54, true, 70</c>. A player may raise
+    /// this and may not lower it, so the default sits on the floor.
+    /// </remarks>
+    public const float SmallestFieldOfView = 54f;
+
+    /// <summary>The highest field of view TF2 allows.</summary>
+    public const float LargestFieldOfView = 70f;
+
     /// <summary>How near a viewmodel may be drawn, in units.</summary>
     /// <remarks>
     /// <c>viewEye.zNearViewmodel = 1</c>, <c>view.cpp:643</c>, against <c>VIEW_NEARZ</c> of 7 for

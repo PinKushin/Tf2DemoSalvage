@@ -91,6 +91,17 @@ internal sealed record ViewerSettings
     /// <summary>Command name for vertical sync.</summary>
     public const string VerticalSyncCommand = "vertical_sync";
 
+    /// <summary>Command name for the viewmodel's field of view.</summary>
+    /// <remarks>
+    /// **TF2 lets a player change this, so this viewer does too** — the standing rule in
+    /// <c>docs/findings/13-settings-parity.md</c>. It was very nearly shipped as a constant off the
+    /// back of reading the SDK, which is the shape of miss that rule exists to catch: the number was
+    /// right and the choice was taken away.
+    ///
+    /// Named as the game names it, so a frag-movie config can be pasted in.
+    /// </remarks>
+    public const string ViewmodelFieldOfViewCommand = "viewmodel_fov";
+
     /// <summary>Source's own ceiling, and this viewer's default.</summary>
     public const int SourceFrameRateLimit = 300;
 
@@ -145,6 +156,25 @@ internal sealed record ViewerSettings
     /// question — it is how the 600 was found.
     /// </remarks>
     public int FrameRateLimit { get; init; } = SourceFrameRateLimit;
+
+    /// <summary>The field of view the first-person weapon is drawn with, in degrees.</summary>
+    /// <remarks>
+    /// **The game's own default and the game's own limits.** <c>viewmodel_fov</c> is declared in
+    /// <c>view.cpp:111</c> with a default of 54 and, in the TF2 build, hard bounds of 54 and 70:
+    ///
+    /// <code>
+    /// ConVar v_viewmodel_fov( "viewmodel_fov", "54", FCVAR_ARCHIVE, ..., true, 54, true, 70, NULL );
+    /// </code>
+    ///
+    /// So a player can raise it and cannot lower it, and this reproduces both ends rather than
+    /// picking its own. A value outside them is clamped rather than refused, which is what the
+    /// engine's own ConVar bounds do.
+    ///
+    /// **TF2 reads a different convar while a demo plays** — <c>viewmodel_fov_demo</c>, same
+    /// default — and this viewer is always in that case. One setting covers both because their
+    /// defaults agree; if a future TF2 separates them, this is the note that says which one applies.
+    /// </remarks>
+    public float ViewmodelFieldOfView { get; init; } = ViewmodelPass.FieldOfView;
 
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>
@@ -241,6 +271,20 @@ internal sealed record ViewerSettings
             settings = settings with { FrameRateLimit = limit };
         }
 
+        // **Clamped rather than refused, which is what a ConVar with bounds does.** TF2 declares
+        // this one `true, 54, true, 70`, so a config asking for 90 gets 70 in the game and gets 70
+        // here — refusing it instead would be this viewer disagreeing with the file it was handed.
+        if (ReadNumber(values, ViewmodelFieldOfViewCommand) is { } viewmodelFov)
+        {
+            settings = settings with
+            {
+                ViewmodelFieldOfView = Math.Clamp(
+                    viewmodelFov,
+                    ViewmodelPass.SmallestFieldOfView,
+                    ViewmodelPass.LargestFieldOfView),
+            };
+        }
+
         if (Read(values, VerticalSyncCommand) is { } sync)
         {
             settings = settings with { VerticalSync = sync != 0 };
@@ -298,6 +342,12 @@ internal sealed record ViewerSettings
         text.AppendLine(string.Create(
             CultureInfo.InvariantCulture, $"{FrameRateLimitCommand} {FrameRateLimit}"));
         text.AppendLine();
+        text.AppendLine("// Field of view for the weapon in your hands, in degrees. TF2 allows 54");
+        text.AppendLine("// to 70 and defaults to 54; anything outside that is clamped, as in game.");
+        text.AppendLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{ViewmodelFieldOfViewCommand} {ViewmodelFieldOfView:0.##}"));
+        text.AppendLine();
         text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
         text.AppendLine("// and a driver that disables it globally ignores the request anyway.");
         text.AppendLine(string.Create(
@@ -309,6 +359,13 @@ internal sealed record ViewerSettings
     private static int? Read(Dictionary<string, string> values, string command) =>
         values.TryGetValue(command, out string? value) &&
         int.TryParse(value, CultureInfo.InvariantCulture, out int number)
+            ? number
+            : null;
+
+    /// <summary>Reads a fractional setting, for the ones the game states as floats.</summary>
+    private static float? ReadNumber(Dictionary<string, string> values, string command) =>
+        values.TryGetValue(command, out string? value) &&
+        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
             ? number
             : null;
 }
