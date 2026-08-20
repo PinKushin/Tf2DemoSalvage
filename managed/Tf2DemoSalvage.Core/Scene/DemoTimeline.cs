@@ -347,7 +347,33 @@ public sealed class DemoTimeline
     /// spy actually sees, which is a smaller error than the wrong weapon and is its own piece of
     /// work. See <c>docs/findings/04-entities.md</c>.
     /// </remarks>
-    public SceneViewmodel? ViewmodelAt(int tick, int playerEntityIndex)
+    public SceneViewmodel? ViewmodelAt(int tick, int playerEntityIndex) =>
+        Viewmodel(tick, playerEntityIndex, mainHand: true);
+
+    /// <summary>The model in a player's other hand, which for TF2 is the spy's watch.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="playerEntityIndex">The player whose view is being shown.</param>
+    /// <returns>Their off-hand viewmodel, or <c>null</c> when they carry none.</returns>
+    /// <remarks>
+    /// **Drawn as well as the main hand, not instead of it.** The owner, who has played the class:
+    /// "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
+    /// everything goes transparent". A cloaking spy has both on screen, so a viewer answering only
+    /// with <see cref="ViewmodelAt"/> is one model short of what that player saw.
+    ///
+    /// **The watch is the only thing that uses slot 1.** <c>tf_weaponbase_grenade.cpp:74</c> also
+    /// calls <c>SetViewModelIndex( 1 )</c> and reads as a second case, but TF2's throwable grenades
+    /// were cut before release: the class is still linked and no shipped item names it. So this
+    /// answers null for every class but a spy, which is the ordinary case rather than a failure.
+    /// </remarks>
+    public SceneViewmodel? OffHandViewmodelAt(int tick, int playerEntityIndex) =>
+        Viewmodel(tick, playerEntityIndex, mainHand: false);
+
+    /// <summary>Whichever of a player's two viewmodels was asked for, at or before a tick.</summary>
+    /// <remarks>
+    /// One walk for both hands, because the rule about owners is the same for each and having it
+    /// written twice is how the two would come to disagree.
+    /// </remarks>
+    private SceneViewmodel? Viewmodel(int tick, int playerEntityIndex, bool mainHand)
     {
         SceneViewmodel? found = null;
 
@@ -364,7 +390,7 @@ public sealed class DemoTimeline
             // one of thirty-seven fails to resolve an owner, treating "unowned" as "anybody's" hands
             // that one to every player who has none. Measured on z1800: following a sniper drew a
             // demoman's arms.
-            if (weapon.IsMainHand &&
+            if (weapon.IsMainHand == mainHand &&
                 (weapon.OwnerEntityIndex == playerEntityIndex ||
                  (weapon.OwnerEntityIndex is null && !_viewmodelsNameOwners)))
             {

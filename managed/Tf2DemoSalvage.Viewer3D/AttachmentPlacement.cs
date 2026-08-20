@@ -53,7 +53,7 @@ internal static class AttachmentPlacement
         // The bone first and the attachment second, which is ConcatTransforms' own order: the
         // attachment is expressed in the bone's space. The reverse agrees on a pure translation and
         // differs the moment either carries a rotation, which is why the tests use one.
-        float[] point = Concatenate(boneToWorld, local);
+        float[] point = MatrixConvention.Concatenate(boneToWorld, local);
 
         if (worldAligned)
         {
@@ -61,69 +61,9 @@ internal static class AttachmentPlacement
             point = [1f, 0f, 0f, point[3], 0f, 1f, 0f, point[7], 0f, 0f, 1f, point[11]];
         }
 
-        return Multiply(RowVector(point), wearer);
-    }
-
-    /// <summary>Valve's <c>ConcatTransforms</c> for two 3×4 transforms.</summary>
-    private static float[] Concatenate(IReadOnlyList<float> first, IReadOnlyList<float> second)
-    {
-        float[] result = new float[12];
-
-        for (int row = 0; row < 3; row++)
-        {
-            for (int column = 0; column < 3; column++)
-            {
-                result[(row * 4) + column] =
-                    (first[(row * 4) + 0] * second[column]) +
-                    (first[(row * 4) + 1] * second[4 + column]) +
-                    (first[(row * 4) + 2] * second[8 + column]);
-            }
-
-            // The translation carries the first transform's own, plus the second's turned by it.
-            result[(row * 4) + 3] =
-                (first[(row * 4) + 0] * second[3]) +
-                (first[(row * 4) + 1] * second[7]) +
-                (first[(row * 4) + 2] * second[11]) +
-                first[(row * 4) + 3];
-        }
-
-        return result;
-    }
-
-    /// <summary>Valve's column-vector 3×4 as this renderer's row-vector 4×4.</summary>
-    /// <remarks>
-    /// The 3×3 is transposed and the translation moves from column three to row three. That is the
-    /// same rearrangement <c>PropTransform.ToMatrix</c> already performs on <c>AngleMatrix</c>'s
-    /// output, and it is the step whose absence looks like a rotation bug.
-    /// </remarks>
-    private static float[] RowVector(float[] transform) =>
-    [
-        transform[0], transform[4], transform[8], 0f,
-        transform[1], transform[5], transform[9], 0f,
-        transform[2], transform[6], transform[10], 0f,
-        transform[3], transform[7], transform[11], 1f,
-    ];
-
-    /// <summary>Two row-vector 4×4s, applied left to right.</summary>
-    private static float[] Multiply(float[] first, IReadOnlyList<float> second)
-    {
-        float[] result = new float[16];
-
-        for (int row = 0; row < 4; row++)
-        {
-            for (int column = 0; column < 4; column++)
-            {
-                float total = 0f;
-
-                for (int step = 0; step < 4; step++)
-                {
-                    total += first[(row * 4) + step] * second[(step * 4) + column];
-                }
-
-                result[(row * 4) + column] = total;
-            }
-        }
-
-        return result;
+        // **The convention change happens in one place**, which is the whole reason
+        // MatrixConvention exists: this was the second site to need it and the second to implement
+        // it, and two implementations of a boundary is how they come to disagree.
+        return MatrixConvention.Multiply(MatrixConvention.ToModelMatrix(point), wearer);
     }
 }

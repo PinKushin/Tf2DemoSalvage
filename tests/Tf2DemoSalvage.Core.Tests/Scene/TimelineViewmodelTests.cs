@@ -111,6 +111,37 @@ public sealed class TimelineViewmodelTests
     }
 
     [Test]
+    public void OffHandViewmodelAt_APlayerCarryingBoth_AnswersWithTheOtherOne()
+    {
+        // **Both are on screen at once, which is the point.** The owner, who has played the class:
+        // "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
+        // everything goes transparent". So the off hand is not an alternative to the weapon — it is
+        // a second model beside it, and answering with only the main hand draws a cloaking spy one
+        // model short.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: null, offHandModelIndex: 3));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull()
+            .ModelPath.ShouldBe("models/weapons/v_scattergun.mdl");
+
+        timeline.OffHandViewmodelAt(66, Follower).ShouldNotBeNull()
+            .ModelPath.ShouldBe("models/weapons/v_watch.mdl");
+    }
+
+    [Test]
+    public void OffHandViewmodelAt_APlayerCarryingOnlyAWeapon_IsNothing()
+    {
+        // **The control, and it is most of the game.** Only the spy's watch uses slot 1 — the SDK
+        // suggests grenades do too, but TF2's were cut before release and no shipped item names
+        // them. So every other class must answer nothing here rather than being handed the weapon
+        // a second time.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithViewmodel(owner: null));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull();
+        timeline.OffHandViewmodelAt(66, Follower).ShouldBeNull();
+    }
+
+    [Test]
     public void ViewmodelAt_ADemoWithNone_IsNothing()
     {
         // Every era demo before the modern ones carries a viewmodel, but a recording that does not
