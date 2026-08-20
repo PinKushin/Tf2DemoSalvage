@@ -1,5 +1,8 @@
 using System;
 
+using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -102,6 +105,54 @@ internal sealed class FreeCamera
                 focus.Y - (forward.Y * distance),
                 focus.Z - (forward.Z * distance)),
             Angles = (limited, yaw, 0f),
+            Aspect = aspect,
+        };
+    }
+
+    /// <summary>A camera where a demo says the recorder's eyes were.</summary>
+    /// <param name="view">The recorded view, from the packet's <c>democmdinfo_t</c>.</param>
+    /// <param name="playerClass">The recorder's class, which decides the eye height.</param>
+    /// <param name="ducking">Whether they were crouched.</param>
+    /// <param name="alive">Whether they were alive.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The camera.</returns>
+    /// <remarks>
+    /// **The demo gives the feet and the angles; the height is added here.** Both halves were
+    /// established before this existed rather than assumed: the recorded view is the recorder's
+    /// <c>GetAbsOrigin()</c>, measured across the corpus to agree with their networked origin to
+    /// the hundredth at every tick (<c>docs/findings/01-container.md</c>), and the client adds
+    /// <c>GetViewOffset()</c> when it draws.
+    ///
+    /// **The angles are used unchanged, deliberately.** They are what the recorder was looking at,
+    /// already clamped by the engine that wrote them down — anything done to them here is an edit
+    /// to the recording rather than a correction of it. That is also why this is a plain factory
+    /// rather than something that smooths: <see cref="RecordedView.IsCut"/> exists so a caller can
+    /// decide about interpolation, and inventing motion the demo does not describe is the opposite
+    /// of what this viewer is for.
+    /// </remarks>
+    public static FreeCamera AtEye(
+        RecordedView view, int playerClass, bool ducking, bool alive, float aspect)
+    {
+        // Death first: a player who died crouched is dead rather than crouched, and the engine's
+        // view drops to the floor either way.
+        float height;
+        if (!alive)
+        {
+            height = PlayerEye.Dead;
+        }
+        else if (ducking)
+        {
+            height = PlayerEye.Ducking(playerClass);
+        }
+        else
+        {
+            height = PlayerEye.Standing(playerClass);
+        }
+
+        return new FreeCamera
+        {
+            Origin = (view.Origin.X, view.Origin.Y, view.Origin.Z + height),
+            Angles = view.Angles,
             Aspect = aspect,
         };
     }
