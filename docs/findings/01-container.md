@@ -430,3 +430,58 @@ Not a decoding problem — it is a null-terminated string and always was. It wen
 there was nothing to work out, so nothing prompted anyone to do it. Worth having anyway: it is
 where every bound console command the recording player typed shows up, and the opening run of a
 demo is a client dumping its `dsp_*` and `cl_*` settings.
+
+---
+
+## The recorder's camera is in every packet, and SourceTV leaves it blank
+*(read from published source; measured across the corpus — 19 August 2026)*
+
+Every `dem_packet` and `dem_signon` command carries 76 bytes this project has always skipped. They
+are `democmdinfo_t`, and they hold the camera the engine plays the demo through:
+
+```c
+// public/demofile/demoformat.h
+int     flags;
+Vector  viewOrigin;   QAngle viewAngles;   QAngle localViewAngles;   // original
+Vector  viewOrigin2;  QAngle viewAngles2;  QAngle localViewAngles2;  // resampled
+```
+
+Four bytes of flags and six three-float structures is 76 — the exact constant `DemoCommandReader`
+has been consuming and discarding since the container was written. The bytes were kept, because a
+demo has to round-trip; nobody had read them.
+
+**The flags select which copy is live, per field.** Valve's own accessors are the specification:
+
+```c
+const Vector& GetViewOrigin()
+{
+    if ( flags & FDEMO_USE_ORIGIN2 ) { return viewOrigin2; }
+    return viewOrigin;
+}
+```
+
+`GetViewAngles` tests a *different* flag. A reader that switched both together would agree with the
+engine on every demo setting both or neither, and disagree on the rest — a camera in the wrong
+place rather than an error, which is this project's recurring shape of defect. `FDEMO_NOINTERP` is
+the third flag and marks a cut: honouring it is the difference between a hard switch and the camera
+flying across the map over one interpolation window.
+
+**SourceTV demos carry none of it.** Measured across the committed corpus: every POV recording has
+a view that moves, stays inside the ±16384 world and keeps pitch within ±90; every SourceTV
+recording has `democmdinfo_t` zeroed throughout. That follows from what SourceTV is — there is no
+local player, so there is no client view to write down — and it is a constraint on any first-person
+camera rather than a curiosity. An STV demo's camera has to come from the spectated entity's own
+position, which is a different mechanism.
+
+The discriminator is the header's client name, which SourceTV always writes as `SourceTV Demo`. Not
+the file name: the corpus names files by point of view as a convention, and a convention is not
+evidence. **`z1800.dem` is the case that proves the difference** — its name says nothing about its
+point of view and its header says SourceTV, which also explains why it carries 94 props where a POV
+demo of the same era carries 16.
+
+**Worth noting how nearly this was got wrong.** A hand-written probe walking the commands in Python
+reported `0,0,0` for every demo including the POV ones, which would have read as "the field is
+always empty, ignore it". The probe mis-walked the command stream; the reader under test was
+correct, and the tests written against it disagreed with the probe. That is the fifth time in this
+project an instrument has been wrong before a decoder was — see
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`.
