@@ -1571,3 +1571,46 @@ the new one did not already exist, and that the counts match afterwards. That is
 `build/`-adjacent rename tooling did for the 880 test renames, and it caught four crefs that a
 free-hand edit would have left dangling. It did not save the call-site rewrite above, because that
 edit had no such guard.
+
+## D27 — this project's measurement check names this project, on every line
+
+`build/check-measurements.ps1` reports Tf2DemoSalvage's own runs on the shared boxes, and says
+"Tf2DemoSalvage" in its header, in each box heading, and in its summary line.
+
+Owner, 2026-08-19: *"make sure it tells me its for tf2, pbj's doesnt and it confused me at first."*
+
+**The confusion is structural, not cosmetic.** PokemonBattleJournal's
+`build/check-measurement-boxes.ps1` reports the single newest run directory in `~/measurements/`
+— whichever project owns it — and prints its mutation score under a header that names no project.
+Three projects share mutation-box. So on any given morning that line is a coin toss, and on
+2026-08-19 it would have shown `20260819T230001Z-76e28b6-stryker-core` (PBJ's) while four
+Tf2DemoSalvage runs sat directly beneath it, invisible.
+
+The two checks are complementary rather than duplicated, and that is why a second one was written
+instead of the first being changed:
+
+| | Answers |
+|---|---|
+| PBJ's `check-measurement-boxes.ps1` | is the box alive, is anything running, is the disk full |
+| this repo's `check-measurements.ps1` | did **our** five slots run, and what did they come back with |
+
+**Runs are selected by the `.owner` marker, never by a name glob**, which is the rule the shared
+box has already taught twice: `~/measurements/` holds `<stamp>-<sha>-<mode>` directories, so the
+obvious own-glob `*-fuzz` also matches a neighbour's `*-tcgdex-fuzz`. Fuzz targets are taken from
+the run's own `fuzz-<target>.log` filenames for the same reason.
+
+Two things the first version got wrong, both found by running it:
+
+- **A fuzz run has no mutation score**, so reporting "ran and scored" for it was a green line
+  about a measurement that had not been read at all. It now reports targets and outstanding crash
+  inputs, and a run with no score line at all is reported as a failure rather than as a blank.
+- **It counted crash inputs that were already regression fixtures.** The Snappy artifact from
+  2026-08-15 had been fixed and committed on the 16th and still sat in `~/findings-snappy`, so the
+  check asked for work already finished — which is how a real finding gets scrolled past. Triaged
+  artifacts now move to `findings-<target>/triaged/` on the box, with a README naming the fixture
+  that replaced them, and the count is `-maxdepth 1`. Moved rather than deleted: the bytes are the
+  fixture, and a reimaged box loses anything not committed.
+
+**The daily schedule is session-only and this is a real limitation.** `CronCreate` jobs live in
+one Claude session and auto-expire after seven days, so the durable artefact is the script; the
+schedule around it has to be re-made, or wired into a Windows scheduled task, to outlive a session.
