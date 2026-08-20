@@ -280,6 +280,18 @@ public sealed class DemoTimeline
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
 
+    /// <summary>Which entity the recording was made from, or <c>null</c> for SourceTV.</summary>
+    /// <remarks>
+    /// <c>svc_ServerInfo</c>'s player slot, plus one: entity indices are one-based and slot zero is
+    /// the first player. Named by the demo rather than worked out — a first-person camera needs the
+    /// recorder's class to know their eye height, and identifying them by "whichever player moves
+    /// like the camera" would be an instrument that agrees with its own hypothesis.
+    ///
+    /// A SourceTV recording has no local player. Its <c>PlayerSlot</c> is not meaningful and
+    /// <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
+    /// </remarks>
+    public int? RecorderEntityIndex { get; private init; }
+
     /// <summary>Whether this demo carries a recorded camera at all.</summary>
     /// <remarks>
     /// **A SourceTV recording has no local player and leaves <c>democmdinfo_t</c> zeroed**, so the
@@ -446,6 +458,7 @@ public sealed class DemoTimeline
         List<ScenePropTrack> props = [];
         List<ScenePropTrack> playerTracks = [];
         List<(int Tick, RecordedView View)> recordedViews = [];
+        int? recorderSlot = null;
 
         foreach (DemoCommand command in commands)
         {
@@ -489,6 +502,12 @@ public sealed class DemoTimeline
                     // rather than like a defect.
                     case ServerInfoMessage server when server.IntervalPerTick > 0f:
                         interval = server.IntervalPerTick;
+
+                        // **Which entity the recording was made from**, named by the demo rather
+                        // than inferred. A first-person camera needs the recorder's class for the
+                        // eye height, and picking whichever player moves like the camera would be
+                        // an instrument that agrees with its own hypothesis.
+                        recorderSlot = server.PlayerSlot;
                         continue;
 
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
@@ -759,6 +778,7 @@ public sealed class DemoTimeline
         return new DemoTimeline(frames, props, playerTracks, recordedViews)
         {
             IntervalPerTick = interval,
+            RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
         };
     }
 
