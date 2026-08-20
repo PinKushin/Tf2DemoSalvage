@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -126,6 +127,37 @@ public sealed class FullScreenTests
         form.IsFullScreen.ShouldBeFalse();
     }
 
+    [Test]
+    public void EnteringFullScreen_TheWindowHandle_SurvivesTheTransition()
+    {
+        // **A hypothesis about the focus loss, tested and ELIMINATED — kept as the guard it turned
+        // into.** A window that loses its HWND loses the foreground and cannot simply take it back:
+        // `SetForegroundWindow` from a process that is no longer foreground is refused rather than
+        // obeyed, so `Activate()` would flash the taskbar button and nothing else. If assigning
+        // `FormBorderStyle` recreated the handle, that would explain the owner's report exactly —
+        // "the window is losing focus or something on the first full screen test and it stalls from
+        // there", cured by alt-tabbing away and back, which supplies the input Windows wants before
+        // it will hand the foreground over.
+        //
+        // It does not. WinForms updates the styles in place here, and this passed the moment it was
+        // written. The cause of the focus loss is elsewhere.
+        //
+        // Left in because the invariant is real even though the bug was not: any future change that
+        // reaches for a mechanism which DOES recreate the handle breaks the foreground, and this is
+        // the cheapest possible place to notice. Asserted on the handle rather than on focus,
+        // because focus needs a shown window and a desktop; the handle is the mechanism underneath
+        // and is checkable with neither.
+        using MainForm form = new();
+
+        IntPtr before = form.Handle;
+
+        form.SetFullScreen(true);
+
+        form.Handle.ShouldBe(
+            before,
+            "entering full screen recreated the window handle, which drops the foreground");
+    }
+
     /// <summary>Exposes the protected key handler, which is otherwise unreachable from a test.</summary>
     private sealed class EscapeProbe : MainForm
     {
@@ -135,6 +167,7 @@ public sealed class FullScreenTests
             return ProcessKey(ref message, Keys.Escape);
         }
     }
+
 
     [Test]
     public void FullScreen_TheSameModeTwice_DoesNothing()

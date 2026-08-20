@@ -2872,6 +2872,12 @@ internal class MainForm : Form
             // border style and window state but has not re-laid-out, so the viewport still reports
             // its windowed rectangle - and the overlay lands wherever the bottom of the small
             // viewport used to be, which on a maximised window is the middle of the screen.
+            // **Logged on both sides of Activate, because the question is whether it WORKED.**
+            // SetForegroundWindow is refused rather than obeyed for a process that is not already
+            // foreground, so Activate can return having done nothing at all — and the symptom is
+            // keys going to another application, which looks like the viewer ignoring them.
+            ViewerLog.Write("render", "full screen: " + ForegroundProbe.Describe(Handle) + FocusHere());
+
             BeginInvoke(() =>
             {
                 _overlay?.PositionOver(_viewport);
@@ -2879,6 +2885,25 @@ internal class MainForm : Form
                 // Last thing, after every window has settled. Without it the keys stopped landing
                 // on entering full screen and there was no way back out but alt-tab.
                 Activate();
+
+                // **Activation is not focus, and only the second one delivers a keystroke.**
+                // Measured 2026-08-20: the window held the foreground on both sides of this
+                // transition — the probe says so — and `ContainsFocus` was still false, because
+                // full screen hides the playlist and the playlist is what had the focus. A form
+                // with no focused child receives no key messages, so `ProcessCmdKey` never ran and
+                // Escape had nowhere to land. The window sat full screen with the overlay up and
+                // ignored every key until the user alt-tabbed away and back, which is what put a
+                // focused child back.
+                //
+                // Cleared before focusing: `ActiveControl` still points at the hidden playlist, and
+                // focusing a container walks to its active control — which would hand it straight
+                // back to the control that cannot take it.
+                ActiveControl = null;
+                _ = Focus();
+
+                ViewerLog.Write(
+                    "render",
+                    "full screen after Activate: " + ForegroundProbe.Describe(Handle) + FocusHere());
             });
 
             // **And again on every layout while full screen.** One shot is not enough: the form is
@@ -3702,6 +3727,19 @@ internal class MainForm : Form
             return true;
         }
 
+        // **Logged before the guard, so a key that ARRIVED is distinguishable from one that never
+        // did.** Full screen has twice been reported as impossible to leave, and the two states
+        // look identical from outside: the key reaching this method and being ignored, and the key
+        // going to whichever window took the foreground. Only a line written here separates them.
+        if (keyData is Keys.Escape or Keys.F11)
+        {
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{keyData} reached the form; full screen is {IsFullScreen}"));
+        }
+
         if (keyData == Keys.Escape && IsFullScreen)
         {
             SetFullScreen(false);
@@ -3710,6 +3748,24 @@ internal class MainForm : Form
 
         return base.ProcessCmdKey(ref msg, keyData);
     }
+
+    /// <summary>Where keyboard focus sits inside this form, for the log.</summary>
+    /// <remarks>
+    /// **The foreground and the focus are different questions, and only the second was open.** The
+    /// probe showed this window holding the foreground on both sides of the full-screen transition
+    /// while Escape never reached <see cref="ProcessCmdKey"/> at all — so the key was not going to
+    /// another application, it was being dropped inside this one.
+    ///
+    /// The candidate is stated in the transition itself: the playlist takes focus when the window
+    /// opens, and full screen hides it. A control that is hidden while focused leaves the form with
+    /// no focused child, and a keystroke with nowhere to land goes nowhere.
+    /// </remarks>
+    private string FocusHere() =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"; active control {ActiveControl?.Name ?? "none"}" +
+            $" (visible {ActiveControl?.Visible.ToString() ?? "n/a"})" +
+            $", form contains focus {ContainsFocus}");
 
     /// <summary>Test seam onto <see cref="ProcessCmdKey"/>, which is protected.</summary>
     /// <param name="msg">The window message.</param>

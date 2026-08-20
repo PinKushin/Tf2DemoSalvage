@@ -51,13 +51,26 @@ public sealed class ViewportPictureUiTests
 
         // The capture happens on the next presented frame, so it arrives when the viewer next
         // draws rather than when the key is released.
+        //
+        // **Waited for by NAME, not by count, and the difference is a real failure.** The viewer
+        // prunes its captures to the twenty most recent AFTER writing each one, so once the folder
+        // is full a new picture replaces an old one and the count is identical before and after.
+        // This waited on `Shots().Length > before.Length` and therefore timed out with "F12
+        // produced no picture" against a picture sitting on disk — intermittent, because it only
+        // starts happening once the folder reaches the cap, which a second capture test made
+        // happen sooner.
+        //
+        // Same class as everything else caught here: the measurement was not faithful to the
+        // variable. "A file that was not there before appeared" is the question; a count is not it.
         Retry.WhileFalse(
-            () => Shots().Length > before.Length,
+            () => Shots().Except(before).Any(),
             TimeSpan.FromSeconds(20),
             throwOnTimeout: true,
             timeoutMessage: "F12 produced no picture.");
 
-        string shot = Shots().Except(before).Single();
+        // First rather than Single: the prune can remove an old capture between the two listings,
+        // and more than one new file is not a reason to fail a test about the newest one.
+        string shot = Shots().Except(before).OrderBy(name => name, StringComparer.Ordinal).Last();
 
         TestContext.Out.WriteLine($"PICTURE {shot}");
 
