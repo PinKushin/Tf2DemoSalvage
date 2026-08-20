@@ -555,6 +555,37 @@ internal static class PropModels
 
             StudioSequenceTable table = StudioSequenceTable.Merge(groups);
 
+            // **The merged table's first entries, by NAME.** A demo says `m_nSequence`, and a
+            // number can only be compared against another number — which is how a viewmodel came to
+            // play a sequence that left its root bone at identity and the model on its side. The
+            // name says what the engine would call it, so the two tables can actually be compared.
+            //
+            // Capped and logged once per model: the interesting part is the front of the list,
+            // where a merge order that disagrees with the engine's shows up first.
+            if (table.Count > 0)
+            {
+                ViewerLog.Write(
+                    "props",
+                    $"sequences {path}: {table.Count} merged, " +
+                    string.Join(
+                        ", ",
+                        Enumerable.Range(0, Math.Min(8, table.Count))
+                            .Select(index =>
+                            {
+                                if (table.At(index) is not { } at ||
+                                    at.Group >= groups.Count ||
+                                    at.Local >= groups[at.Group].Sequences.Count)
+                                {
+                                    return $"[{index}] unresolved";
+                                }
+
+                                StudioSequence entry = groups[at.Group].Sequences[at.Local];
+
+                                return $"[{index}] g{at.Group} '{entry.Label}'" +
+                                    (entry.Activity.Length > 0 ? $" act {entry.Activity}" : string.Empty);
+                            })));
+            }
+
             // **One pose parameter list across the base model and everything it includes.** A
             // player model declares two of its own; move_x and move_y arrive with the animation
             // model, and a sequence's paramindex is local to whichever group owns it. Built here
@@ -1458,6 +1489,39 @@ internal static class PropModels
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
+
+        /// <summary>The first merged sequence whose activity contains a fragment.</summary>
+        /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>
+        /// <returns>The merged sequence number, or −1 when no sequence claims it.</returns>
+        /// <remarks>
+        /// **Activities are how the engine asks for an animation, and names are how two sequence
+        /// tables can be compared at all.** A demo carries `m_nSequence`, a number, and a number can
+        /// only be checked against another number — which is how the viewmodel came to play
+        /// `r_handposes`, a one-frame pose holder sitting at merged index 1, while the actual
+        /// viewmodel animations start at 2 and carry `ACT_PRIMARY_VM_IDLE` and friends.
+        /// </remarks>
+        public int SequenceByActivity(string fragment)
+        {
+            ArgumentNullException.ThrowIfNull(fragment);
+
+            for (int index = 0; index < Sequences.Count; index++)
+            {
+                if (Sequences.At(index) is not { } at ||
+                    at.Group >= Groups.Count ||
+                    at.Local >= Groups[at.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                if (Groups[at.Group].Sequences[at.Local].Activity
+                    .Contains(fragment, StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
 
         /// <summary>Whether a merged sequence is a DELTA, meant to be layered rather than played.</summary>
         /// <param name="sequence">The merged sequence number.</param>

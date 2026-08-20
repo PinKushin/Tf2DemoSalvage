@@ -294,3 +294,76 @@ base-first; Source's `CVirtualModel` also deduplicates by name and resolves forw
 (`STUDIO_OVERRIDE`, which this project does read). The next measurement is to list our merged table
 with each entry's name and source group and compare index 1 against what the model itself calls it —
 a name, not a number, is what makes the comparison possible.
+
+---
+
+## Four real bugs, and the gap is now arithmetic rather than mystery
+
+*(20 August 2026, continued)*
+
+**1. Merged sequence 1 is `r_handposes`.** Dumping the merged table by NAME rather than by number is
+what broke this open — a demo carries `m_nSequence`, and a number can only be compared against
+another number:
+
+```
+c_soldier_arms.mdl: 98 merged, [0] g0 'c_soldier_arms', [1] g1 'r_handposes',
+                    [2] g1 'dh_idle' act ACT_PRIMARY_VM_IDLE, [3] g1 'dh_fire' ...
+c_demo_arms.mdl:    74 merged, [0] g0 'c_demo_arms',    [1] g1 'r_handposes',
+                    [2] g1 'b_draw' act ACT_MELEE_VM_DRAW, [3] g1 'b_idle' act ACT_MELEE_VM_IDLE ...
+```
+
+Index 1 is a one-frame pose holder on every arms model, and it is what the viewer was playing — the
+"1 frames at 0 cycles a second" in the log all along. The real viewmodel animations start at 2 and
+carry `ACT_*_VM_*`. Playing the idle instead changes everything about the pose:
+
+```
+seq 1 (r_handposes)   x -24.3..24.3  y 31.7..65.9  z -9..6.8    root identity, at (0,0,0)
+seq 3 (ACT_MELEE_VM_IDLE) x -2.1..36.1 y -17.5..19.8 z -39.3..3.8 root permuted, at (6.8,-4.4,-71)
+```
+
+The second is viewmodel-shaped: it extends forward, it is centred laterally, and its root carries
+both the standing permutation and a translation.
+
+**2. The activity lookup was asked before the model was packed**, so it answered −1 every time and
+read as "this model has no viewmodel idle" when it has one at index 3. The sequence table does not
+exist until `Add` has run. Separating "no packed frames" from "baked, no sequence table" from "no
+such activity" is what found it — one −1 for three different faults is not a measurement.
+
+**3. `Instances` CLEARS the list it fills.** Posing the arms into `_viewmodelInstances` and then the
+weapon into the same list threw the arms away. Both go in one call now.
+
+**4. The viewmodel list was cleared after the draw**, so it survived exactly one frame — and a
+capture is taken while paused, when the pose step does not run. Every capture therefore got an empty
+list and the pass reported `instances 0, camera False`. The list is owned by the pose step exactly
+like the world's, and first person being off is said by dropping the camera instead.
+
+### Where it stands, in numbers
+
+The pass now draws two instances at the right place. Logged from inside it:
+
+```
+viewmodel pass: drawing 2 at c_demo_arms row(-313.5, -1398.1, 140), c_sniperrifle row(-313.5, -1398.1, 140)
+```
+
+The spectated player is at `(-314, -1398, 68)` and a standing eye is 72 above the feet, so 140 is the
+eye exactly. **Placement is correct and confirmed.**
+
+And the model is still not on screen, for a reason that is now arithmetic. The posed extents are
+`x 0..36` forward and `z -39..+4`, so the hands sit about 39 units below the eye and 36 in front:
+
+```
+atan(39 / 36) ≈ 47 degrees below the view axis
+viewmodel FOV 54 degrees -> 27 degrees of half-height
+```
+
+**It is below the bottom edge of the frame by about twenty degrees.** That is a specific quantity to
+explain rather than a mystery, and it points at the root translation the animation carries —
+`(6.8, -4.4, -71)`. Seventy-one units is close to the 72 an eye stands above the feet, which is the
+next thing to check: whether the engine composes a viewmodel animation's root against the entity
+origin at all, or whether these animations are authored about the player's origin and the −71 is
+meant to be cancelled by placing the entity at the feet rather than the eye.
+
+Note the log line that would have said this hours ago and did not exist: **where the instance
+actually is in world space.** Packed, posed, instanced and listed were all confirmed repeatedly; not
+one of them says where the thing ended up, and "off screen" and "nowhere" are indistinguishable from
+all of them.

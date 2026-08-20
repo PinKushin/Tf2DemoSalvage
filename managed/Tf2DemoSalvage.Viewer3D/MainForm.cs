@@ -1867,6 +1867,10 @@ internal class MainForm : Form
             FollowedEntity() is not { } follower ||
             FirstPersonCamera() is not { } camera)
         {
+            // **Dropping the camera is how "draw none" is said.** The instance list is owned by the
+            // pose step and survives paused frames on purpose, so leaving it populated while first
+            // person is off would keep a weapon on screen after V was pressed.
+            _viewmodelCamera = null;
             return;
         }
 
@@ -1902,15 +1906,28 @@ internal class MainForm : Form
         // Packed on demand like any other model, so a weapon seen for the first time is loaded
         // rather than skipped — and skipped silently, since a missing model draws nothing.
         _models.Add([prop], ModelGeometry);
-        _models.Instances([prop], _viewmodelInstances, LightAt, SunAt, seconds);
 
-        // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
-        // and then yields no instance is indistinguishable on screen from one that was never
-        // looked up — and that distinction is exactly what went wrong the first time this ran.
+        // **Asked AFTER packing, because the sequence table does not exist until then.** The first
+        // version of this asked first and got −1 every time — the model had no packed frames yet —
+        // which read as "this model has no viewmodel idle" when it has one at merged index 3.
+        //
+        // **Merged sequence 1 on an arms model is `r_handposes`**, a one-frame pose holder whose
+        // root bone sits at identity, leaving the arms in their authored Y-up space and off screen.
+        // The animations a viewmodel plays start at 2 and carry ACT_*_VM_IDLE.
+        int idle = _models.SequenceByActivity(weapon.ModelPath, "VM_IDLE");
+
+        if (idle >= 0 && idle != weapon.Sequence)
+        {
+            prop = prop with { Pose = prop.Pose with { Sequence = idle } };
+        }
+
         ViewerLog.Write(
             "render",
-            $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
-            $"{_transport.CurrentTick}: {_viewmodelInstances.Count} instances");
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"viewmodel sequence: demo says {weapon.Sequence}, VM_IDLE is {idle}"));
+
+        List<SceneProp> viewmodelProps = [prop];
 
         // **The weapon is a second model, parented to the arms.** In modern TF2 the networked
         // viewmodel carries the player's ARMS — c_sniper_arms, c_pyro_arms — and the gun is a
@@ -1940,14 +1957,23 @@ internal class MainForm : Form
                 });
 
             _models.Add([gun], ModelGeometry);
-            _models.Instances([gun], _viewmodelInstances, LightAt, SunAt, seconds);
-
-            // The count, not just the path: a weapon that resolves and then packs to nothing is
-            // indistinguishable on screen from one that was never looked up, and that distinction
-            // is what cost the arms an afternoon.
-            ViewerLog.Write(
-                "render", $"viewmodel weapon {held}: {_viewmodelInstances.Count} instances");
+            viewmodelProps.Add(gun);
         }
+
+        // **One call for both, because Instances CLEARS the list it is given.** Posing the arms and
+        // then the weapon into the same list threw the arms away and drew the gun alone — a bug
+        // that reads as "the arms do not work" and was invisible next to a viewmodel that was not
+        // on screen for other reasons anyway.
+        _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
+
+        // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
+        // and then yields no instance is indistinguishable on screen from one that was never
+        // looked up — and that distinction is exactly what went wrong the first time this ran.
+        ViewerLog.Write(
+            "render",
+            $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
+            $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
+            $"{_viewmodelInstances.Count} instances");
 
         // **Kept OUT of the world list, because they are drawn in their own pass.** The engine
         // draws viewmodels after the world with a different projection and a compressed depth
@@ -3677,11 +3703,13 @@ internal class MainForm : Form
             _viewmodelInstances,
             _viewmodelCamera?.ToMatrix());
 
-        // **Cleared after the draw, not before the fill.** The pass consumes them, and a list left
-        // populated would draw last frame's weapon over this frame's view for as long as first
-        // person stayed off.
-        _viewmodelInstances.Clear();
-        _viewmodelCamera = null;
+        // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
+        // it is emptied and refilled by the pose step exactly like the world's own list — and the
+        // pose step does not run on a paused frame. Clearing after the draw meant the viewmodel
+        // survived exactly one frame and every capture, which is taken while paused, got nothing.
+        //
+        // The pass is fed empty when first person is off because AddViewmodel drops the camera
+        // then, which is the state that actually means "draw none".
 
         if (_fullScreenClock is { } clock)
         {

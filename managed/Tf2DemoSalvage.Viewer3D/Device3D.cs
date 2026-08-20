@@ -381,8 +381,29 @@ internal sealed unsafe class Device3D : IDisposable
     {
         if (_world is null || viewmodels is not { Count: > 0 } || camera is null)
         {
+            // **Which of the three, because they are different faults.** No renderer, nothing to
+            // draw, or no camera — and a pass that silently does nothing looks exactly like a pass
+            // that drew something invisible, which is the confusion this whole feature has lived in.
+            ViewerLog.Write(
+                "render",
+                $"viewmodel pass skipped: world {_world is not null}, " +
+                $"instances {viewmodels?.Count ?? -1}, camera {camera is not null}");
+
             return;
         }
+
+        // **Where they actually are, in world units.** Every earlier check confirmed the model was
+        // packed, posed, instanced and listed — none of them said where it ended up, and "drawn
+        // somewhere off screen" and "drawn nowhere" look identical from every one of them.
+        ViewerLog.Write(
+            "render",
+            $"viewmodel pass: drawing {viewmodels.Count} at " +
+            string.Join(
+                ", ",
+                viewmodels.Select(instance =>
+                    $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} " +
+                    $"col({instance.Matrix[3]:0.#}, {instance.Matrix[7]:0.#}, {instance.Matrix[11]:0.#}) " +
+                    $"row({instance.Matrix[12]:0.#}, {instance.Matrix[13]:0.#}, {instance.Matrix[14]:0.#})")));
 
         Viewport near = new(
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);

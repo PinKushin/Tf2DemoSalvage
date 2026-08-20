@@ -313,6 +313,39 @@ internal sealed class EntityModelSet
         return frames[Math.Clamp(frame, 0, frames.Count - 1)];
     }
 
+    /// <summary>The first sequence of a model whose activity contains a fragment.</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>
+    /// <returns>A merged sequence number, or −1 when nothing claims it.</returns>
+    /// <remarks>
+    /// **Asked by NAME because a demo's sequence number cannot be checked against anything.** The
+    /// viewmodel arms were playing merged sequence 1, which on an arms model is <c>r_handposes</c> —
+    /// a one-frame pose holder that leaves the root bone at identity and the model in its authored
+    /// Y-up space. The animations a viewmodel actually plays begin at 2 and carry
+    /// <c>ACT_*_VM_IDLE</c> and its neighbours.
+    /// </remarks>
+    public int SequenceByActivity(string modelPath, string fragment)
+    {
+        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames))
+        {
+            // **Three ways to answer "no" and they are different faults**, which is the whole
+            // reason they are separated: the model was never packed, the model was packed without
+            // a skeleton, or the skeleton simply has no such activity. A single −1 sent this
+            // investigation at a sequence list that turned out to contain exactly what was being
+            // looked for.
+            ViewerLog.Warn("render", $"no packed frames for {modelPath}, so no activity lookup");
+            return -1;
+        }
+
+        if (frames.Skinned is not { } skinned)
+        {
+            ViewerLog.Warn("render", $"{modelPath} was baked rather than skinned, so it has no sequence table");
+            return -1;
+        }
+
+        return skinned.SequenceByActivity(fragment);
+    }
+
     /// <summary>Which sequence a player of this model should play.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <param name="speed">Horizontal speed in units a second.</param>
