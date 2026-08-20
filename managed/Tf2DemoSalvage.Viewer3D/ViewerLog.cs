@@ -97,7 +97,6 @@ internal static class ViewerLog
             try
             {
                 Directory.CreateDirectory(Folder);
-                Prune();
 
                 File.WriteAllText(
                     Path,
@@ -105,48 +104,20 @@ internal static class ViewerLog
                         CultureInfo.InvariantCulture,
                         $"TF2 Demo Salvage {version}, started {DateTime.Now:yyyy-MM-dd HH:mm:ss}{Environment.NewLine}"),
                     Encoding.UTF8);
+
+                // **After the write, not before, and that ordering is the fix.** Pruning first
+                // meant every process in a UI suite or a mutation run computed its deletions from
+                // a snapshot none of its siblings had written into yet: each trimmed to the limit,
+                // then each added one. Measured 2026-08-19 — 207 logs against a limit of 50, and
+                // 929 MB across the folder. Pruning afterwards lets the last writer see the full
+                // set, so the count converges whatever the interleaving.
+                FileRetention.Keep(Folder, "viewer-*.log", RunsKept);
             }
             catch (Exception failure) when (
                 failure is IOException or UnauthorizedAccessException or ArgumentException)
             {
                 _failed = true;
             }
-        }
-    }
-
-    /// <summary>Deletes the oldest runs' logs once there are more than are kept.</summary>
-    /// <remarks>
-    /// **By this program's own naming, not by a wildcard over the folder.** The captures written
-    /// by F12 live here too, and a sweep that deleted "old files" would take the screenshots
-    /// somebody pressed a key to keep — the same class of mistake as pruning a shared measurement
-    /// directory by a name glob and deleting a neighbour's run.
-    ///
-    /// A failure to prune is not a failure to log: an undeletable old file is a tidiness problem
-    /// and losing this run's output is not, so it is swallowed deliberately rather than allowed to
-    /// abort <see cref="Begin"/>.
-    /// </remarks>
-    private static void Prune()
-    {
-        try
-        {
-            string[] older = Directory.GetFiles(Folder, "viewer-*.log");
-
-            if (older.Length < RunsKept)
-            {
-                return;
-            }
-
-            Array.Sort(older, StringComparer.Ordinal);
-
-            for (int index = 0; index <= older.Length - RunsKept; index++)
-            {
-                File.Delete(older[index]);
-            }
-        }
-        catch (Exception failure) when (
-            failure is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // Tidiness only. Say nothing, because the log itself is not open yet.
         }
     }
 

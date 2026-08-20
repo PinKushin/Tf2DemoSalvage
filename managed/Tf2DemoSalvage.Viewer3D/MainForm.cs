@@ -2182,9 +2182,34 @@ internal class MainForm : Form
     /// disagree about it. They were one copied expression apart, which is exactly how the viewer's
     /// two drawing paths drifted until one of them stopped showing decals.
     /// </remarks>
-    public void CaptureViewportToFile() => CaptureViewport(Path.Combine(
-        Path.GetDirectoryName(ViewerLog.Path) ?? ".",
-        string.Create(CultureInfo.InvariantCulture, $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
+    public void CaptureViewportToFile()
+    {
+        string folder = Path.GetDirectoryName(ViewerLog.Path) ?? ".";
+
+        CaptureViewport(Path.Combine(
+            folder,
+            string.Create(CultureInfo.InvariantCulture, $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
+
+        // **Captures had no retention of any kind until 2026-08-19**, when 233 of them were found
+        // occupying 203 MB — the single largest thing the viewer had written to the owner's disk,
+        // and it had never reported a byte of it.
+        //
+        // The limit is lower than the logs' because a screenshot is two orders of magnitude larger:
+        // fifty logs is a few megabytes and fifty captures is most of a gigabyte. It is not zero,
+        // because a capture is taken deliberately — somebody pressed a key — and the recent ones
+        // are usually the comparison being made.
+        //
+        // After the write, matching the log path, and for the same reason: pruning first lets
+        // concurrent writers each trim to the limit and then each add one.
+        FileRetention.Keep(folder, "shot-*.png", CapturesKept);
+    }
+
+    /// <summary>How many F12 captures to keep before the oldest are deleted.</summary>
+    /// <remarks>
+    /// Twenty rather than the logs' fifty, purely on size: a viewport capture is close to a
+    /// megabyte where a run's log is tens of kilobytes.
+    /// </remarks>
+    private const int CapturesKept = 20;
 
     /// <summary>The points the viewport is currently drawing.</summary>
     public IReadOnlyList<ScenePoint> Scene => _scene;
