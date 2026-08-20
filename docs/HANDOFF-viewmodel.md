@@ -126,6 +126,13 @@ because the second implementation is how the two would drift.
   `TF_VM_MIN_INVIS 0.22`…`TF_VM_MAX_INVIS 0.5`, and an observer sees a spy clamped to
   `tf_teammate_max_invis` (0.95) rather than fully invisible — a demo has no local player, so that is
   always our branch.
+- **The spy's knife is drawn at the camera rather than in the hand — B119.** Confirmed by looking, on
+  the same capture that confirmed the watch. It packs, uploads, merges and instances; the log reads
+  clean; the hand is empty. The bone-merge fallback that keeps a child's own matrix for unmatched
+  bones is the suspect, as in B82. First step there is an instrument — `Merge` reporting its match
+  count — because zero-matched and all-matched are currently the same silence.
+- **Every model in the scene is lit at about a tenth — B120.** Twenty models between 0.09 and 0.12
+  while the world reads correctly lit. Not yet established as wrong; the scene is a dim interior.
 - **The HUD** — nothing decoded is drawn as an overlay yet.
 - **Two z1800 players resolve no viewmodel** because their owner handle never decoded. No hands beats
   another player's hands.

@@ -1684,6 +1684,26 @@ internal class MainForm : Form
                 continue;
             }
 
+            // **Which player to watch, because otherwise there is no choosing.** The viewer
+            // spectates whoever `SpectatorTarget.Choose` picks — the lowest entity index on a
+            // playing team — and a match has eighteen players. Anything that happens to anybody
+            // else is on screen for nobody, which made the off hand unviewable: z1800 carries six
+            // spies with a watch drawn, and not one of them is ever the chosen target.
+            if (argument == "--spectate" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (int.TryParse(
+                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
+                {
+                    _spectating = entity;
+                    continue;
+                }
+
+                ViewerLog.Warn("viewer", $"--spectate {value} is not a number; ignoring it");
+                continue;
+            }
+
             if (argument == "--tick" && pending.Count > 0)
             {
                 string value = pending.Dequeue();
@@ -1715,7 +1735,12 @@ internal class MainForm : Form
     /// </remarks>
     private void TakeAutomaticShot()
     {
-        if (_shotPath is not { } path)
+        // **The opening state is not the capture, and tying them together made half the switches
+        // unusable.** `--tick`, `--first-person`, `--spectate` and `--colours` all say where to
+        // START; `--shot` says to photograph it and quit. Gating the first on the second meant the
+        // only way to be put at a tick was to be handed a PNG, which is no way to LOOK at
+        // something — and looking is the only instrument for anything about a picture.
+        if (_shotPath is null && _openingDone)
         {
             return;
         }
@@ -1724,6 +1749,8 @@ internal class MainForm : Form
         {
             if (_shotDelay == 40 && _timeline is not null)
             {
+                _openingDone = true;
+
                 // **The clock too, not just the transport.** Moving the camera marks the world
                 // stale, and the reprojection that follows re-reads the moment from the clock - so
                 // a capture that only told the transport photographed tick zero while every log
@@ -1758,11 +1785,24 @@ internal class MainForm : Form
             return;
         }
 
+        if (_shotPath is not { } path)
+        {
+            return;
+        }
+
         _shotPath = null;
 
         CaptureViewport(path);
         BeginInvoke(Close);
     }
+
+    /// <summary>Whether the opening tick, view and target have been applied.</summary>
+    /// <remarks>
+    /// Latched rather than inferred from the countdown, because the countdown keeps running after
+    /// it reaches zero and re-applying the seek every frame would pin the transport to one tick —
+    /// a viewer that cannot be scrubbed, which is the opposite of the point.
+    /// </remarks>
+    private bool _openingDone;
 
     /// <summary>The free camera, orbiting whatever the top-down view is centred on.</summary>
     /// <remarks>
@@ -2218,8 +2258,51 @@ internal class MainForm : Form
         // Whoever the camera is spectating, asked in one place so the two cannot disagree — this
         // decides which player is hidden from their own view, and a mismatch would hide the wrong
         // body or leave the spectated one standing in front of the lens.
-        return SpectatorTarget.Choose(timeline.PlayersAt(_transport.CurrentTick))?.EntityIndex;
+        return Spectated(_transport.CurrentTick)?.EntityIndex;
     }
+
+    /// <summary>The player being spectated at a tick, honouring <c>--spectate</c>.</summary>
+    /// <remarks>
+    /// **One resolver, because two call sites decide different halves of the same picture** — the
+    /// camera's position and which body to hide. They read this rather than
+    /// <see cref="SpectatorTarget.Choose"/> directly, so an override cannot reach one and miss the
+    /// other and leave a player standing in front of their own lens.
+    ///
+    /// The override falls back rather than failing when the named entity is not playing at this
+    /// tick: a spy is dead, in the lobby, or another class for most of a match, and a viewer that
+    /// went black for those stretches would be worse than one that shows somebody. It says so in the
+    /// log rather than silently, because "I asked for entity 11 and got somebody else" is exactly
+    /// the kind of thing that reads as a decode bug.
+    /// </remarks>
+    private ScenePlayer? Spectated(int tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
+
+        if (_spectating is { } wanted)
+        {
+            foreach (ScenePlayer player in players)
+            {
+                if (player.EntityIndex == wanted)
+                {
+                    return player;
+                }
+            }
+
+            ViewerLog.Warn(
+                "viewer",
+                $"--spectate {wanted} is not playing at tick {tick}; following the default");
+        }
+
+        return SpectatorTarget.Choose(players);
+    }
+
+    /// <summary>The entity <c>--spectate</c> named, or <c>null</c> to choose automatically.</summary>
+    private int? _spectating;
 
     /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
     /// <remarks>
@@ -2264,7 +2347,7 @@ internal class MainForm : Form
         // No recorded camera: spectate somebody who is actually playing. Taking the first player
         // in the list took the SourceTV camera instead — see SpectatorTarget, and
         // docs/findings/29 for the three identical captures that found it.
-        if (SpectatorTarget.Choose(timeline.PlayersAt(tick)) is not { } target)
+        if (Spectated(tick) is not { } target)
         {
             return null;
         }

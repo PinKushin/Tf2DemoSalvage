@@ -7098,3 +7098,89 @@ reports the stale pattern.
 `docs/DECISIONS.md` also gained an index and an explicit "the next number is D43", because the
 original mistake was reasonable: the file is in write order, not number order, and D32 and D33 sit
 between D34 and D35. Scrolling to the end to find the highest number gives the wrong answer.
+
+---
+
+### B119 — the spy's knife is drawn at the camera, not in the hand — OPEN
+
+**Confirmed by looking**, 2026-08-20, `z1800` entity 11 tick 47601 in first person. The arms and the
+watch are both correct; the right hand is empty, fingers curled around nothing.
+
+**It is not missing geometry, which is what the log suggests at first reading.** `c_knife` is packed,
+uploaded as the 78th model, and the poser reports `asked for 3, produced 3; skipped 0 no-batches`. It
+produces an instance every frame and is listed in the viewmodel pass beside the arms and the watch.
+
+The tell is the line before it draws:
+
+```
+animating c_knife.mdl: sequence 34 cycle 0 -> baked frame 0 of 1 blend 0 yaw -117.54 at (-232,-1896,72)
+```
+
+It is posed **at the camera origin with the camera's yaw** — its own rest pose, not the arms'. A
+knife is 14 units long (`extents ... z from -3.8 to 10.5`) against a viewmodel near plane of 1, so at
+the eye it straddles the near plane and clips away entirely.
+
+**The likely mechanism, not yet proven.** `EntityModels` merges a child onto its wearer and
+deliberately keeps the child's own matrix for any bone the parent does not have:
+
+> Bones the parent does not have keep the child's own … an item with a part the player has no bone
+> for keeps the shape the artist gave it rather than collapsing to the origin.
+
+That fallback is right for a cosmetic and wrong here. If `c_knife`'s bone names do not match
+`c_spy_arms`, every bone takes the fallback, the model keeps its rest skeleton, and `transform`
+becomes the wearer's — which for a viewmodel is the camera. **The same shape as B82**, where a
+spellbook whose only bone is `mvm` matched nothing and sat at the player's feet.
+
+No `remap group` line appears for the knife, where one appears for models that do merge. That is
+consistent with the above and does not prove it: the merge may be running and matching nothing.
+
+**Two ways this differs from what was working.** The sniper rifle on the same code path reported
+`bone-merged … root permuted at (26.4,-9.6,-8.7)` and appeared correctly, so either the spy's arms
+differ from the sniper's or the knife differs from the rifle. And the knife is on the BAKED path
+(`1 baked frames`) while `c_spy_arms` is `posed on the GPU` — worth checking whether merging is
+applied on one path and not the other, since that would explain a per-model split with no per-model
+cause.
+
+**First step is an instrument, not a fix.** `Merge` must report how many of the child's bones matched
+the parent, because zero-matched and all-matched currently produce the same silence — and zero is the
+hypothesis. Everything after that depends on the number.
+
+**Found only by looking**, and the log actively misled: reading it alone gave "packed, uploaded,
+merged, instanced, drawn", and the flat-colour capture — where a blade against a near-white wall
+would be unmissable — showed nothing in the hand. `docs/memory/output-level-assertion-or-it-is-not-done.md`
+again, one level further out: even an output-level count can agree while the picture is wrong.
+
+---
+
+### B120 — every model in the scene is lit at about a tenth — OPEN
+
+Noticed by the owner as "the gloves look dark too but im not sure if thats lighting ot what", on the
+same capture. The gloves are a red herring — a spy's gloves are genuinely black — but the instinct
+was right and the scope is much larger than the viewmodel.
+
+Every model in that frame, sampled at its own position:
+
+```
+lbtf_medal_participant_demo  0.0934      c_spy_arms      0.1111
+c_proto_backpack             0.0946      c_knife         0.1112
+homefront_blindfold          0.1037      spr17_upgrade   0.1114
+fob_e_sniperrifle            0.1050      ghost_aspect    0.1191
+v_watch_leather_spy          0.1086      c_engineer_arms 0.1192
+```
+
+**A range of 0.09 to 0.12 across twenty unrelated models**, while the world brushes in the same shot
+— walls, floor, a lit doorway — read as correctly lit. Models and world are lit by different paths
+here, and only one of them looks right.
+
+**Not yet established: whether 0.1 is wrong.** The scene is a dim wooden interior and an ambient
+sample of 0.11 may be honest; the map's brightness comes from lightmaps carrying direct light, which
+the ambient cube would not. The measurement says models agree with each other, not that they agree
+with the engine. What would settle it is the same view in TF2, or the ambient cube for that leaf
+computed independently.
+
+Related: the same run warns `*27 is lit by nothing at (-416,-1862,130); its leaf carries no ambient
+light, so it draws black`, so at least some leaves in this map genuinely carry none.
+
+Also in that run and unrelated to either: nine `.vhv` prop-lighting files fail their checksum against
+the model they belong to (`sp_224`, `sp_287`, `sp_290`, `sp_294`, `sp_306`, `sp_463`, `sp_465`,
+`sp_474`, and one more), so those props fall back to unlit.
