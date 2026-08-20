@@ -1380,11 +1380,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // like art, while a magenta chequer looks like a bug and gets reported.
         _white = CreateTexture(device, context, MissingSize, MissingSize, Missing());
 
+        // **Which materials will draw as the chequer, said once, by index.** A batch whose texture
+        // handle is null silently binds the missing-material chequer at draw time — which is the
+        // right thing to draw and the wrong thing to say nothing about. The asset census reports
+        // "MISSING 0 with no base texture resolved", and that is a different question from "did the
+        // upload produce a handle": every player in a capture came out magenta while that line read
+        // zero. Cross-reference these indices against the `pairing` lines, which carry the names.
+        List<int> chequered = [];
+
         for (int index = 0; index < assets.Textures.Count; index++)
         {
             MapTexture? texture = assets.Textures[index];
 
-            _textures.Add(Upload(device, context, texture));
+            ComPtr<ID3D11ShaderResourceView> uploaded = Upload(device, context, texture);
+
+            if (uploaded.Handle is null)
+            {
+                chequered.Add(index);
+            }
+
+            _textures.Add(uploaded);
 
             if (texture is { IsNoCull: true })
             {
@@ -1408,6 +1423,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 _translucent.Add(index);
             }
         }
+
+        string chequeredAt = chequered.Count > 0
+            ? " at " + string.Join(", ", chequered.Take(40))
+            : string.Empty;
+
+        ViewerLog.Write(
+            "render",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"textures: {assets.Textures.Count} materials, {chequered.Count} will draw as the missing-material chequer{chequeredAt}"));
 
         // **Kept rather than baked into the constants, because a proxy is a function of time.**
         // Everything else in the material buffer is decided once at load; these are the values that
