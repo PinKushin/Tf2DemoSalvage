@@ -293,6 +293,14 @@ So a spy mid-cloak has both viewmodels on screen at once, and `ViewmodelAt` answ
 hand is one weapon short of what that player saw. That is a deliberate, smaller error than the wrong
 weapon; drawing both is separate work. *(evidence class: owner's account of the live game)*
 
+**A screenshot of a fully cloaked spy settles what "transparent" means here**, and it is stronger
+than the word suggests: at full cloak the viewmodels are drawn so far towards invisible that the
+frame reads as the bare world, with only a faint sliver left at the bottom of the screen. So the
+entity is present, networked and animating the whole time — the change is in the material, not in
+whether the model exists. A reader that inferred "the spy's weapon disappears" from looking at
+gameplay would conclude the viewmodel was removed, and be wrong about the thing this project
+actually decodes. *(evidence class: owner's screenshot of the live game, 2026-08-20)*
+
 The handedness note lands on the cull mode rather than on the lookup: `cl_flipviewmodels` mirrors
 the model, and `C_BaseViewModel::InternalDrawModel` switches to `MATERIAL_CULLMODE_CW` when it is
 mirrored. A demo records the entity, not the viewer's preference, so which hand a weapon appears in
