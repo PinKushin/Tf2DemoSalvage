@@ -1523,6 +1523,35 @@ internal static class PropModels
             return -1;
         }
 
+        /// <summary>What the animation behind a sequence uses that this reader does not implement.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>A short note for the log, or empty when it uses neither mechanism.</returns>
+        /// <remarks>
+        /// Reported rather than assumed. Zero-frame data and local hierarchy both sit between an
+        /// animation's bone tracks and the final pose, and a viewer that implements neither is only
+        /// wrong for animations that actually carry them — which is a measurement, not a guess.
+        /// </remarks>
+        public string UnimplementedFor(int sequence)
+        {
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return string.Empty;
+            }
+
+            (int hierarchy, int zeroFrames) = StudioAnimation.Unimplemented(
+                Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
+
+            return (hierarchy, zeroFrames) switch
+            {
+                (0, 0) => string.Empty,
+                (0, _) => $" ZEROFRAME x{zeroFrames}",
+                (_, 0) => $" LOCALHIERARCHY x{hierarchy}",
+                _ => $" LOCALHIERARCHY x{hierarchy} ZEROFRAME x{zeroFrames}",
+            };
+        }
+
         /// <summary>Whether a merged sequence is a DELTA, meant to be layered rather than played.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Whether it carries <c>STUDIO_DELTA</c>.</returns>

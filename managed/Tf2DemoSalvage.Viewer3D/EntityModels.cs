@@ -906,7 +906,8 @@ internal sealed class EntityModelSet
                     ViewerLog.Write(
                         "render",
                         $"skinned {prop.ModelPath}: sequence {sequence}" +
-                        $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}, " +
+                        $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
+                        $"{skinned.UnimplementedFor(sequence)}, " +
                         $"{skinned.Frames(sequence)} frames at " +
                         $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
                         $"phase {phase:0.###} -> frame {posedFrame}");

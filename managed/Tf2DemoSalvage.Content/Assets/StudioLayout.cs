@@ -237,6 +237,28 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>numframes</c>.</summary>
     public const int AnimationFrameCountOffset = 16;
 
+    /// <summary>Byte offset of <c>numlocalhierarchy</c>.</summary>
+    /// <remarks>
+    /// **An animation can reparent a bone while it plays**, which is what
+    /// <c>mstudiolocalhierarchy_t</c> carries and what <c>CalcLocalHierarchyAnimation</c> applies
+    /// (<c>bone_setup.cpp:1003</c>). Nothing here implements it; this offset exists so a model can
+    /// be ASKED whether it needs it before anyone decides whether to.
+    ///
+    /// Counted from the struct: <c>baseptr</c>, <c>sznameindex</c>, <c>fps</c>, <c>flags</c>,
+    /// <c>numframes</c>, <c>nummovements</c>, <c>movementindex</c>, <c>unused1[6]</c>,
+    /// <c>animblock</c>, <c>animindex</c>, <c>numikrules</c>, <c>ikruleindex</c>,
+    /// <c>animblockikruleindex</c>, then this — 4+4+4+4+4+4+4+24+4+4+4+4+4 = 72.
+    /// </remarks>
+    public const int AnimationLocalHierarchyCountOffset = 72;
+
+    /// <summary>Byte offset of <c>zeroframecount</c>, a short.</summary>
+    /// <remarks>
+    /// <c>CalcZeroframeData</c> fills bones an animation does not otherwise mention from a
+    /// compressed span table, and it runs BEFORE the local hierarchy pass. Also unimplemented here,
+    /// and also worth being able to ask about.
+    /// </remarks>
+    public const int AnimationZeroFrameCountOffset = 90;
+
     /// <summary>Byte offset of <c>nummovements</c>: how many piecewise motion blocks it has.</summary>
     /// <remarks>
     /// Straight after <c>numframes</c> in <c>mstudioanimdesc_t</c> — <c>baseptr</c>,

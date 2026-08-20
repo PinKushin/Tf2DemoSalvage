@@ -367,3 +367,42 @@ Note the log line that would have said this hours ago and did not exist: **where
 actually is in world space.** Packed, posed, instanced and listed were all confirmed repeatedly; not
 one of them says where the thing ended up, and "off screen" and "nowhere" are indistinguishable from
 all of them.
+
+### What the SDK says is missing, and whether this data uses it
+
+Three mechanisms sit between an animation's bone tracks and the pose the engine draws, and this
+project implements none of them. Rather than implement blind, each was made askable:
+
+| Mechanism | Where | Used by the arms idle? |
+|---|---|---|
+| `CalcZeroframeData` — fills unmentioned bones from a compressed span table | `bone_setup.cpp:985` | **no** |
+| `CalcLocalHierarchyAnimation` — reparents a bone for the animation's duration | `bone_setup.cpp:990`–1008 | **no** |
+| `STUDIO_DELTA` sequences — layered rather than played | `studio.h`, `AccumulatePose` | **no** |
+
+`StudioAnimation.Unimplemented` reads `numlocalhierarchy` and `zeroframecount` straight out of
+`mstudioanimdesc_t` (offsets 72 and 90 of a 100-byte struct, counted against the SDK), and the viewer
+prints them beside the sequence. All three are absent from the animation being posed, so none of them
+explains the placement. **An unimplemented mechanism the data never exercises is not a bug**, and
+being able to say which is which is worth more than another guess.
+
+Also checked and eliminated:
+
+- **`CTFViewModel::CalcViewModelView`** overrides the placement, and everything it adds is zero by
+  default: the lowered-weapon angle, the inspect offset and the min-mode offset
+  (`tf_use_min_viewmodels`). The owner notes these are all recent additions — inspecting was the
+  only one that existed when he stopped playing — so for the era corpus they cannot apply at all.
+- **Parenting.** `CTFPlayer::CreateViewModel` calls `FollowEntity( this, false )`, which parents
+  without bone-merging, so a local origin would be relative to the player. It does not apply here:
+  `DT_BaseViewModel` is `BEGIN_NETWORK_TABLE_NOBASE` and carries no `m_hMoveParent` at all, so a
+  demo's viewmodel has no parent to be relative to.
+- **Bone remapping across model groups.** `CalcVirtualAnimation` remaps an included animation's bone
+  indices through `pAnimGroup->masterBone`; `PropModels.PoseOf` does the same through
+  `StudioBones.Remap` for every group but the base.
+- **Position and rotation decode.** Both branches match `CalcBonePosition` and `CalcBoneQuaternion`,
+  including the delta rules and the "no track keeps the rest value" case.
+
+So the pose comes entirely from bone tracks this reader handles, and the sequence is a real 51-frame
+animation at 0.6 cycles a second rather than the one-frame holder it was playing before. What remains
+unexplained is the root translation that animation carries, `(6.8, -4.4, -71)`, and its arithmetic
+consequence: hands 39 below the eye and 36 in front, about 47 degrees below a view axis with 27
+degrees of half-height.
