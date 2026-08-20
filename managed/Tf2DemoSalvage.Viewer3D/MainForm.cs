@@ -2402,9 +2402,7 @@ internal class MainForm : Form
     {
         string folder = Path.GetDirectoryName(ViewerLog.Path) ?? ".";
 
-        CaptureViewport(Path.Combine(
-            folder,
-            string.Create(CultureInfo.InvariantCulture, $"shot-{DateTime.Now:yyyyMMdd-HHmmss}.png")));
+        CaptureViewport(Path.Combine(folder, CaptureName(DateTime.Now)));
 
         // **Captures had no retention of any kind until 2026-08-19**, when 233 of them were found
         // occupying 203 MB — the single largest thing the viewer had written to the owner's disk,
@@ -2419,6 +2417,31 @@ internal class MainForm : Form
         // concurrent writers each trim to the limit and then each add one.
         FileRetention.Keep(folder, "shot-*.png", CapturesKept);
     }
+
+    /// <summary>What a capture taken at a given moment is called.</summary>
+    /// <param name="when">When the capture was taken.</param>
+    /// <returns>The file name, without a directory.</returns>
+    /// <remarks>
+    /// **Milliseconds, because seconds were not enough.** Two captures taken in the same second
+    /// overwrote each other — measured 2026-08-20 while capturing the map view and the first-person
+    /// view to compare them, 328 milliseconds apart, both landing in
+    /// <c>shot-20260820-000241.png</c>. A second is not a long time for somebody pressing a key
+    /// twice and it is no time at all for a UI test.
+    ///
+    /// It was noticed only because <c>SaveBackBuffer</c> had started logging what it wrote an hour
+    /// earlier. Without that line the run reports success, one file exists, and nothing says which
+    /// of the two views it holds.
+    ///
+    /// **Ordinal name order has to stay chronological**, because <see cref="FileRetention"/>
+    /// decides what to delete by sorting the names — a stamp whose text order disagreed with its
+    /// time order would keep the wrong captures and would do it silently, since the count would
+    /// still come out right. A fixed-width, most-significant-first stamp is what guarantees that.
+    ///
+    /// Taken as a parameter rather than read inside, so the naming can be tested without waiting
+    /// for a clock.
+    /// </remarks>
+    public static string CaptureName(DateTime when) =>
+        string.Create(CultureInfo.InvariantCulture, $"shot-{when:yyyyMMdd-HHmmss-fff}.png");
 
     /// <summary>How many F12 captures to keep before the oldest are deleted.</summary>
     /// <remarks>
