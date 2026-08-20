@@ -76,3 +76,54 @@ applied and was not followed until the guesses ran out.
 **A loader that is a dictionary lookup should not be documented as loading on demand.** The comment
 at the call site said "Packed on demand like any other model, so a weapon seen for the first time is
 loaded rather than skipped". It is not, and the sentence is why nobody looked there.
+
+---
+
+## The pass, built
+
+*(20 August 2026)*
+
+`CViewRender::DrawViewModels` keeps the world view's origin and angles and replaces three things:
+
+| | world | viewmodel | source |
+|---|---|---|---|
+| field of view | 75 here, `fov_desired` in the game | **54** | `viewmodel_fov`, `view.cpp:111` |
+| near plane | **7** (`VIEW_NEARZ`, `view.h:26`) | **1** | `view.cpp:643` |
+| depth range | 0…1 | **0…0.1** | `DepthRange( 0.0f, 0.1f )` |
+
+The depth range is what keeps a gun out of a wall: everything in the pass writes into the nearest
+tenth of the buffer, so it is in front of all world geometry without being moved an inch. Valve's own
+comment calls it a hack.
+
+**TF2 reads a different convar during demo playback**, which is this project's only case —
+`ClientModeTFNormal::GetViewModelFOV` returns `viewmodel_fov_demo` when `engine->IsPlayingDemo()`.
+Its default is the same 54, so the number does not change, but the two could diverge and the demo one
+is the one that applies here. Recorded in `ViewmodelPass` and asserted.
+
+`Device3D.DrawViewmodels` runs after the world and its translucent pass, sets the viewport's depth
+range, swaps the camera constant, draws, and puts both back.
+
+**Restoring the camera is not tidiness.** The world's camera constant is written when the VIEW
+changes, not every frame, so a pass that leaves its own projection behind is never corrected — the
+entire map draws at 54 degrees from then on. That was visible in the first capture as a zoom nobody
+asked for, and it is why `Device3D` now remembers the last world camera.
+
+## Still not visible, and the reason is no longer the pass
+
+With the correct FOV, near plane and depth range, nothing appears. That is consistent with the
+measurement this document opened with and narrows the problem to one thing:
+
+```
+posed c_demo_arms.mdl CORNER, no pose parameters:
+    10086 of 10086 corners weighted, 65 bones, x -24.3..24.3 y 31.7..65.9 z -9..6.8
+```
+
+The geometry sits 32 to 66 units along **+Y**. Source's +Y is left, and a narrower field of view puts
+an off-axis model further outside the frustum rather than nearer the middle — so the pass could only
+ever have been necessary, not sufficient.
+
+**The lead worth following is `no pose parameters`.** A `c_*_arms` model is posed by the weapon it
+holds, and this project already knows that pose parameters live in the included model rather than the
+base one (`docs/memory/pose-parameters-live-in-the-included-model.md`) — the same trap that once ran
+every player backwards. An arms model posed without them is not the pose the engine would produce,
+and the bounding box says exactly that: it is somewhere a viewmodel never is.

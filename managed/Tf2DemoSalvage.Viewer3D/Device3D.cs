@@ -355,6 +355,81 @@ internal sealed unsafe class Device3D : IDisposable
         float red, float green, float blue, IReadOnlyList<ScenePoint> points) =>
         DrawFrame(red, green, blue, [], [], points);
 
+    /// <summary>Draws the first-person models in their own pass, as the engine does.</summary>
+    /// <param name="viewmodels">The posed arms and weapon, or null when there are none.</param>
+    /// <param name="camera">The viewmodel projection, or null to skip the pass.</param>
+    /// <remarks>
+    /// **A viewmodel is not drawn with the world's camera and cannot be made visible by moving it.**
+    /// <c>CViewRender::DrawViewModels</c> keeps the view's origin and angles and replaces the
+    /// projection and the depth range:
+    ///
+    /// <code>
+    /// viewModelSetup.zNear = viewRender.zNearViewmodel;   // 1, against the world's 7
+    /// viewModelSetup.fov   = viewRender.fovViewmodel;     // viewmodel_fov, 54
+    /// pRenderContext->DepthRange( 0.0f, 0.1f );
+    /// </code>
+    ///
+    /// This project drew them in the world list instead. They packed, posed, instanced and appeared
+    /// in the frame's own draw summary while being nowhere on screen, and three offsets were tried
+    /// against that before the pass was read — <c>docs/findings/30-viewmodel-drawing.md</c>.
+    ///
+    /// **The depth range is what keeps a gun out of a wall.** Every viewmodel writes into the
+    /// nearest tenth of the buffer, so it is in front of all world geometry without being moved.
+    /// The world's camera is restored afterwards, because the next frame's map draw assumes it.
+    /// </remarks>
+    private void DrawViewmodels(IReadOnlyList<ModelInstance>? viewmodels, float[]? camera)
+    {
+        if (_world is null || viewmodels is not { Count: > 0 } || camera is null)
+        {
+            return;
+        }
+
+        Viewport near = new(
+            0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
+
+        _context.RSSetViewports(1, in near);
+        _world.SetCamera(_device, _context, camera);
+        _context.OMSetDepthStencilState(_depthOn, 0);
+
+        foreach (ModelInstance instance in viewmodels)
+        {
+            if (instance.Bones is { Count: > 0 } bones)
+            {
+                _world.SetBones(_context, bones);
+            }
+
+            _world.DrawModel(
+                _context,
+                instance.Matrix,
+                _world.ModelBatches(instance.ModelPath, instance.Frame),
+                instance.Light,
+                instance.Sun,
+                instance.Blend,
+                instance.Bones?.Count ?? 0,
+                instance.SkinSwap,
+                blended: false,
+                instance.BodyParts,
+                instance.Body,
+                instance.Mirrored);
+        }
+
+        // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
+        // The world's camera constant is set when the VIEW changes rather than every frame, so a
+        // pass that leaves its own projection behind is not corrected next frame — the whole map
+        // then draws at the viewmodel's 54 degrees instead of the world's, which looks like a
+        // zoom nobody asked for and is visible immediately.
+        Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
+        _context.RSSetViewports(1, in whole);
+
+        if (_worldCamera is { } restore)
+        {
+            _world.SetCamera(_device, _context, restore.Matrix, restore.Colours, restore.HeightCut);
+        }
+    }
+
+    /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>
+    private (float[] Matrix, bool Colours, float HeightCut)? _worldCamera;
+
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
@@ -364,6 +439,12 @@ internal sealed unsafe class Device3D : IDisposable
     /// <param name="points">Player positions in clip space.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <param name="models">Posed entity models, or null to draw none.</param>
+    /// <param name="viewmodels">
+    /// The first-person arms and weapon, drawn after the world in their own pass.
+    /// </param>
+    /// <param name="viewmodelCamera">
+    /// The projection that pass uses, or null when there is nothing to draw in it.
+    /// </param>
     /// <remarks>
     /// The map goes down first so the players draw over it. There is no depth buffer and none is
     /// wanted: for a flat overhead view the draw order IS the layering, and it is one fewer
@@ -376,7 +457,9 @@ internal sealed unsafe class Device3D : IDisposable
         IReadOnlyList<(float X, float Y, float Shade)> mapFill,
         IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> mapLines,
         IReadOnlyList<ScenePoint> points,
-        IReadOnlyList<ModelInstance>? models = null)
+        IReadOnlyList<ModelInstance>? models = null,
+        IReadOnlyList<ModelInstance>? viewmodels = null,
+        float[]? viewmodelCamera = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -486,6 +569,8 @@ internal sealed unsafe class Device3D : IDisposable
                 }
 
                 WorldRenderer.ResetBlend(_context);
+
+                DrawViewmodels(viewmodels, viewmodelCamera);
             }
             else
             {
@@ -618,6 +703,11 @@ internal sealed unsafe class Device3D : IDisposable
 
         _world ??= WorldRenderer.Create(_device);
         _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut);
+
+        // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
+        // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
+        // map keeps the wrong projection until the user next moves.
+        _worldCamera = (matrix, surfaceColours, heightCut);
     }
 
     /// <summary>Whether a map's textures are resident.</summary>

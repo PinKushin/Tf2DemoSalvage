@@ -1949,22 +1949,29 @@ internal class MainForm : Form
                 "render", $"viewmodel weapon {held}: {_viewmodelInstances.Count} instances");
         }
 
-        // **Not mirrored, and this was a real defect rather than a preference.** `cl_flipviewmodels`
-        // mirrors the viewmodel for a left-handed view and is OFF by default — the owner, who has
-        // played the game: "the watch is the left hand, the weapon in the right, unless you use
-        // left handed viewmodels, then its the opposite". Mirroring unconditionally reverses the
-        // winding of every triangle, so with back-face culling the whole model turns inside out and
-        // reads as nothing on screen at all.
+        // **Kept OUT of the world list, because they are drawn in their own pass.** The engine
+        // draws viewmodels after the world with a different projection and a compressed depth
+        // range (CViewRender::DrawViewModels); putting them in with everything else is what left
+        // them packed, posed, instanced, listed for drawing and invisible.
         //
-        // `C_BaseViewModel::InternalDrawModel` switches to MATERIAL_CULLMODE_CW *when* the model is
-        // mirrored, which is the same conditional stated from the renderer's side.
-        foreach (ModelInstance instance in _viewmodelInstances)
+        // **Not mirrored.** `cl_flipviewmodels` mirrors for a left-handed view and is off by
+        // default — the owner, who has played the game: "the watch is the left hand, the weapon in
+        // the right, unless you use left handed viewmodels, then its the opposite".
+        // `C_BaseViewModel::InternalDrawModel` switches to MATERIAL_CULLMODE_CW *when* mirrored,
+        // which is the same conditional from the renderer's side.
+        _viewmodelCamera = new FreeCamera
         {
-            _instances.Add(instance);
-        }
-
-        _viewmodelInstances.Clear();
+            Origin = camera.Origin,
+            Angles = camera.Angles,
+            Aspect = camera.Aspect,
+            FarZ = camera.FarZ,
+            FieldOfView = ViewmodelPass.FieldOfView,
+            NearZ = ViewmodelPass.NearPlane,
+        };
     }
+
+    /// <summary>The camera the viewmodel pass uses, or null when nothing is drawn in it.</summary>
+    private FreeCamera? _viewmodelCamera;
 
     /// <summary>The model of the weapon in a player's hands, or <c>null</c>.</summary>
     /// <param name="player">The player being followed.</param>
@@ -3666,7 +3673,15 @@ internal class MainForm : Form
             _mapFill,
             _outline.Checked ? _mapLines : [],
             _scene,
-            _instances);
+            _instances,
+            _viewmodelInstances,
+            _viewmodelCamera?.ToMatrix());
+
+        // **Cleared after the draw, not before the fill.** The pass consumes them, and a list left
+        // populated would draw last frame's weapon over this frame's view for as long as first
+        // person stayed off.
+        _viewmodelInstances.Clear();
+        _viewmodelCamera = null;
 
         if (_fullScreenClock is { } clock)
         {
