@@ -308,6 +308,44 @@ public sealed class EntityState
     /// </remarks>
     public int? ModelIndex() => Integer($"{BaseEntityTable}.{ModelIndexProperty}");
 
+    /// <summary>The table a viewmodel's properties arrive under.</summary>
+    /// <remarks>
+    /// **Its own table and nothing else.** <c>baseviewmodel_shared.cpp:557</c> declares it
+    /// <c>BEGIN_NETWORK_TABLE_NOBASE</c>, so a viewmodel inherits no <c>DT_BaseEntity</c> — no
+    /// origin, no angles, no <c>m_fEffects</c>, and an owner handle under a different name. Every
+    /// other reader on this class looks in <c>DT_BaseEntity</c> and would answer null for a
+    /// viewmodel that is perfectly well described on the wire.
+    /// </remarks>
+    private const string ViewModelTable = "DT_BaseViewModel";
+
+    /// <summary>The model a viewmodel is showing, or <c>null</c> when this is not one.</summary>
+    /// <remarks>
+    /// Separate from <see cref="ModelIndex"/> rather than folded into it, because the two answer
+    /// different questions: that one is "where does this entity's own model index live", and
+    /// merging them would make every ordinary entity search a table it does not have.
+    /// </remarks>
+    public int? ViewmodelModelIndex() => Integer($"{ViewModelTable}.{ModelIndexProperty}");
+
+    /// <summary>Which player a viewmodel belongs to, or <c>null</c> when this is not one.</summary>
+    /// <remarks>
+    /// **<c>m_hOwner</c>, not <c>m_hOwnerEntity</c>** — a different property in a different table
+    /// from the one <see cref="Attachment"/> reads, and not gated on <c>EF_BONEMERGE</c>, which a
+    /// viewmodel never sets. Masked through <see cref="Slot"/> like every other handle, so an
+    /// unset one is nobody rather than entity 2047.
+    /// </remarks>
+    public int? ViewmodelOwner() => Slot(Integer($"{ViewModelTable}.m_hOwner"));
+
+    /// <summary>Which animation a viewmodel is playing.</summary>
+    public int? ViewmodelSequence() => Integer($"{ViewModelTable}.m_nSequence");
+
+    /// <summary>How fast a viewmodel's animation is playing.</summary>
+    /// <remarks>
+    /// The third factor in Valve's cycle advance, and the one that was once decoded, retained,
+    /// unit-tested and read by nothing — so every animation played at rate 1. Carried here so the
+    /// viewmodel cannot repeat that.
+    /// </remarks>
+    public float? ViewmodelPlaybackRate() => Number($"{ViewModelTable}.m_flPlaybackRate");
+
     /// <summary>The entity this one hangs off, when it is bone-merged onto another.</summary>
     /// <returns>The owner's entity index, or <c>null</c> when it stands on its own.</returns>
     /// <remarks>

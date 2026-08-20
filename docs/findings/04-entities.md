@@ -202,3 +202,39 @@ because the failures were silent. Grepping the assembly output for `CTFViewModel
 printed as text there at all. The count that mattered came from the property table name,
 `DT_BaseViewModel`. An absence claim needs a positive control in the same sweep; this is the sixth
 time in this project an instrument has been wrong before a decoder was.
+
+### One viewmodel or thirty-seven, and only the modern one says whose it is
+*(measured across the corpus — 20 August 2026)*
+
+Counting distinct viewmodel ENTITIES rather than property updates gives a sharper answer than the
+table above, and a different one:
+
+| Demo | viewmodel entities | with an owner | owner resolves to a player |
+|---|---|---|---|
+| 2007 granary POV | 1 | 0 | 0 |
+| 2008 granary POV / STV | 1 | 0 | 0 |
+| 2009 badlands POV | 2 | 0 | 0 |
+| 2011 viaduct POV / STV | 1 | 0 | 0 |
+| 2013 badlands POV / foundry STV | 1 | 0 | 0 |
+| z1800 (modern SourceTV) | **37** | **37** | **37** |
+
+**A point-of-view recording carries exactly one viewmodel and does not say whose it is**, because
+it does not need to: you only ever receive your own, so the owner is the recorder by definition.
+That is why `m_hOwner` is unset in eight of the nine — not an era gap in the property, but an
+absence of anything to disambiguate.
+
+**A modern SourceTV recording carries one per player and every owner handle resolves.** 37 of 37,
+which is what makes a first-person view of a *spectated* player able to show their weapon.
+
+So the implementation has two cases and neither needs guessing: on a POV demo take the single
+viewmodel, on an STV demo join by `m_hOwner`.
+
+**The "0 owners are players" row was wrong for a whole measurement.** The survey compared
+`ClassName` against `"Player"` for every entity and got zero every time — because `ClassName` is
+seeded by `DemoTimeline.Build` from the schema's server classes, and a hand-rolled walk over the
+entity stream never calls `SetClassName`. Every entity was anonymous, so the comparison could only
+ever fail. Seeding the names turned 0 of 37 into 37 of 37 with no change to the code under test.
+
+That is the seventh instrument bug ahead of a decoder bug in this project, and the third in this
+one evening. The tell each time is the same: a clean zero that would have been reported as a fact
+about the format.
