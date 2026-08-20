@@ -1569,49 +1569,14 @@ internal class MainForm : Form
 
     /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
     /// <remarks>
-    /// **These must be skinned rather than baked, and the reason is not performance.** A
-    /// bone-merged item is placed entirely by its wearer's bones, so baking - which pre-transforms
-    /// the vertices by one pose and throws the bone indices away - leaves nothing to attach it by.
-    /// It then draws at the wearer's origin, which on a player is their FEET.
-    ///
-    /// Measured on cp_process: every cosmetic is a few thousand corners and a single sequence, so
-    /// the corner budget baked all of them and the hats sat at ankle height while the merge
-    /// reported nothing at all.
+    /// The rule itself is <see cref="WornModels.From"/>, which is where its reasoning and its tests
+    /// live. This supplies the two sources: the demo's own prop tracks, and the first-person weapons,
+    /// which are built by the viewer and appear in no timeline.
     /// </remarks>
-    private HashSet<string> WornModelPaths()
-    {
-        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-
-        if (_timeline is not { } timeline)
-        {
-            return paths;
-        }
-
-        foreach (ScenePropTrack track in timeline.Props)
-        {
-            if (track.AttachedTo is not null && track.Kind == SceneModelKind.Studio)
-            {
-                paths.Add(track.ModelPath);
-            }
-        }
-
-        // **The first-person weapon is bone-merged too, and it is not a prop track.** It is built in
-        // `AddViewmodel` with `AttachedTo` set to the viewmodel, because the client creates it rather
-        // than the demo carrying it — so walking `timeline.Props` for merged models cannot see it and
-        // it was loaded without `mustSkin`, baked, and skipped by `Merge` (B119).
-        //
-        // The failure is the one the remarks above describe, moved to a place where it is far more
-        // visible: a merged model that cannot merge draws at its WEARER's transform, which for a
-        // cosmetic is the player's feet and for a viewmodel is the camera. A knife is fourteen units
-        // long against a viewmodel near plane of one, so it clipped away entirely and the spy's hand
-        // was empty — with `asked for 3, produced 3` in the log and no warning anywhere.
-        foreach (string weapon in HeldWeaponModels(timeline))
-        {
-            paths.Add(weapon);
-        }
-
-        return paths;
-    }
+    private HashSet<string> WornModelPaths() =>
+        _timeline is { } timeline
+            ? WornModels.From(timeline.Props, HeldWeaponModels(timeline))
+            : [];
 
     /// <summary>Where to write an automatic capture, when one was asked for.</summary>
     private string? _shotPath;

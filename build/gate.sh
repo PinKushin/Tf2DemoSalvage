@@ -78,7 +78,7 @@ run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
 run Tf2DemoSalvage.Content.Tests  content   588
 run Tf2DemoSalvage.Corpus.Tests   corpus     87
-run Tf2DemoSalvage.Viewer3D.Tests viewer    505
+run Tf2DemoSalvage.Viewer3D.Tests viewer    512
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

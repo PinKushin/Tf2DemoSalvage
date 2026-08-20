@@ -7194,10 +7194,21 @@ table, while ours is merged from two models and 98 entries deep, so the two coul
 and produce a plausible wrong animation. They agree: `demo says 34, VM_IDLE would be 3, playing 34`
 poses a correct spy knife. Worth re-checking on a model whose merge has a different shape.
 
-**Still owed: a regression test.** The invariant is "anything drawn with `AttachedTo` must be loaded
-skinned", and there is no seam to assert it through — `WornModelPaths` is private on a `Form` and
-cannot be reached without opening a window. That missing seam is the real work, and it is why this
-was fixed before it was tested, against the standing rule.
+**The regression test, and the seam it needed.** The rule lived in a private method on a `Form`, so
+asserting it meant opening a window, so it was never asserted — that missing seam is what let this
+ship. It is now `WornModels.From(props, heldWeapons)`, a pure function, with
+`WornModelsTests` covering it: the held weapon is worn (the regression), an attached studio track is
+worn, an unattached track is NOT (the control that stops "return everything" passing), a brush entity
+is not, and the set is case-insensitive and rejects empty paths.
+
+**Verified by manipulation rather than by being green**, since it was written after the fix. Deleting
+the `heldWeapons` loop — B119 exactly — reddened precisely two tests: the regression itself and the
+case-insensitivity one, which also feeds only weapons. The other five stayed green, so the failure is
+specific to the weapons path and not a blanket break. Restored with the inverse edit.
+
+One deliberate widening: `Tf2DemoSalvage.Core` now grants `InternalsVisibleTo` to
+`Tf2DemoSalvage.Viewer3D.Tests`. `ScenePropTrack.AttachedTo` is written only by the timeline and so
+has an internal setter, which meant the viewer's own suite could not construct a worn track at all.
 
 **What made the fix checkable was determinism.** Two identical launches produce byte-identical
 captures (`352EBD85…` twice), so a frame hash is a valid regression instrument for this viewer: after

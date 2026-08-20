@@ -17,6 +17,12 @@
          bit-addressable length limit, which would need a quarter-gigabyte buffer) are internal
          and tested directly. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Core.Tests" />
+
+    <!-- The viewer consumes these scene types, so its tests have to be able to BUILD one.
+         `ScenePropTrack.AttachedTo` is written only by the timeline and so has an internal setter,
+         which left the rule about bone-merged models (WornModels) untestable from the viewer's own
+         suite - the gap that let B119 ship. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
   </ItemGroup>
 
   <ItemGroup>
