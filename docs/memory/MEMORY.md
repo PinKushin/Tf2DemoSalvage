@@ -84,3 +84,5 @@
 - [Author the specimen the corpus lacks](author-the-specimen-the-corpus-lacks.md) — the writer is a test instrument; a case no demo contains can be written rather than hunted for.
 - [Test naming convention](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}; prose names cost a file-open on every red run, so they are being converted.
 - [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — FirstOrDefault plus `is not { }` compiles and never fires; this repo is full of record structs.
+- [A layout driven by its own length cannot fail](a-layout-driven-by-its-own-length-cannot-fail.md) — TextMsg read to the end, so its exact-consumption guard was decorative and it accepted 511 empty strings.
+- [Unreachable can be proved, not just observed](unreachable-can-be-proved-not-just-observed.md) — a coverage gap is a finding either way: prove the branch dead by arithmetic, or write the input that reaches it.
