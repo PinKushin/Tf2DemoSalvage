@@ -706,10 +706,26 @@ internal static class SyntheticPlayer
     /// <summary>Entity slot the viewmodel occupies.</summary>
     private const int ViewmodelEntityIndex = 8;
 
+    /// <summary>Entity slot the off-hand viewmodel occupies, when the fixture carries one.</summary>
+    /// <remarks>
+    /// **After the main hand, deliberately.** The defect this fixture exists to catch is a lookup
+    /// that keeps whichever viewmodel it saw last, so an off hand recorded FIRST would let the
+    /// broken reader answer correctly by accident. See
+    /// <c>docs/memory/real-data-hides-bugs-small-inputs-expose.md</c> — the condition has to be one
+    /// where correct and broken disagree.
+    /// </remarks>
+    private const int OffHandEntityIndex = 9;
+
+    /// <summary>Source's <c>SPROP_UNSIGNED</c>.</summary>
+    private const int UnsignedFlag = 1 << 0;
+
     /// <summary>A demo carrying a player and the weapon they see in their own hands.</summary>
     /// <param name="owner">
     /// The entity the viewmodel names as its owner, or <c>null</c> for the point-of-view shape
     /// where the demo names nobody.
+    /// </param>
+    /// <param name="offHandModelIndex">
+    /// A second viewmodel in slot 1, or <c>null</c> for the one-viewmodel shape.
     /// </param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
@@ -719,25 +735,11 @@ internal static class SyntheticPlayer
     /// second would let a lookup that requires an owner pass, and that lookup finds nothing on
     /// eight of the nine corpus demos.
     /// </remarks>
-    public static byte[] DemoWithViewmodel(int? owner)
+    public static byte[] DemoWithViewmodel(int? owner, int? offHandModelIndex = null)
     {
         DemoSchema schema = SchemaWithViewmodel();
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-
-        Dictionary<string, PropertyValue> weapon = new()
-        {
-            ["m_nModelIndex"] = PropertyValue.FromInt(4),
-            ["m_nSequence"] = PropertyValue.FromInt(7),
-            ["m_flPlaybackRate"] = PropertyValue.FromFloat(1f),
-        };
-
-        // Absent rather than zero: an unset handle is how a POV demo says "mine", and zero would
-        // be entity slot zero, which is the world.
-        if (owner is { } slot)
-        {
-            weapon["m_hOwner"] = PropertyValue.FromInt(slot);
-        }
 
         DecodedEntity player = Entity(
             decoder,
@@ -750,11 +752,29 @@ internal static class SyntheticPlayer
                 ["m_lifeState"] = PropertyValue.FromInt(0),
             });
 
-        DecodedEntity viewmodel =
-            Entity(decoder, ViewmodelClassId, ViewmodelEntityIndex, weapon);
+        List<DecodedEntity> entities =
+        [
+            player,
+            Entity(
+                decoder,
+                ViewmodelClassId,
+                ViewmodelEntityIndex,
+                Viewmodel(modelIndex: 4, slot: 0, owner)),
+        ];
+
+        // The off hand, when the fixture is the two-viewmodel shape. TF2 gives it to the spy's
+        // watch and to grenades — `CTFWeaponInvis::Spawn` calls `SetViewModelIndex( 1 )`.
+        if (offHandModelIndex is { } offHand)
+        {
+            entities.Add(Entity(
+                decoder,
+                ViewmodelClassId,
+                OffHandEntityIndex,
+                Viewmodel(offHand, slot: 1, owner)));
+        }
 
         byte[] body = decoder.EncodeEntities(
-            [player, viewmodel], [], isDelta: false, 0, out int bits);
+            [.. entities], [], isDelta: false, 0, out int bits);
 
         return SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
@@ -767,7 +787,8 @@ internal static class SyntheticPlayer
                 // viewmodel decodes perfectly and resolves to nothing.
                 SyntheticDemo.StringTable(
                     "modelprecache",
-                    ["", "a.mdl", "b.mdl", "c.mdl", "models/weapons/v_scattergun.mdl"],
+                    ["", "a.mdl", "b.mdl", "models/weapons/v_watch.mdl",
+                     "models/weapons/v_scattergun.mdl"],
                     maxEntries: 1024)),
             SyntheticDemo.DataTables(schema),
             SyntheticDemo.Packet(
@@ -778,10 +799,37 @@ internal static class SyntheticPlayer
                     IsDelta: false,
                     DeltaFromTick: null,
                     BaselineIndex: false,
-                    UpdatedEntries: 2,
+                    UpdatedEntries: entities.Count,
                     LengthBits: bits,
                     UpdateBaseline: false,
                     Body: body)));
+    }
+
+    /// <summary>One viewmodel's properties, as <c>DT_BaseViewModel</c> carries them.</summary>
+    /// <param name="modelIndex">Index into <c>modelprecache</c>.</param>
+    /// <param name="slot">0 for the weapon in hand, 1 for the off hand.</param>
+    /// <param name="owner">
+    /// The owning player, or <c>null</c> for the point-of-view shape where the demo names nobody.
+    /// </param>
+    private static Dictionary<string, PropertyValue> Viewmodel(
+        int modelIndex, int slot, int? owner)
+    {
+        Dictionary<string, PropertyValue> properties = new()
+        {
+            ["m_nModelIndex"] = PropertyValue.FromInt(modelIndex),
+            ["m_nSequence"] = PropertyValue.FromInt(7),
+            ["m_flPlaybackRate"] = PropertyValue.FromFloat(1f),
+            ["m_nViewModelIndex"] = PropertyValue.FromInt(slot),
+        };
+
+        // Absent rather than zero: an unset handle is how a POV demo says "mine", and zero would
+        // be entity slot zero, which is the world.
+        if (owner is { } entity)
+        {
+            properties["m_hOwner"] = PropertyValue.FromInt(entity);
+        }
+
+        return properties;
     }
 
     /// <summary>A schema that also declares a viewmodel class, with no base table.</summary>
@@ -804,6 +852,11 @@ internal static class SyntheticPlayer
                     Int("m_nSequence", bits: 8),
                     Float("m_flPlaybackRate", low: -4f, high: 12f, bits: 8),
                     Int("m_hOwner", bits: 21),
+
+                    // One bit unsigned, as `VIEWMODEL_INDEX_BITS` declares it — signed would make
+                    // slot 1 arrive as -1 and the fixture would agree with a reader that never
+                    // matched it.
+                    UnsignedInt("m_nViewModelIndex", bits: 1),
                 ]),
             ],
             [
@@ -923,6 +976,9 @@ internal static class SyntheticPlayer
 
     private static SendProperty Int(string name, int bits) =>
         new(SendPropType.Int, name, 0, string.Empty, 0f, 0f, bits, 0);
+
+    private static SendProperty UnsignedInt(string name, int bits) =>
+        new(SendPropType.Int, name, UnsignedFlag, string.Empty, 0f, 0f, bits, 0);
 
     private static SendProperty Float(string name, float low, float high, int bits) =>
         new(SendPropType.Float, name, 0, string.Empty, low, high, bits, 0);

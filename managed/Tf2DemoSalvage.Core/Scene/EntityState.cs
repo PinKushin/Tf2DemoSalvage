@@ -338,6 +338,30 @@ public sealed class EntityState
     /// <summary>Which animation a viewmodel is playing.</summary>
     public int? ViewmodelSequence() => Integer($"{ViewModelTable}.m_nSequence");
 
+    /// <summary>Which of a player's two viewmodels this one is.</summary>
+    /// <returns>0 for the weapon in hand, 1 for the off hand, or <c>null</c> when unstated.</returns>
+    /// <remarks>
+    /// **A player has two of these, and without the slot they are indistinguishable.**
+    /// <c>shareddefs.h:325</c> sets <c>MAX_VIEWMODELS 2</c>, and TF2 names the second one outright:
+    ///
+    /// <code>
+    /// CBaseViewModel *CTFPlayer::GetOffHandViewModel()
+    /// {
+    ///     // off hand model is slot 1
+    ///     return GetViewModel( 1 );
+    /// }
+    /// </code>
+    ///
+    /// Exactly two things claim it — <c>CTFWeaponInvis::Spawn</c>, the spy's watch, and
+    /// <c>tf_weaponbase_grenade</c> — so a recording of a spy carries both at once and a reader
+    /// with no slot shows whichever it happened to walk past last.
+    ///
+    /// **Two values and no more**, because <c>VIEWMODEL_INDEX_BITS</c> is 1 and the property is
+    /// <c>SPROP_UNSIGNED</c> (<c>baseviewmodel_shared.h:29</c>, <c>.cpp:563</c>). Measured on the
+    /// corpus: every demo back to 2007 declares it at that width, so this is not a modern field.
+    /// </remarks>
+    public int? ViewmodelSlot() => Integer($"{ViewModelTable}.m_nViewModelIndex");
+
     /// <summary>How fast a viewmodel's animation is playing.</summary>
     /// <remarks>
     /// The third factor in Valve's cycle advance, and the one that was once decoded, retained,

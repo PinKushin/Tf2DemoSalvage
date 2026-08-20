@@ -314,6 +314,18 @@ public sealed class DemoTimeline
     ///
     /// At or before the tick, like every other per-tick lookup here: the demo speaks at packet
     /// ticks and the viewer draws between them.
+    ///
+    /// **The main hand, because a player has two viewmodels and only one is the weapon.**
+    /// <c>MAX_VIEWMODELS</c> is 2 and slot 1 is the off hand, which TF2 gives to the spy's watch
+    /// and to grenades. Ignoring the slot answers with whichever entity was described last, and on
+    /// the corpus's 2009 badlands recording that is the watch — so the weapon on screen stayed
+    /// <c>v_watch_spy</c> across a change of class from soldier to scout.
+    ///
+    /// **The off hand is drawn as well as the main hand, not instead of it** — the owner, who has
+    /// played the class: "main viewmodel doesnt get hidden when a spy goes invis, the watch just
+    /// comes up and everything goes transparent". So this answers with one weapon short of what a
+    /// spy actually sees, which is a smaller error than the wrong weapon and is its own piece of
+    /// work. See <c>docs/findings/04-entities.md</c>.
     /// </remarks>
     public SceneViewmodel? ViewmodelAt(int tick, int playerEntityIndex)
     {
@@ -327,8 +339,9 @@ public sealed class DemoTimeline
             }
 
             // Unowned belongs to the follower by definition; owned has to match.
-            if (weapon.OwnerEntityIndex is null ||
-                weapon.OwnerEntityIndex == playerEntityIndex)
+            if (weapon.IsMainHand &&
+                (weapon.OwnerEntityIndex is null ||
+                 weapon.OwnerEntityIndex == playerEntityIndex))
             {
                 found = weapon;
             }
@@ -506,6 +519,10 @@ public sealed class DemoTimeline
         int? recorderSlot = null;
         List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
 
+        // What each viewmodel entity last said, so an unchanged one is not recorded again. Keyed
+        // by entity because a player carries two and they interleave.
+        Dictionary<int, SceneViewmodel> lastViewmodel = [];
+
         foreach (DemoCommand command in commands)
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
@@ -613,7 +630,8 @@ public sealed class DemoTimeline
             // stood at the PREVIOUS tick, so an entity that enters on this packet is missed
             // entirely — and on a demo whose viewmodel enters once and never changes, that means
             // it is never recorded at all.
-            RecordViewmodels(entities, precache, protocol, command.Tick, viewmodels);
+            RecordViewmodels(
+                entities, precache, protocol, command.Tick, lastViewmodel, viewmodels);
 
             if (!moved)
             {
@@ -862,11 +880,18 @@ public sealed class DemoTimeline
     /// Only recorded when something differs from the last sample. A viewmodel that has not changed
     /// costs nothing, which matters because z1800 carries 37 of them across 95,480 updates.
     /// </remarks>
+    /// <summary>Records every viewmodel that changed on this tick.</summary>
+    /// <remarks>
+    /// **Deduplicated per entity, not against the tail of the list.** A player has two viewmodels
+    /// and a demo describing both writes them alternately, so a check against the previous entry
+    /// never matches and every tick records both — which is how the wrong one came to win.
+    /// </remarks>
     private static void RecordViewmodels(
         EntityStateTable entities,
         ModelPrecache precache,
         int protocol,
         int tick,
+        Dictionary<int, SceneViewmodel> last,
         List<(int Tick, SceneViewmodel Weapon)> into)
     {
         foreach (EntityState entity in entities.All)
@@ -885,14 +910,17 @@ public sealed class DemoTimeline
                 path,
                 entity.ViewmodelSequence() ?? 0,
                 entity.ViewmodelPlaybackRate() ?? 1f,
-                entity.ViewmodelOwner());
+                entity.ViewmodelOwner(),
+                entity.ViewmodelSlot());
 
-            // Unchanged since the last sample, so there is nothing new to record.
-            if (into.Count > 0 && into[^1].Weapon == weapon)
+            // Unchanged since this entity was last sampled, so there is nothing new to record.
+            if (last.TryGetValue(entity.EntityIndex, out SceneViewmodel before) &&
+                before == weapon)
             {
                 continue;
             }
 
+            last[entity.EntityIndex] = weapon;
             into.Add((tick, weapon));
         }
     }

@@ -238,3 +238,79 @@ ever fail. Seeding the names turned 0 of 37 into 37 of 37 with no change to the 
 That is the seventh instrument bug ahead of a decoder bug in this project, and the third in this
 one evening. The tell each time is the same: a clean zero that would have been reported as a fact
 about the format.
+
+### The "2" in that table was the bug, and it sat there unread for a day
+
+**A player has two viewmodels, not one.** `shareddefs.h:325` sets `MAX_VIEWMODELS 2`, and TF2 names
+the second one outright:
+
+```cpp
+CBaseViewModel *CTFPlayer::GetOffHandViewModel()
+{
+    // off hand model is slot 1
+    return GetViewModel( 1 );
+}
+```
+
+Slot 0 is the weapon in the player's hands. Slot 1 is the off hand, claimed by exactly two things in
+the shipped game code — `CTFWeaponInvis::Spawn` (the spy's Invis Watch) and `tf_weaponbase_grenade`.
+Which one an entity is arrives on the wire as `m_nViewModelIndex`, **one bit, unsigned**
+(`VIEWMODEL_INDEX_BITS 1`, `baseviewmodel_shared.h:29`; sent at `.cpp:563`).
+
+The first implementation of `DemoTimeline.ViewmodelAt` ignored the slot and kept whichever viewmodel
+it walked past last. On every demo carrying one that is correct by luck. On the 2009 badlands POV —
+the single row in the table above reading **2** — it answered `v_watch_spy` while the recorder's
+networked `m_iClass` went soldier, then scout. *(evidence class: measured on the corpus, against
+published source)*
+
+**The row was already in this document and read as a curiosity.** A measurement that disagrees with
+every other row in its own table is a finding, not noise; it was written down and not followed.
+
+**The property is not modern.** Every corpus demo back to the 2007 build declares
+`DT_BaseViewModel.m_nViewModelIndex` at 1 bit unsigned — asserted per demo in
+`ViewmodelConformanceTests`, from each file's own schema rather than from the SDK header. The era
+question was raised as possibly needing a decompiler and needed nothing: **a demo carries the schema
+that describes it**, so "did this field exist in 2009" is answerable from the 2009 file.
+
+**An absent slot means the main hand, not an unknown one.** `CBaseViewModel`'s constructor sets
+`m_nViewModelIndex = 0` (`baseviewmodel_shared.cpp:53`), so a property that never arrived is the
+engine's default. `EntityState.ViewmodelSlot()` still reports null for "the demo did not say" — the
+reader states the wire, the consumer applies the default.
+
+### The off hand is drawn as well as the weapon, not instead of it
+
+From the owner, who has played the class:
+
+> main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and everything
+> goes transparent
+
+and on which hand is which:
+
+> yep the watch is the left hand, the weapon in in the right, unless you use left handed
+> viewmodels, then its the opposite
+
+So a spy mid-cloak has both viewmodels on screen at once, and `ViewmodelAt` answering with the main
+hand is one weapon short of what that player saw. That is a deliberate, smaller error than the wrong
+weapon; drawing both is separate work. *(evidence class: owner's account of the live game)*
+
+The handedness note lands on the cull mode rather than on the lookup: `cl_flipviewmodels` mirrors
+the model, and `C_BaseViewModel::InternalDrawModel` switches to `MATERIAL_CULLMODE_CW` when it is
+mirrored. A demo records the entity, not the viewer's preference, so which hand a weapon appears in
+is a property of the person watching the playback — not of the recording.
+
+### What the agreement test settled on the way past
+
+`ViewmodelClassAgreementTests` cross-checks the resolved model path against the recorder's networked
+`m_iClass` — two unrelated decode paths, a Snappy-compressed string table resolved by index and a
+delta-compressed integer on the player entity. After the fix, no demo disagrees.
+
+It also closed an open question in the other direction. The 2013 badlands POV resolves
+`c_sniper_arms`, and the owner said he never played sniper on it. The demo says otherwise, and says
+it twice: at some ticks `m_iClass` is 2 with `v_sniperrifle_sniper` in hand. Across the file he
+plays scout, sniper, soldier, demo and pyro. **The resolution was right and the recollection was
+not** — which is why the test was written against the demo rather than against anyone's memory.
+
+**The test now asserts rather than reports.** As first written it printed AGREED and DISAGREED lists
+and asserted only that *something* was compared, so the fix could not have been proved by it. An
+empty disagreement list is also what "this demo stopped resolving a weapon at all" looks like, so it
+now names the two-viewmodel demo explicitly and requires a comparison from it.

@@ -63,6 +63,27 @@ public sealed class TimelineViewmodelTests
     }
 
     [Test]
+    public void ViewmodelAt_APlayerCarryingBoth_AnswersWithTheMainHand()
+    {
+        // **The defect this test was written for, and it shipped a spy watch into a soldier's
+        // hands.** A player has TWO viewmodels — `MAX_VIEWMODELS` is 2 — and TF2 uses slot 1 for
+        // the off hand: `CTFPlayer::GetOffHandViewModel` is `return GetViewModel( 1 )`, set by
+        // `CTFWeaponInvis::Spawn` for the spy's watch and by `tf_weaponbase_grenade`.
+        //
+        // A lookup that ignores the slot keeps whichever entity it walked past last, which on the
+        // corpus's 2009 badlands recording is the off hand — so the weapon on screen stayed
+        // `v_watch_spy` while the recorder's networked class went soldier, then scout.
+        //
+        // The off hand is recorded SECOND here on purpose: with it first, a reader that just keeps
+        // the last one would answer correctly by accident and this test could not fail.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: null, offHandModelIndex: 3));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull()
+            .ModelPath.ShouldBe("models/weapons/v_scattergun.mdl");
+    }
+
+    [Test]
     public void ViewmodelAt_ADemoWithNone_IsNothing()
     {
         // Every era demo before the modern ones carries a viewmodel, but a recording that does not

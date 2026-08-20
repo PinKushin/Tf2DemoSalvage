@@ -1614,3 +1614,41 @@ Two things the first version got wrong, both found by running it:
 **The daily schedule is session-only and this is a real limitation.** `CronCreate` jobs live in
 one Claude session and auto-expire after seven days, so the durable artefact is the script; the
 schedule around it has to be re-made, or wired into a Windows scheduled task, to outlive a session.
+
+## D28 — the viewmodel lookup answers the main hand, and the off hand is left undrawn on purpose
+
+A player carries two viewmodels: `MAX_VIEWMODELS` is 2, slot 0 is the weapon in hand and slot 1 is
+the off hand — `CTFPlayer::GetOffHandViewModel` is `return GetViewModel( 1 )`. TF2 puts the spy's
+Invis Watch and grenades in slot 1. The first implementation of `DemoTimeline.ViewmodelAt` kept
+whichever viewmodel it saw last and therefore showed a spy watch in a soldier's hands on the one
+corpus demo that carries both.
+
+`ViewmodelAt` now filters on `m_nViewModelIndex` and answers with the main hand only.
+
+**The off hand is not an alternative to the main hand — both are on screen at once.** The owner,
+asked directly:
+
+> main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and everything
+> goes transparent
+
+and:
+
+> yep the watch is the left hand, the weapon in in the right, unless you use left handed
+> viewmodels, then its the opposite
+
+So answering with the main hand alone is knowingly one weapon short of what a cloaking spy saw.
+That is the decision: **one weapon short beats the wrong weapon**, and drawing both is its own
+piece of work with its own test. Recorded rather than fixed in passing so the gap is a known
+absence instead of a surprise the next time somebody watches a spy demo.
+
+The handedness remark does not change the lookup at all, and that is worth stating because it looks
+like it should. `cl_flipviewmodels` is a setting on the machine playing the demo, not something the
+recording carries; the demo names the entity and the model, and which hand it appears in is decided
+at draw time by `C_BaseViewModel::InternalDrawModel` switching to `MATERIAL_CULLMODE_CW` when the
+model is mirrored.
+
+**Nothing here needed a decompiler, and it was proposed that it might.** The concern was reasonable
+— the defect appears only on older demos, and the SDK is the 2013 tree — but a demo carries the
+schema that describes it, so "did the 2009 build send this property" is a question the 2009 file
+answers itself. `ViewmodelConformanceTests` asserts the property's presence and its 1-bit unsigned
+width against each demo's own schema, back to the 2007 build.

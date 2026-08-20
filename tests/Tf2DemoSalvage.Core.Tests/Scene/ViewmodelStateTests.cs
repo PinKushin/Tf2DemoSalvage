@@ -84,6 +84,29 @@ public sealed class ViewmodelStateTests
     }
 
     [Test]
+    public void ViewmodelSlot_OnAMainHandAndAnOffHand_Are0And1()
+    {
+        // **A player has two, and without this they are indistinguishable.** `MAX_VIEWMODELS` is
+        // 2 (`shareddefs.h:325`); slot 0 is the weapon in hand and slot 1 is the off hand —
+        // `CTFPlayer::GetOffHandViewModel` is literally `return GetViewModel( 1 )`.
+        Viewmodel(modelIndex: 535, owner: Owner, slot: 0).ViewmodelSlot().ShouldBe(0);
+        Viewmodel(modelIndex: 535, owner: Owner, slot: 1).ViewmodelSlot().ShouldBe(1);
+    }
+
+    [Test]
+    public void ViewmodelSlot_WhenTheDemoDoesNotSay_IsNull()
+    {
+        // Null rather than defaulting to 0, because "did not say" and "said main hand" are
+        // different claims and a caller that prefers slot 0 would otherwise treat every silent
+        // entity as the weapon in hand.
+        EntityState state = new(entityIndex: 9, classId: 1, serialNumber: 1, className: "CTFViewModel");
+
+        state.Set("DT_BaseViewModel.m_nModelIndex", PropertyValue.FromInt(535));
+
+        state.ViewmodelSlot().ShouldBeNull();
+    }
+
+    [Test]
     public void ViewmodelLookups_OnAnOrdinaryEntity_AnswerNothing()
     {
         // **The control.** Every assertion above is that a viewmodel reads where an ordinary
@@ -94,6 +117,7 @@ public sealed class ViewmodelStateTests
         player.ViewmodelModelIndex().ShouldBeNull();
         player.ViewmodelOwner().ShouldBeNull();
         player.ViewmodelSequence().ShouldBeNull();
+        player.ViewmodelSlot().ShouldBeNull();
     }
 
     /// <summary>An entity state carrying only what a viewmodel carries.</summary>
@@ -107,7 +131,8 @@ public sealed class ViewmodelStateTests
         int? owner = null,
         int? ownerHandle = null,
         int sequence = 0,
-        float playbackRate = 1f)
+        float playbackRate = 1f,
+        int slot = 0)
     {
         EntityState state = new(entityIndex: 9, classId: 1, serialNumber: 1, className: "CTFViewModel");
 
@@ -115,6 +140,7 @@ public sealed class ViewmodelStateTests
         state.Set("DT_BaseViewModel.m_nSequence", PropertyValue.FromInt(sequence));
         state.Set("DT_BaseViewModel.m_flPlaybackRate", PropertyValue.FromFloat(playbackRate));
         state.Set("DT_BaseViewModel.m_hOwner", PropertyValue.FromInt(ownerHandle ?? owner ?? 0));
+        state.Set("DT_BaseViewModel.m_nViewModelIndex", PropertyValue.FromInt(slot));
 
         return state;
     }

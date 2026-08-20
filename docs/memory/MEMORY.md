@@ -86,3 +86,5 @@
 - [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — FirstOrDefault plus `is not { }` compiles and never fires; this repo is full of record structs.
 - [A layout driven by its own length cannot fail](a-layout-driven-by-its-own-length-cannot-fail.md) — TextMsg read to the end, so its exact-consumption guard was decorative and it accepted 511 empty strings.
 - [Unreachable can be proved, not just observed](unreachable-can-be-proved-not-just-observed.md) — a coverage gap is a finding either way: prove the branch dead by arithmetic, or write the input that reaches it.
+- [A player has two viewmodels](a-player-has-two-viewmodels.md) — slot 1 is the off hand and is drawn alongside the weapon; a slot-blind lookup put a spy watch in a soldier's hands.
+- [The demo dates its own fields](the-demo-dates-its-own-fields.md) — an era question about a property is answered by that demo's embedded schema, not by the SDK snapshot or a decompiler.

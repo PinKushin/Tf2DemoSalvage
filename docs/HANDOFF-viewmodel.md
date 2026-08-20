@@ -37,9 +37,9 @@ Five commits. All tests green, gate green, UI suite 12/12.
 
 ---
 
-## THE OPEN DEFECT
+## THE DEFECT, AND WHAT IT WAS — fixed 2026-08-20
 
-**`ViewmodelAt` returns the wrong weapon when a demo carries more than one viewmodel entity.**
+**`ViewmodelAt` returned the wrong weapon when a demo carried more than one viewmodel entity.**
 
 Evidence, from `ViewmodelClassAgreementTests` — it compares the resolved weapon against the
 recorder's networked `m_iClass`, two unrelated decode paths:
@@ -60,16 +60,25 @@ The 2009 badlands demo is the one the entity survey reported as carrying **2 vie
 every other demo carries one. `ViewmodelAt` collapses them into a single list and returns whichever
 was recorded most recently, so the wrong one wins.
 
-**The likely fix is a field I transcribed and then never read: `m_nViewModelIndex`.** It is in the
-send table (`baseviewmodel_shared.cpp:563`) beside the properties already being used, and Source
-defines `MAX_VIEWMODELS` — slot 0 is the weapon. Filter on it, or prefer slot 0.
+**The fix was a field transcribed from the send table and then never read: `m_nViewModelIndex`**
+(`baseviewmodel_shared.cpp:563`, 1 bit unsigned). `MAX_VIEWMODELS` is 2; slot 0 is the weapon in
+hand and slot 1 is the off hand — `CTFPlayer::GetOffHandViewModel` is `return GetViewModel( 1 )`,
+claimed by the spy's Invis Watch and by grenades. `ViewmodelAt` now filters on it.
 
-**Verify against the 2009 demo specifically**, and re-run the agreement test: it is the instrument
-that catches this, and the DISAGREED list going empty is the result to want.
+Full write-up in `docs/findings/04-entities.md`; the scoping decision is D28.
 
-Also unresolved and probably the same fault: the owner's 2013 badlands POV demo resolves
-`c_sniper_arms.mdl`, and he says he never played sniper. Do not treat that as settled either way
-until the agreement test is clean.
+**The 2013 sniper question is settled, and not the way it was expected to go.** The owner said he
+never played sniper on that demo. The demo disagrees, on an independent decode path: at some ticks
+`m_iClass` is 2 with `v_sniperrifle_sniper` in hand, and across the file he plays scout, sniper,
+soldier, demo and pyro. The resolution was right; the recollection was not.
+
+**The agreement test now asserts instead of reporting.** As first written it printed AGREED and
+DISAGREED and asserted only that *something* had been compared — so it could not have proved this
+fix, and an empty DISAGREED list is also what "that demo stopped resolving a weapon at all" looks
+like. It now names the two-viewmodel demo and requires a comparison from it.
+
+**Still short of the engine, deliberately:** the off hand is drawn *alongside* the weapon, not
+instead of it — a cloaking spy sees both — so a spy demo will show one viewmodel short. D28.
 
 ---
 
