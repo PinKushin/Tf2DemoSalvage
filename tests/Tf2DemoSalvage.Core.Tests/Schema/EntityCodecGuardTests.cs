@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests.Schema;
@@ -108,6 +109,94 @@ public sealed class EntityCodecGuardTests
 
         decoder.DecodeTempEntities(body, count: 1, lengthBits: body.Length * 8)
             .ShouldHaveSingleItem().ClassId.ShouldBe(SyntheticPlayer.PropClassId);
+    }
+
+    [Test]
+    public void Decode_AnArrayLongerThanItsDefinitionAllows_SaysBothNumbers()
+    {
+        // **An array's count is sized from its declared maximum, not sent at a fixed width**, so a
+        // count larger than the maximum still fits in the field — 5 in a 3-bit count for a
+        // four-element array. Nothing about the bits says it is wrong; only the definition does.
+        //
+        // Reading it anyway would consume five elements' worth of bits from a body holding four,
+        // which desynchronises everything after it in the same entity. The guard names both
+        // numbers because "an array is too long" leaves a reader nothing to check against.
+        EntityDecoder decoder = ArrayDecoder();
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(ArrayClassId);
+
+        // Encoded through the writer, which takes the caller's word for the count — so this is a
+        // body a buggy sender could genuinely produce rather than bytes typed out by hand.
+        byte[] body = EntityDecoder.EncodeProperties(
+        [
+            new DecodedProperty(
+                0,
+                flat[0],
+                PropertyValue.FromArray(
+                [
+                    PropertyValue.FromInt(1), PropertyValue.FromInt(2),
+                    PropertyValue.FromInt(3), PropertyValue.FromInt(4),
+                    PropertyValue.FromInt(5),
+                ])),
+        ]);
+
+        decoder.SetBaseline(ArrayClassId, body);
+
+        InvalidDataException failure = Should.Throw<InvalidDataException>(
+            () => decoder.Baseline(ArrayClassId));
+
+        failure.Message.ShouldContain("5 elements");
+        failure.Message.ShouldContain("4");
+    }
+
+    [Test]
+    public void Decode_AnArrayOfTheLengthItsDefinitionAllows_IsAccepted()
+    {
+        // The control: a guard that refused every array would satisfy the test above and break the
+        // player resource, which is where team and class live for every modern demo.
+        EntityDecoder decoder = ArrayDecoder();
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(ArrayClassId);
+
+        byte[] body = EntityDecoder.EncodeProperties(
+        [
+            new DecodedProperty(
+                0,
+                flat[0],
+                PropertyValue.FromArray(
+                    [PropertyValue.FromInt(1), PropertyValue.FromInt(2)])),
+        ]);
+
+        decoder.SetBaseline(ArrayClassId, body);
+
+        decoder.Baseline(ArrayClassId).ShouldNotBeNull()
+            .ShouldHaveSingleItem().Value.AsArray.Count.ShouldBe(2);
+    }
+
+    /// <summary>Class id of the array-bearing class below.</summary>
+    private const int ArrayClassId = 0;
+
+    /// <summary>Flag marking the element template that precedes an array property.</summary>
+    /// <remarks>
+    /// <c>SPROP_INSIDEARRAY</c>. Source emits the template as an ordinary property immediately
+    /// before the array and marks it with this, which is how the flattener tells the two apart —
+    /// the template is skipped in its own right and attached to the array that follows it.
+    /// </remarks>
+    private const int InsideArray = 1 << 8;
+
+    /// <summary>A decoder whose one class carries a four-element array.</summary>
+    private static EntityDecoder ArrayDecoder()
+    {
+        DemoSchema schema = new(
+            [
+                new SendTable("DT_Test", NeedsDecoder: true,
+                [
+                    new SendProperty(
+                        SendPropType.Int, "000", InsideArray, "", 0f, 0f, 8, 0),
+                    new SendProperty(SendPropType.Array, "m_iTeam", 0, "", 0f, 0f, 0, 4),
+                ]),
+            ],
+            [new ServerClass(ArrayClassId, "CTest", "DT_Test")]);
+
+        return new EntityDecoder(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
     }
 
     /// <summary>One decoded property standing on a definition built by hand.</summary>
