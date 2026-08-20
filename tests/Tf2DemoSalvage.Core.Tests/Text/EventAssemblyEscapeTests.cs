@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
@@ -59,6 +60,32 @@ public sealed class EventAssemblyEscapeTests
     }
 
     [Test]
+    public void RoundTrip_AnEventOfEveryFieldType_KeepsEveryValuesType()
+    {
+        // **A field's type lives in the definition, so the assembler has to reconstruct it from a
+        // string.** Every type is one arm of that conversion, and a type read one place along the
+        // enum produces a value of the wrong width that still parses — which is RISKS B14, where
+        // the wire numbering was assumed to match CS:GO's and `local` was read as a 64-bit int.
+        //
+        // `local` is here because it is the one that occupies NO bits: a converter that gave it a
+        // value would write bits the reader does not expect and desynchronise the event after it.
+        byte[] demo = EveryTypeDemo();
+
+        RoundTrip(demo).ShouldBe(demo);
+
+        // And the values themselves, because a byte-exact round trip of a body this project wrote
+        // proves the two halves agree rather than that either is right.
+        GameEventMessage fired = SyntheticDemo.MessagesIn(demo)
+            .OfType<GameEventMessage>().ShouldHaveSingleItem();
+
+        fired.Values["health"].ShouldBe((byte)125);
+        fired.Values["crit"].ShouldBe(true);
+        fired.Values["userid"].ShouldBe((short)12);
+        fired.Values["damagebits"].ShouldBe(1048576);
+        fired.Values["distance"].ShouldBe(23.5f);
+    }
+
+    [Test]
     public void Parse_AnEventWithNoDefinition_SaysItsFieldsCannotBeTyped()
     {
         // **A game event's field types live in svc_GameEventList, not in the event.** Without the
@@ -93,6 +120,40 @@ public sealed class EventAssemblyEscapeTests
                 EventId: 3,
                 Name: "player_say",
                 Values: new Dictionary<string, object?> { ["text"] = Awkward },
+                BodyBits: 0));
+
+    /// <summary>A demo firing one event carrying a field of every broadcast type, plus a local.</summary>
+    private static byte[] EveryTypeDemo() =>
+        SyntheticDemo.Containing(
+            new GameEventListMessage(
+            [
+                new GameEventDefinition(
+                    Id: 3,
+                    Name: "player_hurt",
+                    Fields:
+                    [
+                        new GameEventField("weapon", GameEventValueType.String),
+                        new GameEventField("distance", GameEventValueType.Float),
+                        new GameEventField("damagebits", GameEventValueType.Long),
+                        new GameEventField("userid", GameEventValueType.Short),
+                        new GameEventField("health", GameEventValueType.Byte),
+                        new GameEventField("crit", GameEventValueType.Bool),
+                        new GameEventField("secret", GameEventValueType.Local),
+                    ]),
+            ]),
+            new GameEventMessage(
+                EventId: 3,
+                Name: "player_hurt",
+                Values: new Dictionary<string, object?>
+                {
+                    ["weapon"] = "scattergun",
+                    ["distance"] = 23.5f,
+                    ["damagebits"] = 1048576,
+                    ["userid"] = (short)12,
+                    ["health"] = (byte)125,
+                    ["crit"] = true,
+                    ["secret"] = null,
+                },
                 BodyBits: 0));
 
     private static byte[] RoundTrip(byte[] demo)
