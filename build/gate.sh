@@ -41,6 +41,10 @@ here=$(dirname "$0")
 # specimens. Pass TF2DEMOSALVAGE_GCOR_ONLY=0 for the full superset.
 export TF2DEMOSALVAGE_GCOR_ONLY="${TF2DEMOSALVAGE_GCOR_ONLY:-1}"
 
+# First, because it takes no time and its failure mode is silent: a decision number used twice makes
+# every citation of it ambiguous, and nothing else in the build notices (B118).
+"$here/assert-decision-numbers.sh"
+
 run() {
     local project=$1 name=$2 floor=$3
 

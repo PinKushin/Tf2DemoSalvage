@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// **The engine lights a model with an ambient cube and up to four local lights**, and says so in
 /// <c>public/istudiorender.h</c> where the cube is annotated "ambient, and lights that aren't in
 /// locallight[]". The cube is the bounce term; these are the direct one. Applying only the cube is
-/// why a prop indoors draws as though it were in shade (B95, D23).
+/// why a prop indoors draws as though it were in shade (B95, D37).
 ///
 /// **Folding them into the cube is the engine's own fallback, not a shortcut invented here.** That
 /// comment is explicit that everything past the four nearest lights is already accumulated into the

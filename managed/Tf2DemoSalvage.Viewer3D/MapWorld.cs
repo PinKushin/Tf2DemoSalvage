@@ -71,7 +71,7 @@ internal static class MapWorldBuilder
         ArgumentNullException.ThrowIfNull(props);
 
         // The height range is no longer needed here: the vertices carry world Z and the camera
-        // projects it (D21). MainForm reads the same range through HeightRange to build the
+        // projects it (D35). MainForm reads the same range through HeightRange to build the
         // matrix, so the arithmetic still happens exactly once - somewhere a free camera can also
         // reach it.
 
@@ -404,7 +404,7 @@ internal static class MapWorldBuilder
                         x,
                         y,
 
-                        // **World height, not a depth.** D21: the camera projects it, so the same
+                        // **World height, not a depth.** D35: the camera projects it, so the same
                         // geometry serves an overhead view, a free camera and a first-person one.
                         z,
                         u,
@@ -623,7 +623,7 @@ internal static class MapWorldBuilder
         // straight down, a higher surface is nearer, and D3D treats smaller depth as nearer, so
         // the tallest geometry mapped to zero. That arithmetic still happens and still means the
         // same thing; it is in TopDownCamera.WithHeights now, because a projection belongs to the
-        // camera and geometry flattened for one camera cannot serve another (D21).
+        // camera and geometry flattened for one camera cannot serve another (D35).
         float depth = corner.Z;
 
         // Clamped before remapping: a corner can sit a fraction outside its own lightmap, and in a

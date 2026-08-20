@@ -57,7 +57,7 @@ public sealed class CameraMatrixTests
     [Test]
     public void ToMatrix_WithAHeightRange_ProjectsWorldHeightToDepth()
     {
-        // **D21: the camera owns the projection, and that includes depth.** Height used to be
+        // **D35: the camera owns the projection, and that includes depth.** Height used to be
         // flattened into the vertices before the matrix ever ran, which is a top-down projection
         // baked into the geometry - fine while the overhead view was the only camera, and exactly
         // what would have to be undone for a free camera.
