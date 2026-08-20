@@ -72,8 +72,8 @@ rm -f /tmp/gate-*.log
 run Tf2DemoSalvage.Core.Tests     core     1432
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
-run Tf2DemoSalvage.Content.Tests  content   563
-run Tf2DemoSalvage.Corpus.Tests   corpus     80
+run Tf2DemoSalvage.Content.Tests  content   580
+run Tf2DemoSalvage.Corpus.Tests   corpus     82
 run Tf2DemoSalvage.Viewer3D.Tests viewer    490
 
 echo

@@ -1854,13 +1854,147 @@ internal class MainForm : Form
             $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
             $"{_transport.CurrentTick}: {_viewmodelInstances.Count} instances");
 
+        // **The weapon is a second model, parented to the arms.** In modern TF2 the networked
+        // viewmodel carries the player's ARMS — c_sniper_arms, c_pyro_arms — and the gun is a
+        // separate C_ViewmodelAttachmentModel the CLIENT creates and parents to it
+        // (econ_entity.cpp:1153). It is not networked, so no demo carries it and it has to be
+        // rebuilt from the item the player is holding.
+        //
+        // Drawn at the viewmodel's own transform because that is where the engine puts it: the
+        // attachment is parented with SetLocalOrigin( vec3_origin ) and bone-merged, so its bones
+        // take the arms' outright. Mirrored with them for the same reason they are.
+        if (WeaponModelFor(follower) is { Length: > 0 } held)
+        {
+            SceneProp gun = new(
+                WeaponEntityIndex,
+                held,
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = camera.Origin.X,
+                    Y = camera.Origin.Y,
+                    Z = camera.Origin.Z,
+                    Pitch = camera.Angles.Pitch,
+                    Yaw = camera.Angles.Yaw,
+                    Roll = camera.Angles.Roll,
+                    Sequence = weapon.Sequence,
+                    PlaybackRate = weapon.PlaybackRate,
+                });
+
+            _models.Add([gun], ModelGeometry);
+            _models.Instances([gun], _viewmodelInstances, LightAt, SunAt, seconds);
+
+            // The count, not just the path: a weapon that resolves and then packs to nothing is
+            // indistinguishable on screen from one that was never looked up, and that distinction
+            // is what cost the arms an afternoon.
+            ViewerLog.Write(
+                "render", $"viewmodel weapon {held}: {_viewmodelInstances.Count} instances");
+        }
+
+        // **Not mirrored, and this was a real defect rather than a preference.** `cl_flipviewmodels`
+        // mirrors the viewmodel for a left-handed view and is OFF by default — the owner, who has
+        // played the game: "the watch is the left hand, the weapon in the right, unless you use
+        // left handed viewmodels, then its the opposite". Mirroring unconditionally reverses the
+        // winding of every triangle, so with back-face culling the whole model turns inside out and
+        // reads as nothing on screen at all.
+        //
+        // `C_BaseViewModel::InternalDrawModel` switches to MATERIAL_CULLMODE_CW *when* the model is
+        // mirrored, which is the same conditional stated from the renderer's side.
         foreach (ModelInstance instance in _viewmodelInstances)
         {
-            _instances.Add(instance with { Mirrored = true });
+            _instances.Add(instance);
         }
 
         _viewmodelInstances.Clear();
     }
+
+    /// <summary>The model of the weapon in a player's hands, or <c>null</c>.</summary>
+    /// <param name="player">The player being followed.</param>
+    /// <remarks>
+    /// **Two routes, and the second is needed more often than it looks.** A demo names the item the
+    /// player holds — <c>m_iItemDefinitionIndex</c> — and the schema turns that into a model. But
+    /// measured on z1800, 22 of 56 held weapons never send one, so the weapon's own class is used
+    /// to find the stock item for it instead. Together they answered for 56 of 56.
+    ///
+    /// Both are lookups into <c>items_game.txt</c>, which is read once and kept: it is eight
+    /// megabytes, and this is asked every frame.
+    /// </remarks>
+    private string? WeaponModelFor(int player)
+    {
+        if (ItemDefinitions() is not { } schema)
+        {
+            return null;
+        }
+
+        if (PlayerAt(_transport.CurrentTick, player) is not { } holder)
+        {
+            return null;
+        }
+
+        int playerClass = holder.PlayerClass ?? 0;
+
+        if (holder.WeaponItem is { } item &&
+            schema.ModelFor(item, playerClass) is { Length: > 0 } named)
+        {
+            return named;
+        }
+
+        if (holder.WeaponClass is not { } weaponClass)
+        {
+            return null;
+        }
+
+        foreach (string candidate in WeaponScriptName.Candidates(weaponClass, holder.PlayerClass))
+        {
+            if (schema.ModelForClass(candidate, playerClass) is { Length: > 0 } stock)
+            {
+                return stock;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>TF2's item schema, read from the installed game once.</summary>
+    /// <remarks>
+    /// Null when the game is not installed or the file is not where it should be, which is the
+    /// same condition every other asset lookup here already tolerates — the viewer draws what it
+    /// can find and says what it could not.
+    /// </remarks>
+    private ItemSchema? ItemDefinitions()
+    {
+        if (_itemSchema is not null || _itemSchemaMissing)
+        {
+            return _itemSchema;
+        }
+
+        if (_archives?.Read("scripts/items/items_game.txt") is not { } bytes)
+        {
+            // Recorded so the eight-megabyte read is not attempted every frame, and reported once
+            // so a viewer with no weapons in hand says why.
+            _itemSchemaMissing = true;
+            ViewerLog.Warn("render", "no items_game.txt, so no weapon models in first person");
+            return null;
+        }
+
+        _itemSchema = ItemSchema.Read(bytes);
+        ViewerLog.Write("render", "item schema read");
+
+        return _itemSchema;
+    }
+
+    /// <summary>The item schema, once read.</summary>
+    private ItemSchema? _itemSchema;
+
+    /// <summary>Whether the schema was looked for and not found.</summary>
+    private bool _itemSchemaMissing;
+
+    /// <summary>The slot the weapon in hand is drawn under, beside the arms.</summary>
+    /// <remarks>
+    /// Its own index rather than the viewmodel's, because the two are separate models packed and
+    /// posed separately — sharing one would have the second overwrite the first's geometry.
+    /// </remarks>
+    private const int WeaponEntityIndex = 4097;
 
     /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
     private readonly List<ModelInstance> _viewmodelInstances = [];

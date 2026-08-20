@@ -362,6 +362,27 @@ public sealed class EntityState
     /// </remarks>
     public int? ViewmodelSlot() => Integer($"{ViewModelTable}.m_nViewModelIndex");
 
+    /// <summary>Which item in TF2's schema this entity is, when it is an econ item.</summary>
+    /// <returns>The definition index, or <c>null</c> for anything that is not one.</returns>
+    /// <remarks>
+    /// **This is what identifies the weapon a player is holding, and it is the only thing that
+    /// can.** The model a player sees in their own hands is a client-side entity the recording
+    /// cannot carry (<c>econ_entity.cpp:1153</c>), the held weapon entity sends no model of its
+    /// own, and most weapon scripts no longer name one. What the demo does carry is the item's
+    /// index into the schema, and <c>items_game.txt</c> turns that into a model.
+    ///
+    /// **<c>DT_ScriptCreatedItem</c>, which is neither the weapon's table nor the player's.** An
+    /// econ item is a <c>CEconItemView</c> held inside the weapon through an attribute manager, so
+    /// the property arrives under the item's own table rather than under <c>DT_TFWeaponBase</c> —
+    /// a lookup on the weapon's table finds nothing at all.
+    ///
+    /// **Present from the 2009 build onward**, measured across the corpus: the 2007 and 2008
+    /// specimens declare no such property, because the item schema did not exist yet. A demo from
+    /// before then answers null here, which is correct — those weapons carry their model in the
+    /// weapon script instead.
+    /// </remarks>
+    public int? ItemDefinitionIndex() => Integer("DT_ScriptCreatedItem.m_iItemDefinitionIndex");
+
     /// <summary>How fast a viewmodel's animation is playing.</summary>
     /// <remarks>
     /// The third factor in Valve's cycle advance, and the one that was once decoded, retained,

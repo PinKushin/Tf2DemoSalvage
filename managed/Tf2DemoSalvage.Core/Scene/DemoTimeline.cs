@@ -69,6 +69,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// role, so a medic's medigun drives <c>ACT_MP_RUN_SECONDARY</c> where a scattergun drives
 /// <c>ACT_MP_RUN_PRIMARY</c>.
 /// </param>
+/// <param name="WeaponItem">
+/// Which item in TF2's schema that weapon is, or <c>null</c> when the demo predates the item system
+/// or nothing is held. It is what turns "a scattergun" into a model path: the weapon a player sees
+/// in their own hands is a client-side entity a recording cannot carry, so the index into
+/// <c>items_game.txt</c> is the only route to it. See <c>EntityState.ItemDefinitionIndex</c>.
+/// </param>
 /// <param name="Drawn">
 /// Whether the engine would draw this player's model, which is <c>EF_NODRAW</c> rather than
 /// anything about life state. TF2 turns the player off on death — <c>AddEffects( EF_NODRAW |
@@ -105,7 +111,8 @@ public readonly record struct ScenePlayer(
     float? AimYaw = null,
     int? WaterLevel = null,
     int? ActiveWeapon = null,
-    string? WeaponClass = null)
+    string? WeaponClass = null,
+    int? WeaponItem = null)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -828,6 +835,14 @@ public sealed class DemoTimeline
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)
                             ? weapon.ClassName
+                            : null,
+
+                    // Read here rather than left to the caller, because this is the only pass over
+                    // the entity table there is — a viewer asking later would have to re-walk the
+                    // demo to find out which item the weapon was.
+                    WeaponItem: player.ActiveWeapon() is { } carried &&
+                        entities.TryGet(carried, out EntityState? item)
+                            ? item.ItemDefinitionIndex()
                             : null));
             }
 

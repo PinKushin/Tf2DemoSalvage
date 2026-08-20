@@ -107,6 +107,7 @@ public sealed class PlayerCompletenessTests
         // takes, so losing either draws a medic running like a scout.
         ActiveWeapon: 17,
         WeaponClass: "CTFRevolver",
+        WeaponItem: 61,
 
         // Inside the push-off window, so losing it reads as the float rather than as a default.
         AirborneSeconds: 0.25f,
