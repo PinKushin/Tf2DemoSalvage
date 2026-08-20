@@ -357,6 +357,24 @@ public sealed class DemoTimeline
         return found;
     }
 
+    /// <summary>Every distinct viewmodel model the demo ever describes.</summary>
+    /// <remarks>
+    /// **A viewmodel is not a prop, and that is precisely why this is needed.** It carries no
+    /// origin, so it is deliberately absent from <see cref="Props"/> — and a viewer that builds its
+    /// load set by walking the prop tracks therefore never loads the arms, never packs them, and
+    /// draws nothing while reporting that it resolved a model. That is what happened: the log said
+    /// <c>viewmodel c_demo_arms.mdl ... 0 instances</c> for every frame, with the file sitting in
+    /// the archive the whole time.
+    ///
+    /// Distinct because a match changes weapons constantly and the same few arms recur; the set is
+    /// one entry per class in practice.
+    /// </remarks>
+    public IEnumerable<string> ViewmodelModels =>
+        _viewmodels
+            .Select(recorded => recorded.Weapon.ModelPath)
+            .Where(path => path.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Whether this demo carries a recorded camera at all.</summary>
     /// <remarks>
     /// **A SourceTV recording has no local player and leaves <c>democmdinfo_t</c> zeroed**, so the

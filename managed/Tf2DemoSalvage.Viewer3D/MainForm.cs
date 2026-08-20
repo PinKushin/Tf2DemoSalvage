@@ -1511,7 +1511,60 @@ internal class MainForm : Form
             }
         }
 
+        // **The first-person models, which are in neither of the sets above.** A viewmodel is not a
+        // prop — it has no origin, so the timeline deliberately keeps it out of Props — and the
+        // weapon in its hands is not an entity at all. Both are loaded here or they are never
+        // loaded: this set is what MapAssets is given, and the loader is a dictionary lookup rather
+        // than an on-demand read, so a model absent from it packs to nothing for ever.
+        //
+        // It cost a whole feature. The viewer resolved c_demo_arms.mdl, packed it, reported "0
+        // instances" and drew nothing, with the model sitting in the archive the entire time.
+        foreach (string arms in timeline.ViewmodelModels)
+        {
+            paths.Add(arms);
+        }
+
+        foreach (string weapon in HeldWeaponModels(timeline))
+        {
+            paths.Add(weapon);
+        }
+
         return paths;
+    }
+
+    /// <summary>Every weapon model any player holds at any point in the demo.</summary>
+    /// <remarks>
+    /// **Resolved up front for the same reason the class models are.** A player switches weapon
+    /// constantly and a set built from what is held right now is missing whatever they draw next —
+    /// which does not fail loudly, it just leaves an empty hand.
+    ///
+    /// Distinct pairs rather than distinct players: a whole match resolves to a few dozen models.
+    /// </remarks>
+    private IEnumerable<string> HeldWeaponModels(DemoTimeline timeline)
+    {
+        if (ItemDefinitions() is null)
+        {
+            yield break;
+        }
+
+        HashSet<(int? Item, string? Weapon, int Class)> seen = [];
+
+        foreach (TimelineFrame frame in timeline.Frames)
+        {
+            foreach (ScenePlayer player in frame.Players)
+            {
+                if (player.ActiveWeapon is null ||
+                    !seen.Add((player.WeaponItem, player.WeaponClass, player.PlayerClass ?? 0)))
+                {
+                    continue;
+                }
+
+                if (WeaponModel(player) is { Length: > 0 } model)
+                {
+                    yield return model;
+                }
+            }
+        }
     }
 
     /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
@@ -1825,6 +1878,11 @@ internal class MainForm : Form
             return;
         }
 
+        // **At the eye, which is where CalcViewModelView puts it**, and where it stays until the
+        // reason it is not visible is understood rather than guessed at. Two offsets were tried and
+        // neither helped: pushing it 24 units forward (the near plane is 7, so clipping was the
+        // obvious suspect) and rotating its yaw by −90 (the posed geometry sits along +Y, which is
+        // camera-left). See docs/findings/30 for what IS known.
         SceneProp prop = new(
             ViewmodelEntityIndex,
             weapon.ModelPath,
@@ -1919,14 +1977,20 @@ internal class MainForm : Form
     /// Both are lookups into <c>items_game.txt</c>, which is read once and kept: it is eight
     /// megabytes, and this is asked every frame.
     /// </remarks>
-    private string? WeaponModelFor(int player)
+    private string? WeaponModelFor(int player) =>
+        PlayerAt(_transport.CurrentTick, player) is { } holder ? WeaponModel(holder) : null;
+
+    /// <summary>The model of the weapon a player is holding, or <c>null</c>.</summary>
+    /// <param name="holder">The player, at whichever tick they were read.</param>
+    /// <remarks>
+    /// Shared by the draw path and by the load set, deliberately: the set decides which models are
+    /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
+    /// that resolves and cannot be drawn — which is exactly the failure this feature already had
+    /// once, from the other direction.
+    /// </remarks>
+    private string? WeaponModel(ScenePlayer holder)
     {
         if (ItemDefinitions() is not { } schema)
-        {
-            return null;
-        }
-
-        if (PlayerAt(_transport.CurrentTick, player) is not { } holder)
         {
             return null;
         }
@@ -1998,6 +2062,7 @@ internal class MainForm : Form
 
     /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
     private readonly List<ModelInstance> _viewmodelInstances = [];
+
 
     /// <summary>
     /// The entity slot the viewmodel is drawn under, which is not a real one.
