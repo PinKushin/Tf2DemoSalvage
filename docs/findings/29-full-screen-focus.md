@@ -128,3 +128,90 @@ claim about where End *goes*, rather than about something having changed.
 **Log the distinguishing question, not the outcome.** "Full screen would not exit" is consistent with
 at least four mechanisms. One line saying whether the key reached the form eliminated three of them
 at once, and it took less time to write than either wrong hypothesis took to test.
+
+---
+
+## The capture the suite produced was of a wall, and that found two more defects
+
+The owner, on the picture the first-person UI test leaves behind: *"im pretty sure the SS's are not
+actually showing anything either, its looking at a fning wall"*. He was right, and the assertion
+guarding it — a count of lit pixels — passes on a wall as happily as on a map.
+
+**The tick was chosen for the wrong property.** The test jumped to the END of the demo, because that
+is where the resolved viewmodel is a model the current install still ships. At the last tick of a
+recording the round is over, and on this one the eye is inside geometry. Surveying the demo instead
+of assuming:
+
+```
+tick 0..1209   v_scattergun_scout      tick 3763..4032  c_pyro_arms
+tick 1344..    v_rocketlauncher_soldier tick 4166        c_demo_arms
+tick 4301..    v_stickybomb_launcher_demo
+tick 6317..    v_sniperrifle_sniper     tick 7527..8065  c_sniper_arms
+```
+
+Which incidentally settles the question from `04-entities.md` for good: five classes in one file,
+scout then soldier then pyro then demo then sniper.
+
+**And the demo was chosen for the wrong property too.** Every era specimen in the committed corpus is
+a solo recording — the owner alone on a local server — so there is nothing in frame but the map:
+
+| demo | most players | installed viewmodel |
+|---|---|---|
+| 2007–2013 era specimens, POV and STV | **1** | 0–26 of 41 samples |
+| z1800 | **25** at tick 2883 | 41 of 41 |
+
+`z1800` is the only real match in gcor, which the owner named before the table did: *"in the gcor i
+think z1800 is the only real demo and not just an era specimine"*. It also disposed of the 2013
+foundry SourceTV recording as a candidate — *"i dont think theres a real MP game on foudnry in 2013
+... foundry was never a comp map"* — and the measurement agrees: one player.
+
+So captures moved off the UI suite entirely. `--first-person` joins `--shot` and `--tick`, and a
+picture of any moment of any demo is now one command:
+
+```
+tf2demoview z1800.dem --tick 40000 --first-person --shot out.png
+```
+
+## The SourceTV camera is a player, and it never moves
+
+The first three captures at ticks 2883, 20000 and 40000 came out **pixel-identical in viewpoint** —
+the same resupply room, with only the world around it changing. The camera reads the current tick,
+so the subject was not moving.
+
+`FirstPersonCamera` spectated `players[0]`, and on this demo that is:
+
+```
+entity 1 team 1 class (none) health 1 at 288,2312,69   <- tick 2883
+entity 1 team 1 class (none) health 1 at 288,2312,69   <- tick 20000
+entity 1 team 1 class (none) health 1 at 288,2312,69   <- tick 40000
+```
+
+**Team 1 is `TEAM_SPECTATOR`.** That is the SourceTV camera, which the wire describes as a player
+like any other. The owner named the mechanism immediately: *"its probably source tv since a comp
+server starts empty with only the stv there before the players join"* — so it holds the lowest
+entity slot and sorts first for the whole match.
+
+`SpectatorTarget.Choose` now applies the engine's own predicate, `tf_shareddefs.h:225`:
+
+```cpp
+inline bool IsValidTFTeam( int iTeam ) { return iTeam == TF_TEAM_RED || iTeam == TF_TEAM_BLUE; }
+```
+
+and takes the lowest entity index among those, so the answer is stable from tick to tick. Both
+callers that must agree — the camera, and the entity hidden from its own view — ask it rather than
+each picking. Null when nobody qualifies: the first seconds of a competitive match really are
+SourceTV alone.
+
+**A deliberate subject is still not built, and TF2 says what it should look like.** The owner: *"in
+tf2 you press space and it changes what cam you are in, and clicking mouse one changes
+position/player following"*.
+
+## What the fixed capture then showed
+
+A real first-person view of harvest: a building, decals, an ammo pack, several players in frame. And
+a defect that no assertion in this repository would have caught — **the players are drawn purple and
+magenta**, which is missing-material colouring rather than team colour. Filed here rather than
+chased, because it belongs to the material system and not to the camera.
+
+Three defects in this session found by looking at a picture, and none by a test:
+the wall, the static camera, and the purple players.

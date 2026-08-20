@@ -1551,6 +1551,9 @@ internal class MainForm : Form
     /// <summary>Which tick to show before capturing.</summary>
     private int _shotTick;
 
+    /// <summary>Whether an automatic capture should be taken from the player's own eyes.</summary>
+    private bool _shotFirstPerson;
+
     /// <summary>Where to point the camera before capturing, in world units.</summary>
     private (float X, float Y)? _shotLookAt;
 
@@ -1600,6 +1603,17 @@ internal class MainForm : Form
             if (argument == "--colours")
             {
                 _shotSurfaceColours = true;
+                continue;
+            }
+
+            // **The capture that a person actually wants to look at is the first-person one**, and
+            // until this flag existed the only route to it was the UI suite pressing V — which
+            // meant it could only be taken on whichever demo that suite happens to open, at
+            // whichever tick it could reach. See docs/findings/29 for what that produced: a
+            // picture of a wall at the last tick of a solo recording.
+            if (argument == "--first-person")
+            {
+                _shotFirstPerson = true;
                 continue;
             }
 
@@ -1668,6 +1682,16 @@ internal class MainForm : Form
                 if (_shotSurfaceColours)
                 {
                     _surfaceColours.Checked = true;
+                }
+
+                // **After the seek, because entering the first-person view reads the moment.**
+                // The camera is placed from the recorded view or from the followed player at the
+                // CURRENT tick, so switching before the clock moves photographs the right mode at
+                // the wrong instant — and the picture looks like a camera bug rather than an
+                // ordering one.
+                if (_shotFirstPerson)
+                {
+                    _ = ToggleFirstPerson();
                 }
 
                 if (_shotLookAt is { } centre)
@@ -1870,12 +1894,10 @@ internal class MainForm : Form
             return timeline.RecorderEntityIndex;
         }
 
-        // The first player the timeline reports, matching the camera's own placeholder choice.
-        // Picking a target deliberately is separate work; until then the two must agree, which is
-        // why both take the first rather than each choosing.
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
-
-        return players.Count > 0 ? players[0].EntityIndex : null;
+        // Whoever the camera is spectating, asked in one place so the two cannot disagree — this
+        // decides which player is hidden from their own view, and a mismatch would hide the wrong
+        // body or leave the spectated one standing in front of the lens.
+        return SpectatorTarget.Choose(timeline.PlayersAt(_transport.CurrentTick))?.EntityIndex;
     }
 
     /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
@@ -1918,17 +1940,13 @@ internal class MainForm : Form
                 aspect);
         }
 
-        // No recorded camera: spectate somebody. The first player the timeline reports is a
-        // placeholder for a chosen target — picking one is a separate piece of work, and a view
-        // that follows an arbitrary player is still better than a key that does nothing.
-        List<ScenePlayer> players = [.. timeline.PlayersAt(tick)];
-
-        if (players.Count == 0)
+        // No recorded camera: spectate somebody who is actually playing. Taking the first player
+        // in the list took the SourceTV camera instead — see SpectatorTarget, and
+        // docs/findings/29 for the three identical captures that found it.
+        if (SpectatorTarget.Choose(timeline.PlayersAt(tick)) is not { } target)
         {
             return null;
         }
-
-        ScenePlayer target = players[0];
 
         return FreeCamera.SpectatingEye(
             (target.X, target.Y, target.Z),
