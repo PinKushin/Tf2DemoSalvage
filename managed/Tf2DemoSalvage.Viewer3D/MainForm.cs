@@ -272,7 +272,22 @@ internal class MainForm : Form
     /// and is why a player model lying on its back survived a day of screenshots taken from
     /// directly overhead.
     /// </remarks>
-    private bool _freeLook;
+    /// <summary>Which camera the viewport is drawn through.</summary>
+    private CameraMode _cameraMode = CameraMode.Map;
+
+    /// <summary>
+    /// Shorthand for the free camera, so the flight and drag handlers read as they did.
+    /// </summary>
+    /// <remarks>
+    /// **Kept deliberately rather than replaced everywhere.** A dozen sites ask "is the free camera
+    /// on" to decide whether a drag turns the view or pans the map, and rewriting each to compare
+    /// against an enum would be a dozen chances to write the comparison backwards for no gain. The
+    /// mode is the state; this is a reading of it.
+    /// </remarks>
+    private bool _freeLook => _cameraMode == CameraMode.Free;
+
+    /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
+    private bool _firstPerson => _cameraMode == CameraMode.FirstPerson;
 
     /// <summary>Pitch and yaw of the free camera, in degrees.</summary>
     /// <remarks>
@@ -1224,7 +1239,7 @@ internal class MainForm : Form
                 // changes, so a free camera is a different sixty-four bytes rather than a
                 // different pipeline.
                 _device.SetCamera(
-                    (_freeLook ? FreeLookCamera().ToMatrix() : camera.ToMatrix()),
+                    ViewMatrix(camera),
                     _surfaceColours.Checked,
                     _heightCut);
 
@@ -1681,6 +1696,191 @@ internal class MainForm : Form
     /// a focus at floor level puts half the picture below the world, and the range is already known
     /// because the depth projection needs it.
     /// </remarks>
+    /// <summary>The view matrix for whichever camera mode is active.</summary>
+    /// <param name="map">The map camera, already built by the caller.</param>
+    /// <returns>Sixteen floats for the camera constant buffer.</returns>
+    /// <remarks>
+    /// **One chooser rather than a conditional at each draw site.** There are two places that set
+    /// the camera — the world draw and the resize path — and they were a copied ternary apart.
+    /// Adding a third mode to a copied ternary is how the viewer's two drawing paths drifted until
+    /// one of them stopped showing decals.
+    ///
+    /// First person falls back rather than failing: a demo can lose its subject mid-playback — the
+    /// recorded view runs out before the first packet, and a spectated player can leave — and a
+    /// black screen would read as a rendering fault rather than as the end of the material.
+    /// </remarks>
+    private float[] ViewMatrix(TopDownCamera map)
+    {
+        if (_firstPerson && FirstPersonCamera() is { } eye)
+        {
+            return eye.ToMatrix();
+        }
+
+        return _freeLook ? FreeLookCamera().ToMatrix() : map.ToMatrix();
+    }
+
+    /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
+    /// <returns>Whether the key was handled.</returns>
+    /// <remarks>
+    /// **Refusing has to be visible.** A key that silently does nothing reads as a broken key, and
+    /// the reason it can refuse is a real property of the demo rather than a failure — a recording
+    /// with nobody in it has no eyes to borrow.
+    /// </remarks>
+    private bool ToggleFirstPerson()
+    {
+        if (_firstPerson)
+        {
+            _cameraMode = CameraMode.Map;
+            _worldIsStale = true;
+            _viewport.Invalidate();
+            ViewerLog.Write("render", "first person off, back to the map view");
+            return true;
+        }
+
+        if (FirstPersonCamera() is null)
+        {
+            ViewerLog.Warn(
+                "render",
+                "first person unavailable: this demo has no recorded camera and no player to " +
+                "follow at this tick");
+
+            _status.Text = "No first-person view here: nothing to follow at this tick.";
+            return true;
+        }
+
+        _cameraMode = CameraMode.FirstPerson;
+        _worldIsStale = true;
+        _viewport.Invalidate();
+
+        ViewerLog.Write(
+            "render",
+            _timeline?.HasRecordedView == true
+                ? "first person on, following the recording's own camera"
+                : "first person on, spectating a player (this demo has no recorded camera)");
+
+        return true;
+    }
+
+    /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
+    /// <remarks>
+    /// **The same choice the camera makes, asked separately** — the camera needs a position and
+    /// the renderer needs an entity to hide, and deriving one from the other would let them
+    /// disagree. On a point-of-view demo it is the recorder; on a SourceTV demo it is whoever is
+    /// being spectated.
+    /// </remarks>
+    private int? FollowedEntity()
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        if (timeline.RecordedViewAt(_transport.CurrentTick) is not null)
+        {
+            return timeline.RecorderEntityIndex;
+        }
+
+        // The first player the timeline reports, matching the camera's own placeholder choice.
+        // Picking a target deliberately is separate work; until then the two must agree, which is
+        // why both take the first rather than each choosing.
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
+
+        return players.Count > 0 ? players[0].EntityIndex : null;
+    }
+
+    /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
+    /// <remarks>
+    /// **Two mechanisms behind one mode, and which applies is a property of the demo.**
+    ///
+    /// A point-of-view demo carries the camera the recording client computed, in
+    /// <c>democmdinfo_t</c>. That is used as it stands: it already accounts for death, spectating
+    /// and every observer mode, and rebuilding it from the recorder's entity would be right while
+    /// they lived and wrong for the rest — measured, the two part company by 169 units on the 2009
+    /// demo the moment the recorder dies. Only the eye height is added, because the recorded origin
+    /// is the feet.
+    ///
+    /// A SourceTV demo carries no camera, so the view is built from a player's own position and
+    /// eye angles — what the engine does when you spectate in game, and what
+    /// <see cref="FreeCamera.SpectatingEye"/> exists for. The heights differ between the two paths
+    /// and that is Valve's doing rather than an approximation; see <see cref="PlayerEye"/>.
+    /// </remarks>
+    private FreeCamera? FirstPersonCamera()
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        float aspect = _viewport.ClientSize.Height > 0
+            ? _viewport.ClientSize.Width / (float)_viewport.ClientSize.Height
+            : 16f / 9f;
+
+        int tick = _transport.CurrentTick;
+
+        if (timeline.RecordedViewAt(tick) is { } recorded)
+        {
+            ScenePlayer? recorder = PlayerAt(tick, timeline.RecorderEntityIndex);
+
+            return FreeCamera.AtEye(
+                recorded,
+                recorder?.PlayerClass ?? 0,
+                Ducking(recorder),
+                aspect);
+        }
+
+        // No recorded camera: spectate somebody. The first player the timeline reports is a
+        // placeholder for a chosen target — picking one is a separate piece of work, and a view
+        // that follows an arbitrary player is still better than a key that does nothing.
+        List<ScenePlayer> players = [.. timeline.PlayersAt(tick)];
+
+        if (players.Count == 0)
+        {
+            return null;
+        }
+
+        ScenePlayer target = players[0];
+
+        return FreeCamera.SpectatingEye(
+            (target.X, target.Y, target.Z),
+            target.EyePitch ?? 0f,
+            target.EyeYaw ?? target.Yaw,
+            Ducking(target),
+            aspect);
+    }
+
+    /// <summary>One player at a tick, by entity index.</summary>
+    /// <remarks>
+    /// <see cref="ScenePlayer"/> is a record STRUCT, so <c>FirstOrDefault</c> hands back a zeroed
+    /// player rather than null and a <c>is null</c> check never fires — which would put the camera
+    /// at the world origin with class zero rather than reporting that nobody was found.
+    /// </remarks>
+    private ScenePlayer? PlayerAt(int tick, int? entityIndex)
+    {
+        if (entityIndex is not { } index || _timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        foreach (ScenePlayer player in timeline.PlayersAt(tick))
+        {
+            if (player.EntityIndex == index)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether a player is crouched, which lowers the eye by more than a foot.</summary>
+    /// <remarks>
+    /// <c>FL_DUCKING</c> on <c>m_fFlags</c>. A player whose flags the recording never stated is
+    /// treated as standing, which is what they usually are — the same default the animation state
+    /// machine takes.
+    /// </remarks>
+    private static bool Ducking(ScenePlayer? player) =>
+        player?.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0;
+
     private FreeCamera FreeLookCamera()
     {
         float aspect = Math.Max(1, _viewport.ClientSize.Width) /
@@ -1977,6 +2177,22 @@ internal class MainForm : Form
                     // ragdoll from TF_DMG_CUSTOM_GOLD_WRENCH.
                     Skin = player.Team == SceneTeams.Blu ? 1 : 0,
                 }));
+        }
+
+        // **The engine does not draw the player whose eyes you are using**, and cosmetics merge
+        // onto their wearer's bones, so the hat goes with them. Without this the first-person view
+        // is the inside of the recorder's own model and a hat hanging over the lens — which is
+        // exactly what the first capture showed. See FirstPersonVisibility.
+        if (_firstPerson && FollowedEntity() is { } looking)
+        {
+            IReadOnlyList<SceneProp> visible = FirstPersonVisibility.Visible(_drawn, looking);
+
+            if (visible.Count != _drawn.Count)
+            {
+                List<SceneProp> kept = [.. visible];
+                _drawn.Clear();
+                _drawn.AddRange(kept);
+            }
         }
 
         bool grew = _models.Add(_drawn, ModelGeometry);
@@ -3013,7 +3229,7 @@ internal class MainForm : Form
         }
 
         _device.SetCamera(
-            _freeLook ? FreeLookCamera().ToMatrix() : MapCamera().ToMatrix(),
+            ViewMatrix(MapCamera()),
             _surfaceColours.Checked,
             _heightCut);
     }
@@ -3330,9 +3546,16 @@ internal class MainForm : Form
         // **F toggles the free camera.** The map view is what a demo is normally watched from, so
         // this is a mode rather than a replacement — and switching keeps the same subject in the
         // middle, since the free camera starts where the map view was looking.
+        // **V enters and leaves the first-person view.** Next to F for the free camera, and chosen
+        // because it is what TF2 itself does not use for anything a demo watcher presses.
+        if (keyData == Keys.V)
+        {
+            return ToggleFirstPerson();
+        }
+
         if (keyData == Keys.F)
         {
-            _freeLook = !_freeLook;
+            _cameraMode = _freeLook ? CameraMode.Map : CameraMode.Free;
 
             // Forgotten on the way out, so entering again places the camera at whatever the map
             // view is looking at NOW rather than where it was flown to half a match ago.

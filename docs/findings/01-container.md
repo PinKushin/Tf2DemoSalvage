@@ -430,3 +430,125 @@ Not a decoding problem — it is a null-terminated string and always was. It wen
 there was nothing to work out, so nothing prompted anyone to do it. Worth having anyway: it is
 where every bound console command the recording player typed shows up, and the opening run of a
 demo is a client dumping its `dsp_*` and `cl_*` settings.
+
+---
+
+## The recorder's camera is in every packet, and SourceTV leaves it blank
+*(read from published source; measured across the corpus — 19 August 2026)*
+
+Every `dem_packet` and `dem_signon` command carries 76 bytes this project has always skipped. They
+are `democmdinfo_t`, and they hold the camera the engine plays the demo through:
+
+```c
+// public/demofile/demoformat.h
+int     flags;
+Vector  viewOrigin;   QAngle viewAngles;   QAngle localViewAngles;   // original
+Vector  viewOrigin2;  QAngle viewAngles2;  QAngle localViewAngles2;  // resampled
+```
+
+Four bytes of flags and six three-float structures is 76 — the exact constant `DemoCommandReader`
+has been consuming and discarding since the container was written. The bytes were kept, because a
+demo has to round-trip; nobody had read them.
+
+**The flags select which copy is live, per field.** Valve's own accessors are the specification:
+
+```c
+const Vector& GetViewOrigin()
+{
+    if ( flags & FDEMO_USE_ORIGIN2 ) { return viewOrigin2; }
+    return viewOrigin;
+}
+```
+
+`GetViewAngles` tests a *different* flag. A reader that switched both together would agree with the
+engine on every demo setting both or neither, and disagree on the rest — a camera in the wrong
+place rather than an error, which is this project's recurring shape of defect. `FDEMO_NOINTERP` is
+the third flag and marks a cut: honouring it is the difference between a hard switch and the camera
+flying across the map over one interpolation window.
+
+**SourceTV demos carry none of it.** Measured across the committed corpus: every POV recording has
+a view that moves, stays inside the ±16384 world and keeps pitch within ±90; every SourceTV
+recording has `democmdinfo_t` zeroed throughout. That follows from what SourceTV is — there is no
+local player, so there is no client view to write down — and it is a constraint on any first-person
+camera rather than a curiosity. An STV demo's camera has to come from the spectated entity's own
+position, which is a different mechanism.
+
+The discriminator is the header's client name, which SourceTV always writes as `SourceTV Demo`. Not
+the file name: the corpus names files by point of view as a convention, and a convention is not
+evidence. **`z1800.dem` is the case that proves the difference** — its name says nothing about its
+point of view and its header says SourceTV, which also explains why it carries 94 props where a POV
+demo of the same era carries 16.
+
+**Worth noting how nearly this was got wrong.** A hand-written probe walking the commands in Python
+reported `0,0,0` for every demo including the POV ones, which would have read as "the field is
+always empty, ignore it". The probe mis-walked the command stream; the reader under test was
+correct, and the tests written against it disagreed with the probe. That is the fifth time in this
+project an instrument has been wrong before a decoder was — see
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`.
+
+### The recorded origin is the recorder's FEET, and that was the wrong guess
+*(measured differentially across the corpus — 19 August 2026)*
+
+The obvious hypothesis was that a recorder writes down where the camera is, which is the eye. It
+does not. Measured against every point-of-view demo in the corpus, the recorded view origin and the
+recorder's own networked origin agree **to the hundredth at every tick** — a median difference of
+exactly zero over 3,807 ticks on the 2007 specimen, sampling `view z -287.88 / entity z -287.88`.
+
+The SDK cannot settle this, which is why it is measured: the half of the engine that FILLS
+`democmdinfo_t` is `cl_demo.cpp`, and that is not in `source-sdk-2013`. What the SDK supplies is the
+relationship a live client uses, `EyePosition() = GetAbsOrigin() + GetViewOffset()`. The demo
+carries the first term; the client adds the second when it draws.
+
+**So a first-person camera has to add the offset itself, and the offset is per class.**
+`tf_gamerules.cpp:1330` lists them — 65 for a scout, 68 for soldier, demoman and pyro, with the
+generic `VEC_VIEW` at 72. One number for everyone would sit a few units wrong for most of the
+roster.
+
+**A cross-check falls out of this for free.** The recorded view and the entity stream are decoded by
+two entirely unrelated paths — a fixed-layout struct in the command prologue, and a delta-compressed
+bit stream against a networked schema — and they land on the same float. That makes this a test of
+the entity decode as much as of the container, which is the `two-recordings-of-one-value` pattern:
+a value stored twice by unrelated routes checks the decode against the engine rather than against
+our own reading of it.
+
+**A median of exactly zero nearly went unexamined.** Zero has two explanations — the values agree,
+or both are absent — and only the raw samples separate them. The first version of the test asserted
+before printing them, so the failure message hid the numbers that settle it; the samples are now
+written out first for that reason.
+
+### While the recorder is dead, the recorded view leaves their entity behind
+*(measured across the corpus — 19 August 2026)*
+
+The identity above — recorded view origin equals the recorder's networked origin — holds **while
+they are alive**. It does not survive death, and the owner said so before it was measured: a dead
+player's camera follows whoever they are spectating.
+
+Four point-of-view demos in the corpus carry dead ticks:
+
+| Demo | alive ticks | dead ticks | dead median |
+|---|---|---|---|
+| 2008 granary | 2298 | 466 | 0 |
+| 2009 badlands | 10309 | 690 | **−168.97** |
+| 2011 viaduct | 1777 | 653 | −0.01 |
+| 2013 badlands | 5000 | 2838 | 0 |
+
+Three measure zero because the recorder was watching from near where they fell; the 2009 demo is
+somebody spectating across the map. **The divergence is the real behaviour and the zeroes are the
+coincidence**, which is the opposite of how it looks at first glance.
+
+The other half of the explanation is ours rather than Valve's: `DemoTimeline` deliberately HOLDS a
+dead player's last stated position rather than following their entity, because the entity's own
+track follows the spectated player and interpolating it would drag the corpse across the map. So
+the two quantities are measuring different things the moment somebody dies.
+
+**Consequence for a first-person camera: on a point-of-view demo, use `democmdinfo_t` and do not
+reconstruct.** The recorded view is the client's own computed camera and already handles death,
+spectating, and every observer mode; rebuilding it from the recorder's entity would be right while
+they lived and wrong for the rest.
+
+**A near miss worth recording.** The test that established the living identity took its median over
+every tick, alive and dead together, and reported zero for all five demos — including the one that
+diverges by 169 units, because 690 dead ticks against 10,309 living ones cannot move a median. It
+was a true number reached by luck, and it would have gone on being true until somebody recorded a
+demo where they died more than they lived. The assertion is now restricted to living ticks, and the
+dead case has a test of its own that fails if the divergence ever disappears.

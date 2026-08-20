@@ -1,5 +1,8 @@
 using System;
 
+using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -105,6 +108,73 @@ internal sealed class FreeCamera
             Aspect = aspect,
         };
     }
+
+    /// <summary>A camera where a demo says the recorder's eyes were.</summary>
+    /// <param name="view">The recorded view, from the packet's <c>democmdinfo_t</c>.</param>
+    /// <param name="playerClass">The recorder's class, which decides the eye height.</param>
+    /// <param name="ducking">Whether they were crouched.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The camera.</returns>
+    /// <remarks>
+    /// **The demo gives the feet and the angles; the height is added here.** Both halves were
+    /// established before this existed rather than assumed: the recorded view is the recorder's
+    /// <c>GetAbsOrigin()</c>, measured across the corpus to agree with their networked origin to
+    /// the hundredth at every tick (<c>docs/findings/01-container.md</c>), and the client adds
+    /// <c>GetViewOffset()</c> when it draws.
+    ///
+    /// **The angles are used unchanged, deliberately.** They are what the recorder was looking at,
+    /// already clamped by the engine that wrote them down — anything done to them here is an edit
+    /// to the recording rather than a correction of it. That is also why this is a plain factory
+    /// rather than something that smooths: <see cref="RecordedView.IsCut"/> exists so a caller can
+    /// decide about interpolation, and inventing motion the demo does not describe is the opposite
+    /// of what this viewer is for.
+    /// </remarks>
+    public static FreeCamera AtEye(
+        RecordedView view, int playerClass, bool ducking, float aspect)
+    {
+        float height = ducking
+            ? PlayerEye.Ducking(playerClass)
+            : PlayerEye.Standing(playerClass);
+
+        return new FreeCamera
+        {
+            Origin = (view.Origin.X, view.Origin.Y, view.Origin.Z + height),
+            Angles = view.Angles,
+            Aspect = aspect,
+        };
+    }
+
+    /// <summary>A camera in the eyes of a player being spectated.</summary>
+    /// <param name="origin">The player's origin, in world units.</param>
+    /// <param name="pitch">Their eye pitch in degrees.</param>
+    /// <param name="yaw">Their eye yaw in degrees.</param>
+    /// <param name="ducking">Whether they are crouched.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The camera.</returns>
+    /// <remarks>
+    /// **Spectating uses a different height from a player's own view, and that is the engine's
+    /// doing rather than an approximation.** <c>C_HLTVCamera::CalcInEyeCamView</c> adds the flat
+    /// <c>VEC_VIEW</c> or <c>VEC_DUCK_VIEW</c>, where a player's own client adds
+    /// <c>GetClassEyeHeight()</c> — so spectating a sniper puts the camera three units below where
+    /// that sniper saw from, and a scout seven above. See <see cref="PlayerEye.Spectated"/>.
+    ///
+    /// **This is how a SourceTV demo gets a first-person view at all.** An STV recording has no
+    /// local player and leaves <c>democmdinfo_t</c> zeroed, so there is no recorded camera to
+    /// use — the view is built from the spectated player's own networked position and angles,
+    /// which is exactly what the engine does when you spectate in game.
+    ///
+    /// **A dead player has no in-eye view.** The engine abandons first person and switches to the
+    /// chase camera rather than dropping the eye to the floor, so that case belongs to the caller
+    /// and is not expressible here.
+    /// </remarks>
+    public static FreeCamera SpectatingEye(
+        (float X, float Y, float Z) origin, float pitch, float yaw, bool ducking, float aspect) =>
+        new()
+        {
+            Origin = (origin.X, origin.Y, origin.Z + PlayerEye.Spectated(ducking)),
+            Angles = (pitch, yaw, 0f),
+            Aspect = aspect,
+        };
 
     /// <summary>The view-projection the shader wants, row-major, translation in the last row.</summary>
     /// <returns>Sixteen floats for the camera constant buffer.</returns>

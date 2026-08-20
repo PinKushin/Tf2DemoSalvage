@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.IO;
 using System.Runtime.CompilerServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
@@ -273,6 +274,17 @@ internal sealed unsafe class Device3D : IDisposable
                 try
                 {
                     WritePng(path, (int)description.Width, (int)description.Height, mapped);
+
+                    // **A capture said nothing at all until 2026-08-20.** Pressing F12 and getting
+                    // no file is indistinguishable from pressing it and missing the key, which is
+                    // the silent fallback this project bans everywhere else — and it cost a
+                    // capture run that reported success and produced nothing. The size is here
+                    // because a zero-byte PNG is the other way this fails quietly.
+                    ViewerLog.Write(
+                        "render",
+                        $"wrote {Path.GetFileName(path)}, " +
+                        $"{description.Width}x{description.Height}, " +
+                        $"{new FileInfo(path).Length / 1024} KB");
                 }
                 finally
                 {
