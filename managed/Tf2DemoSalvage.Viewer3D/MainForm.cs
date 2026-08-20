@@ -1055,7 +1055,7 @@ internal class MainForm : Form
                     // bright, and it is the reason a pack outdoors looked like one indoors.
                     // Kept whole, not just the sun: the sun is the only light applied to the world
                     // surfaces, but a model also takes direct light from the point and spot lights
-                    // around it (B95, D23), and those are the other 475 entries on cp_process.
+                    // around it (B95, D37), and those are the other 475 entries on cp_process.
                     _worldLights = BspWorldLights.Read(bytes);
                     _sun = BspWorldLights.Sun(_worldLights);
 
@@ -2369,7 +2369,7 @@ internal class MainForm : Form
             ? zoomed.LookingAt(centre.X, centre.Y)
             : zoomed;
 
-        // **D21: the camera projects height, so it has to know the range.** The geometry carries
+        // **D35: the camera projects height, so it has to know the range.** The geometry carries
         // world Z now; without this the third row is a pass-through and every surface lands at a
         // depth of its own world height in units, which is far outside the clip range and draws
         // nothing at all.
@@ -3632,7 +3632,7 @@ internal class MainForm : Form
     ///
     /// **Safe to use instead of a full rebuild in the FREE view only**, and each half of that was
     /// checked rather than assumed. The world's vertices are in map coordinates and only the view
-    /// changes (D21). The 3D models are world-space too, placed by their own matrices. And the
+    /// changes (D35). The 3D models are world-space too, placed by their own matrices. And the
     /// screen-space scene points are a map-view fallback drawn only for players with no model, so
     /// they are empty in any modern demo and are projected through the top-down camera anyway. The
     /// map view still rebuilds, because there everything IS projected to screen space.

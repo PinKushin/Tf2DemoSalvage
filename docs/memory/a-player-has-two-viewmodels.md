@@ -26,7 +26,7 @@ luck on every demo carrying one viewmodel, and on the 2009 badlands POV it put `
 soldier's hands and held it there across a change of class. `ViewmodelAt` and `OffHandViewmodelAt`
 now both exist and share one walk, since the owner rule is identical and duplicating it is how the
 two would diverge. The off hand is read and tested but **not yet drawn** by `MainForm.AddViewmodel`
-(D28).
+(D42).
 
 **How to apply:** anything reading a viewmodel filters on the slot. An absent `m_nViewModelIndex`
 means slot 0, because `CBaseViewModel`'s constructor sets it to zero — see

@@ -1158,7 +1158,7 @@ question this answers is "who played in this match", not "who is connected now".
 reused overwrites the record, which is correct for both readings.
 
 Still open, and now unblocked: `instancebaseline` updates use the same path (62 in one demo, 13
-in the 2009 one), so static entity baselines are the next step — see `DECISIONS.md` D24 and the
+in the 2009 one), so static entity baselines are the next step — see `DECISIONS.md` D27 and the
 baseline research.
 
 ## B23 — the schema's bit-count field is six bits before protocol 15 — FIXED
@@ -3416,7 +3416,7 @@ So the capabilities worth aiming at, ordered by fit with what exists here rather
 owner's value ordering above:
 
 - **Camera paths and smoothing.** HLAE's `mirv_campath` exists because a SourceTV camera snaps
-  between players. This viewer owns its camera outright (D21) and interpolates already.
+  between players. This viewer owns its camera outright (D35) and interpolates already.
 - **Demo scanning.** Finding the kills is what Méliès automates; the event stream is already
   decoded here.
 - **Element isolation.** SparklyFX records separate streams so an editor can composite. A renderer
@@ -5698,7 +5698,7 @@ is drawn correctly, from a viewpoint the engine would never have drawn it from.
 
 The engine culls per frame against the view frustum and the PVS, from wherever the camera is. This
 project culls at BUILD time and only by normal — which the `MapWorld` comments already describe as
-the deliberate deviation (D21 and the B68 work), on the reasoning that a build-time cull is only
+the deliberate deviation (D35 and the B68 work), on the reasoning that a build-time cull is only
 equivalent for a camera that never moves. A free camera above the map is exactly the case that
 breaks.
 
@@ -5754,7 +5754,7 @@ latency.
 The fix is to hold a pressed-key set from the key down and up messages and integrate movement per
 frame against the frame time, which is also what makes diagonal movement and acceleration possible.
 
-### D23 addendum — whether the recorded camera should share the interpolation delay is OPEN
+### D37 addendum — whether the recorded camera should share the interpolation delay is OPEN
 
 Entities are now drawn 0.1 s behind the tick asked for, because that is where a client draws. The
 demo's own recorded view origin is not: it is taken at the tick. Whether the two should agree has not
@@ -5806,7 +5806,7 @@ budget, and during playback it competes with the per-frame scene rebuild, so fra
 vary. Paused, it is the only work and stays even.
 
 **The fix is to separate the two**, and the geometry already allows it: the world's vertices are in
-map coordinates and only the view changes (D21), so a camera move is sixty-four bytes rather than a
+map coordinates and only the view changes (D35), so a camera move is sixty-four bytes rather than a
 projection. Extract the `SetCamera` call from `ProjectMap` and have flight call that alone.
 
 One thing to check before taking it: `ReprojectScene` is gated on the same `_worldIsStale` flag and
@@ -5826,7 +5826,7 @@ Affordable at one camera move per keystroke; the frame budget once the camera fl
 per-frame scene rebuild was competing for the same milliseconds.
 
 `UploadCamera` now sends the matrix alone. Each reason it is safe in the free view was checked rather
-than assumed: the world's vertices are in map coordinates and only the view changes (D21); the 3D
+than assumed: the world's vertices are in map coordinates and only the view changes (D35); the 3D
 models are world-space and placed by their own matrices; and the screen-space scene points are a
 map-view fallback drawn only for players with NO model, so they are empty in any modern demo and are
 projected through the top-down camera anyway. The map view still rebuilds in full, because there
@@ -5967,7 +5967,7 @@ are special-cased in the same branch as the ordinary `ACT_MP_STAND_PRIMARY`.
 **Do not optimise bone matrices before this.** Posing owns about 600 ms a second and bones are most
 of it, but making the wrong animation cheaper is the wrong order.
 
-### D23 addendum — the lighting is not verified, only unglitchy
+### D37 addendum — the lighting is not verified, only unglitchy
 
 Worth stating plainly because a five-times frame rate is easy to mistake for a correctness result.
 The owner's assessment of the lighting is "I really don't know if it is right, I'm assuming it is,
@@ -7024,21 +7024,24 @@ skip count went 6 to 5.
 
 ---
 
-### B118 — `docs/DECISIONS.md` numbers nine decisions twice — OPEN
+### B118 — `docs/DECISIONS.md` numbered nine decisions twice — FIXED
 
-**D20 through D28 each name two different decisions**, and both are cited in live comments.
+**D20 through D28 each named two different decisions**, and both were cited in live comments.
 
-| Number | `###` series (line 545 onward) | `##` series (line 1246 onward) |
+| Number | kept — the `###` series | renumbered — the `##` series |
 |---|---|---|
-| D20 | the protocol boundary list comes from Valve | one renderer with two camera modes, Direct3D 11 |
-| D21 | the era boundaries stay open | geometry is world space; the camera owns the view |
-| D22 | the trace reaches the command line | surf and jump runs set the accuracy bar |
-| D23 | corpus work is cached per process | models are lit the way the engine lights them |
-| D24 | a faster suite recalibrated the mutation tool | the suite runs on synthetic demos |
-| D25 | the test project splits pure/stateful | test names are `{Subject}_{Scenario}_{Expected}` |
-| D26 | CI mutation and fuzzing schedules | no scripted edits to source files |
-| D27 | entity baselines | the measurement check names this project |
-| D28 | user messages are named, not decoded | the viewmodel lookup answers the main hand |
+| D20 | the protocol boundary list comes from Valve | **D34** one renderer, two camera modes, Direct3D 11 |
+| D21 | the era boundaries stay open | **D35** geometry is world space; the camera owns the view |
+| D22 | the trace reaches the command line | **D36** surf and jump runs set the accuracy bar |
+| D23 | corpus work is cached per process | **D37** models are lit the way the engine lights them |
+| D24 | a faster suite recalibrated the mutation tool | **D38** the suite runs on synthetic demos |
+| D25 | the test project splits pure/stateful | **D39** test names are `{Subject}_{Scenario}_{Expected}` |
+| D26 | CI mutation and fuzzing schedules | **D40** no scripted edits to source files |
+| D27 | entity baselines | **D41** the measurement check names this project |
+| D28 | user messages are named, not decoded | **D42** the viewmodel lookup answers the main hand |
+
+**The `###` series kept its numbers** because it is contiguous D1–D33 and carries the older
+citations. The later series moved to D34–D42 in file order.
 
 **A later session restarted numbering at D20 without reading the file first**, and the two series
 interleave rather than sit apart — `## D20` is at line 1246, between `### D31` and `### D32`. The
@@ -7058,12 +7061,40 @@ that this has to be defensible months later, when the conversation is gone. A ci
 to two different decisions defeats exactly that, and it degrades quietly — nothing fails, the reader
 just reads the wrong entry.
 
-**Fix, not yet applied:** renumber the nine `##` entries to D34–D42 in file order and repoint their
-citations, leaving the contiguous `###` series D1–D33 alone. About thirty references need
-classifying by what they actually say, so it is a reading job rather than a substitution — half the
-D20 citations above point each way. Not attempted unprompted, since it rewrites the owner's own
-document.
+#### The fix, applied 2026-08-20
 
-**Guard afterwards:** a check that no decision number appears at two heading levels belongs in
-`build/gate.sh`, for the same reason the test-count floors are there — the failure is silent, and
-noticing it took a citation being followed by hand.
+**Every citation in the repository was classified by reading what it says**, which is why this was
+not a substitution: the same token meant different things in adjacent files. **Seventeen moved** —
+eleven in code, tests and memory across seven files, six in this document — and the rest already
+pointed at the surviving series.
+
+- **All eleven `D21` citations meant the camera** — `MapWorld`, `TopDownCamera`, `MainForm`,
+  `CameraMatrixTests` and four passages in this file — so they became D35.
+- **All seven `D25` citations meant the mutation split**, not the test-name convention, so none of
+  them moved. The number they wanted was already correct.
+- **`D20` split down the middle.** `OldProtocolTests`, `SPEC.md` and two entries here mean the
+  protocol boundary list; `NativeOpus.cs` means the Direct3D binding choice and became D34. Both
+  readings were live in the repository at once, which is the concrete proof this was ambiguous in
+  practice and not only in principle.
+
+**Two judgement calls, recorded because they are the parts a later reader could reasonably dispute:**
+
+1. **`### D23 addendum — whether the recorded camera should share the interpolation delay`** was
+   renumbered to D37, the lighting decision, on the strength of its own sentence "that is where a
+   client draws" — the same match-the-engine principle D37 states. It is not a lighting question, so
+   this is inference rather than a citation. The alternative reading is that it was never attached to
+   any decision.
+2. **One citation was simply wrong and was corrected, not renumbered.** B22 pointed at "`DECISIONS.md`
+   D24 and the baseline research" for entity baselines; entity baselines are D27, and neither D24
+   was ever about them. Found only because the collision forced every citation to be read.
+
+**Guard, now in place.** `build/assert-decision-numbers.sh`, run first by `build/gate.sh`. It fails
+on a number used twice and on a gap in the sequence, and — the part that matters — **it fails when
+its own pattern matches nothing**, since a check that silently matches zero headings is the same
+class of defect it exists to catch. Verified by sabotage in all three directions before being
+trusted: a duplicated D28 names both lines, a D99 reports the gap, and a changed heading style
+reports the stale pattern.
+
+`docs/DECISIONS.md` also gained an index and an explicit "the next number is D43", because the
+original mistake was reasonable: the file is in write order, not number order, and D32 and D33 sit
+between D34 and D35. Scrolling to the end to find the highest number gives the wrong answer.

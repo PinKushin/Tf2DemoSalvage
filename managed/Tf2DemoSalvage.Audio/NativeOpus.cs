@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Audio;
 /// The whole decode API is four functions, so this project binds them directly rather than
 /// depending on a managed wrapper — one less layer between this project and the bits the engine
 /// actually produced, and it keeps the P/Invoke boundary visible rather than hidden inside a
-/// third-party abstraction. Same reasoning as D20's choice of thin Direct3D bindings over an
+/// third-party abstraction. Same reasoning as D34's choice of thin Direct3D bindings over an
 /// engine like Veldrid: keep the layer thin where correctness and performance both live.
 ///
 /// The native binary comes from the <c>libopus</c> NuGet package (MIT, prebuilt per-RID), not

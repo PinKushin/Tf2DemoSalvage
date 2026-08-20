@@ -127,11 +127,10 @@ because the second implementation is how the two would drift.
 - **The HUD** — nothing decoded is drawn as an overlay yet.
 - **Two z1800 players resolve no viewmodel** because their owner handle never decoded. No hands beats
   another player's hands.
-- **`docs/DECISIONS.md` numbers nine decisions twice — B118, found while checking this file's own
-  citations.** D20–D28 each name two entries, one per heading level, and both series are cited from
-  source comments. A citation of "D28" resolves to the viewmodel decision or to user messages
-  depending on which you read. Renumbering the later series to D34–D42 is the fix; it needs roughly
-  thirty references classified by what they say, so it was recorded rather than done unprompted.
+
+The decisions-log collision found while checking this file's citations — D20–D28 each naming two
+entries — is fixed (B118). The later series is now D34–D42, so **the viewmodel decision is D42**, and
+`build/assert-decision-numbers.sh` runs first in the gate.
 
 ## Corpus notes
 
