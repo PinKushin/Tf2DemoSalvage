@@ -146,3 +146,59 @@ Both are corrected; the scraper now reads the remote name.
 
 **The general rule: when looking for a property name in the SDK, search for it as a STRING, not as an
 identifier.** The wire carries the string, and only `SENDINFO_NAME` tells you they can differ.
+
+## A viewmodel says what it is, never where it is
+*(read from published source; measured across the corpus — 20 August 2026)*
+
+The weapon in a player's own hands is a networked entity, and it carries no position.
+`baseviewmodel_shared.cpp:557` opens the table with `BEGIN_NETWORK_TABLE_NOBASE` — no base table,
+therefore no `DT_BaseEntity`, therefore no `m_vecOrigin` and no `m_angRotation`:
+
+```cpp
+BEGIN_NETWORK_TABLE_NOBASE(CBaseViewModel, DT_BaseViewModel)
+    SendPropModelIndex(SENDINFO(m_nModelIndex)),
+    SendPropInt   (SENDINFO(m_nBody), 8),
+    SendPropInt   (SENDINFO(m_nSkin), 10),
+    SendPropInt   (SENDINFO(m_nSequence), 8, SPROP_UNSIGNED),
+    SendPropFloat (SENDINFO(m_flPlaybackRate), 8, SPROP_ROUNDUP, -4.0, 12.0f),
+    SendPropEHandle (SENDINFO(m_hWeapon)),
+    SendPropEHandle (SENDINFO(m_hOwner)),
+```
+
+**This is the same shape as a bone-merged cosmetic** — the demo names the model and the pose, and
+the client works out the placement. `CBaseViewModel::CalcViewModelView` starts it at the eye and
+then adds bob, lag and shake, every one of which is a function of movement and elapsed time rather
+than of anything recorded. The eye placement is what a recording can support; the embellishments
+would be the viewer inventing motion.
+
+It is also drawn with the cull mode flipped (`c_baseviewmodel.cpp:373`), because the model is
+mirrored for the left-handed view — the detail that makes a naive implementation draw the weapon
+inside out.
+
+**SourceTV demos carry viewmodels too, which was not the expectation.** A viewmodel is the local
+player's own weapon, so the obvious guess is that only a point-of-view recording has one. Counted
+across the committed corpus:
+
+| Demo | viewmodel property updates |
+|---|---|
+| 2007 granary POV | 968 |
+| 2007 granary STV | **0** |
+| 2008 granary POV | 694 |
+| 2008 granary STV | 889 |
+| 2009 badlands POV | 3359 |
+| 2011 viaduct POV | 604 |
+| 2011 viaduct STV | 667 |
+| 2013 badlands POV | 487 |
+| 2013 foundry STV | 1773 |
+| z1800 (SourceTV) | 95480 |
+
+Every era but the earliest broadcasts them to SourceTV, so a first-person view of a *spectated*
+player can show their weapon as well. The 2007 zero is an era difference rather than a property of
+that recording.
+
+**The search that found this was wrong twice before it was right**, which is worth recording
+because the failures were silent. Grepping the assembly output for `CTFViewModel` returned nothing
+— and so did grepping it for `CTFPlayer`, which certainly exists, because class names are not
+printed as text there at all. The count that mattered came from the property table name,
+`DT_BaseViewModel`. An absence claim needs a positive control in the same sweep; this is the sixth
+time in this project an instrument has been wrong before a decoder was.
