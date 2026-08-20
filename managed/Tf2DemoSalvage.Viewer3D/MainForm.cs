@@ -1905,7 +1905,14 @@ internal class MainForm : Form
 
         // Packed on demand like any other model, so a weapon seen for the first time is loaded
         // rather than skipped — and skipped silently, since a missing model draws nothing.
-        _models.Add([prop], ModelGeometry);
+        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
+        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
+        // `UploadModels` is called. The world's props do that whenever their set grows, and the
+        // viewmodel's Add was ignoring the same signal — so the arms were packed, posed, instanced,
+        // transformed correctly and submitted against geometry the renderer did not have.
+        //
+        // It said so on every frame: "a model was posed but the renderer has no geometry for it".
+        bool grew = _models.Add([prop], ModelGeometry);
 
         // **Asked AFTER packing, because the sequence table does not exist until then.** The first
         // version of this asked first and got −1 every time — the model had no packed frames yet —
@@ -1956,8 +1963,18 @@ internal class MainForm : Form
                     PlaybackRate = weapon.PlaybackRate,
                 });
 
-            _models.Add([gun], ModelGeometry);
+            grew |= _models.Add([gun], ModelGeometry);
             viewmodelProps.Add(gun);
+        }
+
+        if (grew && _device is { } packed)
+        {
+            packed.UploadModels(_models);
+
+            ViewerLog.Write(
+                "render",
+                $"viewmodel models uploaded: {_models.Count} packed, " +
+                $"{_models.Vertices.Count} vertices");
         }
 
         // **One call for both, because Instances CLEARS the list it is given.** Posing the arms and

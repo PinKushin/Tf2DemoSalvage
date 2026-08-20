@@ -2818,6 +2818,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// faces needing culling are the opposite ones — <c>C_BaseViewModel::InternalDrawModel</c>
     /// sets <c>MATERIAL_CULLMODE_CW</c> around exactly this and puts it back afterwards.
     /// </param>
+    /// <param name="bothSides">
+    /// Draw every face regardless of winding, as <c>$nocull</c> does per material. A diagnostic
+    /// lever: it separates "this model is culled away" from "this model is not where it seems".
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2837,7 +2841,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         bool blended = false,
         IReadOnlyList<(int Base, int Count)>? bodyParts = null,
         int body = 0,
-        bool mirrored = false)
+        bool mirrored = false,
+        bool bothSides = false)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2888,7 +2893,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
             // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
             // batches of one model can disagree — a sign that culls and a flag that does not.
-            context.RSSetState(CullFor(mirrored, _noCull.Contains(material)) switch
+            context.RSSetState(CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
             {
                 ModelCull.None => _bothSides,
                 ModelCull.Front => _viewmodelCull,

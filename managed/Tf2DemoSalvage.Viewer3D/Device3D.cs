@@ -402,8 +402,16 @@ internal sealed unsafe class Device3D : IDisposable
                 ", ",
                 viewmodels.Select(instance =>
                     $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} " +
-                    $"col({instance.Matrix[3]:0.#}, {instance.Matrix[7]:0.#}, {instance.Matrix[11]:0.#}) " +
-                    $"row({instance.Matrix[12]:0.#}, {instance.Matrix[13]:0.#}, {instance.Matrix[14]:0.#})")));
+                    $"at ({instance.Matrix[12]:0.#}, {instance.Matrix[13]:0.#}, {instance.Matrix[14]:0.#}) " +
+
+                    // **Where the model's own forward tip lands in the world.** Row-major, so a
+                    // model-space point times the matrix is p.x*row0 + p.y*row1 + p.z*row2 + row3.
+                    // The posed arms reach about 36 units along model +X, so this is the far end of
+                    // them — and comparing it against the eye says whether the model is pointing
+                    // where the camera is looking or somewhere else entirely.
+                    $"tip36 ({(36f * instance.Matrix[0]) + instance.Matrix[12]:0.#}, " +
+                    $"{(36f * instance.Matrix[1]) + instance.Matrix[13]:0.#}, " +
+                    $"{(36f * instance.Matrix[2]) + instance.Matrix[14]:0.#})")));
 
         Viewport near = new(
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
@@ -411,6 +419,10 @@ internal sealed unsafe class Device3D : IDisposable
         _context.RSSetViewports(1, in near);
         _world.SetCamera(_device, _context, camera);
         _context.OMSetDepthStencilState(_depthOn, 0);
+
+        // **No depth clear, which is the engine's arrangement.** Source compresses the viewmodel
+        // into the near tenth of the buffer instead, and only clears under Portal. Clearing was
+        // tried here as a diagnostic and changed nothing, which is how depth was ruled out.
 
         foreach (ModelInstance instance in viewmodels)
         {
@@ -431,6 +443,8 @@ internal sealed unsafe class Device3D : IDisposable
                 blended: false,
                 instance.BodyParts,
                 instance.Body,
+                // Culled normally, per material, like everything else. Drawing both sides was tried
+                // as a diagnostic and changed nothing, which ruled winding out.
                 instance.Mirrored);
         }
 

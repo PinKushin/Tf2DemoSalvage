@@ -406,3 +406,66 @@ animation at 0.6 cycles a second rather than the one-frame holder it was playing
 unexplained is the root translation that animation carries, `(6.8, -4.4, -71)`, and its arithmetic
 consequence: hands 39 below the eye and 36 in front, about 47 degrees below a view axis with 27
 degrees of half-height.
+
+---
+
+## It draws. The cause was packed-but-not-uploaded.
+
+*(20 August 2026)*
+
+`EntityModelSet.Add` fills **this process's** copy of the geometry. The renderer keeps its own on the
+GPU and receives it only when `Device3D.UploadModels` is called. The world's props do that whenever
+their set grows:
+
+```csharp
+if (grew && _device is { } device)
+{
+    device.UploadModels(_models);
+}
+```
+
+`AddViewmodel` called `Add` and threw the return value away. So the arms were packed, posed,
+instanced, transformed correctly, submitted in the right pass with the right camera — and drawn
+against geometry the GPU did not have.
+
+**The renderer said so on every frame**, in a line written long before any of this:
+
+```
+WARN [render] a model was posed but the renderer has no geometry for it
+```
+
+with the comment above it reading "a posed model with no batches means the renderer's copy of the
+packed set is older than the caller's, which draws nothing and reports nothing". It was right, it was
+specific, and it went unread through four rounds of investigation.
+
+### What that cost, and what the order should have been
+
+Everything below was verified before the actual cause was found. Each was worth verifying and none
+of them was the fault:
+
+| Checked | Result |
+|---|---|
+| model file present in the VPK | 39,928 bytes of `.mdl`, plus `.vtx` and `.vvd` |
+| packed into the model set | yes, after the load-set fix |
+| sequence | was `r_handposes`, now a real 51-frame idle |
+| zero-frame data, local hierarchy, delta sequences | none used by this animation |
+| bone remap across model groups | implemented, matches `masterBone` |
+| position and rotation decode | matches `CalcBonePosition` / `CalcBoneQuaternion` |
+| instance transform | `tip36` lands within a unit of the predicted eye + 36·forward |
+| the viewmodel pass runs | yes, drawing 2 |
+| depth | cleared as a test, no change |
+| face culling | disabled as a test, no change |
+
+**The one measurement that would have gone straight to it is the one the code already made.** Reading
+the renderer's own warnings before adding new instrumentation would have skipped every row of that
+table. This project's rule is "logs are the debugger"; the corollary earned here is that the logs
+already written are the first place to look, not the last.
+
+### Still to do
+
+- **The arms are the wrong class.** Spectating a sniper draws `c_demo_arms`, because `ViewmodelAt`
+  matches on an owner handle and a SourceTV demo carries one viewmodel per player. It picks a
+  viewmodel that is not the followed player's.
+- The weapon draws in the same pass and is not visible in the capture, which may be the same
+  owner-matching fault selecting a weapon for the wrong player.
+- Bob, lag and shake are deliberately absent; see the top of this document.
