@@ -71,6 +71,55 @@ jobs:
           path: tests/Tf2DemoSalvage.Core.Tests/StrykerOutput/*/reports/
           if-no-files-found: error
 
+  viewer:
+    name: Viewer3D (Windows only)
+    # **The one job that cannot go anywhere else, and the reason is the target framework.**
+    # Tf2DemoSalvage.Viewer3D is net10.0-windows with UseWindowsForms, so it needs the Windows
+    # Desktop targeting pack and runtime — which exist only on Windows. Measured on mutation-box
+    # 2026-08-19: aarch64 Linux, `~/.dotnet/packs` has no WindowsDesktop entry and
+    # `~/.dotnet/shared` holds only Microsoft.NETCore.App and Microsoft.AspNetCore.App. That is
+    # not a provisioning gap to close; Windows Desktop is Windows-only.
+    #
+    # Running it on the owner's machine instead is worse than it looks: a local Stryker run
+    # rebuilds mutated copies continuously and holds obj/, so it takes the machine-wide exclusive
+    # lock and blocks every other agent's UI suite for the duration. A hosted runner costs nobody
+    # anything — this repository is public, so standard GitHub-hosted minutes are free and
+    # unmetered.
+    #
+    # The self-hosted concern recorded in the global standards does not apply here. That rule is
+    # about stranger-authored workflow code reaching the Oracle boxes through a `pull_request`
+    # trigger; a GitHub-hosted runner is ephemeral and isolated, and this workflow has no
+    # `pull_request` trigger in any case.
+    runs-on: windows-latest
+    # 2731 mutants after coverage capture, measured locally 2026-08-19 before the run was stopped.
+    # That is ~1.5x Core's 1879, and this runner's speed relative to the Oracle box is not known,
+    # so the ceiling is set clear of the estimate rather than tuned to it. A job killed at the
+    # timeout uploads nothing, and `if-no-files-found: error` then reports a second, misleading
+    # failure on top of the first.
+    timeout-minutes: 150
+    steps:
+      # No Git LFS. The viewer's tests write their own demos — a header and a dem_stop — so this
+      # job reads no corpus file and costs none of the account's 1 GiB/month LFS bandwidth.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - run: dotnet tool restore
+
+      - name: Stryker (Viewer3D)
+        working-directory: tests/Tf2DemoSalvage.Viewer3D.Tests
+        run: dotnet stryker ${{ inputs.since && '--since:main' || '' }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report-viewer
+          path: tests/Tf2DemoSalvage.Viewer3D.Tests/StrykerOutput/*/reports/
+          if-no-files-found: error
+
   cli:
     name: CLI
     runs-on: ubuntu-latest

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/src/Stryker.Core/Stryker.Core/Schemas/stryker-config.schema.json",
+  "stryker-config": {
+    "project": "Tf2DemoSalvage.Viewer3D.csproj",
+    "test-projects": [
+      "Tf2DemoSalvage.Viewer3D.Tests.csproj"
+    ],
+    "reporters": [
+      "progress",
+      "html",
+      "cleartext",
+      "json"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 80,
+      "break": 0
+    },
+    "since": {
+      "enabled": false,
+      "target": "main",
+      "ignore-changes-in": [
+        "**/*.md",
+        "**/docs/**",
+        "**/tools/**"
+      ]
+    },
+    "additional-timeout": 10000
+  }
+}
