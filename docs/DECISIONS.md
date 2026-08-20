@@ -1619,7 +1619,17 @@ schedule around it has to be re-made, or wired into a Windows scheduled task, to
 
 A player carries two viewmodels: `MAX_VIEWMODELS` is 2, slot 0 is the weapon in hand and slot 1 is
 the off hand — `CTFPlayer::GetOffHandViewModel` is `return GetViewModel( 1 )`. TF2 puts the spy's
-Invis Watch and grenades in slot 1. The first implementation of `DemoTimeline.ViewmodelAt` kept
+Invis Watch in slot 1, and **the watch is the only thing that uses it.**
+
+The SDK reads as though there were two. `tf_weaponbase_grenade.cpp:74` also calls
+`SetViewModelIndex( 1 )` and was cited here as a second case — but TF2's throwable grenades were cut
+before release. The class is still linked and nothing shipped names it: the only
+`tf_weapon_grenade*` item class in `items_game.txt` is `tf_weapon_grenadelauncher`, the demoman's
+PRIMARY. The owner caught the claim ("this isnt tf1, tf2 only has the spy watch for offhand"), and
+the correction is kept because it is the recurring shape of error here — living SDK code that
+nothing shipped exercises, read as evidence about the game.
+
+The first implementation of `DemoTimeline.ViewmodelAt` kept
 whichever viewmodel it saw last and therefore showed a spy watch in a soldier's hands on the one
 corpus demo that carries both.
 

@@ -34,8 +34,20 @@ public readonly record struct SceneViewmodel(
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;
 
-    /// <summary>The slot TF2 puts the spy's watch and grenades in.</summary>
-    /// <remarks><c>CTFPlayer::GetOffHandViewModel</c>: "off hand model is slot 1".</remarks>
+    /// <summary>The slot TF2 puts the spy's watch in.</summary>
+    /// <remarks>
+    /// <c>CTFPlayer::GetOffHandViewModel</c>: "off hand model is slot 1".
+    ///
+    /// **The watch is the only live user of it, and the SDK suggests otherwise.**
+    /// <c>tf_weaponbase_grenade.cpp:74</c> also calls <c>SetViewModelIndex( 1 )</c>, which reads as
+    /// a second case — but TF2's throwable grenades were cut before release. The class is still
+    /// linked (<c>LINK_ENTITY_TO_CLASS( tf_weaponbase_grenade, CTFWeaponBaseGrenade )</c>) and no
+    /// shipped item names it: the only <c>tf_weapon_grenade*</c> item class in
+    /// <c>items_game.txt</c> is <c>tf_weapon_grenadelauncher</c>, the demoman's PRIMARY.
+    ///
+    /// Recorded because it is the shape of mistake this project keeps meeting: living code in the
+    /// SDK that nothing shipped exercises, read as evidence about the game.
+    /// </remarks>
     public const int OffHand = 1;
 
     /// <summary>Whether this is the weapon in the player's hands.</summary>
