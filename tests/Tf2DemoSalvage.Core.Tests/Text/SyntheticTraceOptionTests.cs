@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
@@ -81,6 +82,49 @@ public sealed class SyntheticTraceOptionTests
         // And not a neighbour, which is what an index read one place off would produce.
         trace.ShouldNotContain("weapons/shotgun_shoot.wav");
     }
+
+    [Test]
+    public void Trace_TempEntitiesWithASchema_ExpandOneLinePerEffect()
+    {
+        // **A temp entity is a one-shot effect with its own class**, so the trace names the class
+        // rather than counting bodies — a burst of three explosions and one of three tracers are
+        // the same number and different scenes.
+        //
+        // Entity expansion is opt-in for the same reason it is for snapshots, so both halves are
+        // asserted: named either way, expanded only when asked.
+        byte[] demo = EffectDemo();
+
+        string off = Trace(demo, new DemoTraceOptions());
+        string on = Trace(demo, new DemoTraceOptions { IncludeEntities = true });
+
+        off.ShouldContain("svc_tempentities");
+        on.ShouldContain("svc_tempentities");
+
+        // The class name comes from dem_datatables, so its presence is what says the schema
+        // reached the effect decoder rather than only the snapshot one.
+        on.ShouldContain("CBaseAnimating");
+    }
+
+    [Test]
+    public void Trace_ATempEntityWithProperties_ShowsThemWhenPropertiesAreOn()
+    {
+        // The third state of the same option pair: entities on, properties off, which is the
+        // shape a reader uses on a long demo. An effect keeps its class and loses its fields.
+        byte[] demo = EffectDemo();
+
+        string withProperties = Trace(demo, new DemoTraceOptions { IncludeEntities = true });
+
+        string without = Trace(
+            demo,
+            new DemoTraceOptions { IncludeEntities = true, IncludeEntityProperties = false });
+
+        withProperties.ShouldContain("m_fEffects");
+        without.ShouldNotContain("m_fEffects");
+        without.ShouldContain("CBaseAnimating");
+    }
+
+    /// <summary>A demo carrying a schema and two temp entities that share a class.</summary>
+    private static byte[] EffectDemo() => SyntheticPlayer.DemoWithTempEntities();
 
     /// <summary>A demo with one positioned player and a schema.</summary>
     private static byte[] PlayerDemo() =>

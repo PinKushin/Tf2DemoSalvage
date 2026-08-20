@@ -540,3 +540,63 @@ That caveat costs nothing in practice, because **the discriminator does not use 
 uses the ids: a demo containing `QuestObjectiveCompleted` can only be explained by the modern
 table, whatever any note says. The dates are for reasoning about a demo that contains none of
 them.
+
+---
+
+## A layout that reads to the end cannot be falsified by its own length check
+*(read from published source; measured across five era specimens — 19 August 2026)*
+
+Every layout in this file is a hypothesis, and the one check available is that it consumes the
+body's stated length **exactly**. `TextMsg` had quietly opted out of that check without anyone
+choosing to.
+
+Its body is a destination byte followed by NUL-terminated strings, and the implementation read
+strings in a loop `while (offset < length)`. That is not a lax check — it is **no check**, because
+reading until the body ends consumes the body exactly by construction. The exact-consumption guard
+was still there, still evaluated, and could never fail.
+
+What that costs is not theoretical. A 512-byte body of zeros decodes as 511 empty strings and comes
+back as fields with the name `TextMsg` attached. Any whole-byte body that happens to end on a NUL
+is accepted. The check that was supposed to make a guessed layout safe was, for this one message,
+guaranteed to pass on anything.
+
+**The count is five, and both ends of the wire say so.** The server always writes the key and four
+substitution slots, writing an empty string where a parameter was null:
+
+```cpp
+// src/game/server/util.cpp — UTIL_ClientPrintFilter
+WRITE_BYTE( msg_dest );
+WRITE_STRING( msg_name );
+if ( param1 ) WRITE_STRING( param1 ); else WRITE_STRING( "" );
+// param2, param3, param4 the same way
+```
+
+```cpp
+// src/game/client/hud_basechat.cpp — CBaseHudChat::MsgFunc_TextMsg
+int msg_dest = msg.ReadByte();
+for ( int i=0; i<5; ++i ) msg.ReadString( szString, sizeof(szString) );
+```
+
+`CHudChat::MsgFunc_TextMsg` in `hud_chat.cpp` spells the same five out longhand rather than looping,
+and TF2's own `CHudChat` hooks `TextMsg` without overriding it — so all three agree.
+
+Fixing it cost nothing: **19 of 19 `TextMsg` bodies across the nine era specimens still decode**,
+protocol 11 through 24. The message has carried five strings since 2007.
+
+**Three things worth carrying forward.**
+
+*The unfalsifiable layout is a shape, not an accident.* Any layout whose reading is driven by the
+body's own length — a loop to the end, a count read out of the body itself, a trailing
+variable-length blob — has disabled the length check for itself. The guard is only a guard when the
+layout's width is decided independently of the body.
+
+*The fixtures agreed with the bug, because the same belief wrote both.* Four tests asserted
+`TextMsg` with one, two or three strings and all four passed. None of those bodies exists; no server
+has ever sent one. This is `put-the-real-file-in-the-fixture` again, in its purest form — the
+fixtures were not testing the layout, they were restating it.
+
+*It was found by a test written over ALL names at once.* Feeding every registered name a 4096-bit
+body and asserting that none of them decodes is one test that covers forty layouts and covers the
+forty-first the day it is added. Written per-message, `TextMsg` would have got the same
+too-short/too-long pair as everything else and passed both, because its true defect was that its
+length was whatever it was handed.

@@ -437,6 +437,93 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>Several players moving across several snapshots, each with a life state.</summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="states">
+    /// One entry per snapshot: the tick, and each player's slot, X position and <c>m_lifeState</c>.
+    /// </param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    /// <remarks>
+    /// **<see cref="DemoOverTicks"/> moves one player and fixes their life state at alive**, which
+    /// is the right shape for testing movement and the wrong one for testing anything that
+    /// branches on being dead: with a single subject, "held the position" and "interpolated
+    /// nothing at all" are the same observation.
+    ///
+    /// This carries a bystander, so a behaviour that applies to one player can be distinguished
+    /// from one that applies to the frame.
+    /// </remarks>
+    public static byte[] DemoOfPlayersOverTicks(
+        float intervalPerTick,
+        params (int Tick, (int EntityIndex, float X, int LifeState)[] Players)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        DemoSchema schema = Schema();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < states.Length; index++)
+        {
+            (int tick, (int EntityIndex, float X, int LifeState)[] players) = states[index];
+
+            List<DecodedEntity> entities = [];
+
+            // Ascending, because entity indices are delta-coded and the encoder writes the gap to
+            // the next slot rather than the slot itself.
+            foreach ((int entityIndex, float x, int lifeState) in
+                players.OrderBy(player => player.EntityIndex))
+            {
+                Dictionary<string, PropertyValue> values = new()
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(x, 0f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+
+                    // Sent on every snapshot rather than only the first, because a life state that
+                    // changes mid-demo is the case this fixture exists for and retaining an
+                    // entering value would make that unexpressible.
+                    ["m_lifeState"] = PropertyValue.FromInt(lifeState),
+                };
+
+                if (index == 0)
+                {
+                    values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
+                }
+
+                entities.Add(Entity(decoder, PlayerClassId, entityIndex, values) with
+                {
+                    SerialNumber = entityIndex,
+                    UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                });
+            }
+
+            byte[] body = decoder.EncodeEntities(
+                entities, [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? states[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>Class id of the ordinary prop entity, when the schema declares one.</summary>
     public const int PropClassId = 2;
 
@@ -518,6 +605,46 @@ internal static class SyntheticPlayer
         }
 
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>A demo carrying a schema and <c>svc_TempEntities</c> effects that share a class.</summary>
+    /// <param name="count">How many effects the message carries.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **A temp entity is a one-shot effect and never enters the entity table**, so it exercises a
+    /// decode path a snapshot does not reach: no entity index, no serial number, and a class id
+    /// that an effect may omit to repeat the previous one. Two effects rather than one for exactly
+    /// that reason — the repeat is only expressible from the second onwards, and a decoder that
+    /// treats each effect independently desynchronises there rather than at the first.
+    ///
+    /// The effects carry one property each, because "an effect with fields" and "an effect with
+    /// none" render differently and both are worth having available.
+    /// </remarks>
+    public static byte[] DemoWithTempEntities(int count = 2)
+    {
+        DemoSchema schema = SchemaWithProp();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PropClassId);
+        int effects = IndexOf(flat, "m_fEffects");
+
+        DecodedTempEntity effect = new(
+            ClassId: PropClassId,
+            DelaySeconds: 0f,
+            Properties: [new DecodedProperty(effects, flat[effects], PropertyValue.FromInt(3))]);
+
+        byte[] body = decoder.EncodeTempEntities(
+            [.. Enumerable.Repeat(effect, count)], reliable: false, lengthBits: 0);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                66,
+                new TempEntitiesMessage(
+                    Count: count, BodyBits: body.Length * 8, Body: body)));
     }
 
     /// <summary>A schema that also declares an ordinary drawable prop class.</summary>

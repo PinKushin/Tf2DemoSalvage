@@ -166,6 +166,50 @@ internal static class SyntheticDemo
         return Table(name, built, maxEntries);
     }
 
+    /// <summary>Changes to a table an earlier <c>svc_CreateStringTable</c> declared.</summary>
+    /// <param name="tableId">
+    /// The table's id, which is the order it was created in — an update carries no name.
+    /// </param>
+    /// <param name="entries">Each changed entry's text and its user data payload.</param>
+    /// <param name="maxEntries">
+    /// The capacity the table was created with, which sizes the index field. A different value
+    /// here encodes indices the reader will decode against the real capacity and get wrong.
+    /// </param>
+    /// <returns>The message, complete with its wire form.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entries"/> is null.</exception>
+    /// <remarks>
+    /// **The update shares the entry encoding with the create and none of its framing.** The body
+    /// below is written by the same <see cref="StringTableCodec.WriteEntries"/>; what differs is
+    /// the header — a table id rather than a name, and a count that is omitted entirely when
+    /// exactly one entry changed.
+    ///
+    /// A mid-match roster change and a newly precached model both arrive this way, so anything
+    /// that reads a table has a second path through this message that a fixture built only from
+    /// creates never reaches.
+    /// </remarks>
+    public static UpdateStringTableMessage UpdateTable(
+        int tableId,
+        IReadOnlyList<(string Text, IReadOnlyList<byte> UserData)> entries,
+        int maxEntries = 64)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        List<StringTableEntry> built =
+        [
+            .. entries.Select(
+                (entry, index) => new StringTableEntry(index, entry.Text, entry.UserData)),
+        ];
+
+        (byte[] body, int bits) = StringTableCodec.WriteEntries(
+            built, maxEntries, fixedUserData: false, userDataSizeBits: 0);
+
+        return new UpdateStringTableMessage(
+            tableId,
+            built,
+            UndecodedReason: null,
+            Wire: new UpdateStringTableWire(built.Count, bits, body));
+    }
+
     private static CreateStringTableMessage Table(
         string name, List<StringTableEntry> entries, int maxEntries)
     {

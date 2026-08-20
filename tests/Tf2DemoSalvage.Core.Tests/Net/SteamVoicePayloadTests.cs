@@ -119,6 +119,54 @@ public sealed class SteamVoicePayloadTests
         Should.Throw<InvalidDataException>(() => SteamVoicePayload.Decode(overrun));
     }
 
+    [Test]
+    public void SteamVoice_AnAudioBlockLongerThanThePayload_NamesBothLengths()
+    {
+        // **The declared length is the only thing that says where a block ends**, so one longer
+        // than what remains is unrecoverable rather than merely odd. Slicing it anyway reads the
+        // four-byte tail as audio, and a CRC decoded as Opus is noise rather than an error.
+        //
+        // 0xFF00 bytes declared with three left, so no arithmetic slip makes it fit.
+        InvalidDataException failure = Should.Throw<InvalidDataException>(
+            () => SteamVoicePayload.Decode(BuildRaw([0x06, 0x00, 0xFF])));
+
+        failure.Message.ShouldContain("65280");
+    }
+
+    [Test]
+    public void SteamVoice_ATerminatorWithBytesBehindIt_IsNotATerminator()
+    {
+        // **0xFFFF means "the block ends here", so it can only be the last thing in the block.**
+        // Anything behind it means the 0xFFFF was a chunk length that happens to be the sentinel
+        // value — or that the block was framed wrongly — and treating it as an end would silently
+        // discard the rest.
+        Should.Throw<InvalidDataException>(
+            () => SteamVoicePayload.Decode(Build([0xFF, 0xFF, 0x00, 0x00])))
+            .Message.ShouldContain("not a terminator");
+    }
+
+    [Test]
+    public void SteamVoice_ABlockWithATailTooShortForAChunk_IsRejected()
+    {
+        // One byte behind the last chunk: too short to be a chunk header and not the two-byte
+        // sentinel. The loop simply stops on it, so without this check the byte would vanish and
+        // the block would look complete.
+        Should.Throw<InvalidDataException>(
+            () => SteamVoicePayload.Decode(Build([.. Opus(0, [0x68, 0x11]), 0x00])))
+            .Message.ShouldContain("after its last chunk");
+    }
+
+    [Test]
+    public void SteamVoice_ASubPacketWhoseValueRunsPastTheEnd_NamesWhatWasExpected()
+    {
+        // A sub-packet type commits the payload to the fields that follow it. One byte where two
+        // are declared means the type byte was misread or the payload is truncated, and the
+        // message says which field was being read so the two can be told apart.
+        Should.Throw<InvalidDataException>(
+            () => SteamVoicePayload.Decode(BuildRaw([0x00, 0x01])))
+            .Message.ShouldContain("a silence value");
+    }
+
     /// <summary>A chunk: length, sequence, then the Opus bytes.</summary>
     private static byte[] Opus(int seq, byte[] data) =>
     [

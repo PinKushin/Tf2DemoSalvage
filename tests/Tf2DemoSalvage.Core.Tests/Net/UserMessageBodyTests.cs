@@ -49,7 +49,11 @@ public sealed class UserMessageBodyTests
     {
         // The most-read non-chat user message: announcements, connection notices, round results.
         // 80 of them across the corpus.
-        byte[] body = TextMsgBody(3, "#TF_Name_Change", "Sassy", "b4nny");
+        // **Five strings, always** — the key and four substitution slots, empty ones included.
+        // This fixture carried three until 2026-08-19 and passed, because the layout read until
+        // the body ran out; it described a message no server sends. See
+        // UTIL_ClientPrintFilter in src/game/server/util.cpp.
+        byte[] body = TextMsgBody(3, "#TF_Name_Change", "Sassy", "b4nny", "", "");
 
         UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
@@ -81,7 +85,7 @@ public sealed class UserMessageBodyTests
     {
         // The complement, and the reason the rule is not "drop empty strings": an empty key is a
         // fact about the message, where an unused substitution slot is padding.
-        byte[] body = TextMsgBody(3, "");
+        byte[] body = TextMsgBody(3, "", "", "", "", "");
 
         UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
@@ -108,7 +112,7 @@ public sealed class UserMessageBodyTests
     public void NonAsciiText_SurvivesTheBody()
     {
         // Same requirement as everywhere else in this parser: names are arbitrary client bytes.
-        byte[] body = TextMsgBody(1, "#TF_Chat", "Пётр");
+        byte[] body = TextMsgBody(1, "#TF_Chat", "Пётр", "", "", "");
 
         UserMessage message = UserMessageBody.Decode(5, "TextMsg", body, body.Length * 8, ModernProtocol);
 
