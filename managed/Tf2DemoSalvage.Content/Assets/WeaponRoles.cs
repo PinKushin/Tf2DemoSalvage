@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 public sealed class WeaponRoles
 {
     /// <summary>Valve's own, <c>GetTFEncryptionKey</c>, <c>tf_shareddefs.cpp:1616</c>.</summary>
-    private static readonly byte[] EncryptionKey = "E2NcUkG2"u8.ToArray();
+    internal static readonly byte[] EncryptionKey = "E2NcUkG2"u8.ToArray();
 
     /// <summary>
     /// The <c>WeaponType</c> strings and the activity suffix each one names.
