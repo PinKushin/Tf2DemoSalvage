@@ -777,6 +777,24 @@ public sealed class ScenePropTrack
     /// Note the threshold here is <c>&gt;</c> where <c>LoopingLerp</c> uses <c>&gt;=</c>. That is
     /// Valve's, kept rather than tidied: an exactly-half-cycle step is treated as a wrap by one
     /// and not by the other, and choosing which is right is not this project's call to make.
+    ///
+    /// **The re-check's <c>else</c> arm is unreachable, and the arithmetic says so rather than the
+    /// corpus.** It is reached only after <c>p1</c> has been raised, which puts it in
+    /// <c>[1, 2)</c>; it then asks whether <c>p0 &lt; p1</c>. Two cases, and both answer yes:
+    ///
+    /// * <c>p0</c> was not raised, so it is still in <c>[0, 1)</c> and below <c>p1</c>;
+    /// * <c>p0</c> was raised by the first pass, which happens only when <c>p0 &lt; p1</c> — and
+    ///   raising both by one preserves that.
+    ///
+    /// A third case would need the first pass to have raised <c>p1</c>, but then <c>p1 &gt;= 1</c>
+    /// and the <c>p1 &lt; p2</c> test guarding this block cannot hold against a <c>p2</c> in
+    /// <c>[0, 1)</c>.
+    ///
+    /// Kept anyway, because this is a transcription: the arm is in Valve's own
+    /// <c>LoopingLerp_Hermite</c> and deleting it would make the two harder to compare for no gain
+    /// beyond a coverage line. Noted here so the gap is a recorded conclusion rather than an
+    /// oversight — <c>docs/memory/an-uncoverable-gap-is-usually-your-reader.md</c> is the warning
+    /// this is answering, and the answer survived it.
     /// </remarks>
     private static float LoopingCurve(float p0, float p1, float p2, float t)
     {

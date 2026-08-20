@@ -133,6 +133,26 @@ public sealed class LzmaTests
     }
 
     [Test]
+    public void Decode_FewerPropertyBytesThanLzmaNeeds_IsRefusedWithBothCounts()
+    {
+        // **Five bytes: the packed lc/lp/pb byte and a four-byte dictionary size.** A lump whose
+        // header was cut short arrives here as a span with fewer, and the SDK's own
+        // SetDecoderProperties would throw an InvalidOperationException on it — which a caller
+        // reads as a bug in this program rather than as bad input. The guard is what makes the
+        // distinction, so it fires before the SDK is reached.
+        byte[] lump = Convert.FromHexString(BlocksLump);
+
+        InvalidDataException failure = Should.Throw<InvalidDataException>(
+            () => ValveLzma.Decode(
+                lump.AsSpan(PropertiesOffset, 4), lump.AsSpan(BodyOffset), 3000));
+
+        // Both numbers, because "the properties are too short" gives a reader nothing to check a
+        // header against.
+        failure.Message.ShouldContain("5");
+        failure.Message.ShouldContain("4");
+    }
+
+    [Test]
     public void Decode_ZeroLengthOutput_ReturnsNothing()
     {
         Decode(Convert.FromHexString(BlocksLump), 0).Length.ShouldBe(0);

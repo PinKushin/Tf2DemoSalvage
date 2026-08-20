@@ -132,6 +132,40 @@ public sealed class SceneTrackCycleTests
     }
 
     [Test]
+    public void At_ACycleRunningBackwardsAcrossTheBoundary_AlsoMovesTheShorterWay()
+    {
+        // **The mirror of the first test, and it is a different branch.** The correction raises
+        // whichever of the two is smaller, so 0.9 -> 0.1 and 0.1 -> 0.9 take opposite arms of the
+        // same `if`. Testing only one leaves the other free to raise the wrong value, which is
+        // wrong by a whole cycle rather than slightly wrong.
+        //
+        // 0.1 -> 0.9 is a tenth of a cycle BACKWARDS: `from` rises to 1.1 and the midpoint is 1.0,
+        // which wraps to 0.
+        ScenePropTrack track = Track((0, 0.1f), (10, 0.9f));
+
+        track.At(5 + Delay).ShouldNotBeNull().Cycle.ShouldBe(0f, 0.0001f);
+    }
+
+    [Test]
+    public void At_AThreeSampleCycleWhoseOldestWrapped_RaisesTheOldestRatherThanTheOthers()
+    {
+        // The same two-armed correction inside the spline's first pass, where the pair being
+        // compared is the oldest sample against the one being interpolated from.
+        //
+        // 0.1, 0.9, 0.95: p0 rises to 1.1, and 0.95 is close enough to 0.9 that the second pass
+        // leaves both alone. Hermite through 1.1, 0.9, 0.95 at t=0.5, with d1 = -0.2 and
+        // d2 = 0.05:
+        //
+        //   0.9*0.5 + 0.95*0.5 + (-0.2)*0.125 + 0.05*(-0.125) = 0.89375
+        //
+        // No wrap this time, which is worth having: the assertion is on the curve rather than on
+        // the modulo that follows it.
+        ScenePropTrack track = Track((0, 0.1f), (10, 0.9f), (20, 0.95f));
+
+        track.At(15 + Delay).ShouldNotBeNull().Cycle.ShouldBe(0.89375f, 0.0001f);
+    }
+
+    [Test]
     public void At_ASequenceChange_HoldsTheOlderCycleRatherThanBlendingAcrossIt()
     {
         // **Two different animations have unrelated cycles**, so interpolating between them is

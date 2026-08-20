@@ -122,6 +122,32 @@ public sealed class WriterGuardTests
     }
 
     [Test]
+    public void WriteCoord_ACoordinateBeyondTheWorld_IsRefusedRatherThanWrapped()
+    {
+        // **A coordinate's integer part is 14 bits, which is what makes Source's world 16,384
+        // units across.** A larger value does not fail on the way in — it wraps, and a prop that
+        // should be off the map comes back standing inside it. Refusing says the caller invented a
+        // position the format cannot express.
+        BitWriter writer = new();
+
+        Should.Throw<ArgumentOutOfRangeException>(
+            () => SendPropEncoder.WriteCoord(writer, 40000f, SendPropDecoder.CoordFlag))
+            .Message.ShouldContain("14 bits");
+    }
+
+    [Test]
+    public void WriteCoord_ACoordinateInsideTheWorld_IsAccepted()
+    {
+        // The control, at a value well inside the range. Without it the guard could be a
+        // comparison written the wrong way round and refuse everything.
+        BitWriter writer = new();
+
+        SendPropEncoder.WriteCoord(writer, 1024.5f, SendPropDecoder.CoordFlag);
+
+        writer.BitCount.ShouldBeGreaterThan(0);
+    }
+
+    [Test]
     public void WriteVector_ANormal_SendsOnlyTheSignOfZ()
     {
         // **A normal is unit length, so Z is derived from X and Y on the way back in** and only
