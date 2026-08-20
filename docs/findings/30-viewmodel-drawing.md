@@ -506,3 +506,38 @@ somebody's hands.
 **Two players still resolve none**, which is the honest state: their viewmodel never decoded an owner
 and there is now nothing to fall back to. Drawing no hands is better than drawing another player's,
 and it is visible in the log rather than silent.
+
+## The weapon is bone-merged onto the arms, not posed beside them
+
+The arms drew and the weapon did not, from the same pass, at the same transform, with an instance
+each.
+
+A weapon model carries **one sequence and no included animations** — measured:
+`c_sniperrifle.mdl: 1 frame over 1 merged sequence from 1 model`. So there is nothing to move it
+anywhere: posed on its own it sits at its own origin, which after the viewmodel transform is exactly
+at the camera and therefore inside the near plane. Packed, instanced, drawn, invisible.
+
+The engine never poses it. `econ_entity.cpp:1153` parents the attachment with
+`SetLocalOrigin( vec3_origin )`, and `C_ViewmodelAttachmentModel::StandardBlendingRules` hands the
+blend to its outer entity — it takes the viewmodel's bone matrices **by name**, exactly as a hat
+takes a player's. This project already implements that mechanism for cosmetics, so the whole fix is
+one argument:
+
+```csharp
+AttachedTo: ViewmodelEntityIndex
+```
+
+The difference it makes, from the poser's own report:
+
+```
+posed on its own   x -3.4..5    y -4.7..17.2  z -17.7..45.8  root identity at (0,0,0)
+bone-merged        x  8.8..72.3 y -13..-4.7   z -15.4..3.9   root permuted at (26.4,-9.6,-8.7)
+```
+
+A rifle reaching 72 units forward, a little right of centre and below the eye line. On screen it is a
+sniper rifle with its scope, in the sniper's hands.
+
+**Note what the two halves have in common.** The arms needed the viewmodel's own animation and the
+weapon needed no animation at all — and both failed silently, in the same pass, for reasons that
+looked identical from outside. "Drawn and invisible" has now had five distinct causes in this one
+feature: not loaded, not uploaded, wrong sequence, wrong owner, and wrong posing mechanism.

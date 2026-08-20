@@ -1947,6 +1947,14 @@ internal class MainForm : Form
         // take the arms' outright. Mirrored with them for the same reason they are.
         if (WeaponModelFor(follower) is { Length: > 0 } held)
         {
+            // **Bone-merged onto the arms, not posed beside them.** The engine parents the
+            // attachment with `SetLocalOrigin( vec3_origin )` and blends it through
+            // `C_ViewmodelAttachmentModel::StandardBlendingRules`, so it has no pose of its own —
+            // it takes the viewmodel's bone matrices by name, exactly as a hat takes a player's.
+            //
+            // Posed independently it sits at its own origin, which after the transform is AT the
+            // camera and therefore inside the near plane: packed, instanced, drawn and invisible.
+            // A weapon model carries one sequence and no animation to move it anywhere else.
             SceneProp gun = new(
                 WeaponEntityIndex,
                 held,
@@ -1961,7 +1969,8 @@ internal class MainForm : Form
                     Roll = camera.Angles.Roll,
                     Sequence = weapon.Sequence,
                     PlaybackRate = weapon.PlaybackRate,
-                });
+                },
+                AttachedTo: ViewmodelEntityIndex);
 
             grew |= _models.Add([gun], ModelGeometry);
             viewmodelProps.Add(gun);
