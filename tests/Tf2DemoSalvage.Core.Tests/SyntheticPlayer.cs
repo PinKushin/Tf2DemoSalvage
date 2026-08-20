@@ -727,6 +727,11 @@ internal static class SyntheticPlayer
     /// <param name="offHandModelIndex">
     /// A second viewmodel in slot 1, or <c>null</c> for the one-viewmodel shape.
     /// </param>
+    /// <param name="offHandOwner">Who owns that second one, defaulting to the first's owner.</param>
+    /// <param name="secondUnowned">
+    /// Make the second viewmodel a main hand naming NO owner, which is the SourceTV shape that
+    /// broke the lookup: a demo carrying owned viewmodels and one whose owner did not decode.
+    /// </param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
     /// **Both shapes are real and the corpus has both.** A point-of-view recording carries exactly
@@ -735,7 +740,8 @@ internal static class SyntheticPlayer
     /// second would let a lookup that requires an owner pass, and that lookup finds nothing on
     /// eight of the nine corpus demos.
     /// </remarks>
-    public static byte[] DemoWithViewmodel(int? owner, int? offHandModelIndex = null)
+    public static byte[] DemoWithViewmodel(
+        int? owner, int? offHandModelIndex = null, int? offHandOwner = null, bool secondUnowned = false)
     {
         DemoSchema schema = SchemaWithViewmodel();
         EntityDecoder decoder = new(
@@ -770,7 +776,10 @@ internal static class SyntheticPlayer
                 decoder,
                 ViewmodelClassId,
                 OffHandEntityIndex,
-                Viewmodel(offHand, slot: 1, owner)));
+                Viewmodel(
+                    offHand,
+                    slot: secondUnowned ? 0 : 1,
+                    secondUnowned ? null : offHandOwner ?? owner)));
         }
 
         byte[] body = decoder.EncodeEntities(

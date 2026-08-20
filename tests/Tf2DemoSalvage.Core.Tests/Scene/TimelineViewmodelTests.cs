@@ -84,6 +84,33 @@ public sealed class TimelineViewmodelTests
     }
 
     [Test]
+    public void ViewmodelAt_WhenTheDemoNamesOwnersAtAll_DoesNotHandOutAnUnownedOne()
+    {
+        // **The SourceTV defect, measured on z1800 before it was written down.** Following a sniper
+        // drew a demoman's arms, because the lookup treats an unowned viewmodel as belonging to
+        // whoever asks — a rule written for a point-of-view recording, which carries exactly one
+        // and never names an owner.
+        //
+        // A SourceTV demo carries one per player and names them. When one of thirty-seven fails to
+        // resolve an owner, that rule hands it to every player who has none of their own:
+        //
+        //     player 4 class 3: c_soldier_arms owner 4     <- right
+        //     player 2 class 2: c_demo_arms    owner none  <- wrong
+        //
+        // So an unowned viewmodel is only anybody's when the demo names NO owners at all.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithViewmodel(
+            owner: 9, offHandModelIndex: 3, secondUnowned: true));
+
+        timeline.ViewmodelAt(66, Follower).ShouldBeNull(
+            "an unowned viewmodel belongs to nobody once the demo has named an owner");
+
+        // The control: the player who IS named still gets theirs, so the fix cannot have simply
+        // stopped answering.
+        timeline.ViewmodelAt(66, 9).ShouldNotBeNull()
+            .ModelPath.ShouldBe("models/weapons/v_scattergun.mdl");
+    }
+
+    [Test]
     public void ViewmodelAt_ADemoWithNone_IsNothing()
     {
         // Every era demo before the modern ones carries a viewmodel, but a recording that does not

@@ -254,6 +254,16 @@ public sealed class DemoTimeline
     /// </remarks>
     private readonly List<(int Tick, SceneViewmodel Weapon)> _viewmodels = [];
 
+    /// <summary>Whether any viewmodel in this demo names an owner.</summary>
+    /// <remarks>
+    /// **This is what separates a point-of-view recording from a SourceTV one**, and it is a
+    /// property of the whole demo rather than of one entity. A client receives only its own
+    /// viewmodel and the server never says whose it is, so a POV demo names nobody; a SourceTV
+    /// recording carries one per player and names each. Asked once here rather than per lookup so
+    /// the answer cannot vary with the tick being drawn.
+    /// </remarks>
+    private readonly bool _viewmodelsNameOwners;
+
     private DemoTimeline(
         List<TimelineFrame> frames,
         List<ScenePropTrack>? props = null,
@@ -263,6 +273,9 @@ public sealed class DemoTimeline
     {
         _recordedViews = recordedViews ?? [];
         _viewmodels = viewmodels ?? [];
+
+        _viewmodelsNameOwners =
+            _viewmodels.Exists(recorded => recorded.Weapon.OwnerEntityIndex is not null);
 
         _frames = frames;
         _props = props ?? [];
@@ -345,10 +358,15 @@ public sealed class DemoTimeline
                 break;
             }
 
-            // Unowned belongs to the follower by definition; owned has to match.
+            // **An unowned viewmodel is the follower's only when the demo names no owners at all.**
+            // That is the point-of-view shape: one viewmodel, no owner, because a client receives
+            // only its own. A SourceTV recording carries one per player and names them — and when
+            // one of thirty-seven fails to resolve an owner, treating "unowned" as "anybody's" hands
+            // that one to every player who has none. Measured on z1800: following a sniper drew a
+            // demoman's arms.
             if (weapon.IsMainHand &&
-                (weapon.OwnerEntityIndex is null ||
-                 weapon.OwnerEntityIndex == playerEntityIndex))
+                (weapon.OwnerEntityIndex == playerEntityIndex ||
+                 (weapon.OwnerEntityIndex is null && !_viewmodelsNameOwners)))
             {
                 found = weapon;
             }

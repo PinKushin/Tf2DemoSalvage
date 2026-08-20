@@ -469,3 +469,40 @@ already written are the first place to look, not the last.
 - The weapon draws in the same pass and is not visible in the capture, which may be the same
   owner-matching fault selecting a weapon for the wrong player.
 - Bob, lag and shake are deliberately absent; see the top of this document.
+
+## An unowned viewmodel is only anybody's on a demo that names nobody
+
+With the arms finally on screen, they were the wrong class: following a sniper drew a demoman's.
+
+`ViewmodelAt` accepted `OwnerEntityIndex is null` as matching whoever asked. That is right for a
+point-of-view recording — one viewmodel, no owner, because a client receives only its own — and
+wrong for SourceTV, which carries one per player and names each. Measured on z1800 at tick 40000:
+
+```
+player 4 class 3: c_soldier_arms owner 4     right
+player 7 class 7: c_pyro_arms    owner 7     right
+player 2 class 2: c_demo_arms    owner none  WRONG
+player 9 class 8: c_demo_arms    owner none  WRONG
+```
+
+One viewmodel of thirty-seven failed to resolve an owner, and the unowned rule handed that one to
+every player who had none of their own.
+
+The distinction is a property of the DEMO, not of an entity: if any viewmodel anywhere in the
+recording names an owner, an unowned one belongs to nobody. `_viewmodelsNameOwners` is computed once
+when the timeline is built, so the answer cannot vary with the tick being drawn. Afterwards:
+
+```
+player 2 class 2 (sniper):  c_sniper_arms  owner 2
+player 4 class 3 (soldier): c_soldier_arms owner 4
+player 7 class 7 (pyro):    c_pyro_arms    owner 7
+player 9 class 8 (spy):     c_spy_arms     owner 9
+player 1 (SourceTV camera): none
+```
+
+Class-correct throughout, and the SourceTV camera correctly gets nothing rather than borrowing
+somebody's hands.
+
+**Two players still resolve none**, which is the honest state: their viewmodel never decoded an owner
+and there is now nothing to fall back to. Drawing no hands is better than drawing another player's,
+and it is visible in the log rather than silent.
