@@ -23,6 +23,14 @@ The same shape recurred all session:
 - Doors: a submodel geometry reader was nearly built before counting showed the faces were already
   in the world buffer.
 
+**One symptom can have several INDEPENDENT causes, and fixing one proves nothing about the
+diagnosis.** "The viewmodel does not appear" had five: not loaded, not uploaded, wrong sequence,
+wrong owner, wrong posing mechanism. Each was real, each was fixed correctly, and after each fix the
+screen looked exactly the same as before — so every fix read as a failed hypothesis when it was not.
+A pipeline with N stages can be broken at N of them at once, and it usually is when the whole
+pipeline is new. **Verify a fix at its own stage** (was the model in the packed set? did the upload
+happen?) rather than at the far end, or a run of correct work looks like a run of wrong guesses.
+
 **How to apply:** write the chain down — file, decode, pack, instance, draw — and put a number on
 each link before touching code. A hop that "obviously works" is exactly the one to instrument,
 because the hops that obviously work are the ones nobody instrumented. And prefer measuring the

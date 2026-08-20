@@ -7021,3 +7021,49 @@ published source. Recorded on the constant itself.
 
 Specified before it was built, in `UnimplementedRenderingConformanceTests`; the rendering suite's
 skip count went 6 to 5.
+
+---
+
+### B118 — `docs/DECISIONS.md` numbers nine decisions twice — OPEN
+
+**D20 through D28 each name two different decisions**, and both are cited in live comments.
+
+| Number | `###` series (line 545 onward) | `##` series (line 1246 onward) |
+|---|---|---|
+| D20 | the protocol boundary list comes from Valve | one renderer with two camera modes, Direct3D 11 |
+| D21 | the era boundaries stay open | geometry is world space; the camera owns the view |
+| D22 | the trace reaches the command line | surf and jump runs set the accuracy bar |
+| D23 | corpus work is cached per process | models are lit the way the engine lights them |
+| D24 | a faster suite recalibrated the mutation tool | the suite runs on synthetic demos |
+| D25 | the test project splits pure/stateful | test names are `{Subject}_{Scenario}_{Expected}` |
+| D26 | CI mutation and fuzzing schedules | no scripted edits to source files |
+| D27 | entity baselines | the measurement check names this project |
+| D28 | user messages are named, not decoded | the viewmodel lookup answers the main hand |
+
+**A later session restarted numbering at D20 without reading the file first**, and the two series
+interleave rather than sit apart — `## D20` is at line 1246, between `### D31` and `### D32`. The
+heading level is the only thing that tells them apart, which is invisible in a citation.
+
+**This is confirmed to be ambiguous in practice, not just in principle.** Both series are cited from
+source comments, sometimes for the same number:
+
+```
+D20 can be trusted to cover: it lists what the *engine* branches on     -> ### D20
+D20's choice of thin Direct3D bindings over an                          -> ## D20
+```
+
+**Why it matters more here than a duplicate number usually would:** the decisions log exists so the
+reasoning behind a choice survives next to the choice. The owner's standing instruction is explicit
+that this has to be defensible months later, when the conversation is gone. A citation that resolves
+to two different decisions defeats exactly that, and it degrades quietly — nothing fails, the reader
+just reads the wrong entry.
+
+**Fix, not yet applied:** renumber the nine `##` entries to D34–D42 in file order and repoint their
+citations, leaving the contiguous `###` series D1–D33 alone. About thirty references need
+classifying by what they actually say, so it is a reading job rather than a substitution — half the
+D20 citations above point each way. Not attempted unprompted, since it rewrites the owner's own
+document.
+
+**Guard afterwards:** a check that no decision number appears at two heading levels belongs in
+`build/gate.sh`, for the same reason the test-count floors are there — the failure is silent, and
+noticing it took a citation being followed by hand.

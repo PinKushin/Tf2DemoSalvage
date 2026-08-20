@@ -11,14 +11,22 @@ metadata:
 `CTFWeaponInvis::Spawn` (the spy's Invis Watch) and `tf_weaponbase_grenade`. Which slot an entity is
 arrives as `m_nViewModelIndex`, 1 bit unsigned, present on every corpus demo back to 2007.
 
+**Grenades are a false second case.** `tf_weaponbase_grenade.cpp:74` does call `SetViewModelIndex(1)`
+and reads as evidence, but TF2's throwables were cut before release and no shipped item names the
+class — living SDK code that nothing exercises. The owner: "this isnt tf1, tf2 only has the spy
+watch for offhand". Same shape as `$modblend` ([[shipped-data-is-a-source]]): a declaration in
+source is not proof of a behaviour in the game.
+
 **Both are on screen together.** From the owner: "main viewmodel doesnt get hidden when a spy goes
 invis, the watch just comes up and everything goes transparent", and "the watch is the left hand,
 the weapon in in the right, unless you use left handed viewmodels, then its the opposite".
 
 **Why:** a lookup blind to the slot keeps whichever entity it walked past last. That is right by
 luck on every demo carrying one viewmodel, and on the 2009 badlands POV it put `v_watch_spy` in a
-soldier's hands and held it there across a change of class. `DemoTimeline.ViewmodelAt` answers with
-the main hand only; the off hand is knowingly not drawn yet (D28).
+soldier's hands and held it there across a change of class. `ViewmodelAt` and `OffHandViewmodelAt`
+now both exist and share one walk, since the owner rule is identical and duplicating it is how the
+two would diverge. The off hand is read and tested but **not yet drawn** by `MainForm.AddViewmodel`
+(D28).
 
 **How to apply:** anything reading a viewmodel filters on the slot. An absent `m_nViewModelIndex`
 means slot 0, because `CBaseViewModel`'s constructor sets it to zero — see
