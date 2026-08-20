@@ -902,6 +902,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Back faces culled, for models — Source culls them and their materials expect it.</summary>
     private ComPtr<ID3D11RasterizerState> _modelCull;
 
+    /// <summary>The same state wound the other way, for a mirrored viewmodel.</summary>
+    private ComPtr<ID3D11RasterizerState> _viewmodelCull;
+
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
 
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
@@ -1207,6 +1210,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> culled = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in modelRasterizer, ref culled));
 
+        // **The mirror of the above, for a viewmodel.** Same state with the winding reversed,
+        // created once rather than switched per draw: a rasterizer state is immutable in D3D11 and
+        // building one mid-frame would be the expensive way to say the same thing.
+        RasterizerDesc mirroredRasterizer = modelRasterizer;
+        mirroredRasterizer.CullMode = CullMode.Front;
+
+        ComPtr<ID3D11RasterizerState> mirrored = default;
+        SilkMarshal.ThrowHResult(
+            device.CreateRasterizerState(in mirroredRasterizer, ref mirrored));
+
         // The same state pulled toward the camera, by an amount worth about a world unit rather
         // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
@@ -1226,6 +1239,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             _bothSides = bothSides,
             _modelCull = culled,
+            _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
         };
     }
@@ -2580,6 +2594,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
+        _viewmodelCull.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
         _layout.Dispose();
@@ -2756,6 +2771,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="blended">Draw the blended materials rather than the opaque ones.</param>
     /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
     /// <param name="body">Which alternative each part shows, packed as m_nBody.</param>
+    /// <param name="mirrored">
+    /// Whether the model is drawn mirrored, as a viewmodel is. That reverses its winding, so the
+    /// faces needing culling are the opposite ones — <c>C_BaseViewModel::InternalDrawModel</c>
+    /// sets <c>MATERIAL_CULLMODE_CW</c> around exactly this and puts it back afterwards.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2774,7 +2794,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyDictionary<int, int>? skin = null,
         bool blended = false,
         IReadOnlyList<(int Base, int Count)>? bodyParts = null,
-        int body = 0)
+        int body = 0,
+        bool mirrored = false)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2825,7 +2846,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
             // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
             // batches of one model can disagree — a sign that culls and a flag that does not.
-            context.RSSetState(_noCull.Contains(material) ? _bothSides : _modelCull);
+            context.RSSetState(CullFor(mirrored, _noCull.Contains(material)) switch
+            {
+                ModelCull.None => _bothSides,
+                ModelCull.Front => _viewmodelCull,
+                _ => _modelCull,
+            });
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture
@@ -2922,6 +2948,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         return _translucent.Contains(material) ? "translucent" : "opaque";
+    }
+
+    /// <summary>Which faces to cull for one batch of a model.</summary>
+    /// <param name="mirrored">Whether the model is drawn mirrored, as a viewmodel is.</param>
+    /// <param name="noCull">Whether the material set <c>$nocull</c>.</param>
+    /// <returns>The cull mode.</returns>
+    /// <remarks>
+    /// **Pulled out as a function so the three-way choice can be tested**, because it is written
+    /// from two booleans and that is the shape that loses a case. The case it loses draws a weapon
+    /// inside out rather than failing.
+    ///
+    /// <c>$nocull</c> is checked first and outranks the flip. The flag says the material's faces
+    /// are meant to be visible from behind — a chain-link fence, a flat blade — which is true
+    /// whichever way the model carrying it is wound, so culling its front faces would hide exactly
+    /// what it asked to keep.
+    /// </remarks>
+    internal static ModelCull CullFor(bool mirrored, bool noCull)
+    {
+        if (noCull)
+        {
+            return ModelCull.None;
+        }
+
+        return mirrored ? ModelCull.Front : ModelCull.Back;
     }
 
     internal static bool Shows(
