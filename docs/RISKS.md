@@ -5668,7 +5668,85 @@ builds and is therefore map data, not a defect.
 
 Evidence class: read from published source (vrad), measured on two builds of one map.
 
-### B95 — local lights are still not applied — OPEN, and separate from B83
+### B95 — local lights are applied and contribute almost nothing — OPEN, and separate from B83
+
+**The heading and the paragraph below it were true when written and have been stale since**
+`LocalLights.AddTo` was wired into `MainForm.LightAt`. Local lights are implemented, tested twelve
+ways, and running. Read as "not implemented", this sent a later session off to build a feature that
+already existed — the same waste as B120's duplicate, from the opposite direction. **A risk entry that
+is not revised when its subject changes is worse than no entry**, because it is believed.
+
+What is actually wrong is quantitative, and the original text is kept below for the history.
+
+#### Measured 2026-08-20 — the direct term is a rounding error
+
+Reporting the bounce and direct terms apart, across `koth_harvest_final`:
+
+```
+bounce 0.0723, with direct 0.0732      bounce 0.2561, with direct 0.2562
+bounce 0.1875, with direct 0.1928      bounce 0.1677, with direct 0.1679
+```
+
+Under three per cent at best, usually under one, from 136 world lights.
+
+**The lights are not the problem, which had to be checked because it was the likelier story.** A
+near-zero direct term is CORRECT on a map whose lights are mostly surface lights, since those carry
+no falloff and are rightly excluded as non-runtime. Harvest is the opposite:
+
+```
+Spotlight: 126, 126 with a falloff        Surface: 8, 0 with a falloff
+SkyLight: 1, 0 with a falloff             SkyAmbient: 1, 0 with a falloff
+```
+
+**126 of 136 are eligible**, all pure inverse-square. And at the exact spot the symptom was seen —
+the spy of `z1800` at tick 47601 — two of them are close and inside their cones:
+
+```
+Spotlight 127 units away: cone dot 0.570 against stop 0.707/0.259, gives 1.8687 INSIDE the cone
+Spotlight 135 units away: cone dot 0.471 against stop 0.574/0.423, gives 0.8626 INSIDE the cone
+```
+
+Contributions of 1.87 and 0.86 against an ambient cube of 0.11. So the selection works, the cone
+maths works, the falloff works, and something after them divides the answer away.
+
+#### The suspect is one constant, and the argument for it cuts both ways
+
+`LocalLights.IntensityScale` is `1f / 255f`, justified in its own remarks as reconciling a cube that
+is "0–1 (`sample[i] / 255f`)" with a world light that is 0–255. **The cube is not divided by 255.**
+`BspAmbientLight.Colour` is `mantissa * 2^exponent` and nothing else, and the comment beside it records
+that a 255 was once there and made every cube "255 times too dark … which drew every player model as
+a black silhouette".
+
+So the stated reason for the constant describes a normalisation that was deliberately removed from the
+other side of the sum. That is a strong argument that it should be 1.
+
+**And a strong argument that it should not**, from the same remarks: without it, luminances of 140,
+311, 903 and 1535 were measured against cubes of 0.1 to 0.4. `ColorRGBExp32` with the negative
+exponents these samples carry lands naturally in 0–1 regardless of there being no explicit divide,
+while vrad builds a world light as `pow(r/255, 2.2) * 255`, which is plainly 0–255. Two scales, and
+the constant is doing real work.
+
+**Both cannot be right and neither is settled by reading.** Removing it makes a lamp overhead dominate
+a dark cube, which is what a lamp does; keeping it makes the sum well-behaved, which is what the
+earlier session measured.
+
+#### The experiment that decides it, not yet run
+
+**Compare our model lighting against our own lightmap at the same point.** The brushes in that room are
+lit by these same lamps, decoded by us, and look correct on screen — so the lightmap is a known-good
+reference for how bright that place should be. If the floor's lightmap luminance next to the spy is
+several times the model's ambient cube, models are too dark by that factor and the constant is wrong.
+If they agree, the constant is right and the darkness is elsewhere — the cube's per-leaf coarseness,
+or the shader's handling of it.
+
+That comparison needs nothing from the engine, uses two decoders this project already has, and gives a
+number rather than an opinion. It is the next step, and the reason no fix was attempted here: a
+constant changed to make one picture look better, with no measurement able to say which value is
+right, is how the wrong one got in.
+
+`LocalLightContributionProbe` reports the light-side half of it and is the instrument to extend.
+
+#### The original entry, kept because it dated the work
 
 `istudiorender.h` describes a model's lighting as an ambient cube "and lights that aren't in
 locallight[]", beside `m_nLocalLightCount` and `m_LocalLightDescs[4]`. We apply the cube and the sun

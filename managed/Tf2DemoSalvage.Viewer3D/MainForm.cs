@@ -1343,8 +1343,50 @@ internal class MainForm : Form
         // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
         // every light past the nearest four. Without this a prop out of daylight is lit by the
         // bounce alone, which is why anything indoors read as though it were in shade (B95).
-        return LocalLights.AddTo(bounced, _worldLights, x, y, z);
+        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z);
+
+        // **The two terms reported apart, because one number cannot say which is missing.** Every
+        // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
+        // and the single figure is consistent with two unrelated faults: no light near enough to be
+        // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
+        // the total makes those indistinguishable — see
+        // docs/memory/a-log-must-name-what-it-measured.md.
+        ReportLightTerms(bounced, lit, x, y, z);
+
+        return lit;
     }
+
+    /// <summary>Says what the bounce gave and what the direct lights added, once per place.</summary>
+    /// <remarks>
+    /// Sampled rather than per call: this runs for every model every time one moves, and the
+    /// question it answers is about a PLACE rather than about a frame.
+    /// </remarks>
+    private void ReportLightTerms(AmbientCube bounced, AmbientCube lit, float x, float y, float z)
+    {
+        if (_worldLights.Count == 0 || !_reportedLightTerms.Add(((int)x, (int)y, (int)z)))
+        {
+            return;
+        }
+
+        if (_reportedLightTerms.Count > LightTermReportLimit)
+        {
+            return;
+        }
+
+        ViewerLog.Write(
+            "render",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
+                $"with direct {AmbientCube.Luminance(lit):0.####}, " +
+                $"{_worldLights.Count} world lights on the map"));
+    }
+
+    /// <summary>Places already reported, so the line does not repeat per frame.</summary>
+    private readonly HashSet<(int X, int Y, int Z)> _reportedLightTerms = [];
+
+    /// <summary>How many places to report before falling silent.</summary>
+    private const int LightTermReportLimit = 40;
 
     /// <summary>The sun reaching a world position, or null when it does not.</summary>
     /// <remarks>

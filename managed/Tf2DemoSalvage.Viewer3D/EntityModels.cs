@@ -112,24 +112,12 @@ internal sealed class EntityModelSet
             pose.Z + z);
     }
 
-    /// <summary>Whether an ambient cube carries no light at all.</summary>
     /// <summary>The whole cube's brightness, for comparing one instance against another.</summary>
-    /// <param name="cube">The sampled ambient cube.</param>
-    /// <returns>Mean of the six faces' mean channel.</returns>
     /// <remarks>
-    /// A crude average on purpose. It is a diagnostic for ranking instances of the same model
-    /// against each other, not a photometric quantity — the question it answers is "is this one
-    /// darker than its neighbours", and any monotonic summary answers that.
+    /// Moved onto <see cref="AmbientCube"/> so the light sampler can print the same summary; see
+    /// <see cref="AmbientCube.Luminance"/> for why it is a crude average.
     /// </remarks>
-    private static float Luminance(AmbientCube cube)
-    {
-        static float Mean((float Red, float Green, float Blue) face) =>
-            (face.Red + face.Green + face.Blue) / 3f;
-
-        return (Mean(cube.PositiveX) + Mean(cube.NegativeX) +
-                Mean(cube.PositiveY) + Mean(cube.NegativeY) +
-                Mean(cube.PositiveZ) + Mean(cube.NegativeZ)) / 6f;
-    }
+    private static float Luminance(AmbientCube cube) => AmbientCube.Luminance(cube);
 
     /// <summary>Entities whose sampled light has been reported, one line each.</summary>
     private readonly HashSet<int> _reportedLight = [];
