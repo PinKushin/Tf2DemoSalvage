@@ -216,6 +216,15 @@ single largest visual difference on players. **Read `vertexlitgeneric_dx9_helper
 `$basemapalphaphongmask` versus the normal map's alpha, and picking the wrong one produces a
 plausible sheen in the wrong places.
 
+**Implemented 2026-08-21, B128.** What remains of it is `$phongexponenttexture` — the per-texel
+exponent — and with it `$phongalbedotint`, which reads its tint from that texture's green channel and
+so cannot do anything without one.
+
+**And a limit worth knowing before reading the picture**: the term is driven by the SUN alone. The
+engine sums it over the light cache's local lights as well, and those do not reach a model here, so a
+highlight appears where the sun reaches and nowhere else. That is smaller than TF2's and it is what
+the decoded data supports.
+
 ### `$normalmapalphaenvmapmask` — reflective props shine everywhere at once
 15 prop materials on cp_badlands, `cap_point_base` and its two team skins among them. The three
 reflection masks are mutually exclusive by construction — the shader declares
