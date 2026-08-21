@@ -8099,3 +8099,50 @@ Two shapes for the fix, and the choice is a real one rather than a detail:
   does, and it means the model path stops being the only path that can move something.
 
 Not attempted, and deliberately not guessed at.
+
+## B132 — some entities reach the entity table with no properties at all — OPEN, and it is not about fog
+
+**Found while implementing fog, and it is much wider than fog.**
+
+Measured on `tf2-2011-build4604-stv-koth_viaduct.dem`:
+
+| Measurement | Value |
+|---|---|
+| Entity #212, class `CFogController`, sightings in the entity table | 3,762 packets |
+| Properties that entity holds | **0** |
+| Properties the same entity's ENTER carries, per a trace of the same file | **15** |
+| Entities in the table holding no properties at all | **19 of 195** |
+
+The trace is unambiguous — `entity 212 ENTER class CFogController(47)` with `m_fog.enable 1`,
+`m_fog.end 6500`, `m_fog.colorPrimary 14528213` and the rest — and #212 appears exactly once in
+4,000 snapshots, never deleted and never re-entered. So the properties are decoded and then do not
+survive into `EntityState`.
+
+**Ruled out on the way:**
+
+- Not the property NAMES. `EntityFogTests` reads them correctly from values copied out of that
+  trace, and the qualified keys match what `EntityStateTable.Apply` composes.
+- Not `NetworkedProperties`. That is an inventory, not a filter — established 2026-08-16 — so it
+  gates nothing.
+- Not a class-lookup failure. The table knows the entity is a `CFogController`, which it can only
+  have learned from the ENTER the decoder read.
+- Not systemic. 176 of 195 entities do hold properties, and props, players and brush entities all
+  work — so whatever this is, it affects a minority.
+
+**Why it matters beyond fog.** Nineteen entities is not a rounding error, and nothing else in the
+project asks these entities for anything, so the loss is invisible today. Any future feature reading
+a non-player, non-prop entity — the round timer, the objective resource, the fog — hits it first and
+looks like its own bug.
+
+**What is already built and correct**, waiting on this: `SceneFog`, `EntityState.Fog` with five unit
+tests, `DemoTimeline.FogAt`, the per-change sampling, and `FogConformanceTests` pinning the
+arithmetic to the SDK. `FogDecodeTests` asserts the current zero deliberately and says in its own
+message to replace itself when the number changes.
+
+### And a checker that could not see the properties either
+
+`SendTableConformanceTests` and `SendPropConformanceTests` both reported all five fog properties as
+declared nowhere in the SDK. They were wrong: their `SENDINFO` pattern matched identifier characters
+only, and `SENDINFO_STRUCTELEM( m_fog.start )` sends under an expression containing a **dot**, so the
+capture stopped at `m_fog`. A fact about the pattern rather than about Valve's tables, and the same
+family as `docs/memory/wire-names-are-strings.md`. Fixed in both.

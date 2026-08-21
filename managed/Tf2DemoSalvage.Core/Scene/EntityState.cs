@@ -53,7 +53,32 @@ public sealed class EntityState
             [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
             [CombatCharacterTable] = [ActiveWeaponProperty],
             [TfPlayerTable] = [WaterLevelProperty],
+
+            // **Fog, which is the first entry here that is not about a thing you can see.** A
+            // CFogController has no model and no position that matters; it exists to carry the
+            // atmosphere, and it changes during a round as triggers fire. Without these the demo
+            // records fog and the viewer draws none.
+            [FogControllerTable] =
+            [
+                FogEnableProperty, FogStartProperty, FogEndProperty,
+                FogColourProperty, FogMaxDensityProperty,
+            ],
         };
+
+    /// <summary>The atmosphere, networked per tick by <c>CFogController</c>.</summary>
+    /// <remarks>
+    /// <c>fogcontroller.cpp:78</c>. **The property names are struct PATHS, not field names**, because
+    /// <c>SENDINFO_STRUCTELEM( m_fog.start )</c> sends under the expression it was given — the same
+    /// trap as <c>docs/memory/wire-names-are-strings.md</c>. A decoder looking for <c>start</c>
+    /// finds nothing and reports no fog, which is indistinguishable from a map that has none.
+    /// </remarks>
+    internal const string FogControllerTable = "DT_FogController";
+
+    private const string FogEnableProperty = "m_fog.enable";
+    private const string FogStartProperty = "m_fog.start";
+    private const string FogEndProperty = "m_fog.end";
+    private const string FogColourProperty = "m_fog.colorPrimary";
+    private const string FogMaxDensityProperty = "m_fog.maxdensity";
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
 
@@ -255,6 +280,47 @@ public sealed class EntityState
     /// viewer must not draw it while it is gone.
     /// </remarks>
     public bool IsVisible { get; internal set; } = true;
+
+    /// <summary>The atmosphere this entity describes, or null when it is not a fog controller.</summary>
+    /// <remarks>
+    /// **Null for every entity but one, and that is the point of asking through the state rather
+    /// than by class name.** A demo may carry a controller whose <c>m_fog.enable</c> is zero — a map
+    /// with fog switched off is a real case, not a missing one — so "no controller" and "a
+    /// controller saying no fog" both arrive here as null and draw the same.
+    ///
+    /// The colour is packed as one 32-bit value, RGBA in the low bytes upward, because
+    /// <c>colorPrimary</c> is a <c>color32</c> sent as <c>SendPropInt( …, 32, SPROP_UNSIGNED )</c>.
+    /// </remarks>
+    public SceneFog? Fog()
+    {
+        if (Integer($"{FogControllerTable}.{FogEnableProperty}") is not 1 ||
+            Number($"{FogControllerTable}.{FogStartProperty}") is not { } start ||
+            Number($"{FogControllerTable}.{FogEndProperty}") is not { } end ||
+            Integer($"{FogControllerTable}.{FogColourProperty}") is not { } packed)
+        {
+            return null;
+        }
+
+        // **A range of zero would divide by zero in the shader's `1 / (end - start)`.** The engine
+        // guards this by never authoring one; guarding it here means a malformed demo draws no fog
+        // rather than a screen of NaN.
+        if (end <= start)
+        {
+            return null;
+        }
+
+        return new SceneFog(
+            start,
+            end,
+            ((uint)packed & 0xFF) / 255f,
+            (((uint)packed >> 8) & 0xFF) / 255f,
+            (((uint)packed >> 16) & 0xFF) / 255f,
+
+            // **Absent means 1, not 0.** maxdensity caps the fog; a controller that does not send
+            // it wants no cap, and defaulting to zero would switch fog off entirely while
+            // reporting that it is on.
+            Number($"{FogControllerTable}.{FogMaxDensityProperty}") ?? 1f);
+    }
 
     /// <summary>Every property this entity has ever been sent, keyed <c>Table.Name</c>.</summary>
     public IReadOnlyDictionary<string, PropertyValue> Properties => _properties;

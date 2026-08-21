@@ -120,7 +120,12 @@ public sealed class SendPropConformanceTests
             "src/game",
             "*.cpp",
             new Regex(
-                @"SENDINFO(?:_[A-Z]+)?\(\s*([A-Za-z_][A-Za-z0-9_]*)",
+                // **The dot is load-bearing.** SENDINFO_STRUCTELEM( m_fog.start ) sends under the
+                // expression it was handed, so the wire name contains a member access — and a
+                // pattern matching only identifier characters captured `m_fog` and reported every
+                // real fog property as unknown. Same family as wire-names-are-strings: the name is
+                // whatever the macro stringifies, not whatever C++ would call the field.
+                @"SENDINFO(?:_[A-Z]+)?\(\s*([A-Za-z_][A-Za-z0-9_.]*)",
                 RegexOptions.Compiled,
                 TimeSpan.FromSeconds(10)),
             recursive: true);

@@ -218,6 +218,9 @@ public sealed class DemoTimeline
     /// <summary>The class every player entity has, spectators and the SourceTV camera included.</summary>
     private const string PlayerClass = "CTFPlayer";
 
+    /// <summary>The entity that carries the atmosphere.</summary>
+    private const string FogControllerClass = "CFogController";
+
     private static readonly string[] TeamProperties =
     [
         "DT_BaseEntity.m_iTeamNum",
@@ -254,6 +257,14 @@ public sealed class DemoTimeline
     /// </remarks>
     private readonly List<(int Tick, SceneViewmodel Weapon)> _viewmodels = [];
 
+    /// <summary>Every change to the atmosphere, in tick order.</summary>
+    /// <remarks>
+    /// Recorded on change rather than per tick: a fog controller sends its state on entry and then
+    /// rarely, so a per-tick list would be tens of thousands of identical entries for a handful of
+    /// distinct values.
+    /// </remarks>
+    private readonly List<(int Tick, SceneFog Fog)> _fog = [];
+
     /// <summary>Whether any viewmodel in this demo names an owner.</summary>
     /// <remarks>
     /// **This is what separates a point-of-view recording from a SourceTV one**, and it is a
@@ -269,10 +280,12 @@ public sealed class DemoTimeline
         List<ScenePropTrack>? props = null,
         List<ScenePropTrack>? playerTracks = null,
         List<(int Tick, RecordedView View)>? recordedViews = null,
-        List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null)
+        List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null,
+        List<(int Tick, SceneFog Fog)>? fog = null)
     {
         _recordedViews = recordedViews ?? [];
         _viewmodels = viewmodels ?? [];
+        _fog = fog ?? [];
 
         _viewmodelsNameOwners =
             _viewmodels.Exists(recorded => recorded.Weapon.OwnerEntityIndex is not null);
@@ -308,6 +321,54 @@ public sealed class DemoTimeline
 
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
+
+    /// <summary>Every recorded change to the atmosphere, in tick order.</summary>
+    /// <remarks>
+    /// Exposed alongside <see cref="FogAt"/> because the two answer different questions and a test
+    /// that can only ask the second cannot tell "no fog was recorded" from "fog was recorded after
+    /// the tick I asked about". That distinction cost a diagnosis here.
+    /// </remarks>
+    public IReadOnlyList<(int Tick, SceneFog Fog)> FogSamples => _fog;
+
+    /// <summary>How many times a fog controller was seen in the entity table, across all packets.</summary>
+    /// <remarks>
+    /// **A diagnostic, and it exists because "no fog" has two causes that look identical.** Either
+    /// the demo has no controller, or it has one and something between the entity table and
+    /// <c>SceneFog</c> is dropping it. A count separates them in one number; without it the only
+    /// way to tell was to decode the demo twice by different routes and compare.
+    /// </remarks>
+    public int FogControllersSeen { get; private init; }
+
+    /// <summary>The most properties any fog controller carried, which B132 says is zero.</summary>
+    public int FogControllerProperties { get; private init; }
+
+    /// <summary>The atmosphere at a tick, or null when the demo records none.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <returns>The fog in force, or null.</returns>
+    /// <remarks>
+    /// **Walks forward keeping the last sample at or before the tick**, which is how every other
+    /// lookup here works and is what a networked value means: it holds until the server changes it.
+    ///
+    /// Null before the first sample as well as when there is none at all, because fog that begins
+    /// partway through a demo did not exist before then. Drawing the eventual value from tick zero
+    /// would be inventing atmosphere the recording does not have.
+    /// </remarks>
+    public SceneFog? FogAt(int tick)
+    {
+        SceneFog? found = null;
+
+        foreach ((int at, SceneFog fog) in _fog)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            found = fog;
+        }
+
+        return found;
+    }
 
     /// <summary>Which entity the recording was made from, or <c>null</c> for SourceTV.</summary>
     /// <remarks>
@@ -591,6 +652,9 @@ public sealed class DemoTimeline
         List<(int Tick, RecordedView View)> recordedViews = [];
         int? recorderSlot = null;
         List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
+        List<(int Tick, SceneFog Fog)> fogSamples = [];
+        int fogControllersSeen = 0;
+        int fogProperties = 0;
 
         // What each viewmodel entity last said, so an unchanged one is not recorded again. Keyed
         // by entity because a player carries two and they interleave.
@@ -705,6 +769,35 @@ public sealed class DemoTimeline
             // it is never recorded at all.
             RecordViewmodels(
                 entities, precache, protocol, command.Tick, lastViewmodel, viewmodels);
+
+            // **Sampled here for the same reason and recorded only on CHANGE.** A fog controller
+            // sends its whole state on entry and then rarely again, so a keyframe per tick would be
+            // tens of thousands of identical entries; a keyframe per change is a handful, and the
+            // lookup walks forward keeping the last one exactly as the viewmodels do.
+            foreach (EntityState entity in entities.All)
+            {
+                if (entity.ClassName == FogControllerClass)
+                {
+                    fogControllersSeen++;
+
+                    // **The controller's property count, which is the number that diagnosed B132.**
+                    // Zero here while a trace of the same demo shows the entity entering with
+                    // fifteen properties is the whole finding, and it is cheap enough to keep.
+                    fogProperties = Math.Max(fogProperties, entity.Properties.Count);
+                }
+
+                if (entity.Fog() is not { } fog)
+                {
+                    continue;
+                }
+
+                if (fogSamples.Count == 0 || fogSamples[^1].Fog != fog)
+                {
+                    fogSamples.Add((command.Tick, fog));
+                }
+
+                break;
+            }
 
             if (!moved)
             {
@@ -926,8 +1019,10 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames, props, playerTracks, recordedViews, viewmodels)
+        return new DemoTimeline(frames, props, playerTracks, recordedViews, viewmodels, fogSamples)
         {
+            FogControllersSeen = fogControllersSeen,
+            FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
         };

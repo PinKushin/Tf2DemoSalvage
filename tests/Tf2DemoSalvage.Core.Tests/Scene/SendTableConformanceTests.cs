@@ -116,7 +116,11 @@ public sealed class SendTableConformanceTests
             TimeSpan.FromSeconds(10));
 
         Regex sends = new(
-            @"SENDINFO(?:_[A-Z]+)?\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:,\s*([A-Za-z_][A-Za-z0-9_]*))?",
+            // **The dot in the first group is load-bearing.** SENDINFO_STRUCTELEM( m_fog.start )
+            // sends under the expression it was handed, so the wire name carries a member access.
+            // Matching only identifier characters captured `m_fog` and reported every fog property
+            // as declared-nowhere — a fact about the pattern rather than about Valve's tables.
+            @"SENDINFO(?:_[A-Z]+)?\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(?:,\s*([A-Za-z_][A-Za-z0-9_]*))?",
             RegexOptions.Compiled,
             TimeSpan.FromSeconds(10));
 
