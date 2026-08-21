@@ -283,3 +283,68 @@ See `docs/DECISIONS.md` D45.
 `%compile*` flags are instructions to vbsp, obeyed before the map shipped. `$surfaceprop` picks a
 footstep sound. `%keywords` is a Hammer search tag. These are counted separately by the census so a
 later reader can tell "ignored on purpose" from "not got to yet".
+
+---
+
+## The conformance tests B135 needed and did not have
+
+**An evening went into why a pipe drew behind the stripe on the wall behind it** — two reverted bias
+changes, a depth-format change, a decompiler import — and the answer was a pass order Valve publishes
+in `game/client/viewrender.cpp`. None of it was measurable by any existing test, because every
+conformance suite here compares *parameters* and *formats*, and nothing compared **the shape of the
+frame**.
+
+`ScenePassOrderConformanceTests` now pins Valve's order. It cannot go red on ours, which is the
+limitation to fix next; the list below is what would.
+
+### What Valve does, and where
+
+| claim | citation |
+|---|---|
+| world (with its overlay fragments) is drawn before opaque renderables | `CBaseWorldView::DrawExecute`, `viewrender.cpp:5487` |
+| static props and brush models ARE opaque renderables | `DrawOpaqueRenderables_DrawStaticProps`, `_DrawBrushModels` |
+| translucent renderables come after both | same function |
+| a decal-flagged surface does not write depth | `EnableDepthWrites( false )`, `DecalModulate_dx9.cpp:66` |
+| the decal bias constants | `m_DepthBias_Decal = -262144`, `m_SlopeScaleDepthBias_Decal = -0.5f`, `materialsystem_config.h:223` |
+| an overlay's face list carries no orientation test | `Overlay_AddFaceToLists`, `vbsp/overlay.cpp:171` |
+| an entity at index zero is never drawn | `C_BaseEntity::ShouldDraw`, `c_baseentity.cpp:1450` |
+
+### The tests that would have gone red, in the order they would have paid
+
+1. **Pass order, ours against Valve's.** This project draws world surfaces **and static props**
+   together, then overlays, then models. Valve draws world **and overlays**, then props and models.
+   So a prop is in the depth buffer before an overlay is drawn here and after it there — and with any
+   bias on the overlay pass, the overlay wins against a pipe that is genuinely nearer. **This is
+   B135.** Observable today: `MapWorld` has `Batches` and `Decals` and no third list, so prop
+   geometry is provably inside the pass that precedes the overlays.
+
+2. **Static props are renderables, not world geometry.** The merge is what makes (1) impossible to
+   fix by reordering passes alone — the prop vertices are in the same buffer and the same batches as
+   the surfaces. A test asserting that a prop's triangles land in a list distinct from the world's
+   would be red now and green when the architecture matches.
+
+3. **Depth-write behaviour per pass.** Nothing asserts which passes write depth. Overlays wrote it
+   until tonight; B72 was a leaked read-only state in the model pass. Both are the same missing test.
+
+4. **The height cut clips a world coordinate.** The shader clips `SV_POSITION.z`, which is NDC depth
+   and equals height only under a top-down orthographic camera. Red under any perspective camera.
+   **This is B136**, and `wpos` is already in the same shader struct.
+
+5. **A depth constant is meaningless without its format.** `D24_UNORM` scales `DepthBias` by a fixed
+   `1/2^24`; `D32_FLOAT` scales it by a data-dependent factor. A test pinning the buffer format
+   beside any test that pins a bias constant. **This is D48**, found only because the constant
+   misbehaved.
+
+6. **One owner per render state.** `SetDecalBias` disposed and replaced the rasteriser state at map
+   load, so every experiment that edited the constant where it is *created* measured nothing — zero
+   and Valve's `-262144` produced identical pictures because neither was ever in effect. A test that
+   the state a pass uses is the state that was built for it would have caught it in seconds.
+
+### The general lesson for this project's conformance suites
+
+**They measure what the engine *is*, and not what the renderer *does with it*.** `SdkCoverageTests`
+generates a denominator of 489 shader parameters, 66 lumps and 54 studio structures, and every
+hand-written suite checks a value against a citation. None of them describes a frame: which passes
+exist, in what order, writing and testing what.
+
+That is the gap B135 fell into, and it is where the next conformance tests belong.

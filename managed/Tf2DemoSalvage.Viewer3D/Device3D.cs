@@ -178,17 +178,6 @@ internal sealed unsafe class Device3D : IDisposable
     public void ClearAndPresent(float red, float green, float blue) =>
         DrawAndPresent(red, green, blue, []);
 
-    /// <summary>Sizes the decal depth bias for the map's height range.</summary>
-    /// <param name="worldRange">Highest world height minus lowest, in units.</param>
-    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
-    public void SetDecalBias(float worldRange)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        _world ??= WorldRenderer.Create(_device);
-        _world.SetDecalBias(_device, worldRange);
-    }
-
     /// <summary>Uploads every entity model's geometry, in model space.</summary>
     /// <param name="models">The packed set.</param>
     /// <exception cref="ArgumentNullException"><paramref name="models"/> is null.</exception>
@@ -1004,10 +993,11 @@ internal sealed unsafe class Device3D : IDisposable
     /// near a depth of 1.
     ///
     /// So every depth constant in this renderer meant something other than what it said. The decal
-    /// bias is the plain case: <see cref="WorldRenderer.SetDecalBias"/> computes
-    /// <c>2^24 / worldRange</c> and its comment calls the result "about one world unit", which is
-    /// the arithmetic for a 24-bit fixed-point buffer. Against a float buffer it was neither one
-    /// unit nor any fixed distance. The stripes were tuned around that.
+    /// bias was the plain case: a <c>SetDecalBias</c> method computed <c>2^24 / worldRange</c> and
+    /// called the result "about one world unit", which is the arithmetic for a 24-bit fixed-point
+    /// buffer. Against a float buffer it was neither one unit nor any fixed distance, and the wall
+    /// stripes were tuned around it. That method is gone — see B135; it also overwrote the state
+    /// built at load, which made every later experiment on the constant measure nothing.
     ///
     /// **The projection already matched and this was the last piece that did not.** The near plane
     /// is the engine's own <c>VIEW_NEARZ</c> of 7, the field of view its <c>CViewSetup</c> default

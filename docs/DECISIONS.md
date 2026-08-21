@@ -1913,6 +1913,35 @@ narrower than the probe understood — renamed, not removed).
 
 ## D46 — where this project's code diverges from Valve's, this project's code changes
 
+### Why, in the owner's words — added 2026-08-21
+
+> *"part of the reason i harp on valve standards too is im pretty confident valve hires some of the
+> best programmers in the world. Its an extremely hard place to be hired, and based on valves work
+> outside tf2, when they are not too rushed, they are really really good at optimizing and writing
+> robust maintainable software. Tf2 is only semi unoptimized because of everything that was added on
+> after the fact, that valve never went back to fix."*
+
+**The operational consequence, and it is sharper than "prefer their way":** when Valve's code does
+something that looks wrong, the first hypothesis is that something of ours is distorting it — not
+that they got it wrong. TF2's rough edges are accretion, and accretion looks different from a bad
+decision: it is a feature bolted beside an old one, not a constant that makes no sense.
+
+**Two demonstrations in one evening, both mine:**
+
+- Valve's decal bias `-262144` was declared wrong for this project twice, on 2026-08-14 and again on
+  2026-08-21. Both times the depth buffer was `D32_FLOAT` where the engine's is 24-bit fixed point,
+  so D3D was scaling the constant by a data-dependent factor instead of the fixed `1/2^24` it is
+  calibrated against (D48). The number was never tested; our format was the fault.
+- The same constant then appeared to do nothing at all, which read as further evidence against it.
+  A `SetDecalBias` method was disposing the rasteriser state at map load and replacing it, so every
+  experiment measured a value neither Valve nor anyone else had chosen (B135). Ours again.
+
+So the rule below is not deference for its own sake. **A divergence is a variable, and an
+uncontrolled variable makes every measurement downstream of it meaningless** — which is why matching
+Valve first is cheaper than reasoning about why their value misbehaves.
+
+
+
 **Owner's direction, 2026-08-21**, given while `$lightwarptexture` was being specified and it became
 clear that implementing it faithfully would mean editing a half-Lambert path that had been correct
 for a year: *"we do not hesitate to change our own code to properly match valves"*.

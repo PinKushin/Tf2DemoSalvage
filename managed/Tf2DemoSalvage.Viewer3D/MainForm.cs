@@ -1274,12 +1274,13 @@ internal class MainForm : Form
                     // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
                     _heightRange = MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds);
 
-                    // The decal bias is a fraction of the depth buffer, and the depth buffer spans
-                    // this range - so the same bias is worth a different distance on every map.
-                    if (_heightRange is { } range && range.Highest > range.Lowest)
-                    {
-                        _device.SetDecalBias(range.Highest - range.Lowest);
-                    }
+                    // **No decal bias is set here any more, and its removal is the point (B135).**
+                    // This called SetDecalBias with the map's height range, which DISPOSED the
+                    // rasteriser state built at load and replaced it with one computed from
+                    // 2^24 / range. So every experiment that edited the constant in WorldRenderer
+                    // measured nothing: the value was overwritten before a frame was drawn, and
+                    // zero and Valve's -262144 produced identical pictures because neither was ever
+                    // in effect. The bias now lives in exactly one place, where it is created.
 
                     built = MapWorldBuilder.Build(
                         _terrain,

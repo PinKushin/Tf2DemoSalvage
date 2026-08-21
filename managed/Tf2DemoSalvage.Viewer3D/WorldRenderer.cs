@@ -1479,22 +1479,27 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
 
-        // **No bias at all, neither constant nor slope-scaled (B135).** Both pull a fragment toward
-        // the camera, and toward the camera is where the things an overlay must NOT hide are: a pipe
-        // is a static prop, packed into the world geometry and drawn in the opaque pass, so it has
-        // already written a depth nearer than the wall by the time the overlay pass runs. Any bias
-        // large enough to clear the wall is large enough to clear the pipe standing in front of it.
+        // **Valve's own values, on Valve's own buffer format — a combination that had never
+        // existed here until D48 (B135).**
         //
-        // The slope-scaled term hid this after the constant one was removed — it is proportional to
-        // the polygon's depth GRADIENT, so it grows exactly where a wall is seen at an angle, which
-        // is most of a room. Valve's -0.5 means the same thing under any projection; it is still the
-        // wrong thing to want here.
+        //   m_DepthBias_Decal          = -262144
+        //   m_SlopeScaleDepthBias_Decal = -0.5f
         //
-        // Nothing has to make up for it, because since B134 a fragment is the wall's own vertices
-        // clipped in the wall's own plane. It rasterises to the wall's own depth, which LessEqual
-        // admits — measured: with every bias at zero the stripes do not flicker.
-        biased.DepthBias = 0;
-        biased.SlopeScaledDepthBias = 0f;
+        // public/materialsystem/materialsystem_config.h:223.
+        //
+        // **Both previous attempts at this constant were run against a D32_FLOAT buffer** — on
+        // 2026-08-14 and again earlier on 2026-08-21 — and both were reverted after the decals
+        // floated. Neither was a test of Valve's value. D3D11 scales a rasteriser's DepthBias by a
+        // factor the FORMAT decides: the fixed 1/2^24 for UNORM, which is what the constant is
+        // calibrated against, and a data-dependent 2^(exponent−23) for FLOAT, roughly double near a
+        // depth of 1 and applied at every range rather than shrinking with it. The format was only
+        // matched to the engine's in D48, after the second revert.
+        //
+        // So this is the first time the number means what Valve means by it. Kept together with the
+        // depth-write behaviour their decal shaders set — see _decalDepth — because the two are one
+        // arrangement rather than two knobs.
+        biased.DepthBias = -262144;
+        biased.SlopeScaledDepthBias = -0.5f;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
@@ -3242,37 +3247,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
             SilkMarshal.ThrowHResult(
                 device.CreateBuffer(in description, in initial, ref _modelVertices));
         }
-    }
-
-    /// <summary>Sizes the decal bias for the map's own height range.</summary>
-    /// <param name="device">The device.</param>
-    /// <param name="worldRange">Highest world height minus lowest, in units.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="worldRange"/> is not positive.</exception>
-    /// <remarks>
-    /// **A world unit, whatever the map.** The depth buffer spans the map's whole height, so the
-    /// same bias means different distances on different maps — a tall map would push its decals
-    /// further through whatever stands on them. One unit is enough to stop a decal fighting the
-    /// surface it lies on and far less than the smallest thing that can stand on one.
-    /// </remarks>
-    public void SetDecalBias(ComPtr<ID3D11Device> device, float worldRange)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(worldRange);
-
-        RasterizerDesc description = new()
-        {
-            FillMode = FillMode.Solid,
-            CullMode = CullMode.None,
-            DepthClipEnable = 1,
-            DepthBias = -(int)(16777216.0 / worldRange),
-            SlopeScaledDepthBias = -0.5f,
-        };
-
-        ComPtr<ID3D11RasterizerState> replacement = default;
-
-        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref replacement));
-
-        _decalOffset.Dispose();
-        _decalOffset = replacement;
     }
 
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
