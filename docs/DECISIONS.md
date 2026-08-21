@@ -2000,6 +2000,26 @@ under `_X360` to split the Xbox 360's unified shader registers between vertex an
 not transcribing one by accident — they announce themselves — it is quoting one as *evidence* of
 "what Valve does" when the PC branch beside it says otherwise.
 
+### And the point the console remark was actually making
+
+> *"my note about consoles was actually referencing stuff done on like the nintendo, to get overlays
+> and the like. you know how mario 3 got the nonscrolling part at the bottom of the screen"*
+
+Not TF2's port — the older tradition of building an effect out of a hardware quirk. Super Mario Bros.
+3's status bar is a raster trick: the NES scrolls a whole nametable, so a fixed strip beneath a moving
+playfield is not on offer, and the game changes the scroll registers *mid-frame* on a scanline timed
+by sprite-0 hit or the MMC3 IRQ. One screen drawn with two scrolls, out of a chip that has one.
+
+**That is the sharpest statement of why this rule exists.** The trick is inexplicable from the code
+alone — no comment says "status bar", there is only a register write at a suspiciously precise
+moment, and the constraint that makes it correct is nowhere near it. Same shape as `0x5f3759df`, and
+same shape as a decal bias expressed in raw depth-buffer units instead of world distance.
+
+So the tell to watch for in the engine is **arbitrary and precise at the same time**: a magic
+constant, an odd ordering, a value that only makes sense at one particular moment. That combination
+is a trick, not a mistake, and the correct response is to find what it answers — or to reproduce it
+and record the puzzlement.
+
 
 
 **Owner's direction, 2026-08-21**, given while `$lightwarptexture` was being specified and it became

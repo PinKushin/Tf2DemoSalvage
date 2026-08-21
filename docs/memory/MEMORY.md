@@ -105,4 +105,4 @@
 - [Clip the surface to the projection](clip-the-surface-to-the-projection.md) — an overlay is a volume; clipping the quad to the face bounds fragments by BSP splits and needs a slack fudge to hide the seams.
 - [Name the reading you picked](name-the-reading-you-picked.md) — "a top down map view" became a projection; a decision recorded as a requirement cannot be revisited.
 - [Never revert without asking](never-revert-without-asking.md) — revert scratch work freely; a change that was asked for, works, and should have been a commit is not yours to discard.
-- [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — the fast inverse square root looks like a bug; name the trade before changing it, and note DX9-era values do not carry to DX11. Console paths are out of scope.
+- [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — an effect built from a hardware quirk looks like a bug wherever you find it; arbitrary AND precise means a trick, not a mistake.

@@ -82,5 +82,29 @@ Unlike the DX9-era traps these announce themselves, so the only way to be caught
 mistake to avoid is not transcribing one by accident — it is treating one as *evidence*, quoting a
 console path as "what Valve does" when the PC branch beside it says something else.
 
+## The point that remark was actually making: effects built out of hardware quirks
+
+The owner was not talking about TF2's console port. They meant the older tradition:
+
+> *"my note about consoles was actually referencing stuff done on like the nintendo, to get overlays
+> and the like. you know how mario 3 got the nonscrolling part at the bottom of the screen"*
+
+**Super Mario Bros. 3's status bar is a raster trick.** The NES scrolls a whole nametable, so a fixed
+strip under a moving playfield is not something the hardware offers. The game changes the scroll
+registers *mid-frame*, timed to a scanline — sprite-0 hit, or the MMC3 mapper's IRQ — so the top of
+the screen is drawn with one scroll and the bottom with another. One screen, two behaviours, out of a
+chip that has one.
+
+**Why this belongs in a rule about reading Valve's code:** that trick is inexplicable from the code
+alone. There is no comment saying "status bar"; there is a write to a register at a suspiciously
+precise moment. Every local signal says wrong, and the thing that makes it right — a hardware
+constraint and a scanline counter — is nowhere near it.
+
+That is the same shape as the fast inverse square root and the same shape as a decal bias expressed
+in raw depth-buffer units. **An effect built out of a quirk looks like a bug wherever you find it**,
+because the constraint it answers is not written down beside it. So when something in the engine
+looks arbitrary and precise at the same time — a magic constant, an odd ordering, a value that only
+makes sense at one moment — the hypothesis is a trick, not a mistake.
+
 Related: [[nothing-is-closed]], [[read-the-spec-before-measuring-our-data]],
 [[a-filed-design-choice-may-not-be-one]].
