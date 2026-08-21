@@ -1141,6 +1141,34 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The decal batches, drawn over the world with a depth bias.</summary>
     private IReadOnlyList<WorldBatch> _decals = [];
 
+    /// <summary>Depth comparison the overlay pass draws with.</summary>
+    /// <remarks>
+    /// **`LessEqual`, because an overlay fragment is coplanar with the wall by construction.** Since
+    /// B134 it is built from that wall's own vertices, clipped in the wall's own plane — so it
+    /// rasterises to exactly the wall's depth, and a comparison that rejects equality would reject
+    /// the marking outright.
+    ///
+    /// **That coplanarity is measured, not assumed.** Run with every bias at zero, the stripes do
+    /// not flicker — which is what z-fighting would look like if the fragments were merely close to
+    /// their walls rather than on them. An earlier attempt at the same experiment left the
+    /// slope-scaled bias in and proved nothing.
+    /// </remarks>
+    private const ComparisonFunc DecalDepthFunc = ComparisonFunc.LessEqual;
+
+    /// <summary>Depth state for the overlay pass: tested, never written.</summary>
+    /// <remarks>
+    /// **Writing depth is what let a stripe hide a pipe (B135).** An overlay is a marking on a wall
+    /// that has already written its own depth; writing again — especially through a rasteriser bias,
+    /// which puts a NEARER value in the buffer than the wall ever had — leaves everything drawn
+    /// afterwards testing against a surface that does not exist.
+    ///
+    /// Valve's decal shaders say the same in one line — <c>EnableDepthWrites( false )</c>,
+    /// <c>DecalModulate_dx9.cpp:66</c> — though for sprayed decals rather than overlays, so applying
+    /// it here is an interpolation (D44) rather than a transcription. The reasoning stands on its
+    /// own: nothing that marks a surface should occlude what stands in front of it.
+    /// </remarks>
+    private ComPtr<ID3D11DepthStencilState> _decalDepth;
+
     /// <summary>Rasteriser state that pulls a decal toward the camera.</summary>
     /// <remarks>
     /// **Valve's own numbers, from materialsystem_config.h**, which is published even though the
@@ -1167,14 +1195,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// matching the projection copies the intent and inverts the effect.
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
-
-    /// <summary>Depth bias used until the map's height range is known.</summary>
-    /// <remarks>
-    /// Sized for a range of about 1,600 units, which is a typical TF2 map: one unit of a 24-bit
-    /// range is 2^24 / 1600, near enough ten thousand. <see cref="SetDecalBias"/> replaces it with
-    /// the real arithmetic once the map has been read.
-    /// </remarks>
-    private const int DefaultDecalBias = -10000;
 
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
@@ -1459,8 +1479,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
 
-        biased.DepthBias = DefaultDecalBias;
-        biased.SlopeScaledDepthBias = -0.5f;
+        // **No bias at all, neither constant nor slope-scaled (B135).** Both pull a fragment toward
+        // the camera, and toward the camera is where the things an overlay must NOT hide are: a pipe
+        // is a static prop, packed into the world geometry and drawn in the opaque pass, so it has
+        // already written a depth nearer than the wall by the time the overlay pass runs. Any bias
+        // large enough to clear the wall is large enough to clear the pipe standing in front of it.
+        //
+        // The slope-scaled term hid this after the constant one was removed — it is proportional to
+        // the polygon's depth GRADIENT, so it grows exactly where a wall is seen at an angle, which
+        // is most of a room. Valve's -0.5 means the same thing under any projection; it is still the
+        // wrong thing to want here.
+        //
+        // Nothing has to make up for it, because since B134 a fragment is the wall's own vertices
+        // clipped in the wall's own plane. It rasterises to the wall's own depth, which LessEqual
+        // admits — measured: with every bias at zero the stripes do not flicker.
+        biased.DepthBias = 0;
+        biased.SlopeScaledDepthBias = 0f;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
@@ -1606,6 +1640,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
             SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in depth, ref state2));
 
             _depthReadOnly = state2;
+        }
+
+        if (_decalDepth.Handle is null)
+        {
+            // Tested but never written, compared with DecalDepthFunc — see both remarks.
+            DepthStencilDesc overlayDepth = default;
+
+            overlayDepth.DepthEnable = 1;
+            overlayDepth.DepthWriteMask = DepthWriteMask.Zero;
+            overlayDepth.DepthFunc = DecalDepthFunc;
+
+            ComPtr<ID3D11DepthStencilState> overlayState = default;
+
+            SilkMarshal.ThrowHResult(
+                device.CreateDepthStencilState(in overlayDepth, ref overlayState));
+
+            _decalDepth = overlayState;
         }
 
         // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
@@ -2892,6 +2943,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         context.RSSetState(_decalOffset);
 
+        // **Tested, never written (B135).** Set here rather than left to the opaque pass's state,
+        // which writes: an overlay that writes depth makes everything drawn afterwards test against
+        // a surface that is not there. Nothing after this needs restoring — DrawTranslucent
+        // establishes its own state and so does the model pass (B72).
+        if (_decalDepth.Handle is null)
+        {
+            // **Reported, not skipped.** A missing state here silently inherits the opaque pass's
+            // — writing depth, comparing with Less — which is the exact defect this pass exists to
+            // avoid, and it would look like an overlay bug rather than a wiring one. The first
+            // version of this guard returned quietly and cost an evening of reading screenshots.
+            DecodeLog.Lost("render", "the overlay depth state was never created; overlays will "
+                + "inherit the opaque pass's writing state and occlude what stands in front of them");
+        }
+        else
+        {
+            context.OMSetDepthStencilState(_decalDepth, 0);
+        }
+
         // **Blended, because a decal is a stain on a surface rather than a surface of its own.**
         // This pass set the depth bias and no blend state, so every overlay drew fully opaque: a
         // flat coloured square painted over the ground instead of tinting it. The patch under a
@@ -3053,6 +3122,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _addBlend.Dispose();
         _alphaBlend.Dispose();
         _depthReadOnly.Dispose();
+        _decalDepth.Dispose();
         ReleaseMap();
         _material.Dispose();
         _camera.Dispose();

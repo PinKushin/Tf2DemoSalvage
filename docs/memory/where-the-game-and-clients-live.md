@@ -1,11 +1,11 @@
 ---
 name: where-the-game-and-clients-live
-description: Paths to the live TF2 install, the period clients used to date the era corpus, and the Source SDK checkout — all on F:, none of them searchable quickly.
+description: Paths to the live TF2 install, the period clients used to date the era corpus, and the Source SDK checkout — all on F:, plus the Ghidra project and imported binaries on D:.
 metadata:
   type: reference
 ---
 
-**Everything this project reads from outside the repository lives on `F:`.** Written down because
+**Almost everything this project reads from outside the repository lives on `F:` — the decompilation is the exception and lives on `D:`.** Written down because
 finding it costs a directory sweep of a large disk, and one such sweep timed out at two minutes.
 
 | What | Where |
@@ -22,12 +22,44 @@ build exactly, which is what turned protocol numbers into real dates
 ([[era-axis-is-measured]], [[proto-version-h-enumerates-the-boundaries]]). They are also what proved
 the 2007 client will play files this project generated ([[engine-accepts-authored-demos]]).
 
-**No decompiler output exists anywhere, and that is deliberate.** The rule is about repository SIZE:
-decompiler projects and their output are enormous, a folder committed once lives in the history for
-ever, and a repo that has swallowed one cannot easily be moved. Run Ghidra or IDA with project and
-output paths under a temp directory outside every git tree, and carry back only what is written by
-hand afterwards. Nothing is cached, so a decompilation question starts from scratch each time — which
-is the intended trade.
+**A decompilation EXISTS, on disk, outside the repository — and this entry used to deny it.**
+Corrected 2026-08-21 after the owner said so: *"i have the decomp on disk, i dont have it in repo"*
+and *"the decomp paths were supposed to be added to memory"*.
+
+**It is on `D:`, not `F:` — which is why every search of `F:` for it failed.**
+
+| What | Where |
+|---|---|
+| Ghidra itself | `D:\ghidra_12.1.2_PUBLIC` (headless at `support\analyzeHeadless.bat`) |
+| Its settings dir | `D:\ghidra-settings` — must be passed as `_JAVA_OPTIONS=-Dapplication.settingsdir=…` |
+| The project | `D:\ghidra-proj\tf2engine.gpr` / `.rep`, project name **`tf2usermsg`** |
+| Imported binaries | `D:\ghidra-proj\bin\` — client 2007/2008/2009/2011/2013/live-x86/live-x64, engine 2007/2008/live-x86, server 2007/2008 |
+| Custom scripts | `D:\ghidra-proj\scripts\` — `DemoProtocolCheck`, `FindPacketEntities`, `FindEntityParse`, `FindDeletionLoop`, `UserMsgTable` |
+| Driver scripts | `D:\ghidra-proj\run-all.sh`, `run-engine.sh`, `run-usermsg.sh` |
+| Extracted results | `D:\ghidra-proj\out\`, plus `entityparse.txt`, `packetentities.txt`, `deletionloop.txt` at the root |
+
+**The binaries are ALSO on F: as ordinary game installs** — `F:\tf2-builds\{tf2-2007,tf2-2008,tf2-2011,tf2-2013,probe-2011,probe-2013}`, each with `bin\engine.dll` and most with `bin\shaderapidx9.dll`. Those are the source material; `D:\ghidra-proj\bin` holds the copies that were imported and analysed.
+
+**Note what is NOT imported: `shaderapidx9.dll`.** So a rendering-state question — how `SHADER_POLYOFFSET_DECAL` becomes a Direct3D bias, for instance — needs a fresh import from `F:\tf2-builds\…\bin\shaderapidx9.dll` before it can be asked. The existing project is aimed at the demo format, not the renderer.
+
+**The pattern for running it** is in `run-engine.sh`: set `_JAVA_OPTIONS`, call `analyzeHeadless` with the project directory and name, `-import` the DLL, `-scriptPath` the scripts folder, `-postScript` the analysis, and redirect both streams to a log with `</dev/null`. Output goes to `out/`.
+
+**Everything above stays outside every git tree, which is the rule and always was.**
+
+**What the old text got wrong, because the shape of the mistake matters.** It read:
+
+> "No decompiler output exists anywhere, and that is deliberate."
+
+The rule it was reasoning from is real and unchanged — decompiler output must never live inside a
+git tree, because a folder committed once lives in the history for ever and the projects are
+enormous. But "not in the repository" was written down as "does not exist", which is a different
+claim, and it was never checked. It then read as authoritative and cost a real lookup: a session
+searching for the engine's overlay and poly-offset code argued from this paragraph that no
+decompilation was available, while one was sitting on the disk.
+
+Same family as [[an-empty-search-needs-a-control]] — an absence asserted rather than measured — with
+the extra sting that nothing was searched at all. **A rule about where something may live says
+nothing about whether it exists.**
 
 **Test files hardcode the install path rather than searching for it**, using the exact string
 `F:/SteamLibrary/steamapps/common/Team Fortress 2/tf` (see `ArmsModelProbe`, `ClassScriptProbe`,
