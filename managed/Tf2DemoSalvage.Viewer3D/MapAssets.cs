@@ -856,6 +856,16 @@ internal sealed class MapAssets
             "assets",
             $"{table.Cubemaps.Count(cubemap => cubemap is not null)} materials carry a baked cubemap");
 
+        // **The model half, reported separately because it fails separately.** A material asking for
+        // the literal `env_cubemap` has no cubemap of its own and takes one of the map's placements
+        // by where it stands, so it is absent from the count above however well it is working. The
+        // line above read 123 on cp_badlands while every reflective PROP on the map — the capture
+        // points included — silently reflected nothing, and no number said so.
+        ViewerLog.Write(
+            "assets",
+            $"{table.LocalReflections.Count(shading => shading is not null)} materials reflect the " +
+            "map's own cubemap, chosen per draw by position");
+
         // **Measured for the same reason, and this is the number that says the entity path works.**
         // Model materials used to arrive with none, because they were appended to three lists and
         // padded into the rest.
