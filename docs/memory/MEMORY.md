@@ -97,3 +97,4 @@
 - [A launch notification is not an exit](a-launch-notification-is-not-an-exit.md) — the task "completed" reports the wrapper; ask Get-Process, and never read a still-growing log as a crash.
 - [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the 2007/2008/2011/2013 period clients and the SDK are all on `F:`; no decomp output is cached anywhere, on purpose.
 - [The viewer suite wants the GPU](the-viewer-suite-wants-the-gpu.md) — Viewer3D.Tests makes real D3D devices, so an exclusive-fullscreen app may abort it; the console total disagrees with the trx by one.
+- [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md) — overwrote a finished BspCubemaps and its ten tests; "updated" is not "created", and grep before building a feature.

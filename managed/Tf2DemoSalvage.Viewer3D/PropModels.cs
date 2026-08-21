@@ -109,13 +109,31 @@ internal static class PropModels
     /// </param>
     /// <returns>Every placed triangle corner, three per triangle.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <param name="lightAt">
+    /// The light reaching a point, used for props whose baked vertex lighting is absent or refused.
+    /// </param>
+    /// <remarks>
+    /// **A prop without baked lighting is lit from the light cache, not left white** (B123). The
+    /// engine carries both in one structure and chooses between them —
+    /// <c>istudiorender.h</c>'s <c>DrawModelInfo_t</c> holds <c>m_pColorMeshes</c> and
+    /// <c>m_bStaticLighting</c> beside <c>m_vecAmbientCube[6]</c> and <c>m_LocalLightDescs[4]</c> —
+    /// so when there are no colour meshes the model is lit exactly as a dynamic one is.
+    /// <c>c_physicsprop.cpp:85</c> shows the same model switching between the two: it asks for
+    /// <c>STUDIO_STATIC_LIGHTING</c> only while asleep, and is cube-lit while awake.
+    ///
+    /// Refusals are the common case rather than an edge — 44 on <c>cp_badlands</c> — because TF2 has
+    /// updated models since these maps were compiled and their checksums no longer match. Leaving
+    /// those props white meant no lighting at all: flat albedo, which reads washed out on a pale
+    /// model and as a dark disc on the capture point's dark metal, which is how this was noticed.
+    /// </remarks>
     public static IReadOnlyList<PropVertex> Load(
         ReadOnlyMemory<byte> map,
         PakFile pak,
         GameArchives archives,
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
-        List<string>? refusedLighting = null)
+        List<string>? refusedLighting = null,
+        Func<float, float, float, AmbientCube>? lightAt = null)
     {
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
@@ -219,6 +237,17 @@ internal static class PropModels
                     ? swaps[placement.Skin - 1]
                     : null;
 
+            // **Sampled once per placement, not per vertex.** The engine gives a whole model one
+            // ambient cube — `DrawModelInfo_t.m_vecAmbientCube` is a single set of six — and it is
+            // the vertex NORMAL that varies across the mesh, which is applied below. Sampling per
+            // vertex would also be a lookup through the BSP tree for every corner of every prop.
+            //
+            // Only when there is nothing baked to use. A prop with valid vertex lighting keeps it:
+            // that is higher quality than a cube, which is why the compiler wrote it.
+            AmbientCube? cube = lighting.Colours is null
+                ? lightAt?.Invoke(placement.X, placement.Y, placement.Z)
+                : null;
+
             for (int at = 0; at < model.Corners.Count; at++)
             {
                 PropVertex corner = model.Corners[at];
@@ -231,7 +260,7 @@ internal static class PropModels
                 (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
 
                 (float red, float green, float blue) = Colour(
-                    lighting.Colours, model.Meshes[at], model.Vertices[at]);
+                    lighting.Colours, model.Meshes[at], model.Vertices[at], cube, corner);
 
                 // **The placement's own origin rides along**, so a prop can be kept or dropped as
                 // one thing. Judging its triangles individually cannot tell a 3D skybox prop from
@@ -375,8 +404,21 @@ internal static class PropModels
     private static (float Red, float Green, float Blue) Colour(
         IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? lighting,
         int mesh,
-        int vertex)
+        int vertex,
+        AmbientCube? cube,
+        PropVertex corner)
     {
+        // **The engine's fallback, which is the light cache rather than white** (B123). A cube is
+        // supplied only when nothing was baked, so this cannot override valid vertex lighting; see
+        // the remarks on Load.
+        //
+        // Evaluated with the vertex's own normal, which is what makes a cube light a shape rather
+        // than tint it flat — the same `VertexShaderAmbientLight` arithmetic the world uses.
+        if (cube is { } sampled)
+        {
+            return sampled.Light(corner.NormalX, corner.NormalY, corner.NormalZ);
+        }
+
         if (lighting is null || mesh < 0 || mesh >= lighting.Count)
         {
             return (1f, 1f, 1f);

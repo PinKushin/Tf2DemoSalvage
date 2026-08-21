@@ -85,6 +85,7 @@ public sealed class OverlayAndCubemapProbe
         // The packed cubemap images, which is what a reflection would actually sample.
         int packed = 0;
         int patched = 0;
+        int named = 0;
 
         foreach (string file in PakFile.ReadFrom(bytes).Paths)
         {
@@ -92,6 +93,14 @@ public sealed class OverlayAndCubemapProbe
                 file.Contains("/c", StringComparison.OrdinalIgnoreCase))
             {
                 packed++;
+
+                // **The names, because a reflection has to FIND one.** Counting proves the images
+                // are shipped; only the naming says how a sample's position turns into a path, and
+                // that is the half an implementation needs. Read from the map rather than recalled.
+                if (named++ < 6)
+                {
+                    TestContext.Out.WriteLine($"LUMP cubemap texture: {file}");
+                }
             }
 
             if (file.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase))

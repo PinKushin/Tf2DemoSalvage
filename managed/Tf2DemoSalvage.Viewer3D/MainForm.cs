@@ -1081,7 +1081,13 @@ internal class MainForm : Form
                         // were before this work. The two decisions have to move together: holding
                         // faces back here while the world declined to bake them would lose the
                         // geometry entirely rather than degrade to the old behaviour.
-                        BrushModels.Build(_brushModels ?? [], _surfaceList));
+                        BrushModels.Build(_brushModels ?? [], _surfaceList),
+
+                        // **The light cache, for props whose baked lighting is absent or refused**
+                        // (B123). Usable here because the leaves and the ambient samples were read
+                        // a few lines above, before any asset is loaded — the ordering is what
+                        // makes this a delegate rather than a second pass.
+                        LightAt);
                 }
 
                 int displacements = 0;

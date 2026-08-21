@@ -7565,7 +7565,23 @@ Point lights are unaffected — `emit_point` has no such term (`lightmap.cpp:188
 
 ---
 
-### B123 — a static prop whose baked lighting is refused gets no lighting at all — OPEN
+### B123 — a static prop whose baked lighting is refused gets no lighting at all — FIXED
+
+**Fixed, and it does NOT explain the capture point that prompted it.** That correction is the first
+thing here because the investigation was started by a symptom this turned out not to cause.
+
+`cp_badlands` reports `ASKED FOR 1232 placements across 145 models; HAVE baked lighting for 1186`, so
+**46 placements take this path and the capture point is not one of them** — its baked lighting is
+present and valid. The dark disc is B55: `cap_point_base`'s materials are `VertexLitGeneric` with
+`$envmap env_cubemap`, `LUMP_CUBEMAPS` is not read, and B83 predicted this outcome in as many words —
+"the disc's base texture is a dark or mid grey metal, and essentially all of its apparent brightness
+in game is the reflection".
+
+**The count was available before the capture was taken**, and taking it first would have shown that
+this fix could not move that pixel. Measuring what a change can reach is cheaper than looking at what
+it did.
+
+The fix itself stands on its own evidence and is kept.
 
 **Noticed by the owner in a capture:** "we have dark CPs on POV demos still while i thought we fixed
 that on STV demos". Badlands mid at tick 2500 draws its capture point as a dark disc.
@@ -7593,10 +7609,28 @@ offsets were checked against Valve's own structures while investigating this: `s
 at 8, `HardwareVerts::FileHeader_t.m_nChecksum` at 4. Both correct, so the mismatches are genuine.
 TF2 has updated models since these maps were compiled.
 
-**What the engine does instead is the fix, and it needs confirming before it is written.** Source
-drops static lighting on a mismatch and lights the prop from the light cache — the same ambient cube
-and local lights a dynamic prop gets — rather than drawing it unlit. If that is right, the fallback
-here should be `LightAt` at the prop's origin, not white.
+**What the engine does instead — confirmed in the SDK, which is what the fix follows.**
+`DrawModelInfo_t` (`istudiorender.h:207`) carries both sources at once:
+
+```cpp
+ColorMeshInfo_t *m_pColorMeshes;
+bool            m_bStaticLighting;
+Vector          m_vecAmbientCube[6];
+LightDesc_t     m_LocalLightDescs[4];
+```
+
+`m_bStaticLighting` selects between them, so a model with no colour meshes is lit exactly as a
+dynamic one is. `c_physicsprop.cpp:85` shows a single model switching modes — it asks for
+`STUDIO_STATIC_LIGHTING` only while asleep and is cube-lit while awake — so "nothing baked" has never
+meant "unlit" in Source.
+
+`PropModels.Load` now takes the light sampler and uses it when nothing was baked, evaluated with each
+vertex's own NORMAL so the prop is lit rather than tinted flat. Sampled once per placement, matching
+the engine, which gives a whole model one cube. A prop with valid baked lighting keeps it: that is
+higher quality than a cube, which is why the compiler wrote it.
+
+Possible only because of the load order — `_leaves` and `_ambient` are read at `MainForm:1051` and
+`MapAssets.Load` runs at 1067 — so the sampler exists before any prop is built.
 
 **Do not start from the checksum.** The temptation is to make the guard more permissive so the baked
 data is used anyway; that would light props with colours belonging to a different mesh, which is a

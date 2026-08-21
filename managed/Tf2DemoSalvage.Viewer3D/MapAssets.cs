@@ -492,6 +492,11 @@ internal sealed class MapAssets
     /// in rather than read here because they are cut from the same surface list the world is built
     /// from, and reading that list twice is the expensive half of loading a map.
     /// </param>
+    /// <param name="lightAt">
+    /// The light reaching a point, for props whose baked vertex lighting is absent or refused. The
+    /// engine lights those from the light cache rather than leaving them unlit (B123); passed in
+    /// because the caller reads the leaves and ambient samples before any asset is loaded.
+    /// </param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -501,7 +506,8 @@ internal sealed class MapAssets
         int maximumTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
         IReadOnlyCollection<string>? wornModels = null,
-        IReadOnlyDictionary<string, PropModels.ModelFrames>? brushModels = null)
+        IReadOnlyDictionary<string, PropModels.ModelFrames>? brushModels = null,
+        Func<float, float, float, AmbientCube>? lightAt = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -656,7 +662,8 @@ internal sealed class MapAssets
             archives,
             table,
             ResolveProp,
-            refusedLighting);
+            refusedLighting,
+            lightAt);
 
         propTiming.Dispose();
 
