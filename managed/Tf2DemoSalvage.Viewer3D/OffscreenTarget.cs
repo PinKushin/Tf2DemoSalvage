@@ -418,9 +418,14 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // material-batch order. A dark surface batched late painted over a tree batched early, and
         // the result was black blobs sitting on top of foliage - in the TEST's pictures only. Those
         // pictures were then read as evidence about the viewer, which does not have the problem.
+        // **The same format as the window's, and that matters more than it looks (D48).** A depth
+        // bias is scaled by a factor the FORMAT decides, so an offscreen capture on a float buffer
+        // and a window on a fixed-point one would place decals differently — and the capture is
+        // what tests photograph. A picture that disagrees with the viewer for a reason nobody can
+        // see is worse than no picture, which is the same trap the comment above records.
         Texture2DDesc depthDescription = description with
         {
-            Format = Format.FormatD32Float,
+            Format = Format.FormatD24UnormS8Uint,
             BindFlags = (uint)BindFlag.DepthStencil,
         };
 

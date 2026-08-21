@@ -995,6 +995,30 @@ internal sealed unsafe class Device3D : IDisposable
     }
 
     /// <summary>Creates a depth buffer matching the back buffer.</summary>
+    /// <remarks>
+    /// **24-bit fixed point, because that is what the engine uses, and depth constants only mean
+    /// something relative to a format (D48).** This was <c>D32_FLOAT</c>, and the difference is not
+    /// cosmetic: D3D11 applies a rasteriser's <c>DepthBias</c> as <c>DepthBias × r</c>, where for a
+    /// UNORM buffer <c>r</c> is the fixed <c>1 / 2^24</c> and for a FLOAT buffer it is
+    /// <c>2^(exponent(max depth in the primitive) − 23)</c> — data-dependent, and roughly double
+    /// near a depth of 1.
+    ///
+    /// So every depth constant in this renderer meant something other than what it said. The decal
+    /// bias is the plain case: <see cref="WorldRenderer.SetDecalBias"/> computes
+    /// <c>2^24 / worldRange</c> and its comment calls the result "about one world unit", which is
+    /// the arithmetic for a 24-bit fixed-point buffer. Against a float buffer it was neither one
+    /// unit nor any fixed distance. The stripes were tuned around that.
+    ///
+    /// **The projection already matched and this was the last piece that did not.** The near plane
+    /// is the engine's own <c>VIEW_NEARZ</c> of 7, the field of view its <c>CViewSetup</c> default
+    /// of 75, and the viewmodel pass mirrors Source's separate near plane of 1. Leaving the buffer
+    /// format different meant every depth comparison against the game carried a silent translation
+    /// step — which is a debugging cost paid on every future depth question, not just this one.
+    ///
+    /// **The trade, stated so it is not rediscovered as a defect:** this forecloses reversed-Z,
+    /// which pairs float precision with a projection's distribution and would beat both options in
+    /// the far field. Parity was chosen over it deliberately. The eight stencil bits are unused.
+    /// </remarks>
     private void CreateDepthView()
     {
         Texture2DDesc description = new()
@@ -1003,7 +1027,7 @@ internal sealed unsafe class Device3D : IDisposable
             Height = (uint)_height,
             MipLevels = 1,
             ArraySize = 1,
-            Format = Format.FormatD32Float,
+            Format = Format.FormatD24UnormS8Uint,
             SampleDesc = new SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)BindFlag.DepthStencil,

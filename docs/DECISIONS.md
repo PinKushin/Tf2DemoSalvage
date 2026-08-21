@@ -1977,3 +1977,102 @@ was excellent, accurate, and did not prevent the bug it described.
 whether the two options produce *plausible* results that differ — an optional logger or an optional
 cache does not, because leaving it out is visibly nothing. This applies where both answers look
 right.
+
+---
+
+## D48 — the depth buffer matches the engine's format, for debugging rather than for speed
+
+**Owner's direction, 2026-08-21**, after an attempt to transplant Valve's decal bias produced a map
+of floating signage: *"that difference is going to change more than just this and make debugging a
+pita"*.
+
+**The situation it settles.** This renderer used `D32_FLOAT`; the engine uses 24-bit fixed point.
+D3D11 applies a rasteriser's `DepthBias` as `DepthBias × r`, and `r` is decided by the format — the
+fixed `1 / 2^24` for UNORM, and `2^(exponent(max depth in the primitive) − 23)` for FLOAT, which is
+data-dependent and roughly double near a depth of 1. So **every depth constant in this project meant
+something other than what it said**, and any constant read out of Valve's source meant something
+different again.
+
+That was already showing. `SetDecalBias` computes `2^24 / worldRange` and calls the result "about one
+world unit" — the arithmetic for a 24-bit fixed-point buffer, applied to a float one. The number was
+neither one unit nor any fixed distance, and the wall stripes had been tuned around it.
+
+**Why parity beats the alternatives here.** The projection already matched: the near plane is the
+engine's own `VIEW_NEARZ` of 7, the field of view its `CViewSetup` default of 75, and the viewmodel
+pass mirrors Source's separate near plane of 1. The buffer format was the last structural difference,
+and it is the one that silently rescales every depth comparison — so leaving it different meant a
+translation step on every future depth question, paid forever, to save nothing measurable.
+
+**What was weighed and rejected.** Performance: `D24_UNORM_S8_UINT` is a packed format some drivers
+expand to 64 bits per pixel, so matching may cost bandwidth. Judged speculative and small against a
+certain, recurring debugging cost — the owner's argument, and the right one.
+
+**The trade, stated so it is not rediscovered as a defect.** This forecloses reversed-Z, which pairs
+float precision with a projection's depth distribution and would beat both options in the far field.
+Parity was chosen over it deliberately. The eight stencil bits are unused.
+
+**What it does not license.** Copying Valve's depth constants now that the format agrees. The
+arithmetic in B70 shows `m_DepthBias_Decal` cannot be applied as a plain rasteriser bias in the world
+pass even at Valve's own near and far planes, so having their number is still not having their
+mechanism. Matching the format removes a confound; it does not import a solution.
+
+---
+
+## D49 — the orthographic camera goes; the overhead view becomes a placement of the free camera
+
+**Owner's direction, 2026-08-21**, stated while the decal bias and the height cut were both being
+diagnosed as camera-dependent: *"we will likely actually get rid of the ortho cam, basically make it
+just the default placement for the free cam by matching what the ortho sees with the free cam."*
+
+**And it is not a new direction — it is the original one, restored.** Asked whether this was a
+change of mind, the owner said: *"thats what i meant to do in the first place, but you ai made the
+ortho cam first."*
+
+That is the entry. An assistant substituted its own design for what was asked for, the substitution
+went in on **2026-08-12** (`af03199`, "Add the top-down camera that maps world units to the
+viewport", the third viewer commit ever), and everything downstream was built on it. Nine days later
+it had produced a second projection, a retuned decal constant that was wrong the moment a real camera
+existed, a height cut that is not a height, a reflection gap with no eye vector, and — twice — an
+attempt to reconcile the two projections that had to be reverted.
+
+**The cost is not the camera, it is that nobody knew it was a substitution.** The ortho camera reads
+in the history as a deliberate design with reasons attached, because that is how it was written up.
+Nothing recorded that it displaced a stated requirement, so every later decision treated it as
+ground rather than as a choice to revisit — including two attempts, on 2026-08-14 and 2026-08-21, to
+make Valve's decal bias work across both projections rather than asking why there were two.
+
+**The rule this is evidence for** is already in `CLAUDE.md` under *Record where I corrected or
+directed you*: a direction that was given and not followed is exactly what vanishes, because the
+code shows only the outcome and the outcome looks intentional. Recorded here late, which is the
+weaker form, but recorded.
+
+**Recorded now, before it is done, because it changes what is worth building today.** Several open
+items exist only to reconcile two projections, and reconciling them is wasted work if one is leaving.
+
+| item | if the ortho camera goes |
+|---|---|
+| **B135**, the decal depth bias | the two-rasteriser-state design is unnecessary — one projection has one answer. The `2^24 / worldRange` formula and `DefaultDecalBias` become dead code, and the fix is `LESS_EQUAL` against coplanar fragments, which was the right shape regardless |
+| **B136**, the height cut | must be clipped on world Z. Today the shader clips `SV_POSITION.z` and the comment calls depth "height", which is true only looking straight down — with no such camera the shortcut is never valid rather than sometimes valid |
+| **B126**, no reflections under ortho | moot. It exists because an orthographic projection has no eye position to mirror about, and this project's own convention would have had to be invented |
+
+**Why it is the right direction, in the terms this project already uses.** The overhead view is a
+placement, not a projection — what it is *for* is seeing the whole map at once, and a perspective
+camera placed high and looking down does that. Keeping a second projection to express a camera
+position has been paying for itself in exactly the coin recorded three times today: a quantity that
+is derived under one projection and fundamental under none gets written as whichever is cheaper, and
+its comment records the equivalence as a definition. See
+`docs/memory/build-time-shortcuts-assume-the-camera.md`.
+
+**Not started, and nothing has been removed yet.** The work is a free-camera placement that
+reproduces the current framing — fitting the map's bounds in view from above — and only then the
+removal of `TopDownCamera`. Order matters: deleting first would lose the reference the replacement
+has to match.
+
+**One thing to check when it is done, because it is the reason the ortho camera survived this long:**
+whether the overhead view still reads well under perspective. A high perspective camera showing the
+whole map has convergence an orthographic one does not, and that difference is a matter of taste
+rather than correctness — so it is a question for the owner's eyes, not for a test.
+
+**What it does not license.** Deleting the ortho paths pre-emptively, or leaving B136 unfixed on the
+grounds that its camera is going. The height cut is wrong under the free camera *today*, which is the
+camera the owner is using.

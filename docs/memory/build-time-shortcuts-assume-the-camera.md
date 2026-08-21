@@ -29,3 +29,26 @@ go with them. `Build_DownwardFacingSurfaces_AreDropped` was pinning the workarou
 to be inverted, not deleted, so the requirement became the thing under guard.
 
 Related: [[a-test-can-outlive-its-design]], [[instrument-bugs-outnumber-decoder-bugs]].
+
+---
+
+## Three more instances in one day, and the pattern is now specific
+
+2026-08-21, all found from the free camera on cp_process:
+
+| shortcut | true under | written as |
+|---|---|---|
+| decal depth bias `2^24 / worldRange` (B135) | the ortho camera, where depth is linear in world height | "about one world unit" |
+| the height cut `clip(SV_POSITION.z - cut)` (B136) | the same camera, looking straight down | "the cut is on depth, which is height" |
+| reflections needing an eye position (B126) | any perspective camera | — |
+
+**The pattern, stated tightly: a quantity that is DERIVED under one projection and FUNDAMENTAL under
+none gets written as whichever is cheaper to compute, and its comment records the equivalence as
+though it were a definition.** Clip depth *equals* world height under a top-down orthographic
+camera. That is a fact about the camera, and it reads exactly like a fact about the renderer.
+
+The tell is a comment of the form "X is Y" where X and Y are different quantities that happen to
+coincide. `wpos` was sitting in the same shader struct as `pos` the whole time.
+
+**And the owner's direction that follows from it (D49):** the overhead view is a *placement*, not a
+projection. Keeping a second projection to express a camera position is what generated all three.

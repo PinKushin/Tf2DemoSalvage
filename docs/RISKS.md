@@ -3942,7 +3942,45 @@ and look. Z-fighting means the geometry is coincident and the bias was only ever
 proves candidate 1. Decals still hanging in space with no z-fighting proves the surface behind them
 is absent, which is candidate 2 and an entirely different bug.
 
-### B70 — the decal bias is a deliberate deviation from Valve, to be undone with real cameras
+### B70 — REFUTED 2026-08-21. Returning to Valve's constant floats every decal off the map
+
+**The requirement below was tried and it is wrong.** Kept in full, because a prediction that failed
+is worth more than its own deletion, and because it was acted on twice.
+
+**What killed it: a picture.** With Valve's `-262144` restored for the perspective cameras, the
+stripes on cp_process hang in mid-air across the room — the owner's words were "the stripes are just
+showing over everything now". Reverted immediately.
+
+**Why the reasoning below is backwards.** It argues that "under perspective most of the range sits
+near the camera and the constant means what Valve intended". Most of the range sitting near the
+camera is exactly *why* a fixed offset in depth-buffer units is an enormous world distance at range.
+With the near and far planes this project already shares with the engine (`VIEW_NEARZ` 7, far
+28000), -262144 on a 24-bit buffer is -0.015625 in NDC, which places a decal at 500 units as though
+it were at 236.
+
+That arithmetic also says **Valve cannot be applying that constant as a plain rasteriser bias in the
+world pass**, because the same push would be as visible in TF2 as it was here, and it is not. The
+constant lives in a config struct whose consumer is the closed renderer; having the number is not
+having the mechanism. See `docs/memory/arithmetic-settles-disputes.md`.
+
+**It was attempted twice, and the second time was avoidable.** `22648b0` (2026-08-14) made exactly
+this change, with the same two-rasteriser-state design and the same reasoning, and was reverted the
+same day by `77ea133` — whose message is the bare `This reverts commit 22648b0...` and nothing else.
+A reversal recorded without its reason is a trap for the next reader, and it caught one: the same
+change was written again on 2026-08-21 by someone who had read neither this entry nor that commit.
+
+**One instruction in the original text was right and was also ignored**, so it is repeated here:
+*do not gate it on a flag the caller passes*. The 2026-08-21 attempt added `bool perspective = false`
+and argued in a comment against deriving it from the matrix — directly contrary to the paragraph
+below, which had already reasoned it out.
+
+**What replaces it.** Nothing about matching Valve's number. Since B134 a decal fragment is the
+wall's own vertices clipped in the wall's own plane, so it is coplanar by construction rather than
+projected onto the surface — which is the condition under which a `LESS_EQUAL` comparison needs no
+constant bias at all. That approach is independent of both the projection and the buffer format,
+which is what makes it the right shape. Open as B135.
+
+### The original entry, refuted above
 
 Recorded separately from B68 because it is a real future requirement rather than a bug.
 
@@ -8387,3 +8425,49 @@ format and range, and that is worth reading before copying the number.
 **A test for it must vary the camera distance.** A single viewpoint is precisely the input for which
 correct and broken agree — which is why this survived: every screenshot until now was taken from one
 spot.
+
+---
+
+## B136 — the height cut is a DEPTH cut, and decals ignore it — OPEN
+
+**Reported by the owner from the free camera**, with a screenshot: walls sliced away while the red
+and blue stripes that live on them stay, tracing the outline of geometry that is no longer drawn.
+
+### The confirmed half: the cut is on depth, not height
+
+```hlsl
+// **The cut is on depth, which is height.** Discarding here rather than dropping the
+// geometry means the slice moves without rebuilding anything
+clip(input.pos.z - surfaceColours.y);
+```
+
+`pos` is declared `float4 pos : SV_POSITION`, so in the pixel shader `input.pos.z` is the **NDC
+depth**, not a world coordinate. "Depth is height" is true of the top-down orthographic camera it was
+written for — looking straight down, clip depth is a linear function of world Z — and of nothing
+else. Under the free and first-person cameras the same line cuts by **distance from the eye**.
+
+**The right quantity is already in the same struct.** `float3 wpos : TEXCOORD8` was added later, for
+the reflection vector, and carries the world position the cut actually wants. The fix is to clip on
+`wpos.z` against a cut expressed in world units rather than on `pos.z` against a 0..1 fraction.
+
+**Third instance today of `docs/memory/build-time-shortcuts-assume-the-camera.md`**, after the decal
+bias (B135) and the ortho reflection gap (B126). The pattern is now specific enough to state: a
+quantity that is *derived* under one projection and *fundamental* under none will be written as
+whichever is cheaper, and the comment will record the equivalence as though it were a definition.
+
+### The unexplained half: why the decals survive it
+
+**Not yet diagnosed, and deliberately not guessed at.** Decals are drawn inside the same world pass,
+through the same pixel shader, with the same camera constants — so on the face of it `clip` should
+reject a decal fragment exactly as it rejects the wall fragment behind it, both being coplanar and
+therefore at the same depth. That they visibly do not is a fact the code as read does not predict.
+
+Candidates, none checked: the decal batches reaching the shader by a path that leaves
+`surfaceColours.y` stale; the interpolated `pos.z` differing from the wall's despite coplanarity; or
+the walls in that screenshot being absent for some other reason entirely — which is exactly what B68
+turned out to be, twice, after the same appearance was read as a decal fault.
+
+**That last possibility is why this is filed rather than fixed.** "A correctly placed decal on a wall
+that was never drawn looks exactly like a floating decal" is written in B68 in those words, and it
+has already cost this project an evening. The measurement to make first is whether the wall under
+one of those stripes is being clipped or was never built.
