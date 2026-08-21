@@ -27,7 +27,12 @@ namespace Tf2DemoSalvage.Viewer3D;
 internal readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
-    AmbientCube Light,
+
+    // **Null means "lightmapped", not "unlit" (B131).** A studio model carries a cube sampled at
+    // its illumination point; a brush entity carries lightmap coordinates on its vertices instead,
+    // and the shader's cube branch would overwrite them. The renderer reads null as "no cube was
+    // supplied" and leaves the atlas sample standing, which is what LightmappedGeneric does.
+    AmbientCube? Light,
     SunLight? Sun,
     int Frame = 0,
     float Blend = 0f,
@@ -504,12 +509,19 @@ internal sealed class EntityModelSet
                         byMaterial[key] = into;
                     }
 
-                    // **Model space, untouched.** The shader's model matrix places it. No lightmap
-                    // either: a studio model is lit by its own vertex colours in the engine too,
-                    // and a zero-width atlas rectangle sends every corner to the reserved white
-                    // texel so the lightmap term is an identity rather than darkness.
+                    // **Model space, untouched.** The shader's model matrix places it.
+                    //
+                    // **The lightmap coordinates are zero for a studio model and real for a brush
+                    // entity (B131).** A `.mdl` is lit by its own vertex colours in the engine too,
+                    // and (0, 0) is the atlas's reserved white texel, so the lightmap term is an
+                    // identity rather than darkness. A door is the opposite case: vrad lights every
+                    // model's faces (vrad.cpp:703) and its samples are already in the same atlas as
+                    // the wall's, so passing them is all that separates a lightmapped door from a
+                    // flat one. BrushModels fills them; PropModels leaves them at zero.
                     into.Add(new WorldVertex(
-                        corner.X, corner.Y, corner.Z, corner.U, corner.V, 0f, 0f, 0f,
+                        corner.X, corner.Y, corner.Z, corner.U, corner.V,
+                        corner.LightU, corner.LightV, 0f,
+                        LightStep: corner.LightStep,
                         NormalX: corner.NormalX,
                         NormalY: corner.NormalY,
                         NormalZ: corner.NormalZ,
@@ -762,7 +774,7 @@ internal sealed class EntityModelSet
             //
             // Keyed on the entity as well, because two models can stand in one place and must not
             // share a slot. Map lights never move, so nothing else can invalidate this.
-            AmbientCube light;
+            AmbientCube? light;
             SunLight? sun;
 
             // Compared as bits rather than as floats, which is what "the identical point" means and
@@ -773,7 +785,18 @@ internal sealed class EntityModelSet
                 BitConverter.SingleToInt32Bits(lightY),
                 BitConverter.SingleToInt32Bits(lightZ));
 
-            if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
+            // **A brush entity is lightmapped, so it takes no cube and no sun (B131).** Its faces
+            // were lit by vrad exactly as the wall's were and the samples travel on the vertices;
+            // the shader's ambient-cube branch OVERWRITES the lightmap sample rather than adding to
+            // it, so supplying a cube here is precisely what made an open door a flat panel against
+            // a shaded corridor. Null is what LightmappedGeneric means: the light is already in the
+            // atlas.
+            if (prop.Kind == SceneModelKind.Brush)
+            {
+                light = null;
+                sun = null;
+            }
+            else if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
                 cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ)
             {
                 LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
@@ -783,10 +806,13 @@ internal sealed class EntityModelSet
             }
             else
             {
-                light = lightAt is null ? default : lightAt(lightX, lightY, lightZ);
+                AmbientCube sampled =
+                    lightAt is null ? default : lightAt(lightX, lightY, lightZ);
+
+                light = sampled;
                 sun = sunAt?.Invoke(lightX, lightY, lightZ);
 
-                _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, light, sun);
+                _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled, sun);
 
                 LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
             }
@@ -800,7 +826,11 @@ internal sealed class EntityModelSet
             //
             // Logged with the position, because the defect is positional and a count would not
             // let anyone go and look at the spot.
-            if (lightAt is not null && IsUnlit(light) && _reportedDark.Add(prop.ModelPath))
+            // **`light is { }` excludes brush entities rather than reporting them as dark.** They
+            // carry no cube by design (B131), and a warning saying a door is "lit by nothing" would
+            // be true of the cube and false of the door, which is the log naming the wrong quantity.
+            if (lightAt is not null && light is { } sampledCube && IsUnlit(sampledCube) &&
+                _reportedDark.Add(prop.ModelPath))
             {
                 ViewerLog.Warn(
                     "render",
@@ -846,7 +876,14 @@ internal sealed class EntityModelSet
                     "render",
                     $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
                     $"at ({pose.X:0},{pose.Y:0},{pose.Z:0}) sampled ({lightX:0},{lightY:0},{lightZ:0}) " +
-                    $"skin {skin} luminance {Luminance(light):0.####}");
+                    $"skin {skin} " +
+
+                    // **Which lighting model, said out loud.** A brush entity has no cube, so a
+                    // luminance printed for it would be a number about nothing. Saying "lightmap"
+                    // is what lets this line answer "why is that door flat" without a second run.
+                    (light is { } cube
+                        ? $"luminance {Luminance(cube):0.####}"
+                        : "lightmapped"));
             }
 
             if (!_reportedFrames.Contains(prop.ModelPath))

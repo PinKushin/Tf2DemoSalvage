@@ -208,3 +208,67 @@ yet — this reads three quarters more data and hands it to a renderer that does
 
 The ssbump question is settled and the guess was wrong: 13 ssbump against 14 ordinary, so both
 combines are required. Counted by `BumpMapPrevalenceProbe`.
+
+---
+
+## A brush entity is lightmapped, and vrad lights it where the mapper left it
+
+*(evidence class: read from published source)*
+
+**Valve lights every model's faces, not just the world's.** `utils/vrad/vrad.cpp:703`, in
+`MakePatches`:
+
+```cpp
+for (i=0 ; i<nummodels ; i++)
+{
+    mod = dmodels+i;
+    ent = EntityForModel (i);
+    VectorCopy (vec3_origin, origin);
+
+    // bmodels with origin brushes need to be offset into their
+    // in-use position
+    GetVectorForKey (ent, "origin", origin);
+
+    for (j=0 ; j<mod->numfaces ; j++)
+    {
+        fn = mod->firstface + j;
+        face_entity[fn] = ent;
+        VectorCopy (origin, face_offset[fn]);
+```
+
+Two facts, and this project needed both.
+
+**A door's faces have real baked lightmap samples**, in the same lighting lump and addressed the same
+way as the world's. Nothing has to be invented for a brush entity, and nothing has to be sampled at
+runtime.
+
+**They are lit at their in-use position and never re-lit.** `face_offset` shifts the face to where
+the mapper left it — a door closed, a lift down — and the samples stay there for the life of the map.
+So an opening door carries its closed-position lighting with it. That is not an approximation to
+apologise for; it is what Source looks like, and it is why a moving brush entity needs no relighting
+step at all. The transform moves the geometry and the light rides along on the vertices.
+
+**The engine draws them through the world's own path when it can.** `C_BaseEntity::DrawBrushModel`
+opens with
+
+> Identity brushes are drawn in view->DrawWorld as an optimization
+
+(`game/client/c_baseentity.cpp:1962`), and asserts `GetModelType( model ) == mod_brush`. A brush
+entity that has not moved is literally drawn by the world renderer; one that has moved goes to
+`DrawBrushModelEx( this, model, GetAbsOrigin(), GetAbsAngles(), mode )`. Same surfaces, same
+materials, same lightmaps, different matrix.
+
+### What that settled here
+
+B131 was filed as a design choice — carry lightmap coordinates into the entity vertex format, or
+draw brushwork with the world shader and a per-instance transform. The source answers both halves and
+neither was a choice: the engine does the second, and this project already had it, because there has
+only ever been one vertex format and one shader.
+
+The gap was that the entity path wrote zero into the lightmap coordinates it already had room for,
+and — the half that matters — supplied an ambient cube anyway. **The shader's ambient branch
+overwrites the lightmap sample rather than adding to it**, so correct coordinates plus a supplied
+cube still draws a flat door. Two correct halves, one wrong picture, and no component test able to
+see it: that is the shape `docs/memory/output-level-assertion-or-it-is-not-done.md` describes, and
+the test written for it asserts both kinds in one method because either alone is satisfiable by a
+constant.

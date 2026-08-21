@@ -1081,7 +1081,11 @@ internal class MainForm : Form
                         // were before this work. The two decisions have to move together: holding
                         // faces back here while the world declined to bake them would lose the
                         // geometry entirely rather than degrade to the old behaviour.
-                        BrushModels.Build(_brushModels ?? [], _surfaceList),
+                        // **A factory rather than finished geometry, because the atlas is packed
+                        // inside Load.** A door's faces carry baked lightmap samples in the same
+                        // atlas as the wall's, so the geometry cannot be built before it exists
+                        // (B131).
+                        atlas => BrushModels.Build(_brushModels ?? [], _surfaceList, atlas),
 
                         // **The light cache, for props whose baked lighting is absent or refused**
                         // (B123). Usable here because the leaves and the ambient samples were read

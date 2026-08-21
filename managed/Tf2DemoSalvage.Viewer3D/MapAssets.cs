@@ -645,10 +645,16 @@ internal sealed class MapAssets
         int maximumTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
         IReadOnlyCollection<string>? wornModels = null,
-        IReadOnlyDictionary<string, PropModels.ModelFrames>? brushModels = null,
+        Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
         Func<float, float, float, AmbientCube>? lightAt = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
+
+        // **Packed here rather than at the constructor call, because the brush entities need it.**
+        // A door's faces are lit by vrad exactly as the world's are (vrad.cpp:703) and their samples
+        // sit in this same atlas, so the geometry cannot be built until the atlas exists — which is
+        // why `brushModels` is a factory taking one rather than a finished dictionary (B131).
+        LightmapAtlas lightmaps = PackLighting(map);
 
         PakFile pak = PakFile.ReadFrom(map);
         List<BspMaterial> materials = [.. BspMaterials.Read(map)];
@@ -826,16 +832,16 @@ internal sealed class MapAssets
         //
         // Added before the studio loop rather than after, so a demo that somehow names `*12` as a
         // model path cannot have a failed file load overwrite real geometry with an empty entry.
-        if (brushModels is { Count: > 0 })
+        if (brushModels?.Invoke(lightmaps) is { Count: > 0 } brushes)
         {
-            foreach ((string name, PropModels.ModelFrames geometry) in brushModels)
+            foreach ((string name, PropModels.ModelFrames geometry) in brushes)
             {
                 models[name] = geometry;
             }
 
             ViewerLog.Write(
                 "assets",
-                $"{brushModels.Count} brush entities built from the map's models lump");
+                $"{brushes.Count} brush entities built from the map's models lump");
         }
 
         if (entityModels is { Count: > 0 })
@@ -957,7 +963,7 @@ internal sealed class MapAssets
             table.Cubemaps,
             table.Proxies,
             table.Materials,
-            PackLighting(map),
+            lightmaps,
             props,
             resolved,
             missing)

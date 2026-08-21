@@ -8085,20 +8085,50 @@ brush entities. D46 says our code changes to match, so this is a matter of when 
 it needs either lightmap coordinates carried into the entity vertex format, or the world shader used
 with a per-instance transform. Refiled below.
 
-## B131 — a moving brush entity loses its lightmap — OPEN
+## B131 — a moving brush entity loses its lightmap — CLOSED 2026-08-21, pending a look
 
-Split out of B71, which closed on motion. A door is drawn through the entity path and lit by the
-ambient cube; the wall beside it is lightmapped. The engine lightmaps brush entities, so this is a
-divergence rather than a simplification, and D46 settles the direction: our code changes.
+Split out of B71, which closed on motion. A door was drawn through the entity path and lit by the
+ambient cube; the wall beside it was lightmapped. The engine lightmaps brush entities, so this was a
+divergence rather than a simplification, and D46 settled the direction: our code changes.
 
-Two shapes for the fix, and the choice is a real one rather than a detail:
+**The entry framed two shapes for the fix as a real choice. Valve's source says it is not one, and
+the second shape was already built.**
 
-- **Carry lightmap coordinates into the entity vertex format.** The vertex already has the room; the
-  cost is that every model vertex then carries fields only brushwork uses.
-- **Draw brushwork with the world shader and a per-instance transform.** Closer to what the engine
-  does, and it means the model path stops being the only path that can move something.
+- `utils/vrad/vrad.cpp:703`, `MakePatches`, loops `for (i=0 ; i<nummodels ; i++)` — **every** model,
+  not model zero alone — and offsets each entity's faces by its `origin` keyvalue with the comment
+  *"bmodels with origin brushes need to be offset into their in-use position"*. So a door's faces
+  carry real baked lightmap samples in the same lighting lump as the world's, **lit where the mapper
+  left them**. They do not move afterwards: an opening door carries its closed-position lighting
+  with it, which is what Source looks like and why no relighting step is needed.
+- `C_BaseEntity::DrawBrushModel` opens with *"Identity brushes are drawn in view->DrawWorld as an
+  optimization"* (`game/client/c_baseentity.cpp:1962`), so an unmoved brush entity is literally drawn
+  by the world renderer, and a moved one goes to `DrawBrushModelEx` with a transform. Same surfaces,
+  same materials, same lightmaps, different matrix.
 
-Not attempted, and deliberately not guessed at.
+Both are pinned by `BrushLightingConformanceTests`.
+
+**And the supposed cost of the first shape was already paid.** `WorldVertex` has carried `LightU`,
+`LightV` and `LightStep` for every vertex since it was written, and one shader already serves both
+paths. The gap was four lines wide:
+
+| Where | Was | Now |
+|---|---|---|
+| `BrushModels.Append` | dropped `SurfaceVertex.LightU/LightV` | remaps them into the atlas, as `MapWorld.Append` does |
+| `EntityModels` → `WorldVertex` | passed `0f, 0f` | passes the corner's coordinates |
+| `ModelInstance.Light` | always an `AmbientCube` | `AmbientCube?`; null for brushwork |
+
+**The null cube is the half that would have been easy to miss.** The shader's ambient branch
+*overwrites* `light` rather than adding to it, so correct lightmap coordinates plus a supplied cube
+still draws a flat door — two correct halves and a wrong picture. `BrushLightingWiringTests` asserts
+the pair: a studio prop gets a cube and a brush prop gets null, in one test, because either alone is
+satisfiable by a constant.
+
+`BrushModels.Build` now **requires** the atlas rather than defaulting it (D47): omitting it produces
+a door lit like a model, which is a plausible picture and was this bug.
+
+**Still to confirm by looking.** Every claim above is about geometry, wiring and citations, all of
+which are checkable. Whether a door now reads as part of the corridor is not, and the automated
+instruments sit on the wrong side of it.
 
 ## B132 — some entities reach the entity table with no properties at all — CLOSED 2026-08-21
 
