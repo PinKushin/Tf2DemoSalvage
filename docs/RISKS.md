@@ -5730,7 +5730,47 @@ the constant is doing real work.
 a dark cube, which is what a lamp does; keeping it makes the sum well-behaved, which is what the
 earlier session measured.
 
-#### The experiment that decides it, not yet run
+#### The experiment, run 2026-08-20 — the cube is right, and the constant is not the whole story
+
+Comparing our model lighting against our own lightmap, whole-map distributions on
+`koth_harvest_final`, in the space the shader receives each:
+
+```
+lightmap luxels:      588,480 values, median 0.2144, 90th 0.944, max 2.0
+ambient cube samples:  13,193 values, median 0.2358, 90th 0.354, max 0.596
+```
+
+**The medians agree within a tenth**, so models are not systematically darker than the world and the
+ambient cube's decode is correct. `AmbientCubeScaleConformanceTests` now pins that, two-sided, and was
+verified by sabotage: multiplying the cube by 255 reddens it at 280x.
+
+**What the distributions do say is where the gap is.** The lightmap's 90th percentile is 0.94 against
+the cube's 0.354. A surface near a lamp gets nearly three times what the cube ever gives, because a
+leaf's ambient sample averages a volume that includes shadow while a luxel sits on the lit surface.
+**Closing that gap for models is exactly what the direct term exists to do, and it is contributing
+0.007.**
+
+A quantified target follows. At the spot measured, the nearest spotlight is 127 units away and vrad
+baked the floor beneath it at roughly 0.9 in shader space; evaluating the same light at runtime gives
+`39215 / 127²` = 2.43 in vrad's units, which the 1/255 scale turns into 0.0095. **About a hundredfold
+short of what the compiler put in the lightmap for the same lamp at the same place.** Whether the
+error is in the scale, in the assumption that stored intensity is pre-multiplied by the falloff at one
+hundred units, or in the spotlight's cone normalisation is the open question — but it is now a
+question with a number attached and a reference to check against.
+
+#### An instrument that accused a correct decoder
+
+The first version of the comparison reported **231.8x** and blamed the byte scale, and it was one edit
+away from "fixing" `BspAmbientLight.Colour`, which is correct. It compared the lightmap's STORED
+linear value, 0 to 510, against the cube's USED value. The texture is sampled as `byte / 255` and
+doubled by the shader, so what reaches the arithmetic is `linear / 255` — the space the cube is
+already in.
+
+Two different spaces, one confident number, and a conclusion that inverted once the units were made to
+match. Worth recording beside the finding because the wrong version was more persuasive than the right
+one: 231.8 is so close to 255 that it read as proof.
+
+#### The original plan for that experiment
 
 **Compare our model lighting against our own lightmap at the same point.** The brushes in that room are
 lit by these same lamps, decoded by us, and look correct on screen — so the lightmap is a known-good
@@ -7367,3 +7407,41 @@ light, so it draws black`, so at least some leaves in this map genuinely carry n
 Also in that run and unrelated to either: nine `.vhv` prop-lighting files fail their checksum against
 the model they belong to (`sp_224`, `sp_287`, `sp_290`, `sp_294`, `sp_306`, `sp_463`, `sp_465`,
 `sp_474`, and one more), so those props fall back to unlit.
+
+---
+
+### B121 — the SDK sweep handed out its cache, and callers mutated it — FIXED
+
+**Found as flake and it was not flake.** `SendProps_Moveparent_IsARealSendPropUnderAnAlias` failed
+inside a full gate run, passed in isolation, and passed on a re-run. This project's rule is that flake
+is a defect in the code or in the synchronisation, never noise, so it was chased rather than retried.
+
+The failure named its own cause. `ShouldContain("moveparent")` failed while the message printed
+`"moveparent"` among the actual values — a collection being mutated while it was read.
+
+**`SourceSdk.Names` cached its sweep and returned the cached `HashSet` itself.**
+`SendPropConformanceTests.SentProperties` then calls `UnionWith` on that result to fold in the
+aliased `SENDINFO_NAME` names. Two separate faults follow:
+
+- **A race.** NUnit runs these in parallel, so one test's `UnionWith` overlapped another's `Contains`
+  on an unsynchronised `HashSet`. Intermittent by nature, which is why it survived so long.
+- **Cache poisoning, which is worse.** The additions were written into the entry cached for the FIRST
+  pattern, so any later caller sweeping that pattern received names it never asked for. `Names`' own
+  remarks say this exact thing must not happen — "two callers sweeping the same directory for
+  different things must not share an answer. That would be a wrong result rather than a slow one" —
+  and the mutation defeated it by a route the keying could not guard.
+
+The consequence of the second is the quiet kind: a conformance suite's denominator silently widens,
+so it stops reporting properties it should report. Nothing fails; the suite just goes blind in a
+direction nobody chose.
+
+**Fixed by returning a copy.** Affordable by the cache's own measurements, which record its benefit as
+unmeasurable — 553 ms against 532–648 ms — so correctness here costs nothing worth counting.
+
+**`SourceSdkCacheTests` pins both halves.** The race cannot be reproduced on demand; the pollution can,
+and it is the more dangerous half, so that is what is asserted: mutating a result must not reach the
+next call, and two calls must not be the same instance. Verified by sabotage — returning the cached
+set directly reddens both.
+
+**The general shape, worth carrying:** a cache that hands out a mutable reference is not a cache, it
+is shared state. Every consumer of one is trusted not to write to it, and one of six was not.

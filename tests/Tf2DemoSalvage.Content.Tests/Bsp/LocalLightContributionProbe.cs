@@ -132,6 +132,98 @@ public sealed class LocalLightContributionProbe
         lights.ShouldNotBeEmpty("no lights were read, so nothing above was measured");
     }
 
+    [Test]
+    [Explicit("diagnostic")]
+    public void ModelLightingAgainstTheLightmap_OnARealMap_IsReported()
+    {
+        if (Candidates.FirstOrDefault(File.Exists) is not { } mapPath)
+        {
+            Assert.Ignore("no map to read on this machine.");
+            return;
+        }
+
+        byte[] file = File.ReadAllBytes(mapPath);
+
+        // **The arbiter, and it needs nothing from the engine.** The brushes in the room where the
+        // symptom was seen are lit by the same lamps, decoded by this project, and look correct on
+        // screen. So the lightmap is a known-good reference for how bright that place should be, and
+        // the ambient cube is what a MODEL gets there. Both lumps are `ColorRGBExp32` and both are
+        // decoded as `mantissa * 2^exponent`, so the two numbers are in one space and comparable.
+        //
+        // Whole-map distributions rather than one point, deliberately: a single face and a single
+        // leaf could differ for a dozen honest reasons, whereas a systematic factor between the two
+        // populations is the thing being tested for.
+        List<float> lightmap = [];
+
+        foreach (BspLightmap map in BspLightmaps.Read(file))
+        {
+            ReadOnlySpan<byte> pixels = map.Pixels.Span;
+
+            for (int at = 0; at + 3 < pixels.Length; at += 4)
+            {
+                // The stored byte is `linear / 2` clamped, so doubling recovers the linear value —
+                // Valve's overbright, which the shader undoes the same way.
+                lightmap.Add(((pixels[at] + pixels[at + 1] + pixels[at + 2]) / 3f) * 2f);
+            }
+        }
+
+        List<float> cubes = [];
+
+        foreach (AmbientSamples leaf in BspAmbientLight.Read(file))
+        {
+            foreach (AmbientSample sample in leaf.Samples)
+            {
+                cubes.Add(AmbientCube.Luminance(sample.Cube));
+            }
+        }
+
+        Report("lightmap luxels", lightmap);
+        Report("ambient cube samples", cubes);
+
+        if (Median(lightmap) is > 0f and { } lit && Median(cubes) is > 0f and { } cube)
+        {
+            TestContext.Out.WriteLine(
+                $"  median lightmap is {lit / cube:0.#}x the median ambient cube");
+        }
+
+        // Controls: an empty lump reads as "no difference" and would otherwise pass silently.
+        lightmap.ShouldNotBeEmpty("no lightmap samples were read");
+        cubes.ShouldNotBeEmpty("no ambient samples were read");
+    }
+
+    /// <summary>Prints a distribution, since a mean alone hides a clamp or a long tail.</summary>
+    private static void Report(string what, List<float> values)
+    {
+        if (values.Count == 0)
+        {
+            TestContext.Out.WriteLine($"{what}: none");
+            return;
+        }
+
+        float[] sorted = [.. values.Order()];
+
+        TestContext.Out.WriteLine(
+            $"{what}: {sorted.Length:N0} values, " +
+            $"min {sorted[0]:0.####}, " +
+            $"median {sorted[sorted.Length / 2]:0.####}, " +
+            $"90th {sorted[(int)(sorted.Length * 0.9)]:0.####}, " +
+            $"max {sorted[^1]:0.####}, " +
+            $"mean {values.Average():0.####}");
+    }
+
+    /// <summary>The median, or zero for an empty set.</summary>
+    private static float Median(List<float> values)
+    {
+        if (values.Count == 0)
+        {
+            return 0f;
+        }
+
+        float[] sorted = [.. values.Order()];
+
+        return sorted[sorted.Length / 2];
+    }
+
     /// <summary>Distance between a light and a point.</summary>
     private static float Distance((float X, float Y, float Z) from, (float X, float Y, float Z) to)
     {

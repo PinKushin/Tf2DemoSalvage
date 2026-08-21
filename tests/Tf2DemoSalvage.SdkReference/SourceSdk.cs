@@ -147,6 +147,27 @@ public static class SourceSdk
         // Keyed by the pattern's own text as well as the folder, because two callers sweeping the
         // same directory for different things must not share an answer. That would be a wrong
         // result rather than a slow one, which is the only outcome here worth avoiding.
+        // **A COPY, because a caller that mutates what it is handed poisons the cache for everyone
+        // else.** `SendPropConformanceTests` calls `UnionWith` on this result to fold in the aliased
+        // `SENDINFO_NAME` sweep, which wrote those names into the entry cached for the FIRST pattern
+        // — precisely the shared answer the comment above says must not happen, arriving by mutation
+        // rather than by a key collision.
+        //
+        // It also failed the way an unsynchronised collection does. NUnit runs these in parallel, so
+        // one test's `UnionWith` overlapped another's `Contains` on the same `HashSet`, and a
+        // `ShouldContain("moveparent")` failed while its own failure message listed `moveparent`
+        // among the actual values. Intermittent, and it passed on a re-run — which is the shape this
+        // project treats as a defect rather than as noise.
+        //
+        // Copying on the way out is affordable: the remarks above already record that the caching's
+        // benefit was unmeasurable, so correctness costs nothing here worth counting.
+        return new HashSet<string>(Cached(relativeFolder, pattern, match, recursive), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The shared sweep result, which callers must never be handed directly.</summary>
+    private static HashSet<string> Cached(
+        string relativeFolder, string pattern, Regex match, bool recursive)
+    {
         return Matched.GetOrAdd(
             $"{relativeFolder}|{pattern}|{recursive}|{match}",
             _ =>
