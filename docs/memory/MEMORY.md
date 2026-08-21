@@ -103,3 +103,4 @@
 - [Wire-faithful is not state-faithful](wire-faithful-is-not-state-faithful.md) — the accumulator read the snapshot's own list, not the baseline-merged one; every entity whose state IS its baseline arrived empty.
 - [A filed design choice may not be one](a-filed-design-choice-may-not-be-one.md) — B131 offered two shapes; the SDK picked one and the codebase already had it. A dilemma in a risk entry means the source is unread.
 - [Clip the surface to the projection](clip-the-surface-to-the-projection.md) — an overlay is a volume; clipping the quad to the face bounds fragments by BSP splits and needs a slack fudge to hide the seams.
+- [Name the reading you picked](name-the-reading-you-picked.md) — "a top down map view" became a projection; a decision recorded as a requirement cannot be revisited.

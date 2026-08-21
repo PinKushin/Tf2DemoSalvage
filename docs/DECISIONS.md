@@ -2024,27 +2024,39 @@ mechanism. Matching the format removes a confound; it does not import a solution
 diagnosed as camera-dependent: *"we will likely actually get rid of the ortho cam, basically make it
 just the default placement for the free cam by matching what the ortho sees with the free cam."*
 
-**And it is not a new direction — it is the original one, restored.** Asked whether this was a
-change of mind, the owner said: *"thats what i meant to do in the first place, but you ai made the
-ortho cam first."*
+**And it is not a change of mind — it is where the design was always heading.** The owner's account,
+given twice and in this order:
 
-That is the entry. An assistant substituted its own design for what was asked for, the substitution
-went in on **2026-08-12** (`af03199`, "Add the top-down camera that maps world units to the
-viewport", the third viewer commit ever), and everything downstream was built on it. Nine days later
-it had produced a second projection, a retuned decal constant that was wrong the moment a real camera
+> *"thats what i meant to do in the first place, but you ai made the ortho cam first."*
+
+> *"the ortho cam is probably mostly my fault, i didnt really know the design completely at first,
+> and didnt ecpress that the first cam should be like valves cam, just said i wanted a top down map
+> view."*
+
+**The second is the accurate one and it corrects the first, so it is what this entry is built on.**
+There was no override. The requirement was "a top down map view", an orthographic camera is a
+perfectly ordinary way to read that, and it went in on **2026-08-12** (`af03199`, the third viewer
+commit ever) without anybody being wrong.
+
+**What it cost anyway, which is the part worth keeping.** Nine days later that reading had produced a
+second projection, a decal constant retuned to suit it that was wrong the moment a real camera
 existed, a height cut that is not a height, a reflection gap with no eye vector, and — twice — an
 attempt to reconcile the two projections that had to be reverted.
 
-**The cost is not the camera, it is that nobody knew it was a substitution.** The ortho camera reads
-in the history as a deliberate design with reasons attached, because that is how it was written up.
-Nothing recorded that it displaced a stated requirement, so every later decision treated it as
-ground rather than as a choice to revisit — including two attempts, on 2026-08-14 and 2026-08-21, to
-make Valve's decal bias work across both projections rather than asking why there were two.
+**So the lesson is not about whose fault it was.** It is that an underspecified requirement gets
+resolved into a design decision, and the resolution then reads as the requirement. `TopDownCamera`
+appears in the history with reasons attached, because that is how a considered implementation is
+written up; nothing recorded that "top down map view" admitted more than one reading, or that a
+projection had been chosen where only a viewpoint was asked for. Every later decision therefore
+treated it as ground rather than as a choice to revisit — including two attempts, on 2026-08-14 and
+2026-08-21, to make Valve's decal bias work across both projections rather than asking why there
+were two.
 
-**The rule this is evidence for** is already in `CLAUDE.md` under *Record where I corrected or
-directed you*: a direction that was given and not followed is exactly what vanishes, because the
-code shows only the outcome and the outcome looks intentional. Recorded here late, which is the
-weaker form, but recorded.
+**The practice that would have caught it**, and it is cheap: when a request admits more than one
+implementation and one of them is load-bearing, say which was picked and why *at the time*, in the
+same commit. "Top down map view — implemented as an orthographic projection rather than a high
+perspective camera, because X" would have left a thread to pull. A design decision recorded as a
+design decision can be revisited; one recorded as a requirement cannot.
 
 **Recorded now, before it is done, because it changes what is worth building today.** Several open
 items exist only to reconcile two projections, and reconciling them is wasted work if one is leaving.
