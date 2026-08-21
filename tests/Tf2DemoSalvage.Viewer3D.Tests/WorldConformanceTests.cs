@@ -65,17 +65,11 @@ public sealed class WorldConformanceTests
         typeof(BspWorldLights).ShouldNotBeNull();
     }
 
-    [Test]
-    public void Cubemaps_AreNotRead()
-    {
-        // LUMP_CUBEMAPS 42. The reflections $envmap samples: a map places them by position and a
-        // material saying "env_cubemap" means "the nearest one" rather than a file.
-        //
-        // WHAT YOU SEE: nothing reflects — metal, glass and painted surfaces read matte. Half of
-        // why a capture point disc looks flat. Filed as B55, and the other half of $envmap in
-        // docs/CONFORMANCE.md.
-        Assert.Ignore("LUMP_CUBEMAPS 42 unread; nothing reflects. B55.");
-    }
+    // **`Cubemaps_AreNotRead` stood here and was false for a day.** LUMP_CUBEMAPS 42 is read by
+    // BspCubemaps, its 43 placements on cp_process_final decode, and reflections draw — while this
+    // marker went on skipping with "nothing reflects. B55." A skipped test is invisible in a green
+    // run, so nothing said otherwise. Removed rather than kept: a settled entry should stop counting
+    // as a gap. See ConformanceGapAuditTests, which now fails when a marker outlives its gap.
 
     [Test]
     public void Visibility_IsNotUsed()

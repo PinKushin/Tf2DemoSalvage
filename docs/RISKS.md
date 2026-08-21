@@ -7775,3 +7775,57 @@ applied.
 
 Related: B125 for the Fresnel term that made the perspective reflections invisible too, and which is
 why this was not noticed earlier — before that fix, nothing looked reflective in any camera.
+
+## B82 — items parented to an ATTACHMENT sit at the wearer's feet — CLOSED, and the marker outlived it
+
+**Closed in code some time before 2026-08-21 and still filed as open in three places.**
+`m_iParentAttachment` is read in `EntityState`, `mstudioattachment_t` is decoded into
+`StudioAttachment`, the wearer's attachment table is loaded, and `EntityModels` places the item with
+`AttachmentPlacement.Matrix( bone, attachment.Local, wearer )` — the composition against the bone's
+world matrix, which is precisely the half-fix the original entry warned against rather than the bone
+alone. `AttachmentPlacementTests` predicts exact positions, including through a ninety-degree turn,
+which is the only arrangement where a missing transpose shows.
+
+**What is worth keeping is not the fix, it is the three years of paperwork it left behind.** Two
+conformance markers and a `docs/CONFORMANCE.md` section all went on saying attachments were unread.
+Nothing failed, because a marker skips. See D45 for the mechanism that now catches it.
+
+## B80 — the `Proxies` block is not parsed — CLOSED for the time-driven half, renamed for the rest
+
+The block is parsed, carried through both the world and the entity model paths, and evaluated at
+BIND, which is what the engine does: `IMaterialProxy` has `Init`, `OnBind` and `Release` and no tick.
+`ProxyRenderTests` draws a capture point at two playback times and gets two different pictures while
+an unproxied control stays byte-identical.
+
+**The remaining gap is real and narrower than the name suggested.** cp_process_final's materials run
+`Subtract`, `PlayerProximity`, `Clamp`, `PlayerTeamMatch`, `Divide` and `Multiply`, none of which is
+a function of time: they read the entity the material is drawn on. Giving the material bind an entity
+is a scene-layer change.
+
+**The test was renamed rather than deleted**, and the distinction matters: `MaterialProxies_AreNot-
+Evaluated` was false, `MaterialProxies_ReadingTheEntity_AreNotEvaluated` is true. The audit in D45
+accused this one on its first run because its probe measured whether proxies were PARSED and the
+marker claimed something else — an audit measuring the wrong quantity is the same defect it exists to
+catch, one level up.
+
+## B55 — the last piece: `$normalmapalphaenvmapmask` — OPEN, small, and visible on the capture point
+
+B55 and B124 closed the reflection itself; B125 made it visible. What is left of `$envmap` is one
+parameter.
+
+**The three reflection masks are mutually exclusive by construction** — the shader declares
+`SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` — and this project implements the
+base-alpha one and not this. A material with a bump map **cannot** use `$basealphaenvmapmask`:
+`lightmappedgeneric_dx9_helper.cpp:197` warns and drops the envmap outright. That is why TF2's model
+materials use this one, and why implementing only the base-alpha mask covers none of them.
+
+Measured: 15 of cp_badlands' prop materials ask for it, including `cap_point_base`,
+`cap_point_base_red` and `cap_point_base_blue`.
+
+**WHAT YOU SEE: too shiny, not too dark.** The capture point reflects uniformly, across the painted
+and worn parts the artist masked out — the opposite of B83's original symptom, and only reachable now
+that reflections draw.
+
+**TO IMPLEMENT**: the bump map is already decoded and bound at t4. This is its alpha channel
+multiplied into the specular term in the same place `envmapControl.y` applies the base-alpha mask —
+**before the tint**, and therefore before contrast squares it, which is the ordering B125 fixed.

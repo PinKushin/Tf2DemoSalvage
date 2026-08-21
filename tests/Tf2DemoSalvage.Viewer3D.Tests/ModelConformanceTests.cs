@@ -41,21 +41,11 @@ public sealed class ModelConformanceTests
         typeof(StudioModelGroups).ShouldNotBeNull();
     }
 
-    [Test]
-    public void Attachments_AreNotRead()
-    {
-        // mstudioattachment_t, studio.h:511 — a named point with a bone and a local matrix.
-        // Entities parent to one through m_iParentAttachment rather than by bone merge.
-        //
-        // WHAT YOU SEE: a medic's halo and an MvM canteen sit at the player's FEET, because an
-        // item whose bones match none of the wearer's is placed by the wearer's transform alone.
-        // Measured: hwn_spellbook_complete.mdl has one bone, named "mvm", a root.
-        //
-        // TO IMPLEMENT: the attachment matrix is stored relative to its bone, so it composes
-        // against that bone's world matrix. Applying it in world space puts the item somewhere
-        // plausible and wrong. Filed as B82.
-        Assert.Ignore("mstudioattachment_t unread; worn items with no matching bone draw at the feet. B82.");
-    }
+    // **`Attachments_AreNotRead` stood here and was false.** B82 is closed —
+    // `mstudioattachment_t` is read into `StudioAttachment`, `m_iParentAttachment` is retained on
+    // the entity, and `AttachmentPlacement.Matrix` composes the attachment's local 3x4 against its
+    // bone's world matrix, which is precisely what this marker said the implementation must not get
+    // wrong. Covered by `AttachmentPlacementTests`.
 
     [Test]
     public void JiggleBones_AreNotSimulated()

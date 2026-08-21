@@ -167,29 +167,46 @@ public sealed class SourceConformanceTests
         Assert.Ignore("$phong: 330 materials; every model dull. See docs/CONFORMANCE.md.");
     }
 
+    // **`EnvironmentMaps_AreNotImplemented` stood here and was false.** $envmap has been in
+    // MaterialCensus.ImplementedParameters since B55 closed, brush faces reflect the cubemap vbsp
+    // named for them, and models reflect the nearest placement (D44) — while this went on skipping
+    // with "nothing reflects". What survives of it is the marker below, which is one parameter
+    // rather than a whole feature.
+
     [Test]
-    public void EnvironmentMaps_AreNotImplemented()
+    public void NormalMapAlphaEnvMapMask_IsNotImplemented()
     {
-        // 133 prop materials and 42 brushwork ones, with $envmaptint, $envmapcontrast,
-        // $envmapsaturation, $basealphaenvmapmask and $normalmapalphaenvmapmask alongside.
+        // **The last piece of $envmap, and the one that decides WHERE a surface shines.** The three
+        // reflection masks are mutually exclusive by construction — the shader declares
+        // `SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` — and this project implements
+        // the base-alpha one and not this.
         //
-        // WHAT YOU SEE: nothing reflects. Worst on metal, glass and water, and it is half of why
-        // the capture point disc reads flat.
+        // The mask is the normal map's ALPHA channel, read in the bumped shader as the specular
+        // factor. So a material with a bump map cannot use $basealphaenvmapmask at all
+        // (lightmappedgeneric_dx9_helper.cpp:197 warns and drops the envmap outright), which is why
+        // TF2's model materials use this one: 15 of cp_badlands' prop materials ask for it,
+        // cap_point_base, cap_point_base_red and cap_point_base_blue among them.
         //
-        // TO IMPLEMENT: the cubemaps live in the BSP's pakfile, named by position, and $envmap
-        // "env_cubemap" means "the nearest one" rather than a file. Filed as B55.
-        Assert.Ignore("$envmap: 175 materials; nothing reflects. See docs/CONFORMANCE.md, B55.");
+        // WHAT YOU SEE: a capture point reflects UNIFORMLY, including across the painted and worn
+        // parts the artist masked out. Too shiny rather than too dark — the opposite of B83's
+        // original symptom, and reachable only now that reflections draw at all.
+        //
+        // TO IMPLEMENT: the bump map is already decoded and bound, so this is its alpha channel
+        // multiplied into the specular term before the tint, in the same place
+        // `envmapControl.y` applies the base-alpha mask. The ordering matters: both of Valve's
+        // shaders apply the mask before the tint, and therefore before contrast squares it.
+        Assert.Ignore(
+            "$normalmapalphaenvmapmask: 15 prop materials on cp_badlands; reflective props shine " +
+            "uniformly instead of where their normal map says.");
     }
 
     [Test]
-    public void MaterialProxies_AreNotEvaluated()
+    public void MaterialProxies_ReadingTheEntity_AreNotEvaluated()
     {
-        // The arithmetic is ported and tested — MaterialProxies.TextureScroll and Sine — and the
-        // transforms and modulation colour are plumbed to the shader. Nothing parses the Proxies
-        // block out of a VMT or evaluates it per frame, so every transform sits at identity.
-        //
-        // WHAT YOU SEE: a capture point's beam does not scroll and its sign does not pulse. The
-        // scene is correct and static, which reads as lifeless rather than as broken.
+        // **Renamed 2026-08-21, because the old name outlived its gap.** This was
+        // `MaterialProxies_AreNotEvaluated` while proxies were parsed, carried and evaluated at
+        // bind — the paragraph below already said so and the NAME went on saying otherwise. A name
+        // is what a red run shows you first, so a stale one misdirects before anything is read.
         //
         // **The time-driven half is done and measured through the GPU.** The Proxies block is
         // parsed, carried through both the world and the entity model paths, and evaluated at BIND
@@ -254,21 +271,12 @@ public sealed class SourceConformanceTests
         Assert.Ignore("$basetexturetransform: 24 materials; matrix form unparsed.");
     }
 
-    [Test]
-    public void AttachmentPoints_AreNotImplemented()
-    {
-        // Not a material. mstudioattachment_t in the model and m_iParentAttachment on the entity
-        // are both unread, so an item whose bones match none of its wearer's is placed by the
-        // wearer's transform alone.
-        //
-        // WHAT YOU SEE: a medic's halo and an MvM canteen sit at the player's FEET. Measured:
-        // hwn_spellbook_complete.mdl has one bone, named "mvm", a root — no player has it.
-        //
-        // TO IMPLEMENT: the attachment's matrix is stored relative to its bone, so it composes
-        // against that bone's world matrix; applying it in world space puts the item somewhere
-        // plausible and wrong. Filed as B82.
-        Assert.Ignore("Attachments: worn items with no matching bone draw at the feet. B82.");
-    }
+    // **`AttachmentPoints_AreNotImplemented` stood here and was false.** B82 is closed:
+    // `m_iParentAttachment` is read in `EntityState`, the wearer's attachment table is loaded, and
+    // `AttachmentPlacement.Matrix` composes the attachment's own 3x4 against its bone's world
+    // matrix — which is the exact half-fix this marker warned against, done correctly. The
+    // behaviour is covered by `AttachmentPlacementTests` and
+    // `Features_AnAttachment_PlacesAnItemAtAPointNotABone`.
 
     [Test]
     public void Census_TheSdkSurface_AgreesWithThisSuite()

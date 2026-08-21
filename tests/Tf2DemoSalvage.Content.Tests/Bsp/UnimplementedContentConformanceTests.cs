@@ -1,6 +1,8 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
@@ -57,18 +59,64 @@ public sealed class UnimplementedContentConformanceTests
     [Test]
     public void Content_CubemapSamples_ArePositionedAndSized()
     {
-        // **What $envmap needs, and the reason B55 is more than a shader change.** dcubemapsample_t
-        // (bspfile.h:992) is an integer position and a size byte, where "0 - default, otherwise
-        // 1<<(size-1)". The compiled .vtf faces live in the map's own pakfile, which this project
-        // already reads for everything else, and the filename is derived from the position.
+        // **This skipped saying "LUMP_CUBEMAPS is not read" long after it was read**, which is the
+        // same drift `ConformanceGapAuditTests` was built to police on the viewer side. The skip is
+        // gone and the claims it was making are now assertions.
         //
-        // So the data is entirely available: the lump index is already named in BspLumpIndex, the
-        // pakfile reader exists, and nothing reads either for this purpose.
+        // dcubemapsample_t (bspfile.h:992) is an integer position and a size byte, where
+        // "0 - default, otherwise 1<<(size-1)". The compiled .vtf faces live in the map's own
+        // pakfile and the filename is derived from the position — the comment beside the field says
+        // so outright: "the filename for the vtf file is derived from the position".
         BspLumpIndex.Cubemaps.ShouldBe(42);
 
-        Assert.Ignore(
-            "LUMP_CUBEMAPS is not read. $envmap (B55) needs the nearest sample's position to pick " +
-            "a cubemap, and the faces are already reachable through the pakfile reader.");
+        // Read, with the size resolved from its CODE rather than passed through as one. 0 means the
+        // default 32; `1 << (0 - 1)` in C# is `1 << 31`, because the shift count is masked.
+        IReadOnlyList<BspCubemap> placed = BspCubemaps.Read(Map(Sample(544, 1952, 929, size: 0)));
+
+        placed.Count.ShouldBe(1);
+        placed[0].ShouldBe(new BspCubemap(544, 1952, 929, 32));
+
+        // And the derivation, which is vbsp's own format string (vbsp/cubemap.cpp:511) with the
+        // separator empty for a texture name and the whole thing lowercased by Q_strlower.
+        BspCubemaps.TextureName("cp_process_final", placed[0])
+            .ShouldBe("maps/cp_process_final/c544_1952_929");
+    }
+
+    /// <summary>One <c>dcubemapsample_t</c>: three little-endian ints, a size byte, three of padding.</summary>
+    /// <remarks>
+    /// Sixteen bytes rather than thirteen. C++ pads the struct to its own four-byte alignment and
+    /// <c>SwapLumpToDisk&lt;dcubemapsample_t&gt;</c> writes <c>sizeof</c>, so the padding is on disk —
+    /// which a reader built to the declaration gets wrong from the SECOND record onward.
+    /// <c>BspCubemapsTests</c> carries that case; this one only needs a well-formed record.
+    /// </remarks>
+    private static byte[] Sample(int x, int y, int z, byte size)
+    {
+        byte[] record = new byte[BspCubemaps.Stride];
+
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(0), x);
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(4), y);
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(8), z);
+        record[12] = size;
+
+        return record;
+    }
+
+    /// <summary>A BSP carrying only a cubemap lump.</summary>
+    private static byte[] Map(byte[] sample)
+    {
+        const int headerSize = 1036;
+
+        byte[] file = new byte[headerSize + sample.Length];
+
+        Encoding.ASCII.GetBytes("VBSP").CopyTo(file, 0);
+        BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(4), 21);
+        sample.CopyTo(file, headerSize);
+
+        int entry = 8 + (BspLumpIndex.Cubemaps * 16);
+        BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(entry), headerSize);
+        BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(entry + 4), sample.Length);
+
+        return file;
     }
 
     [Test]

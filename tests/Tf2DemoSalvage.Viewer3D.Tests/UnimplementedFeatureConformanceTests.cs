@@ -196,10 +196,16 @@ public sealed class UnimplementedFeatureConformanceTests
 
         material.Value("$basetexture").ShouldBe("effects/beam");
 
-        Assert.Ignore(
-            "B80: the Proxies block is not parsed, so material transforms sit at identity — " +
-            "capture point beams do not scroll and signs do not pulse. The expectation above is " +
-            "what must remain true once it is.");
+        // **The skip that stood here was false and the assertions below are what it was guarding.**
+        // It said "the Proxies block is not parsed", and the block is parsed: the proxy arrives with
+        // its name and its own parameters, separate from the material's. Asserting that outright is
+        // what the marker was for once the feature landed, and it landed without anyone coming back
+        // for the marker.
+        material.Proxies.Count.ShouldBe(1, "the Proxies block is parsed, not dropped");
+        material.Proxies[0].Name.ShouldBe("TextureScroll");
+        material.Proxies[0].Argument("texturescrollvar").ShouldBe("$basetexturetransform");
+        material.Proxies[0].Argument("texturescrollrate").ShouldBe("0.5");
+        material.Proxies[0].Argument("texturescrollangle").ShouldBe("90");
     }
 
     [Test]
@@ -241,9 +247,29 @@ public sealed class UnimplementedFeatureConformanceTests
         // right.
         StudioLayoutFacts();
 
-        Assert.Ignore(
-            "B82: attachments are not read. When they are, the item's transform must be the " +
-            "attachment's 3x4 matrix COMPOSED with its bone's, not the bone's alone.");
+        // **The skip that stood here was false, and the warning in it was heeded.** B82 is closed:
+        // `EntityModels` looks the attachment up by the entity's one-based `m_iParentAttachment`,
+        // then calls `AttachmentPlacement.Matrix( bone, attachment.Local, wearer )` — the
+        // composition this marker said the half-fix would miss, not the bone alone.
+        //
+        // **The behaviour is asserted where it can be measured, not here.**
+        // `AttachmentPlacementTests` turns a wearer through ninety degrees and predicts the item's
+        // exact position, which is the only arrangement where a missing transpose or a wrong
+        // composition order shows. Checking from this file that a method with the right NAME exists
+        // would be a change-detector, and would have passed against `BspCubemaps` on the day it was
+        // complete, correct and called by nothing.
+        //
+        // What this test keeps is what it was always for: the struct layout, and one case that
+        // separates the composition from the half-fix it warned about. A bone lifted 10 with an
+        // attachment offset 5 further along its own X gives (5, 0, 10); taking the bone alone gives
+        // (0, 0, 10), which is the "close enough on a hat to look almost right" this marker named.
+        float[] bone = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 10f];
+        float[] local = [1f, 0f, 0f, 5f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
+
+        float[] placed = AttachmentPlacement.Matrix(
+            bone, local, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f]);
+
+        (placed[12], placed[13], placed[14]).ShouldBe((5f, 0f, 10f));
     }
 
     /// <summary>Skips unless the census says the parameter is implemented.</summary>

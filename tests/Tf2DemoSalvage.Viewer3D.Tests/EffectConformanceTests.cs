@@ -120,16 +120,10 @@ public sealed class EffectConformanceTests
         Assert.Ignore("HDR and tonemapping unapplied; exposure fixed. Value is an open question.");
     }
 
-    [Test]
-    public void ViewModels_AreNotDrawn()
-    {
-        // The first-person weapon, which a POV demo carries as its own entity.
-        //
-        // WHAT YOU SEE: nothing today, because the viewer has no first-person camera. This becomes
-        // visible the moment POV playback exists, and it is recorded now so that it is a known gap
-        // rather than a surprise then.
-        Assert.Ignore("View models undrawn; invisible until a first-person camera exists.");
-    }
+    // **`ViewModels_AreNotDrawn` stood here and was false.** It said "invisible until a
+    // first-person camera exists" and predicted its own obsolescence exactly — the camera arrived,
+    // arms, weapon and the spy's off-hand watch all draw (D42, docs/findings/30-viewmodel-drawing.md),
+    // and the marker went on skipping through the whole session that built them.
 
     [Test]
     public void CloakAndInvulnerability_AreNotDrawn()

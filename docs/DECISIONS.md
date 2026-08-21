@@ -1856,3 +1856,57 @@ question.
 So the contribution here is an assertion rather than a discovery. `CubemapLoadingTests` now names
 `cap_point_base`, `cap_point_base_red` and `cap_point_base_blue` and fails if they stop asking, so
 the fact lives where it can break rather than only where it can be read.
+
+## D45 — a conformance gap marker must be able to fail when its gap closes
+
+**Owner's direction, 2026-08-21**, on being shown the list of still-skipping conformance tests:
+"yea they were suppose to auto start working or you were suppose to keep them updated so they follow
+what we have integrated".
+
+Both halves of that were the design and only the second was ever implemented, as a discipline. It
+lapsed.
+
+**What was measured.** Five markers were claiming features that demonstrably worked:
+
+| Marker | Reality |
+|---|---|
+| `WorldConformanceTests.Cubemaps_AreNotRead` | `BspCubemaps` complete; 43 placements decode |
+| `SourceConformanceTests.EnvironmentMaps_AreNotImplemented` | reflections draw, brush and model |
+| `SourceConformanceTests.AttachmentPoints_AreNotImplemented` | `AttachmentPlacement.Matrix` in use |
+| `ModelConformanceTests.Attachments_AreNotRead` | same |
+| `EffectConformanceTests.ViewModels_AreNotDrawn` | arms, weapon and the off-hand watch all draw |
+
+The last one had predicted its own obsolescence in its comment — "invisible until a first-person
+camera exists" — and went on skipping through the entire session that built the camera.
+
+**The cost is not tidiness.** `docs/CONFORMANCE.md` is quoted from these markers and is what this
+project reads to decide what to build next. A false entry there meant `BspCubemaps` was written a
+second time by someone who believed the map, over a complete and better implementation, deleting ten
+tests with it (see `docs/memory/write-can-destroy-what-you-did-not-read.md`).
+
+**The decision: a marker must carry evidence that can turn against it.** `ConformanceGapAuditTests`
+holds one row per checkable marker — the marker's name, and a probe for whether the gap is still
+open. It **fails** rather than skips, because a marker that has outlived its gap is not a gap, it is
+a wrong entry.
+
+Two kinds of probe, and the second is much the stronger:
+
+- **A parameter** is checked against `MaterialCensus.ImplementedParameters`. That list is maintained
+  for reasons of its own — leaving a parameter out means the asset log goes on reporting it missing
+  on every map load — so it does not depend on anyone remembering this file. `$envmap` had been in
+  it for a day while a test said otherwise.
+- **A feature** is checked by loading a real map and asking whether it produced anything. That
+  measures the output rather than a list somebody keeps, which is the rule in
+  `docs/memory/measure-the-output-not-the-capability.md`.
+
+**Policed in both directions, and this is the half that is easy to omit.** A row naming a marker that
+has been deleted checks nothing while looking exactly like coverage. The audit's own first version
+had that defect — it asked "does the feature work" and so failed for ever once the markers were
+removed — and its second version caught two dead rows on the first run.
+
+**What it cannot do.** A marker with no cheap probe — jiggle bones, ragdolls, particles — has no row,
+and `TheAudit_CoversEveryMarkerThatCanBeChecked` pins the count so a new marker has to be classified
+rather than silently unpoliced. That is a smaller claim than "every marker is policed", and it is
+made deliberately: the alternative is a probe that measures the wrong quantity, which the audit did
+once already and which accused a correct entry (`MaterialProxies_AreNotEvaluated`, whose real gap was
+narrower than the probe understood — renamed, not removed).

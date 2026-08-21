@@ -88,7 +88,14 @@ run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
 run Tf2DemoSalvage.Content.Tests  content   603
 run Tf2DemoSalvage.Corpus.Tests   corpus     88
-run Tf2DemoSalvage.Viewer3D.Tests viewer    523
+# Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
+# were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
+# Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
+# demonstrably works) and FOUR tests added: three in ConformanceGapAuditTests and one precise
+# replacement marker, NormalMapAlphaEnvMapMask_IsNotImplemented. Net -1.
+#
+# A floor that drops is a finding until it is explained. This one is explained by the count.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    522
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

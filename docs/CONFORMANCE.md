@@ -216,16 +216,27 @@ single largest visual difference on players. **Read `vertexlitgeneric_dx9_helper
 `$basemapalphaphongmask` versus the normal map's alpha, and picking the wrong one produces a
 plausible sheen in the wrong places.
 
-### `$envmap` — no reflections
-133 prop materials and 42 brushwork ones, with `$envmaptint`, `$envmapcontrast`,
-`$envmapsaturation`, `$basealphaenvmapmask`, `$normalmapalphaenvmapmask` alongside. Needs cubemaps
-read from the BSP. Filed as B55.
+### `$normalmapalphaenvmapmask` — reflective props shine everywhere at once
+15 prop materials on cp_badlands, `cap_point_base` and its two team skins among them. The three
+reflection masks are mutually exclusive by construction — the shader declares
+`SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` — and this project implements the
+base-alpha one and not this. **A material with a bump map cannot use `$basealphaenvmapmask` at all**
+(`lightmappedgeneric_dx9_helper.cpp:197` warns and drops the envmap outright), which is why TF2's
+model materials use this one.
 
-### Material proxies — nothing moves
-`TextureScroll` and `Sine` are ported and tested (`MaterialProxies`), and the texture transforms and
-modulation colour are plumbed to the shader, but nothing parses the `Proxies` block from a VMT or
-evaluates it per frame — so every transform sits at identity. **A capture point's beam does not
-scroll and its sign does not pulse.** Filed as B80.
+WHAT YOU SEE: a capture point reflects uniformly, across the painted and worn parts the artist
+masked out. **Too shiny rather than too dark** — the opposite of B83's original symptom, and only
+reachable now that reflections draw at all.
+
+### Material proxies — the entity-state half
+`TextureScroll` and `Sine` are ported, the `Proxies` block is parsed, and proxies are evaluated at
+BIND on both the world and the entity model paths — which is what the engine does, since
+`IMaterialProxy` has `Init`, `OnBind` and `Release` and no tick.
+
+What remains reads the ENTITY the material is drawn on: `Subtract`, `PlayerProximity`, `Clamp`,
+`PlayerTeamMatch`, `Divide` and `Multiply` are functions of team and distance, not of time, and the
+material layer has no entity. An unrecognised proxy leaves the material at its resting value rather
+than guessing. Filed as B80.
 
 ### `$lightwarptexture` — lighting curve is linear where TF2's is authored
 308 materials. A one-dimensional ramp the engine looks up with `N·L`, which is a large part of
@@ -243,10 +254,20 @@ refraction and the cornea are absent.
 19 and 5 on brushwork. The transform machinery exists; nothing parses the matrix form
 (`center … scale … rotate … translate`) out of a VMT yet.
 
-### Attachment points — cosmetics at the wearer's feet
-Not a material at all. `mstudioattachment_t` and `m_iParentAttachment` are unread, so an item whose
-bones match nothing — a halo, an MvM canteen — is placed by the wearer's transform alone. Measured:
-`hwn_spellbook_complete.mdl` has one bone, named `mvm`, a root. Filed as B82.
+## A gap list rots, so it is now policed
+
+**Five entries in this document were false on 2026-08-21**, and one of them cost a feature being
+built twice. `$envmap`, LUMP_CUBEMAPS, attachment points and viewmodels were all implemented while
+their conformance markers went on skipping with "not implemented" — and a skipped test is invisible
+in a green run, so nothing said otherwise.
+
+`ConformanceGapAuditTests` now fails when a marker outlives its gap. Each row names a marker and the
+evidence that would settle it: a parameter is checked against `MaterialCensus.ImplementedParameters`,
+which is maintained for its own reasons, and a feature is checked by loading a real map and asking
+whether it produced anything. **It is policed in both directions** — a row naming a marker that no
+longer exists fails too, because otherwise the audit quietly checks nothing.
+
+See `docs/DECISIONS.md` D45.
 
 ## Deliberately not ours
 
