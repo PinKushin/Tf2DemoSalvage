@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 
@@ -189,6 +190,121 @@ public sealed class LocalLightContributionProbe
         // Controls: an empty lump reads as "no difference" and would otherwise pass silently.
         lightmap.ShouldNotBeEmpty("no lightmap samples were read");
         cubes.ShouldNotBeEmpty("no ambient samples were read");
+    }
+
+    [Test]
+    [Explicit("diagnostic")]
+    public void WorldLightIntensity_AgainstTheAuthoredValue_IsReported()
+    {
+        if (Candidates.FirstOrDefault(File.Exists) is not { } mapPath)
+        {
+            Assert.Ignore("no map to read on this machine.");
+            return;
+        }
+
+        byte[] file = File.ReadAllBytes(mapPath);
+
+        // **The entity lump is plain text and holds what the mapper actually wrote**, which makes it
+        // the one reference that can say whether our decoded intensity is the right magnitude. vrad
+        // turns `_light "R G B brightness"` into
+        //
+        //     intensity = pow( channel / 255, 2.2 ) * 255,  then  * ( brightness / 255 )
+        //
+        // and then scales the whole thing by the falloff denominator at a hundred units
+        // (`lightmap.cpp:1253`). Dividing our stored value by that ratio should give the authored
+        // number back; if it does not, the gap is the factor the runtime term is short by.
+        int lights = 0;
+
+        foreach (BspEntity entity in BspEntities.ReadFrom(file))
+        {
+            if (!entity.TryGetValue("classname", out string? classname) ||
+                classname is not ("light" or "light_spot") ||
+                !entity.TryGetValue("_light", out string? authored))
+            {
+                continue;
+            }
+
+            if (lights++ < 6)
+            {
+                // **`_lightHDR` wins when the map was compiled with HDR, which TF2's are**
+                // (`lightmap.cpp:1133`), and a negative value there means "no HDR override, use
+                // `_light`". Printing both is what tells the two cases apart.
+                entity.TryGetValue("_lightHDR", out string? hdr);
+                entity.TryGetValue("_lightscaleHDR", out string? hdrScale);
+
+                TestContext.Out.WriteLine(
+                    $"  authored _light \"{authored}\" _lightHDR \"{hdr ?? "-"}\" " +
+                    $"_lightscaleHDR \"{hdrScale ?? "-"}\"");
+            }
+        }
+
+        TestContext.Out.WriteLine($"  {lights} light entities in the lump");
+
+        // **Joined on ORIGIN, because guessing the pairing produced nonsense.** Matching the
+        // brightest decoded light against the first authored one gave per-channel factors of 102,
+        // 90 and 78 — not a constant, which is the signature of comparing two different lamps
+        // rather than of a scale error. A light entity and its `dworldlight_t` share a position, so
+        // that is the join.
+        Dictionary<(int X, int Y, int Z), string> authoredAt = [];
+
+        foreach (BspEntity entity in BspEntities.ReadFrom(file))
+        {
+            if (entity.TryGetValue("classname", out string? name) &&
+                name is "light" or "light_spot" &&
+                entity.TryGetValue("_light", out string? value) &&
+                entity.TryGetValue("origin", out string? origin))
+            {
+                float[] parts =
+                [
+                    .. origin.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(part => float.Parse(part, CultureInfo.InvariantCulture)),
+                ];
+
+                if (parts.Length == 3)
+                {
+                    authoredAt[((int)parts[0], (int)parts[1], (int)parts[2])] = value;
+                }
+            }
+        }
+
+        int compared = 0;
+
+        foreach (BspWorldLight decoded in BspWorldLights.Read(file)
+            .Where(entry => entry.Kind is WorldLightKind.Spotlight or WorldLightKind.Point))
+        {
+            if (compared >= 5 ||
+                !authoredAt.TryGetValue(
+                    ((int)decoded.Origin.X, (int)decoded.Origin.Y, (int)decoded.Origin.Z),
+                    out string? authored))
+            {
+                continue;
+            }
+
+            compared++;
+
+            float ratio = decoded.ConstantAttenuation +
+                (100f * decoded.LinearAttenuation) +
+                (100f * 100f * decoded.QuadraticAttenuation);
+
+            // vrad's own arithmetic, so the expected value is computed rather than eyeballed:
+            // pow( channel / 255, 2.2 ) * 255, then * ( brightness / 255 ).
+            float[] rgb =
+            [
+                .. authored.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(part => float.Parse(part, CultureInfo.InvariantCulture)),
+            ];
+
+            float brightness = rgb.Length > 3 ? rgb[3] / 255f : 1f;
+            float expected = MathF.Pow(rgb[0] / 255f, 2.2f) * 255f * brightness;
+            float ours = decoded.Intensity.Red / ratio;
+
+            TestContext.Out.WriteLine(
+                $"  at ({decoded.Origin.X:0},{decoded.Origin.Y:0},{decoded.Origin.Z:0}) " +
+                $"authored \"{authored}\" expects {expected:0.##}, we read {ours:0.###} " +
+                $"— factor {(ours > 0 ? expected / ours : 0):0.#}");
+        }
+
+        compared.ShouldBeGreaterThan(0, "no decoded light matched an entity by origin");
     }
 
     /// <summary>Prints a distribution, since a mean alone hides a clamp or a long tail.</summary>

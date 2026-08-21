@@ -52,29 +52,38 @@ public static class LocalLights
     /// </remarks>
     private const float AttenuationEpsilon = 0.001f;
 
-    /// <summary>Brings a world light's intensity into the ambient cube's 0–1 scale.</summary>
+    /// <summary>Brings a world light's intensity into the ambient cube's scale.</summary>
     /// <remarks>
-    /// **Two different units met here, and nothing in either name said so.** A leaf's ambient
-    /// samples are stored as bytes and <see cref="BspAmbientLight"/> normalises them on decode
-    /// (<c>sample[i] / 255f</c>), so a cube is 0–1. A world light's intensity is not normalised: vrad
-    /// builds it as <c>pow( r / 255.0, 2.2 ) * 255</c> — 0–255, gamma-corrected to linear — and then
-    /// multiplies it again by the falloff denominator at one hundred units:
+    /// **One, because the lump and the cube are already in the same units.** vrad works in 0–255
+    /// linear — it builds intensity as <c>pow( r / 255.0, 2.2 ) * 255</c> and then multiplies by the
+    /// falloff denominator at a hundred units — but it DIVIDES BY 255 on the way into the file
+    /// (<c>lightmap.cpp:1647</c>), under a comment of Valve's asking why:
     ///
     /// <code>
-    /// // scale intensity for unit 100 distance
-    /// float ratio = ( constant_attn + 100 * linear_attn + 100 * 100 * quadratic_attn );
-    /// VectorScale( dl->light.intensity, ratio, dl->light.intensity );
+    /// VectorScale( dl->light.intensity, (1.0 / 255.0), wl->intensity );
     /// </code>
     ///
-    /// That second factor is not a unit mismatch and must not be corrected for — it is exactly
-    /// cancelled by dividing by the falloff at the point being lit, which is what makes a light read
-    /// as its authored brightness at a hundred units. Only the 255 is a scale difference.
+    /// So the lump holds a 0–1 number, and the cube reaches the shader as <c>linear / 255</c>, which
+    /// is the same 0–1. Contribution is therefore <c>stored / falloff</c> with no scale at all. The
+    /// ratio-at-a-hundred-units factor is not a unit mismatch either: dividing by the falloff at the
+    /// lit point cancels it exactly, which is what makes a light read as its authored brightness at
+    /// a hundred units.
     ///
-    /// Adding cube and light without it produced luminances of 140, 311, 903 and 1535 against a cube
-    /// of 0.1 to 0.4 — visible immediately in the viewer's log and invisible to every unit test,
-    /// because a test that supplies its own intensity has no opinion about what units a map uses.
+    /// **This was 1/255 — the same factor applied a second time, in the same direction** — and that
+    /// is why a lamp overhead contributed 0.007 against a bounce of 0.24 (B95). The reasoning
+    /// recorded for it was that "<see cref="BspAmbientLight"/> normalises [samples] on decode
+    /// (<c>sample[i] / 255f</c>)". It does not, and has not since that divide was removed for making
+    /// every cube 255 times too dark; the values land near 0–1 because their exponents are negative.
+    ///
+    /// **Every unit test agreed with the wrong constant**, because each supplies its own intensity
+    /// and writes the divide into its own expected value. The old remarks here said exactly why that
+    /// could not work — "a test that supplies its own intensity has no opinion about what units a map
+    /// uses" — and then the constant was chosen on one anyway. What settled it was vrad's writer and
+    /// two measurements on a real map: `AmbientCubeScaleConformanceTests` for the cube's scale, and
+    /// an origin-joined comparison of every decoded light against its authored `_light` key, which
+    /// came back short by exactly 255.
     /// </remarks>
-    private const float IntensityScale = 1f / 255f;
+    private const float IntensityScale = 1f;
 
     /// <summary>Adds the strongest world lights' direct contribution to an ambient cube.</summary>
     /// <param name="cube">The leaf's ambient cube at this point.</param>

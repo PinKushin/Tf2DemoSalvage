@@ -5668,7 +5668,76 @@ builds and is therefore map data, not a defect.
 
 Evidence class: read from published source (vrad), measured on two builds of one map.
 
-### B95 — local lights are applied and contribute almost nothing — OPEN, and separate from B83
+### B95 — local lights are applied and contribute almost nothing — FIXED
+
+#### The cause, 2026-08-20 — vrad divides intensity by 255 on write, and we divided again
+
+`lightmap.cpp:1647`, under a comment of Valve's asking why the scale is what it is:
+
+```cpp
+VectorScale( dl->light.intensity, (1.0 / 255.0), wl->intensity );
+```
+
+**vrad works in 0–255 linear and stores 0–1.** The runtime multiplies by 255 to get back, which is the
+counterpart of the unexplained 255 in `ColorRGBExp32ToVector` — divide on write, multiply on read, and
+Valve flags both. An ambient cube reaches the shader as `linear / 255`, so in the cube's units a
+light's contribution is simply `stored / falloff`, with no scale at all.
+
+`LocalLights.IntensityScale` was `1/255` — that same factor a second time, in the same direction. Now
+1.
+
+**Measured on `koth_harvest_final`, the same frame before and after:**
+
+```
+bounce 0.1875  ->  with direct 0.1928      becomes  1.5385
+bounce 0.0723  ->  with direct 0.0732      becomes  0.2924
+bounce 0       ->  with direct 0.0011      becomes  0.2678
+```
+
+On screen: the spy's knife reads as steel rather than a silhouette, the sleeve is white, and the
+gloves — black in TF2, so still dark — show knuckles and a highlight where they were a flat shape.
+
+#### How it was found, because the obvious routes all failed
+
+Four measurements, each ruling out the story the previous one suggested:
+
+1. **The two terms reported apart.** One number could not say whether nothing was near or everything
+   near contributed nothing.
+2. **The map's lights characterised.** The innocent explanation — that most lights are surface lights,
+   which carry no falloff and are rightly excluded — is false here: 126 of 136 are eligible
+   spotlights, two of them 127 units overhead and inside their cones.
+3. **Lightmap against ambient cube, in the shader's space.** 0.214 against 0.2358, agreeing within a
+   tenth, which cleared the cube and put the fault on the light side. The first version of this
+   comparison used the lightmap's STORED value and reported 231.8x, one edit from "fixing" a correct
+   decoder.
+4. **Every decoded light joined to its entity BY ORIGIN** and compared against the authored `_light`
+   key through vrad's own arithmetic. Guessing the pairing gave per-channel factors of 102, 90 and 78
+   — not constant, the signature of comparing two different lamps. Joined properly, one light came
+   back short by exactly 255, and the spotlights by 171 because they carry
+   `_fifty_percent_distance` and so take vrad's other branch, which never applies the ratio-at-100
+   scale that the comparison divided out.
+
+#### Why twelve tests agreed with the wrong constant
+
+Every one supplies its own intensity and writes the divide into its own expected value. The old
+remarks on `IntensityScale` stated the reason this could not work — "a test that supplies its own
+intensity has no opinion about what units a map uses" — and the constant was then chosen on exactly
+such a test, from a viewer-log observation of luminances of 140 to 1535.
+
+They are corrected by scaling their INPUTS into the lump's real units, which leaves every expected
+value unchanged: those tests are about falloff, cones, ranking and culling, and none of those claims
+ever depended on the scale. `WorldLightScaleConformanceTests` now pins the scale itself against vrad's
+arithmetic, including that a lamp overhead must outweigh the bounce.
+
+#### Still open, deliberately not folded in
+
+**vrad multiplies a spotlight's falloff by `dot2` as well as by the cone fringe** (`lightmap.cpp:1934`),
+and `LocalLights.Cone` returns only the fringe. Worth about 1.75x at the angle measured. Filed as B122
+so this change could be measured alone.
+
+---
+
+### B95, as originally written — local lights are applied and contribute almost nothing
 
 **The heading and the paragraph below it were true when written and have been stale since**
 `LocalLights.AddTo` was wired into `MainForm.LightAt`. Local lights are implemented, tested twelve
@@ -7445,3 +7514,31 @@ set directly reddens both.
 
 **The general shape, worth carrying:** a cache that hands out a mutable reference is not a cache, it
 is shared state. Every consumer of one is trusted not to write to it, and one of six was not.
+
+---
+
+### B122 — a spotlight's cosine term is missing from the falloff — OPEN
+
+vrad computes a spotlight's falloff as the inverse of the attenuation polynomial **multiplied by the
+cosine between the light's direction and the direction to the lit point**, and only then applies the
+penumbra fringe (`lightmap.cpp:1929`-1942):
+
+```cpp
+out.m_flFalloff = ReciprocalSIMD( out.m_flFalloff );
+out.m_flFalloff = MulSIMD( out.m_flFalloff, dot2 );      // <- this
+// outside the inner cone
+mult = ... ( dot2 - stopdot2 ) / ( stopdot - stopdot2 ) ...
+```
+
+`LocalLights.Cone` returns the fringe alone and never multiplies by `dot2`, so a light is at full
+strength anywhere inside its inner cone rather than falling off toward the cone's edge.
+
+**Worth about 1.75x at the angle measured** — the spotlight 127 units above the spy of `z1800` has a
+cone dot of 0.57 — so it is a real error and a small one next to the 255 that B95 turned out to be.
+Held back deliberately so that fix could be measured on its own.
+
+**Note it is the same `dot2` twice, for two purposes**, which is what makes it easy to read as already
+handled: once as the cone mask and fringe, and once as a plain cosine on the falloff. Our code
+computes `dot2` and uses it for the first only.
+
+Point lights are unaffected — `emit_point` has no such term (`lightmap.cpp:1885`-1895).
