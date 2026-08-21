@@ -8100,13 +8100,46 @@ Two shapes for the fix, and the choice is a real one rather than a detail:
 
 Not attempted, and deliberately not guessed at.
 
-## B132 — some entities reach the entity table with no properties at all — OPEN, and it is not about fog
+## B132 — some entities reach the entity table with no properties at all — CLOSED 2026-08-21
 
-**Next step and current best lead are in `docs/HANDOFF.md`.** Summary: a swallowed decode exception
-is RULED OUT (there is no try/catch in the path, so a desync would fail the build). The remaining
-lead is `EntityStateTable.Apply` replacing a state on a re-ENTER with a different serial, which would
-discard the properties and leave the class name — exactly the observed shape. The check that settles
-it is a full trace with no `--entity-limit`, grepped for `entity 212 `.
+**The accumulator asked the wrong one of two questions that look identical.**
+`EntityStateTable.Apply` wrote `DecodedEntity.Properties` into the entity's state. That member is
+**wire-faithful** by design — exactly the bits the snapshot carried, which is what the assembler
+must reproduce to round-trip a demo. An entity entering the visible set is a delta against its
+class's **instance baseline** and omits everything equal to it, so for state the wire list is the
+wrong question. The engine merges the baseline first, in `CL_CopyNewEntity`.
+
+`EntityDecoder.EffectiveProperties` had done the merge correctly for months, with a doc comment
+saying in as many words that "one member is wire-faithful, the other is state-faithful, and the two
+questions are genuinely different". Exactly one caller used it: the trace writer. The accumulator —
+the thing whose entire job is state — did not.
+
+**Fixed by making it impossible to ask the wrong one.** `IEntityBaselines` is a one-method interface
+implemented by `EntityDecoder`, and `EntityStateTable` now takes one as a **required** constructor
+argument. There is no parameterless constructor to fall back to, so a caller cannot reconstruct the
+defect by omission; `EntityBaselines.None` exists for hand-built fixtures and says so at the call
+site.
+
+**The result, on every demo in the corpus and every era in it:**
+
+| | before | after |
+|---|---|---|
+| Properties a `CFogController` holds | 0 | **15** |
+| Fog samples per demo | 0 | **1** |
+
+Confirmed against a source outside this project: each map's own `env_fog_controller` keyvalues, read
+straight out of the BSP entity lump. cp_granary 225/225/225 to 14000 at density 0.8, koth_viaduct
+213/174/221 to 6500, cp_foundry 131/121/134 from 1707 to 4634 — every one matching what the demo
+networks, unpacked through `EntityState.Fog`. Viaduct is the specimen that fixes the colour byte
+order, since three distinct bytes cannot be read backwards by accident and a grey map can.
+
+**It surfaced a second thing immediately**, which is the sign the fix was real: `CWorld` began
+arriving with model index 1 and became a prop track covering the whole map. Valve excludes it by
+entity index, not by model type — `C_BaseEntity::ShouldDraw` ends `&& (index != 0)` at
+`c_baseentity.cpp:1450` — so `RecordProp` now skips index zero, and `maps/<name>.bsp` classifies as
+the brush model it is rather than as an unknown reference. See B133 for what that exposed next.
+
+### Original report
 
 **Found while implementing fog, and it is much wider than fog.**
 
@@ -8152,3 +8185,28 @@ declared nowhere in the SDK. They were wrong: their `SENDINFO` pattern matched i
 only, and `SENDINFO_STRUCTELEM( m_fog.start )` sends under an expression containing a **dot**, so the
 capture stopped at `m_fog`. A fact about the pattern rather than about Valve's tables, and the same
 family as `docs/memory/wire-names-are-strings.md`. Fixed in both.
+
+---
+
+## B133 — `ScenePose.Hidden` is written, cloned, and never read — OPEN
+
+**An `EF_NODRAW` entity is drawn anyway.** `DemoTimeline` sets `Hidden = !state.IsDrawn` on every
+prop pose, `ScenePropTrack` copies it through its clone with a comment explaining why, and **no
+renderer reads it**. A repository-wide search for the member outside those two files finds one
+unrelated WinForms property.
+
+Found while closing B132, by asking whether the world entity could be kept off the screen through
+the flag that already existed. It cannot, because the flag reaches nothing.
+
+**What it costs, in the words of the code that produces it:** "A taken health pack is hidden rather
+than deleted because it respawns" — `CTFPowerup::SetDisabled` calls `AddEffects(EF_NODRAW)` and the
+entity carries on existing and updating in place. So every pickup anyone has taken stays on the
+floor for the rest of the match, and every other `EF_NODRAW` entity in the demo is drawn.
+
+**Not fixed here on purpose.** It is a visible change to what appears on screen, so it wants its own
+change, its own before/after, and the owner's eyes — the automated instruments sit on the wrong side
+of "does it look right". The fix itself is likely one condition in the draw loop.
+
+**Same family as the three no-ops in `CLAUDE.md`'s "order of work" section**, and the fourth
+instance: a value decoded, retained, unit-tested, and never consumed. The component tests all pass,
+because the component works. Nothing asked whether production reads it.

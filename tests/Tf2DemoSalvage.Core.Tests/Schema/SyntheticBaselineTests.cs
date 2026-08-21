@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// </remarks>
 public sealed class SyntheticBaselineTests
 {
-    private const int ClassId = 0;
+    private const int ClassId = BaselineFixture.ClassId;
 
     [Test]
     public void Baseline_APropertyTheEntityDidNotSend_ComesFromItsClassBaseline()
@@ -99,56 +99,12 @@ public sealed class SyntheticBaselineTests
     }
 
     /// <summary>A decoder whose class carries the given baseline properties.</summary>
-    private static EntityDecoder WithBaseline(params (string Name, int Value)[] properties)
-    {
-        EntityDecoder decoder = Decoder();
-
-        BaselineBuilder.Apply(
-            [
-                new StringTableEntry(
-                    0, ClassId.ToString(CultureInfo.InvariantCulture), Payload(properties)),
-            ],
-            decoder);
-
-        return decoder;
-    }
+    private static EntityDecoder WithBaseline(params (string Name, int Value)[] properties) =>
+        BaselineFixture.WithBaseline(properties);
 
     /// <summary>The encoded property block an instance baseline carries.</summary>
-    /// <remarks>
-    /// A baseline is encoded exactly like an entity delta's property list — no separate codec —
-    /// which is what makes this a one-line fixture rather than a second encoder.
-    /// </remarks>
-    private static byte[] Payload(params (string Name, int Value)[] properties)
-    {
-        EntityDecoder decoder = Decoder();
-        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(ClassId);
+    private static byte[] Payload(params (string Name, int Value)[] properties) =>
+        BaselineFixture.Payload(properties);
 
-        List<DecodedProperty> decoded = [];
-        foreach ((string name, int value) in properties)
-        {
-            int index = flat.Select((entry, i) => (entry, i))
-                .First(pair => pair.entry.Property.Name == name).i;
-
-            decoded.Add(new DecodedProperty(index, flat[index], PropertyValue.FromInt(value)));
-        }
-
-        decoded.Sort((left, right) => left.Index.CompareTo(right.Index));
-
-        return EntityDecoder.EncodeProperties(decoded);
-    }
-
-    private static EntityDecoder Decoder()
-    {
-        DemoSchema schema = new(
-            [
-                new SendTable("DT_Test", NeedsDecoder: true,
-                [
-                    new SendProperty(SendPropType.Int, "m_iHealth", 0, "", 0f, 0f, 11, 0),
-                    new SendProperty(SendPropType.Int, "m_iAmmo", 0, "", 0f, 0f, 11, 0),
-                ]),
-            ],
-            [new ServerClass(ClassId, "CTest", "DT_Test")]);
-
-        return new EntityDecoder(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-    }
+    private static EntityDecoder Decoder() => BaselineFixture.Decoder();
 }

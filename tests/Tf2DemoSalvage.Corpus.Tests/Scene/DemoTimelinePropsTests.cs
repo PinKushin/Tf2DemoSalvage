@@ -60,6 +60,34 @@ public sealed class DemoTimelinePropsTests
     }
 
     [Test]
+    public void Props_TheWorldEntity_IsNeverATrack()
+    {
+        // **The output-level assertion for the world exclusion**, which no unit test can make:
+        // whether entity zero reaches the prop list is a fact about a real demo's first packet.
+        //
+        // It got there the moment instance baselines were applied (B132). CWorld states its model
+        // index once, in its class baseline, so before that fix it was an entity with no properties
+        // at all; afterwards it holds model index 1 — `maps/<name>.bsp` — and became a prop track
+        // covering the whole map. C_BaseEntity::ShouldDraw ends `&& (index != 0)`, at
+        // c_baseentity.cpp:1450, and that is the rule this checks.
+        foreach (string path in Corpus.FilesWithSchema())
+        {
+            DemoTimeline timeline = TimelineCache.For(path);
+
+            timeline.Props.ShouldNotContain(
+                track => track.EntityIndex == 0,
+                $"{path}: entity zero is the world and is drawn by the map, not as a prop");
+
+            // Stated twice on purpose, because the two catch different mistakes: an index check
+            // survives a renamed model and a model check survives some other entity acquiring the
+            // world's index. A `.bsp` in the prop list is the world however it got there.
+            timeline.Props.ShouldNotContain(
+                track => track.ModelPath.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase),
+                $"{path}: a map file reached the prop list");
+        }
+    }
+
+    [Test]
     public void Build_KeyframesCostFarLessThanAPosePerFrame()
     {
         // **The design claim, measured.** Keyframes were chosen over a pose per entity per frame

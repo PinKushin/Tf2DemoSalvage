@@ -374,3 +374,77 @@ no local player, which is exactly a demo. So the reference behaviour for a viewe
 clamp — a cloaked spy should be drawn barely-there, not culled — and it matches what spectating in
 the live game looks like. Getting this backwards would mean a spy vanishing from a demo the engine
 would have shown. *(evidence class: read from published source, prompted by the owner's account)*
+
+---
+
+## An entering entity is a delta against its class baseline, and the state table was not applying it
+
+*(evidence class: read from published source, then measured differentially on the corpus)*
+
+**Two questions about one entity look identical and are not.** "What did this snapshot carry" is
+wire-faithful: exactly the properties on the bits, which is what a re-encoder must reproduce or the
+demo does not round-trip. "What is this entity now" is state-faithful: that list laid on top of the
+class's **instance baseline**, because an entity entering the visible set is a delta against the
+baseline and omits everything equal to it. The engine merges them in `CL_CopyNewEntity` before the
+entity exists at all.
+
+This project had both. `DecodedEntity.Properties` answered the first and
+`EntityDecoder.EffectiveProperties` answered the second, with a doc comment that spelled the split
+out in as many words. `EntityStateTable.Apply` — whose entire job is the second question — read the
+first, and had since it was written.
+
+**The defect was invisible because of what TF2 sends, not because of what the code does.** A player
+resends origin, health, team and the rest constantly, so the baseline supplies only values that
+arrive again within a second or two and the accumulated state converges either way. Applying
+baselines changes **no property count on any demo in the corpus**, era or modern, for any entity
+anyone had looked at.
+
+An entity whose whole state *is* its baseline never converges. `CFogController` is the pure case: it
+enters once at tick one carrying fifteen properties, **none of them on the wire**, and is never
+mentioned again in the file. Measured on `tf2-2011-build4604-stv-koth_viaduct.dem`, entity #212
+appeared in the entity table on 3,762 consecutive packets holding zero properties, while a trace of
+the same file printed all fifteen. Nineteen of that table's 195 entities were empty the same way.
+
+**The trace was right and the table was wrong, from the same decoder, on the same packet.** That is
+what made it hard to see: the trace writer had already been fixed to call `EffectiveProperties`, and
+its commit message noted that "DemoTimeline has always done this" — meaning it applied the baseline
+string table to the decoder, which it did. Nobody checked the other half.
+
+### The cross-source confirmation, which the corpus alone cannot give
+
+A demo's fog is a `CFogController`'s send-table state. A map's fog is the keyvalues a mapper typed
+into Hammer, sitting in BSP lump 0. Nothing connects the two inside this project, so an agreement
+between them is evidence about the decode rather than evidence that a fixture agrees with the code
+that produced it.
+
+| map | authored in the BSP | networked in the demo | unpacked |
+|---|---|---|---|
+| `cp_granary` | 225 225 225, 0→14000, density .8 | `colorPrimary 14803425` | 0xE1E1E1 |
+| `koth_viaduct` | 213 174 221, 0→6500, density 1 | `colorPrimary 14528213` | 0xDDAED5 |
+| `cp_foundry` | 131 121 134, 1707→4634, density .7 | `colorPrimary 8812931` | 0x867983 |
+
+**Viaduct is the specimen that fixes the byte order.** A `color32` travels as one 32-bit int and
+reading it reversed is the plausible mistake; granary is 225 grey and cannot tell the two readings
+apart, foundry's 131 and 134 differ by three, and viaduct's 213/174/221 can only be read one way.
+Red is the low byte.
+
+### What the fix uncovered one layer up
+
+`CWorld` began arriving with model index 1 — `maps/<name>.bsp`, the map itself — and became a prop
+track covering the whole world. It had never appeared before because the world states its model once,
+in its class baseline, and never again.
+
+**Valve excludes it by entity index, not by model type.** `C_BaseEntity::ShouldDraw`, at
+`game/client/c_baseentity.cpp:1450`:
+
+```cpp
+return (model != 0) && !IsEffectActive(EF_NODRAW) && (index != 0);
+```
+
+So the world model is an ordinary brush model — `mod_brush`, the same `modtype_t` as the `*N`
+submodel a door uses, differing only in which submodel it names — and what keeps it off the screen
+is that its index is zero. Classifying it as an unrecognised reference would have been a statement
+about the format that is not true.
+
+That same line also says an `EF_NODRAW` entity is not drawn, which this project computes and then
+discards: see B133.

@@ -1945,3 +1945,35 @@ Corollaries that follow from it and have already come up:
   had to be corrected alongside `LocalLights` (B95).
 - A constant that was tuned to look right, rather than read from source, is a candidate for deletion
   the moment the source is found — the Fresnel term in B125 was exactly that.
+
+---
+
+## D47 — when a component can be handed the wrong one of two equivalent-looking views, the right one becomes a required dependency
+
+**Prompted by B132**, where `EntityStateTable.Apply` read `DecodedEntity.Properties` — what the
+snapshot carried — for months, while the state-faithful view it wanted sat next door in
+`EntityDecoder.EffectiveProperties` behind a doc comment that spelled the difference out explicitly.
+Both are `IReadOnlyList<DecodedProperty>`; on almost every entity they hold the same values; and the
+one entity class where they differ totally is one nothing had asked about.
+
+**The choice made.** Not "pass the merged list at the call site" — one line, one place, done. That
+leaves the wrong call reachable, and the wrong call is what happened. Instead: `IEntityBaselines`, a
+one-method interface implemented by `EntityDecoder`, taken as a **required** constructor argument by
+`EntityStateTable`. There is no parameterless constructor. A caller that has no schema writes
+`EntityBaselines.None` and says so.
+
+**Why the required form rather than an optional one with a sensible default.** An optional dependency
+defaulting to "no baselines" is exactly the defect, spelled as a feature: `new EntityStateTable()`
+would still compile, still run, and still lose every entity whose state equals its baseline. The
+cost of requiring it was twelve mechanical edits in test files, all compile errors, all loud.
+
+**The general shape, since this is the second instance in the repository.** A type that offers two
+accessors over the same data — wire versus state, raw versus effective, declared versus resolved —
+has created a decision that every caller must get right and that nothing checks. The distinction
+belongs in the type system or in a required argument, not in prose. `EffectiveProperties`' comment
+was excellent, accurate, and did not prevent the bug it described.
+
+**What this does not license.** Turning every optional parameter into a required one. The test is
+whether the two options produce *plausible* results that differ — an optional logger or an optional
+cache does not, because leaving it out is visibly nothing. This applies where both answers look
+right.

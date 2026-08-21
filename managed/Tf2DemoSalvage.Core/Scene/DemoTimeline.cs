@@ -606,7 +606,10 @@ public sealed class DemoTimeline
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
-        EntityStateTable entities = new();
+        // **Given the decoder, because an entering entity is a delta against its class baseline.**
+        // Without it every entity whose whole state equals its baseline accumulates as an empty
+        // one - see IEntityBaselines, and B132, which is what that cost.
+        EntityStateTable entities = new(decoder);
 
         // **Class names come from dem_datatables, not from svc_ClassInfo.** TF2 sets the
         // "create on client" flag and sends no names, so a reader waiting for that message names
@@ -1141,6 +1144,19 @@ public sealed class DemoTimeline
                 finished.End(tick);
             }
 
+            return;
+        }
+
+        // **Entity zero is the world and the client never draws it as an entity.**
+        // C_BaseEntity::ShouldDraw ends `&& (index != 0)` at c_baseentity.cpp:1450, so the
+        // exclusion is by index rather than by anything about the model: CWorld holds model
+        // index 1, `maps/<name>.bsp`, which is an ordinary brush model naming submodel zero.
+        //
+        // It never reached here before instance baselines were applied (B132) — the world states
+        // its model once, in its class baseline, and never again — so a track for the entire map
+        // appeared the moment that was fixed. Drawn, it would be the world laid over the world.
+        if (entity.EntityIndex == 0)
+        {
             return;
         }
 

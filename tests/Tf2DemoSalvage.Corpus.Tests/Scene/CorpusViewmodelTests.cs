@@ -131,7 +131,7 @@ public sealed class CorpusViewmodelTests
             NetworkProtocol = (ushort)Corpus.Header(path).NetworkProtocol,
         };
 
-        EntityStateTable entities = new();
+        EntityStateTable entities = new(decoder);
 
         // **Class names have to be seeded or every entity is anonymous.** DemoTimeline.Build does
         // this and a hand-rolled walk does not, so the owner-is-a-player check silently compared

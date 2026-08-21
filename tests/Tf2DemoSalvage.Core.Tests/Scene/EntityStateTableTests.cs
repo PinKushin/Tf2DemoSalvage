@@ -23,7 +23,7 @@ public sealed class EntityStateTableTests
         // The whole point of the accumulator. A player who stops moving stops sending an origin,
         // and a table that forgot it would place them at the world origin - a real position, in
         // the middle of the map, indistinguishable from a decoding success.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
 
         table.Apply(Entity(1, EntityUpdateType.Enter,
             Property("DT_BaseEntity", "m_iTeamNum", PropertyValue.FromInt(3)),
@@ -54,7 +54,7 @@ public sealed class EntityStateTableTests
         // throws away everything accumulated. Position survives because deltas usually resend an
         // origin; team does not, because it is sent once and never again. The symptom is a demo
         // that shows team colours when it opens and loses them the moment it is scrubbed.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
 
         table.Apply(new DecodedEntity(
             9, ClassId: 212, SerialNumber: 640, EntityUpdateType.Enter,
@@ -83,7 +83,7 @@ public sealed class EntityStateTableTests
         // A viewer still must not draw it, so visibility is tracked rather than the state being
         // thrown away. Those are two different questions and this is the test that keeps them
         // separate.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
         table.Apply(Entity(4, EntityUpdateType.Enter,
             Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(125))));
 
@@ -106,7 +106,7 @@ public sealed class EntityStateTableTests
     [Test]
     public void EntityState_ADeletedEntity_IsGone()
     {
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
         table.Apply(Entity(5, EntityUpdateType.Enter,
             Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(125))));
 
@@ -122,7 +122,7 @@ public sealed class EntityStateTableTests
         // distinguishes the new occupant. Without this the new entity inherits the old one's
         // health, team and position and then partially overwrites them - which produces a player
         // who is on the wrong team until they happen to send a team update.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
 
         table.Apply(new DecodedEntity(
             7, ClassId: 212, SerialNumber: 100, EntityUpdateType.Enter,
@@ -150,7 +150,7 @@ public sealed class EntityStateTableTests
         //
         // Both cases are asserted here rather than one, because "reads the local table" and
         // "reads both tables" agree on any test that only ever supplies the local one.
-        EntityStateTable local = new();
+        EntityStateTable local = new(EntityBaselines.None);
         local.Apply(Entity(1, EntityUpdateType.Enter,
             Property("DT_TFLocalPlayerExclusive", "m_vecOrigin",
                 PropertyValue.FromVectorXY(-480f, -4512f)),
@@ -160,7 +160,7 @@ public sealed class EntityStateTableTests
         local.TryGet(1, out EntityState? recorder).ShouldBeTrue();
         recorder.Origin().ShouldBe((-480f, -4512f, 192.031f));
 
-        EntityStateTable other = new();
+        EntityStateTable other = new(EntityBaselines.None);
         other.Apply(Entity(2, EntityUpdateType.Enter,
             Property("DT_TFNonLocalPlayerExclusive", "m_vecOrigin",
                 PropertyValue.FromVectorXY(128f, 256f)),
@@ -182,7 +182,7 @@ public sealed class EntityStateTableTests
         // A reader that knows only the modern shape finds no origin at all on a launch-era demo -
         // not a wrong position, no position - which is why this was invisible until players were
         // counted rather than spot-checked.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
         table.Apply(Entity(1, EntityUpdateType.Enter,
             Property("DT_TFLocalPlayerExclusive", "m_vecOrigin",
                 PropertyValue.FromVector(-1343.862f, -6527.691f, -287.969f))));
@@ -197,7 +197,7 @@ public sealed class EntityStateTableTests
         // Players are the special case, not the rule. Everything else - projectiles, buildings,
         // ammo packs - sends its position through DT_BaseEntity, and a viewer that drew only
         // players would be ignoring most of what moves.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
         table.Apply(Entity(40, EntityUpdateType.Enter,
             Property("DT_BaseEntity", "m_vecOrigin",
                 PropertyValue.FromVector(-992f, -5537.5f, -358.438f))));
@@ -212,7 +212,7 @@ public sealed class EntityStateTableTests
         // Absence has to be representable. (0,0,0) is a real place on every map, so returning it
         // for "not known" puts unpositioned entities in the middle of the world and calls it
         // data.
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
         table.Apply(Entity(9, EntityUpdateType.Enter,
             Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(125))));
 
@@ -223,7 +223,7 @@ public sealed class EntityStateTableTests
     [Test]
     public void EntityState_TheClassName_IsCarriedWithTheEntity()
     {
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
         table.SetClassName(212, PlayerClass);
         table.Apply(Entity(1, EntityUpdateType.Enter,
             Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(125))));
