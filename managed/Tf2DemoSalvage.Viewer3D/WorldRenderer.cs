@@ -983,6 +983,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The baked reflection for each material, as a cube view, or a null handle.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _cubemaps = [];
 
+    /// <summary>
+    /// Every cubemap the map baked, uploaded, in the same order as <see cref="_placements"/>.
+    /// </summary>
+    /// <remarks>
+    /// **Indexed by PLACEMENT, not by material**, which is the whole difference between this and
+    /// <see cref="_cubemaps"/>. A brush face reflects the cube vbsp named in its material; a model
+    /// reflects whichever placement it stands nearest, so the same material on two props in two
+    /// rooms takes two different cubes and neither can be attached to the material.
+    /// </remarks>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _placedCubemaps = [];
+
+    /// <summary>Where each of <see cref="_placedCubemaps"/> stands, in world units.</summary>
+    private readonly List<BspCubemap> _placements = [];
+
+    /// <summary>
+    /// The materials that reflect the map's own cubemap rather than one of their own.
+    /// </summary>
+    /// <remarks>
+    /// These asked for the literal <c>env_cubemap</c>. <c>LightmappedGeneric</c> refuses that on
+    /// brushwork and <c>VertexLitGeneric</c> keeps it, so in practice this is every reflective
+    /// model material on the map — and the reason a prop needs a search a wall does not.
+    /// </remarks>
+    private readonly HashSet<int> _usesLocalCubemap = [];
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     private IReadOnlyList<IReadOnlyList<MaterialProxy>> _proxies = [];
 
@@ -1388,6 +1412,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // zero. Cross-reference these indices against the `pairing` lines, which carry the names.
         List<int> chequered = [];
 
+        // **The map's own cubemaps, uploaded before the materials that will ask for them.** These
+        // are indexed by PLACEMENT rather than by material: a model's `$envmap "env_cubemap"` is
+        // resolved per draw from where the model stands, so no material can own one.
+        foreach (MapPlacedCubemap placed in assets.PlacedCubemaps)
+        {
+            ComPtr<ID3D11ShaderResourceView> uploadedCube = UploadCube(device, placed.Faces);
+
+            if (uploadedCube.Handle is null)
+            {
+                // Dropped from BOTH lists together, so the positions stay parallel to the textures.
+                // A placement kept with no texture would be chosen as nearest and then bind
+                // nothing, which draws the previous model's reflection on this one.
+                continue;
+            }
+
+            _placedCubemaps.Add(uploadedCube);
+            _placements.Add(placed.Placement);
+        }
+
         for (int index = 0; index < assets.Textures.Count; index++)
         {
             MapTexture? texture = assets.Textures[index];
@@ -1515,13 +1558,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // bound.
             MapCubemap? reflection = index < assets.Cubemaps.Count ? assets.Cubemaps[index] : null;
 
-            (float Red, float Green, float Blue) envmapTint = reflection?.Tint ?? (1f, 1f, 1f);
-            float envmapContrast = reflection?.Contrast ?? 0f;
-            float envmapSaturation = reflection?.Saturation ?? 1f;
-            float envmapMask = reflection is { MaskedByBaseAlpha: true } ? 1f : 0f;
-            float hasEnvmap = reflection is null ? 0f : 1f;
+            // **Two ways a material can reflect, and only one of them knows its cube at load.** A
+            // brush face's was chosen by vbsp and baked into the material name, so it is uploaded
+            // here alongside the material. A model's material says the literal `env_cubemap`, which
+            // VertexLitGeneric keeps to runtime — so it carries the shading and takes its cube from
+            // the map's placements, chosen per draw by where the model stands.
+            MapEnvmapShading? local =
+                index < assets.LocalReflections.Count ? assets.LocalReflections[index] : null;
 
-            _cubemaps.Add(reflection is { } cube ? UploadCube(device, cube) : default);
+            // A material asking for the map's own cubemap on a map that bakes none reflects
+            // nothing, which is what the engine does: with no local cubemap bound the sample has
+            // nothing to read. Guarded here rather than in the shader so the flag stays truthful.
+            if (local is not null && assets.PlacedCubemaps.Count == 0)
+            {
+                local = null;
+            }
+
+            MapEnvmapShading? shading = reflection?.Shading ?? local;
+
+            if (local is not null)
+            {
+                _usesLocalCubemap.Add(index);
+            }
+
+            (float Red, float Green, float Blue) envmapTint = shading?.Tint ?? (1f, 1f, 1f);
+            float envmapContrast = shading?.Contrast ?? 0f;
+            float envmapSaturation = shading?.Saturation ?? 1f;
+            float envmapMask = shading is { MaskedByBaseAlpha: true } ? 1f : 0f;
+            float hasEnvmap = shading is null ? 0f : 1f;
+
+            _cubemaps.Add(reflection is { } cube ? UploadCube(device, cube.Faces) : default);
 
             _detailParameters.Add(detail is { } values
                 ?
@@ -1700,6 +1766,42 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     public int TextureUploads { get; private set; }
 
+    /// <summary>Binds the shaders, layout, samplers and camera every draw path needs.</summary>
+    /// <param name="context">Context to bind on.</param>
+    /// <remarks>
+    /// **Extracted because <see cref="DrawModel"/> was relying on <see cref="Draw"/> having run,
+    /// and nothing said so.** In an ordinary frame the world is drawn first and leaves the pipeline
+    /// bound, so a model draw inherited it and worked. Two cases do not: a frame with no map, where
+    /// <c>Draw</c> returns before binding anything, and an offscreen test that poses a model
+    /// without a world. Both issue a draw with no vertex shader bound, which does not fail — it
+    /// removes the device, and surfaces later as
+    /// <c>"The GPU device instance has been suspended"</c> from whatever reads back next.
+    ///
+    /// Called by both paths rather than once per frame: the redundant binds are a handful of calls
+    /// that D3D11 filters, against an ordering dependency that had no way to be discovered except
+    /// by hitting it.
+    /// </remarks>
+    private void BindPipeline(ComPtr<ID3D11DeviceContext> context)
+    {
+        context.IASetInputLayout(_layout);
+        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetSamplers(0, 1, ref _wrapSampler);
+        context.PSSetSamplers(1, 1, ref _clampSampler);
+
+        // **Bound to BOTH stages, because both read it.** The vertex shader takes the matrix and
+        // the pixel shader takes the category switch and the height cut. Binding it to the vertex
+        // stage alone is not an error - D3D simply hands the pixel shader zeros - so the cut sat at
+        // zero however hard it was pressed, and the category view drew nothing. Found by a test
+        // that renders offscreen and reads a pixel, which is the only instrument that could see it.
+        context.VSSetConstantBuffers(0, 1, ref _camera);
+        context.PSSetConstantBuffers(0, 1, ref _camera);
+        context.PSSetShaderResources(1, 1, ref _lightmap);
+
+        EnsureMaterialBuffer(context);
+    }
+
     /// <summary>Draws the uploaded map.</summary>
     /// <param name="context">Context to issue the draws on.</param>
     /// <remarks>
@@ -1713,27 +1815,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
+        // Falls through to BindPipeline below. The early return above is deliberate and safe now
+        // that DrawModel binds its own state: before, a frame with no map left the pipeline
+        // entirely unbound, and any model drawn after it went to a context with no vertex shader.
+
         uint stride = VertexStride;
         uint offset = 0;
 
-        context.RSSetState(_bothSides);
-        context.IASetInputLayout(_layout);
-        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
-        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
-        context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetSamplers(0, 1, ref _wrapSampler);
-        context.PSSetSamplers(1, 1, ref _clampSampler);
-        // **Bound to BOTH stages, because both read it.** The vertex shader takes the matrix and
-        // the pixel shader takes the category switch and the height cut. Binding it to the vertex
-        // stage alone is not an error - D3D simply hands the pixel shader zeros - so the cut sat at
-        // zero however hard it was pressed, and the category view drew nothing. Found by a test
-        // that renders offscreen and reads a pixel, which is the only instrument that could see it.
-        context.VSSetConstantBuffers(0, 1, ref _camera);
-        context.PSSetConstantBuffers(0, 1, ref _camera);
-        context.PSSetShaderResources(1, 1, ref _lightmap);
+        BindPipeline(context);
 
-        EnsureMaterialBuffer(context);
+        context.RSSetState(_bothSides);
+        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
 
         // The map's own geometry is already in world space, so it draws with an identity model
         // matrix. Set every frame rather than once: an entity draw leaves its own matrix behind,
@@ -2654,6 +2746,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
+                     .Concat(_placedCubemaps)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
@@ -2664,6 +2757,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _details.Clear();
         _bumps.Clear();
         _cubemaps.Clear();
+        _placedCubemaps.Clear();
+        _placements.Clear();
+        _usesLocalCubemap.Clear();
         _sortedTranslucent = [];
         _decals = [];
         _detailParameters.Clear();
@@ -2870,9 +2966,31 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // per iteration grows the stack frame without bound (CA2014).
         float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
+        // **Its own state, rather than whatever the world left behind.** See BindPipeline: this
+        // path used to inherit the bindings from Draw, which works in an ordinary frame and does
+        // not when the map is absent or when a test poses a model on its own.
+        BindPipeline(context);
+
         context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
 
         SetModel(context, matrix, light, sun, blend, bones);
+
+        // **Which of the map's cubemaps this model reflects, chosen once for the whole model.** A
+        // model's material says the literal `env_cubemap`, which VertexLitGeneric keeps to runtime
+        // and resolves against whatever the engine has bound as local; the choice is by position,
+        // so it belongs to the model rather than to any of its materials or batches. Valve's rule
+        // is `Cubemap_FindClosestCubemap`, vbsp/cubemap.cpp:835 — see BspCubemaps.Closest for which
+        // half of it applies to something with no surface plane, and for the evidence class.
+        //
+        // The translation of a row-vector model matrix is row three, indices 12 to 14 — see
+        // MatrixConvention, which is the one place that crosses between the two conventions here.
+        ComPtr<ID3D11ShaderResourceView> local = default;
+
+        if (_placements.Count > 0 &&
+            BspCubemaps.Closest(_placements, matrix[12], matrix[13], matrix[14]) is >= 0 and var nearest)
+        {
+            local = _placedCubemaps[nearest];
+        }
 
         foreach (WorldBatch batch in batches)
         {
@@ -2982,10 +3100,31 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _bumps[material]
                     : _white;
 
+            // **The reflection, which this path never bound at all.** t5 was set only by the world
+            // pass, so a model material with a cubemap raised the shader's "there is one" flag and
+            // then sampled whatever texture the last brush face happened to leave in the slot.
+            // Inert until now only because no model material ever resolved a cubemap: vbsp patches
+            // brush faces and cannot patch a prop, so every one of them arrived as `env_cubemap`
+            // and was discarded on the way in.
+            //
+            // Bound unconditionally, including the null handle for a material that reflects
+            // nothing, so no draw can inherit its predecessor's cube.
+            ComPtr<ID3D11ShaderResourceView> reflection = default;
+
+            if (material >= 0 && _usesLocalCubemap.Contains(material))
+            {
+                reflection = local;
+            }
+            else if (material >= 0 && material < _cubemaps.Count)
+            {
+                reflection = _cubemaps[material];
+            }
+
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
             context.PSSetShaderResources(3, 1, ref detail);
             context.PSSetShaderResources(4, 1, ref bump);
+            context.PSSetShaderResources(5, 1, ref reflection);
 
             SetMaterial(context, material);
 
@@ -3171,21 +3310,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// plausible-looking result rather than an obviously wrong one.
     /// </remarks>
     private static ComPtr<ID3D11ShaderResourceView> UploadCube(
-        ComPtr<ID3D11Device> device, MapCubemap cubemap)
+        ComPtr<ID3D11Device> device, IReadOnlyList<MapTexture> cubeFaces)
     {
-        if (cubemap.Faces.Count != 6)
+        if (cubeFaces.Count != 6)
         {
             // A cube has six faces and nothing else can be uploaded as one. Reported rather than
             // padded: a short list means the decode changed shape, and inventing a face would draw
             // a seam that looks like a texture bug.
             ViewerLog.Warn(
                 "assets",
-                $"a cubemap carries {cubemap.Faces.Count} faces rather than six and was not uploaded");
+                $"a cubemap carries {cubeFaces.Count} faces rather than six and was not uploaded");
 
             return default;
         }
 
-        int size = cubemap.Faces[0].Width;
+        int size = cubeFaces[0].Width;
 
         Texture2DDesc description = new()
         {
@@ -3211,7 +3350,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         for (int face = 0; face < 6; face++)
         {
-            cubemap.Faces[face].Pixels.Span.CopyTo(all.AsSpan(face * faceBytes));
+            cubeFaces[face].Pixels.Span.CopyTo(all.AsSpan(face * faceBytes));
         }
 
         SubresourceData[] faces = new SubresourceData[6];

@@ -1795,3 +1795,64 @@ default is ours** — set `viewmodel_fov 54` in the settings file for the player
 `ViewerSettingsTests` covers the clamp at both ends, which is the part that must not drift; the
 default is stated in `ViewerSettings.ViewmodelFieldOfView` and written into the generated config with
 the reason beside it.
+
+## D44 — a model's `env_cubemap` is resolved by Valve's nearest-cubemap rule, and the interpolation is flagged
+
+**Owner's direction, 2026-08-20**, on how to close the gap that left every reflective prop matte:
+"do it however valve does".
+
+**The question this answers.** A material's `$envmap` can name a concrete texture or the literal
+`env_cubemap`. vbsp rewrites the literal at compile time for every brush face it binds, so brushwork
+arrives naming a real texture and needs no search — that is what closed B55. A model's material
+cannot be rewritten, because `Cubemap_CreateTexInfo` works on texinfo and a model has none, so it
+arrives still saying `env_cubemap`. Something has to decide which cubemap that means.
+
+**The two shaders disagree, and that disagreement is the specification.** `LightmappedGeneric`
+refuses the literal outright:
+
+```cpp
+if( stricmp( params[info.m_nEnvmap]->GetStringValue(), "env_cubemap" ) == 0 )
+{
+    Warning( "env_cubemap used on world geometry without rebuilding map. . ignoring: %s\n", ... );
+    params[info.m_nEnvmap]->SetUndefined();
+}
+```
+
+`VertexLitGeneric` carries no such rejection anywhere in the file and calls
+`LoadCubeMap( info.m_nEnvmap, ... )` on whatever the material says. So on a model the literal is not
+a compile leftover to be discarded — **it is the request**, and it resolves against whatever the
+engine has bound with `BindLocalCubemap` (`imaterialsystem.h:1200`).
+
+**What is implemented.** `Cubemap_FindClosestCubemap` (`vbsp/cubemap.cpp:835`), reduced to the half a
+model can use. Valve's function runs two passes: nearest placement lying in front of the surface,
+tested `DotProduct( vecDelta, pPlane->normal ) >= 0`; and if none is in front, nearest overall. The
+first pass needs one brush side's plane — the function returns -1 immediately when handed no side —
+and a model has no such plane. So the second pass is the whole of the applicable rule, and it is what
+`BspCubemaps.Closest` does, ties going to the earlier placement as Valve's strict `<` gives.
+
+**The evidence classes are NOT equal and this is the part that must not be smoothed over.**
+
+- That the rule is nearest-by-distance: **read from published source**.
+- That the engine chooses a model's local cubemap by this same rule at runtime: **interpolated**.
+  The routine that does it is inside the closed engine; the published client binds a local cubemap
+  only in `basemodelpanel.cpp` and only a fixed default. Nothing published states the runtime rule,
+  and settling it would need a decompile.
+
+The interpolation is recorded here, in `BspCubemaps.Closest`'s remarks and in
+`EnvmapConformanceTests`, because a rule whose basis is forgotten gets defended as if it were
+measured. If the engine turns out to select per leaf rather than per point, the two differ only near
+a leaf boundary — but that is a prediction, not a finding.
+
+**What it fixed.** B83, open since the capture point was first noticed drawing almost black, and
+whose own entry said: "If `$envmap` appears there, B83 is B55 on a prop and the two close together."
+
+**It already appeared there, and had for some time.** B83 records all three materials as
+`VertexLitGeneric` with `$envmap env_cubemap` — that measurement was taken and written down, and
+what was missing afterwards was not evidence but code. The diagnosis sat complete in the risks
+document while the renderer went on discarding the key, which is the failure this project keeps
+meeting from the other side: a correct measurement that nothing acts on looks exactly like an open
+question.
+
+So the contribution here is an assertion rather than a discovery. `CubemapLoadingTests` now names
+`cap_point_base`, `cap_point_base_red` and `cap_point_base_blue` and fails if they stop asking, so
+the fact lives where it can break rather than only where it can be read.

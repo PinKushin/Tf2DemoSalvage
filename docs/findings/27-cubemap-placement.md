@@ -428,3 +428,93 @@ evidence that the cube is sampled, not that the picture is correct. Brightness, 
 a given wall reflects the room it is in are questions for someone looking at the screen.
 
 B55 closed.
+
+## The one case where the assignment DOES need to be computed (evidence: read, then interpolated)
+
+The section above — *the assignment does not need to be computed* — is right about brushwork and was
+quietly assumed to be right about everything. It is not, and the two shaders say so themselves.
+
+`LightmappedGeneric`, which draws brush faces, refuses the literal outright
+(`lightmappedgeneric_dx9_helper.cpp:83`):
+
+```cpp
+if( stricmp( params[info.m_nEnvmap]->GetStringValue(), "env_cubemap" ) == 0 )
+{
+    Warning( "env_cubemap used on world geometry without rebuilding map. . ignoring: %s\n", pMaterialName );
+    params[info.m_nEnvmap]->SetUndefined();
+}
+```
+
+That is the engine telling a mapper their map is stale: brush faces are supposed to have been
+patched by vbsp, and one that was not reflects nothing. Which is exactly why the world path here
+needs no search — the compiler already did it.
+
+`VertexLitGeneric`, which draws models, has **no such block anywhere in the file**. It calls
+`pShader->LoadCubeMap( info.m_nEnvmap, ... )` on whatever the material says. So on a model the
+literal is not a leftover to discard; it is the request, and it resolves against whatever the engine
+has bound as the local cubemap (`BindLocalCubemap`, `imaterialsystem.h:1200`).
+
+**The reason a model cannot be patched is in vbsp's own structure.** `Cubemap_CreateTexInfo` clones a
+*texinfo* and repoints a brush side at the clone. A model has no texinfo, so there is nothing for the
+compiler to rewrite — the mechanism is not merely unused for props, it is inapplicable to them.
+
+### Which cubemap "local" means, and where the published trail stops
+
+`BindLocalCubemap` is an interface method. Every caller that picks the texture for a world model is
+inside the closed engine; the published client tree binds one only in `basemodelpanel.cpp`, and binds
+a fixed default. So the runtime rule is not readable.
+
+What *is* published is Valve's nearest-cubemap rule, in the compiler
+(`Cubemap_FindClosestCubemap`, `vbsp/cubemap.cpp:835`). Two passes:
+
+```cpp
+// Look for cubemaps in front of the surface first.
+float flDist = vecDelta.NormalizeInPlace();
+float flDot = DotProduct( vecDelta, pPlane->normal );
+if ( ( flDot >= 0.0f ) && ( flDist < flMinDist ) )
+...
+// Didn't find anything in front search for closest.
+```
+
+**The first pass cannot apply to a model, and the source says why rather than leaving it to
+judgement**: it needs `pPlane->normal`, the plane of one brush side, and the function returns -1
+before doing anything when handed no side at all. A model is a few thousand triangles facing every
+direction. So the second pass — nearest by straight-line distance — is the whole of the applicable
+rule, which is also what the function reduces to for any surface with nothing in front of it.
+
+**Flagged, because the two halves are different evidence.** The rule is *read from published source*.
+That the engine applies this same rule at runtime for a model is *interpolated* from Valve applying
+it at compile time to the same question. A leaf-based selection would agree with it everywhere except
+near a leaf boundary; nothing here can distinguish the two. See `docs/DECISIONS.md` D44.
+
+### Measured
+
+- **43** placements baked into cp_process_final, **43** decoded.
+- **29 of 413** materials ask for the literal `env_cubemap` — every model material that reflects,
+  including `cap_point_base`, `cap_point_base_red` and `cap_point_base_blue`.
+- Drawn offscreen at the two placements whose cubes differ most, the same model reads
+  **(192, 168, 152)** at one and **(13, 3, 1)** at the other. With the search forced to ignore the
+  model's position, both read (13, 3, 1).
+
+## A draw with no vertex shader does not fail; it removes the device
+
+Found while writing the offscreen test above, and it is a fact about D3D11 rather than about Valve.
+
+`DrawModel` bound no shaders, input layout, topology or samplers. In an ordinary frame the world is
+drawn first and leaves all of that bound, so a model draw inherited it and everything worked. The
+test posed a model with no world, and the result was not an error at the draw call — it was
+
+```
+System.Runtime.InteropServices.COMException : The GPU device instance has been suspended.
+```
+
+thrown several calls later, out of the staging-buffer read-back. The stack trace names `PixelAt`,
+which is the one function that had nothing to do with it.
+
+**The same trap was live in the application**, not only in the test: `Draw` returns early when the
+map has no geometry, so a frame with no map loaded would have issued model draws into an unbound
+pipeline. Both paths now call one `BindPipeline`.
+
+Worth generalising: **an API whose correctness depends on another call having happened first, with
+nothing to enforce it, fails at the distance of whatever notices**. The offscreen path found it
+because it was the first caller that did not satisfy the precondition by accident.

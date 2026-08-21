@@ -7638,3 +7638,48 @@ convincing wrong answer rather than a dark one.
 
 Related: B95 for the direct term this path never receives, and B83 for the two earlier and unrelated
 causes of a dark capture point.
+
+## B124 — a model's `env_cubemap` was discarded, so no prop ever reflected — CLOSED 2026-08-20
+
+**Closed by D44.** Measured on cp_process_final: **29 of 413 materials ask for the literal
+`env_cubemap`** and every one of them resolved to null, including all three capture-point materials.
+43 placements are baked into the map and all 43 now decode.
+
+**This was the other half of B55, and B55 closed without it.** That entry says, correctly, that "the
+expensive-looking half did not exist" — vbsp assigns each brush face's cubemap at compile time, so
+the world path resolves a name and never searches. What it did not say is that the assignment
+*cannot* reach a model: `Cubemap_CreateTexInfo` works on texinfo and a model has none, so a prop's
+material arrives still carrying the literal. The reader's own comment said so —
+
+> a static prop's material still asking for the literal `env_cubemap` (which the engine binds at
+> runtime by proximity and this does not do yet)
+
+— and it was written as a parenthesis inside a docstring about something else, next to code that
+returned null for exactly that case. **The knowledge was in the file; the risk was not in this
+document.** Same shape as B83 below, and as `docs/memory/measure-the-output-not-the-capability.md`.
+
+**Two defects, not one, and the second was invisible.** `DrawModel` bound four texture slots of five
+and never bound the cube at all, so the world pass's last cubemap stayed in the slot. That was inert
+only because no model material ever resolved one — the moment `env_cubemap` started resolving, it
+would have drawn one prop reflecting another prop's cube. Found by writing the offscreen test, not
+by reading.
+
+**A third, latent and worse, surfaced on the way.** `DrawModel` bound no shaders, input layout,
+topology or samplers either, relying on `Draw` having run first in the same frame. `Draw` returns
+early when the map has no geometry, so **a frame with no map loaded would issue a model draw with no
+vertex shader bound** — which does not fail, it removes the device, and reports later as
+`"The GPU device instance has been suspended"` from whatever reads back next. Both paths now call
+`BindPipeline`.
+
+**Verified by manipulation, twice, one change at a time**: forcing the search to ignore the model's
+position reddens the placement test, and never binding the cube reddens both model tests while
+leaving the world and matte controls green.
+
+Instruments: `ReflectionRender_AModelsReflection_FollowsItsNormal` and
+`ReflectionRender_AModelAtTwoPlacements_TakesTheNearerCubemap` draw through the real pipeline
+offscreen and read a pixel; `CubemapLoading_TheMapsOwnPlacements_AreDecodedAndPlaced` checks the
+placements against the lump; `CubemapLoading_AModelMaterial_CarriesALocalReflectionAndNoCubemap`
+names the capture point.
+
+**Not verified: whether it looks right.** A pixel that changes with the placement says the right cube
+is bound, not that the picture is correct. That is a question for someone looking at the screen.

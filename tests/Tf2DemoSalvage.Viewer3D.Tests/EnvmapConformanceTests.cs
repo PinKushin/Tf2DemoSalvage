@@ -343,6 +343,132 @@ public sealed class EnvmapConformanceTests
         shader.ShouldContain("if( !bBaseAlphaEnvmapMask && !bSelfIllum )");
     }
 
+    [Test]
+    public void Envmap_TheLiteralEnvCubemap_IsRefusedOnBrushesAndKeptOnModels()
+    {
+        // **The two shaders disagree about the literal `env_cubemap`, and that disagreement is the
+        // whole reason a prop needs machinery a wall does not.**
+        //
+        // LightmappedGeneric — brushwork — throws it away outright
+        // (lightmappedgeneric_dx9_helper.cpp:83):
+        //
+        //     if( stricmp( params[info.m_nEnvmap]->GetStringValue(), "env_cubemap" ) == 0 )
+        //     {
+        //         Warning( "env_cubemap used on world geometry without rebuilding map. . ignoring: %s\n", ... );
+        //         params[info.m_nEnvmap]->SetUndefined();
+        //     }
+        //
+        // A brush face therefore reflects only what vbsp already patched into its material, which is
+        // what this project reads and why B55 needed no search at load.
+        //
+        // VertexLitGeneric — models — carries no such rejection anywhere in the file. It calls
+        // `pShader->LoadCubeMap( info.m_nEnvmap, ... )` on whatever the material says, and
+        // `env_cubemap` resolves to the cubemap the engine has bound as local
+        // (`BindLocalCubemap`, imaterialsystem.h:1200). **So on a model the literal is not a
+        // compile leftover, it is the request**, and a renderer that skips it draws every reflective
+        // prop matte.
+        //
+        // **The absence is asserted WITH its positive control in the same sweep.** A count of zero
+        // in vertexlitgeneric proves nothing on its own — the file could have been renamed, or the
+        // spelling could differ — so the same search must find the string where it is known to be.
+        // Five absence claims in this project have turned out to be facts about the grep.
+        RequireEnvmapDrawn();
+
+        string brush = Sdk("src/materialsystem/stdshaders/lightmappedgeneric_dx9_helper.cpp");
+        string model = Sdk("src/materialsystem/stdshaders/vertexlitgeneric_dx9_helper.cpp");
+
+        brush.ShouldContain(
+            "env_cubemap used on world geometry without rebuilding map",
+            Case.Sensitive,
+            "the control: LightmappedGeneric rejects the literal, so the search works");
+
+        model.ShouldNotContain(
+            "env_cubemap",
+            Case.Insensitive,
+            "VertexLitGeneric never refuses the literal, so a model keeps it to runtime");
+
+        model.ShouldContain(
+            "LoadCubeMap( info.m_nEnvmap",
+            Case.Sensitive,
+            "and loads whatever $envmap names, literal included");
+    }
+
+    [Test]
+    public void Envmap_AModelsCubemap_IsTheClosestPlacementToItsOrigin()
+    {
+        // **Which cubemap "the local one" means, and this is the half the engine keeps closed.**
+        // `BindLocalCubemap( ITexture * )` is published as an interface (imaterialsystem.h:1200)
+        // and every caller that chooses the texture for a world model is inside the engine. The
+        // client tree binds one only in `basemodelpanel.cpp`, and it binds a fixed default.
+        //
+        // **Valve's own nearest-cubemap rule IS published**, in the compiler, and this implements
+        // that one: `Cubemap_FindClosestCubemap`, vbsp/cubemap.cpp:835. Two passes —
+        //
+        //     // Look for cubemaps in front of the surface first.
+        //     float flDist = vecDelta.NormalizeInPlace();
+        //     float flDot = DotProduct( vecDelta, pPlane->normal );
+        //     if ( ( flDot >= 0.0f ) && ( flDist < flMinDist ) )
+        //
+        //     // Didn't find anything in front search for closest.
+        //     if( iMinCubemap == -1 )
+        //         ... flDist = vecDelta.Length(); if ( flDist < flMinDist ) ...
+        //
+        // **The first pass cannot apply to a model and the source says why**: it needs
+        // `pPlane->normal`, the plane of one brush side, and the function returns -1 before doing
+        // anything at all when handed no side. A model is a thousand triangles facing every
+        // direction and has no such plane. So the applicable rule is the second pass — nearest by
+        // straight-line distance — which is also what the function reduces to for any surface with
+        // no cubemap in front of it.
+        //
+        // **Evidence class, stated because these are not equal**: the rule is READ FROM PUBLISHED
+        // SOURCE; that the engine's runtime binding for a model uses this same rule is
+        // INTERPOLATED, from Valve applying it at compile time to the same question. Nothing
+        // published states the runtime rule, and a decompile of the engine would be needed to
+        // settle it. Flagged rather than smoothed over, per docs/DECISIONS.md D44.
+        RequireEnvmapDrawn();
+
+        string compiler = Sdk("src/utils/vbsp/cubemap.cpp");
+
+        compiler.ShouldContain(
+            "int Cubemap_FindClosestCubemap( const Vector &entityOrigin, side_t *pSide )",
+            Case.Sensitive,
+            "the rule this implements, by its own signature");
+
+        compiler.ShouldContain(
+            "// Didn't find anything in front search for closest.",
+            Case.Sensitive,
+            "and its second pass, which is the one a model can use");
+
+        // The arithmetic itself, predicted against a hand-placed set rather than a real map: a
+        // point between two placements takes the nearer, and moving it past the midpoint switches
+        // the answer. A search that returned the first entry, or the last, passes one of these
+        // rows and fails the other.
+        BspCubemap[] placed =
+        [
+            new BspCubemap(0, 0, 0, 32),
+            new BspCubemap(100, 0, 0, 32),
+            new BspCubemap(0, 400, 0, 32),
+        ];
+
+        BspCubemaps.Closest(placed, 40f, 0f, 0f).ShouldBe(0);
+        BspCubemaps.Closest(placed, 60f, 0f, 0f).ShouldBe(1);
+        BspCubemaps.Closest(placed, 0f, 300f, 0f).ShouldBe(2);
+
+        // Squared distance versus true distance cannot be told apart by a nearest search, but
+        // AXIS-BLINDNESS can: a search that forgot Z answers 0 here and the correct one answers 1.
+        //
+        // The 30-unit offset on X is load-bearing. Placements sharing X and Y exactly would make a
+        // Z-blind search see a TIE rather than a wrong answer, and the tie is then resolved by the
+        // comparison operator — so the row would be measuring that instead, and would pass against
+        // a Z-blind search whose operator happened to break ties the other way. Measured: it did.
+        BspCubemaps.Closest([new BspCubemap(0, 0, 0, 32), new BspCubemap(30, 0, 500, 32)], 0f, 0f, 480f)
+            .ShouldBe(1);
+
+        // A map with no cubemaps at all is legal and draws matte; -1 says so rather than throwing
+        // or naming a placement that does not exist.
+        BspCubemaps.Closest([], 0f, 0f, 0f).ShouldBe(-1);
+    }
+
     /// <summary>
     /// Set to run the skipped assertions anyway, to check the SPECIFICATION rather than the code.
     /// </summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -20,6 +21,9 @@ public sealed class CubemapLoadingTests
 {
     private const string MapName = "cp_process_final";
 
+    /// <summary>The disc B83 spent five hypotheses on, and the object this feature is for.</summary>
+    private const string CapturePoint = "models/props_gameplay/cap_point_base.mdl";
+
     [Test]
     public void CubemapLoading_PatchedMaterials_ArriveCarryingTheirCubemap()
     {
@@ -39,6 +43,89 @@ public sealed class CubemapLoadingTests
         // **The control**, without which "reflections are loaded" and "everything reflects" are the
         // same observation.
         plain.ShouldBeGreaterThan(carried, "most of a map's materials reflect nothing");
+    }
+
+    [Test]
+    public void CubemapLoading_TheMapsOwnPlacements_AreDecodedAndPlaced()
+    {
+        // **The half a brush face never needs, and therefore the half nothing checked.** vbsp chose
+        // each brush face's cubemap at compile time and baked the name into its material, so the
+        // world path resolves names and never asks where anything is. A model's material still says
+        // the literal `env_cubemap` and picks by position, so the positions have to arrive.
+        MapAssets assets = LoadTheMap();
+        IReadOnlyList<BspCubemap> lump = BspCubemaps.Read(MapCache.Bytes(MapName));
+
+        TestContext.Out.WriteLine(
+            $"{assets.PlacedCubemaps.Count} placements decoded of {lump.Count} in the lump");
+
+        assets.PlacedCubemaps.Count
+            .ShouldBe(lump.Count, "every placement this map bakes is packed and decodes");
+
+        // **Position and texture must stay paired, and this is the assertion that says so.** They
+        // are two lists built in one loop; a placement dropped from one and not the other shifts
+        // every reflection after it onto the wrong cube, which draws as a plausible picture.
+        foreach (MapPlacedCubemap placed in assets.PlacedCubemaps)
+        {
+            placed.Faces.Count.ShouldBe(6);
+        }
+
+        assets.PlacedCubemaps.Select(placed => placed.Placement).ShouldBe(lump);
+    }
+
+    [Test]
+    public void CubemapLoading_AModelMaterial_CarriesALocalReflectionAndNoCubemap()
+    {
+        // **The capture point, which is the object this was built for.** B83 spent five hypotheses
+        // on why its disc draws almost black, and the answer predicted at the end of that entry was
+        // "$envmap on a prop". Its material asks for the literal `env_cubemap`, which vbsp cannot
+        // patch because Cubemap_CreateTexInfo works on texinfo and a model has none — so it arrived
+        // with no cubemap at all and drew matte.
+        //
+        // Loaded WITH the model, because a map's own material table does not contain a prop's
+        // materials; those are appended when the model is registered.
+        MapAssets assets = MapCache.Load(entityModels: [CapturePoint]);
+
+        int local = assets.LocalReflections.Count(shading => shading is not null);
+
+        TestContext.Out.WriteLine(
+            $"{local} materials of {assets.LocalReflections.Count} ask for the map's own cubemap");
+
+        local.ShouldBeGreaterThan(0, "a model's $envmap is the literal env_cubemap");
+
+        // **Named, not counted.** "Some material asks for the map's cubemap" is satisfied by any of
+        // the map's own static props, and would pass with the capture point still matte — which is
+        // the exact shape of B55's original dismissal of B83: a survey that found nothing because
+        // it was looking at the wrong object, read as evidence about the object.
+        string[] capPoint =
+        [
+            .. Enumerable.Range(0, assets.LocalReflections.Count)
+                .Where(index => assets.LocalReflections[index] is not null)
+                .Select(index => assets.Materials[index].Name)
+                .Where(name => name.Contains("cap_point", StringComparison.OrdinalIgnoreCase)),
+        ];
+
+        TestContext.Out.WriteLine($"cap point materials reflecting: {string.Join(", ", capPoint)}");
+
+        capPoint.ShouldNotBeEmpty(
+            "the capture point's own material asks for the map's cubemap — B83's prediction");
+
+        // **The control**, and it is the one that makes this mean something: the great majority of
+        // materials ask for no reflection at all, so "some carry a local reflection" and "every
+        // material carries one" have to be distinguishable.
+        assets.LocalReflections.Count(shading => shading is null)
+            .ShouldBeGreaterThan(local, "most materials reflect nothing");
+
+        // **And the two lists are mutually exclusive by construction.** A material either names a
+        // concrete cubemap or asks for the map's own; carrying both would mean the shader had two
+        // answers and picked by order of binding.
+        for (int index = 0; index < assets.LocalReflections.Count; index++)
+        {
+            if (assets.LocalReflections[index] is not null)
+            {
+                assets.Cubemaps[index]
+                    .ShouldBeNull("a material asking for env_cubemap has no cubemap of its own");
+            }
+        }
     }
 
     [Test]
@@ -99,17 +186,27 @@ public sealed class CubemapLoadingTests
 
         foreach (MapCubemap cubemap in assets.Cubemaps.OfType<MapCubemap>())
         {
-            cubemap.Contrast.ShouldBeInRange(0f, 1f);
-            cubemap.Saturation.ShouldBeInRange(0f, 1f);
+            cubemap.Shading.Contrast.ShouldBeInRange(0f, 1f);
+            cubemap.Shading.Saturation.ShouldBeInRange(0f, 1f);
 
-            cubemap.Tint.Red.ShouldBeGreaterThan(0f, "a tint of zero would black out the reflection");
+            cubemap.Shading.Tint.Red
+                .ShouldBeGreaterThan(0f, "a tint of zero would black out the reflection");
         }
 
         // At least one of them must be at the identity, or the defaults are not being applied at
         // all — most materials name none of these three keys.
         assets.Cubemaps.OfType<MapCubemap>()
-            .Count(cubemap => cubemap is { Contrast: 0f, Saturation: 1f, Tint: (1f, 1f, 1f) })
+            .Count(cubemap => cubemap.Shading is { Contrast: 0f, Saturation: 1f, Tint: (1f, 1f, 1f) })
             .ShouldBeGreaterThan(0, "a material naming no envmap keys reflects unchanged");
+
+        // **And the same defaults on the model half**, which arrives by a different route — a
+        // material that asks for the literal `env_cubemap` carries the shading with no cube, and
+        // reads its parameters from the same VMT keys. A loader that applied the defaults on one
+        // path and not the other would leave every prop's reflection grey while the map's was
+        // right, which is exactly the kind of split that reads as art direction.
+        assets.LocalReflections.OfType<MapEnvmapShading>()
+            .Count(shading => shading is { Contrast: 0f, Saturation: 1f, Tint: (1f, 1f, 1f) })
+            .ShouldBeGreaterThan(0, "a model material naming no envmap keys reflects unchanged");
     }
 
     [Test]

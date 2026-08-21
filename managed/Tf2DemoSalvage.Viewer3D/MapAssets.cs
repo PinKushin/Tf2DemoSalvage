@@ -97,12 +97,7 @@ internal readonly record struct MapDetail(
 /// </remarks>
 internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 
-/// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
-/// <param name="Faces">
-/// The six cube directions in Valve's order, which is <c>+X, −X, +Y, −Y, +Z, −Z</c> — the same
-/// order D3D's <c>TextureCube</c> wants, so this uploads as-is. The file's seventh face is a
-/// fallback spheremap and is not here.
-/// </param>
+/// <summary>How a material shades whatever cubemap it reflects.</summary>
 /// <param name="Tint">The colour the sample is multiplied by; white unless <c>$envmaptint</c>.</param>
 /// <param name="Contrast">
 /// How far the reflection is pushed toward its own square. **Zero is normal**, which is the
@@ -116,6 +111,27 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// reflects least, and the material then has no transparency because the channel is spent.
 /// </param>
 /// <remarks>
+/// **Separate from the cube itself because the engine keeps them separate**, and because a model
+/// needs exactly this half without the other. <c>$envmap</c> names WHICH cubemap and
+/// <c>$envmaptint</c>, <c>$envmapcontrast</c> and <c>$envmapsaturation</c> say how to shade it —
+/// four distinct <c>SHADER_PARAM</c>s. A brush face knows both at load, because vbsp patched the
+/// texture name into its material; a model knows only the shading, because <c>$envmap</c> still
+/// says the literal <c>env_cubemap</c> and which cube that means depends on where the model stands.
+/// </remarks>
+internal readonly record struct MapEnvmapShading(
+    (float Red, float Green, float Blue) Tint,
+    float Contrast,
+    float Saturation,
+    bool MaskedByBaseAlpha);
+
+/// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
+/// <param name="Faces">
+/// The six cube directions in Valve's order, which is <c>+X, −X, +Y, −Y, +Z, −Z</c> — the same
+/// order D3D's <c>TextureCube</c> wants, so this uploads as-is. The file's seventh face is a
+/// fallback spheremap and is not here.
+/// </param>
+/// <param name="Shading">The material's <c>$envmap*</c> parameters.</param>
+/// <remarks>
 /// **Not deduplicated, deliberately.** 51 of cp_process_final's materials reference 43 cubemaps, so
 /// interning would save eight copies of a 24 KB image — under 200 KB against a lightmap atlas of
 /// 2048x3485. Keeping one per material makes this list parallel to every other in
@@ -123,10 +139,24 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// </remarks>
 internal readonly record struct MapCubemap(
     IReadOnlyList<MapTexture> Faces,
-    (float Red, float Green, float Blue) Tint,
-    float Contrast,
-    float Saturation,
-    bool MaskedByBaseAlpha);
+    MapEnvmapShading Shading);
+
+/// <summary>One cubemap the map baked, and where it stands.</summary>
+/// <param name="Placement">The lump's own record, carried whole.</param>
+/// <param name="Faces">The six cube directions, in the same order as <see cref="MapCubemap"/>.</param>
+/// <remarks>
+/// **The map's cubemaps as PLACEMENTS rather than as one material's reflection**, which is what a
+/// model needs. A brush face's cubemap was chosen by vbsp and baked into its material name, so the
+/// renderer never has to know where any of them are. A model's is chosen at draw time from where it
+/// stands, so it does — see <c>BspCubemaps.Closest</c>.
+///
+/// The lump record is carried rather than copied out into loose coordinates, so nothing downstream
+/// has to rebuild one — and rebuilding one means inventing a <c>Size</c>, where 0 is an escape value
+/// meaning "the default" rather than a size.
+/// </remarks>
+internal readonly record struct MapPlacedCubemap(
+    BspCubemap Placement,
+    IReadOnlyList<MapTexture> Faces);
 
 /// <summary>Everything one material resolved to.</summary>
 /// <param name="Texture">The base texture, or null when it could not be found.</param>
@@ -140,6 +170,11 @@ internal readonly record struct MapCubemap(
 /// MEAN, and Modulate declared nothing unfamiliar while drawing entirely differently.
 /// </param>
 /// <param name="Cubemap">The baked reflection this material names, or null.</param>
+/// <param name="LocalReflection">
+/// How to shade the map's own cubemap, for a material that asks for the literal <c>env_cubemap</c>
+/// and so has no cubemap of its own. Null for every other material, including one that reflects
+/// nothing — the two are distinguished because they draw differently.
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -152,7 +187,8 @@ internal readonly record struct ResolvedMaterial(
     IReadOnlyList<MaterialProxy>? Proxies = null,
     IReadOnlyCollection<string>? Declared = null,
     string Shader = "",
-    MapCubemap? Cubemap = null);
+    MapCubemap? Cubemap = null,
+    MapEnvmapShading? LocalReflection = null);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -423,11 +459,32 @@ internal sealed class MapAssets
     /// time to name the exact cubemap it baked; this reads that name.
     ///
     /// Null covers three different situations that all draw the same: a material that reflects
-    /// nothing, a static prop's material still asking for the literal <c>env_cubemap</c> (which the
-    /// engine binds at runtime by proximity and this does not do yet), and a cubemap that failed to
+    /// nothing, a material asking for the literal <c>env_cubemap</c> (which is
+    /// <see cref="LocalReflections"/> instead, chosen per draw), and a cubemap that failed to
     /// decode. The first is much the commonest — on cp_process_final, 51 of 410.
     /// </remarks>
     public IReadOnlyList<MapCubemap?> Cubemaps { get; }
+
+    /// <summary>
+    /// How each material shades the map's own cubemap, null for those that do not ask for it.
+    /// </summary>
+    /// <remarks>
+    /// **The model half of <c>$envmap</c>, and it is a different question from
+    /// <see cref="Cubemaps"/> rather than a variant of it.** A brush face's cubemap was chosen by
+    /// vbsp at compile time and baked into the material's name, so the name is the whole answer. A
+    /// model's material still says the literal <c>env_cubemap</c>, which <c>VertexLitGeneric</c>
+    /// keeps and resolves at runtime against whatever the engine has bound as local — so the
+    /// material supplies only the shading, and the cube comes from <see cref="PlacedCubemaps"/> by
+    /// where the model stands.
+    /// </remarks>
+    public IReadOnlyList<MapEnvmapShading?> LocalReflections { get; private init; } = [];
+
+    /// <summary>Every cubemap the map baked, decoded, with where each one stands.</summary>
+    /// <remarks>
+    /// Empty when the map bakes none, when it packs none of the bakes, or when nothing could be
+    /// decoded — all of which are legal and draw matte.
+    /// </remarks>
+    public IReadOnlyList<MapPlacedCubemap> PlacedCubemaps { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -818,6 +875,8 @@ internal sealed class MapAssets
             UnimplementedShaders = shaderCensus,
             BrushMaterialCount = brushMaterials,
             RefusedPropLighting = refusedLighting,
+            LocalReflections = table.LocalReflections,
+            PlacedCubemaps = LoadPlacedCubemaps(map, pak, maximumTextureSize),
         };
     }
 
@@ -834,6 +893,146 @@ internal sealed class MapAssets
     /// The chain is VMT, then a patch's included VMT if there is one, then the VTF. Any step
     /// failing yields null, because a half-resolved material has nothing to draw.
     /// </remarks>
+    /// <summary>The six cube directions of an <c>$envmap</c> VTF, decoded.</summary>
+    /// <param name="file">The VTF's bytes.</param>
+    /// <param name="maximumTextureSize">Largest edge to decode; zero for full size.</param>
+    /// <returns>Six faces in Valve's order.</returns>
+    /// <remarks>
+    /// **Six of the seven, in file order.** Valve's face names read RIGHT/LEFT/BACK/FRONT/UP/DOWN
+    /// and are misleading; <c>LookDir_t</c> declared beside them gives the real order as
+    /// <c>+X, -X, +Y, -Y, +Z, -Z</c>, which is D3D's <c>TextureCube</c> order exactly. The seventh
+    /// is a fallback spheremap — a different projection, not a seventh direction — and is dropped.
+    ///
+    /// One routine rather than two, because a material's own cubemap and one of the map's
+    /// placements are the same file format read for different reasons, and a face order that
+    /// drifted between them would put a reflection on backwards for props alone.
+    /// </remarks>
+    private static List<MapTexture> CubeFaces(byte[] file, int maximumTextureSize)
+    {
+        List<MapTexture> faces = new(6);
+
+        for (int face = 0; face < 6; face++)
+        {
+            VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize, face);
+
+            faces.Add(new MapTexture(
+                decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false));
+        }
+
+        return faces;
+    }
+
+    /// <summary>Every cubemap the map baked, decoded and placed.</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="pak">The map's own archive, where vbsp wrote the bakes.</param>
+    /// <param name="maximumTextureSize">Largest edge to decode; zero for full size.</param>
+    /// <returns>The placements that decoded, in lump order minus any that did not.</returns>
+    /// <remarks>
+    /// **This is the half of <c>$envmap</c> that a brush face never needs.** vbsp chose each brush
+    /// face's cubemap at compile time and wrote the texture's name into a patched material, so the
+    /// world path resolves a name and never asks where anything is. A model's material still says
+    /// the literal <c>env_cubemap</c>, so the choice happens at draw time from where the model
+    /// stands — which needs the positions, and therefore this.
+    ///
+    /// **Every placement is decoded, not only the ones something reflects.** Which cubemap a model
+    /// takes depends on where it stands, and entities move; picking a subset at load would mean
+    /// deciding in advance which parts of the map anything will ever walk into. Measured on
+    /// cp_process_final: 43 placements at 32 pixels a face is about a megabyte, against a lightmap
+    /// atlas of 2048×3485.
+    /// </remarks>
+    private static List<MapPlacedCubemap> LoadPlacedCubemaps(
+        ReadOnlyMemory<byte> map,
+        PakFile pak,
+        int maximumTextureSize)
+    {
+        IReadOnlyList<BspCubemap> placements = BspCubemaps.Read(map);
+
+        if (placements.Count == 0)
+        {
+            return [];
+        }
+
+        // **The map's name, taken from the archive rather than from a filename**, because that is
+        // where the answer has to agree. vbsp wrote `maps/<name>/c<x>_<y>_<z>.vtf` into this pak
+        // using the name it compiled under, and a caller's idea of the map's name — from a path, a
+        // download, a rename — need not match it. Reading it back from a packed path cannot drift.
+        if (MapNameIn(pak) is not { } mapName)
+        {
+            ViewerLog.Warn(
+                "assets",
+                $"the map bakes {placements.Count} cubemaps but packs no maps/<name>/ path to " +
+                "name them from, so no model will reflect");
+
+            return [];
+        }
+
+        List<MapPlacedCubemap> loaded = new(placements.Count);
+        int absent = 0;
+        int refused = 0;
+
+        foreach (BspCubemap placement in placements)
+        {
+            string path = "materials/" + BspCubemaps.TextureName(mapName, placement) + ".vtf";
+
+            if (pak.ReadFile(path) is not { } file)
+            {
+                // **Expected on some maps rather than a defect.** `Cubemap_AddUnreferencedCubemaps`
+                // keeps an env_cubemap entity in the lump even when nothing reflects it, and a map
+                // shipped without a cubemap build has the lump and none of the bakes.
+                absent++;
+                continue;
+            }
+
+            try
+            {
+                loaded.Add(new MapPlacedCubemap(placement, CubeFaces(file, maximumTextureSize)));
+            }
+            catch (Exception failure) when (failure is InvalidDataException or ArgumentOutOfRangeException)
+            {
+                // One placement that will not decode costs the models near it their reflection and
+                // nothing else. Counted rather than logged per file: a map missing its cubemap
+                // build would otherwise print hundreds of identical lines.
+                refused++;
+            }
+        }
+
+        ViewerLog.Write(
+            "assets",
+            $"ASKED FOR {placements.Count} baked cubemaps of {mapName}; " +
+            $"HAVE {loaded.Count} decoded; " +
+            $"MISSING {absent} unpacked, {refused} that would not decode");
+
+        return loaded;
+    }
+
+    /// <summary>The name vbsp compiled a map under, read back from what it packed.</summary>
+    /// <remarks>
+    /// Every path vbsp writes into the pakfile for a cubemap or a patched material begins
+    /// <c>materials/maps/&lt;name&gt;/</c> (<c>vbsp/cubemap.cpp:511</c>), lowercased. Taking the
+    /// name from there rather than from the file on disk means the two cannot disagree.
+    /// </remarks>
+    private static string? MapNameIn(PakFile pak)
+    {
+        const string prefix = "materials/maps/";
+
+        foreach (string path in pak.Paths)
+        {
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            int end = path.IndexOf('/', prefix.Length);
+
+            if (end > prefix.Length)
+            {
+                return path[prefix.Length..end];
+            }
+        }
+
+        return null;
+    }
+
     private static ResolvedMaterial Resolve(
         string materialName,
         PakFile pak,
@@ -916,15 +1115,44 @@ internal sealed class MapAssets
             material.Proxies,
             material.Keys,
             material.Shader,
-            ResolveCubemap());
+            ResolveCubemap(),
+            ResolveLocalReflection());
+
+        MapEnvmapShading? ResolveLocalReflection()
+        {
+            // **On a MODEL the literal `env_cubemap` is the request, not a compile leftover**, and
+            // the two shaders are where that splits. LightmappedGeneric throws it away outright —
+            // "env_cubemap used on world geometry without rebuilding map. . ignoring",
+            // lightmappedgeneric_dx9_helper.cpp:83 — so a brush face reflects only what vbsp
+            // patched in. VertexLitGeneric carries no such rejection and calls
+            // LoadCubeMap( info.m_nEnvmap ) on whatever the material says, where `env_cubemap`
+            // resolves to the cubemap the engine has bound as local (BindLocalCubemap,
+            // imaterialsystem.h:1200).
+            //
+            // So this half is the model's, and it carries only the SHADING. Which cube depends on
+            // where the model stands and is chosen per draw; see WorldRenderer.DrawModel.
+            //
+            // vbsp does patch a brush face's material rather than leaving the literal, so a
+            // brushwork material reaching here with `env_cubemap` means an unrebuilt map — the
+            // exact case the engine warns about. Shading it anyway is closer to the engine than
+            // dropping it, because the engine only drops it for the LightmappedGeneric shader.
+            return material.WantsMapCubemap ? Shading() : null;
+        }
+
+        MapEnvmapShading Shading() =>
+            new(
+                material.EnvMapTint,
+                material.EnvMapContrast,
+                material.EnvMapSaturation,
+                material.UsesBaseAlphaAsEnvMapMask);
 
         MapCubemap? ResolveCubemap()
         {
             // **A compiled map names a concrete texture here, never `env_cubemap`.** vbsp rewrites
             // the key at compile time for every brush face it binds; a material still carrying the
             // literal was never patched — which on this map is every static prop's material,
-            // because Cubemap_CreateTexInfo works on texinfo and a prop has none. Those the engine
-            // binds at runtime by proximity, which this does not do yet.
+            // because Cubemap_CreateTexInfo works on texinfo and a prop has none. Those go to
+            // ResolveLocalReflection above and are bound per draw.
             if (material.EnvMap is not { } name || material.WantsMapCubemap)
             {
                 return null;
@@ -945,27 +1173,7 @@ internal sealed class MapAssets
 
             try
             {
-                List<MapTexture> faces = new(6);
-
-                // **Six of the seven, in file order.** Valve's face names read RIGHT/LEFT/BACK/
-                // FRONT/UP/DOWN and are misleading; LookDir_t declared beside them gives the real
-                // order as +X, -X, +Y, -Y, +Z, -Z, which is D3D's TextureCube order exactly. The
-                // seventh is a fallback spheremap — a different projection, not a seventh
-                // direction — and is dropped.
-                for (int face = 0; face < 6; face++)
-                {
-                    VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize, face);
-
-                    faces.Add(new MapTexture(
-                        decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false));
-                }
-
-                return new MapCubemap(
-                    faces,
-                    material.EnvMapTint,
-                    material.EnvMapContrast,
-                    material.EnvMapSaturation,
-                    material.UsesBaseAlphaAsEnvMapMask);
+                return new MapCubemap(CubeFaces(file, maximumTextureSize), Shading());
             }
             catch (InvalidDataException failure)
             {

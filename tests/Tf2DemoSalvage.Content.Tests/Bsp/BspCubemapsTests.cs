@@ -170,6 +170,81 @@ public sealed class BspCubemapsTests
             .ShouldBe("maps/koth_viaduct/c-544_0_-929");
     }
 
+    [Test]
+    public void Closest_APointBetweenTwoPlacements_TakesTheNearer()
+    {
+        // Valve's rule, `Cubemap_FindClosestCubemap` (vbsp/cubemap.cpp:835), reduced to its second
+        // pass — the only half a model can use, because the first needs a brush side's plane.
+        //
+        // **The condition is chosen so the two answers differ.** A point at 40 between placements
+        // at 0 and 100 takes the first; at 60 it takes the second. A search that returned index 0
+        // unconditionally, or the last entry, satisfies exactly one of these rows.
+        BspCubemap[] placed = [new BspCubemap(0, 0, 0, 32), new BspCubemap(100, 0, 0, 32)];
+
+        BspCubemaps.Closest(placed, 40f, 0f, 0f).ShouldBe(0);
+        BspCubemaps.Closest(placed, 60f, 0f, 0f).ShouldBe(1);
+    }
+
+    [Test]
+    public void Closest_APlacementSeparatedInHeight_IsStillFound()
+    {
+        // **The control for axis-blindness**, which a two-axis search passes every other test with.
+        //
+        // **The offsets on the OTHER axes are what make this decisive, and the first version of this
+        // test did not have them.** Placements sharing X and Y exactly would isolate the height term
+        // more cleanly, and that is precisely the trap: with Z dropped both distances collapse to
+        // ZERO, so the answer is then decided by how a tie resolves — which is the subject of a
+        // different test. Sabotaging both at once, the two cancelled and this test stayed green
+        // against a search that was blind on Z.
+        //
+        // A test whose verdict depends on another behaviour being correct is not measuring what it
+        // names. Separating the placements on a second axis removes the tie: with Z counted the
+        // near one is 1,300 units² away against 230,400, and with Z dropped it is 900 against 0 —
+        // opposite answers, no tie, and no dependence on the comparison operator.
+        BspCubemaps.Closest([new BspCubemap(0, 0, 0, 32), new BspCubemap(30, 0, 500, 32)], 0f, 0f, 480f)
+            .ShouldBe(1);
+
+        // And the same on Y, so a search that dropped THAT term is caught too — offset on X for the
+        // same reason. Three axes, three ways to be blind, and one decisive row each.
+        BspCubemaps.Closest([new BspCubemap(0, 0, 0, 32), new BspCubemap(30, 500, 0, 32)], 0f, 480f, 0f)
+            .ShouldBe(1);
+
+        // X, completing the set. Offset on Z here, so no row leans on the axis it is testing.
+        BspCubemaps.Closest([new BspCubemap(0, 0, 0, 32), new BspCubemap(500, 0, 30, 32)], 480f, 0f, 0f)
+            .ShouldBe(1);
+    }
+
+    [Test]
+    public void Closest_ANegativePosition_MeasuresTheSeparationNotTheMagnitude()
+    {
+        // Roughly half of any real map is on the negative side of the origin, so a search that
+        // compared magnitudes instead of separations would send everything there to whichever
+        // placement sits nearest the world origin. The point here is 10 units from the placement at
+        // -1000 and 1010 from the one at 0.
+        BspCubemaps.Closest([new BspCubemap(0, 0, 0, 32), new BspCubemap(-1000, 0, 0, 32)], -990f, 0f, 0f)
+            .ShouldBe(1);
+    }
+
+    [Test]
+    public void Closest_TwoPlacementsAtTheSameDistance_TakesTheEarlier()
+    {
+        // Valve compares with a strict `<` against a running minimum, so an equal distance does not
+        // displace the incumbent and the tie resolves by lump order. Written down because it is the
+        // kind of detail an implementation gets right by accident and a later "tidy up" to `<=`
+        // silently reverses.
+        BspCubemaps.Closest([new BspCubemap(-100, 0, 0, 32), new BspCubemap(100, 0, 0, 32)], 0f, 0f, 0f)
+            .ShouldBe(0);
+    }
+
+    [Test]
+    public void Closest_AMapWithNoCubemaps_IsMinusOne()
+    {
+        // A map compiled without env_cubemap entities is legal and draws matte. -1 says "there is
+        // none" rather than naming a placement that does not exist — the same reasoning that makes
+        // a size of 0 resolve to 32 here instead of leaking an escape value into arithmetic.
+        BspCubemaps.Closest([], 0f, 0f, 0f).ShouldBe(-1);
+    }
+
     /// <summary>
     /// One <c>dcubemapsample_t</c>: three little-endian ints, one byte, three bytes of padding.
     /// </summary>

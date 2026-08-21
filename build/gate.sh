@@ -86,9 +86,9 @@ rm -f /tmp/gate-*.log
 run Tf2DemoSalvage.Core.Tests     core     1450
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
-run Tf2DemoSalvage.Content.Tests  content   598
+run Tf2DemoSalvage.Content.Tests  content   603
 run Tf2DemoSalvage.Corpus.Tests   corpus     88
-run Tf2DemoSalvage.Viewer3D.Tests viewer    514
+run Tf2DemoSalvage.Viewer3D.Tests viewer    521
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

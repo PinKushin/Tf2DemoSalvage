@@ -37,6 +37,7 @@ internal sealed class MaterialTable
     private readonly List<MapDetail?> _details = [];
     private readonly List<MapBump?> _bumps = [];
     private readonly List<MapCubemap?> _cubemaps = [];
+    private readonly List<MapEnvmapShading?> _localReflections = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
 
     /// <summary>How many materials the table holds.</summary>
@@ -60,6 +61,16 @@ internal sealed class MaterialTable
     /// <summary>The baked reflection for each material, null for those without one.</summary>
     public IReadOnlyList<MapCubemap?> Cubemaps => _cubemaps;
 
+    /// <summary>
+    /// How each material shades the map's own cubemap, null for those that do not ask for it.
+    /// </summary>
+    /// <remarks>
+    /// **Separate from <see cref="Cubemaps"/> because the two are chosen at different times.** A
+    /// material here asked for the literal <c>env_cubemap</c>, so it has the shading but no cube —
+    /// which placement it reflects depends on where the model stands and is decided per draw.
+    /// </remarks>
+    public IReadOnlyList<MapEnvmapShading?> LocalReflections => _localReflections;
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies => _proxies;
 
@@ -68,7 +79,7 @@ internal sealed class MaterialTable
     /// <param name="resolved">What that material resolved to.</param>
     /// <returns>The index the material was given.</returns>
     /// <remarks>
-    /// **One call, seven lists.** The whole point of the type: a caller cannot append a texture and
+    /// **One call, eight lists.** The whole point of the type: a caller cannot append a texture and
     /// forget the proxies, because there is no way to append a texture on its own.
     /// </remarks>
     public int Add(BspMaterial material, ResolvedMaterial resolved)
@@ -81,6 +92,7 @@ internal sealed class MaterialTable
         _details.Add(resolved.Detail);
         _bumps.Add(resolved.Bump);
         _cubemaps.Add(resolved.Cubemap);
+        _localReflections.Add(resolved.LocalReflection);
         _proxies.Add(resolved.Proxies ?? []);
 
         return index;

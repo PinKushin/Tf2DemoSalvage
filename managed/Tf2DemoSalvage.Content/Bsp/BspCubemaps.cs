@@ -176,6 +176,71 @@ public static class BspCubemaps
             .ToLowerInvariant();
     }
 
+    /// <summary>Which baked cubemap a point reflects.</summary>
+    /// <param name="cubemaps">Every placement the map declares, in lump order.</param>
+    /// <param name="x">Position east-west, in world units.</param>
+    /// <param name="y">Position north-south.</param>
+    /// <param name="z">Height.</param>
+    /// <returns>Its index in <paramref name="cubemaps"/>, or -1 when the map declares none.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="cubemaps"/> is null.</exception>
+    /// <remarks>
+    /// **A brush face needs no search and a model does, and the two shaders are where that splits.**
+    /// <c>LightmappedGeneric</c> refuses the literal <c>env_cubemap</c> outright — <c>"env_cubemap
+    /// used on world geometry without rebuilding map. . ignoring"</c>,
+    /// <c>lightmappedgeneric_dx9_helper.cpp:83</c> — so brushwork reflects only what vbsp patched
+    /// into it at compile time. <c>VertexLitGeneric</c> carries no such rejection and loads whatever
+    /// <c>$envmap</c> names, so on a model the literal survives to runtime and means "the cubemap
+    /// bound as local" (<c>BindLocalCubemap</c>, <c>imaterialsystem.h:1200</c>).
+    ///
+    /// **This is Valve's rule, from <c>Cubemap_FindClosestCubemap</c>
+    /// (<c>vbsp/cubemap.cpp:835</c>), reduced to the half a model can use.** That function runs two
+    /// passes: first the nearest placement lying IN FRONT of the surface, tested as
+    /// <c>DotProduct( vecDelta, pPlane->normal ) >= 0</c>, and if none is in front, the nearest
+    /// overall. The first pass needs <c>pPlane->normal</c> — the plane of one brush side — and the
+    /// function returns -1 immediately when handed no side at all. A model has no such plane, so
+    /// the second pass is the whole of the applicable rule.
+    ///
+    /// **Evidence class, flagged because they are not equal.** That the rule is nearest-by-distance
+    /// is READ FROM PUBLISHED SOURCE. That the engine picks a model's local cubemap by this same
+    /// rule at runtime is INTERPOLATED: the routine that does it is inside the closed engine, the
+    /// client tree binds a local cubemap only in <c>basemodelpanel.cpp</c> and only a fixed default,
+    /// and nothing published states the runtime rule. See <c>docs/DECISIONS.md</c> D44.
+    ///
+    /// **Ties go to the earlier placement**, because Valve compares with a strict <c>&lt;</c> against
+    /// a running minimum. Squared distance is compared rather than distance: the ordering is
+    /// identical, and skipping the square root removes the one operation in here that could round
+    /// two genuinely different placements into a tie.
+    /// </remarks>
+    public static int Closest(IReadOnlyList<BspCubemap> cubemaps, float x, float y, float z)
+    {
+        ArgumentNullException.ThrowIfNull(cubemaps);
+
+        int closest = -1;
+        double nearest = double.MaxValue;
+
+        for (int index = 0; index < cubemaps.Count; index++)
+        {
+            BspCubemap cubemap = cubemaps[index];
+
+            // Accumulated in double rather than float. A map runs to ±16384 units, so a squared
+            // separation reaches 8×10⁸ — where a float's step is about 64 square units, enough to
+            // round two placements a few units apart into a tie and resolve it by lump order.
+            double dx = cubemap.X - (double)x;
+            double dy = cubemap.Y - (double)y;
+            double dz = cubemap.Z - (double)z;
+
+            double distance = (dx * dx) + (dy * dy) + (dz * dz);
+
+            if (distance < nearest)
+            {
+                nearest = distance;
+                closest = index;
+            }
+        }
+
+        return closest;
+    }
+
     /// <summary>Turns the stored size CODE into an edge length in pixels.</summary>
     private static int Size(byte code) => code == 0 ? DefaultSize : 1 << (code - 1);
 }

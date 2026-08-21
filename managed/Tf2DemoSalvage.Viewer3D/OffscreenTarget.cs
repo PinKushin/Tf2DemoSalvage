@@ -9,6 +9,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>
@@ -175,6 +177,62 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
         _world.Draw(_context);
+    }
+
+    /// <summary>Draws one posed model through the model path, offscreen.</summary>
+    /// <param name="vertices">The model's triangles, in model space.</param>
+    /// <param name="batches">Its runs over those vertices.</param>
+    /// <param name="camera">The view-projection matrix.</param>
+    /// <param name="model">The model matrix, row-vector, translation in row three.</param>
+    /// <param name="assets">The map's materials, which the model's own continue.</param>
+    /// <param name="light">The ambient cube reaching it, or null for none.</param>
+    /// <param name="bothSides">Draw every face regardless of winding, as <c>$nocull</c> does.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The model path is not the world path and the difference has hidden a defect.** Every
+    /// offscreen test so far drew through <see cref="DrawWorld"/>, so nothing exercised
+    /// <c>DrawModel</c>'s own texture binding — which bound four slots of five and left the
+    /// reflection to whatever the previous draw had left there. That was invisible for as long as
+    /// no model material resolved a cubemap, and stopped being invisible the moment one did.
+    /// </remarks>
+    public void DrawModelPose(
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        float[] camera,
+        float[] model,
+        MapAssets assets,
+        AmbientCube? light = null,
+        bool bothSides = false)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(camera);
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(assets);
+
+        const string Posed = "offscreen/posed.mdl";
+
+        _world ??= WorldRenderer.Create(_device);
+        _world.Seconds = Seconds;
+
+        _world.UploadTextures(_device, _context, assets);
+        _world.UploadModels(
+            _device,
+            vertices,
+            new Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>>(StringComparer.Ordinal)
+            {
+                [Posed] = new[] { batches },
+            });
+
+        _world.SetCamera(_device, _context, camera);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+
+        _world.DrawModel(_context, model, _world.ModelBatches(Posed), light, bothSides: bothSides);
     }
 
     /// <summary>
