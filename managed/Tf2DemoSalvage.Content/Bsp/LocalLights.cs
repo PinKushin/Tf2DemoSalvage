@@ -292,10 +292,29 @@ public static class LocalLights
         return (red, green, blue);
     }
 
-    /// <summary>A spotlight's cone attenuation for a direction, or zero outside the cone.</summary>
+    /// <summary>A spotlight's angular attenuation for a direction, or zero outside the cone.</summary>
     /// <remarks>
     /// <c>dot2</c> is negated because <paramref name="dx"/> points from the surface toward the
     /// light while the light's normal points the way it shines.
+    ///
+    /// **It is then used TWICE, which is the part this originally missed (B122).** vrad multiplies
+    /// the falloff by <c>dot2</c> as a plain cosine — a spotlight dims away from its axis everywhere,
+    /// not only in the penumbra — and separately applies the fringe between the inner and outer
+    /// cones (<c>lightmap.cpp:1929</c>-1942):
+    ///
+    /// <code>
+    /// out.m_flFalloff = MulSIMD( out.m_flFalloff, dot2 );
+    /// mult = ( dot2 - stopdot2 ) / ( stopdot - stopdot2 ), clamped
+    /// </code>
+    ///
+    /// Returning only the fringe left a light at full strength anywhere inside its inner cone. An
+    /// on-axis test cannot see that, because there <c>dot2</c> is one — which is why the suite held
+    /// the wrong behaviour while passing.
+    ///
+    /// <c>emit_surface</c> takes the same cosine (<c>lightmap.cpp:1907</c>) and no fringe. Both kinds
+    /// come through here, and the fringe terms of a surface light are zero, so the arithmetic is the
+    /// same for it either way. Only spotlights matter in practice: a surface light carries no falloff
+    /// terms at all and is excluded before this — all eight of `koth_harvest_final`'s are.
     ///
     /// The mask is applied AFTER the exponent, as Valve does and for their stated reason: it masks
     /// "any invalid results from pow function". Zeroing first would leave a negative scale to be
@@ -317,7 +336,8 @@ public static class LocalLights
             cone = MathF.Pow(cone, light.Exponent);
         }
 
-        return dot2 > light.StopDot2 ? cone : 0f;
+        // The cosine and the fringe together, in that order, as the engine composes them.
+        return dot2 > light.StopDot2 ? dot2 * cone : 0f;
     }
 
     /// <summary>Keeps the strongest lights seen so far, brightest first.</summary>

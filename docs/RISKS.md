@@ -7517,7 +7517,27 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
-### B122 — a spotlight's cosine term is missing from the falloff — OPEN
+### B122 — a spotlight's cosine term is missing from the falloff — FIXED
+
+**Fixed 2026-08-20**, `Cone` now returns `dot2 * fringe`. Measured on the same frame:
+
+```
+(415,1891,57)    direct 1.5385  ->  0.9944
+(-632,-1988,64)  direct 0.2924  ->  0.1908
+(632,2031,64)    direct 0.2678  ->  0.1305
+```
+
+About a third off, which is a cosine averaging roughly 0.65 over those points. The lamp still
+outweighs the bounce where it is overhead, so this trims rather than undoes B95.
+
+**`SpotlightFalloffConformanceTests` pins it, and needed an OFF-AXIS condition to do so.** The
+existing `ASpotlightInsideItsInnerCone_IsAtFullStrength` sits exactly on the axis, where `dot2` is one
+and multiplying by it changes nothing — which is how the wrong behaviour stayed green. Two controls
+guard the fix in both directions: the on-axis spotlight, unchanged; and an off-axis POINT light, which
+must keep its full falloff because `emit_point` has no cosine term. Without the second, a fix applying
+the cosine to every light kind would have passed.
+
+#### As originally filed
 
 vrad computes a spotlight's falloff as the inverse of the attenuation polynomial **multiplied by the
 cosine between the light's direction and the direction to the lit point**, and only then applies the
