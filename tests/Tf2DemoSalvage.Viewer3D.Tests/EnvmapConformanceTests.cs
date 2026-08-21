@@ -241,6 +241,116 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
+    public void Envmap_TheFresnelTerm_IsOffUnlessTheMaterialAsksForIt()
+    {
+        // **The Schlick term above is computed and then thrown away, and this is the assertion
+        // that says so.** `Envmap_TheFresnelTerm_IsRaisedToTheFifth` is right about the exponent
+        // and was read as licence to apply the result, which is a different claim. Two lines later
+        // (lightmappedgeneric_ps2_3_x.h:532) it is remapped:
+        //
+        //     fresnel = fresnel * g_OneMinusFresnelReflection + g_FresnelReflection;
+        //
+        // and the constants are packed from one material parameter
+        // (lightmappedgeneric_dx9_helper.cpp:728):
+        //
+        //     // [ 0, 0, 1-R(0), R(0) ]
+        //     OutputConstantData4( 0., 0., 1.0 - flFresnel, flFresnel );
+        //
+        // So the whole term is `schlick * (1 - R) + R` for R = $fresnelreflection, and **R defaults
+        // to 1**, which collapses it to a constant 1. The parameter's own description says which end
+        // is which: "1.0 == mirror, 0.0 == water".
+        //
+        // The fast path hardcodes the same defaults as static constants
+        // (`g_FresnelReflection = 1.0f`, `g_OneMinusFresnelReflection = 0.0f`), so both paths agree.
+        //
+        // **Applying Schlick unconditionally is not a subtle error.** It attenuates by
+        // `(1 - dot(n, e))^5`, which for a surface viewed anywhere near head-on is a few percent —
+        // a flat capture-point disc seen from standing height reflects essentially nothing.
+        RequireEnvmapDrawn();
+
+        string shader = Sdk("src/materialsystem/stdshaders/lightmappedgeneric_ps2_3_x.h");
+        string setup = Sdk("src/materialsystem/stdshaders/lightmappedgeneric_dx9.cpp");
+
+        shader.ShouldContain(
+            "fresnel = fresnel * g_OneMinusFresnelReflection + g_FresnelReflection",
+            Case.Sensitive,
+            "the Schlick term is remapped before it is used");
+
+        shader.ShouldContain(
+            "static const HALF g_FresnelReflection = 1.0f",
+            Case.Sensitive,
+            "and the fast path's constant is the identity");
+
+        setup.ShouldContain(
+            "SHADER_PARAM( FRESNELREFLECTION, SHADER_PARAM_TYPE_FLOAT, \"1.0\"",
+            Case.Sensitive,
+            "$fresnelreflection defaults to 1, which is no Fresnel at all");
+
+        // The arithmetic, because what matters is what an implementer computes. At the default the
+        // term is 1 whatever the angle; at 0 it is Schlick; halfway it is halfway.
+        Remap(0.02f, 1f).ShouldBe(1f);
+        Remap(0.02f, 0f).ShouldBe(0.02f, 1e-6f);
+        Remap(0.02f, 0.5f).ShouldBe(0.51f, 1e-6f);
+
+        static float Remap(float schlick, float reflection) =>
+            (schlick * (1f - reflection)) + reflection;
+    }
+
+    [Test]
+    public void Envmap_AModelsReflection_HasNoFresnelTermAtAll()
+    {
+        // **VertexLitGeneric does not merely default Fresnel off — it has no Fresnel.** The whole
+        // of the model shader's envmap block (vertexlit_and_unlit_generic_ps2x.fxc:456):
+        //
+        //     specularLighting = ENV_MAP_SCALE * texCUBE( EnvmapSampler, reflectVect );
+        //     specularLighting *= specularFactor;
+        //     specularLighting *= g_EnvmapTint_TintReplaceFactor.rgb;
+        //     HALF3 specularLightingSquared = specularLighting * specularLighting;
+        //     specularLighting = lerp( specularLighting, specularLightingSquared, g_EnvmapContrast_ShadowTweaks );
+        //     HALF3 greyScale = dot( specularLighting, HALF3( 0.299f, 0.587f, 0.114f ) );
+        //     specularLighting = lerp( greyScale, specularLighting, g_EnvmapSaturation );
+        //
+        // Cube, mask, tint, contrast, saturation, and then `result = diffuseComponent +
+        // specularLighting`. No dot product with the eye anywhere in it.
+        //
+        // **`$envmapfresnel` exists and is not this shader's.** vertexlitgeneric_dx9.cpp:61 declares
+        // it — "Degree to which Fresnel should be applied to env map", default "0" — and it is read
+        // by skin_dx9_helper.cpp, the Skin shader that VertexLitGeneric routes to when `$phong 1`
+        // is set. Its default is 0, the opposite end from $fresnelreflection's 1, and both mean
+        // "no Fresnel". Two parameters, two conventions, same answer.
+        //
+        // **The ORDER is also asserted, because contrast squares.** Masking after squaring is a
+        // different picture from masking before it, and Valve masks first.
+        RequireEnvmapDrawn();
+
+        string model = Sdk("src/materialsystem/stdshaders/vertexlit_and_unlit_generic_ps2x.fxc");
+
+        model.ShouldContain(
+            "specularLighting = ENV_MAP_SCALE * texCUBE( EnvmapSampler, reflectVect );",
+            Case.Sensitive,
+            "the control: this is the model shader's envmap block, so the search works");
+
+        model.ShouldContain(
+            "HALF3 result = diffuseComponent + specularLighting;",
+            Case.Sensitive,
+            "and the reflection is added, not blended");
+
+        // **The absence, with its positive control above.** No Fresnel remap, and no eye dot
+        // product feeding the specular term.
+        model.ShouldNotContain(
+            "g_FresnelReflection",
+            Case.Insensitive,
+            "VertexLitGeneric has no Fresnel term for its envmap");
+
+        int mask = model.IndexOf("specularLighting *= specularFactor;", StringComparison.Ordinal);
+        int tint = model.IndexOf(
+            "specularLighting *= g_EnvmapTint_TintReplaceFactor.rgb;", StringComparison.Ordinal);
+
+        mask.ShouldBeGreaterThan(0);
+        tint.ShouldBeGreaterThan(mask, "the mask is applied before the tint, and so before contrast");
+    }
+
+    [Test]
     public void Envmap_ContrastAndSaturation_DefaultToOppositeEnds()
     {
         // **The pair that cannot both be defaulted to the same number.** Their SHADER_PARAM

@@ -771,11 +771,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
                 float3 specular = envMap.Sample(wrapSampler, reflection).rgb;
 
+                // **The mask comes FIRST, before the tint and therefore before contrast.** Both of
+                // Valve's shaders order it `specularLighting *= specularFactor` and only then the
+                // tint (lightmappedgeneric_ps2_3_x.h:535, vertexlit_and_unlit_generic_ps2x.fxc:457).
+                // Contrast squares, and squaring is not linear, so masking after it is a different
+                // picture -- this used to mask last.
+                //
+                // **Inverted, and Valve said so: "Reversing alpha blows!"** An opaque texel
+                // reflects LEAST. Getting this backwards puts the shine exactly where the artist
+                // masked it out.
+                if (envmapControl.y > 0.5f)
+                {
+                    specular *= 1.0f - albedo.a;
+                }
+
                 specular *= envmapTint.rgb;
 
-                // **Contrast then saturation then fresnel, in that order.** Squaring is not linear,
-                // so squaring before scaling by fresnel is a different picture from squaring after,
-                // and Valve's order is tint, contrast, saturation, fresnel (lines 537-544).
+                // **Contrast then saturation, in that order.** Squaring is not linear, so the order
+                // is part of the specification rather than an implementation detail (lines 537-544).
                 specular = lerp(specular, specular * specular, envmapTint.w);
 
                 // Rec.601 luma, not a third each. The weights sum to one, so a grey reflection is
@@ -784,18 +797,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 float grey = dot(specular, float3(0.299f, 0.587f, 0.114f));
                 specular = lerp(float3(grey, grey, grey), specular, envmapControl.x);
 
-                // Schlick: grazing angles reflect most, head-on least. Without it every metal
-                // surface becomes a chrome ball.
-                float fresnel = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
-                specular *= fresnel;
-
-                // **Inverted, and Valve said so: "Reversing alpha blows!"** An opaque texel
-                // reflects LEAST. Getting this backwards puts the shine exactly where the artist
-                // masked it out.
-                if (envmapControl.y > 0.5f)
-                {
-                    specular *= 1.0f - albedo.a;
-                }
+                // **Schlick, and then Valve throws most of it away.** The engine computes the same
+                // fifth power and immediately remaps it (lightmappedgeneric_ps2_3_x.h:532):
+                //
+                //     fresnel = fresnel * g_OneMinusFresnelReflection + g_FresnelReflection;
+                //
+                // packed from ONE material parameter as [0, 0, 1-R, R]
+                // (lightmappedgeneric_dx9_helper.cpp:728), so the term is `schlick * (1 - R) + R`
+                // for R = $fresnelreflection. **R defaults to 1** -- "1.0 == mirror, 0.0 == water"
+                // -- which collapses the whole thing to a constant.
+                //
+                // **This shader applied raw Schlick, and that was the reason nothing looked
+                // reflective.** A surface viewed anywhere near head-on keeps a few percent of its
+                // reflection under it, so a flat capture-point disc seen from standing height
+                // reflected essentially nothing -- while every assertion about the cube being
+                // sampled passed, because at a grazing angle it is.
+                //
+                // envmapControl.w is R. It is 1 for every model material regardless of the VMT,
+                // because VertexLitGeneric's envmap block has no Fresnel term at all.
+                float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
+                specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
 
                 lit += specular;
             }
@@ -1587,6 +1608,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float envmapMask = shading is { MaskedByBaseAlpha: true } ? 1f : 0f;
             float hasEnvmap = shading is null ? 0f : 1f;
 
+            // **One is the resting value and it means NO Fresnel falloff**, which is the opposite of
+            // what a term called "fresnel" resting at zero would suggest. $fresnelreflection is
+            // "1.0 == mirror, 0.0 == water" and defaults to 1; a model is always 1 because
+            // VertexLitGeneric has no Fresnel term. Resting at zero would apply full Schlick to
+            // every reflective surface on the map, which is the state this replaced.
+            float envmapFresnel = shading?.Fresnel ?? 1f;
+
             _cubemaps.Add(reflection is { } cube ? UploadCube(device, cube.Faces) : default);
 
             _detailParameters.Add(detail is { } values
@@ -1626,7 +1654,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // whether there is one at all. White, zero, one and zero is "reflect nothing",
                     // which is what the great majority of materials want.
                     envmapTint.Red, envmapTint.Green, envmapTint.Blue, envmapContrast,
-                    envmapSaturation, envmapMask, hasEnvmap, 0f,
+                    envmapSaturation, envmapMask, hasEnvmap, envmapFresnel,
                 ]
                 :
                 [
@@ -1658,7 +1686,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // whether there is one at all. White, zero, one and zero is "reflect nothing",
                     // which is what the great majority of materials want.
                     envmapTint.Red, envmapTint.Green, envmapTint.Blue, envmapContrast,
-                    envmapSaturation, envmapMask, hasEnvmap, 0f,
+                    envmapSaturation, envmapMask, hasEnvmap, envmapFresnel,
                 ]);
         }
 

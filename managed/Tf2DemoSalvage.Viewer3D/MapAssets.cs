@@ -118,11 +118,17 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// texture name into its material; a model knows only the shading, because <c>$envmap</c> still
 /// says the literal <c>env_cubemap</c> and which cube that means depends on where the model stands.
 /// </remarks>
+/// <param name="Fresnel">
+/// How much of the reflection survives head-on. **One is a mirror and is the default**, which makes
+/// the Schlick term a constant; zero is water. Always one for a model, because
+/// <c>VertexLitGeneric</c> has no Fresnel term at all.
+/// </param>
 internal readonly record struct MapEnvmapShading(
     (float Red, float Green, float Blue) Tint,
     float Contrast,
     float Saturation,
-    bool MaskedByBaseAlpha);
+    bool MaskedByBaseAlpha,
+    float Fresnel);
 
 /// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
 /// <param name="Faces">
@@ -1144,7 +1150,26 @@ internal sealed class MapAssets
                 material.EnvMapTint,
                 material.EnvMapContrast,
                 material.EnvMapSaturation,
-                material.UsesBaseAlphaAsEnvMapMask);
+                material.UsesBaseAlphaAsEnvMapMask,
+                Fresnel());
+
+        float Fresnel()
+        {
+            // **The shader decides, and the two disagree.** LightmappedGeneric computes Schlick and
+            // remaps it by $fresnelreflection, which defaults to 1 — "1.0 == mirror, 0.0 == water" —
+            // so the term is a constant unless the material asks otherwise. VertexLitGeneric's
+            // envmap block has no Fresnel of any kind, so a model reflects at full strength whatever
+            // its VMT says; forcing 1 here is what says so, rather than trusting a key nothing reads.
+            //
+            // Decided by the shader NAME rather than by whether the material came from the map or a
+            // model, because that is what the engine dispatches on. A brush face painted with a
+            // VertexLitGeneric material gets the model's rule, which is right.
+            bool lightmapped =
+                material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+                material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+
+            return lightmapped ? material.FresnelReflection : 1f;
+        }
 
         MapCubemap? ResolveCubemap()
         {

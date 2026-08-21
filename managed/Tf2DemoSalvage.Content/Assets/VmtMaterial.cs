@@ -532,6 +532,37 @@ public sealed class VmtMaterial
     /// </remarks>
     public float EnvMapSaturation => Number("$envmapsaturation", 1f);
 
+    /// <summary>How much of the reflection survives at a head-on viewing angle.</summary>
+    /// <remarks>
+    /// **One is a mirror and means NO Fresnel falloff, which is the default.** Valve's own
+    /// description is the clearest statement of it —
+    /// <c>SHADER_PARAM( FRESNELREFLECTION, SHADER_PARAM_TYPE_FLOAT, "1.0", "1.0 == mirror,
+    /// 0.0 == water" )</c> (<c>lightmappedgeneric_dx9.cpp:44</c>).
+    ///
+    /// The shader computes Schlick and then remaps it by this value
+    /// (<c>lightmappedgeneric_ps2_3_x.h:530</c>):
+    ///
+    /// <code>
+    /// HALF fresnel = 1.0 - dot( worldSpaceNormal, eyeVect );
+    /// fresnel = pow( fresnel, 5.0 );
+    /// fresnel = fresnel * g_OneMinusFresnelReflection + g_FresnelReflection;
+    /// </code>
+    ///
+    /// with the pair packed as <c>[ 0, 0, 1-R(0), R(0) ]</c>
+    /// (<c>lightmappedgeneric_dx9_helper.cpp:728</c>). So the whole term is
+    /// <c>schlick * (1 - R) + R</c>, and at the default R = 1 it is the constant 1 — the Schlick
+    /// factor is computed and discarded.
+    ///
+    /// **This is the parameter whose absence made every reflection here far too dark.** Applying
+    /// Schlick unconditionally attenuates a surface viewed head-on to a few percent, which on a
+    /// flat capture-point disc seen from standing height is indistinguishable from no reflection.
+    ///
+    /// **It does not apply to models at all.** <c>VertexLitGeneric</c>'s envmap block has no Fresnel
+    /// term of any kind, so a model reflects at full strength whatever this says — see
+    /// <c>EnvmapConformanceTests.Envmap_AModelsReflection_HasNoFresnelTermAtAll</c>.
+    /// </remarks>
+    public float FresnelReflection => Number("$fresnelreflection", 1f);
+
     /// <summary>Whether the base texture's alpha masks the reflection instead of blending.</summary>
     /// <remarks>
     /// **Inverted, and Valve annotated it:** <c>specularFactor *= 1.0 - blendedAlpha; // Reversing

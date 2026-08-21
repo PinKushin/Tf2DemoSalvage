@@ -7683,3 +7683,65 @@ names the capture point.
 
 **Not verified: whether it looks right.** A pixel that changes with the placement says the right cube
 is bound, not that the picture is correct. That is a question for someone looking at the screen.
+
+## B125 — every reflection was attenuated by a Fresnel term Valve turns off — CLOSED 2026-08-20
+
+**Found by the owner looking at the screen after B124 was declared fixed: "its still not fixed".**
+The capture point was still dark, and every assertion about it was still green.
+
+**The defect.** This renderer applied raw Schlick to the reflection:
+
+```hlsl
+float fresnel = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
+specular *= fresnel;
+```
+
+Valve computes the same fifth power and then **discards most of it**
+(`lightmappedgeneric_ps2_3_x.h:532`):
+
+```cpp
+fresnel = fresnel * g_OneMinusFresnelReflection + g_FresnelReflection;
+```
+
+The pair is packed from one material parameter as `[ 0, 0, 1-R(0), R(0) ]`
+(`lightmappedgeneric_dx9_helper.cpp:728`), so the term is `schlick * (1 - R) + R` for
+R = `$fresnelreflection` — **which defaults to 1**, collapsing it to a constant. The parameter's own
+description says which end is which: `"1.0 == mirror, 0.0 == water"`. The fast path hardcodes the
+same defaults as `static const HALF g_FresnelReflection = 1.0f`.
+
+**And `VertexLitGeneric` has no Fresnel term at all.** Its whole envmap block
+(`vertexlit_and_unlit_generic_ps2x.fxc:456`) is cube, mask, tint, contrast, saturation, then
+`result = diffuseComponent + specularLighting`. No eye dot product anywhere in it. So a model
+reflects at full strength whatever its VMT says. (`$envmapfresnel` exists on
+`vertexlitgeneric_dx9.cpp:61` and belongs to the **Skin** shader, which `VertexLitGeneric` routes to
+under `$phong 1`; its default is 0, the opposite convention, same answer.)
+
+**Why every instrument missed it, and this is the part worth keeping.** `ReflectionRenderTests`
+measures that a reflection *changes with the normal*, which is exactly what raw Schlick does — most
+strongly of all. The defect made the test's own signal LARGER. Two more tests measured which cube
+was bound, which was correct throughout. Nothing in the suite asked how much reflection a surface
+keeps head-on, because that quantity was never predicted from the source.
+
+Measured, before and after, offscreen through the real pipeline:
+
+| Surface | Before | After |
+|---|---|---|
+| brush material 95, head-on | (69, 68, 69) | (156, 149, 147) |
+| model material 391, head-on | (13, 3, 1) | (66, 47, 34) |
+
+A flat capture-point disc seen from standing height is the worst case for this: the normal points at
+the eye, `1 - dot` is near zero, and its fifth power is a few percent. **Almost black**, which is
+what B83 has said since it was opened.
+
+**A second parity error found while reading the same block.** The mask was applied LAST, after
+contrast had squared the value. Both of Valve's shaders apply it first — `specularLighting *=
+specularFactor` before the tint — and squaring is not linear, so the order is part of the
+specification. Fixed with it.
+
+Covered by `Envmap_TheFresnelTerm_IsOffUnlessTheMaterialAsksForIt` and
+`Envmap_AModelsReflection_HasNoFresnelTermAtAll`, both written before the fix and both quoting the
+source. The first also asserts the remap arithmetic at R = 0, 0.5 and 1.
+
+**The lesson is the project's own rule, applied to a shader**: read the source before measuring your
+own data. Three green measurements said the cube was bound, sampled and chosen by position — all
+true, all irrelevant to how much of it survived to the screen.

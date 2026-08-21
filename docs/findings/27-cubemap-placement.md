@@ -518,3 +518,86 @@ pipeline. Both paths now call one `BindPipeline`.
 Worth generalising: **an API whose correctness depends on another call having happened first, with
 nothing to enforce it, fails at the distance of whatever notices**. The offscreen path found it
 because it was the first caller that did not satisfy the precondition by accident.
+
+## Fresnel is computed and thrown away (evidence: read from published source)
+
+The section *Drawn, and measured through the GPU* above is right that the cube is sampled and wrong
+about how much of it reaches the screen, and the gap between those two statements went unnoticed for
+a day because every instrument here measured the first one.
+
+`LightmappedGeneric` computes Schlick exactly as one would expect
+(`lightmappedgeneric_ps2_3_x.h:530`):
+
+```cpp
+HALF fresnel = 1.0 - dot( worldSpaceNormal, eyeVect );
+fresnel = pow( fresnel, 5.0 );
+fresnel = fresnel * g_OneMinusFresnelReflection + g_FresnelReflection;
+```
+
+**The third line is the one that matters.** The pair is packed from a single material parameter
+(`lightmappedgeneric_dx9_helper.cpp:728`):
+
+```cpp
+// [ 0, 0, 1-R(0), R(0) ]
+pContextData->m_SemiStaticCmdsOut.OutputConstantData4( 0., 0., 1.0 - flFresnel, flFresnel );
+```
+
+so the whole term is `schlick * (1 - R) + R` for R = `$fresnelreflection`. And:
+
+```cpp
+SHADER_PARAM( FRESNELREFLECTION, SHADER_PARAM_TYPE_FLOAT, "1.0", "1.0 == mirror, 0.0 == water" )
+```
+
+**R defaults to 1, so the term is the constant 1 and the Schlick factor is dead.** The fast path
+does not even read the register — it hardcodes `static const HALF g_FresnelReflection = 1.0f` and
+`g_OneMinusFresnelReflection = 0.0f`, which is the same identity written out.
+
+`VertexLitGeneric`, which draws models, has **no Fresnel term at all**
+(`vertexlit_and_unlit_generic_ps2x.fxc:456`):
+
+```cpp
+specularLighting = ENV_MAP_SCALE * texCUBE( EnvmapSampler, reflectVect );
+specularLighting *= specularFactor;
+specularLighting *= g_EnvmapTint_TintReplaceFactor.rgb;
+HALF3 specularLightingSquared = specularLighting * specularLighting;
+specularLighting = lerp( specularLighting, specularLightingSquared, g_EnvmapContrast_ShadowTweaks );
+HALF3 greyScale = dot( specularLighting, HALF3( 0.299f, 0.587f, 0.114f ) );
+specularLighting = lerp( greyScale, specularLighting, g_EnvmapSaturation );
+```
+
+Cube, mask, tint, contrast, saturation. There is no dot product with the eye anywhere in it.
+
+**`$envmapfresnel` is a different parameter and belongs to a different shader.**
+`vertexlitgeneric_dx9.cpp:61` declares it — "Degree to which Fresnel should be applied to env map",
+default `"0"` — and the only code that reads it is `skin_dx9_helper.cpp`, the Skin shader that
+`VertexLitGeneric` dispatches to when `$phong 1` is set. Note the inversion: `$fresnelreflection`
+defaults to **1** for none and `$envmapfresnel` to **0** for none. Two parameters, opposite
+conventions, same default behaviour.
+
+### Also: the mask is applied before the tint
+
+Both shaders order it `specularLighting *= specularFactor` and only then the tint. This project
+masked last, after the contrast lerp had squared the value — and squaring is not linear, so the two
+orders give different pictures on any material with `$basealphaenvmapmask` and a non-zero
+`$envmapcontrast`.
+
+### Measured
+
+Offscreen through the real pipeline, the same surfaces before and after removing the unconditional
+Schlick:
+
+| Surface | With raw Schlick | Following Valve |
+|---|---|---|
+| brush material 95, viewed head-on | (69, 68, 69) | (156, 149, 147) |
+| brush material 95, grazing | (129, 115, 125) | (133, 118, 129) |
+| model material 391, head-on | (13, 3, 1) | (66, 47, 34) |
+
+**The grazing case barely moved, which is why this survived.** Schlick is near 1 at a grazing angle,
+so every measurement taken on an angled surface agreed with Valve to within a few levels. The error
+lives entirely in the head-on case — which is exactly how a player looks at a capture point.
+
+**And the instrument made it worse rather than catching it.** `ReflectionRenderTests` measures that
+the reflection *changes with the normal*; raw Schlick is a term that varies with the normal more
+strongly than anything else in the shader, so the defect enlarged the signal the test was watching
+for. A test can be sensitive to a manipulation, valid in what it measures, and still blind to a
+defect that shares its axis.
