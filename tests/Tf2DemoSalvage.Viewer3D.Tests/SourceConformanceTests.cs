@@ -202,16 +202,12 @@ public sealed class SourceConformanceTests
             "the material is drawn on. B80.");
     }
 
-    [Test]
-    public void LightWarpTexture_IsNotImplemented()
-    {
-        // 308 materials. A one-dimensional ramp the engine looks up with N·L, which is a large part
-        // of TF2's flat, illustrative shading.
-        //
-        // WHAT YOU SEE: lighting falls off linearly where the game's is authored, so models read
-        // as photographic rather than as TF2.
-        Assert.Ignore("$lightwarptexture: 308 materials; lighting curve is linear.");
-    }
+    // **`LightWarpTexture_IsNotImplemented` stood here.** 308 materials, and implementing it meant
+    // changing a half-Lambert path that had been correct for a year — Valve skips the square when a
+    // warp is present, because the ramp carries that curve. That is D46: where this project's code
+    // diverges from Valve's, this project's code changes.
+    //
+    // Specified in `PhongConformanceTests.LightWarp_ReplacesTheHalfLambertSquare_AndIsDoubled`.
 
     // **`RimLight_IsNotImplemented` stood here.** 301 materials, and it turned out to be cheap
     // exactly as it predicted — the rim reuses the L·R that $phong had already established, and

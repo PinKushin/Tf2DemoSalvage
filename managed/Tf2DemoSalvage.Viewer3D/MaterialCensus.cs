@@ -100,6 +100,11 @@ internal static class MaterialCensus
         "$rimlightexponent",
         "$rimlightboost",
 
+        // The authored lighting ramp, indexed by the diffuse term. It REPLACES the half-Lambert
+        // square rather than scaling the result, and the lookup is doubled — both stated in
+        // DiffuseTerm and both silent if missed.
+        "$lightwarptexture",
+
         // The per-material modulation. $color2 MULTIPLIES $color rather than replacing it
         // (BaseShader.h:271 states the operation on the helper's declaration), and $alpha is
         // clamped to 0..1 where the colour channels deliberately are not. All three reach the

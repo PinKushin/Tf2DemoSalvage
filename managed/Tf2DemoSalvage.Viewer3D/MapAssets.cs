@@ -237,6 +237,7 @@ internal readonly record struct MapPlacedCubemap(
 /// nothing — the two are distinguished because they draw differently.
 /// </param>
 /// <param name="Phong">The specular highlight this material asks for, or null.</param>
+/// <param name="LightWarp">The authored lighting ramp, or null for a linear falloff.</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -251,7 +252,8 @@ internal readonly record struct ResolvedMaterial(
     string Shader = "",
     MapCubemap? Cubemap = null,
     MapEnvmapShading? LocalReflection = null,
-    MapPhong? Phong = null);
+    MapPhong? Phong = null,
+    MapTexture? LightWarp = null);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -557,6 +559,14 @@ internal sealed class MapAssets
     /// from their diffuse texture.
     /// </remarks>
     public IReadOnlyList<MapPhong?> Phong { get; private init; } = [];
+
+    /// <summary>The authored lighting ramp for each material, null for a linear falloff.</summary>
+    /// <remarks>
+    /// **308 of cp_process's materials name one.** It is a one-dimensional texture indexed by the
+    /// diffuse term, and it is much of why TF2 reads as illustrated rather than photographed — the
+    /// artist draws the falloff instead of accepting Lambert's.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> LightWarps { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -960,6 +970,7 @@ internal sealed class MapAssets
             LocalReflections = table.LocalReflections,
             PlacedCubemaps = LoadPlacedCubemaps(map, pak, maximumTextureSize),
             Phong = table.Phong,
+            LightWarps = table.LightWarps,
         };
     }
 
@@ -1200,7 +1211,8 @@ internal sealed class MapAssets
             material.Shader,
             ResolveCubemap(),
             ResolveLocalReflection(),
-            ResolvePhong());
+            ResolvePhong(),
+            ResolveLightWarp());
 
         MapPhong? ResolvePhong()
         {
@@ -1321,6 +1333,29 @@ internal sealed class MapAssets
 
                 return null;
             }
+        }
+
+        MapTexture? ResolveLightWarp()
+        {
+            // **A ramp, not a picture.** One row of texels indexed by the diffuse term, so it is
+            // loaded like any other texture and sampled with a CLAMP sampler — wrapping it would
+            // send a surface at the very edge of the ramp back to the other end of the curve.
+            if (material.LightWarpTexture is not { } name)
+            {
+                return null;
+            }
+
+            if (Load(name) is not { } decoded)
+            {
+                ViewerLog.Warn(
+                    "assets",
+                    $"light warp {name}, named by materials/{materialName}.vmt, could not be read");
+
+                return null;
+            }
+
+            return new MapTexture(
+                decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false);
         }
 
         MapBump? ResolveBump()

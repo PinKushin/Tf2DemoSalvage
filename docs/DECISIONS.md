@@ -1910,3 +1910,38 @@ rather than silently unpoliced. That is a smaller claim than "every marker is po
 made deliberately: the alternative is a probe that measures the wrong quantity, which the audit did
 once already and which accused a correct entry (`MaterialProxies_AreNotEvaluated`, whose real gap was
 narrower than the probe understood — renamed, not removed).
+
+## D46 — where this project's code diverges from Valve's, this project's code changes
+
+**Owner's direction, 2026-08-21**, given while `$lightwarptexture` was being specified and it became
+clear that implementing it faithfully would mean editing a half-Lambert path that had been correct
+for a year: *"we do not hesitate to change our own code to properly match valves"*.
+
+**The situation it settles.** Valve's `DiffuseTerm` squares the half-Lambert result **only when there
+is no light warp** — `if ( !bDoLightingWarp ) fResult *= fResult;` — because a warp texture is
+authored to carry that curve. This project squares it unconditionally, which was right while nothing
+warped and becomes a double application the moment something does. The tempting move is to add the
+warp beside the existing term and leave the square alone, since the existing term is tested, shipped
+and looks correct.
+
+The direction says no: **change ours.** The prior code is not a constraint on parity.
+
+**Why it is worth writing down rather than treating as obvious.** Every argument for leaving existing
+code alone is a good one in isolation — it is covered by tests, it produces a plausible picture, and
+touching it risks a regression in something unrelated. Taken together those arguments freeze a
+divergence in place and then defend it, and the defence gets stronger the longer it stands. This
+project's entire premise is that the answer is knowable from Valve's own source, so a difference
+between the two is a defect here by definition, not a design choice to be weighed.
+
+**What it does not license.** Changing our code to match a *guess* about Valve's, or to match a
+decompiled fragment with no citation. The rule is about deferring to published source when it is
+read, not about churning toward whatever seems more engine-like. The evidence classes in
+`docs/findings/` still apply, and an interpolation stays flagged as one — D44 is the worked example.
+
+Corollaries that follow from it and have already come up:
+
+- A test that encodes the old behaviour is **rewritten with the code**, not preserved as a
+  compatibility constraint. Twelve light tests wrote the wrong scale into their own expectations and
+  had to be corrected alongside `LocalLights` (B95).
+- A constant that was tuned to look right, rather than read from source, is a candidate for deletion
+  the moment the source is found — the Fresnel term in B125 was exactly that.

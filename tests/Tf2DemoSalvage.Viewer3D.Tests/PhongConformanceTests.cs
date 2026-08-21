@@ -340,6 +340,70 @@ public sealed class PhongConformanceTests
         }
     }
 
+    [Test]
+    public void LightWarp_ReplacesTheHalfLambertSquare_AndIsDoubled()
+    {
+        // **`$lightwarptexture` is not a tint applied afterwards; it REPLACES part of the falloff**,
+        // and `DiffuseTerm` (common_vertexlitgeneric_dx9.h:86) shows both halves of that:
+        //
+        //     if ( bHalfLambert )
+        //     {
+        //         fResult = saturate(NDotL * 0.5 + 0.5);
+        //         if ( !bDoLightingWarp )
+        //             fResult *= fResult;          // Square
+        //     }
+        //     ...
+        //     if ( bDoLightingWarp )
+        //         fOut = 2.0f * tex1D( lightWarpSampler, fResult );
+        //
+        // **The square is SKIPPED when a warp is present**, because the warp texture is authored to
+        // carry that curve already. Applying both squares the falloff twice, which darkens every
+        // shaded side and reads as heavy-handed art rather than as a bug.
+        //
+        // **And the lookup is DOUBLED.** `2.0f * tex1D(...)`, so a warp of mid-grey is neutral and
+        // a warp of white is twice the light. Missing the factor of two halves every model's
+        // diffuse — uniformly, so nothing looks wrong, only dim.
+        //
+        // The dot product going in is UNSATURATED (−1 to 1) before the half-Lambert scale and bias;
+        // saturating first would collapse the whole back half of the ramp, which is the half a warp
+        // texture exists to shape.
+        string source = Sdk("src/materialsystem/stdshaders/common_vertexlitgeneric_dx9.h");
+
+        source.ShouldContain(
+            "float NDotL = dot( worldNormal, lightDir );",
+            Case.Sensitive,
+            "unsaturated, and the comment beside it says so");
+
+        source.ShouldContain(
+            "if ( !bDoLightingWarp )",
+            Case.Sensitive,
+            "the half-Lambert square is conditional on there being NO warp");
+
+        source.ShouldContain(
+            "fOut = 2.0f * tex1D( lightWarpSampler, fResult );",
+            Case.Sensitive,
+            "and the lookup is doubled");
+
+        // **The arithmetic, at the input that separates the two — which is not the obvious one.** A
+        // surface turned FULLY away gives 0 either way, squared or not, so it discriminates nothing;
+        // the first draft of this asserted 0.25 and 0.5 there and was wrong about both.
+        //
+        // The terminator, N·L = 0, is where they differ: 0.25 with the square and 0.5 without. A
+        // warp read at 0.25 samples a different part of the ramp from one read at 0.5, so keeping
+        // the square is not a scale error, it is the wrong texel.
+        Warped(0f, squared: true).ShouldBe(0.25f, 1e-6f);
+        Warped(0f, squared: false).ShouldBe(0.5f, 1e-6f);
+
+        Warped(-1f, squared: true).ShouldBe(Warped(-1f, squared: false), 1e-6f);
+
+        static float Warped(float dot, bool squared)
+        {
+            float result = Math.Clamp((dot * 0.5f) + 0.5f, 0f, 1f);
+
+            return squared ? result * result : result;
+        }
+    }
+
     /// <summary>Reads an SDK file, or fails loudly.</summary>
     private static string Sdk(string path) =>
         SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");

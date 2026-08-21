@@ -584,6 +584,20 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool HasRimLight => Flag("$rimlight");
 
+    /// <summary>The authored lighting ramp this material reads instead of a linear falloff.</summary>
+    /// <remarks>
+    /// <c>$lightwarptexture</c>, a one-dimensional texture the engine looks up with the diffuse
+    /// term. **308 of cp_process's materials name one**, and it is a large part of why TF2 reads as
+    /// illustrated rather than photographed: the artist draws the falloff curve rather than
+    /// accepting Lambert's.
+    ///
+    /// Two things about its use are easy to miss, both in <c>DiffuseTerm</c>
+    /// (<c>common_vertexlitgeneric_dx9.h:86</c>): the half-Lambert SQUARE is skipped when a warp is
+    /// present, because the ramp carries that curve already; and the lookup is DOUBLED, so a
+    /// mid-grey ramp is neutral rather than a white one.
+    /// </remarks>
+    public string? LightWarpTexture => Value("$lightwarptexture");
+
     /// <summary>How tightly the rim hugs the silhouette; higher is a thinner edge.</summary>
     /// <remarks>
     /// <c>SHADER_PARAM( RIMLIGHTEXPONENT, SHADER_PARAM_TYPE_FLOAT, "4.0", … )</c> — a different

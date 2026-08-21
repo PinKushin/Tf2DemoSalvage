@@ -360,7 +360,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //      states the encoding in a comment beside their own code. Feeding the raw numbers
             //      returns 0.5 head-on instead of 0, so the highlight never fades and every model
             //      wears a uniform sheen.
-            // w: unused.
+            // w: 1 when the material carries a $lightwarptexture. It rides here rather than in a
+            //    row of its own because a constant buffer is sized in whole float4s and this slot
+            //    was spare — the warp is not otherwise related to phong.
             float4 phongFresnel;
 
             // xyz: $phongtint, white unless the material names one. w: unused.
@@ -398,6 +400,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // The map's own baked reflection for this material, six faces in Valve's order — which is
         // +X, -X, +Y, -Y, +Z, -Z and therefore D3D's order unchanged.
         TextureCube  envMap      : register(t5);
+
+        // **A ramp, not a picture**: one row of texels the diffuse term indexes. Sampled with the
+        // CLAMP sampler, because wrapping would send a surface at the end of the curve back to the
+        // other end of it.
+        Texture2D    lightWarp   : register(t6);
 
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
@@ -769,11 +776,40 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // instead of none, which is what stops a character's shaded side going black.
                     // Applied to the DIRECT term only: the routine sits inside DoLightInternal, so
                     // the ambient cube above is untouched.
-                    float wrapped = towardsSun * 0.5f + 0.5f;
+                    float wrapped = saturate(towardsSun * 0.5f + 0.5f);
 
-                    light += sunColour.rgb * (combine.y > 0.5f
-                        ? wrapped * wrapped
-                        : saturate(towardsSun));
+                    // **The half-Lambert square is SKIPPED when a light warp is present**, and this
+                    // line used to square unconditionally. Valve's DiffuseTerm
+                    // (common_vertexlitgeneric_dx9.h:97):
+                    //
+                    //     if ( bHalfLambert )
+                    //     {
+                    //         fResult = saturate(NDotL * 0.5 + 0.5);
+                    //         if ( !bDoLightingWarp )
+                    //             fResult *= fResult;          // Square
+                    //     }
+                    //
+                    // The ramp is authored to carry that curve, so applying both squares the
+                    // falloff twice — darkening every shaded side, uniformly enough to read as
+                    // heavy art direction rather than as a defect.
+                    //
+                    // Changing a path that was correct for a year is D46: where this project's code
+                    // diverges from Valve's, this project's code changes.
+                    bool warping = phongFresnel.w > 0.5f;
+
+                    float falloff = combine.y > 0.5f
+                        ? (warping ? wrapped : wrapped * wrapped)
+                        : saturate(towardsSun);
+
+                    // **And the lookup is DOUBLED**, so a mid-grey ramp is neutral rather than a
+                    // white one: `fOut = 2.0f * tex1D( lightWarpSampler, fResult )`. Missing the
+                    // factor of two halves every model's diffuse — uniformly, so nothing looks
+                    // wrong, only dim.
+                    float3 direct = warping
+                        ? 2.0f * lightWarp.Sample(clampSampler, float2(falloff, 0.5f)).rgb
+                        : float3(falloff, falloff, falloff);
+
+                    light += sunColour.rgb * direct;
                 }
             }
 
@@ -1178,6 +1214,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// model material on the map — and the reason a prop needs a search a wall does not.
     /// </remarks>
     private readonly HashSet<int> _usesLocalCubemap = [];
+
+    /// <summary>The authored lighting ramp for each material, empty where there is none.</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _lightWarps = [];
 
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     private IReadOnlyList<IReadOnlyList<MaterialProxy>> _proxies = [];
@@ -1798,6 +1837,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // The rim, which only exists inside phong. Its exponent defaults to 4 rather than the
             // highlight's 5, so the resting value is its own.
+            // The authored lighting ramp. Independent of phong — plenty of materials warp their
+            // diffuse and carry no highlight — and it rides in phongFresnel.w only because a
+            // constant buffer is sized in whole float4s and that slot was spare.
+            MapTexture? warp = index < assets.LightWarps.Count ? assets.LightWarps[index] : null;
+
+            _lightWarps.Add(warp is { } ramp ? Upload(device, context, ramp) : default);
+
+            float hasLightWarp = warp is null ? 0f : 1f;
+
             float rimExponent = phong?.Rim?.Exponent ?? 4f;
             float rimBoost = phong?.Rim?.Boost ?? 1f;
             float hasRim = phong?.Rim is null ? 0f : 1f;
@@ -1855,7 +1903,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // zeros — an exponent of 0 would raise every dot product to the power zero and
                     // return 1 everywhere the moment the flag was set.
                     phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
-                    phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, 0f,
+                    phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, hasLightWarp,
                     phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
                     rimExponent, rimBoost, hasRim, 0f,
                 ]
@@ -1896,7 +1944,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // zeros — an exponent of 0 would raise every dot product to the power zero and
                     // return 1 everywhere the moment the flag was set.
                     phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
-                    phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, 0f,
+                    phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, hasLightWarp,
                     phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
                     rimExponent, rimBoost, hasRim, 0f,
                 ]);
@@ -2281,6 +2329,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // phongFresnel: [0 0.5 1] ENCODED, which is (1, 0.5, 1) and not the triple itself.
         // phongTint: white.
         5f, 1f, 0f, 0f,
+
+        // phongFresnel: the encoded [0 0.5 1], and w = 0 for "no light warp".
         1f, 0.5f, 1f, 0f,
         1f, 1f, 1f, 0f,
 
@@ -3029,7 +3079,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
-                     .Concat(_placedCubemaps)
+                     .Concat(_placedCubemaps).Concat(_lightWarps)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
@@ -3043,6 +3093,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _placedCubemaps.Clear();
         _placements.Clear();
         _usesLocalCubemap.Clear();
+        _lightWarps.Clear();
         _sortedTranslucent = [];
         _decals = [];
         _detailParameters.Clear();
@@ -3408,6 +3459,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.PSSetShaderResources(3, 1, ref detail);
             context.PSSetShaderResources(4, 1, ref bump);
             context.PSSetShaderResources(5, 1, ref reflection);
+
+            // Bound unconditionally, including the null handle, so a material with no ramp cannot
+            // inherit the previous draw's. The shader reads it only when phongFresnel.w says so.
+            ComPtr<ID3D11ShaderResourceView> ramp =
+                material >= 0 && material < _lightWarps.Count ? _lightWarps[material] : default;
+
+            context.PSSetShaderResources(6, 1, ref ramp);
 
             SetMaterial(context, material);
 

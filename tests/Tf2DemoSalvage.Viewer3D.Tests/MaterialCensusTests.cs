@@ -36,25 +36,28 @@ public sealed class MaterialCensusTests
         // "whoever implements phong will land in this file" — and that is what happened. Written to
         // be found, and found.
         //
-        // **Then $rimlight, which replaced $phong here, was implemented an hour later and broke it
-        // a third time.** Worth keeping as a warning about which example to pick: reach for
-        // something that is NOT next on the list, or this file becomes a chore rather than a
-        // signal. $phongexponenttexture is a safer choice — it needs a texture pipeline nothing
-        // here has.
+        // **This has now broken four times in one session** — $envmap, then $phong, then $rimlight
+        // which replaced $phong an hour before being implemented, then $lightwarptexture which
+        // replaced $rimlight the same way. The lesson is about which example to pick: reach for
+        // something NOT next on the list, or this file is a chore rather than a signal.
+        //
+        // These two are chosen because each needs a pipeline nothing here has —
+        // $phongexponenttexture a per-texel exponent map, $iris the EyeRefract shader — rather than
+        // because they happen to be unimplemented today.
         IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
         [
-            ["$basetexture", "$lightwarptexture"],
-            ["$basetexture", "$lightwarptexture", "$phongexponenttexture"],
+            ["$basetexture", "$phongexponenttexture"],
+            ["$basetexture", "$phongexponenttexture", "$iris"],
         ]);
 
         census.Count.ShouldBe(2);
 
         census[0].Parameter.ShouldBe(
-            "$lightwarptexture", "the commonest unimplemented parameter comes first");
+            "$phongexponenttexture", "the commonest unimplemented parameter comes first");
 
         census[0].Materials.ShouldBe(2);
 
-        census[1].Parameter.ShouldBe("$phongexponenttexture");
+        census[1].Parameter.ShouldBe("$iris");
         census[1].Materials.ShouldBe(1);
     }
 
@@ -86,7 +89,7 @@ public sealed class MaterialCensusTests
         // which is the kind of number that gets quoted into a document and then disbelieved.
         IReadOnlyList<(string Parameter, int Materials)> census =
             MaterialCensus.Unimplemented(
-                [["$lightwarptexture", "$lightwarptexture", "$LIGHTWARPTEXTURE"]]);
+                [["$phongexponenttexture", "$phongexponenttexture", "$PHONGEXPONENTTEXTURE"]]);
 
         census.Single().Materials.ShouldBe(1);
     }

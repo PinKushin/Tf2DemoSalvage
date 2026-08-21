@@ -8008,3 +8008,49 @@ rather than missing.
 as its example, and it broke three times in one session: first when `$envmap` landed, then `$phong`,
 then `$rimlight`, which had been chosen as `$phong`'s replacement an hour earlier. The example should
 be something not next on the list — it is now `$lightwarptexture` and `$phongexponenttexture`.
+
+## B130 — `$lightwarptexture` is not implemented, so falloff is linear where TF2's is authored — CLOSED 2026-08-21
+
+308 materials. A one-dimensional ramp the engine indexes with the diffuse term, and a large part of
+why TF2 reads as illustrated rather than photographed: the artist draws the falloff curve instead of
+accepting Lambert's.
+
+**Two things about its use are silent if missed**, both in `DiffuseTerm`
+(`common_vertexlitgeneric_dx9.h:86`):
+
+- **The half-Lambert square is SKIPPED when a warp is present** — `if ( !bDoLightingWarp ) fResult
+  *= fResult;` — because the ramp carries that curve. Applying both squares the falloff twice.
+- **The lookup is DOUBLED** — `2.0f * tex1D(...)` — so a mid-grey ramp is neutral. Missing the factor
+  of two halves every model's diffuse, uniformly, so nothing looks wrong, only dim.
+
+Implementing the first meant editing a half-Lambert path that had been correct for a year, which is
+what prompted **D46**: where this project's code diverges from Valve's, this project's code changes.
+
+Measured: 15 of 430 materials on cp_process_final carry a ramp once a player model is loaded, with a
+curve running 43 to 648 across its width.
+
+### A stated coverage limit, and a fixture lesson
+
+**The shader's read is verified by manipulation and NOT by an assertion.** With the lookup forced off
+the pixel moves from (64, 32, 32) to (53, 30, 30) on material 410, everything else fixed. Five
+attempts at capturing that automatically each measured something other than the ramp; they are
+enumerated in `PhongRenderTests`' class remarks so the next attempt starts from what has already
+failed. Two of the five are worth repeating here:
+
+- **A draw with no ambient cube is unlit.** The model shader wraps the whole direct term in
+  `if (ambientCube[0].w > 0.5f)`, so a model with no cube gets neither ambient nor sun — and a test
+  drawn that way measured plain albedo while appearing to exercise the lighting path.
+- **`$phong` lands inside the "direct term"** a baseline subtraction is meant to isolate, because the
+  highlight is gated on the sun too. On a material carrying both, the ratio came out at 5.40 where
+  the ramp predicted 2.57 and a line 2.00 — matching neither.
+
+**And the fixture was wrong before any of that.** The first run reported 0 ramps of 413 materials,
+which reads exactly like a wiring failure. It was not: light warps live on PLAYER models, and the
+fixture loaded only a capture point. A count assertion is what turned "the test skipped" into "the
+test is asking the wrong population" — without it the skip would have been read as the map simply not
+using the feature.
+
+**`MaterialCensusTests` broke for the fourth time in one session** — `$envmap`, `$phong`,
+`$rimlight`, `$lightwarptexture`, each chosen as the previous one's replacement shortly before being
+implemented. Its examples are now `$phongexponenttexture` and `$iris`, picked because each needs a
+pipeline nothing here has rather than because it happens to be unimplemented today.
