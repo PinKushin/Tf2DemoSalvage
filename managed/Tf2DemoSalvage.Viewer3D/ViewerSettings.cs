@@ -327,10 +327,42 @@ internal sealed record ViewerSettings
         }
     }
 
+    /// <summary>The values a setting takes when the file says nothing about it.</summary>
+    private static ViewerSettings Defaults { get; } = new();
+
+    /// <summary>Writes one setting, commented out when it still holds its default.</summary>
+    /// <param name="text">The file being built.</param>
+    /// <param name="command">The command name.</param>
+    /// <param name="value">Its current value, already formatted.</param>
+    /// <param name="isDefault">Whether that value is the default.</param>
+    /// <remarks>
+    /// **A default that is written into the file stops being a default.** Every setting used to be
+    /// written on the first run, so a config recorded the program's opinions as though they were the
+    /// user's — and changing a default afterwards reached nobody who had ever run the viewer. The
+    /// owner hit exactly that: the viewmodel field of view was changed to 70 and their file, written
+    /// months earlier, pinned 54. The change appeared to do nothing, and nothing could distinguish
+    /// "I chose 54" from "54 was written for me before you changed it".
+    ///
+    /// So a default is written as a COMMENT. The file still documents every setting and its current
+    /// default, which is what made writing them all attractive in the first place; uncommenting a
+    /// line is how a choice is made; and a value the user never chose stays a default for ever,
+    /// following the program.
+    /// </remarks>
+    private static void Setting(StringBuilder text, string command, string value, bool isDefault)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        text.AppendLine(string.Create(
+            CultureInfo.InvariantCulture, $"{(isDefault ? "// " : string.Empty)}{command} {value}"));
+    }
+
     /// <summary>Renders the settings as config text.</summary>
     /// <returns>The file's contents.</returns>
     /// <remarks>
     /// Commented, because a config nobody can read without the source is a config nobody edits.
+    ///
+    /// **Settings still at their default are written commented out**, so that changing a default in
+    /// a later version reaches everybody who never chose otherwise. See <see cref="Setting"/>.
     /// </remarks>
     public string Write()
     {
@@ -338,32 +370,52 @@ internal sealed record ViewerSettings
 
         text.AppendLine("// TF2 Demo Salvage settings");
         text.AppendLine("// Edit by hand if you like; unknown commands are ignored.");
+        text.AppendLine("//");
+        text.AppendLine("// A line that is commented out is still at its default, and will follow");
+        text.AppendLine("// that default if a later version changes it. Uncomment to pin a value.");
         text.AppendLine();
         text.AppendLine("// 0 = borderless (covers the taskbar), 1 = exclusive (a real mode change)");
-        text.AppendLine(string.Create(
-            CultureInfo.InvariantCulture, $"{FullScreenModeCommand} {(int)FullScreenMode}"));
+        Setting(
+            text,
+            FullScreenModeCommand,
+            ((int)FullScreenMode).ToString(CultureInfo.InvariantCulture),
+            FullScreenMode == Defaults.FullScreenMode);
         text.AppendLine();
         text.AppendLine("// Largest texture edge to load, in pixels. 0 loads them at full size.");
-        text.AppendLine(string.Create(
-            CultureInfo.InvariantCulture, $"{TextureQualityCommand} {(int)TextureQuality}"));
+        Setting(
+            text,
+            TextureQualityCommand,
+            ((int)TextureQuality).ToString(CultureInfo.InvariantCulture),
+            TextureQuality == Defaults.TextureQuality);
         text.AppendLine();
         text.AppendLine("// Most frames a second to draw. 0 is uncapped; 300 is Source's ceiling.");
         text.AppendLine("// 24 gives film cadence and 30 or 60 the ordinary video rates.");
-        text.AppendLine(string.Create(
-            CultureInfo.InvariantCulture, $"{FrameRateLimitCommand} {FrameRateLimit}"));
+        Setting(
+            text,
+            FrameRateLimitCommand,
+            FrameRateLimit.ToString(CultureInfo.InvariantCulture),
+            FrameRateLimit == Defaults.FrameRateLimit);
         text.AppendLine();
         text.AppendLine("// Field of view for the weapon in your hands, in degrees. TF2 allows 54");
         text.AppendLine("// to 70 and defaults to 54; anything outside that is clamped, as in game.");
         text.AppendLine("// This viewer defaults to 70 instead, because at 54 the arms are mostly");
         text.AppendLine("// out of frame and this is a tool for looking at them. Set 54 for parity.");
-        text.AppendLine(string.Create(
-            CultureInfo.InvariantCulture,
-            $"{ViewmodelFieldOfViewCommand} {ViewmodelFieldOfView:0.##}"));
+        Setting(
+            text,
+            ViewmodelFieldOfViewCommand,
+            ViewmodelFieldOfView.ToString("0.##", CultureInfo.InvariantCulture),
+
+            // Compared with a tolerance, because this one is a float and a config round-trips it
+            // through two decimal places. An exact comparison would call 70 "chosen" after a save.
+            Math.Abs(ViewmodelFieldOfView - Defaults.ViewmodelFieldOfView) < 0.005f);
         text.AppendLine();
         text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
         text.AppendLine("// and a driver that disables it globally ignores the request anyway.");
-        text.AppendLine(string.Create(
-            CultureInfo.InvariantCulture, $"{VerticalSyncCommand} {(VerticalSync ? 1 : 0)}"));
+        Setting(
+            text,
+            VerticalSyncCommand,
+            (VerticalSync ? 1 : 0).ToString(CultureInfo.InvariantCulture),
+            VerticalSync == Defaults.VerticalSync);
 
         return text.ToString();
     }

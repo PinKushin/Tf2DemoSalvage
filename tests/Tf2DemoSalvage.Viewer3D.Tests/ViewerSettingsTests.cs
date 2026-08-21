@@ -109,6 +109,58 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void Save_ASettingStillAtItsDefault_IsWrittenCommentedOut()
+    {
+        // **A default written into a file stops being a default**, and that is a real defect rather
+        // than untidiness. Every setting used to be written on the first run, so a config recorded
+        // the program's opinions as though they were the user's — and changing a default afterwards
+        // reached nobody who had ever run the viewer.
+        //
+        // Measured, on the owner's machine: the viewmodel field of view was changed from 54 to 70
+        // and their config, written earlier, pinned 54. The change appeared to do nothing, and
+        // nothing could distinguish "I chose 54" from "54 was written for me before you changed it".
+        string file = Path.Combine(_folder, "settings.cfg");
+
+        new ViewerSettings().Save(file).ShouldBeNull();
+
+        string written = File.ReadAllText(file);
+
+        written.ShouldContain(
+            $"// {ViewerSettings.ViewmodelFieldOfViewCommand} ",
+            Case.Sensitive,
+            "a setting nobody chose must stay a default, so it is written as a comment");
+
+        written.ShouldNotContain(
+            $"\n{ViewerSettings.ViewmodelFieldOfViewCommand} ",
+            Case.Sensitive,
+            "an uncommented line would pin the value and stop a later default reaching this user");
+    }
+
+    [Test]
+    public void Save_ASettingTheUserChose_IsWrittenActive()
+    {
+        // **The control, and without it the test above passes against "comment out everything".**
+        // A chosen value has to survive, which is the whole point of the file.
+        string file = Path.Combine(_folder, "settings.cfg");
+
+        new ViewerSettings { ViewmodelFieldOfView = 54f }.Save(file).ShouldBeNull();
+
+        File.ReadAllText(file).ShouldContain(
+            $"\n{ViewerSettings.ViewmodelFieldOfViewCommand} 54",
+            Case.Sensitive,
+            "a value the user chose must be written so that it is read back");
+
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(54f, 0.01f);
+    }
+
+    // A third test lived here — save the defaults, reload, expect the default back — and it was
+    // deleted after the sabotage check showed it CANNOT FAIL. Writing the value uncommented still
+    // reads back the same number, because the default is the same on both sides of the round trip;
+    // it only discriminates if the default changes between save and load, which is the one thing a
+    // single run cannot arrange. The two tests above measure the actual variable, which is what the
+    // file says rather than what a reload happens to produce.
+
+    [Test]
     public void Load_AViewmodelFieldOfViewOutsideTheGamesRange_IsClamped()
     {
         // `ConVar v_viewmodel_fov( "viewmodel_fov", "54", ..., true, 54, true, 70, NULL )` —
