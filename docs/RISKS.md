@@ -7745,3 +7745,33 @@ source. The first also asserts the remap arithmetic at R = 0, 0.5 and 1.
 **The lesson is the project's own rule, applied to a shader**: read the source before measuring your
 own data. Three green measurements said the cube was bound, sampled and chosen by position — all
 true, all irrelevant to how much of it survived to the screen.
+
+## B126 — nothing reflects under the top-down camera, because an ortho projection has no eye — OPEN, deprioritised
+
+**Owner, 2026-08-21, after confirming the reflections work**: "shiny in 3d free cam, which makes my
+think pov should work too, but in ortho cam its still dart, but im not too worried about that".
+
+The inference about POV is right — the POV camera and the free camera are both perspective and share
+the code path exactly.
+
+**The ortho case is not a dim reflection, it is no reflection.** `EyePosition.From` recovers the
+camera from the matrix by mapping the clip-space point `(0, 0, 1, 0)` back through the inverse, and
+under an orthographic projection that comes back with **w = 0** — the eye is at infinity, which is
+what "parallel rays" means. The routine returns null, correctly, and its own comment already said so
+before this was noticed. The shader then gates the entire envmap branch on `eyePosition.w > 0.5f`, so
+every reflective surface draws matte from above.
+
+So both halves are behaving as written. What is missing is that **an orthographic view still has a
+well-defined reflection vector** — every ray is parallel to the view axis, so the incident direction
+is a constant rather than `normalize(eye - surface)`. Supplying that constant is the fix, and it is
+perhaps twenty lines: take the view direction from the matrix, pass it alongside the eye, and let the
+shader choose by the same `w` it already tests.
+
+**There is no Valve answer to copy here**, which is the one thing worth flagging before someone goes
+looking for one. Source draws no orthographic view of the world, so the engine has no ortho envmap
+path and no parameter governing one. Whatever is implemented is this project's convention, and should
+say so — unlike D44, where a published rule existed and the only interpolation was about where it is
+applied.
+
+Related: B125 for the Fresnel term that made the perspective reflections invisible too, and which is
+why this was not noticed earlier — before that fix, nothing looked reflective in any camera.
