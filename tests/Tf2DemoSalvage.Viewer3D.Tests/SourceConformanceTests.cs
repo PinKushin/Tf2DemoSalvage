@@ -213,15 +213,13 @@ public sealed class SourceConformanceTests
         Assert.Ignore("$lightwarptexture: 308 materials; lighting curve is linear.");
     }
 
-    [Test]
-    public void RimLight_IsNotImplemented()
-    {
-        // 301 materials, with $rimlightboost and $rimlightexponent.
-        //
-        // WHAT YOU SEE: no edge light, so a model's silhouette does not separate from what is
-        // behind it. Cheap next to $phong and visible in exactly the shots that show it missing.
-        Assert.Ignore("$rimlight: 301 materials; silhouettes do not separate.");
-    }
+    // **`RimLight_IsNotImplemented` stood here.** 301 materials, and it turned out to be cheap
+    // exactly as it predicted — the rim reuses the L·R that $phong had already established, and
+    // landed in the same session. Removed on the audit's say-so.
+    //
+    // What is NOT implemented is `$rimmask`, which selects between 1 and the exponent texture's
+    // alpha. With no exponent texture there is nothing to select, so it is inert rather than
+    // missing, and it is not in the census for that reason.
 
     [Test]
     public void EyeRefract_IsNotImplemented()

@@ -157,12 +157,33 @@ internal readonly record struct MapEnvmapShading(
 /// characters and weapons take most of their definition from a highlight that moves with the light,
 /// and a viewer without it draws them as flat colour.
 /// </remarks>
+/// <param name="Rim">The rim light along the silhouette, or null for a material without one.</param>
 internal readonly record struct MapPhong(
     float Exponent,
     float Boost,
     (float Low, float Mid, float High) Fresnel,
     (float Red, float Green, float Blue) Tint,
-    bool MaskedByBaseAlpha);
+    bool MaskedByBaseAlpha,
+    MapRimLight? Rim = null);
+
+/// <summary>The light along a model's silhouette, <c>$rimlight</c>.</summary>
+/// <param name="Exponent">How tightly it hugs the edge; 4 by default, against phong's 5.</param>
+/// <param name="Boost">
+/// How much of the surroundings the rim picks up. It scales the half that comes from the ambient
+/// cube rather than from the light, which is what lets a model catch its surroundings on the edge
+/// with no direct light on it.
+/// </param>
+/// <remarks>
+/// **Nested inside <see cref="MapPhong"/> because it cannot exist without it**, and that is the
+/// engine's own dispatch rather than a simplification here: rim lighting lives in the Skin shader,
+/// which <c>VertexLitGeneric</c> reaches only when <c>$phong</c> is set. A material asking for a rim
+/// and no phong gets neither.
+///
+/// **It is folded in with <c>max</c>, not added** — Valve's comment says why: *"Fold rim lighting
+/// into specular term by using the max so that we don't really add light twice"*. Adding
+/// double-counts on the silhouette of anything shiny, which is exactly where both terms peak.
+/// </remarks>
+internal readonly record struct MapRimLight(float Exponent, float Boost);
 
 /// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
 /// <param name="Faces">
@@ -1196,7 +1217,14 @@ internal sealed class MapAssets
                 material.PhongBoost,
                 material.PhongFresnelRanges,
                 material.PhongTint ?? (1f, 1f, 1f),
-                material.UsesBaseMapAlphaAsPhongMask);
+                material.UsesBaseMapAlphaAsPhongMask,
+
+                // **Only reachable through phong**, which is the engine's dispatch: the rim lives in
+                // the Skin shader and VertexLitGeneric routes there on $phong alone. A material with
+                // $rimlight and no $phong gets neither, so it is resolved inside this branch.
+                material.HasRimLight
+                    ? new MapRimLight(material.RimLightExponent, material.RimLightBoost)
+                    : null);
         }
 
         MapEnvmapShading? ResolveLocalReflection()

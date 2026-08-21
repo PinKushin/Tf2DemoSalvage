@@ -155,6 +155,57 @@ public sealed class PhongRenderTests
             "the reflected view");
     }
 
+    [Test]
+    public void RimRender_AGrazingSurface_IsBrighterThanOneFacingTheEye()
+    {
+        // **The rim's discriminator is the ANGLE TO THE EYE, not the light**, which is what makes it
+        // a different term from the highlight beside it. `Fresnel4` is `(1 - N·V)²²`, so a surface
+        // facing the camera contributes nothing and one seen edge-on contributes most.
+        //
+        // Both draws use the same light, in the same place, so the specular is held as still as it
+        // can be — and what is left moving is the rim.
+        //
+        // The light is aimed along the mirrored view of the GRAZING normal, so the grazing case has
+        // a highlight too. That is deliberate: it means the test cannot pass merely because a
+        // grazing surface happens to catch more of something. Both cases get their specular; only
+        // the rim differs.
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets || Rimmed(assets) is not { } material)
+        {
+            Assert.Ignore("the map or the game is not installed, or no material asks for $rimlight");
+            return;
+        }
+
+        (float X, float Y, float Z) travelling = (-0.343f, -0.939f, 0f);
+
+        (int R, int G, int B) grazing =
+            Draw(target, assets, material, travelling, (0.985f, -0.174f, 0f));
+
+        (int R, int G, int B) headOn = Draw(target, assets, material, travelling, (0f, -1f, 0f));
+
+        TestContext.Out.WriteLine($"rim material {material}: grazing {grazing}, head-on {headOn}");
+
+        (grazing.R + grazing.G + grazing.B).ShouldBeGreaterThan(
+            headOn.R + headOn.G + headOn.B,
+            "Fresnel4 is (1 - N.V) to the fourth, so an edge-on surface takes the rim and a " +
+            "surface facing the camera takes none of it");
+    }
+
+    /// <summary>The first material asking for a rim light, with a texture to draw it on.</summary>
+    private static int? Rimmed(MapAssets assets) =>
+        Enumerable.Range(0, assets.Phong.Count)
+            .Cast<int?>()
+            .FirstOrDefault(index =>
+                assets.Phong[index!.Value] is { Rim: not null } &&
+                assets.Textures[index.Value] is not null);
+
     /// <summary>How much a material's centre pixel changes between the two light directions.</summary>
     private static int Swing(OffscreenTarget target, MapAssets assets, int material)
     {

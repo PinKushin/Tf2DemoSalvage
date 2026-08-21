@@ -7964,3 +7964,47 @@ both saturate to (255, 255, 255).
 
 Third time this session that a test's CONDITION rather than its assertion was the defect. See
 `docs/memory/cancelling-sabotages-mean-coupled-tests.md`.
+
+## B129 — `$rimlight` is not implemented, so silhouettes do not separate — CLOSED 2026-08-21
+
+301 materials. Implemented in the same session as B128 and largely because of it: the rim reuses the
+`L·R` the highlight had already established, so what was left was the composition.
+
+**Folded in with `max`, not added**, and Valve gives the reason on the line above their own:
+
+```cpp
+// Fold rim lighting into specular term by using the max so that we don't really add light twice...
+specularLighting = max( specularLighting, rimLighting );
+```
+
+Adding instead double-counts wherever a highlight and a rim overlap — the silhouette of anything
+shiny, which is exactly where both peak. It reads as a blown edge rather than as a wrong operator.
+
+**Two Fresnels in one shader, and the rim takes the other one.** The highlight's mask is scaled by
+`Fresnel( N, V, ranges )`, the piecewise remap; the rim by `Fresnel4( N, V )`, the traditional term
+squared twice and taking no parameters. Valve annotates the difference — *"not using Fresnel
+ranges"* — and it matters: a material's `$phongfresnelranges` must not widen its silhouette light,
+because that is not a control the artist has. At a mid angle the fourth power is 0.0625 against the
+square's 0.25.
+
+**And the half that needs no direct light**, which matters more here than in the engine:
+
+```cpp
+specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z);
+```
+
+`vRimAmbientCubeColor` is the ambient cube sampled along the **eye**, so a model catches its
+surroundings on the edge with nothing shining on it. TF2 gives a model several lights and this
+renderer gives it one, so the ambient half carries proportionally more of the effect here.
+
+Measured offscreen, same light in both draws: a grazing surface reads (117, 121, 126) against
+(43, 47, 52) head-on.
+
+**`$rimmask` is deliberately not implemented and deliberately not in the census.** It selects between
+1 and the exponent texture's alpha, and with no exponent texture there is nothing to select — inert
+rather than missing.
+
+**Filed alongside a note about test hygiene.** `MaterialCensusTests` uses an unimplemented parameter
+as its example, and it broke three times in one session: first when `$envmap` landed, then `$phong`,
+then `$rimlight`, which had been chosen as `$phong`'s replacement an hour earlier. The example should
+be something not next on the list — it is now `$lightwarptexture` and `$phongexponenttexture`.

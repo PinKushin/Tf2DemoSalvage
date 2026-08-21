@@ -95,7 +95,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     88
 # replacement marker, NormalMapAlphaEnvMapMask_IsNotImplemented. Net -1.
 #
 # A floor that drops is a finding until it is explained. This one is explained by the count.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    534
+run Tf2DemoSalvage.Viewer3D.Tests viewer    536
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

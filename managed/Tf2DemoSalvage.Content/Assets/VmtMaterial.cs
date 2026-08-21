@@ -572,6 +572,34 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool HasPhong => Flag("$phong");
 
+    /// <summary>Whether the material carries a rim light along its silhouette.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( RIMLIGHT, SHADER_PARAM_TYPE_BOOL, "0", "enables rim lighting" )</c>.
+    ///
+    /// **It only means anything alongside <see cref="HasPhong"/>**, and that is a property of the
+    /// engine's dispatch rather than a simplification: rim lighting is implemented in the Skin
+    /// shader, which <c>VertexLitGeneric</c> reaches only when <c>$phong</c> is set. A material
+    /// asking for a rim and no phong gets neither. Measured on cp_process: 330 materials declare
+    /// <c>$phong</c> and 301 declare <c>$rimlight</c>.
+    /// </remarks>
+    public bool HasRimLight => Flag("$rimlight");
+
+    /// <summary>How tightly the rim hugs the silhouette; higher is a thinner edge.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( RIMLIGHTEXPONENT, SHADER_PARAM_TYPE_FLOAT, "4.0", … )</c> — a different
+    /// default from <see cref="PhongExponent"/>'s 5, and applied to the same <c>L·R</c>.
+    /// </remarks>
+    public float RimLightExponent => Number("$rimlightexponent", 4f);
+
+    /// <summary>How much of the surroundings the rim picks up.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( RIMLIGHTBOOST, SHADER_PARAM_TYPE_FLOAT, "1.0", … )</c>. It scales the half
+    /// of the rim that comes from the ambient cube rather than from the light —
+    /// <c>(vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z)</c> —
+    /// so it is what makes a model pick up its surroundings on the edge with no direct light on it.
+    /// </remarks>
+    public float RimLightBoost => Number("$rimlightboost", 1f);
+
     /// <summary>How tight the highlight is; higher is smaller and sharper.</summary>
     /// <remarks>
     /// <c>SHADER_PARAM( PHONGEXPONENT, SHADER_PARAM_TYPE_FLOAT, "5.0", … )</c> — broad rather than

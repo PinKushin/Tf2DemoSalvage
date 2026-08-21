@@ -369,6 +369,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // $phongexponenttexture, because the tint is read from that texture's green channel.
             // Honouring the boolean alone tints every highlight by the base texture.
             float4 phongTint;
+
+            // **The rim light, $rimlight.** 301 materials, and it is what separates a model from
+            // the background it stands against.
+            //
+            // x: the exponent, 4 by default — a DIFFERENT default from phong's 5, applied to the
+            //    same L.R.
+            // y: $rimlightboost, which scales the half of the rim that comes from the ambient cube
+            //    rather than from the light.
+            // z: 1 when this material has a rim at all. Only ever set alongside phong, because the
+            //    rim lives in the Skin shader and VertexLitGeneric reaches it on $phong alone.
+            // w: unused.
+            float4 rimControl;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -828,7 +840,49 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 phongMask *= phongFresnel.y +
                     ((edge >= 0.0f ? phongFresnel.z : phongFresnel.x) * edge);
 
-                lit += phong * phongMask * phongControl.y * phongTint.rgb;
+                float3 shine = phong * phongMask * phongControl.y * phongTint.rgb;
+
+                // **The rim, folded in with MAX rather than added** — Valve's own line and their own
+                // reason (skin_ps20b.fxc:359): "Fold rim lighting into specular term by using the
+                // max so that we don't really add light twice". Adding double-counts on the
+                // silhouette of anything shiny, which is precisely where both terms peak, and it
+                // reads as a blown edge rather than as a wrong operator.
+                if (rimControl.z > 0.5f)
+                {
+                    // The rim's own exponent, on the same L.R, with the same N.L mask.
+                    float rim = pow(saturate(dot(mirrored, toLight)), rimControl.x);
+                    rim *= saturate(dot(phongNormal, toLight));
+
+                    // **Fresnel4, not the ranged one**, and Valve annotates the difference:
+                    // "modulated with tint, mask and traditional Fresnel (not using Fresnel
+                    // ranges)". A material's $phongfresnelranges must not widen its silhouette
+                    // light, because that is not a control the artist has.
+                    float edging = saturate(1.0f - dot(phongNormal, toEye));
+                    edging = edging * edging;
+                    edging = edging * edging;
+
+                    shine = max(shine, rim * edging * sunColour.rgb);
+
+                    // **And the half that needs no direct light at all**: the ambient cube sampled
+                    // along the EYE, biased upward by the normal's height. This is what lets a model
+                    // catch its surroundings on the edge in shade, and it matters more here than in
+                    // the engine — TF2 gives a model several lights and this renderer gives it one.
+                    if (ambientCube[0].w > 0.5f)
+                    {
+                        float3 alongView = -toEye;
+                        float3 viewSquared = alongView * alongView;
+                        int3 negative = alongView < 0.0f;
+
+                        float3 surroundings =
+                            viewSquared.x * ambientCube[negative.x].rgb +
+                            viewSquared.y * ambientCube[negative.y + 2].rgb +
+                            viewSquared.z * ambientCube[negative.z + 4].rgb;
+
+                        shine += surroundings * rimControl.y * saturate(edging * phongNormal.z);
+                    }
+                }
+
+                lit += shine;
             }
 
             // **The baked reflection, ADDED rather than blended.** Valve's line is
@@ -1742,6 +1796,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             (float Low, float Mid, float High) phongFresnel = phong?.Fresnel ?? (1f, 0.5f, 1f);
             (float Red, float Green, float Blue) phongTint = phong?.Tint ?? (1f, 1f, 1f);
 
+            // The rim, which only exists inside phong. Its exponent defaults to 4 rather than the
+            // highlight's 5, so the resting value is its own.
+            float rimExponent = phong?.Rim?.Exponent ?? 4f;
+            float rimBoost = phong?.Rim?.Boost ?? 1f;
+            float hasRim = phong?.Rim is null ? 0f : 1f;
+
             // **One is the resting value and it means NO Fresnel falloff**, which is the opposite of
             // what a term called "fresnel" resting at zero would suggest. $fresnelreflection is
             // "1.0 == mirror, 0.0 == water" and defaults to 1; a model is always 1 because
@@ -1797,6 +1857,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
                     phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, 0f,
                     phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
+                    rimExponent, rimBoost, hasRim, 0f,
                 ]
                 :
                 [
@@ -1837,6 +1898,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
                     phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, 0f,
                     phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
+                    rimExponent, rimBoost, hasRim, 0f,
                 ]);
         }
 
@@ -2221,6 +2283,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         5f, 1f, 0f, 0f,
         1f, 0.5f, 1f, 0f,
         1f, 1f, 1f, 0f,
+
+        // rimControl: exponent 4 (its own declared default, not phong's 5), boost 1, no rim.
+        4f, 1f, 0f, 0f,
     ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>

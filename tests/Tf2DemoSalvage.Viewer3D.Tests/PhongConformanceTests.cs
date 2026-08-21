@@ -247,6 +247,99 @@ public sealed class PhongConformanceTests
             Case.Sensitive);
     }
 
+    [Test]
+    public void RimLight_IsFoldedIntoTheSpecularByMaxRatherThanAdded()
+    {
+        // **The composition, and it is the surprise.** Rim light is NOT another additive term —
+        // Valve folds it into the specular with `max`, and says why (skin_ps20b.fxc:359):
+        //
+        //     // Fold rim lighting into specular term by using the max so that we don't really add light twice...
+        //     specularLighting = max( specularLighting, rimLighting );
+        //
+        // Adding instead double-counts wherever a highlight and a rim overlap, which is the
+        // silhouette of anything shiny — precisely where both are strongest. It reads as a blown
+        // edge rather than as a wrong operator.
+        //
+        // **Then a second term IS added, and it is not driven by the light at all**:
+        //
+        //     specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z);
+        //
+        // `vRimAmbientCubeColor` is the ambient cube sampled along the EYE direction
+        // (`PixelShaderAmbientLight(vEyeDir, cAmbientCube)`), so a model picks up its surroundings
+        // on the rim even with no direct light on it. The `worldSpaceNormal.z` is an upward bias:
+        // the sky end of the cube contributes most on upward-facing edges.
+        //
+        // That second term matters more here than in the engine, because this renderer gives a
+        // model one directional light and TF2 gives it several.
+        string shader = Sdk("src/materialsystem/stdshaders/skin_ps20b.fxc");
+
+        shader.ShouldContain(
+            "specularLighting = max( specularLighting, rimLighting );",
+            Case.Sensitive,
+            "max, not add — Valve's own comment says why");
+
+        shader.ShouldContain(
+            "float3 vRimAmbientCubeColor = PixelShaderAmbientLight(vEyeDir, cAmbientCube);",
+            Case.Sensitive,
+            "the ambient half is sampled along the eye, not the normal");
+
+        shader.ShouldContain(
+            "specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z);",
+            Case.Sensitive);
+    }
+
+    [Test]
+    public void RimLight_UsesTheFourthPowerFresnel_NotTheRanges()
+    {
+        // **Two Fresnels in one shader, and the rim uses the other one.** The specular mask is
+        // scaled by `Fresnel( N, V, g_FresnelRanges )` — the piecewise remap — and the rim by
+        // `Fresnel4( N, V )`, which is the traditional term squared twice and takes no parameters:
+        //
+        //     float fresnel = saturate( 1 - dot( vNormal, vEyeDir ) );
+        //     fresnel = fresnel * fresnel;   // Square
+        //     return fresnel * fresnel;      // Square again for a more subtle look
+        //
+        // Valve annotates the rim's use of it: "modulated with tint, mask and traditional Fresnel
+        // (not using Fresnel ranges)". Using the ranged one for the rim would let a material's
+        // $phongfresnelranges widen its silhouette light, which is not a control the artist has.
+        //
+        // The exponents differ too and both are declared: rim 4.0, phong 5.0.
+        string source = Sdk("src/materialsystem/stdshaders/common_vertexlitgeneric_dx9.h");
+        string shader = Sdk("src/materialsystem/stdshaders/skin_ps20b.fxc");
+        string declaration = Sdk("src/materialsystem/stdshaders/vertexlitgeneric_dx9.cpp");
+
+        source.ShouldContain("float Fresnel4( const float3 vNormal, const float3 vEyeDir )", Case.Sensitive);
+        shader.ShouldContain("float fRimFresnel = Fresnel4( worldSpaceNormal, vEyeDir );", Case.Sensitive);
+
+        shader.ShouldContain(
+            "not using Fresnel ranges",
+            Case.Sensitive,
+            "annotated, so this is not an inference from which function was called");
+
+        declaration.ShouldContain(
+            "SHADER_PARAM( RIMLIGHTEXPONENT, SHADER_PARAM_TYPE_FLOAT, \"4.0\"", Case.Sensitive);
+
+        declaration.ShouldContain(
+            "SHADER_PARAM( RIMLIGHTBOOST, SHADER_PARAM_TYPE_FLOAT, \"1.0\"", Case.Sensitive);
+
+        // The fourth power against the square, at a mid angle: the rim's falls off much faster,
+        // which is what "more subtle" means and why swapping them is visible.
+        Fourth(0.5f).ShouldBe(0.0625f, 1e-6f);
+        Square(0.5f).ShouldBe(0.25f, 1e-6f);
+
+        static float Square(float dot)
+        {
+            float f = Math.Clamp(1f - dot, 0f, 1f);
+            return f * f;
+        }
+
+        static float Fourth(float dot)
+        {
+            float f = Square(dot);
+            return f * f;
+        }
+    }
+
     /// <summary>Reads an SDK file, or fails loudly.</summary>
     private static string Sdk(string path) =>
         SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");

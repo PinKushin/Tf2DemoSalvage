@@ -93,6 +93,13 @@ internal static class MaterialCensus
         "$phongtint",
         "$basemapalphaphongmask",
 
+        // The silhouette light, folded into the specular with max rather than added. $rimmask is
+        // NOT here: it selects between 1 and the exponent texture's alpha, and with no exponent
+        // texture there is nothing to select, so the control is inert rather than implemented.
+        "$rimlight",
+        "$rimlightexponent",
+        "$rimlightboost",
+
         // The per-material modulation. $color2 MULTIPLIES $color rather than replacing it
         // (BaseShader.h:271 states the operation on the helper's declaration), and $alpha is
         // clamped to 0..1 where the colour channels deliberately are not. All three reach the

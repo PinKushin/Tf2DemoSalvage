@@ -35,10 +35,16 @@ public sealed class MaterialCensusTests
         // The comment above this one predicted its own second failure almost word for word —
         // "whoever implements phong will land in this file" — and that is what happened. Written to
         // be found, and found.
+        //
+        // **Then $rimlight, which replaced $phong here, was implemented an hour later and broke it
+        // a third time.** Worth keeping as a warning about which example to pick: reach for
+        // something that is NOT next on the list, or this file becomes a chore rather than a
+        // signal. $phongexponenttexture is a safer choice — it needs a texture pipeline nothing
+        // here has.
         IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
         [
             ["$basetexture", "$lightwarptexture"],
-            ["$basetexture", "$lightwarptexture", "$rimlight"],
+            ["$basetexture", "$lightwarptexture", "$phongexponenttexture"],
         ]);
 
         census.Count.ShouldBe(2);
@@ -48,7 +54,7 @@ public sealed class MaterialCensusTests
 
         census[0].Materials.ShouldBe(2);
 
-        census[1].Parameter.ShouldBe("$rimlight");
+        census[1].Parameter.ShouldBe("$phongexponenttexture");
         census[1].Materials.ShouldBe(1);
     }
 
@@ -79,7 +85,8 @@ public sealed class MaterialCensusTests
         // declarations rather than materials would report more materials than the map contains,
         // which is the kind of number that gets quoted into a document and then disbelieved.
         IReadOnlyList<(string Parameter, int Materials)> census =
-            MaterialCensus.Unimplemented([["$rimlight", "$rimlight", "$RIMLIGHT"]]);
+            MaterialCensus.Unimplemented(
+                [["$lightwarptexture", "$lightwarptexture", "$LIGHTWARPTEXTURE"]]);
 
         census.Single().Materials.ShouldBe(1);
     }

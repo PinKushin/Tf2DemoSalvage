@@ -98,4 +98,5 @@
 - [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the 2007/2008/2011/2013 period clients and the SDK are all on `F:`; no decomp output is cached anywhere, on purpose.
 - [The viewer suite wants the GPU](the-viewer-suite-wants-the-gpu.md) — Viewer3D.Tests makes real D3D devices, so an exclusive-fullscreen app may abort it; the console total disagrees with the trx by one.
 - [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md) — overwrote a finished BspCubemaps and its ten tests; "updated" is not "created", and grep before building a feature.
+- [Close what you launched](close-what-you-launched.md) — tidy up your own launches; an exit nobody asked for may be a silent crash. Also: prefer understating a rule to overstating it.
 - [Cancelling sabotages mean coupled tests](cancelling-sabotages-mean-coupled-tests.md) — sabotage one thing at a time; when two cancel, the input made a tie, and the fix is the input, not a third test.
