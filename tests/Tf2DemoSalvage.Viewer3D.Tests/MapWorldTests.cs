@@ -243,7 +243,20 @@ public sealed class MapWorldTests
             Map, [], Materials, LightmapAtlas.Pack([]), inside, Camera, area);
 
         world.Vertices.Count.ShouldBe(3);
-        world.Batches.Single().MaterialIndex.ShouldBe(0);
+
+        // **In Props rather than Batches, which is B135.** A static prop is an opaque RENDERABLE to
+        // the engine, drawn after the world and its overlays — `DrawWorld` then
+        // `DrawOpaqueRenderables`, game/client/viewrender.cpp:5487. Batched with the world it was in
+        // the depth buffer before the overlay pass, so a biased overlay painted over a pipe standing
+        // in front of the wall it marks.
+        //
+        // This assertion read `world.Batches.Single()` until the pass order was corrected, which is
+        // why it went red: it encoded the merge rather than the requirement.
+        world.Props.Single().MaterialIndex.ShouldBe(0);
+
+        // And the world's own runs are empty here, since this map has no surfaces — the pair says
+        // the prop went to one list and not the other, where either alone would not.
+        world.Batches.ShouldBeEmpty();
     }
 
     [Test]

@@ -8,12 +8,20 @@ namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>A map turned into triangles the renderer can draw in a few calls.</summary>
 /// <param name="Vertices">Every triangle corner, grouped so one material's are contiguous.</param>
-/// <param name="Batches">The runs, one per material actually used.</param>
-/// <param name="Decals">Overlay quads, drawn after the world with a depth bias.</param>
+/// <param name="Batches">World surfaces, one run per material actually used, drawn first.</param>
+/// <param name="Decals">Overlay fragments, drawn with the world and after its surfaces.</param>
+/// <param name="Props">
+/// Static props, drawn AFTER the overlays because the engine draws them as opaque renderables
+/// rather than as world geometry — <c>CBaseWorldView::DrawExecute</c>,
+/// <c>game/client/viewrender.cpp:5487</c>. Merged into <see cref="Batches"/> they landed in the
+/// depth buffer before the overlay pass, and any bias on that pass then let a stripe paint over a
+/// pipe standing in front of the wall (B135).
+/// </param>
 internal readonly record struct MapWorld(
     IReadOnlyList<WorldVertex> Vertices,
     IReadOnlyList<WorldBatch> Batches,
-    IReadOnlyList<WorldBatch> Decals);
+    IReadOnlyList<WorldBatch> Decals,
+    IReadOnlyList<WorldBatch> Props);
 
 /// <summary>
 /// Turns a map's surfaces into batched, projected triangles.
@@ -213,7 +221,18 @@ internal static class MapWorldBuilder
             }
         }
 
-        AppendProps(props, byMaterial, area, categoryColours);
+        // **Props go in their OWN batches, because the engine draws them after the overlays
+        // (B135).** `CBaseWorldView::DrawExecute` at game/client/viewrender.cpp:5487 runs
+        // `DrawWorld` — world surfaces and their overlay fragments — and only then
+        // `DrawOpaqueRenderables`, which is where `DrawOpaqueRenderables_DrawStaticProps` lives.
+        //
+        // Merged into `byMaterial` they were drawn with the world, so a pipe was already in the
+        // depth buffer when the overlay pass ran, and any bias on that pass let a stripe paint over
+        // it. That is the pipes, the light fixtures, and the overlay seen through a wall — one
+        // symptom, and it was the ORDER rather than the bias all along.
+        Dictionary<int, List<WorldVertex>> propsByMaterial = [];
+
+        AppendProps(props, propsByMaterial, area, categoryColours);
 
         // **How many of those faces belong to a moving entity rather than to the world.** A door,
         // a lift and a payload cart are each their own BSP model, and their faces sit in the same
@@ -248,7 +267,24 @@ internal static class MapWorldBuilder
         List<WorldBatch> decals = AppendDecals(
             all, overlays, materials, surfaces, atlas, area);
 
-        return new MapWorld(all, batches, decals);
+        // **After the decals in the buffer as well as in the pass list**, so the three runs read in
+        // the order they are drawn. Nothing requires it — a batch names its own range — but a vertex
+        // buffer whose layout matches the frame is one less thing to hold in mind when reading a
+        // capture.
+        List<WorldBatch> propBatches = [];
+
+        foreach (KeyValuePair<int, List<WorldVertex>> group in propsByMaterial)
+        {
+            if (group.Value.Count == 0)
+            {
+                continue;
+            }
+
+            propBatches.Add(new WorldBatch(group.Key, all.Count, group.Value.Count));
+            all.AddRange(group.Value);
+        }
+
+        return new MapWorld(all, batches, decals, propBatches);
     }
 
     /// <summary>Turns each overlay into a quad lit by the face it is pinned to.</summary>

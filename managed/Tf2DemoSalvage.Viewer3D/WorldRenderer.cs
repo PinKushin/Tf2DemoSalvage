@@ -1141,6 +1141,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The decal batches, drawn over the world with a depth bias.</summary>
     private IReadOnlyList<WorldBatch> _decals = [];
 
+    /// <summary>Static props, drawn after the overlays.</summary>
+    /// <remarks>
+    /// **Their own list because the engine draws them in their own pass (B135).**
+    /// <c>CBaseWorldView::DrawExecute</c> runs <c>DrawWorld</c> — surfaces and their overlay
+    /// fragments — and then <c>DrawOpaqueRenderables</c>, which is where static props and brush
+    /// models go. Batched with the world they were in the depth buffer before the overlays, so a
+    /// biased overlay could paint over a pipe an inch in front of the wall it marks.
+    /// </remarks>
+    private IReadOnlyList<WorldBatch> _props = [];
+
     /// <summary>Depth comparison the overlay pass draws with.</summary>
     /// <remarks>
     /// **`LessEqual`, because an overlay fragment is coplanar with the wall by construction.** Since
@@ -2045,13 +2055,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="device">Device to create the vertex buffer on.</param>
     /// <param name="vertices">Every triangle corner, already in clip space.</param>
     /// <param name="batches">The runs, one per material.</param>
-    /// <param name="decals">Overlay runs, drawn afterwards with a depth bias.</param>
+    /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
+    /// <param name="props">Static prop runs, drawn after the overlays as the engine does.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void UploadGeometry(
         ComPtr<ID3D11Device> device,
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
-        IReadOnlyList<WorldBatch>? decals = null)
+        IReadOnlyList<WorldBatch>? decals = null,
+        IReadOnlyList<WorldBatch>? props = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2073,6 +2085,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // straight down, depth IS height, and height does not change when the view pans or zooms.
         // A perspective camera would have to re-sort per frame; this one never does.
         _decals = decals ?? [];
+        _props = props ?? [];
 
         _sortedTranslucent =
         [
@@ -2176,9 +2189,39 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // and inheriting it would move the whole map to wherever the last rocket was.
         SetModel(context, Identity);
 
-        // **Opaque first, additive after.** An additive fragment brightens whatever is behind it,
-        // so anything drawn later would be added to nothing.
-        foreach (WorldBatch batch in _batches)
+        // **The engine's pass order, transcribed (B135).** `CBaseWorldView::DrawExecute` at
+        // game/client/viewrender.cpp:5487:
+        //
+        //     DrawWorld( waterZAdjust );            // world surfaces AND their overlay fragments
+        //     DrawOpaqueRenderables( DepthMode );   // static props, brush models, studio models
+        //     DrawTranslucentRenderables( false, false );
+        //
+        // So overlays go with the world, and props come after them. They used to be batched into
+        // _batches and drawn with the surfaces, which put a pipe in the depth buffer before the
+        // overlay pass — and a biased overlay then painted over it. The pipes, the light fixtures
+        // and the overlay seen through a wall were one symptom of this order, not of the bias.
+        //
+        // **Additive last**, which is unchanged: an additive fragment brightens whatever is behind
+        // it, so anything drawn later would be added to nothing.
+        DrawOpaqueBatches(context, _batches);
+        DrawDecals(context);
+        DrawOpaqueBatches(context, _props);
+        DrawTranslucent(context);
+        DrawAdditive(context);
+    }
+
+    /// <summary>Draws one run of opaque batches with the world shader.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="batches">The batches to draw; translucent and additive materials are skipped.</param>
+    /// <remarks>
+    /// **Extracted so the world and the props share it rather than agreeing by copy.** They differ
+    /// only in when they are drawn, which is the whole of B135 — and two loops that must stay
+    /// identical are exactly how the material binding above would drift out of step.
+    /// </remarks>
+    private void DrawOpaqueBatches(
+        ComPtr<ID3D11DeviceContext> context, IReadOnlyList<WorldBatch> batches)
+    {
+        foreach (WorldBatch batch in batches)
         {
             if (_additive.Contains(batch.MaterialIndex) || _translucent.Contains(batch.MaterialIndex))
             {
@@ -2233,10 +2276,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.PSSetShaderResources(5, 1, ref reflection);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
-
-        DrawDecals(context);
-        DrawTranslucent(context);
-        DrawAdditive(context);
     }
 
     /// <summary>Sets the view for the frames that follow.</summary>
