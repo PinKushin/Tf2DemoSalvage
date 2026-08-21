@@ -42,5 +42,50 @@ never revisited — which looks different from a bad decision.
   changing it.** `docs/findings/` exists for recorded puzzlement, and a wrong conclusion kept with
   what killed it is worth more than a silent "correction".
 
+## The one qualification: the trade may have been against a platform that is gone
+
+The owner's caveat, and it stops the rule becoming an absolute:
+
+> *"some of the optimizations may be dx 9 only or earlier, and rely on bugs which existed then but
+> dont exist now, but we will find those when they cause issues with the dx11 rendering"*
+
+**So "name the trade" has a second possible answer: the trade was against Direct3D 9, and the other
+side of it no longer exists.** That is not Valve being wrong; it is a correct decision whose
+premise expired. Transcribing it faithfully then produces the wrong picture on DX11, and the fix is
+to reproduce the *intent* rather than the mechanism.
+
+**The tell is specific and worth recognising:** a faithful transcription that misbehaves on DX11
+while the reasoning behind it is sound. At that point the question changes from "what is this trading
+against" to "what did Direct3D 9 do here that Direct3D 11 does not".
+
+Already met on this project: the decal bias constants. `m_DepthBias_Decal = -262144` is a D3D9-era
+value, and the two APIs do not agree on what a depth bias even is — D3D9's `D3DRS_DEPTHBIAS` is a
+float added to depth, while D3D11's is an integer scaled by a factor the **buffer format** decides.
+The number therefore cannot mean the same thing in both, whatever the format (D48).
+
+Classic candidates to expect: the D3D9 half-texel offset for screen-space quads, which is wrong on
+DX11; anything working around a driver behaviour rather than an API rule; and render-state defaults,
+which differ between the two APIs and were often left unset deliberately.
+
+**Console paths are the same hazard with a visible marker, which makes them the easy case.** The
+owner: *"i know there are some video game console optimizations like that"*. Source is full of
+`#if defined( _X360 )` and `_PS3` blocks, and they optimise for hardware this project is not on.
+
+Two met while reading for B135, neither of which means anything on PC:
+
+```cpp
+#if defined( _X360 )
+    pRenderContext->PushVertexShaderGPRAllocation( 32 ); //lean toward pixel shader threads
+#endif
+```
+
+— `CSimpleWorldView::Draw`, partitioning the Xbox 360's unified shader registers between vertex and
+pixel work, a knob PC hardware does not expose. And in `DecalModulate_dx9.cpp` the vertex-texture
+path is chosen under `#ifndef _X360`.
+
+**So check the guard before transcribing.** A `_X360` or `_PS3` block is an answer to a different
+machine's question, and the PC branch beside it is the one to read. Unlike the DX9-era traps these
+announce themselves, so the only way to be caught is not to look.
+
 Related: [[nothing-is-closed]], [[read-the-spec-before-measuring-our-data]],
 [[a-filed-design-choice-may-not-be-one]].

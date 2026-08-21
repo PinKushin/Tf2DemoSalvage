@@ -1967,6 +1967,34 @@ project; each is deliberate.
 "fixing" something correct costs a defect plus the time to find it again. Two of tonight's hours went
 to exactly that.
 
+### The qualification: the trade may have been against a platform that is gone
+
+> *"some of the optimizations may be dx 9 only or earlier, and rely on bugs which existed then but
+> dont exist now, but we will find those when they cause issues with the dx11 rendering"*
+>
+> *"i know there are some video game console optimizations like that"*
+
+So "name the trade" has a second admissible answer: **the trade was against Direct3D 9, or against a
+console, and the other side of it no longer exists.** That is not Valve being wrong — it is a correct
+decision whose premise expired — and transcribing the mechanism faithfully then produces the wrong
+picture. Reproduce the *intent* instead, and say in the code which premise lapsed.
+
+**The tell:** a faithful transcription that misbehaves on DX11 while the reasoning behind it is
+sound. The question then changes from "what is this trading against" to "what did Direct3D 9 do here
+that Direct3D 11 does not".
+
+Already met: the decal bias. `m_DepthBias_Decal = -262144` is a D3D9-era value, and the two APIs do
+not agree on what a depth bias is — D3D9's `D3DRS_DEPTHBIAS` is a float added to depth, D3D11's is an
+integer scaled by a factor the buffer format decides. The number cannot mean the same thing in both,
+whatever the format (D48).
+
+**Console paths are the same hazard wearing a label**, which makes them the easy case:
+`#if defined( _X360 )` and `_PS3` blocks are answers to a different machine's question.
+`CSimpleWorldView::Draw` calls `PushVertexShaderGPRAllocation( 32 )` to split the Xbox 360's unified
+shader registers — a knob PC hardware does not expose — and `DecalModulate_dx9.cpp` picks its
+vertex-texture path under `#ifndef _X360`. Read the PC branch; the only way to be caught by these is
+not to look.
+
 
 
 **Owner's direction, 2026-08-21**, given while `$lightwarptexture` was being specified and it became
