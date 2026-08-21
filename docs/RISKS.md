@@ -8188,25 +8188,70 @@ family as `docs/memory/wire-names-are-strings.md`. Fixed in both.
 
 ---
 
-## B133 — `ScenePose.Hidden` is written, cloned, and never read — OPEN
+## B133 — WITHDRAWN. `EF_NODRAW` works, and the search that said otherwise was scoped wrong
 
-**An `EF_NODRAW` entity is drawn anyway.** `DemoTimeline` sets `Hidden = !state.IsDrawn` on every
-prop pose, `ScenePropTrack` copies it through its clone with a comment explaining why, and **no
-renderer reads it**. A repository-wide search for the member outside those two files finds one
-unrelated WinForms property.
+**Filed and retracted the same day, 2026-08-21.** The claim was that `ScenePose.Hidden` is written,
+cloned and read by nothing, so every taken health pack stays on the floor for the rest of the match.
 
-Found while closing B132, by asking whether the world entity could be kept off the screen through
-the flag that already existed. It cannot, because the flag reaches nothing.
+**It is read.** `DemoTimeline.PropsAt`, the per-frame query, filters on it before the renderer sees
+anything:
 
-**What it costs, in the words of the code that produces it:** "A taken health pack is hidden rather
-than deleted because it respawns" — `CTFPowerup::SetDisabled` calls `AddEffects(EF_NODRAW)` and the
-entity carries on existing and updating in place. So every pickup anyone has taken stays on the
-floor for the rest of the match, and every other `EF_NODRAW` entity in the demo is drawn.
+```csharp
+// A hidden entity is not drawn but is still tracked: it is coming back.
+if (track.At(tick) is { Hidden: false } pose)
+```
 
-**Not fixed here on purpose.** It is a visible change to what appears on screen, so it wants its own
-change, its own before/after, and the owner's eyes — the automated instruments sit on the wrong side
-of "does it look right". The fix itself is likely one condition in the draw loop.
+`SyntheticInterpolationTests.PropsAt_AnEntityHiddenByNoDraw_IsNotDrawnAndComesBackWhenTheBitClears`
+asserts exactly this, including the return, and it has been passing. `MainForm` has one per-frame
+prop path — `PropsAt` into `_props` into `_drawn` — so both cameras go through the filter; the camera
+only changes the matrices.
 
-**Same family as the three no-ops in `CLAUDE.md`'s "order of work" section**, and the fourth
-instance: a value decoded, retained, unit-tested, and never consumed. The component tests all pass,
-because the component works. Nothing asked whether production reads it.
+**What killed it: the owner, from memory of using the viewer** — *"im pretty sure we took care of
+pickups already, they were disappearing when picked up, at least in ortho cam mode"*. That is an
+observation of the running program, and it outranks a grep.
+
+**How the search went wrong, since that is the reusable part.** The question asked was "does the
+RENDERER read this", and the search was scoped to `managed/Tf2DemoSalvage.Viewer3D/`. It found
+nothing, which is true and means the opposite of what it was taken to mean: the filter is one layer
+up, in the timeline, which is where it belongs. `SceneProp` has no `Hidden` member **because a
+hidden prop never becomes one** — an absence caused by the design being right, read as evidence the
+design was missing.
+
+The general form is in `docs/memory/an-empty-search-needs-a-control.md`, and this is another
+instance: no positive control was run, so there was nothing to distinguish "this codebase does not do
+X" from "X does not live where I looked". A control here was available and cheap — grep the same
+term across `managed/` rather than one project, which is what found the answer in one command
+afterwards.
+
+### The claim was wrong and the coverage gap behind it was real
+
+**No test in the repository could tell a working filter from a deleted one.** Found by sabotaging
+`PropsAt` — removing `Hidden: false` from its pattern — after the retraction, to check what would
+have caught the alleged defect. Nothing did.
+
+`SyntheticInterpolationTests` reads as the test for this and its helper was
+`props.Count == 0 || props[0].Pose.Hidden`. With the filter gone the prop comes back, its pose still
+carries `Hidden`, and the helper reports it as hidden. **Green either way.** That is the wrong
+instrument in the sense of CLAUDE.md's four routes to a test that cannot fail: the variable is
+whether the renderer is handed the entity, and the proxy was a field on the thing it was handed.
+
+Two things followed:
+
+- The helper now measures absence from what `PropsAt` returns. Re-sabotaged afterwards: it reddens.
+- `NoDrawTrackTests` measures it on real demos — sweep a track's lifetime tick by tick and require
+  membership of the drawn set to agree with the pose at every one, with both outcomes occurring.
+
+**So filing B133 was wrong about the code and right that something was missing.** A claim nobody
+could refute from the suite was a claim about the suite. The retraction stands on
+`DemoTimeline.PropsAt` and the owner's account of the running viewer; the tests now stand on their
+own.
+
+Four wrong conditions were needed to get `NoDrawTrackTests` measuring anything, each one passing or
+failing for a reason that had nothing to do with the code: probing at the tick a keyframe was stated
+(the render delay draws the tick before it), probing at every stated tick (the delay lands the hidden
+pose between a track's own keyframes), stopping the sweep at the last keyframe (an entity that goes
+away and stays away is never observed hidden), and testing membership by entity index (a reused slot
+holds several tracks, so the question became "is some occupant drawable").
+
+**Nothing in the production code changed for any of this.** The entry is kept rather than deleted
+because a retraction that vanishes leaves the original claim quotable from the commit history.

@@ -87,7 +87,7 @@ run Tf2DemoSalvage.Core.Tests     core     1461
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
 run Tf2DemoSalvage.Content.Tests  content   604
-run Tf2DemoSalvage.Corpus.Tests   corpus     94
+run Tf2DemoSalvage.Corpus.Tests   corpus     95
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

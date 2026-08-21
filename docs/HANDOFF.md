@@ -44,10 +44,14 @@ fixes the colour byte order; a grey map cannot.
 2. **The instrument was nearly the suspect again.** The measurement that started it,
    `FogControllerProperties`, was checked for being wrong before the decoder was — correctly, per
    `docs/memory/instrument-bugs-outnumber-decoder-bugs.md`, and this time it was right.
-3. **Fixing it surfaced two more things immediately**, which is the sign a fix was real rather than
+3. **Fixing it surfaced a second thing immediately**, which is the sign a fix was real rather than
    cosmetic: `CWorld` began arriving with a model index and became a prop track covering the whole
-   map (fixed, Valve excludes entity zero by index — `c_baseentity.cpp:1450`), and `ScenePose.Hidden`
-   turned out to be written, cloned and read by nothing (**B133, open**).
+   map. Valve excludes entity zero by index — `c_baseentity.cpp:1450` — so that is the rule here now.
+
+A third was filed and withdrawn the same day. `ScenePose.Hidden` looked like it was written and read
+by nothing, on a search scoped to the renderer; it is read one layer up, in `DemoTimeline.PropsAt`,
+and the owner said so from memory of using the viewer before any code was touched. See B133 — kept
+as a retraction rather than deleted, because the way the search went wrong is the reusable part.
 
 ---
 
@@ -150,9 +154,6 @@ picked for needing pipelines that do not exist.
 
 ## What is left, by cost
 
-- **B133** — `ScenePose.Hidden` is computed and read by nothing, so every `EF_NODRAW` entity is
-  drawn: taken health packs stay on the floor for the rest of the match. Likely one condition in the
-  draw loop, but it changes what appears on screen, so it wants a before/after and the owner's eyes.
 - **B131** — a moving brush entity is ambient-lit against a lightmapped wall. D46 settles the
   direction; the mechanism is a real choice between carrying lightmap coordinates into the entity
   vertex format and drawing brushwork with the world shader. Wants an explicit decision.
