@@ -2052,6 +2052,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// zeroing them sends every coordinate to the texture's first texel, and zeroing the modulation
     /// multiplies every surface by black.
     /// </remarks>
+    /// <summary>The material constant buffer's resting values, and its size.</summary>
+    /// <remarks>
+    /// Exposed so a test can hold this against the shader's own declaration. The two fell out of
+    /// step once and nothing noticed, because the mismatch produced a correct picture on this
+    /// driver.
+    /// </remarks>
+    internal static IReadOnlyList<float> MaterialRestingValues => NoDetail;
+
+    /// <summary>The shader source, so a test can read what the pipeline actually declares.</summary>
+    internal static string ShaderSourceText => ShaderText;
+
     private static readonly float[] NoDetail =
     [
         0f, 0f, -1f, 0f,
@@ -2070,6 +2081,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         // combine: mixed by vertex alpha rather than multiplied.
         0f, 0f, 0f, 0f,
+
+        // **envmapTint and envmapControl, and their absence here was a real defect.** This array
+        // sizes the constant buffer (see EnsureMaterialBuffer), whose comment claims it cannot
+        // disagree with the shader because "NoDetail is that struct". It disagreed: the shader's
+        // Material block grew two float4s when $envmap landed and this did not, so the buffer was
+        // created 160 bytes wide while the shader declared 192 and SetMaterial copied 192 into it.
+        //
+        // An out-of-bounds write into a mapped constant buffer and an out-of-bounds read by the
+        // shader, and it WORKED — reflections drew and their pixels measured correctly — because
+        // this driver tolerated it. Nothing in the suite could see it; the symptom on a stricter
+        // driver is reflections silently vanishing, because a read past a constant buffer returns
+        // zero and `hasEnvmap` is in the part that fell off.
+        //
+        // Resting values, which are not all zero and that is the point: white tint, contrast 0,
+        // saturation 1, no mask, no cubemap, and Fresnel 1 — which means NO falloff, the engine's
+        // own default.
+        1f, 1f, 1f, 0f,
+        1f, 0f, 0f, 1f,
     ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>
@@ -2376,11 +2405,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BufferDesc description = new()
         {
-            // **Sized from the resting values, so the buffer and the shader cannot disagree.** The
-            // struct is detail, tint, bump, self-illum, two texture transforms, modulation and the
-            // combine mode — and a literal here would have to be edited every time one is added,
-            // which is the edit that gets forgotten. NoDetail is that struct, so its length IS the
-            // size.
+            // **Sized from the resting values, so the buffer and the shader cannot disagree** —
+            // which is what this comment claimed while they disagreed by two float4s for as long
+            // as $envmap has existed. NoDetail did not grow with the shader's Material block, so
+            // the buffer was 160 bytes against a declared 192 and SetMaterial wrote past the end.
+            // It drew correctly, because the driver tolerated it.
+            //
+            // The invariant is now CHECKED rather than asserted in prose:
+            // `MaterialBufferTests` counts the float4s in the shader source and compares. A comment
+            // stating an invariant is not an invariant.
             ByteWidth = (uint)(sizeof(float) * NoDetail.Length),
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,

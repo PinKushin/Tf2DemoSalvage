@@ -7872,3 +7872,42 @@ it is (51, 43, 41) against (45, 37, 34). The order reverses, which is the whole 
 
 Same shape as `docs/memory/cancelling-sabotages-mean-coupled-tests.md`: ask whether there is an input
 where correct and broken differ, before asking whether the assertion detects it.
+
+## B127 — the material constant buffer was two float4s short of what the shader declared — CLOSED 2026-08-21
+
+**Found while sizing the buffer for `$phong`, not by anything watching for it.**
+
+`EnsureMaterialBuffer` creates the material constant buffer from the length of `NoDetail`, the
+resting-value array, and its comment stated the resulting invariant outright:
+
+> **Sized from the resting values, so the buffer and the shader cannot disagree.** … NoDetail is that
+> struct, so its length IS the size.
+
+They disagreed. `NoDetail` was **40 floats**; the shader's `Material` block declares **12 float4s =
+48**. So the buffer was created 160 bytes wide against a declared 192, and `SetMaterial` copied 192
+bytes into it — an out-of-bounds write into a mapped constant buffer, and an out-of-bounds read by
+the shader.
+
+**It has been that way since `$envmap` landed**, because that is when the shader grew `envmapTint`
+and `envmapControl` and the resting array did not follow.
+
+**And it worked.** Reflections drew, and this project measured their pixels, asserted on them,
+sabotaged them and restored them — all through a buffer two rows shorter than the struct being read
+out of it. Every instrument here reads the picture, and the picture was right: this driver tolerated
+the overrun.
+
+**What it would look like on a driver that did not.** A read past a constant buffer returns zero, and
+`hasEnvmap` is in the part that fell off — so every reflection on the map vanishes, on someone else's
+machine, with the suite green here. The write is the worse half and has no visible symptom at all
+until it has one.
+
+**The fix is the guard, not the two rows.** `NoDetail` now carries the reflection's resting values —
+white tint, contrast 0, saturation 1, no mask, no cube, Fresnel 1 — and `MaterialBufferTests` counts
+the `float4` rows in the shader source and holds the array against them. Verified by manipulation:
+with the two rows removed it reports *"sized from these 40 floats and the shader declares 12
+float4s"*.
+
+**A comment stating an invariant is not an invariant.** That is the whole finding, and it is the
+third time this session the same shape has turned up: `LocalLights` described the units trap it then
+fell into, `WornModelPaths` described the bake-versus-merge failure while the viewmodel weapon
+bypassed it, and this one named the property it was violating.
