@@ -101,3 +101,4 @@
 - [Close what you launched](close-what-you-launched.md) — tidy up your own launches; an exit nobody asked for may be a silent crash. Also: prefer understating a rule to overstating it.
 - [Cancelling sabotages mean coupled tests](cancelling-sabotages-mean-coupled-tests.md) — sabotage one thing at a time; when two cancel, the input made a tie, and the fix is the input, not a third test.
 - [Wire-faithful is not state-faithful](wire-faithful-is-not-state-faithful.md) — the accumulator read the snapshot's own list, not the baseline-merged one; every entity whose state IS its baseline arrived empty.
+- [A filed design choice may not be one](a-filed-design-choice-may-not-be-one.md) — B131 offered two shapes; the SDK picked one and the codebase already had it. A dilemma in a risk entry means the source is unread.

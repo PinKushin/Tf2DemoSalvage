@@ -115,7 +115,7 @@ public sealed class BrushEntityWiringTests
             bytes,
             GameArchives.Open(GamePath),
             maximumTextureSize: 64,
-            brushModels: BrushModels.Build(models, surfaces));
+            brushModels: atlas => BrushModels.Build(models, surfaces, atlas));
 
         IReadOnlyList<string> submodels =
             [.. assets.EntityModels.Keys.Where(key => key.StartsWith('*'))];
@@ -149,7 +149,8 @@ public sealed class BrushEntityWiringTests
             bytes,
             GameArchives.Open(GamePath),
             maximumTextureSize: 64,
-            brushModels: BrushModels.Build(BspModels.Read(bytes), BspSurfaces.Read(bytes)));
+            brushModels: atlas =>
+                BrushModels.Build(BspModels.Read(bytes), BspSurfaces.Read(bytes), atlas));
 
         // *0 is worldspawn. Building it would draw the entire map a second time, as an entity,
         // on top of itself - which reads as z-fighting rather than as a duplicated map.

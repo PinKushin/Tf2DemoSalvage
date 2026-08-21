@@ -134,10 +134,14 @@ public sealed class LightingCacheTests
         models.Add(first, OneTriangle);
 
         models.Instances(first, instances, probe.Light, probe.Sun, 0d);
-        float near = instances[0].Light.PositiveX.Red;
+
+        // **Asserted non-null rather than defaulted, because null now means something.** A brush
+        // entity carries no cube at all (B131), and a `?? default` here would report a studio model
+        // that stopped being lit as a cube of zeroes — which is a number, and would compare.
+        float near = instances[0].Light.ShouldNotBeNull().PositiveX.Red;
 
         models.Instances(moved, instances, probe.Light, probe.Sun, 0.016d);
-        float far = instances[0].Light.PositiveX.Red;
+        float far = instances[0].Light.ShouldNotBeNull().PositiveX.Red;
 
         // The probe's shade rises with position, so these must differ and in the right direction.
         far.ShouldBeGreaterThan(near);

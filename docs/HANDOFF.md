@@ -154,9 +154,9 @@ picked for needing pipelines that do not exist.
 
 ## What is left, by cost
 
-- **B131** — a moving brush entity is ambient-lit against a lightmapped wall. D46 settles the
-  direction; the mechanism is a real choice between carrying lightmap coordinates into the entity
-  vertex format and drawing brushwork with the world shader. Wants an explicit decision.
+- **B131 is closed but unverified by eye.** A door now takes the lightmap vrad baked for it instead
+  of the leaf's ambient cube. Everything checkable was checked — citations, geometry, wiring, four
+  new tests, two sabotages — but whether it *looks* right is a question for the owner.
 - **`$basetexturetransform`** — 24 materials. The shader half is published; the *parse* of
   `"center .5 .5 scale 1 1 rotate 0 translate 0 0"` is in the closed material system, and guessing
   the composition order is exactly the plausible-and-wrong this project avoids. A decompiler

@@ -58,6 +58,11 @@ internal static class BrushModels
     /// </summary>
     /// <param name="models">The map's models lump. Index 0 is the world and is skipped.</param>
     /// <param name="surfaces">Every surface read from the map, world and entity alike.</param>
+    /// <param name="atlas">
+    /// The packed lightmaps, so a door's faces can be looked up in the same atlas the wall's are.
+    /// Required rather than optional: omitting it produces a door lit like a model, which is a
+    /// plausible picture and was B131.
+    /// </param>
     /// <returns>Geometry keyed by <c>*N</c>, ready to be looked up by an entity's model name.</returns>
     /// <remarks>
     /// Index 0 is skipped rather than included, because the world is drawn by the static path and
@@ -65,10 +70,12 @@ internal static class BrushModels
     /// </remarks>
     public static IReadOnlyDictionary<string, PropModels.ModelFrames> Build(
         IReadOnlyList<BspModel> models,
-        IReadOnlyList<BspSurface> surfaces)
+        IReadOnlyList<BspSurface> surfaces,
+        LightmapAtlas atlas)
     {
         ArgumentNullException.ThrowIfNull(models);
         ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(atlas);
 
         Dictionary<string, PropModels.ModelFrames> built =
             new(StringComparer.OrdinalIgnoreCase);
@@ -95,13 +102,28 @@ internal static class BrushModels
                     continue;
                 }
 
+                // **The face's own rectangle in the shared atlas, exactly as MapWorld looks it up.**
+                // Rectangles are indexed by face, and the atlas is packed from every face in the
+                // lump — world and entity alike — so a door's faces are already in it. A face with
+                // no baked light gets a zero-width rectangle, which lands on the reserved white
+                // texel and draws at full texture brightness rather than black.
+                AtlasRect rectangle = surface.FaceIndex < atlas.Rectangles.Count
+                    ? atlas.Rectangles[surface.FaceIndex]
+                    : default;
+
+                // Per vertex rather than per material, for the same reason the world path carries
+                // it: a batch spans many faces and each has its own lightmap size.
+                float lightStep = surface.FaceIndex < atlas.DirectionalSteps.Count
+                    ? atlas.DirectionalSteps[surface.FaceIndex]
+                    : 0f;
+
                 // A fan from the first corner, as the world path does: a face out of a BSP is
                 // convex by construction.
                 for (int corner = 1; corner + 1 < surface.Vertices.Count; corner++)
                 {
-                    Append(corners, surface, 0);
-                    Append(corners, surface, corner);
-                    Append(corners, surface, corner + 1);
+                    Append(corners, surface, 0, rectangle, lightStep);
+                    Append(corners, surface, corner, rectangle, lightStep);
+                    Append(corners, surface, corner + 1, rectangle, lightStep);
                 }
             }
 
@@ -119,9 +141,20 @@ internal static class BrushModels
         return built;
     }
 
-    private static void Append(List<PropVertex> corners, BspSurface surface, int index)
+    private static void Append(
+        List<PropVertex> corners,
+        BspSurface surface,
+        int index,
+        AtlasRect rectangle,
+        float lightStep)
     {
         SurfaceVertex vertex = surface.Vertices[index];
+
+        // **Clamped before remapping, as MapWorld.Append does.** A corner can sit a fraction
+        // outside its own lightmap, and in a shared atlas that fraction is another face's light
+        // rather than empty space — a door would take a stripe of the wall next to it.
+        float lightU = rectangle.U + (Math.Clamp(vertex.LightU, 0f, 1f) * rectangle.Width);
+        float lightV = rectangle.V + (Math.Clamp(vertex.LightV, 0f, 1f) * rectangle.Height);
 
         corners.Add(new PropVertex(
             vertex.X, vertex.Y, vertex.Z,
@@ -129,6 +162,9 @@ internal static class BrushModels
             surface.MaterialIndex,
             NormalX: surface.Normal.X,
             NormalY: surface.Normal.Y,
-            NormalZ: surface.Normal.Z));
+            NormalZ: surface.Normal.Z,
+            LightU: lightU,
+            LightV: lightV,
+            LightStep: lightStep));
     }
 }

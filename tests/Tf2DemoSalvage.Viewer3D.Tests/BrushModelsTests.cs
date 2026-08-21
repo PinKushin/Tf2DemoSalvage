@@ -35,7 +35,7 @@ public sealed class BrushModelsTests
             Model(firstFace: 1, faceCount: 2),
         ];
 
-        IReadOnlyDictionary<string, PropModels.ModelFrames> built = BrushModels.Build(
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
             models,
             [Face(0, material: 1), Face(1, material: 2), Face(2, material: 3)]);
 
@@ -56,7 +56,7 @@ public sealed class BrushModelsTests
     {
         // Index 0 is worldspawn. Nothing references *0, and building it would duplicate the whole
         // map as an entity - the exact double-draw this work exists to remove.
-        IReadOnlyDictionary<string, PropModels.ModelFrames> built = BrushModels.Build(
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
             [Model(firstFace: 0, faceCount: 1)],
             [Face(0, material: 1)]);
 
@@ -69,7 +69,7 @@ public sealed class BrushModelsTests
         // A trigger volume is a brush entity whose faces the map never gives us. Recording it with
         // no geometry would make the renderer report a model that loaded and drew zero triangles,
         // which is indistinguishable in the log from a model that failed to load.
-        IReadOnlyDictionary<string, PropModels.ModelFrames> built = BrushModels.Build(
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
             [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 1)],
             [Face(0, material: 1)]);
 
@@ -81,7 +81,7 @@ public sealed class BrushModelsTests
     {
         // The claim vbsp's origin-brush handling rests on. If this ever re-centres, every closed
         // door moves to wherever the re-centring put it.
-        IReadOnlyDictionary<string, PropModels.ModelFrames> built = BrushModels.Build(
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
             [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 1)],
             [Face(0, material: 1), Face(1, material: 2)]);
 
@@ -91,6 +91,60 @@ public sealed class BrushModelsTests
         corners[0].Y.ShouldBe(2000f);
         corners[0].Z.ShouldBe(3000f);
     }
+
+    [Test]
+    public void Build_ASubmodelFace_TakesItsLightmapCoordinatesFromTheAtlas()
+    {
+        // **B131, at the level where the coordinates are produced.** A door's faces are lit by vrad
+        // exactly as the world's are — `MakePatches` loops `i<nummodels`, not model zero alone
+        // (vrad.cpp:703) — and their samples land in the same atlas. Dropping them here is what made
+        // an open door a flat panel against a shaded corridor.
+        //
+        // Two faces with lightmaps, so face 1's rectangle is NOT at the atlas origin. With one face
+        // it would pack at the reserved corner and every coordinate would read plausibly as zero,
+        // which is exactly the value a builder that ignored the atlas produces.
+        LightmapAtlas atlas = LightmapAtlas.Pack(
+        [
+            new BspLightmap(16, 16, new byte[16 * 16 * 4]),
+            new BspLightmap(8, 8, new byte[8 * 8 * 4]),
+        ]);
+
+        AtlasRect rectangle = atlas.Rectangles[1];
+
+        rectangle.Width.ShouldBeGreaterThan(0f, "face 1 must be packed for this to measure anything");
+
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = BrushModels.Build(
+            [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 1)],
+            [Face(0, material: 1), Face(1, material: 2)],
+            atlas);
+
+        IReadOnlyList<PropVertex> corners = built["*1"].Geometry[0];
+
+        // The fixture's three corners carry face-local LightU of 0, 0.33 and 0.66 at LightV 0.5.
+        // Remapped, each must land at its own fraction across face 1's rectangle — the same
+        // arithmetic MapWorld.Append does, checked against the same numbers.
+        corners[0].LightU.ShouldBe(rectangle.U, 1e-6f);
+        corners[1].LightU.ShouldBe(rectangle.U + (0.33f * rectangle.Width), 1e-6f);
+        corners[2].LightU.ShouldBe(rectangle.U + (0.66f * rectangle.Width), 1e-6f);
+
+        corners[0].LightV.ShouldBe(rectangle.V + (0.5f * rectangle.Height), 1e-6f);
+
+        // The control: face 1 is not at the origin, so these are not the white texel a studio model
+        // gets. Without it every assertion above passes against a builder that wrote zeroes.
+        rectangle.U.ShouldBeGreaterThan(0f);
+    }
+
+    /// <summary>Builds with no baked lighting, for the tests that are about geometry.</summary>
+    /// <remarks>
+    /// An empty atlas gives every face a zero-width rectangle, which is the reserved white texel —
+    /// the same answer a face with <c>lightofs</c> of -1 legitimately gets. Stated once here rather
+    /// than at four call sites, and deliberately NOT the default on
+    /// <see cref="BrushModels.Build"/>: a caller that forgets the atlas in production gets a door
+    /// lit like a model, which is a plausible picture and was the whole of B131.
+    /// </remarks>
+    private static IReadOnlyDictionary<string, PropModels.ModelFrames> Build(
+        IReadOnlyList<BspModel> models, IReadOnlyList<BspSurface> surfaces) =>
+        BrushModels.Build(models, surfaces, LightmapAtlas.Pack([]));
 
     private static BspModel Model(int firstFace, int faceCount) =>
         new((0f, 0f, 0f), (0f, 0f, 0f), (0f, 0f, 0f), 0, firstFace, faceCount);

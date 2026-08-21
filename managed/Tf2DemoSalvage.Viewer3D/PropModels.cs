@@ -28,6 +28,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Weights">How much each of those bones moves it.</param>
 /// <param name="BodyPart">Which body part it belongs to, for a model with alternatives.</param>
 /// <param name="BodyModel">Which of that part's alternatives, chosen per entity at draw time.</param>
+/// <param name="LightU">Lightmap atlas coordinate across; zero for anything but brushwork.</param>
+/// <param name="LightV">Lightmap atlas coordinate down; zero for anything but brushwork.</param>
+/// <param name="LightStep">How far along the atlas each directional set sits, or zero.</param>
 internal readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
@@ -36,7 +39,15 @@ internal readonly record struct PropVertex(
     (byte First, byte Second, byte Third) Bones = default,
     (float First, float Second, float Third) Weights = default,
     int BodyPart = 0,
-    int BodyModel = 0);
+    int BodyModel = 0,
+
+    // **Brushwork only, and zero is the right default for everything else (B131).** A studio model
+    // has no lightmap — the same model stands in many places under different light — so it keeps
+    // (0, 0), which is the atlas's reserved white texel and multiplies to no change. A brush
+    // entity is the other case entirely: vrad lights every model's faces, not just the world's
+    // (vrad.cpp:703), so a door's faces have baked samples sitting in the same lighting lump as
+    // the wall's. Dropping them here is what made an opening door a flat panel.
+    float LightU = 0f, float LightV = 0f, float LightStep = 0f);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
