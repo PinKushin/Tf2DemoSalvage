@@ -293,6 +293,11 @@ internal static class MapWorldBuilder
         int placed = 0;
         int unlit = 0;
 
+        // Fragments against faces named: the pair, because one without the other cannot say
+        // whether a shortfall is the overlay covering less than its list or the list being short.
+        int totalFragments = 0;
+        int namedFaces = 0;
+
         foreach (BspOverlay overlay in overlays)
         {
             if (overlay.MaterialIndex < 0)
@@ -300,29 +305,15 @@ internal static class MapWorldBuilder
                 continue;
             }
 
-            BspSurface? on = null;
-
-            foreach (int face in overlay.Faces)
-            {
-                if (byFace.TryGetValue(face, out BspSurface? candidate) &&
-                    Math.Abs(
-                        (overlay.BasisNormal.X * candidate.Normal.X) +
-                        (overlay.BasisNormal.Y * candidate.Normal.Y) +
-                        (overlay.BasisNormal.Z * candidate.Normal.Z)) > 0.9f)
-                {
-                    on = candidate;
-                    break;
-                }
-            }
-
-            if (on is null)
-            {
-                // Reported rather than skipped silently: an overlay that lies flat on nothing is
-                // either a reader defect or a map quirk, and both are worth knowing about.
-                unlit++;
-                continue;
-            }
-
+            // **The second orientation filter, and it gated the WHOLE overlay.** A pre-pass looked
+            // for any one face within 25 degrees of the basis and skipped the overlay entirely if it
+            // found none — so an overlay lying only on chamfers drew nothing at all, and was
+            // reported as "lying flat on nothing" rather than as refused.
+            //
+            // Deleted rather than widened. The surface it found was never used for anything but its
+            // own null check, and the `fragments == 0` test below already reports an overlay that
+            // clipped away everywhere — for the real reason, after actually trying. Two gates
+            // answering one question is how the first one survived B68's fix.
             IReadOnlyList<(float X, float Y, float Z)> quad = overlay.WorldCorners;
 
             if (area is { } bounds && !quad.Any(corner =>
@@ -371,18 +362,42 @@ internal static class MapWorldBuilder
             // from that face's lightmap rectangle.
             int fragments = 0;
 
+            namedFaces += overlay.Faces.Count;
+
             foreach (int face in overlay.Faces)
             {
-                if (!byFace.TryGetValue(face, out BspSurface? piece) ||
-                    Math.Abs(
-                        (overlay.BasisNormal.X * piece.Normal.X) +
-                        (overlay.BasisNormal.Y * piece.Normal.Y) +
-                        (overlay.BasisNormal.Z * piece.Normal.Z)) <= 0.9f)
+                // **Every face the overlay names, with no orientation test.** This used to refuse
+                // any face more than about 25 degrees off the overlay's basis, which is the same
+                // mistake B68 was filed for — choosing from the list rather than clipping against
+                // it — surviving inside the fix for it.
+                //
+                // vbsp puts no such condition on the list. `Overlay_AddFaceToLists`
+                // (utils/vbsp/overlay.cpp:171) adds a face because it came from a SIDE the mapper
+                // assigned the overlay to, and tests nothing but whether it is already there. The
+                // list is a statement of intent.
+                //
+                // Measured on cp_process_f12 before removing it: 108 of 634 named faces refused,
+                // across 38 overlays, and **every one of them on `overlays/stripe_red` or
+                // `concrete/stripe_blue`** — the red and blue wall stripes, which is precisely what
+                // the owner reported as missing from walls it belongs on. 90 of the 108 sit at
+                // roughly 45 degrees: chamfered corners, where the projection below works perfectly
+                // well. See OverlayFaceFilterProbe, which measures this on demand.
+                //
+                // **The stated limit, since one exists.** A face at 90 degrees to the overlay has
+                // its fragment projected onto its own plane along its own normal, and a polygon
+                // lying in a plane that CONTAINS that normal projects to a line — zero area,
+                // nothing drawn. Two of cp_process's faces are in that position. Reproducing them
+                // needs the engine's own fragment builder, which clips the FACE against the
+                // overlay's extruded boundary instead of projecting the overlay onto the face, and
+                // that routine is not published. Recorded rather than approximated with a
+                // threshold, because a threshold that catches those two also throws away ninety
+                // faces that were fine.
+                if (!byFace.TryGetValue(face, out BspSurface? piece))
                 {
                     continue;
                 }
 
-                List<(float X, float Y, float Z)> fragment = ClipToFace(quad, piece);
+                List<(float X, float Y, float Z)> fragment = ClipFaceToOverlay(piece, overlay, quad);
 
                 if (fragment.Count < 3)
                 {
@@ -425,6 +440,8 @@ internal static class MapWorldBuilder
                 fragments++;
             }
 
+            totalFragments += fragments;
+
             if (fragments == 0)
             {
                 // Named faces it shares a plane with, and clipped to nothing on all of them.
@@ -441,9 +458,16 @@ internal static class MapWorldBuilder
             all.AddRange(group.Value);
         }
 
+        // **The FRAGMENT total, not just the overlay total, and the difference is the whole of
+        // B134.** An overlay wrapping a chamfered corner draws one fragment per face it covers, so
+        // an orientation filter that refused 108 of cp_process's 634 named faces still reported all
+        // 222 overlays as "placed" — every one of them kept at least one face. The count that would
+        // have shown the loss was the one nobody logged.
         ViewerLog.Write(
             "map",
-            $"{placed} decals placed across {decals.Count} materials, {unlit} lying flat on nothing");
+            $"{placed} decals placed across {decals.Count} materials, {totalFragments} fragments " +
+            $"over {namedFaces} faces named by {overlays?.Count ?? 0} overlays, " +
+            $"{unlit} lying flat on nothing");
 
         // **Named with their transparency, because a decal drawn opaque is a square of paint.**
         // An overlay blends onto the surface it marks; if its material is not carrying alpha, the
@@ -715,67 +739,84 @@ internal static class MapWorldBuilder
     /// <summary>A surface's material, or -1 when it names one the map does not have.</summary>
     private static int materialIndex(BspSurface surface) => surface.MaterialIndex;
 
-    /// <summary>Clips an overlay's quad to one face, and drops it onto that face's plane.</summary>
-    /// <param name="quad">The overlay's four world corners.</param>
-    /// <param name="face">The face to clip against.</param>
-    /// <returns>The surviving polygon, empty when the overlay misses this face entirely.</returns>
+    /// <summary>Clips one face to the volume an overlay projects, keeping the part it marks.</summary>
+    /// <param name="face">The face the overlay names.</param>
+    /// <param name="overlay">The overlay, for its basis and its quad.</param>
+    /// <param name="quad">The overlay's four world corners, already computed by the caller.</param>
+    /// <returns>The marked part of the face, empty when the overlay does not reach it.</returns>
     /// <remarks>
-    /// **Sutherland and Hodgman, against the face's own edges.** Each edge of a convex polygon
-    /// defines a half-space in the plane of the face — the plane through that edge whose normal is
-    /// the edge crossed with the face normal — and clipping the quad against all of them in turn
-    /// leaves the part that lies within the face's outline.
+    /// **This clips the FACE to the overlay, where it used to clip the overlay to the face.** The
+    /// two sound like the same operation and are not, and the difference is what a wall stripe on
+    /// cp_process looks like.
     ///
-    /// **Then the result is dropped onto the face's plane**, which is what makes a stripe follow a
-    /// building around a corner. Without it every fragment stays in the overlay's own plane and the
-    /// pieces on the far side of the corner still hang in the air, only smaller.
+    /// The old way took the overlay's quad, cut it down with the face's own edge planes, and then
+    /// dropped the survivor onto the face's plane. Every fragment was therefore bounded by BSP
+    /// SPLITS rather than by the overlay, so a band that should be a uniform height arrived as a
+    /// run of trapezoids of differing heights with gaps between them — and on anything not parallel
+    /// to the overlay, the drop onto the face plane moved each corner by a different distance and
+    /// skewed the piece as well.
     ///
-    /// The offset applied is the face's own distance along its normal, so a fragment sits exactly
-    /// on the surface it marks and the depth bias handles the rest.
+    /// **An overlay is a projection, so the fragment is the part of the surface inside its volume.**
+    /// The quad's four edges, each swept along the basis normal, bound an infinite prism; clipping
+    /// the face's own polygon against those four half-spaces leaves exactly the marked part. Three
+    /// things follow for free, and all three are what the reference screenshots show:
+    ///
+    /// - The fragment is a subset of the face, so it lies ON the wall by construction. Nothing can
+    ///   hover, and no projection step is needed at all.
+    /// - Adjacent faces tile, because they share edges and the clip planes are the same for both.
+    ///   The gaps close without any slack fudge.
+    /// - The band's height is the overlay's V extent everywhere, because two of the four planes ARE
+    ///   the band's edges. That is the uniform stripe the game draws.
+    ///
+    /// **Evidence class: interpolated, and it has to be.** `Overlay_AddFaceToLists` and
+    /// `Overlay_EmitOverlayFace` are published in `utils/vbsp/overlay.cpp` and this project's reader
+    /// matches them field for field — the basis packed into the unused z of the first three UV
+    /// points, the V flip in the fourth, the face count masked out of
+    /// `m_nFaceCountAndRenderOrder`. What builds the fragments is `engine/overlay.cpp`, which Valve
+    /// has never published, and nothing in source-sdk-2013 references the lump outside vbsp. So the
+    /// algorithm here is derived from what an overlay IS rather than transcribed, and is flagged as
+    /// interpolated per D44.
     /// </remarks>
-    private static List<(float X, float Y, float Z)> ClipToFace(
-        IReadOnlyList<(float X, float Y, float Z)> quad, BspSurface face)
+    internal static List<(float X, float Y, float Z)> ClipFaceToOverlay(
+        BspSurface face,
+        BspOverlay overlay,
+        IReadOnlyList<(float X, float Y, float Z)> quad)
     {
         IReadOnlyList<SurfaceVertex> outline = face.Vertices;
 
-        if (outline.Count < 3)
+        if (outline.Count < 3 || quad.Count < 3)
         {
             return [];
         }
 
-        List<(float X, float Y, float Z)> polygon = [.. quad];
+        // The face itself is what gets cut down, so the result is always part of the wall.
+        List<(float X, float Y, float Z)> polygon =
+            [.. outline.Select(corner => (corner.X, corner.Y, corner.Z))];
 
-        // **The face's own centre, because the winding cannot be assumed.** The inward normal of an
-        // edge is the face normal crossed with the edge, but which way that points depends on
-        // whether the outline runs clockwise or anticlockwise as seen from the front — and a BSP
-        // carries both. Getting it backwards clips every fragment away to nothing, which looks
-        // exactly like an overlay that missed its face, so it would have been invisible in the
-        // count and obvious only as decals silently disappearing.
-        //
-        // A point known to be inside settles it per edge and costs one dot product.
+        // **The quad's centre settles which side is inside**, exactly as the face's centroid used
+        // to for the old direction of the clip. A quad's winding is not guaranteed either.
         (float X, float Y, float Z) middle = (0f, 0f, 0f);
 
-        foreach (SurfaceVertex corner in outline)
+        foreach ((float x, float y, float z) in quad)
         {
-            middle = (middle.X + corner.X, middle.Y + corner.Y, middle.Z + corner.Z);
+            middle = (middle.X + x, middle.Y + y, middle.Z + z);
         }
 
-        middle = (middle.X / outline.Count, middle.Y / outline.Count, middle.Z / outline.Count);
+        middle = (middle.X / quad.Count, middle.Y / quad.Count, middle.Z / quad.Count);
 
-        for (int edge = 0; edge < outline.Count && polygon.Count > 0; edge++)
+        for (int edge = 0; edge < quad.Count && polygon.Count > 0; edge++)
         {
-            SurfaceVertex edgeStart = outline[edge];
-            SurfaceVertex edgeEnd = outline[(edge + 1) % outline.Count];
+            (float X, float Y, float Z) from = quad[edge];
+            (float X, float Y, float Z) to = quad[(edge + 1) % quad.Count];
 
-            (float X, float Y, float Z) from = (edgeStart.X, edgeStart.Y, edgeStart.Z);
-            (float X, float Y, float Z) to = (edgeEnd.X, edgeEnd.Y, edgeEnd.Z);
-
-            // The inward normal of this edge, in the plane of the face.
             (float X, float Y, float Z) along = (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
 
+            // The plane through this edge containing the basis normal: its normal is the edge
+            // crossed with the normal, which points sideways out of the prism.
             (float X, float Y, float Z) inward = (
-                (face.Normal.Y * along.Z) - (face.Normal.Z * along.Y),
-                (face.Normal.Z * along.X) - (face.Normal.X * along.Z),
-                (face.Normal.X * along.Y) - (face.Normal.Y * along.X));
+                (along.Y * overlay.BasisNormal.Z) - (along.Z * overlay.BasisNormal.Y),
+                (along.Z * overlay.BasisNormal.X) - (along.X * overlay.BasisNormal.Z),
+                (along.X * overlay.BasisNormal.Y) - (along.Y * overlay.BasisNormal.X));
 
             float length = MathF.Sqrt(
                 (inward.X * inward.X) + (inward.Y * inward.Y) + (inward.Z * inward.Z));
@@ -787,47 +828,22 @@ internal static class MapWorldBuilder
 
             inward = (inward.X / length, inward.Y / length, inward.Z / length);
 
-            float offset =
-                (inward.X * from.X) + (inward.Y * from.Y) + (inward.Z * from.Z);
+            float offset = (inward.X * from.X) + (inward.Y * from.Y) + (inward.Z * from.Z);
 
-            // Flipped when the face is wound the other way, so "inward" always means inward.
             if ((inward.X * middle.X) + (inward.Y * middle.Y) + (inward.Z * middle.Z) < offset)
             {
                 inward = (-inward.X, -inward.Y, -inward.Z);
                 offset = -offset;
             }
 
-            // **A unit of slack, because a decal is authored to reach its face's edge.** Clipping
-            // exactly on the boundary shaves a hairline off every fragment, and the seams between
-            // them then show as gaps along every corner the stripe wraps.
-            polygon = ClipToHalfSpace(polygon, inward, offset - 1f);
+            // **No slack here, unlike the old clip.** That version needed a unit of give because
+            // its fragments were bounded by face edges and the seams between them showed; these are
+            // bounded by the overlay itself and tile exactly, so a unit of give would only paint a
+            // unit beyond what the mapper drew.
+            polygon = ClipToHalfSpace(polygon, inward, offset);
         }
 
-        if (polygon.Count < 3)
-        {
-            return [];
-        }
-
-        // Onto the face's plane. Its distance is taken from a point known to be on it.
-        float plane =
-            (face.Normal.X * outline[0].X) +
-            (face.Normal.Y * outline[0].Y) +
-            (face.Normal.Z * outline[0].Z);
-
-        for (int corner = 0; corner < polygon.Count; corner++)
-        {
-            (float x, float y, float z) = polygon[corner];
-
-            float above =
-                (face.Normal.X * x) + (face.Normal.Y * y) + (face.Normal.Z * z) - plane;
-
-            polygon[corner] = (
-                x - (face.Normal.X * above),
-                y - (face.Normal.Y * above),
-                z - (face.Normal.Z * above));
-        }
-
-        return polygon;
+        return polygon.Count < 3 ? [] : polygon;
     }
 
     /// <summary>Keeps the part of a polygon on the inward side of one plane.</summary>
