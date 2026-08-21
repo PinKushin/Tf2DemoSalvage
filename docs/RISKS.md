@@ -7562,3 +7562,45 @@ handled: once as the cone mask and fringe, and once as a plain cosine on the fal
 computes `dot2` and uses it for the first only.
 
 Point lights are unaffected — `emit_point` has no such term (`lightmap.cpp:1885`-1895).
+
+---
+
+### B123 — a static prop whose baked lighting is refused gets no lighting at all — OPEN
+
+**Noticed by the owner in a capture:** "we have dark CPs on POV demos still while i thought we fixed
+that on STV demos". Badlands mid at tick 2500 draws its capture point as a dark disc.
+
+**It is not B83 coming back.** That was `cap_point_base.mdl`'s skin, then the ambient cube's
+nearest-sample, and both are fixed. This is a different path.
+
+**Static props are lit only by their baked `.vhv` vertex colours.** `MainForm.LightAt` — the sampler
+that carries the ambient cube, the sun and, since B95, the local lights — is consumed by
+`_models.Instances` and nothing else, which is the ENTITY path: props the demo describes, and the
+viewmodel. Map props never reach it.
+
+So two things follow, and the second is the visible one:
+
+- **The B95 fix does not reach static props.** A lamp overhead brightens a player and leaves the
+  crate beside them alone.
+- **A refused `.vhv` leaves a prop with no lighting whatsoever.** `PropModels.Lighting` returns
+  `Refused` and the prop draws with WHITE vertex colours — full-brightness albedo, flat. On a
+  light-coloured model that reads as washed out; on dark metal like a capture point base it reads as
+  a dark disc, which is exactly the report.
+
+**Refusals are common, not exceptional: 44 on `cp_badlands`.** The checksum guard is right — vertex
+lighting baked against a different build of the model would light the wrong parts of it — and the
+offsets were checked against Valve's own structures while investigating this: `studiohdr_t.checksum`
+at 8, `HardwareVerts::FileHeader_t.m_nChecksum` at 4. Both correct, so the mismatches are genuine.
+TF2 has updated models since these maps were compiled.
+
+**What the engine does instead is the fix, and it needs confirming before it is written.** Source
+drops static lighting on a mismatch and lights the prop from the light cache — the same ambient cube
+and local lights a dynamic prop gets — rather than drawing it unlit. If that is right, the fallback
+here should be `LightAt` at the prop's origin, not white.
+
+**Do not start from the checksum.** The temptation is to make the guard more permissive so the baked
+data is used anyway; that would light props with colours belonging to a different mesh, which is a
+convincing wrong answer rather than a dark one.
+
+Related: B95 for the direct term this path never receives, and B83 for the two earlier and unrelated
+causes of a dark capture point.
