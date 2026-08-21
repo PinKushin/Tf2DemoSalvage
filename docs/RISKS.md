@@ -8102,6 +8102,12 @@ Not attempted, and deliberately not guessed at.
 
 ## B132 — some entities reach the entity table with no properties at all — OPEN, and it is not about fog
 
+**Next step and current best lead are in `docs/HANDOFF.md`.** Summary: a swallowed decode exception
+is RULED OUT (there is no try/catch in the path, so a desync would fail the build). The remaining
+lead is `EntityStateTable.Apply` replacing a state on a re-ENTER with a different serial, which would
+discard the properties and leave the class name — exactly the observed shape. The check that settles
+it is a full trace with no `--entity-limit`, grepped for `entity 212 `.
+
 **Found while implementing fog, and it is much wider than fog.**
 
 Measured on `tf2-2011-build4604-stv-koth_viaduct.dem`:
