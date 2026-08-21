@@ -82,6 +82,17 @@ internal static class MaterialCensus
         // engine's design, not a gap. B125.
         "$fresnelreflection",
 
+        // **The model specular highlight**, which was the largest single unimplemented parameter on
+        // this map at 330 materials. $phongalbedotint and $phongexponenttexture are deliberately NOT
+        // here: the tint is read from the exponent texture's green channel, so the boolean alone
+        // does nothing and neither is implemented.
+        "$phong",
+        "$phongexponent",
+        "$phongboost",
+        "$phongfresnelranges",
+        "$phongtint",
+        "$basemapalphaphongmask",
+
         // The per-material modulation. $color2 MULTIPLIES $color rather than replacing it
         // (BaseShader.h:271 states the operation on the helper's declaration), and $alpha is
         // clamped to 0..1 where the colour channels deliberately are not. All three reach the

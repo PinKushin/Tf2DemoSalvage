@@ -71,15 +71,43 @@ public sealed class MaterialBufferTests
         // 1 where a term called "fresnel" would be expected to rest at 0. An implementation
         // defaulting the block to zero greys out every reflection and attenuates it to nothing, and
         // neither reads as an error.
+        // **Located by NAME, not by counting back from the end.** The first version of this test
+        // indexed `[^8]` through `[^1]`, which was correct until $phong added three rows after the
+        // reflection's and silently moved the subject — so the test would have been asserting the
+        // phong tint's values against the envmap's expectations. Asking the shader where its own
+        // rows are cannot drift.
         float[] resting = [.. WorldRenderer.MaterialRestingValues];
 
-        (float R, float G, float B, float Contrast) tint =
-            (resting[^8], resting[^7], resting[^6], resting[^5]);
+        int tintRow = Row("envmapTint");
+        int controlRow = Row("envmapControl");
 
-        (float Saturation, float Mask, float HasEnvmap, float Fresnel) control =
-            (resting[^4], resting[^3], resting[^2], resting[^1]);
+        controlRow.ShouldBe(tintRow + 1, "the two reflection rows are adjacent");
 
-        tint.ShouldBe((1f, 1f, 1f, 0f), "white, and contrast normal at zero");
-        control.ShouldBe((1f, 0f, 0f, 1f), "saturation normal at one, no mask, no cube, no falloff");
+        (resting[tintRow * 4], resting[(tintRow * 4) + 1], resting[(tintRow * 4) + 2],
+                resting[(tintRow * 4) + 3])
+            .ShouldBe((1f, 1f, 1f, 0f), "white, and contrast normal at zero");
+
+        (resting[controlRow * 4], resting[(controlRow * 4) + 1], resting[(controlRow * 4) + 2],
+                resting[(controlRow * 4) + 3])
+            .ShouldBe((1f, 0f, 0f, 1f), "saturation normal at one, no mask, no cube, no falloff");
+
+        static int Row(string name)
+        {
+            string source = WorldRenderer.ShaderSourceText;
+            int start = source.IndexOf("cbuffer Material", StringComparison.Ordinal);
+            int end = source.IndexOf("};", start, StringComparison.Ordinal);
+
+            string[] rows =
+            [
+                .. Regex.Matches(source[start..end], @"^\s+float4\s+(\w+)", RegexOptions.Multiline)
+                    .Select(match => match.Groups[1].Value),
+            ];
+
+            int at = Array.IndexOf(rows, name);
+
+            at.ShouldBeGreaterThan(-1, $"the shader declares a row called {name}");
+
+            return at;
+        }
     }
 }

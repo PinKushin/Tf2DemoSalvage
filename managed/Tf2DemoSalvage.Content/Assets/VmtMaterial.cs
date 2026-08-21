@@ -563,6 +563,91 @@ public sealed class VmtMaterial
     /// </remarks>
     public float FresnelReflection => Number("$fresnelreflection", 1f);
 
+    /// <summary>Whether the material draws a specular highlight from the light.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( PHONG, SHADER_PARAM_TYPE_BOOL, "0", "enables phong lighting" )</c>. Setting
+    /// it on a <c>VertexLitGeneric</c> material routes it to the <b>Skin</b> shader, which is where
+    /// every phong parameter is actually read — which is why <c>$envmapfresnel</c> is declared on
+    /// <c>VertexLitGeneric</c> and consumed by <c>skin_dx9_helper</c>.
+    /// </remarks>
+    public bool HasPhong => Flag("$phong");
+
+    /// <summary>How tight the highlight is; higher is smaller and sharper.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( PHONGEXPONENT, SHADER_PARAM_TYPE_FLOAT, "5.0", … )</c> — broad rather than
+    /// tight, which is TF2's illustrative look rather than a polished one.
+    /// </remarks>
+    public float PhongExponent => Number("$phongexponent", 5f);
+
+    /// <summary>How far the highlight is pushed past the light's own brightness.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( PHONGBOOST, SHADER_PARAM_TYPE_FLOAT, "1.0", "Phong overbrightening factor
+    /// (specular mask channel should be authored to account for this)" )</c>. The parenthesis is
+    /// the important half: boost and mask are ONE calibration, so applying a mask without its boost
+    /// is not "half of the effect", it is a different material.
+    /// </remarks>
+    public float PhongBoost => Number("$phongboost", 1f);
+
+    /// <summary>Whether the phong mask is the base texture's alpha rather than the bump map's.</summary>
+    /// <remarks>
+    /// <c>"indicates that there is no normal map and that the phong mask is in base alpha"</c>
+    /// (<c>vertexlitgeneric_dx9.cpp:59</c>) — so the flag means more than which channel to read.
+    /// The shader selects both at once with a lerp (<c>skin_ps20b.fxc:199</c>):
+    ///
+    /// <code>
+    /// tangentSpaceNormal = lerp( 2.0f * normalTexel.xyz - 1.0f, float3(0, 0, 1), g_fBaseMapAlphaPhongMask );
+    /// fSpecMask = lerp( normalTexel.a, baseColor.a, g_fBaseMapAlphaPhongMask );
+    /// </code>
+    ///
+    /// **Reading the wrong channel gives a plausible sheen in the wrong places**, which is worse
+    /// than no highlight: a base texture's alpha usually holds opacity or a self-illum mask, so the
+    /// model shines in whatever pattern that channel happens to carry.
+    /// </remarks>
+    public bool UsesBaseMapAlphaAsPhongMask => Flag("$basemapalphaphongmask");
+
+    /// <summary>The colour the highlight is multiplied by, or null for the material's default.</summary>
+    /// <remarks>
+    /// <c>$phongtint</c>. Null rather than white, because "not stated" and "stated as white" reach
+    /// the shader differently in the engine: with no tint and no exponent texture the term stays
+    /// white, and with <c>$phongalbedotint</c> AND an exponent texture it would come from that
+    /// texture's green channel instead (<c>skin_ps20b.fxc:275</c>). This project does not read an
+    /// exponent texture, so the albedo-tint path cannot arise — see
+    /// <c>PhongConformanceTests.Phong_TheAlbedoTint_NeedsAnExponentTexture</c>.
+    /// </remarks>
+    public (float Red, float Green, float Blue)? PhongTint =>
+        Value("$phongtint") is null ? null : Colour("$phongtint");
+
+    /// <summary>
+    /// <c>$phongfresnelranges</c>, already encoded the way the shader wants it.
+    /// </summary>
+    /// <remarks>
+    /// **The three numbers in the VMT are not the three the shader reads**, and Valve says so beside
+    /// the code (<c>common_vertexlitgeneric_dx9.h:229</c>):
+    ///
+    /// <code>
+    /// // note: vRanges is now encoded as ((mid-min)*2, mid, (max-mid)*2) to optimize math
+    /// float f = saturate( 1 - dot( vNormal, vEyeDir ) );
+    /// f = f*f - 0.5;
+    /// return vRanges.y + (f >= 0.0 ? vRanges.z : vRanges.x) * f;
+    /// </code>
+    ///
+    /// Encoded here rather than in the renderer because it is a property of the parameter, and
+    /// because passing the raw triple is silently wrong rather than obviously wrong: at the default
+    /// <c>[0 0.5 1]</c> a head-on surface returns 0.5 instead of 0, so the highlight never fades out
+    /// and every model wears a uniform sheen.
+    /// </remarks>
+    public (float Low, float Mid, float High) PhongFresnelRanges
+    {
+        get
+        {
+            (float Red, float Green, float Blue) ranges = Value("$phongfresnelranges") is null
+                ? (0f, 0.5f, 1f)
+                : Colour("$phongfresnelranges");
+
+            return ((ranges.Green - ranges.Red) * 2f, ranges.Green, (ranges.Blue - ranges.Green) * 2f);
+        }
+    }
+
     /// <summary>Whether the base texture's alpha masks the reflection instead of blending.</summary>
     /// <remarks>
     /// **Inverted, and Valve annotated it:** <c>specularFactor *= 1.0 - blendedAlpha; // Reversing

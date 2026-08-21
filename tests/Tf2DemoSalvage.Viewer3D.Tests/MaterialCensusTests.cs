@@ -23,24 +23,29 @@ public sealed class MaterialCensusTests
     [Test]
     public void AParameterTheRendererIgnores_IsCountedByHowManyMaterialsAskForIt()
     {
-        // The real finding this was written for, in miniature: two materials want a phong highlight
-        // and one wants a rim light, and neither is implemented.
+        // The real finding this was written for, in miniature: two materials want an authored
+        // lighting curve and one wants a rim light, and neither is implemented.
         //
-        // **These examples were $envmap and $phong, and $envmap graduated** — it is implemented now,
-        // so the census correctly stopped reporting it and this test correctly failed. That churn
-        // is the feature rather than a nuisance: an example here is a claim about what this project
-        // does NOT do, and it should stop compiling the moment that stops being true. Whoever
-        // implements phong will land in this file, which is the right place to be reminded that the
-        // census's own examples are load-bearing.
+        // **These examples were $envmap and $phong, and BOTH have now graduated** — $envmap first,
+        // then $phong on 2026-08-21 — so the census correctly stopped reporting them and this test
+        // correctly failed, twice. That churn is the feature rather than a nuisance: an example here
+        // is a claim about what this project does NOT do, and it should stop compiling the moment
+        // that stops being true.
+        //
+        // The comment above this one predicted its own second failure almost word for word —
+        // "whoever implements phong will land in this file" — and that is what happened. Written to
+        // be found, and found.
         IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
         [
-            ["$basetexture", "$phong"],
-            ["$basetexture", "$phong", "$rimlight"],
+            ["$basetexture", "$lightwarptexture"],
+            ["$basetexture", "$lightwarptexture", "$rimlight"],
         ]);
 
         census.Count.ShouldBe(2);
 
-        census[0].Parameter.ShouldBe("$phong", "the commonest unimplemented parameter comes first");
+        census[0].Parameter.ShouldBe(
+            "$lightwarptexture", "the commonest unimplemented parameter comes first");
+
         census[0].Materials.ShouldBe(2);
 
         census[1].Parameter.ShouldBe("$rimlight");
@@ -74,7 +79,7 @@ public sealed class MaterialCensusTests
         // declarations rather than materials would report more materials than the map contains,
         // which is the kind of number that gets quoted into a document and then disbelieved.
         IReadOnlyList<(string Parameter, int Materials)> census =
-            MaterialCensus.Unimplemented([["$phong", "$phong", "$PHONG"]]);
+            MaterialCensus.Unimplemented([["$rimlight", "$rimlight", "$RIMLIGHT"]]);
 
         census.Single().Materials.ShouldBe(1);
     }

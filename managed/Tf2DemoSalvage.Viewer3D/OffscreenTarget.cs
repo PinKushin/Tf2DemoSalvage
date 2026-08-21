@@ -187,6 +187,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="assets">The map's materials, which the model's own continue.</param>
     /// <param name="light">The ambient cube reaching it, or null for none.</param>
     /// <param name="bothSides">Draw every face regardless of winding, as <c>$nocull</c> does.</param>
+    /// <param name="sun">The sun reaching it, or null for a model in shade.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -202,7 +203,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float[] model,
         MapAssets assets,
         AmbientCube? light = null,
-        bool bothSides = false)
+        bool bothSides = false,
+        SunLight? sun = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -232,7 +234,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
-        _world.DrawModel(_context, model, _world.ModelBatches(Posed), light, bothSides: bothSides);
+        _world.DrawModel(
+            _context, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides);
     }
 
     /// <summary>

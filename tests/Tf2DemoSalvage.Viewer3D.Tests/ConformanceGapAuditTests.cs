@@ -63,7 +63,6 @@ public sealed class ConformanceGapAuditTests
     /// </remarks>
     private static readonly Marker[] Markers =
     [
-        new("SourceConformanceTests", "Phong_IsNotImplemented", _ => Unread("$phong")),
         new("SourceConformanceTests", "LightWarpTexture_IsNotImplemented", _ => Unread("$lightwarptexture")),
         new("SourceConformanceTests", "RimLight_IsNotImplemented", _ => Unread("$rimlight")),
         new("SourceConformanceTests", "TextureTransforms_AreNotParsed", _ => Unread("$basetexturetransform")),
@@ -121,7 +120,7 @@ public sealed class ConformanceGapAuditTests
         //
         // Raise this WITH the row, never on its own. A count lowered to make a run pass is the
         // failure this whole file is about.
-        Markers.Length.ShouldBe(5, "every checkable gap marker needs a row here to be policed");
+        Markers.Length.ShouldBe(4, "every checkable gap marker needs a row here to be policed");
 
         Markers.Select(marker => $"{marker.Suite}.{marker.Test}").Distinct(StringComparer.Ordinal)
             .Count().ShouldBe(Markers.Length, "two rows must not name the same marker");

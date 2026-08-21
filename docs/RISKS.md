@@ -7911,3 +7911,56 @@ float4s"*.
 third time this session the same shape has turned up: `LocalLights` described the units trap it then
 fell into, `WornModelPaths` described the bake-versus-merge failure while the viewmodel weapon
 bypassed it, and this one named the property it was violating.
+
+## B128 — `$phong` is not implemented, so every model reads dull — CLOSED 2026-08-21
+
+**The largest single unimplemented parameter this project had**: 330 of cp_process's 1,034 prop and
+model materials, with `$phongboost` on 329, `$phongfresnelranges` on 329, `$phongexponent` on 323 and
+`$basemapalphaphongmask` on 102. TF2's characters take most of their shape from a highlight that
+moves with the light rather than from their diffuse texture, and a viewer without it draws them flat.
+
+Implemented following `SpecularAndRimTerms` (`common_vertexlitgeneric_dx9.h:167`) and
+`skin_ps20b.fxc`, specified first in `PhongConformanceTests`.
+
+**The three traps, all of which are silent:**
+
+- **The N·L mask.** `specularLighting *= saturate(dot(vWorldNormal, vLightDir))`. Without it a
+  highlight appears on the side of a model facing away from the light.
+- **`$phongfresnelranges` arrives pre-encoded** as `((mid-min)*2, mid, (max-mid)*2)`. Feed the raw
+  triple and a head-on surface returns 0.5 where it should return 0 — the highlight never fades and
+  every model wears a uniform sheen.
+- **`$phongalbedotint` needs `$phongexponenttexture`**, because the tint is read from that texture's
+  green channel. Honouring the boolean alone tints every highlight by the base texture.
+
+### Known limit, stated rather than discovered later
+
+**The term is driven by the SUN alone.** In the engine it is summed over the light cache's local
+lights as well, and those do not reach a model in this renderer. So a highlight appears where the sun
+reaches and nowhere else — a smaller effect than TF2's, and the honest one to draw from what is
+decoded. Fabricating a light would put highlights where no light is. Related: B123's other half.
+
+`$phongexponenttexture` is unread, so the per-texel exponent and the albedo tint are both absent.
+
+### The N·L mask took three conditions to test, and the first two proved nothing
+
+**Dropping the mask changed no pixel in either of the first two tests**, and the arithmetic says why
+rather than it being an oversight. On a quad facing the camera the mirrored view vector **R equals
+the normal N**, so `dot(R, L) > 0` implies `dot(N, L) > 0`: the two agree everywhere and the mask is
+provably inert. More generally R is the mirror of the eye about N, so the angle between N and R
+equals the angle between N and E — for any front-facing surface a light straight along R still has
+N·L ≥ 0.
+
+**The mask only bites at a grazing normal.** Tilting the normal 80° off the view axis puts R far from
+N, and a light can then sit near R and still be behind the surface: R·L ≈ 0.97 with N·L ≈ −0.08.
+Correct code returns exactly zero there; code without the mask returns 0.97⁵ ≈ 0.85 of the light.
+
+**And that test's own positive control was wrong first.** A light travelling `(0, 1, 0)` — straight
+at the surface — gives no highlight at a grazing normal either, because R has swung to
+`(0.343, 0.939, 0)`. Both draws came out identical at (43, 47, 52) and the test would have passed
+while measuring nothing. The control has to aim the light **along R**.
+
+Verified both ways: with the mask, (43, 47, 52) behind against (117, 121, 126) in front; without it,
+both saturate to (255, 255, 255).
+
+Third time this session that a test's CONDITION rather than its assertion was the defect. See
+`docs/memory/cancelling-sabotages-mean-coupled-tests.md`.

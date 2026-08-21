@@ -338,8 +338,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // z: 1 when this material has a cubemap bound at all, 0 otherwise. A material without
             //    one still gets a sampler bound, because the slot is set once per draw and a stale
             //    cube from the previous material would otherwise reflect on a matte surface.
-            // w: unused.
+            // w: $fresnelreflection, and ONE means no falloff. The Schlick term is remapped as
+            //    `schlick * (1 - w) + w`, which is Valve's own arithmetic, and the parameter's
+            //    declaration reads "1.0 == mirror, 0.0 == water". Applying raw Schlick instead made
+            //    every reflection invisible head-on, which is B125.
             float4 envmapControl;
+
+            // **The specular highlight, $phong.** 330 of cp_process's materials ask for it, and a
+            // model without it reads as flat colour.
+            //
+            // x: the exponent, 5 by default — broad rather than tight, which is TF2's look.
+            // y: $phongboost. One calibration with the mask: the parameter's own declaration says
+            //    "specular mask channel should be authored to account for this".
+            // z: 1 when this material has phong at all.
+            // w: 1 when the mask is the BASE texture's alpha rather than the bump map's, which the
+            //    flag's declaration also asserts means there is no normal map at all.
+            float4 phongControl;
+
+            // xyz: $phongfresnelranges, ALREADY ENCODED as ((mid-min)*2, mid, (max-mid)*2), which is
+            //      what the shader's remap expects and is not the triple written in the VMT. Valve
+            //      states the encoding in a comment beside their own code. Feeding the raw numbers
+            //      returns 0.5 head-on instead of 0, so the highlight never fades and every model
+            //      wears a uniform sheen.
+            // w: unused.
+            float4 phongFresnel;
+
+            // xyz: $phongtint, white unless the material names one. w: unused.
+            //
+            // $phongalbedotint is NOT here, and deliberately: it does nothing without
+            // $phongexponenttexture, because the tint is read from that texture's green channel.
+            // Honouring the boolean alone tints every highlight by the base texture.
+            float4 phongTint;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -749,6 +778,57 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (bump.z > 0.5f)
             {
                 lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, albedo.a);
+            }
+
+            // **The specular highlight, added like the reflection and for the same reason.** Valve's
+            // line is `result = specularLighting*vSpecularTint + envMapColor + diffuseComponent`
+            // (skin_ps20b.fxc:365).
+            //
+            // Gated on the SUN, which is the only direct light a model gets here. In the engine the
+            // term is summed over the light cache's local lights as well, and those do not reach a
+            // model in this renderer — so a highlight appears where the sun reaches and nowhere
+            // else. That is a smaller effect than TF2's, and it is the honest one to draw with what
+            // is decoded: a fabricated light would put highlights where no light is.
+            if (phongControl.z > 0.5f && sunColour.w > 0.5f && eyePosition.w > 0.5f)
+            {
+                float3 toEye = normalize(eyePosition.xyz - input.wpos);
+                float3 phongNormal = normalize(input.nrm);
+
+                // The direction TOWARD the light. sunDirection is the direction the light travels.
+                float3 toLight = -normalize(sunDirection.xyz);
+
+                // **The EYE reflected through the normal, dotted with the light** — Valve's own
+                // form, with `reflect( -vEyeDir, vWorldNormal )` left commented out beside it:
+                //
+                //     float3 vReflect = 2 * vWorldNormal * dot( vWorldNormal , vEyeDir ) - vEyeDir;
+                //     float LdotR = saturate(dot( vReflect, vLightDir ));
+                //     specularLighting = pow( LdotR, fSpecularExponent );
+                float3 mirrored = (2.0f * phongNormal * dot(phongNormal, toEye)) - toEye;
+                float highlight = pow(saturate(dot(mirrored, toLight)), phongControl.x);
+
+                // **Masked by N.L, which is the half easy to drop.** Without it a highlight appears
+                // on the side of the model facing AWAY from the light, which reads as a material
+                // property rather than as a defect.
+                highlight *= saturate(dot(phongNormal, toLight));
+
+                float3 phong = highlight * sunColour.rgb;
+
+                // The mask: the bump map's alpha, or the base texture's when the material says it
+                // has no normal map. Valve selects both the mask and the normal with one lerp.
+                float phongMask = phongControl.w > 0.5f
+                    ? albedo.a
+                    : bumpMap.Sample(wrapSampler, input.uv).a;
+
+                // $phongfresnelranges, whose triple arrives pre-encoded. The expression is Valve's:
+                //     f = saturate(1 - dot(N, V)); f = f*f - 0.5;
+                //     ranges.y + (f >= 0 ? ranges.z : ranges.x) * f
+                float edge = saturate(1.0f - dot(phongNormal, toEye));
+                edge = (edge * edge) - 0.5f;
+
+                phongMask *= phongFresnel.y +
+                    ((edge >= 0.0f ? phongFresnel.z : phongFresnel.x) * edge);
+
+                lit += phong * phongMask * phongControl.y * phongTint.rgb;
             }
 
             // **The baked reflection, ADDED rather than blended.** Valve's line is
@@ -1643,6 +1723,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float hasEnvmap = shading is null ? 0f : 1f;
 
+            // **The highlight's parameters, carrying their declared defaults when absent.** Zero is
+            // the wrong resting value for two of these: an exponent of 0 makes `pow(x, 0)` return 1
+            // for every pixel, and a boost of 0 erases the term the mask was authored against.
+            MapPhong? phong = index < assets.Phong.Count ? assets.Phong[index] : null;
+
+            float phongExponent = phong?.Exponent ?? 5f;
+            float phongBoost = phong?.Boost ?? 1f;
+            float hasPhong = phong is null ? 0f : 1f;
+
+            // A material asking for the base-alpha mask, or one with phong and no bump map to read.
+            // The second is not a fallback for convenience — the flag's own declaration says
+            // $basemapalphaphongmask means "there is no normal map", so a material without one is
+            // in that state whether or not it says so.
+            float phongBaseAlphaMask =
+                phong is { MaskedByBaseAlpha: true } || (phong is not null && bump is null) ? 1f : 0f;
+
+            (float Low, float Mid, float High) phongFresnel = phong?.Fresnel ?? (1f, 0.5f, 1f);
+            (float Red, float Green, float Blue) phongTint = phong?.Tint ?? (1f, 1f, 1f);
+
             // **One is the resting value and it means NO Fresnel falloff**, which is the opposite of
             // what a term called "fresnel" resting at zero would suggest. $fresnelreflection is
             // "1.0 == mirror, 0.0 == water" and defaults to 1; a model is always 1 because
@@ -1690,6 +1789,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // which is what the great majority of materials want.
                     envmapTint.Red, envmapTint.Green, envmapTint.Blue, envmapContrast,
                     envmapSaturation, envmapMask, hasEnvmap, envmapFresnel,
+
+                    // The specular highlight. Exponent and boost carry their declared defaults even
+                    // when there is no phong, so the resting state is a valid material rather than
+                    // zeros — an exponent of 0 would raise every dot product to the power zero and
+                    // return 1 everywhere the moment the flag was set.
+                    phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
+                    phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, 0f,
+                    phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
                 ]
                 :
                 [
@@ -1722,6 +1829,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // which is what the great majority of materials want.
                     envmapTint.Red, envmapTint.Green, envmapTint.Blue, envmapContrast,
                     envmapSaturation, envmapMask, hasEnvmap, envmapFresnel,
+
+                    // The specular highlight. Exponent and boost carry their declared defaults even
+                    // when there is no phong, so the resting state is a valid material rather than
+                    // zeros — an exponent of 0 would raise every dot product to the power zero and
+                    // return 1 everywhere the moment the flag was set.
+                    phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
+                    phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, 0f,
+                    phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
                 ]);
         }
 
@@ -2099,6 +2214,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // own default.
         1f, 1f, 1f, 0f,
         1f, 0f, 0f, 1f,
+
+        // phongControl: exponent 5 (the declared default), boost 1, no phong, mask from the bump.
+        // phongFresnel: [0 0.5 1] ENCODED, which is (1, 0.5, 1) and not the triple itself.
+        // phongTint: white.
+        5f, 1f, 0f, 0f,
+        1f, 0.5f, 1f, 0f,
+        1f, 1f, 1f, 0f,
     ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>

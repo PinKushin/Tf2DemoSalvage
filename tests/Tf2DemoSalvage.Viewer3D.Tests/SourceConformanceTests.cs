@@ -151,21 +151,15 @@ public sealed class SourceConformanceTests
         scrolled.Row0.W.ShouldBe(0.75f, 1e-4f);
     }
 
-    [Test]
-    public void Phong_IsNotImplemented()
-    {
-        // 330 of cp_process's 1,034 prop and model materials, with $phongboost on 329,
-        // $phongfresnelranges on 329, $phongexponent on 323 and $basemapalphaphongmask on 102.
-        //
-        // WHAT YOU SEE: every character model is dull. This is Source's specular for players and
-        // the single largest visual difference between this viewer and the game.
-        //
-        // TO IMPLEMENT: vertexlitgeneric_dx9_helper.cpp and the phong helper beside it. The mask
-        // channel is chosen by $basemapalphaphongmask against the normal map's alpha, and picking
-        // the wrong one puts a plausible sheen in the wrong places — which is worse than none,
-        // because it looks deliberate.
-        Assert.Ignore("$phong: 330 materials; every model dull. See docs/CONFORMANCE.md.");
-    }
+    // **`Phong_IsNotImplemented` stood here and named the largest gap this project had** — 330 of
+    // cp_process's 1,034 prop and model materials, and the reason every character read dull. It was
+    // removed because `ConformanceGapAuditTests` said to: the parameter moved into
+    // `MaterialCensus.Implemented` and the audit went red naming this method.
+    //
+    // The specification it pointed at is now `PhongConformanceTests`, written before the code, and
+    // the behaviour is in `PhongRenderTests`. What is NOT implemented is narrower and has its own
+    // entry: `$phongexponenttexture`, and with it `$phongalbedotint`, which cannot do anything
+    // without one.
 
     // **`EnvironmentMaps_AreNotImplemented` stood here and was false.** $envmap has been in
     // MaterialCensus.ImplementedParameters since B55 closed, brush faces reflect the cubemap vbsp

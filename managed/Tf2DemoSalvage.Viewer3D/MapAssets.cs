@@ -136,6 +136,34 @@ internal readonly record struct MapEnvmapShading(
     float Fresnel,
     bool MaskedByNormalMapAlpha);
 
+/// <summary>A material's specular highlight, <c>$phong</c>.</summary>
+/// <param name="Exponent">How tight the highlight is; 5 by default, which is broad.</param>
+/// <param name="Boost">
+/// How far it is pushed past the light's own brightness. **One calibration with the mask**, which
+/// the parameter's own declaration says: "specular mask channel should be authored to account for
+/// this".
+/// </param>
+/// <param name="Fresnel">
+/// <c>$phongfresnelranges</c>, **already encoded** as <c>((mid-min)*2, mid, (max-mid)*2)</c> the way
+/// the shader wants it. The raw triple is silently wrong rather than obviously wrong.
+/// </param>
+/// <param name="Tint">The colour the highlight is multiplied by; white unless <c>$phongtint</c>.</param>
+/// <param name="MaskedByBaseAlpha">
+/// Whether the mask is the base texture's alpha rather than the bump map's. The flag also asserts
+/// there is no normal map at all.
+/// </param>
+/// <remarks>
+/// **330 materials on cp_process ask for this, and it is why every model reads dull.** TF2's
+/// characters and weapons take most of their definition from a highlight that moves with the light,
+/// and a viewer without it draws them as flat colour.
+/// </remarks>
+internal readonly record struct MapPhong(
+    float Exponent,
+    float Boost,
+    (float Low, float Mid, float High) Fresnel,
+    (float Red, float Green, float Blue) Tint,
+    bool MaskedByBaseAlpha);
+
 /// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
 /// <param name="Faces">
 /// The six cube directions in Valve's order, which is <c>+X, −X, +Y, −Y, +Z, −Z</c> — the same
@@ -187,6 +215,7 @@ internal readonly record struct MapPlacedCubemap(
 /// and so has no cubemap of its own. Null for every other material, including one that reflects
 /// nothing — the two are distinguished because they draw differently.
 /// </param>
+/// <param name="Phong">The specular highlight this material asks for, or null.</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -200,7 +229,8 @@ internal readonly record struct ResolvedMaterial(
     IReadOnlyCollection<string>? Declared = null,
     string Shader = "",
     MapCubemap? Cubemap = null,
-    MapEnvmapShading? LocalReflection = null);
+    MapEnvmapShading? LocalReflection = null,
+    MapPhong? Phong = null);
 
 /// <summary>
 /// Everywhere the game's content can live, searched in the order the engine searches it.
@@ -497,6 +527,15 @@ internal sealed class MapAssets
     /// decoded — all of which are legal and draw matte.
     /// </remarks>
     public IReadOnlyList<MapPlacedCubemap> PlacedCubemaps { get; private init; } = [];
+
+    /// <summary>The specular highlight for each material, null for those without one.</summary>
+    /// <remarks>
+    /// **330 of cp_process's materials ask for this**, which made it the largest single unimplemented
+    /// parameter for as long as it was one. A model without it reads as flat colour, because TF2's
+    /// characters take most of their shape from a highlight that moves with the light rather than
+    /// from their diffuse texture.
+    /// </remarks>
+    public IReadOnlyList<MapPhong?> Phong { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -899,6 +938,7 @@ internal sealed class MapAssets
             RefusedPropLighting = refusedLighting,
             LocalReflections = table.LocalReflections,
             PlacedCubemaps = LoadPlacedCubemaps(map, pak, maximumTextureSize),
+            Phong = table.Phong,
         };
     }
 
@@ -1138,7 +1178,26 @@ internal sealed class MapAssets
             material.Keys,
             material.Shader,
             ResolveCubemap(),
-            ResolveLocalReflection());
+            ResolveLocalReflection(),
+            ResolvePhong());
+
+        MapPhong? ResolvePhong()
+        {
+            // **A boolean, not a texture**, so there is nothing to fail to load: a material either
+            // asks for a highlight or does not. Everything else has a declared default, and two of
+            // those defaults matter — the exponent is 5 (broad) and the boost is 1.
+            if (!material.HasPhong)
+            {
+                return null;
+            }
+
+            return new MapPhong(
+                material.PhongExponent,
+                material.PhongBoost,
+                material.PhongFresnelRanges,
+                material.PhongTint ?? (1f, 1f, 1f),
+                material.UsesBaseMapAlphaAsPhongMask);
+        }
 
         MapEnvmapShading? ResolveLocalReflection()
         {

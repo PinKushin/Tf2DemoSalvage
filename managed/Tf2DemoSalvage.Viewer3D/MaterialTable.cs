@@ -38,6 +38,7 @@ internal sealed class MaterialTable
     private readonly List<MapBump?> _bumps = [];
     private readonly List<MapCubemap?> _cubemaps = [];
     private readonly List<MapEnvmapShading?> _localReflections = [];
+    private readonly List<MapPhong?> _phong = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
 
     /// <summary>How many materials the table holds.</summary>
@@ -71,6 +72,9 @@ internal sealed class MaterialTable
     /// </remarks>
     public IReadOnlyList<MapEnvmapShading?> LocalReflections => _localReflections;
 
+    /// <summary>The specular highlight for each material, null for those without one.</summary>
+    public IReadOnlyList<MapPhong?> Phong => _phong;
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies => _proxies;
 
@@ -93,6 +97,7 @@ internal sealed class MaterialTable
         _bumps.Add(resolved.Bump);
         _cubemaps.Add(resolved.Cubemap);
         _localReflections.Add(resolved.LocalReflection);
+        _phong.Add(resolved.Phong);
         _proxies.Add(resolved.Proxies ?? []);
 
         return index;
