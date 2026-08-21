@@ -1940,6 +1940,33 @@ So the rule below is not deference for its own sake. **A divergence is a variabl
 uncontrolled variable makes every measurement downstream of it meaningless** — which is why matching
 Valve first is cheaper than reasoning about why their value misbehaves.
 
+### The failure mode this guards against, by analogy
+
+> *"think about it like this, if you were to just randomly come across quakes fast inverse square
+> root function, you would immediately notice it isnt a perfect approximation and probably call it a
+> bug, try to fix it, but that would be wrong and bad to do, because then quake will start rendering
+> at a snails pace, im sure theres a bunch of that in valves code."*
+
+**An apparent defect in expert code is usually a trade whose other side is invisible at the site.**
+`0x5f3759df` looks like a magic number, the Newton step looks like it is missing iterations, and the
+result is measurably wrong — every local signal says bug. The thing it is traded against, a
+reciprocal square root per vertex per frame, is nowhere in the function.
+
+The practical rule that follows, and it is a rule about **evidence** rather than about respect:
+**before changing anything of Valve's, name what it is trading against.** If that cannot be named,
+the code is not understood well enough to change, and the honest move is to reproduce it exactly and
+record the puzzlement — `docs/findings/` exists for precisely that.
+
+Candidates already met here that look wrong and are not: `SHADER_POLYOFFSET_DECAL` as an enum where a
+float would do, the decal bias being a raw buffer-unit constant rather than a world distance, an
+overlay's face list including faces at 45 degrees to its own basis, and `m_nFaceCountAndRenderOrder`
+packing two fields into one short. Each was read as a defect or an oddity at some point in this
+project; each is deliberate.
+
+**The asymmetry is what makes the rule cheap:** reproducing something correct costs nothing, and
+"fixing" something correct costs a defect plus the time to find it again. Two of tonight's hours went
+to exactly that.
+
 
 
 **Owner's direction, 2026-08-21**, given while `$lightwarptexture` was being specified and it became
