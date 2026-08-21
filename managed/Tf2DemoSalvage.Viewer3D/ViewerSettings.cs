@@ -170,11 +170,21 @@ internal sealed record ViewerSettings
     /// picking its own. A value outside them is clamped rather than refused, which is what the
     /// engine's own ConVar bounds do.
     ///
+    /// **The DEFAULT here is 70, the top of that range, and not the game's 54** (D43). The owner
+    /// asked for it after trying to check the hands: "the 55 doesnt let me see the hands or arms to
+    /// check those". This is a tool for looking at what a demo contains, and at 54 the arms sit
+    /// mostly outside the frame.
+    ///
+    /// **It is a divergence from the game's default and not from the game's behaviour**, which is
+    /// the distinction that makes it acceptable here. 70 is a value a TF2 player can set, so every
+    /// frame drawn at it is a frame the engine could draw; nothing is being invented. The bounds are
+    /// still the engine's, so a config asking for 90 gets 70 exactly as it would in game.
+    ///
     /// **TF2 reads a different convar while a demo plays** — <c>viewmodel_fov_demo</c>, same
     /// default — and this viewer is always in that case. One setting covers both because their
     /// defaults agree; if a future TF2 separates them, this is the note that says which one applies.
     /// </remarks>
-    public float ViewmodelFieldOfView { get; init; } = ViewmodelPass.FieldOfView;
+    public float ViewmodelFieldOfView { get; init; } = ViewmodelPass.LargestFieldOfView;
 
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>
@@ -344,6 +354,8 @@ internal sealed record ViewerSettings
         text.AppendLine();
         text.AppendLine("// Field of view for the weapon in your hands, in degrees. TF2 allows 54");
         text.AppendLine("// to 70 and defaults to 54; anything outside that is clamped, as in game.");
+        text.AppendLine("// This viewer defaults to 70 instead, because at 54 the arms are mostly");
+        text.AppendLine("// out of frame and this is a tool for looking at them. Set 54 for parity.");
         text.AppendLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{ViewmodelFieldOfViewCommand} {ViewmodelFieldOfView:0.##}"));

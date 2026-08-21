@@ -113,6 +113,78 @@ public sealed class OffHandProbe
         return (bestFrom, bestLength);
     }
 
+    [Test]
+    [Explicit("diagnostic")]
+    public void MainHandViewmodel_OnTheUiSuitesDemo_IsReported()
+    {
+        // **Which tick the UI capture should open at.** That test jumps to the END of this demo, for
+        // a reason about the installed game rather than the picture: at tick 0 the recording names
+        // `v_scattergun_scout.mdl`, which TF2 no longer ships, so nothing draws. Nobody chose the
+        // framing, and at the end of a solo recording the player is parked facing a wall — so the
+        // capture is of planks, with no viewmodel in it.
+        //
+        // This reports where the recorder both HAS a viewmodel and is alive, so a tick can be picked
+        // on evidence instead of on the demo's last frame.
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("tf2-2013-build1729296-pov-cp_badlands"));
+
+        // Nullable, because a SourceTV recording has no local player at all. This demo is a POV
+        // recording so it has one, and saying so out loud is cheaper than a cast that would throw.
+        if (timeline.RecorderEntityIndex is not { } recorder)
+        {
+            Assert.Ignore("this demo names no recorder, so it is not the point-of-view case");
+            return;
+        }
+
+        Dictionary<string, (int First, int Last, int Samples)> byModel = [];
+
+        for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick += 33)
+        {
+            if (timeline.ViewmodelAt(tick, recorder) is not { } weapon)
+            {
+                continue;
+            }
+
+            byModel[weapon.ModelPath] =
+                byModel.TryGetValue(weapon.ModelPath, out (int First, int Last, int Samples) seen)
+                    ? (seen.First, tick, seen.Samples + 1)
+                    : (tick, tick, 1);
+        }
+
+        foreach ((string model, (int first, int last, int samples)) in
+            byModel.OrderByDescending(pair => pair.Value.Samples))
+        {
+            TestContext.Out.WriteLine(
+                $"  {model}: {samples} samples, ticks {first}..{last}");
+        }
+
+        TestContext.Out.WriteLine($"  recorder is entity {recorder}, ticks {timeline.FirstTick}..{timeline.LastTick}");
+
+        // **Where the recorder actually IS, because a viewmodel is not enough.** Tick 3400 has a
+        // drawn pyro viewmodel and is still a bad capture: the player is pressed against a spawn
+        // gate, and brush entities are drawn at their COMPILED position (B71), so that gate is shut
+        // for the whole demo whatever the demo says. A frame worth looking at needs the player out
+        // in the map as well as holding something.
+        TestContext.Out.WriteLine(string.Empty);
+
+        foreach (int tick in new[] { 300, 600, 900, 1200, 1500, 2000, 2500, 3000, 5000, 6000, 7000 })
+        {
+            if (timeline.RecordedViewAt(tick) is not { } view)
+            {
+                continue;
+            }
+
+            string model = timeline.ViewmodelAt(tick, recorder) is { } held
+                ? System.IO.Path.GetFileNameWithoutExtension(held.ModelPath)
+                : "none";
+
+            TestContext.Out.WriteLine(
+                $"  tick {tick}: at ({view.Origin.X:0},{view.Origin.Y:0},{view.Origin.Z:0}) " +
+                $"facing yaw {view.Angles.Yaw:0} holding {model}");
+        }
+
+        byModel.ShouldNotBeEmpty("the recorder never carries a viewmodel, so no tick can be chosen");
+    }
+
     /// <summary>The viewer's own rule, restated: lowest entity index on a playing team.</summary>
     /// <remarks>
     /// Duplicated rather than referenced because <c>SpectatorTarget</c> lives in the viewer assembly

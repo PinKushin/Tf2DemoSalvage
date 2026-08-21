@@ -4,7 +4,7 @@ Short record of every locked decision from planning, with the reasoning. If you'
 
 ## Adding a decision
 
-**The next number is D43.** Take it from the index below, never by scrolling to the end — entries are
+**The next number is D44.** Take it from the index below, never by scrolling to the end — entries are
 in the order they were written and the file is not sorted, so the last heading is not the highest
 number. D32 and D33 sit between D34 and D35.
 
@@ -67,6 +67,7 @@ live source comments, and half the "D20" citations pointed each way.
 | D40 | no scripted edits to source files |
 | D41 | this project's measurement check names this project |
 | D42 | the viewmodel lookup answers the main hand |
+| D43 | the viewmodel field of view defaults to 70, the top of the game's range |
 
 ## D1. Scope: extraction first, 2D viewer, 3D viewer (primitives first), repair parked
 
@@ -1761,3 +1762,36 @@ weapon merged onto it: each path is a complete model, not arms.
 schema that describes it, so "did the 2009 build send this property" is a question the 2009 file
 answers itself. `ViewmodelConformanceTests` asserts the property's presence and its 1-bit unsigned
 width against each demo's own schema, back to the 2007 build.
+
+## D43 — the viewmodel field of view defaults to 70, the top of the game's range
+
+**Owner's decision, 2026-08-20**, made while trying to check whether the hands and arms were drawn
+correctly: "the 55 doesnt let me see the hands or arms to check those". Then, on being told 75 would
+be outside what TF2 permits: "sorry 70 if thats parity."
+
+TF2 declares the convar with a default of 54 and hard bounds of 54 and 70:
+
+```cpp
+ConVar v_viewmodel_fov( "viewmodel_fov", "54", FCVAR_ARCHIVE, ..., true, 54, true, 70, NULL );
+```
+
+This viewer keeps the bounds and changes the default to 70.
+
+**The distinction that makes this acceptable is between the game's DEFAULT and the game's
+BEHAVIOUR.** 70 is a value any TF2 player can set, so every frame drawn at it is a frame the engine
+could draw — nothing is invented and no geometry appears that a player could not see. A config asking
+for 90 still gets 70, exactly as in game, because the bounds are unchanged. What is being departed
+from is only the number a player sees before touching the setting.
+
+**And the reason is what this program is for.** It exists to show what a demo contains, and at 54 the
+arms sit mostly outside the frame — which is precisely the thing that could not be checked while the
+viewmodel work was going on. A default that hides the subject is the wrong default for a tool whose
+job is inspection, even when it is the game's own.
+
+The exchange is worth keeping for its shape: the owner asked for 75, was told that exceeds the
+engine's clamp, and immediately chose parity over convenience. **The bound is the engine's and the
+default is ours** — set `viewmodel_fov 54` in the settings file for the player's-eye value.
+
+`ViewerSettingsTests` covers the clamp at both ends, which is the part that must not drift; the
+default is stated in `ViewerSettings.ViewmodelFieldOfView` and written into the generated config with
+the reason beside it.

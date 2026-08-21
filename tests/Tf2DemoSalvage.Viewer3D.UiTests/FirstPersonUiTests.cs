@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Linq;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Tools;
@@ -120,18 +122,18 @@ public sealed class FirstPersonUiTests
         //
         // Through the harness rather than SendKeys, because a synthesized keystroke goes to
         // whatever window has focus — which on a shared desktop is somebody else's work.
-        // **Jump to the end first, and the reason is the installed game rather than the code.**
-        // A demo's precache names the model the RECORDING used, and TF2 replaced the v_models with
-        // c_models around 2011 — so this 2013 recording names v_scattergun_scout.mdl at tick 0,
-        // which the current install no longer ships, and the renderer correctly draws nothing.
-        // At the last tick it names c_sniper_arms.mdl, which is installed.
         //
-        // Measured rather than assumed: CorpusViewmodelTests reports the resolved path at both
-        // ends of every demo, and that is where these two came from.
-        Viewer.Find(TransportBar.EndButtonId).AsButton().Invoke();
-
+        // **This used to jump to the END, and that is where the wall came from.** The justification
+        // was that TF2 no longer ships the `v_` viewmodels a 2013 recording names, so only the demo's
+        // last stretch — where a `c_` model appears — could draw anything. That claim is false: `v_`
+        // models ship inside the VPKs and this project renders them, which every off-hand watch in
+        // `z1800` demonstrates. The end tick was therefore chosen to satisfy a constraint that did
+        // not exist, with no regard for what was in front of the camera.
+        //
+        // The session now opens at a measured tick (`ViewerSession.OpeningTick`) where the recorder
+        // is out on the map holding a rocket launcher, so there is nothing to jump to.
         Retry.WhileFalse(
-            () => Viewer.Count("viewmodel models/weapons/c_models") > 0,
+            () => Viewer.Count("viewmodel models/weapons/") > 0,
             TimeSpan.FromSeconds(10));
 
         Viewer.PressKey(VirtualKeyShort.F12);
@@ -147,18 +149,16 @@ public sealed class FirstPersonUiTests
             throwOnTimeout: true,
             timeoutMessage: "V did not enter the first-person view, so there is nothing to capture.");
 
-        // **Wait for the viewmodel to be RESOLVED, not drawn.** Whether it draws depends on the
-        // installed game: a demo's precache names the model the recording used, and TF2 replaced
-        // the v_models with c_models around 2011 — so a 2013 recording can name
-        // v_scattergun_scout.mdl at a tick where the current install has no such file. The
-        // renderer reports that honestly as "no-batches" and draws nothing, which is correct
-        // behaviour rather than a defect.
-        //
-        // So the condition is that the lookup happened. A capture with empty hands is still the
-        // right capture when the model is not on this machine.
+        // **Wait for the viewmodel to be DRAWN, not merely resolved.** This waited on the lookup
+        // instead, excused by the claim that a 2013 recording names `v_` models the current install
+        // no longer ships — so "a capture with empty hands is still the right capture". The claim is
+        // false: `v_` models ship in the VPKs and render here. Waiting on the weaker condition is
+        // what let this test photograph a frame with nothing in the hands and call it a success.
         Retry.WhileFalse(
-            () => Viewer.Count("viewmodel models/") > 0,
-            TimeSpan.FromSeconds(15));
+            () => Viewer.Count("viewmodel pass: drawing") > 0,
+            TimeSpan.FromSeconds(15),
+            throwOnTimeout: true,
+            timeoutMessage: "The viewmodel never reached the screen, so the capture would show none.");
 
         Viewer.PressKey(VirtualKeyShort.F12);
 
@@ -171,6 +171,68 @@ public sealed class FirstPersonUiTests
             timeoutMessage: "No screenshot was written for the first-person view.");
 
         Viewer.Count("wrote ").ShouldBeGreaterThan(1);
+
+        // **The viewmodel is the subject, so its absence is a failure rather than a shrug.** This
+        // test is named for capturing the first-person view and the owner's point was blunt: the
+        // frame being checked had no viewmodel in it. The pass reports what it drew, so ask.
+        Viewer.Count("viewmodel pass: drawing").ShouldBeGreaterThan(
+            0, "the viewmodel never reached the screen, so the capture shows the wrong thing");
+
+        // **And that the frame is a view rather than a surface.** Measured before it was asserted:
+        // the wall this used to photograph holds 18 distinct colours and the map view holds 146, so
+        // the threshold sits between them with room on both sides. Brightness could not separate
+        // them — 93 per cent of the map capture's pixels are lit, and planks are lit too.
+        ReportStructure().ShouldBeGreaterThan(
+            FlatFrameColours,
+            "the capture is nearly one colour, which is what a wall in front of the camera looks like");
+    }
+
+    /// <summary>Below this, a frame is one surface rather than a view.</summary>
+    /// <remarks>
+    /// Measured, not chosen: 18 for the wall this suite used to capture, 146 for the map view. Forty
+    /// is clear of both, and the gap is wide enough that it does not need to be exact.
+    /// </remarks>
+    private const int FlatFrameColours = 40;
+
+    /// <summary>Says how much variety the newest capture holds, for choosing a threshold.</summary>
+    /// <remarks>
+    /// **Only <see cref="IOException"/> is caught, and for a named reason.** The viewer prunes its
+    /// captures to the twenty most recent after writing each one, so the file listed a moment ago
+    /// can be gone by the time it is opened — the same race that already broke the wait in
+    /// <c>ViewportPictureUiTests</c>. Anything else must propagate: this is a diagnostic, and a
+    /// diagnostic that hides its own failure is worse than none.
+    /// </remarks>
+    /// <returns>How many distinct colours the newest capture holds.</returns>
+    private static int ReportStructure()
+    {
+        string folder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Tf2DemoSalvage");
+
+        string? newest = Directory.EnumerateFiles(folder, "shot-*.png")
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .LastOrDefault();
+
+        newest.ShouldNotBeNull("no capture was written, so there is nothing to measure");
+
+        try
+        {
+            using System.Drawing.Bitmap picture = new(newest);
+
+            int colours = FrameStructure.Colours(picture);
+
+            TestContext.Out.WriteLine($"STRUCTURE {Path.GetFileName(newest)}: {colours} distinct colours");
+
+            return colours;
+        }
+        catch (IOException pruned)
+        {
+            // **Rethrown as a failure rather than reported.** The viewer prunes its captures to the
+            // twenty most recent, so this file can vanish between listing and opening — but a
+            // measurement that cannot be taken must not read as a measurement that passed.
+            throw new AssertionException(
+                $"{Path.GetFileName(newest)} could not be read: {pruned.Message}", pruned);
+        }
     }
 
     [Test]

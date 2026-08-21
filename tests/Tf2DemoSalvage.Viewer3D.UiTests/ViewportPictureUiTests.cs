@@ -105,6 +105,20 @@ public sealed class ViewportPictureUiTests
         // A map fills a good part of the viewport. Nearly black means the world never drew, which
         // is the failure this whole exercise exists to notice.
         lit.ShouldBeGreaterThan(sampled / 20, "the viewer should be showing a map");
+
+        // **And how much is in it, which brightness cannot say.** A wall a few feet from the camera
+        // passes the assertion above without difficulty — 93 per cent of THIS capture's pixels are
+        // lit, and planks are lit too — so counting lit pixels could not tell a view of the map from
+        // a view of a surface. The owner could, by looking, which is how it was found.
+        //
+        // Measured before it was asserted: 18 distinct colours for the wall the first-person capture
+        // used to be, 146 for this one.
+        int colours = FrameStructure.Colours(picture);
+
+        TestContext.Out.WriteLine($"STRUCTURE {Path.GetFileName(shot)}: {colours} distinct colours");
+
+        colours.ShouldBeGreaterThan(
+            40, "the capture is nearly one colour, so the viewer is not showing the map");
     }
 
     private static string[] Shots() =>

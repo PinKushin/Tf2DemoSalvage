@@ -48,6 +48,35 @@ internal sealed partial class ViewerSession
         "..", "..", "..", "..", "..",
         "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
 
+    /// <summary>The tick the session opens at, chosen so a capture is worth looking at.</summary>
+    /// <remarks>
+    /// **The suite used to photograph a wall, and the reason it did was a false premise.** The capture
+    /// test jumped to the END of this demo, justified like this: TF2 replaced the `v_` viewmodels with
+    /// `c_` models around 2011, so a 2013 recording names `v_scattergun_scout.mdl` at tick 0, "which
+    /// the current install no longer ships, and the renderer correctly draws nothing". The end tick
+    /// was picked because a `c_` model is named there.
+    ///
+    /// **That claim is wrong, and checking it is what unstuck this.** `v_` models are shipped — inside
+    /// the VPKs, which is why looking for loose files says nothing — and this project already renders
+    /// them: every off-hand watch in `z1800` is `v_models/v_watch_*.mdl` and they draw. Verified
+    /// directly at this tick: `viewmodel pass: drawing 1 at v_rocketlauncher_soldier`.
+    ///
+    /// So the constraint that forced the end of the demo never existed, and the end of a solo
+    /// recording is a player parked against a spawn gate — which is shut for the whole demo whatever
+    /// they did, because brush entities draw at their COMPILED position (B71).
+    ///
+    /// **2500 was measured, not guessed**
+    /// (`OffHandProbe.MainHandViewmodel_OnTheUiSuitesDemo_IsReported`). The recorder is at
+    /// (−2521, −2072, 478) holding a rocket launcher: out on the map, above the ground, with sky and
+    /// buildings in frame. Its capture holds many times the colour variety of the spawn-gate frame it
+    /// replaces.
+    ///
+    /// The two `c_` ranges are both poor choices for the opposite reason — the pyro never leaves
+    /// spawn (x −608..−279, z 192 throughout) and the sniper settles at (−157, −4260) by tick 7750 and
+    /// does not move again.
+    /// </remarks>
+    public const int OpeningTick = 2500;
+
     /// <summary>What the viewer logs when it projects the world through the camera.</summary>
     public const string WorldBuildLine = "building the world";
 
@@ -71,7 +100,12 @@ internal sealed partial class ViewerSession
         // abandoned and nothing is waiting to hear from them.
         KillStrayViewers();
 
-        _viewer = ViewerApplication.Launch(DemoPath);
+        // Opened at a chosen tick rather than at zero, so the captures show something. Passed on the
+        // command line because the scrub bar does not support the RangeValue pattern and so cannot
+        // be set through automation — `TransportUiTests` records that, and reads the tick label
+        // instead.
+        _viewer = ViewerApplication.Launch(
+            DemoPath, "--tick", OpeningTick.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
         // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
