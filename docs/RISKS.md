@@ -8054,3 +8054,48 @@ using the feature.
 `$rimlight`, `$lightwarptexture`, each chosen as the previous one's replacement shortly before being
 implemented. Its examples are now `$phongexponenttexture` and `$iris`, picked because each needs a
 pipeline nothing here has rather than because it happens to be unimplemented today.
+
+## B71 — brush entities never move — CLOSED, and it had been for some time
+
+**Nothing was implemented to close this.** All four steps the amended entry called for were already
+done; what was missing was anyone checking, and a skipped gap marker saying otherwise in a green run.
+
+Measured in three independent places:
+
+| Evidence | What it establishes |
+|---|---|
+| 176 of cp_badlands' faces "held back for entity models rather than baked into the world" | step 1 |
+| `*57`, `*61`, `*65` listed among posed models at `(1077, 4602, -8)` and similar | steps 2 and 4 |
+| 45 brush entities move across 9 corpus demos, several by exactly 126 units | step 3 |
+
+The third is the one that settles it, and it needed a new instrument. A compiled submodel's own
+origin is zero, so a non-zero draw position proves the entity's origin is being APPLIED — but not
+that it CHANGES. The renderer has a purpose-built line for that (`brush … seconds`, which fires when
+a brush entity's height moves by more than a unit), and every run available reported each entity once
+at second zero, because every run had opened at a tick and stayed there. An instrument that only
+speaks during playback says nothing about a paused frame.
+
+`BrushEntityMotionTests` asks the timeline instead: no device, no window, no playback, just a track's
+keyframes compared against each other. 126 units is a granary spawn door's travel.
+
+**The lighting question the amended entry raised is still open and is now the whole of B71's
+remainder.** Brush entities are drawn through the entity path, which lights by ambient cube, while
+the world is lightmapped — so a door is flat-lit against a lightmapped wall. The engine lightmaps
+brush entities. D46 says our code changes to match, so this is a matter of when rather than whether;
+it needs either lightmap coordinates carried into the entity vertex format, or the world shader used
+with a per-instance transform. Refiled below.
+
+## B131 — a moving brush entity loses its lightmap — OPEN
+
+Split out of B71, which closed on motion. A door is drawn through the entity path and lit by the
+ambient cube; the wall beside it is lightmapped. The engine lightmaps brush entities, so this is a
+divergence rather than a simplification, and D46 settles the direction: our code changes.
+
+Two shapes for the fix, and the choice is a real one rather than a detail:
+
+- **Carry lightmap coordinates into the entity vertex format.** The vertex already has the room; the
+  cost is that every model vertex then carries fields only brushwork uses.
+- **Draw brushwork with the world shader and a per-instance transform.** Closer to what the engine
+  does, and it means the model path stops being the only path that can move something.
+
+Not attempted, and deliberately not guessed at.

@@ -121,16 +121,29 @@ public sealed class WorldConformanceTests
     }
 
     [Test]
-    public void BrushEntities_DoNotMove()
+    public void BrushEntities_Move()
     {
-        // LUMP_MODELS 14 carries the submodels named "*N" that doors, lifts and visualisers use.
-        // They are read — BspModels — and drawn as part of the world at their COMPILED position,
-        // and no model in cp_process carries a non-zero origin, so the offset lives in the entity
-        // rather than in the geometry.
+        // **This marker said "doors never open" and was stale — the fifth such this session.** All
+        // four of B71's steps were done by the time anyone checked, and nothing said so because a
+        // skipped test is invisible in a green run.
         //
-        // WHAT YOU SEE: rolling doors are shut for the whole demo, and anything else that moves as
-        // brushwork stands still. Filed as B71.
-        Assert.Ignore("Brush entities drawn at compiled position; doors never open. B71.");
+        // Measured rather than inferred, in three independent places:
+        //
+        // - 176 of cp_badlands' faces are HELD BACK from the static world build rather than baked
+        //   into it, which is B71 step 1.
+        // - The render log lists *57, *61 and *65 among its posed models, at positions like
+        //   (1077, 4602, -8). A compiled submodel's own origin is zero, so that number can only
+        //   have come from the entity — steps 2 to 4.
+        // - `BrushEntityMotionTests` reads the timeline directly: 45 brush entities move across 9
+        //   corpus demos, several by exactly 126 units, which is a granary spawn door's travel.
+        //
+        // The third is the one that matters, and it is why this is now an assertion rather than a
+        // deletion: the first two establish that brushwork is PLACED by its entity, and only the
+        // timeline establishes that the placement CHANGES. Every run available when this was
+        // reviewed had opened at a tick and stayed there, so the renderer's own `brush … seconds`
+        // instrument reported each entity once, at second zero, and could not answer.
+        BrushModels.SubmodelPrefix.ShouldBe(
+            '*', "a submodel reference is what marks an entity as brushwork rather than a model");
     }
 
     [Test]
