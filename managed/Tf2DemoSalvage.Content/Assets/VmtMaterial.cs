@@ -572,7 +572,33 @@ public sealed class VmtMaterial
     /// lines below, <c>alpha *= baseColor.a</c> is guarded by <c>!bBaseAlphaEnvmapMask</c>, because
     /// the alpha channel has been spent on the mask and cannot also mean opacity.
     /// </remarks>
-    public bool UsesBaseAlphaAsEnvMapMask => Flag("$basealphaenvmapmask");
+    public bool UsesBaseAlphaAsEnvMapMask =>
+        Flag("$basealphaenvmapmask") && !UsesNormalMapAlphaAsEnvMapMask;
+
+    /// <summary>Whether the bump map's alpha masks the reflection.</summary>
+    /// <remarks>
+    /// **The mask TF2's models use, and its sense is the OPPOSITE of
+    /// <see cref="UsesBaseAlphaAsEnvMapMask"/>.** Not inverted:
+    ///
+    /// <code>
+    /// if ( bNormalMapAlphaEnvmapMask )
+    ///     specularFactor = normalTexel.a;
+    /// </code>
+    ///
+    /// (<c>vertexlit_and_unlit_generic_bump_ps2x.fxc:169</c>, and
+    /// <c>specularFactor *= vNormal.a</c> in <c>lightmappedgeneric_ps2_3_x.h</c>).
+    /// An alpha of 1 reflects MOST, where an opaque texel
+    /// under the base-alpha mask reflects least. Implementing this with the other's sense puts the
+    /// shine exactly where the artist masked it out.
+    ///
+    /// **A bumped material cannot use the base-alpha mask at all**, which is why models use this
+    /// one. <c>lightmappedgeneric_dx9_helper.cpp:197</c> warns and drops the envmap outright when a
+    /// material has a normal map and <c>$basealphaenvmapmask</c>, and clears that flag when this one
+    /// is set — which is what the guard on the property above reproduces. The three masks are
+    /// mutually exclusive by construction: the shader declares
+    /// <c>SKIP: $NORMALMAPALPHAENVMAPMASK &amp;&amp; $BASEALPHAENVMAPMASK</c>.
+    /// </remarks>
+    public bool UsesNormalMapAlphaAsEnvMapMask => Flag("$normalmapalphaenvmapmask");
 
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>

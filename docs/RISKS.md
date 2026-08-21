@@ -7829,3 +7829,46 @@ that reflections draw.
 **TO IMPLEMENT**: the bump map is already decoded and bound at t4. This is its alpha channel
 multiplied into the specular term in the same place `envmapControl.y` applies the base-alpha mask —
 **before the tint**, and therefore before contrast squares it, which is the ordering B125 fixed.
+
+## B55 final piece — `$normalmapalphaenvmapmask` — CLOSED 2026-08-21
+
+Implemented following `vertexlit_and_unlit_generic_bump_ps2x.fxc:169` and
+`lightmappedgeneric_ps2_3_x.h:391`. The bump map's alpha is the specular factor **as-is**:
+
+```cpp
+if ( bNormalMapAlphaEnvmapMask )
+    specularFactor = normalTexel.a;
+```
+
+Assigned, not inverted — the opposite sense from `$basealphaenvmapmask`, which is
+`specularFactor *= 1.0 - blendedAlpha` and carries Valve's own note "Reversing alpha blows!".
+
+**Carried as a MODE rather than two flags**, because the two are mutually exclusive by construction
+(`SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK`) and a bumped material cannot use the
+base-alpha one at all — `lightmappedgeneric_dx9_helper.cpp:197` warns and drops the envmap outright.
+`VmtMaterial.UsesBaseAlphaAsEnvMapMask` now yields to this one, reproducing the engine's
+`CLEAR_FLAGS( MATERIAL_VAR_BASEALPHAENVMAPMASK )`. A pair of independent flags would admit a state
+Valve forbids and leave open which wins.
+
+Measured: **16 reflective materials** on cp_process_final are masked this way, `cap_point_base` among
+them.
+
+### The test that could not fail, and what fixed it
+
+**Inverting the mask left all 522 viewer tests green.** Nothing else in the shader varies with the
+bump map's alpha, so nothing could tell `alpha` from `1 - alpha` — the exact defect the conformance
+test warns about, undetectable by every instrument that existed.
+
+The first replacement was no better and it is worth recording why. It took the bump map's alpha
+EXTREMES and compared the rendered pixels — and passed against the inverted mask, because **moving
+the texture coordinate moves the albedo too**, and the albedo is the larger term. The assertion was
+measuring the base texture.
+
+The fix was to the CONDITION, not the assertion: two coordinates whose bump alpha differs by at
+least 100 levels and whose base colour differs by at most 2. Holding the albedo still leaves the mask
+as the only surviving difference. Verified by manipulation — with `1 - alpha` in the shader the
+high-alpha texel renders (43, 37, 35) against the low one's (54, 44, 40), and with Valve's `alpha`
+it is (51, 43, 41) against (45, 37, 34). The order reverses, which is the whole prediction.
+
+Same shape as `docs/memory/cancelling-sabotages-mean-coupled-tests.md`: ask whether there is an input
+where correct and broken differ, before asking whether the assertion detects it.

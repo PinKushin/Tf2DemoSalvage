@@ -69,6 +69,19 @@ internal static class MaterialCensus
         "$envmapsaturation",
         "$basealphaenvmapmask",
 
+        // **The mask TF2's models actually use, and its sense is the opposite of the one above.**
+        // $basealphaenvmapmask is `specularFactor *= 1.0 - blendedAlpha`; this one is
+        // `specularFactor = normalTexel.a`, assigned rather than inverted. They are mutually
+        // exclusive by construction and a BUMPED material cannot use the base-alpha one at all, so
+        // implementing only that covered none of TF2's reflective props.
+        "$normalmapalphaenvmapmask",
+
+        // Read but deliberately not applied: $fresnelreflection defaults to 1, which is "mirror",
+        // and at 1 the Schlick term collapses to a constant. Counted as implemented because the
+        // renderer reads the value and uses it — the fact that the default is the identity is the
+        // engine's design, not a gap. B125.
+        "$fresnelreflection",
+
         // The per-material modulation. $color2 MULTIPLIES $color rather than replacing it
         // (BaseShader.h:271 states the operation on the helper's declaration), and $alpha is
         // clamped to 0..1 where the colour channels deliberately are not. All three reach the

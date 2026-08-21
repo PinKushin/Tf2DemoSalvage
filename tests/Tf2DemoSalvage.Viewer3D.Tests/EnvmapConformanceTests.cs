@@ -241,6 +241,62 @@ public sealed class EnvmapConformanceTests
     }
 
     [Test]
+    public void Envmap_TheNormalMapAlphaMask_IsNotInverted()
+    {
+        // **The mask TF2's models actually use, and it is the opposite sense from the one already
+        // implemented.** $basealphaenvmapmask is `specularFactor *= 1.0 - blendedAlpha` — annotated
+        // "Reversing alpha blows!" — so an opaque texel reflects least. This one is not reversed:
+        //
+        //     if ( bNormalMapAlphaEnvmapMask )
+        //         specularFactor = normalTexel.a;
+        //
+        // (vertexlit_and_unlit_generic_bump_ps2x.fxc:169, and `specularFactor *= vNormal.a` twice
+        // in lightmappedgeneric_ps2_3_x.h). An alpha of 1 reflects MOST.
+        //
+        // Implementing this with the base-alpha sense would put the shine exactly where the artist
+        // masked it out — the same failure the other mask's own conformance test warns about, in
+        // mirror image, and equally invisible to any test that only asks whether a reflection
+        // varies.
+        //
+        // **A bumped material cannot use the base-alpha mask at all**, which is why this is not
+        // optional for models. lightmappedgeneric_dx9_helper.cpp:197 warns and drops the envmap
+        // outright when both are present, and clears the flag when this one is set. So a material
+        // with $bumpmap and $basealphaenvmapmask reflects NOTHING in the engine, and TF2's model
+        // materials use $normalmapalphaenvmapmask accordingly.
+        RequireEnvmapDrawn();
+
+        string model = Sdk("src/materialsystem/stdshaders/vertexlit_and_unlit_generic_bump_ps2x.fxc");
+        string world = Sdk("src/materialsystem/stdshaders/lightmappedgeneric_ps2_3_x.h");
+        string helper = Sdk("src/materialsystem/stdshaders/lightmappedgeneric_dx9_helper.cpp");
+
+        model.ShouldContain(
+            "specularFactor = normalTexel.a;",
+            Case.Sensitive,
+            "assigned, not inverted and not subtracted from one");
+
+        world.ShouldContain(
+            "specularFactor *= vNormal.a;",
+            Case.Sensitive,
+            "and the world shader multiplies the same channel in, also uninverted");
+
+        // **The control, against the mask this project already has.** Both lines are in the same
+        // file, so finding one and not the other says something about the shader rather than about
+        // the search.
+        world.ShouldContain(
+            "specularFactor *= 1.0 - blendedAlpha",
+            Case.Sensitive,
+            "the base-alpha mask IS inverted, which is what makes the assertion above meaningful");
+
+        // The exclusivity, which is why an implementation cannot simply support both at once.
+        world.ShouldContain("SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK");
+
+        helper.ShouldContain(
+            "CLEAR_FLAGS( MATERIAL_VAR_BASEALPHAENVMAPMASK )",
+            Case.Sensitive,
+            "the normal-map mask clears the base-alpha one rather than combining with it");
+    }
+
+    [Test]
     public void Envmap_TheFresnelTerm_IsOffUnlessTheMaterialAsksForIt()
     {
         // **The Schlick term above is computed and then thrown away, and this is the assertion

@@ -129,6 +129,44 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
+    public void CubemapLoading_AReflectiveModelMaterial_IsMaskedByItsNormalMapAlpha()
+    {
+        // **The wiring assertion for the mask, and the reason it needs one.** Every piece under it
+        // is covered — the VMT flag, the exclusivity rule, the shader branch — and all of that can
+        // be right while no production material ever sets it. Three no-ops have shipped in this
+        // project with a green suite for exactly that reason.
+        //
+        // Named rather than counted, because "some material is masked" would pass with the capture
+        // point still shining uniformly, which is the object this was built for.
+        MapAssets assets = MapCache.Load(entityModels: [CapturePoint]);
+
+        string[] masked =
+        [
+            .. Enumerable.Range(0, assets.LocalReflections.Count)
+                .Where(index => assets.LocalReflections[index] is { MaskedByNormalMapAlpha: true })
+                .Select(index => assets.Materials[index].Name),
+        ];
+
+        TestContext.Out.WriteLine($"{masked.Length} reflective materials masked by normal-map alpha");
+
+        masked.ShouldContain(
+            name => name.Contains("cap_point", StringComparison.OrdinalIgnoreCase),
+            "the capture point's reflection is masked by its normal map's alpha");
+
+        // **The control, and it is the exclusivity rule rather than a second sample.** A material
+        // cannot carry both masks: the shader declares
+        // `SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK`, and the engine clears the
+        // base-alpha flag when this one is set. A parser that returned both would send a material
+        // down whichever branch happened to be tested first.
+        assets.LocalReflections
+            .Concat(assets.Cubemaps.Select(cubemap => cubemap?.Shading))
+            .Where(shading => shading is not null)
+            .ShouldAllBe(shading =>
+                !(shading!.Value.MaskedByNormalMapAlpha && shading.Value.MaskedByBaseAlpha),
+                "the two reflection masks are mutually exclusive by construction");
+    }
+
+    [Test]
     public void CubemapLoading_EveryCarriedCubemap_HasSixDecodedFaces()
     {
         // Six, not seven: the file's last face is a fallback spheremap rather than a direction, and

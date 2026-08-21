@@ -173,32 +173,12 @@ public sealed class SourceConformanceTests
     // with "nothing reflects". What survives of it is the marker below, which is one parameter
     // rather than a whole feature.
 
-    [Test]
-    public void NormalMapAlphaEnvMapMask_IsNotImplemented()
-    {
-        // **The last piece of $envmap, and the one that decides WHERE a surface shines.** The three
-        // reflection masks are mutually exclusive by construction — the shader declares
-        // `SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` — and this project implements
-        // the base-alpha one and not this.
-        //
-        // The mask is the normal map's ALPHA channel, read in the bumped shader as the specular
-        // factor. So a material with a bump map cannot use $basealphaenvmapmask at all
-        // (lightmappedgeneric_dx9_helper.cpp:197 warns and drops the envmap outright), which is why
-        // TF2's model materials use this one: 15 of cp_badlands' prop materials ask for it,
-        // cap_point_base, cap_point_base_red and cap_point_base_blue among them.
-        //
-        // WHAT YOU SEE: a capture point reflects UNIFORMLY, including across the painted and worn
-        // parts the artist masked out. Too shiny rather than too dark — the opposite of B83's
-        // original symptom, and reachable only now that reflections draw at all.
-        //
-        // TO IMPLEMENT: the bump map is already decoded and bound, so this is its alpha channel
-        // multiplied into the specular term before the tint, in the same place
-        // `envmapControl.y` applies the base-alpha mask. The ordering matters: both of Valve's
-        // shaders apply the mask before the tint, and therefore before contrast squares it.
-        Assert.Ignore(
-            "$normalmapalphaenvmapmask: 15 prop materials on cp_badlands; reflective props shine " +
-            "uniformly instead of where their normal map says.");
-    }
+    // **`NormalMapAlphaEnvMapMask_IsNotImplemented` stood here for about an hour**, which is the
+    // shortest life a gap marker has had here and the first one removed because a test told someone
+    // to. It was written, the feature was built, `$normalmapalphaenvmapmask` moved into
+    // `MaterialCensus.Implemented`, and `ConformanceGapAuditTests` went red naming this method.
+    // Behaviour lives in `EnvmapConformanceTests.Envmap_TheNormalMapAlphaMask_IsNotInverted` and in
+    // the render tests.
 
     [Test]
     public void MaterialProxies_ReadingTheEntity_AreNotEvaluated()

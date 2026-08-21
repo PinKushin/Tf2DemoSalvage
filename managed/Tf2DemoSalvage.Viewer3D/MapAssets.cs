@@ -123,12 +123,18 @@ internal readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing
 /// the Schlick term a constant; zero is water. Always one for a model, because
 /// <c>VertexLitGeneric</c> has no Fresnel term at all.
 /// </param>
+/// <param name="MaskedByNormalMapAlpha">
+/// Whether the bump map's alpha masks the reflection — **not inverted**, so an alpha of 1 reflects
+/// most. The opposite sense from <paramref name="MaskedByBaseAlpha"/>, and mutually exclusive with
+/// it: a bumped material cannot use the base-alpha mask at all, so this is the one TF2's models use.
+/// </param>
 internal readonly record struct MapEnvmapShading(
     (float Red, float Green, float Blue) Tint,
     float Contrast,
     float Saturation,
     bool MaskedByBaseAlpha,
-    float Fresnel);
+    float Fresnel,
+    bool MaskedByNormalMapAlpha);
 
 /// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
 /// <param name="Faces">
@@ -1161,7 +1167,8 @@ internal sealed class MapAssets
                 material.EnvMapContrast,
                 material.EnvMapSaturation,
                 material.UsesBaseAlphaAsEnvMapMask,
-                Fresnel());
+                Fresnel(),
+                material.UsesNormalMapAlphaAsEnvMapMask);
 
         float Fresnel()
         {

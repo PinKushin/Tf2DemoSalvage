@@ -279,6 +279,149 @@ public sealed class ReflectionRenderTests
                 "a model reflecting nothing draws the same wherever it stands");
     }
 
+    [Test]
+    public void ReflectionRender_ANormalMapAlphaMask_ShinesWhereItsAlphaIsHigh()
+    {
+        // **The branch that a whole suite could not see.** Inverting this mask — writing
+        // `1 - alpha` where Valve writes `alpha` — left all 522 viewer tests green, which is the
+        // exact defect its own conformance test warns about: "puts the shine exactly where the
+        // artist masked it out". Nothing else here varies with the bump map's ALPHA, so nothing
+        // else could tell the two apart.
+        //
+        // **The condition is two texels of one real bump map**, chosen by reading its alpha
+        // channel: the brightest and the dimmest. A correct mask makes the first reflect more; an
+        // inverted one makes the second. The quad is drawn at a SINGLE uv per pass, all four
+        // corners the same, so no interpolation blurs the two together.
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        if (Masked(assets) is not { } material)
+        {
+            Assert.Ignore("no material on this map masks its reflection by its normal map's alpha");
+            return;
+        }
+
+        if (MaskPair(assets.Bumps[material]!.Value.Texture, assets.Textures[material]!.Value)
+            is not { } alpha)
+        {
+            Assert.Ignore("this material's bump alpha is flat, so the mask cannot be measured");
+            return;
+        }
+
+        BspCubemap at = MostVaried(assets).Placement;
+
+        (int R, int G, int B) shiny = DrawModelAt(target, assets, material, at, (0f, 0f, 1f), alpha.Opaque);
+        (int R, int G, int B) dull = DrawModelAt(target, assets, material, at, (0f, 0f, 1f), alpha.Clear);
+
+        TestContext.Out.WriteLine(
+            $"masked material {material}: alpha high at {alpha.Opaque} {shiny}, " +
+            $"alpha low at {alpha.Clear} {dull}");
+
+        (shiny.R + shiny.G + shiny.B).ShouldBeGreaterThan(
+            dull.R + dull.G + dull.B,
+            "the normal map's alpha is the specular factor as-is: 1 reflects MOST, unlike " +
+            "$basealphaenvmapmask, which is inverted");
+    }
+
+    /// <summary>
+    /// Two texture coordinates whose bump ALPHA differs sharply and whose base COLOUR does not.
+    /// </summary>
+    /// <remarks>
+    /// **The first version of this took the alpha extremes and nothing else, and it passed against
+    /// an inverted mask.** Moving the texture coordinate moves the albedo as well, and the albedo
+    /// is the larger term — so the two draws differed for a reason that had nothing to do with the
+    /// mask, and the assertion measured the base texture. Correct and broken predicted the same
+    /// observation, which is the classic wrong CONDITION rather than a weak assertion.
+    ///
+    /// Holding the colour still is what isolates the mask. Both coordinates land on texels the base
+    /// texture paints the same, so the only surviving difference between the two draws is how much
+    /// of the reflection the mask lets through.
+    ///
+    /// Null when the map has no such pair — a bump map with a flat alpha channel cannot measure
+    /// this, and saying so is better than comparing two identical draws.
+    /// </remarks>
+    private static ((float U, float V) Opaque, (float U, float V) Clear)? MaskPair(
+        MapTexture bump, MapTexture albedo)
+    {
+        ReadOnlySpan<byte> normals = bump.Pixels.Span;
+        int texels = normals.Length / 4;
+
+        int most = -1;
+        int least = -1;
+        int widest = 0;
+
+        for (int first = 0; first < texels; first++)
+        {
+            for (int second = 0; second < texels; second++)
+            {
+                int apart = normals[(first * 4) + 3] - normals[(second * 4) + 3];
+
+                if (apart <= widest || !SameColour(first, second))
+                {
+                    continue;
+                }
+
+                widest = apart;
+                most = first;
+                least = second;
+            }
+        }
+
+        // A hundred levels of alpha is enough to move the reflection well clear of the noise the
+        // colour tolerance below admits.
+        return widest >= 100 && most >= 0 ? (Coordinate(most), Coordinate(least)) : null;
+
+        bool SameColour(int first, int second)
+        {
+            (int R, int G, int B) one = Albedo(first);
+            (int R, int G, int B) two = Albedo(second);
+
+            return Math.Abs(one.R - two.R) <= 2 &&
+                Math.Abs(one.G - two.G) <= 2 &&
+                Math.Abs(one.B - two.B) <= 2;
+        }
+
+        // The base texture sampled at the bump texel's own coordinate. The two need not be the same
+        // size — they share the surface's uv, not a grid.
+        (int R, int G, int B) Albedo(int texel)
+        {
+            (float U, float V) at = Coordinate(texel);
+
+            int x = Math.Clamp((int)(at.U * albedo.Width), 0, albedo.Width - 1);
+            int y = Math.Clamp((int)(at.V * albedo.Height), 0, albedo.Height - 1);
+            int start = ((y * albedo.Width) + x) * 4;
+
+            ReadOnlySpan<byte> pixels = albedo.Pixels.Span;
+
+            return start + 2 < pixels.Length
+                ? (pixels[start], pixels[start + 1], pixels[start + 2])
+                : (0, 0, 0);
+        }
+
+        (float U, float V) Coordinate(int texel) =>
+            (((texel % bump.Width) + 0.5f) / bump.Width, ((texel / bump.Width) + 0.5f) / bump.Height);
+    }
+
+    /// <summary>The first material masking its reflection by its normal map's alpha, or null.</summary>
+    private static int? Masked(MapAssets assets) =>
+        Enumerable.Range(0, assets.LocalReflections.Count)
+            .Cast<int?>()
+            .FirstOrDefault(index =>
+                assets.LocalReflections[index!.Value] is { MaskedByNormalMapAlpha: true } &&
+                assets.Bumps[index.Value] is not null &&
+                assets.Textures[index.Value] is not null);
+
     /// <summary>Draws a quad as a MODEL at one placement, with the camera fixed relative to it.</summary>
     /// <remarks>
     /// The camera offset is constant, so the view direction, the normal and therefore the whole
@@ -289,18 +432,27 @@ public sealed class ReflectionRenderTests
         MapAssets assets,
         int material,
         BspCubemap at,
-        (float X, float Y, float Z)? facing = null)
+        (float X, float Y, float Z)? facing = null,
+        (float U, float V)? texel = null)
     {
         (float X, float Y, float Z) normal = facing ?? (0f, -1f, 0f);
 
+        // **One texel across the whole quad when a coordinate is given**, so a mask test reads the
+        // alpha it chose rather than an interpolated average of the map. Otherwise the quad spans
+        // the texture as usual.
+        (float U, float V) a = texel ?? (0f, 0f);
+        (float U, float V) b = texel ?? (1f, 0f);
+        (float U, float V) c = texel ?? (1f, 1f);
+        (float U, float V) d = texel ?? (0f, 1f);
+
         List<WorldVertex> vertices =
         [
-            Vertex(-64f, 0f, -64f, 0f, 0f, normal),
-            Vertex(64f, 0f, -64f, 1f, 0f, normal),
-            Vertex(64f, 0f, 64f, 1f, 1f, normal),
-            Vertex(-64f, 0f, -64f, 0f, 0f, normal),
-            Vertex(64f, 0f, 64f, 1f, 1f, normal),
-            Vertex(-64f, 0f, 64f, 0f, 1f, normal),
+            Vertex(-64f, 0f, -64f, a.U, a.V, normal),
+            Vertex(64f, 0f, -64f, b.U, b.V, normal),
+            Vertex(64f, 0f, 64f, c.U, c.V, normal),
+            Vertex(-64f, 0f, -64f, a.U, a.V, normal),
+            Vertex(64f, 0f, 64f, c.U, c.V, normal),
+            Vertex(-64f, 0f, 64f, d.U, d.V, normal),
         ];
 
         // The model matrix: identity rotation, translation in row three. Standing exactly at the

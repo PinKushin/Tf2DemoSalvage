@@ -68,21 +68,17 @@ public sealed class ConformanceGapAuditTests
         new("SourceConformanceTests", "RimLight_IsNotImplemented", _ => Unread("$rimlight")),
         new("SourceConformanceTests", "TextureTransforms_AreNotParsed", _ => Unread("$basetexturetransform")),
         new("SourceConformanceTests", "EyeRefract_IsNotImplemented", _ => Unread("$iris")),
-
-        // Behavioural, and the only remaining envmap gap: the reflection mask that lives in the
-        // normal map's alpha. 15 of cp_badlands' prop materials ask for it, cap_point_base among
-        // them, so the capture point currently reflects uniformly where the artist masked it to
-        // reflect in places.
-        new(
-            "SourceConformanceTests",
-            "NormalMapAlphaEnvMapMask_IsNotImplemented",
-            _ => Unread("$normalmapalphaenvmapmask")),
     ];
 
     // **Two rows stood here for `Cubemaps_AreNotRead` and `EnvironmentMaps_AreNotImplemented` and
     // both markers had just been deleted.** `TheAudit_NamesOnlyMarkersThatStillExist` caught it on
     // the first run, which is the whole reason that test is here: a row for a marker that no longer
     // exists checks nothing while looking exactly like coverage.
+    //
+    // **And a third stood here for `$normalmapalphaenvmapmask`, which is the mechanism working as
+    // designed rather than another lapse.** The marker was written, the feature was implemented in
+    // the same session, the parameter moved into `MaterialCensus.Implemented` — and this audit went
+    // red naming the marker to delete. That is the loop the owner asked for: nobody had to remember.
 
     [Test]
     public void GapMarkers_WhoseFeatureNowWorks_AreReported()
@@ -125,7 +121,7 @@ public sealed class ConformanceGapAuditTests
         //
         // Raise this WITH the row, never on its own. A count lowered to make a run pass is the
         // failure this whole file is about.
-        Markers.Length.ShouldBe(6, "every checkable gap marker needs a row here to be policed");
+        Markers.Length.ShouldBe(5, "every checkable gap marker needs a row here to be policed");
 
         Markers.Select(marker => $"{marker.Suite}.{marker.Test}").Distinct(StringComparer.Ordinal)
             .Count().ShouldBe(Markers.Length, "two rows must not name the same marker");

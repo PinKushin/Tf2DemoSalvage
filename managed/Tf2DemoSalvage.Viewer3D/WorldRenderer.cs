@@ -777,11 +777,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // Contrast squares, and squaring is not linear, so masking after it is a different
                 // picture -- this used to mask last.
                 //
-                // **Inverted, and Valve said so: "Reversing alpha blows!"** An opaque texel
-                // reflects LEAST. Getting this backwards puts the shine exactly where the artist
-                // masked it out.
-                if (envmapControl.y > 0.5f)
+                // **envmapControl.y is a MODE, not a flag, because the two masks pull opposite
+                // ways.** 1 is $basealphaenvmapmask and 2 is $normalmapalphaenvmapmask. They are
+                // mutually exclusive by construction -- the shader declares
+                // `SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` -- so a mode is exactly
+                // the right shape and a pair of flags would admit a state Valve forbids.
+                if (envmapControl.y > 1.5f)
                 {
+                    // **NOT inverted**, which is the whole reason this is a separate branch:
+                    // `specularFactor = normalTexel.a`, assigned rather than subtracted from one
+                    // (vertexlit_and_unlit_generic_bump_ps2x.fxc:169). An alpha of 1 reflects MOST.
+                    //
+                    // Sampled here rather than reused from the bumped-lighting branch above,
+                    // because that branch only runs for a world face with three lightmap sets --
+                    // and this mask is on MODELS, which have none. Valve samples the bump once and
+                    // takes .a for the mask regardless of whether it lights with it.
+                    specular *= bumpMap.Sample(wrapSampler, input.uv).a;
+                }
+                else if (envmapControl.y > 0.5f)
+                {
+                    // **Inverted, and Valve said so: "Reversing alpha blows!"** An opaque texel
+                    // reflects LEAST. Getting this backwards puts the shine exactly where the
+                    // artist masked it out.
                     specular *= 1.0f - albedo.a;
                 }
 
@@ -1605,7 +1622,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
             (float Red, float Green, float Blue) envmapTint = shading?.Tint ?? (1f, 1f, 1f);
             float envmapContrast = shading?.Contrast ?? 0f;
             float envmapSaturation = shading?.Saturation ?? 1f;
-            float envmapMask = shading is { MaskedByBaseAlpha: true } ? 1f : 0f;
+            // **A mode rather than two flags**, because the two masks are mutually exclusive by
+            // construction and pull opposite ways: 1 is the base texture's alpha INVERTED, 2 is the
+            // bump map's alpha as-is. Encoding them as independent flags would admit a state the
+            // shader's own SKIP directives forbid, and would leave open which wins.
+            //
+            // A material asking for the normal-map mask without a bump map gets NO mask rather than
+            // the missing-texture chequer's alpha, which is what the slot holds when nothing was
+            // bound.
+            float envmapMask = 0f;
+
+            if (shading is { MaskedByNormalMapAlpha: true } && bump is not null)
+            {
+                envmapMask = 2f;
+            }
+            else if (shading is { MaskedByBaseAlpha: true })
+            {
+                envmapMask = 1f;
+            }
+
             float hasEnvmap = shading is null ? 0f : 1f;
 
             // **One is the resting value and it means NO Fresnel falloff**, which is the opposite of
