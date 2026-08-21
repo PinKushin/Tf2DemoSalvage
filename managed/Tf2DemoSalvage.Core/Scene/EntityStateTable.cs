@@ -18,6 +18,21 @@ public sealed class EntityStateTable
 {
     private readonly Dictionary<int, EntityState> _entities = [];
     private readonly Dictionary<int, string> _classNames = [];
+    private readonly IEntityBaselines _baselines;
+
+    /// <summary>Creates an accumulator that reads entities against their class baselines.</summary>
+    /// <param name="baselines">
+    /// Resolves an entity's full state from what its snapshot said. Pass the
+    /// <see cref="EntityDecoder"/> that produced the snapshots, or
+    /// <see cref="EntityBaselines.None"/> when there is no schema to resolve against.
+    /// </param>
+    /// <exception cref="System.ArgumentNullException"><paramref name="baselines"/> is null.</exception>
+    public EntityStateTable(IEntityBaselines baselines)
+    {
+        System.ArgumentNullException.ThrowIfNull(baselines);
+
+        _baselines = baselines;
+    }
 
     /// <summary>Names a networked class, so accumulated entities can report it.</summary>
     /// <param name="classId">The id entity snapshots carry.</param>
@@ -80,7 +95,19 @@ public sealed class EntityStateTable
         // so its properties stay and only its visibility changes.
         state.IsVisible = entity.UpdateType != EntityUpdateType.Leave;
 
-        foreach (DecodedProperty property in entity.Properties)
+        // **The entity's state, not the snapshot's bits, and the two differ on every Enter.** An
+        // entity entering the visible set is a delta against its class's instance baseline and
+        // omits everything equal to it, so `entity.Properties` is what the wire carried rather
+        // than what the entity is. The engine merges the baseline in CL_CopyNewEntity before the
+        // entity exists at all; this table skipped that step and accumulated the difference.
+        //
+        // For most entities the difference is nothing visible: a player sends an origin, a health
+        // and a team every time, so the baseline adds only values that arrive again seconds later.
+        // For an entity whose whole state IS its baseline the difference is everything - a fog
+        // controller enters once at tick 1 with fifteen properties, none of them on the wire, and
+        // is never mentioned again. It reached this table with its class name and nothing else,
+        // on every demo in the corpus, and stayed that way for the life of the file (B132).
+        foreach (DecodedProperty property in _baselines.EffectiveProperties(entity))
         {
             state.Set(
                 $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}",

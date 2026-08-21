@@ -139,7 +139,10 @@ public sealed class CorpusSceneTests
             classes = schema.ServerClasses;
         }
 
-        EntityStateTable table = new();
+        // The decoder, so this harness reads entities the way DemoTimeline.Build does: an entering
+        // entity is a delta against its class baseline. A demo with no dem_datatables has no
+        // schema to resolve against and decodes nothing anyway.
+        EntityStateTable table = new((IEntityBaselines?)decoder ?? EntityBaselines.None);
 
         // Class names come from dem_datatables, not from svc_ClassInfo: TF2 sets the
         // "create on client" flag and sends no names, so a reader waiting for that message

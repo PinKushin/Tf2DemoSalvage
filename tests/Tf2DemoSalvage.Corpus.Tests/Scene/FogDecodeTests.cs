@@ -7,60 +7,121 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
 /// <summary>
-/// How far the atmosphere gets from a demo, and where it stops.
+/// The atmosphere every corpus demo carries, read end to end.
 /// </summary>
 /// <remarks>
-/// **This was written to assert that fog reaches the timeline, and it found that it does not.** The
-/// reading is done — <c>EntityFogTests</c> proves <c>EntityState.Fog</c> reads a controller's
-/// properties correctly, from values taken out of a decoded trace — and the corpus still yields zero
-/// fog on every demo.
+/// **This class was written asserting the opposite and that is why B132 was found.** Its first
+/// version measured a fog controller reaching the entity table with zero properties on every demo
+/// in the corpus, said so as an assertion, and told a future reader in its own failure message to
+/// replace it rather than relax it once the number changed. The cause was upstream and had nothing
+/// to do with fog: <c>EntityStateTable.Apply</c> read <c>DecodedEntity.Properties</c>, which is what
+/// the wire carried, where it wanted the entity's state — and an entering entity is a delta against
+/// its class's instance baseline, so an entity whose whole state equals its baseline arrives
+/// carrying nothing at all. Nineteen of one demo's 195 entities were empty that way.
 ///
-/// The cause is upstream and is not about fog at all. Measured on the 2011 koth_viaduct SourceTV
-/// recording: entity **#212, class CFogController**, is present in the entity table on 3,762 packets
-/// and holds **zero properties**, while a trace of the same file shows it entering exactly once with
-/// fifteen — <c>m_fog.enable 1</c>, <c>m_fog.end 6500</c> and the rest. It is not alone: 19 of that
-/// table's 195 entities hold no properties. Filed as B132.
+/// **The values are pinned exactly, and they were confirmed from outside this project.** Each map's
+/// own <c>env_fog_controller</c> keyvalues — the numbers a mapper typed into Hammer, read straight
+/// out of the BSP entity lump by <c>MapFogProbe</c> in Content.Tests — match what the demo networks:
+/// granary 225/225/225 to 14000, viaduct 213/174/221 to 6500, foundry 131/121/134 from 1707 to
+/// 4634. Nothing this project wrote connects those two paths, so the agreement is evidence about
+/// the decode rather than evidence that a fixture agrees with the code that produced it.
 ///
-/// **So this asserts what is true today rather than what should be true.** A test written to the
-/// intended behaviour would sit red in the gate; one written to the current behaviour has to be
-/// inverted when B132 is fixed. The second is the lesser evil only because the assertion says so in
-/// its own message — it names what to do when the number changes, rather than leaving a future
-/// reader to guess whether the zero was a finding or an expectation.
+/// **Viaduct is the specimen that fixes the colour byte order.** A <c>color32</c> arrives as one
+/// 32-bit int, and reading it reversed is the plausible failure; a grey map cannot tell the two
+/// readings apart and viaduct's 213/174/221 can.
 /// </remarks>
 public sealed class FogDecodeTests
 {
     [Test]
-    public void FogControllers_AcrossTheCorpus_ArePresentButHoldNoProperties()
+    public void Fog_AcrossTheCorpus_IsDecodedFromEveryDemo()
     {
-        List<DemoTimeline> timelines = [.. Corpus.FilesWithSchema().Select(TimelineCache.For)];
-        List<string> lines = [];
+        List<string> paths = [.. Corpus.FilesWithSchema()];
+        List<DemoTimeline> timelines = [.. paths.Select(TimelineCache.For)];
 
-        foreach ((string path, DemoTimeline timeline) in
-            Corpus.FilesWithSchema().Zip(timelines))
+        foreach ((string path, DemoTimeline timeline) in paths.Zip(timelines))
         {
-            lines.Add(
+            TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: {timeline.FogControllersSeen} sightings, " +
                 $"{timeline.FogControllerProperties} properties, " +
                 $"{timeline.FogSamples.Count} fog samples");
         }
 
-        foreach (string line in lines)
-        {
-            TestContext.Out.WriteLine(line);
-        }
+        // **A controller holds fifteen properties, not "some".** That is the count its send table
+        // declares and the count a trace of any corpus demo prints, so a merge that dropped one
+        // would show here rather than as a value quietly taking its default.
+        timelines.Select(timeline => timeline.FogControllerProperties).Distinct()
+            .ShouldBe([15]);
 
-        // **The data exists**, which is what makes B132 worth fixing rather than a feature with
-        // nothing to read. Every demo in the corpus carries a fog controller.
-        timelines.Count(timeline => timeline.FogControllersSeen > 0).ShouldBe(
-            timelines.Count,
-            "every corpus demo carries a CFogController; if one stops, the class lookup changed");
+        // Every demo, every era: protocols 11 through 24 all carry a fog controller and all decode.
+        timelines.Count(timeline => timeline.FogSamples.Count > 0).ShouldBe(timelines.Count);
+    }
 
-        // **The defect, stated as a measurement rather than as prose.** This is the line that
-        // changes when B132 is fixed, and it should then be REPLACED by an assertion that fog
-        // decodes — not merely relaxed to allow both.
-        timelines.Max(timeline => timeline.FogControllerProperties).ShouldBe(
-            0,
-            "B132: a fog controller reaches the entity table with no properties, so no fog can be " +
-            "read from it. When this stops being zero, assert the fog itself instead.");
+    [Test]
+    public void Fog_OnTheViaductRecordings_MatchesTheMapsOwnKeyvalues()
+    {
+        // **The map is the independent source and viaduct is the discriminating one.** Hammer's
+        // fogcolor for koth_viaduct is "213 174 221" — three distinct bytes, so red-in-the-low-byte
+        // is proved by this rather than assumed. 14528213 is 0xDDAED5.
+        SceneFog fog = OnlyFog("tf2-2011-build4604-stv-koth_viaduct.dem");
+
+        fog.Start.ShouldBe(0f);
+        fog.End.ShouldBe(6500f);
+        fog.MaxDensity.ShouldBe(1f);
+
+        fog.Red.ShouldBe(213f / 255f);
+        fog.Green.ShouldBe(174f / 255f);
+        fog.Blue.ShouldBe(221f / 255f);
+    }
+
+    [Test]
+    public void Fog_OnAPovAndStvOfOneSession_IsIdentical()
+    {
+        // **Two recordings of one match, made by different clients**, which is the control this
+        // corpus was built to provide. A POV demo is written by a player's client and a SourceTV
+        // demo by the relay; they share a server and nothing else. Fog that decoded from an
+        // artefact of one writer could not survive being read out of both.
+        SceneFog pov = OnlyFog("tf2-2008-build3420-pov-cp_granary.dem");
+        SceneFog stv = OnlyFog("tf2-2008-build3420-stv-cp_granary.dem");
+
+        pov.ShouldBe(stv);
+
+        // And what cp_granary's own env_fog_controller says: 225 grey, 0 to 14000, density 0.8.
+        stv.End.ShouldBe(14000f);
+        stv.MaxDensity.ShouldBe(0.8f);
+        stv.Red.ShouldBe(225f / 255f);
+    }
+
+    [Test]
+    public void Fog_OnFoundry_KeepsTheMapsNonRoundStartAndEnd()
+    {
+        // **A range that starts well away from the camera, which the other specimens do not test.**
+        // granary and viaduct both start at 0, so a reader that ignored m_fog.start entirely would
+        // pass on either. cp_foundry starts at 1707 and ends at 4634 — numbers no default produces.
+        SceneFog fog = OnlyFog("tf2-2013-build1729296-stv-cp_foundry.dem");
+
+        fog.Start.ShouldBe(1707f);
+        fog.End.ShouldBe(4634f);
+        fog.MaxDensity.ShouldBe(0.7f);
+
+        fog.Red.ShouldBe(131f / 255f);
+        fog.Green.ShouldBe(121f / 255f);
+        fog.Blue.ShouldBe(134f / 255f);
+    }
+
+    /// <summary>The single fog state a demo settles on, or a skip when the demo is absent.</summary>
+    /// <remarks>
+    /// Through <c>Corpus.Demo</c> so a missing file skips with a reason rather than throwing out of
+    /// <c>First</c>. Every corpus demo records exactly one fog sample: a map's controller sends its
+    /// whole state on entry and never speaks again, so a keyframe list of length one is the correct
+    /// answer rather than a truncation — and asserting the count is what would catch a sampler that
+    /// recorded a duplicate per tick.
+    /// </remarks>
+    private static SceneFog OnlyFog(string name)
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo(name));
+
+        timeline.FogSamples.Count.ShouldBe(1);
+
+        return timeline.FogSamples[0].Fog;
     }
 }

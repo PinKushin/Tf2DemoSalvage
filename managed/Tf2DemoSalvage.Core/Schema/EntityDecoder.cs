@@ -115,7 +115,7 @@ public sealed record DecodedTempEntity(
 /// Flattened property lists are cached per class. A demo has hundreds of classes and tens of
 /// thousands of snapshots, and flattening walks the whole table hierarchy every time.
 /// </remarks>
-public sealed class EntityDecoder
+public sealed class EntityDecoder : IEntityBaselines
 {
     /// <summary><c>MAX_EDICTS</c>: the engine's hard ceiling on entity slots.</summary>
     private const int MaxEntities = 2048;

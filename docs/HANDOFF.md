@@ -1,84 +1,53 @@
 # Handoff — the rendering conformance run, and the decode defect it uncovered
 
-Written 2026-08-21 at the end of a long session. Everything below is committed, pushed and green
-except B132, which is open and is the most valuable thing here.
+Written 2026-08-21. Everything below is committed, pushed and green. B132 was the open item when
+this was first written; it was closed the same day and the account of it is kept below, because how
+it was found is the more useful half.
 
 The previous handoff, `docs/HANDOFF-viewmodel.md`, covers the session before this one. It is not
 superseded — it describes the first-person work and the lighting fixes that came out of it.
 
 ---
 
-## Start here: B132
+## B132, closed: the accumulator asked the wrong one of two questions
 
-**Some entities reach the entity table with no properties at all, and nothing notices.** Found while
-implementing fog; it has nothing to do with fog.
+**Some entities reached the entity table with no properties at all, and nothing noticed.** Found
+while implementing fog; it had nothing to do with fog. Full account in
+`docs/findings/04-entities.md`; the short version:
 
-Measured on `tf2-2011-build4604-stv-koth_viaduct.dem`:
+`EntityStateTable.Apply` wrote `DecodedEntity.Properties` into the state. That member is
+**wire-faithful** — exactly the bits the snapshot carried, which is what the assembler must
+reproduce. An entity entering the visible set is a delta against its class's **instance baseline**
+and omits everything equal to it, so for state the wire list is the wrong question.
+`EntityDecoder.EffectiveProperties` had answered the right one correctly for months, with a comment
+saying so; its only caller was the trace writer.
 
-| | |
-|---|---|
-| Entity #212, class `CFogController`, sightings in the entity table | 3,762 packets |
-| Properties it holds | **0** |
-| Properties its ENTER carries, per a trace of the same file | **15** |
-| Entities in that table holding no properties | **19 of 195** |
+| | before | after |
+|---|---|---|
+| Properties a `CFogController` holds | 0 | **15** |
+| Fog samples per demo (all nine gcor demos) | 0 | **1** |
 
-The trace is unambiguous: `entity 212 ENTER class CFogController(47)` with `m_fog.enable 1`,
-`m_fog.end 6500`, `m_fog.colorPrimary 14528213` and eleven more.
+**Fixed so the wrong call is unreachable** (D47): `IEntityBaselines` is a one-method interface
+implemented by `EntityDecoder`, and `EntityStateTable` requires one in its constructor.
+`EntityBaselines.None` is for fixtures and says so at the call site.
 
-### What is ruled out — do not redo this
+**Confirmed from outside this project.** Each map's own `env_fog_controller` keyvalues, read out of
+the BSP entity lump by `MapFogProbe`, match what the demo networks — granary 225 grey to 14000,
+viaduct 213/174/221 to 6500, foundry 131/121/134 from 1707 to 4634. Viaduct is the specimen that
+fixes the colour byte order; a grey map cannot.
 
-- **Not the property names.** `EntityFogTests` reads them correctly from values copied out of that
-  trace. The qualified keys match what `EntityStateTable.Apply` composes.
-- **Not `NetworkedProperties`.** It is an inventory, not a filter — established 2026-08-16 — so it
-  gates nothing.
-- **Not the class lookup.** The table knows #212 is a `CFogController`, and it can only have learned
-  that from the ENTER the decoder read.
-- **Not systemic.** 176 of 195 entities hold properties; props, players and brush entities all work.
-- **Not a swallowed decode exception.** This was the leading hypothesis and it is wrong: there is no
-  `try`/`catch` around `decoder.Decode` in `DemoTimeline`, nor inside `EntityDecoder`. A desync
-  throws `InvalidDataException` and would fail the whole timeline build, which does not happen.
+**The three things worth carrying forward from how it was found:**
 
-### The strongest remaining lead
-
-`EntityStateTable.Apply` replaces the state when an **ENTER arrives with a different serial number**:
-
-```csharp
-bool statesSerial = entity.UpdateType == EntityUpdateType.Enter;
-
-if (!_entities.TryGetValue(entity.EntityIndex, out EntityState? state) ||
-    (statesSerial && state.SerialNumber != entity.SerialNumber))
-{
-    state = new EntityState(...);
-}
-```
-
-A **re-ENTER carrying no property delta** would therefore discard fifteen properties and leave an
-empty state with the right class name — which is exactly the observed shape.
-
-**The check that settles it, and it has not been run:** the trace was taken with
-`--entity-limit 4000`, which limits *expansion*, so a later re-ENTER would not have printed. Run it
-with no limit and look:
-
-```bash
-./managed/Tf2DemoSalvage.Cli/bin/Debug/net10.0/tf2demosalvage tools/corpus/demos/tf2-2011-build4604-stv-koth_viaduct.dem -t -e | grep "entity 212 "
-```
-
-One line means the state is being lost some other way. More than one means the serial check is
-eating it, and the question becomes what the engine intends by a re-ENTER of the same entity — which
-is `docs/memory/read-the-encoder-not-the-decoder.md` territory.
-
-### Why it matters beyond fog
-
-Nineteen entities is not a rounding error, and nothing in the project currently asks these entities
-for anything, so the loss is invisible. Any future feature reading a non-player, non-prop entity —
-the round timer, the objective resource, the fog — hits this first and looks like its own bug.
-
-### What is already built and waiting on it
-
-`SceneFog`, `EntityState.Fog` with five unit tests, `DemoTimeline.FogAt`, the per-change sampling,
-and `FogConformanceTests` pinning the arithmetic to the SDK. `FogDecodeTests` asserts the current
-zero **deliberately** and says in its own failure message to replace itself rather than relax it when
-the number changes.
+1. **The trace and the accumulated table disagreed, from one decoder, on one packet.** That is the
+   comparison that localised it. Four hypotheses died before it — including the leading one, a
+   swallowed decode exception, which was wrong because there is no `try`/`catch` in the path at all.
+2. **The instrument was nearly the suspect again.** The measurement that started it,
+   `FogControllerProperties`, was checked for being wrong before the decoder was — correctly, per
+   `docs/memory/instrument-bugs-outnumber-decoder-bugs.md`, and this time it was right.
+3. **Fixing it surfaced two more things immediately**, which is the sign a fix was real rather than
+   cosmetic: `CWorld` began arriving with a model index and became a prop track covering the whole
+   map (fixed, Valve excludes entity zero by index — `c_baseentity.cpp:1450`), and `ScenePose.Hidden`
+   turned out to be written, cloned and read by nothing (**B133, open**).
 
 ---
 
@@ -181,7 +150,9 @@ picked for needing pipelines that do not exist.
 
 ## What is left, by cost
 
-- **B132** above. Highest value: it is a decode defect, it is invisible today, and it blocks fog.
+- **B133** — `ScenePose.Hidden` is computed and read by nothing, so every `EF_NODRAW` entity is
+  drawn: taken health packs stay on the floor for the rest of the match. Likely one condition in the
+  draw loop, but it changes what appears on screen, so it wants a before/after and the owner's eyes.
 - **B131** — a moving brush entity is ambient-lit against a lightmapped wall. D46 settles the
   direction; the mechanism is a real choice between carrying lightmap coordinates into the entity
   vertex format and drawing brushwork with the world shader. Wants an explicit decision.

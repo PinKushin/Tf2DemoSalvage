@@ -139,7 +139,7 @@ public sealed class EntityModelTests
 
     private static EntityState State(params DecodedProperty[] properties)
     {
-        EntityStateTable table = new();
+        EntityStateTable table = new(EntityBaselines.None);
 
         table.Apply(
             new DecodedEntity(1, ClassId: 212, SerialNumber: 1, EntityUpdateType.Enter, properties));

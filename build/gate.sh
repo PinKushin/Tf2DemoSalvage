@@ -83,11 +83,11 @@ rm -f /tmp/gate-*.log
 # Set to the exact count, so adding tests keeps passing and REMOVING them fails until the number
 # is lowered on purpose. The ratchet is the feature — every lowering should be a deliberate edit
 # in the same commit that deleted the tests, which is what makes a silent loss impossible.
-run Tf2DemoSalvage.Core.Tests     core     1455
+run Tf2DemoSalvage.Core.Tests     core     1461
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
-run Tf2DemoSalvage.Content.Tests  content   603
-run Tf2DemoSalvage.Corpus.Tests   corpus     90
+run Tf2DemoSalvage.Content.Tests  content   604
+run Tf2DemoSalvage.Corpus.Tests   corpus     94
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

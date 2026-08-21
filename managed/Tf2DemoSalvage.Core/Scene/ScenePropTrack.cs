@@ -451,7 +451,15 @@ public sealed class ScenePropTrack
             return SceneModelKind.Unknown;
         }
 
-        if (modelPath.StartsWith('*'))
+        // **Two spellings of one kind.** `*N` is an inline submodel and `maps/<name>.bsp` is
+        // submodel zero, the world itself; both are mod_brush and the engine tells them apart by
+        // which submodel they name, not by type. The world reference only started arriving here
+        // once instance baselines were applied (B132) — CWorld sends its model index once, in its
+        // class baseline, and never again — so this looked for a long time like a kind that did
+        // not exist. What keeps the world off the screen is C_BaseEntity::ShouldDraw's
+        // `index != 0`, at c_baseentity.cpp:1450, not anything about its model.
+        if (modelPath.StartsWith('*') ||
+            modelPath.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase))
         {
             return SceneModelKind.Brush;
         }
