@@ -96,3 +96,4 @@
 - [A default is not a constant](a-default-is-not-a-constant.md) — `viewmodel_fov` 54 is a cvar default, not a fixed value; grep for `ConVar` before writing an SDK number in.
 - [A launch notification is not an exit](a-launch-notification-is-not-an-exit.md) — the task "completed" reports the wrapper; ask Get-Process, and never read a still-growing log as a crash.
 - [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the 2007/2008/2011/2013 period clients and the SDK are all on `F:`; no decomp output is cached anywhere, on purpose.
+- [The viewer suite wants the GPU](the-viewer-suite-wants-the-gpu.md) — Viewer3D.Tests makes real D3D devices, so an exclusive-fullscreen app may abort it; the console total disagrees with the trx by one.

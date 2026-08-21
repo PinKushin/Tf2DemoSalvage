@@ -24,6 +24,16 @@
 # Ratcheted rather than exact: adding a test must not redden the build, but removing three hundred
 # must. Raise them when the suite grows; lowering one is a decision to state out loud.
 #
+# **"Test Run Aborted" in the viewer suite is probably the desktop, not the code.** Seen once on
+# 2026-08-20: the run died at 192 of 512 and the floor caught it. Viewer3D.Tests creates real D3D
+# devices, and at the time another application was in exclusive full screen — the owner's video
+# player — which is a known way for device creation to fail. Unproven: it did not reproduce in four
+# clean runs afterwards, and nothing was captured from the crash itself.
+#
+# Worth knowing before chasing it as a defect, and worth noting that this suite is NOT run under
+# run-exclusive.ps1 the way the UI suite is, because it takes no desktop of its own — it just wants
+# a GPU that nobody else has taken exclusively.
+#
 # **No --filter here, and that is deliberate.** Passing one changes which tests EXIST, not merely
 # which of them run: NUnit's adapter includes [Explicit] tests when no filter is given and drops
 # them as soon as any filter is present. Measured on Content.Tests — 441 unfiltered against 436
