@@ -8285,3 +8285,105 @@ holds several tracks, so the question became "is some occupant drawable").
 
 **Nothing in the production code changed for any of this.** The entry is kept rather than deleted
 because a retraction that vanishes leaves the original claim quotable from the commit history.
+
+---
+
+## B134 — an overlay was clipped to the face instead of the face to the overlay — CLOSED 2026-08-21
+
+**Reported by the owner from the viewer**: the red and blue wall stripes on cp_process missing from
+walls they belong on, with pieces looking detached. Confirmed fixed by eye after the change below.
+
+Three faults, all one idea: **the overlay's face list was being treated as a set of candidates
+rather than as the surfaces to clip against.** B68 closed under exactly that title and two filters
+survived inside the fix for it.
+
+### What vbsp says
+
+`Overlay_AddFaceToLists` (`utils/vbsp/overlay.cpp:171`) adds a face because it came from a **side the
+mapper assigned the overlay to**. There is no normal in that function, no dot product, no angle — the
+only test is whether the face is already in the list. The list is a statement of intent. Pinned by
+`OverlayFaceListConformanceTests`.
+
+### The three faults
+
+| | |
+|---|---|
+| A per-face filter refusing any face >25° off the basis | 108 of 634 named faces refused on cp_process, **every one on `overlays/stripe_red` or `concrete/stripe_blue`**; 90 of them at ~45°, which are chamfered corners |
+| A pre-pass gating the WHOLE overlay on finding one aligned face | an overlay lying only on chamfers drew nothing and was reported as "lying flat on nothing"; the surface it found was never used for anything but its own null check |
+| Clipping the overlay's quad to the face, then dropping it onto the face's plane | every fragment bounded by BSP splits rather than by the band, so a uniform stripe arrived as trapezoids of differing heights with gaps; on any face not parallel to the overlay, each corner moved a different distance onto the plane and skewed the piece |
+
+### The fix, and why it is the right shape
+
+**An overlay is a projection, so the fragment is the part of the surface inside its volume.** The
+quad's four edges swept along the basis normal bound an infinite prism; clipping the face's own
+polygon against those four half-spaces leaves exactly the marked part. Three properties follow for
+free, and all three are what the owner's reference screenshots of the live game show:
+
+- the fragment is a subset of the face, so it lies **on** the wall by construction — nothing can
+  hover and no projection step is needed;
+- adjacent faces **tile**, because they share edges and the clip planes are identical for both, so
+  the gaps close with no slack fudge (the old clip needed a unit of give to hide its seams);
+- the band's height is the overlay's V extent on **every** face it touches, because two of the four
+  planes are the band's own long edges.
+
+Fragments went 428 → 456 over the same 634 named faces, having been capped at 526 attempted before.
+
+### What was checked and found correct, so nobody redoes it
+
+The reader is faithful to vbsp field for field: BasisU packed into the unused `z` of the first three
+UV points, the V flip in the fourth, the face count masked out of `m_nFaceCountAndRenderOrder` with
+`~0xC000`. And the quads are the right size — measured on cp_process's stripes, **640×64 along U:V
+against named faces spanning 640×288, U ratio 1.00**. See `OverlayQuadExtentProbe`. The data was
+never the problem.
+
+### Evidence class: interpolated, and it cannot be otherwise
+
+`engine/overlay.cpp` builds the fragments and Valve has never published it. **Nothing in
+source-sdk-2013 references the overlay lump outside vbsp** — checked by name across the tree. So the
+algorithm is derived from what an overlay *is* rather than transcribed, and is flagged per D44 in
+the code as well as here. If it is ever found wanting again, the next step is a decompiler rather
+than another reasoned guess.
+
+---
+
+## B135 — the decal depth bias is sized for the orthographic camera — OPEN
+
+**The owner's observation is the measurement, and it is decisive:** pipes standing off a wall are
+drawn *behind* the stripe painted on that wall — and *"they will [render in front] if you place the
+camera in the right spot, but you can't get both sides of the room to be right at once."*
+
+**That rules out every camera-independent explanation.** A wrong world-space offset, a wrong draw
+order, a wrong depth state — all of those are wrong the same way from every viewpoint. An error that
+is correct for near geometry and wrong for far geometry *in the same frame*, and swaps as the camera
+moves, is a constant offset applied in **depth-buffer space** under a **perspective** projection,
+where depth is nonlinear in distance. One depth-buffer unit is a fraction of a world unit up close
+and many world units far away, so no single constant can be right across a room.
+
+The bias says as much in its own doc comment:
+
+```
+/// **A world unit, whatever the map.** The depth buffer spans the map's whole height, so the
+/// same bias means different distances on different maps
+DepthBias = -(int)(16777216.0 / worldRange),
+```
+
+"The depth buffer spans the map's whole height" is true of the **top-down orthographic** camera it
+was written for, where depth is linear in world height and a constant depth offset really is a
+constant world distance. It has not been true since the free and first-person cameras existed.
+
+**Same family as `docs/memory/build-time-shortcuts-assume-the-camera.md`**, which was written after
+culls tuned for the overhead view broke under a free camera. This is the same mistake in a different
+constant, and the memory did not prevent it because nothing connected "bias" to "cull".
+
+**Not a regression from B134** — the owner confirms it predates that work; the overlay fix made it
+easier to see by putting stripes on more of the wall.
+
+**Direction, not yet implemented.** The offset wants to be camera-independent: nudge the decal's
+vertices along the face normal in world space by a fraction of a unit, so the separation is a
+property of the geometry rather than of the projection, and reduce or drop the depth-buffer bias.
+Whether Valve's own `m_DepthBias_Decal = -262144` works differently for them depends on their depth
+format and range, and that is worth reading before copying the number.
+
+**A test for it must vary the camera distance.** A single viewpoint is precisely the input for which
+correct and broken agree — which is why this survived: every screenshot until now was taken from one
+spot.

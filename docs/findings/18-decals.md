@@ -149,3 +149,62 @@ nothing is unknown either: the depth offset is Valve's published pair, and clipp
 worth about 6% of decal area rather than being a precondition.
 
 Evidence class: read from published source (`vbsp`), confirmed by measurement on the corpus.
+
+---
+
+## An overlay is a projection: clip the face to it, not it to the face
+
+*(evidence class: interpolated — vbsp is published and read, the fragment builder is not)*
+
+**The face list is complete and authoritative.** `Overlay_AddFaceToLists`
+(`utils/vbsp/overlay.cpp:171`) adds a face because it came from a side the mapper assigned the
+overlay to. No normal, no dot product, no angle — the only test is whether the face is already
+listed:
+
+```cpp
+mapoverlay_t *pMapOverlay = &g_aMapOverlays.Element( pSide->aOverlayIds[iOverlayId] );
+if ( pMapOverlay )
+{
+    if( pMapOverlay->aFaceList.Find( iFace ) == -1 )
+    {
+        pMapOverlay->aFaceList.AddToTail( iFace );
+    }
+}
+```
+
+This project filtered that list by orientation anyway, in two places, and refused 108 of
+cp_process's 634 named faces — all of them on the red and blue wall stripes, 90 at roughly 45°,
+which are chamfered corners a mapper picked deliberately.
+
+**And the clipping ran the wrong way round.** Taking the overlay's quad, cutting it with the face's
+edge planes and dropping the survivor onto the face's plane bounds every fragment by **BSP splits**
+rather than by the band. A stripe of one height arrives as trapezoids of differing heights with gaps
+between them, and on a face not parallel to the overlay each corner moves a different distance onto
+the plane, skewing the piece as well.
+
+Clipping the **face** against the prism swept from the quad's edges along the basis normal gives the
+opposite, and gives three things without any correction step:
+
+| property | why it follows |
+|---|---|
+| the fragment lies on the wall | it is a subset of the face |
+| adjacent fragments tile | neighbours share edges, and the clip planes are the same for both |
+| the band is one height everywhere | two of the four planes **are** the band's long edges |
+
+Those are exactly what the live game shows: a uniform band running most of the way across the map,
+wrapping corners, unbroken.
+
+### What was verified as correct on the way, and is worth not re-checking
+
+The reader matches `Overlay_EmitOverlayFace` field for field — BasisU packed into the unused `z` of
+`vecUVPoints[0..2]`, the V flip in `[3].z`, the face count masked out of
+`m_nFaceCountAndRenderOrder`. And the quads are the right size: cp_process's stripes measure
+**640×64 along U:V against named faces spanning 640×288**, a U ratio of 1.00. Neither the parse nor
+the coverage was ever wrong.
+
+### Why this is interpolated rather than transcribed
+
+`engine/overlay.cpp` builds the fragments and was never released. Searching source-sdk-2013 for the
+lump by name — `doverlay`, `Overlay_`, `OVERLAY_BSP_FACE_COUNT` — finds vbsp and `bspfile.h` and
+nothing else. The algorithm above is derived from what an overlay is, not read off Valve's. Flagged
+per D44; a decompiler is the next step if it is ever found wanting.
