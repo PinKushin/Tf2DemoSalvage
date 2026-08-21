@@ -1988,12 +1988,17 @@ not agree on what a depth bias is — D3D9's `D3DRS_DEPTHBIAS` is a float added 
 integer scaled by a factor the buffer format decides. The number cannot mean the same thing in both,
 whatever the format (D48).
 
-**Console paths are the same hazard wearing a label**, which makes them the easy case:
-`#if defined( _X360 )` and `_PS3` blocks are answers to a different machine's question.
-`CSimpleWorldView::Draw` calls `PushVertexShaderGPRAllocation( 32 )` to split the Xbox 360's unified
-shader registers — a knob PC hardware does not expose — and `DecalModulate_dx9.cpp` picks its
-vertex-texture path under `#ifndef _X360`. Read the PC branch; the only way to be caught by these is
-not to look.
+**Console paths are simply out of scope, and need no weighing:** *"for all intents we can ignore tf2
+on console, its not even current"*. The console versions were the 2007 Orange Box release and never
+received the later updates, so `#if defined( _X360 )` and `_PS3` blocks describe a product that
+stopped moving around 2009 and hardware this project will never run on. Read the PC branch and ignore
+the guarded one.
+
+Two were read while hunting B135: `CSimpleWorldView::Draw` calls `PushVertexShaderGPRAllocation( 32 )`
+under `_X360` to split the Xbox 360's unified shader registers between vertex and pixel work, and
+`DecalModulate_dx9.cpp` picks its vertex-texture path under `#ifndef _X360`. The risk with these is
+not transcribing one by accident — they announce themselves — it is quoting one as *evidence* of
+"what Valve does" when the PC branch beside it says otherwise.
 
 
 

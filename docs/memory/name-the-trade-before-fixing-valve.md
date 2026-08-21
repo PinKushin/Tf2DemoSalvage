@@ -67,25 +67,20 @@ Classic candidates to expect: the D3D9 half-texel offset for screen-space quads,
 DX11; anything working around a driver behaviour rather than an API rule; and render-state defaults,
 which differ between the two APIs and were often left unset deliberately.
 
-**Console paths are the same hazard with a visible marker, which makes them the easy case.** The
-owner: *"i know there are some video game console optimizations like that"*. Source is full of
-`#if defined( _X360 )` and `_PS3` blocks, and they optimise for hardware this project is not on.
+**Console paths need no weighing at all — skip them.** The owner: *"for all intents we can ignore
+tf2 on console, its not even current"*. TF2's console versions were the 2007 Orange Box release and
+never received the later updates, so `#if defined( _X360 )` and `_PS3` blocks describe a product that
+stopped moving around 2009 and hardware this project will never run on.
 
-Two met while reading for B135, neither of which means anything on PC:
+So there is no judgement to make: **read the PC branch, ignore the guarded one.** Two were read while
+hunting B135 and neither means anything here — `CSimpleWorldView::Draw` calls
+`PushVertexShaderGPRAllocation( 32 )` under `_X360` to split the Xbox 360's unified shader registers
+between vertex and pixel work, a knob PC hardware does not expose, and `DecalModulate_dx9.cpp` picks
+its vertex-texture path under `#ifndef _X360`.
 
-```cpp
-#if defined( _X360 )
-    pRenderContext->PushVertexShaderGPRAllocation( 32 ); //lean toward pixel shader threads
-#endif
-```
-
-— `CSimpleWorldView::Draw`, partitioning the Xbox 360's unified shader registers between vertex and
-pixel work, a knob PC hardware does not expose. And in `DecalModulate_dx9.cpp` the vertex-texture
-path is chosen under `#ifndef _X360`.
-
-**So check the guard before transcribing.** A `_X360` or `_PS3` block is an answer to a different
-machine's question, and the PC branch beside it is the one to read. Unlike the DX9-era traps these
-announce themselves, so the only way to be caught is not to look.
+Unlike the DX9-era traps these announce themselves, so the only way to be caught is not to look. The
+mistake to avoid is not transcribing one by accident — it is treating one as *evidence*, quoting a
+console path as "what Valve does" when the PC branch beside it says something else.
 
 Related: [[nothing-is-closed]], [[read-the-spec-before-measuring-our-data]],
 [[a-filed-design-choice-may-not-be-one]].
