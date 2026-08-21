@@ -446,5 +446,8 @@ submodel a door uses, differing only in which submodel it names — and what kee
 is that its index is zero. Classifying it as an unrecognised reference would have been a statement
 about the format that is not true.
 
-That same line also says an `EF_NODRAW` entity is not drawn, which this project computes and then
-discards: see B133.
+That same line also says an `EF_NODRAW` entity is not drawn. This project does that already, in
+`DemoTimeline.PropsAt` — a hidden pose never becomes a `SceneProp`, so the renderer has nothing to
+skip. It was briefly filed as a gap (B133) on the strength of a search scoped to the renderer alone,
+and withdrawn the same day: the absence of the flag downstream is caused by the filter being
+upstream, which is the correct place for it.

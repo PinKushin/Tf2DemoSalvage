@@ -134,19 +134,31 @@ public sealed class SyntheticInterpolationTests
             "an effects value without EF_NODRAW must not hide the entity");
     }
 
-    /// <summary>Whether the single prop track is hidden at a tick.</summary>
+    /// <summary>Whether the single prop track is withheld from the drawn set at a tick.</summary>
     /// <remarks>
-    /// An absent prop counts as hidden, so a fixture that produced no track at all fails rather
-    /// than passing the "is hidden" case for the wrong reason — which is exactly how the first
-    /// attempt at these tests failed, and the failure that led to the origin-table fix in
-    /// <c>SyntheticPlayer.SchemaWithProp</c>.
+    /// **Absence from what <c>PropsAt</c> returns, not the flag on the pose it returns**, and the
+    /// difference is the whole sensitivity of these tests. This read
+    /// <c>props.Count == 0 || props[0].Pose.Hidden</c> until 2026-08-21, which passes identically
+    /// against a <c>PropsAt</c> that has stopped filtering at all: the prop comes back, its pose
+    /// still carries <c>Hidden</c>, and the helper reports it as hidden. Measured by deleting the
+    /// filter — this file stayed green while a corpus test went red.
+    ///
+    /// Wrong instrument, in the sense of CLAUDE.md's four routes to a test that cannot fail: the
+    /// variable is whether the renderer is handed the entity, and the proxy was a field on the
+    /// thing it was handed. That gap is what allowed a working feature to be filed as broken
+    /// (B133) — nothing in the suite could tell the two states apart.
+    ///
+    /// An absent prop still counts as hidden, which is what makes a fixture producing no track at
+    /// all fail rather than pass the "is hidden" case for the wrong reason — the failure that led
+    /// to the origin-table fix in <c>SyntheticPlayer.SchemaWithProp</c>. The visible cases are the
+    /// control: they require the prop to be present, so a track that never existed reddens them.
     /// </remarks>
     private static bool Hidden(DemoTimeline timeline, int tick)
     {
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);
 
-        return props.Count == 0 || props[0].Pose.Hidden;
+        return props.Count == 0;
     }
 
     [Test]
