@@ -902,6 +902,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Back faces culled, for models — Source culls them and their materials expect it.</summary>
     private ComPtr<ID3D11RasterizerState> _modelCull;
 
+    /// <summary>The same state wound the other way, for a mirrored viewmodel.</summary>
+    private ComPtr<ID3D11RasterizerState> _viewmodelCull;
+
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
 
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
@@ -1207,6 +1210,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> culled = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in modelRasterizer, ref culled));
 
+        // **The mirror of the above, for a viewmodel.** Same state with the winding reversed,
+        // created once rather than switched per draw: a rasterizer state is immutable in D3D11 and
+        // building one mid-frame would be the expensive way to say the same thing.
+        RasterizerDesc mirroredRasterizer = modelRasterizer;
+        mirroredRasterizer.CullMode = CullMode.Front;
+
+        ComPtr<ID3D11RasterizerState> mirrored = default;
+        SilkMarshal.ThrowHResult(
+            device.CreateRasterizerState(in mirroredRasterizer, ref mirrored));
+
         // The same state pulled toward the camera, by an amount worth about a world unit rather
         // than by Valve's raw constant - see the remarks on _decalOffset.
         RasterizerDesc biased = rasterizer;
@@ -1226,6 +1239,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             _bothSides = bothSides,
             _modelCull = culled,
+            _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
         };
     }
@@ -1366,11 +1380,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // like art, while a magenta chequer looks like a bug and gets reported.
         _white = CreateTexture(device, context, MissingSize, MissingSize, Missing());
 
+        // **Which materials will draw as the chequer, said once, by index.** A batch whose texture
+        // handle is null silently binds the missing-material chequer at draw time — which is the
+        // right thing to draw and the wrong thing to say nothing about. The asset census reports
+        // "MISSING 0 with no base texture resolved", and that is a different question from "did the
+        // upload produce a handle": every player in a capture came out magenta while that line read
+        // zero. Cross-reference these indices against the `pairing` lines, which carry the names.
+        List<int> chequered = [];
+
         for (int index = 0; index < assets.Textures.Count; index++)
         {
             MapTexture? texture = assets.Textures[index];
 
-            _textures.Add(Upload(device, context, texture));
+            ComPtr<ID3D11ShaderResourceView> uploaded = Upload(device, context, texture);
+
+            if (uploaded.Handle is null)
+            {
+                chequered.Add(index);
+            }
+
+            _textures.Add(uploaded);
 
             if (texture is { IsNoCull: true })
             {
@@ -1394,6 +1423,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 _translucent.Add(index);
             }
         }
+
+        string chequeredAt = chequered.Count > 0
+            ? " at " + string.Join(", ", chequered.Take(40))
+            : string.Empty;
+
+        ViewerLog.Write(
+            "render",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"textures: {assets.Textures.Count} materials, {chequered.Count} will draw as the missing-material chequer{chequeredAt}"));
 
         // **Kept rather than baked into the constants, because a proxy is a function of time.**
         // Everything else in the material buffer is decided once at load; these are the values that
@@ -2465,10 +2504,27 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _blendTextures[batch.MaterialIndex]
                     : texture;
 
+            // The same lookup as every other path, for the same reason models needed it: `_white`
+            // is the missing-material chequer, so binding it as a detail paints magenta squares
+            // onto any material whose combine mode is not −1. No decal in the corpus has been seen
+            // to declare one — this is the second instance of one fault, fixed with it rather than
+            // left to be found again from a screenshot.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                batch.MaterialIndex < _details.Count &&
+                _details[batch.MaterialIndex].Handle is not null
+                    ? _details[batch.MaterialIndex]
+                    : _white;
+
+            ComPtr<ID3D11ShaderResourceView> bump =
+                batch.MaterialIndex < _bumps.Count &&
+                _bumps[batch.MaterialIndex].Handle is not null
+                    ? _bumps[batch.MaterialIndex]
+                    : _white;
+
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
-            context.PSSetShaderResources(3, 1, ref _white);
-            context.PSSetShaderResources(4, 1, ref _white);
+            context.PSSetShaderResources(3, 1, ref detail);
+            context.PSSetShaderResources(4, 1, ref bump);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
@@ -2580,6 +2636,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
+        _viewmodelCull.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
         _layout.Dispose();
@@ -2756,6 +2813,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="blended">Draw the blended materials rather than the opaque ones.</param>
     /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
     /// <param name="body">Which alternative each part shows, packed as m_nBody.</param>
+    /// <param name="mirrored">
+    /// Whether the model is drawn mirrored, as a viewmodel is. That reverses its winding, so the
+    /// faces needing culling are the opposite ones — <c>C_BaseViewModel::InternalDrawModel</c>
+    /// sets <c>MATERIAL_CULLMODE_CW</c> around exactly this and puts it back afterwards.
+    /// </param>
+    /// <param name="bothSides">
+    /// Draw every face regardless of winding, as <c>$nocull</c> does per material. A diagnostic
+    /// lever: it separates "this model is culled away" from "this model is not where it seems".
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -2774,7 +2840,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyDictionary<int, int>? skin = null,
         bool blended = false,
         IReadOnlyList<(int Base, int Count)>? bodyParts = null,
-        int body = 0)
+        int body = 0,
+        bool mirrored = false,
+        bool bothSides = false)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -2825,7 +2893,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
             // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
             // batches of one model can disagree — a sign that culls and a flag that does not.
-            context.RSSetState(_noCull.Contains(material) ? _bothSides : _modelCull);
+            context.RSSetState(CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
+            {
+                ModelCull.None => _bothSides,
+                ModelCull.Front => _viewmodelCull,
+                _ => _modelCull,
+            });
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture
@@ -2887,10 +2960,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _blendTextures[material]
                     : texture;
 
+            // **The detail and the bump, looked up the way every other draw path looks them up.**
+            // This bound `_white` unconditionally, and `_white` is not white — it is the
+            // missing-material chequer, magenta and black. The shader combines a detail whenever
+            // the material's mode is not −1, so every model material declaring `$detail` had a
+            // magenta chequer multiplied into its albedo: a medic's coat came out in purple and
+            // grey squares while the texture itself decodes perfectly.
+            //
+            // The three paths that draw the world, the translucent pass and the blended pass all do
+            // the lookup below. This one did not, which is why the fault was confined to models —
+            // and why the map, the props and the world looked right in the same frame.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                material >= 0 && material < _details.Count &&
+                _details[material].Handle is not null
+                    ? _details[material]
+                    : _white;
+
+            ComPtr<ID3D11ShaderResourceView> bump =
+                material >= 0 && material < _bumps.Count &&
+                _bumps[material].Handle is not null
+                    ? _bumps[material]
+                    : _white;
+
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
-            context.PSSetShaderResources(3, 1, ref _white);
-            context.PSSetShaderResources(4, 1, ref _white);
+            context.PSSetShaderResources(3, 1, ref detail);
+            context.PSSetShaderResources(4, 1, ref bump);
 
             SetMaterial(context, material);
 
@@ -2922,6 +3017,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         return _translucent.Contains(material) ? "translucent" : "opaque";
+    }
+
+    /// <summary>Which faces to cull for one batch of a model.</summary>
+    /// <param name="mirrored">Whether the model is drawn mirrored, as a viewmodel is.</param>
+    /// <param name="noCull">Whether the material set <c>$nocull</c>.</param>
+    /// <returns>The cull mode.</returns>
+    /// <remarks>
+    /// **Pulled out as a function so the three-way choice can be tested**, because it is written
+    /// from two booleans and that is the shape that loses a case. The case it loses draws a weapon
+    /// inside out rather than failing.
+    ///
+    /// <c>$nocull</c> is checked first and outranks the flip. The flag says the material's faces
+    /// are meant to be visible from behind — a chain-link fence, a flat blade — which is true
+    /// whichever way the model carrying it is wound, so culling its front faces would hide exactly
+    /// what it asked to keep.
+    /// </remarks>
+    internal static ModelCull CullFor(bool mirrored, bool noCull)
+    {
+        if (noCull)
+        {
+            return ModelCull.None;
+        }
+
+        return mirrored ? ModelCull.Front : ModelCull.Back;
     }
 
     internal static bool Shows(

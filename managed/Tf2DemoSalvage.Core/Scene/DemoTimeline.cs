@@ -69,6 +69,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// role, so a medic's medigun drives <c>ACT_MP_RUN_SECONDARY</c> where a scattergun drives
 /// <c>ACT_MP_RUN_PRIMARY</c>.
 /// </param>
+/// <param name="WeaponItem">
+/// Which item in TF2's schema that weapon is, or <c>null</c> when the demo predates the item system
+/// or nothing is held. It is what turns "a scattergun" into a model path: the weapon a player sees
+/// in their own hands is a client-side entity a recording cannot carry, so the index into
+/// <c>items_game.txt</c> is the only route to it. See <c>EntityState.ItemDefinitionIndex</c>.
+/// </param>
 /// <param name="Drawn">
 /// Whether the engine would draw this player's model, which is <c>EF_NODRAW</c> rather than
 /// anything about life state. TF2 turns the player off on death — <c>AddEffects( EF_NODRAW |
@@ -105,7 +111,8 @@ public readonly record struct ScenePlayer(
     float? AimYaw = null,
     int? WaterLevel = null,
     int? ActiveWeapon = null,
-    string? WeaponClass = null)
+    string? WeaponClass = null,
+    int? WeaponItem = null)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -240,13 +247,35 @@ public sealed class DemoTimeline
     /// </remarks>
     private readonly List<(int Tick, RecordedView View)> _recordedViews = [];
 
+    /// <summary>Each tick a viewmodel was described, and what it said.</summary>
+    /// <remarks>
+    /// Sampled per tick rather than stored per frame, for the same reason the recorded views are:
+    /// the viewer draws between packets and wants the most recent answer, not an exact match.
+    /// </remarks>
+    private readonly List<(int Tick, SceneViewmodel Weapon)> _viewmodels = [];
+
+    /// <summary>Whether any viewmodel in this demo names an owner.</summary>
+    /// <remarks>
+    /// **This is what separates a point-of-view recording from a SourceTV one**, and it is a
+    /// property of the whole demo rather than of one entity. A client receives only its own
+    /// viewmodel and the server never says whose it is, so a POV demo names nobody; a SourceTV
+    /// recording carries one per player and names each. Asked once here rather than per lookup so
+    /// the answer cannot vary with the tick being drawn.
+    /// </remarks>
+    private readonly bool _viewmodelsNameOwners;
+
     private DemoTimeline(
         List<TimelineFrame> frames,
         List<ScenePropTrack>? props = null,
         List<ScenePropTrack>? playerTracks = null,
-        List<(int Tick, RecordedView View)>? recordedViews = null)
+        List<(int Tick, RecordedView View)>? recordedViews = null,
+        List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null)
     {
         _recordedViews = recordedViews ?? [];
+        _viewmodels = viewmodels ?? [];
+
+        _viewmodelsNameOwners =
+            _viewmodels.Exists(recorded => recorded.Weapon.OwnerEntityIndex is not null);
 
         _frames = frames;
         _props = props ?? [];
@@ -291,6 +320,108 @@ public sealed class DemoTimeline
     /// <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
     /// </remarks>
     public int? RecorderEntityIndex { get; private init; }
+
+    /// <summary>The weapon a player is holding, as they would see it.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="playerEntityIndex">The player whose view is being shown.</param>
+    /// <returns>Their viewmodel, or <c>null</c> when the demo describes none for them.</returns>
+    /// <remarks>
+    /// **Two cases, both measured rather than assumed.** A point-of-view recording carries exactly
+    /// one viewmodel and never names an owner — you only ever receive your own — so an unowned one
+    /// belongs to whoever is being followed. A modern SourceTV recording carries one per player and
+    /// names each, so it is matched by owner. Requiring an owner would find nothing on eight of the
+    /// nine corpus demos, and the weapon would simply never appear.
+    ///
+    /// At or before the tick, like every other per-tick lookup here: the demo speaks at packet
+    /// ticks and the viewer draws between them.
+    ///
+    /// **The main hand, because a player has two viewmodels and only one is the weapon.**
+    /// <c>MAX_VIEWMODELS</c> is 2 and slot 1 is the off hand, which TF2 gives to the spy's watch
+    /// and to grenades. Ignoring the slot answers with whichever entity was described last, and on
+    /// the corpus's 2009 badlands recording that is the watch — so the weapon on screen stayed
+    /// <c>v_watch_spy</c> across a change of class from soldier to scout.
+    ///
+    /// **The off hand is drawn as well as the main hand, not instead of it** — the owner, who has
+    /// played the class: "main viewmodel doesnt get hidden when a spy goes invis, the watch just
+    /// comes up and everything goes transparent". So this answers with one weapon short of what a
+    /// spy actually sees, which is a smaller error than the wrong weapon and is its own piece of
+    /// work. See <c>docs/findings/04-entities.md</c>.
+    /// </remarks>
+    public SceneViewmodel? ViewmodelAt(int tick, int playerEntityIndex) =>
+        Viewmodel(tick, playerEntityIndex, mainHand: true);
+
+    /// <summary>The model in a player's other hand, which for TF2 is the spy's watch.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="playerEntityIndex">The player whose view is being shown.</param>
+    /// <returns>Their off-hand viewmodel, or <c>null</c> when they carry none.</returns>
+    /// <remarks>
+    /// **Drawn as well as the main hand, not instead of it.** The owner, who has played the class:
+    /// "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
+    /// everything goes transparent". A cloaking spy has both on screen, so a viewer answering only
+    /// with <see cref="ViewmodelAt"/> is one model short of what that player saw.
+    ///
+    /// **The watch is the only thing that uses slot 1.** <c>tf_weaponbase_grenade.cpp:74</c> also
+    /// calls <c>SetViewModelIndex( 1 )</c> and reads as a second case, but TF2's throwable grenades
+    /// were cut before release: the class is still linked and no shipped item names it. So this
+    /// answers null for every class but a spy, which is the ordinary case rather than a failure.
+    /// </remarks>
+    public SceneViewmodel? OffHandViewmodelAt(int tick, int playerEntityIndex) =>
+        Viewmodel(tick, playerEntityIndex, mainHand: false);
+
+    /// <summary>Whichever of a player's two viewmodels was asked for, at or before a tick.</summary>
+    /// <remarks>
+    /// One walk for both hands, because the rule about owners is the same for each and having it
+    /// written twice is how the two would come to disagree.
+    /// </remarks>
+    private SceneViewmodel? Viewmodel(int tick, int playerEntityIndex, bool mainHand)
+    {
+        SceneViewmodel? found = null;
+
+        foreach ((int at, SceneViewmodel weapon) in _viewmodels)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            // **An unowned viewmodel is the follower's only when the demo names no owners at all.**
+            // That is the point-of-view shape: one viewmodel, no owner, because a client receives
+            // only its own. A SourceTV recording carries one per player and names them — and when
+            // one of thirty-seven fails to resolve an owner, treating "unowned" as "anybody's" hands
+            // that one to every player who has none. Measured on z1800: following a sniper drew a
+            // demoman's arms.
+            if (weapon.IsMainHand == mainHand &&
+                (weapon.OwnerEntityIndex == playerEntityIndex ||
+                 (weapon.OwnerEntityIndex is null && !_viewmodelsNameOwners)))
+            {
+                found = weapon;
+            }
+        }
+
+        // **Filtered at the END, on the latest state, never while walking.** Rejecting hidden
+        // samples inside the loop would leave `found` holding an older visible one, which is the
+        // stale-sample bug this whole flag exists to avoid: a spy who puts the watch away would
+        // keep it in frame for the rest of the demo.
+        return found is { IsOnScreen: true } ? found : null;
+    }
+
+    /// <summary>Every distinct viewmodel model the demo ever describes.</summary>
+    /// <remarks>
+    /// **A viewmodel is not a prop, and that is precisely why this is needed.** It carries no
+    /// origin, so it is deliberately absent from <see cref="Props"/> — and a viewer that builds its
+    /// load set by walking the prop tracks therefore never loads the arms, never packs them, and
+    /// draws nothing while reporting that it resolved a model. That is what happened: the log said
+    /// <c>viewmodel c_demo_arms.mdl ... 0 instances</c> for every frame, with the file sitting in
+    /// the archive the whole time.
+    ///
+    /// Distinct because a match changes weapons constantly and the same few arms recur; the set is
+    /// one entry per class in practice.
+    /// </remarks>
+    public IEnumerable<string> ViewmodelModels =>
+        _viewmodels
+            .Select(recorded => recorded.Weapon.ModelPath)
+            .Where(path => path.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Whether this demo carries a recorded camera at all.</summary>
     /// <remarks>
@@ -459,6 +590,11 @@ public sealed class DemoTimeline
         List<ScenePropTrack> playerTracks = [];
         List<(int Tick, RecordedView View)> recordedViews = [];
         int? recorderSlot = null;
+        List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
+
+        // What each viewmodel entity last said, so an unchanged one is not recorded again. Keyed
+        // by entity because a player carries two and they interleave.
+        Dictionary<int, SceneViewmodel> lastViewmodel = [];
 
         foreach (DemoCommand command in commands)
         {
@@ -562,6 +698,13 @@ public sealed class DemoTimeline
 
                 moved = true;
             }
+
+            // **After the packet's messages, not before.** Sampling first reads the table as it
+            // stood at the PREVIOUS tick, so an entity that enters on this packet is missed
+            // entirely — and on a demo whose viewmodel enters once and never changes, that means
+            // it is never recorded at all.
+            RecordViewmodels(
+                entities, precache, protocol, command.Tick, lastViewmodel, viewmodels);
 
             if (!moved)
             {
@@ -758,6 +901,14 @@ public sealed class DemoTimeline
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)
                             ? weapon.ClassName
+                            : null,
+
+                    // Read here rather than left to the caller, because this is the only pass over
+                    // the entity table there is — a viewer asking later would have to re-walk the
+                    // demo to find out which item the weapon was.
+                    WeaponItem: player.ActiveWeapon() is { } carried &&
+                        entities.TryGet(carried, out EntityState? item)
+                            ? item.ItemDefinitionIndex()
                             : null));
             }
 
@@ -775,7 +926,7 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames, props, playerTracks, recordedViews)
+        return new DemoTimeline(frames, props, playerTracks, recordedViews, viewmodels)
         {
             IntervalPerTick = interval,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
@@ -800,6 +951,70 @@ public sealed class DemoTimeline
     /// no model: the poses are what the interpolator needs, and the model is resolved from the
     /// installed game by whoever draws it.
     /// </remarks>
+    /// <summary>Samples any viewmodel the entity table currently describes.</summary>
+    /// <remarks>
+    /// **Read from the entity table rather than from the snapshot's changed properties**, because
+    /// a viewmodel is mostly silent: its model index arrives once and then only the sequence
+    /// changes, so a reader looking at what a packet CHANGED would see a weapon with no model for
+    /// almost every tick of the demo.
+    ///
+    /// Only recorded when something differs from the last sample. A viewmodel that has not changed
+    /// costs nothing, which matters because z1800 carries 37 of them across 95,480 updates.
+    /// </remarks>
+    /// <summary>Records every viewmodel that changed on this tick.</summary>
+    /// <remarks>
+    /// **Deduplicated per entity, not against the tail of the list.** A player has two viewmodels
+    /// and a demo describing both writes them alternately, so a check against the previous entry
+    /// never matches and every tick records both — which is how the wrong one came to win.
+    /// </remarks>
+    private static void RecordViewmodels(
+        EntityStateTable entities,
+        ModelPrecache precache,
+        int protocol,
+        int tick,
+        Dictionary<int, SceneViewmodel> last,
+        List<(int Tick, SceneViewmodel Weapon)> into)
+    {
+        foreach (EntityState entity in entities.All)
+        {
+            if (entity.ViewmodelModelIndex() is not { } rawIndex)
+            {
+                continue;
+            }
+
+            // **Recorded even when it resolves to nothing, for the same reason a hidden one is.**
+            // Model index 0 means "no model", and an unused off hand sends exactly that — all 22 of
+            // z1800's do. Skipping those here would be right for a viewmodel that is always empty
+            // and wrong for one that is emptied: the last sample would keep saying "watch", and the
+            // lookup would answer with it for the rest of the demo. `IsOnScreen` decides instead,
+            // in one place, on the latest state.
+            string path = precache.Path(ModelPrecache.Unpack(rawIndex, protocol)) ?? string.Empty;
+
+            // **Recorded whether or not it is drawn, and this is deliberate.** Skipping a hidden
+            // viewmodel here would leave the last recorded sample for that entity saying "visible",
+            // and the lookup walks forward keeping the last match — so a watch put away would carry
+            // on being answered for the rest of the demo. The flag has to travel with the sample so
+            // that the latest state is the one that wins.
+            SceneViewmodel weapon = new(
+                path,
+                entity.ViewmodelSequence() ?? 0,
+                entity.ViewmodelPlaybackRate() ?? 1f,
+                entity.ViewmodelOwner(),
+                entity.ViewmodelSlot(),
+                entity.IsDrawn);
+
+            // Unchanged since this entity was last sampled, so there is nothing new to record.
+            if (last.TryGetValue(entity.EntityIndex, out SceneViewmodel before) &&
+                before == weapon)
+            {
+                continue;
+            }
+
+            last[entity.EntityIndex] = weapon;
+            into.Add((tick, weapon));
+        }
+    }
+
     private static string? ModelFor(EntityState state, ModelPrecache precache, int protocol)
     {
         if (PlayerClass.Equals(state.ClassName, StringComparison.Ordinal))
@@ -910,6 +1125,11 @@ public sealed class DemoTimeline
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
         track.AttachedTo = attachedTo;
+
+        // **Which point on the wearer, for the items that hang from one rather than merging.**
+        // Kept current for the same reason the wearer is: it can arrive on a later delta than the
+        // model, and a track fixed at the first answer would leave the item wherever it started.
+        track.AttachmentPoint = state.ParentAttachment();
 
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
 
@@ -1084,7 +1304,7 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo));
+                    track.AttachedTo, track.AttachmentPoint));
             }
         }
     }

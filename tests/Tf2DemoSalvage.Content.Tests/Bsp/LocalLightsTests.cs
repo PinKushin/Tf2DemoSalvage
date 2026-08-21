@@ -25,16 +25,27 @@ public sealed class LocalLightsTests
     /// A light intensity in the units a map stores, chosen so the expected values stay whole.
     /// </summary>
     /// <remarks>
-    /// **These were plain round numbers until a real map showed the units were wrong.** A world
-    /// light's intensity is 0–255 (vrad builds it as <c>pow( r / 255.0, 2.2 ) * 255</c>) while an
-    /// ambient cube is normalised to 0–1 on decode, so the two are 255 apart — and a test that
-    /// invents its own intensity cannot notice, because it has no opinion about what a map uses.
-    /// The viewer's log did: luminances of 140, 311, 903 and 1535 against a cube of 0.1 to 0.4.
+    /// **These carried a factor of 255 that the lump does not, and every expected value below was
+    /// written to match it.** The old note here said a world light's intensity is 0–255 against a
+    /// cube normalised to 0–1, so the two were "255 apart". vrad divides intensity by 255 on the way
+    /// into the file (<c>lightmap.cpp:1647</c>), so the lump is 0–1 already — the two are in one
+    /// scale and `IntensityScale` is 1. See `WorldLightScaleConformanceTests`, which asserts against
+    /// vrad's arithmetic rather than against a number chosen here.
     ///
-    /// 25,500 rather than 255 so that the inverse-square falloff at ten units (0.01) brings it back
-    /// to exactly 1.0, which keeps every expected value below readable.
+    /// **The values moved and the predictions did not**, deliberately. Scaling the inputs down by
+    /// 255 puts them in the units a map really stores while leaving every expected value below
+    /// exactly as it was, so this file still says the same things about falloff, cones, ranking and
+    /// culling — and none of those claims ever depended on the scale.
+    ///
+    /// The old note also stated the reason it could not settle the question itself: "a test that
+    /// invents its own intensity cannot notice, because it has no opinion about what a map uses".
+    /// That remains true of everything here, which is why the scale is pinned elsewhere against a
+    /// real map's authored `_light` keys.
+    ///
+    /// 100 rather than 1 so that the inverse-square falloff at ten units (0.01) brings it back to
+    /// exactly 1.0, which keeps every expected value below readable.
     /// </remarks>
-    private const float Bright = 25500f;
+    private const float Bright = 100f;
 
     /// <summary>An inverse-square point light, which is what a map actually ships.</summary>
     private static BspWorldLight Point(
@@ -49,7 +60,7 @@ public sealed class LocalLightsTests
         // Light 10 units straight up from the origin.
         //   dist2 = 100, falloff = 1 / (1 * 100) = 0.01
         //   delta normalised = (0,0,1); +Z face normal is (0,0,1) so strength = 1
-        //   contribution = 1 * 0.01 * 25500 / 255 = 1.0
+        //   contribution = 1 * 0.01 * 100 = 1.0
         AmbientCube lit = LocalLights.AddTo(
             Black, [Point((0f, 0f, 10f), Bright)], 0f, 0f, 0f);
 
@@ -93,11 +104,11 @@ public sealed class LocalLightsTests
         // dist2 = 1 either way, so the distinguishing case is a light CLOSER than one unit.
         //
         //   at 0.5 units: true dist2 = 0.25, clamped to 1, falloff = 1/1 = 1
-        //   contribution = 1 * 1 * 765 / 255 = 3.0
+        //   contribution = 1 * 1 * 3 = 3.0
         //
         // The offset form would give 1 / (0.25 + 1) = 0.8 and a contribution of 2.4.
         AmbientCube lit = LocalLights.AddTo(
-            Black, [Point((0f, 0f, 0.5f), 765f)], 0f, 0f, 0f);
+            Black, [Point((0f, 0f, 0.5f), 3f)], 0f, 0f, 0f);
 
         lit.PositiveZ.Red.ShouldBe(3f, 0.001f);
     }
@@ -186,14 +197,14 @@ public sealed class LocalLightsTests
         // drop the only light that matters, and a map lists its lights in no useful order.
         List<BspWorldLight> lights =
         [
-            Point((0f, 0f, 10f), 255f), Point((0f, 0f, 10f), 255f),
-            Point((0f, 0f, 10f), 255f), Point((0f, 0f, 10f), 255f),
+            Point((0f, 0f, 10f), 1f), Point((0f, 0f, 10f), 1f),
+            Point((0f, 0f, 10f), 1f), Point((0f, 0f, 10f), 1f),
             Point((0f, 0f, 10f), Bright),
         ];
 
         AmbientCube lit = LocalLights.AddTo(Black, lights, 0f, 0f, 0f);
 
-        // The bright one (25500 * 0.01 / 255 = 1.0) plus three dim ones (255 * 0.01 / 255 = 0.01).
+        // The bright one (100 * 0.01 = 1.0) plus three dim ones (1 * 0.01 = 0.01).
         lit.PositiveZ.Red.ShouldBe(1.03f, 0.001f);
     }
 
@@ -210,9 +221,9 @@ public sealed class LocalLightsTests
         // branch guards a reciprocal; it does not describe the light. vrad states what such a
         // light IS: constant_attn = 1 when all three terms are below EQUAL_EPSILON.
         //
-        //   falloff = 1 / 1 = 1, strength = 1, contribution = 1 * 1 * 510 / 255 = 2.0
+        //   falloff = 1 / 1 = 1, strength = 1, contribution = 1 * 1 * 2 = 2.0
         BspWorldLight bare = new(
-            (0f, 0f, 10f), (510f, 510f, 510f), (0f, 0f, 0f), WorldLightKind.Point);
+            (0f, 0f, 10f), (2f, 2f, 2f), (0f, 0f, 0f), WorldLightKind.Point);
 
         AmbientCube lit = LocalLights.AddTo(Black, [bare], 0f, 0f, 0f);
 

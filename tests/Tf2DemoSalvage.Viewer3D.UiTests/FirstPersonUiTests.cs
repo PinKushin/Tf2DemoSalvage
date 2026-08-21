@@ -1,5 +1,6 @@
 using System;
 
+using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 
@@ -119,6 +120,20 @@ public sealed class FirstPersonUiTests
         //
         // Through the harness rather than SendKeys, because a synthesized keystroke goes to
         // whatever window has focus — which on a shared desktop is somebody else's work.
+        // **Jump to the end first, and the reason is the installed game rather than the code.**
+        // A demo's precache names the model the RECORDING used, and TF2 replaced the v_models with
+        // c_models around 2011 — so this 2013 recording names v_scattergun_scout.mdl at tick 0,
+        // which the current install no longer ships, and the renderer correctly draws nothing.
+        // At the last tick it names c_sniper_arms.mdl, which is installed.
+        //
+        // Measured rather than assumed: CorpusViewmodelTests reports the resolved path at both
+        // ends of every demo, and that is where these two came from.
+        Viewer.Find(TransportBar.EndButtonId).AsButton().Invoke();
+
+        Retry.WhileFalse(
+            () => Viewer.Count("viewmodel models/weapons/c_models") > 0,
+            TimeSpan.FromSeconds(10));
+
         Viewer.PressKey(VirtualKeyShort.F12);
 
         Retry.WhileFalse(
@@ -131,6 +146,19 @@ public sealed class FirstPersonUiTests
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "V did not enter the first-person view, so there is nothing to capture.");
+
+        // **Wait for the viewmodel to be RESOLVED, not drawn.** Whether it draws depends on the
+        // installed game: a demo's precache names the model the recording used, and TF2 replaced
+        // the v_models with c_models around 2011 — so a 2013 recording can name
+        // v_scattergun_scout.mdl at a tick where the current install has no such file. The
+        // renderer reports that honestly as "no-batches" and draws nothing, which is correct
+        // behaviour rather than a defect.
+        //
+        // So the condition is that the lookup happened. A capture with empty hands is still the
+        // right capture when the model is not on this machine.
+        Retry.WhileFalse(
+            () => Viewer.Count("viewmodel models/") > 0,
+            TimeSpan.FromSeconds(15));
 
         Viewer.PressKey(VirtualKeyShort.F12);
 

@@ -146,3 +146,231 @@ Both are corrected; the scraper now reads the remote name.
 
 **The general rule: when looking for a property name in the SDK, search for it as a STRING, not as an
 identifier.** The wire carries the string, and only `SENDINFO_NAME` tells you they can differ.
+
+## A viewmodel says what it is, never where it is
+*(read from published source; measured across the corpus — 20 August 2026)*
+
+The weapon in a player's own hands is a networked entity, and it carries no position.
+`baseviewmodel_shared.cpp:557` opens the table with `BEGIN_NETWORK_TABLE_NOBASE` — no base table,
+therefore no `DT_BaseEntity`, therefore no `m_vecOrigin` and no `m_angRotation`:
+
+```cpp
+BEGIN_NETWORK_TABLE_NOBASE(CBaseViewModel, DT_BaseViewModel)
+    SendPropModelIndex(SENDINFO(m_nModelIndex)),
+    SendPropInt   (SENDINFO(m_nBody), 8),
+    SendPropInt   (SENDINFO(m_nSkin), 10),
+    SendPropInt   (SENDINFO(m_nSequence), 8, SPROP_UNSIGNED),
+    SendPropFloat (SENDINFO(m_flPlaybackRate), 8, SPROP_ROUNDUP, -4.0, 12.0f),
+    SendPropEHandle (SENDINFO(m_hWeapon)),
+    SendPropEHandle (SENDINFO(m_hOwner)),
+```
+
+**This is the same shape as a bone-merged cosmetic** — the demo names the model and the pose, and
+the client works out the placement. `CBaseViewModel::CalcViewModelView` starts it at the eye and
+then adds bob, lag and shake, every one of which is a function of movement and elapsed time rather
+than of anything recorded. The eye placement is what a recording can support; the embellishments
+would be the viewer inventing motion.
+
+It is also drawn with the cull mode flipped (`c_baseviewmodel.cpp:373`), because the model is
+mirrored for the left-handed view — the detail that makes a naive implementation draw the weapon
+inside out.
+
+**SourceTV demos carry viewmodels too, which was not the expectation.** A viewmodel is the local
+player's own weapon, so the obvious guess is that only a point-of-view recording has one. Counted
+across the committed corpus:
+
+| Demo | viewmodel property updates |
+|---|---|
+| 2007 granary POV | 968 |
+| 2007 granary STV | **0** |
+| 2008 granary POV | 694 |
+| 2008 granary STV | 889 |
+| 2009 badlands POV | 3359 |
+| 2011 viaduct POV | 604 |
+| 2011 viaduct STV | 667 |
+| 2013 badlands POV | 487 |
+| 2013 foundry STV | 1773 |
+| z1800 (SourceTV) | 95480 |
+
+Every era but the earliest broadcasts them to SourceTV, so a first-person view of a *spectated*
+player can show their weapon as well. The 2007 zero is an era difference rather than a property of
+that recording.
+
+**The search that found this was wrong twice before it was right**, which is worth recording
+because the failures were silent. Grepping the assembly output for `CTFViewModel` returned nothing
+— and so did grepping it for `CTFPlayer`, which certainly exists, because class names are not
+printed as text there at all. The count that mattered came from the property table name,
+`DT_BaseViewModel`. An absence claim needs a positive control in the same sweep; this is the sixth
+time in this project an instrument has been wrong before a decoder was.
+
+### One viewmodel or thirty-seven, and only the modern one says whose it is
+*(measured across the corpus — 20 August 2026)*
+
+Counting distinct viewmodel ENTITIES rather than property updates gives a sharper answer than the
+table above, and a different one:
+
+| Demo | viewmodel entities | with an owner | owner resolves to a player |
+|---|---|---|---|
+| 2007 granary POV | 1 | 0 | 0 |
+| 2008 granary POV / STV | 1 | 0 | 0 |
+| 2009 badlands POV | 2 | 0 | 0 |
+| 2011 viaduct POV / STV | 1 | 0 | 0 |
+| 2013 badlands POV / foundry STV | 1 | 0 | 0 |
+| z1800 (modern SourceTV) | **37** | **37** | **37** |
+
+**A point-of-view recording carries exactly one viewmodel and does not say whose it is**, because
+it does not need to: you only ever receive your own, so the owner is the recorder by definition.
+That is why `m_hOwner` is unset in eight of the nine — not an era gap in the property, but an
+absence of anything to disambiguate.
+
+**A modern SourceTV recording carries one per player and every owner handle resolves.** 37 of 37,
+which is what makes a first-person view of a *spectated* player able to show their weapon.
+
+So the implementation has two cases and neither needs guessing: on a POV demo take the single
+viewmodel, on an STV demo join by `m_hOwner`.
+
+**The "0 owners are players" row was wrong for a whole measurement.** The survey compared
+`ClassName` against `"Player"` for every entity and got zero every time — because `ClassName` is
+seeded by `DemoTimeline.Build` from the schema's server classes, and a hand-rolled walk over the
+entity stream never calls `SetClassName`. Every entity was anonymous, so the comparison could only
+ever fail. Seeding the names turned 0 of 37 into 37 of 37 with no change to the code under test.
+
+That is the seventh instrument bug ahead of a decoder bug in this project, and the third in this
+one evening. The tell each time is the same: a clean zero that would have been reported as a fact
+about the format.
+
+### The "2" in that table was the bug, and it sat there unread for a day
+
+**A player has two viewmodels, not one.** `shareddefs.h:325` sets `MAX_VIEWMODELS 2`, and TF2 names
+the second one outright:
+
+```cpp
+CBaseViewModel *CTFPlayer::GetOffHandViewModel()
+{
+    // off hand model is slot 1
+    return GetViewModel( 1 );
+}
+```
+
+Slot 0 is the weapon in the player's hands. Slot 1 is the off hand, claimed by exactly two things in
+the shipped game code — `CTFWeaponInvis::Spawn` (the spy's Invis Watch) and `tf_weaponbase_grenade`.
+Which one an entity is arrives on the wire as `m_nViewModelIndex`, **one bit, unsigned**
+(`VIEWMODEL_INDEX_BITS 1`, `baseviewmodel_shared.h:29`; sent at `.cpp:563`).
+
+The first implementation of `DemoTimeline.ViewmodelAt` ignored the slot and kept whichever viewmodel
+it walked past last. On every demo carrying one that is correct by luck. On the 2009 badlands POV —
+the single row in the table above reading **2** — it answered `v_watch_spy` while the recorder's
+networked `m_iClass` went soldier, then scout. *(evidence class: measured on the corpus, against
+published source)*
+
+**The row was already in this document and read as a curiosity.** A measurement that disagrees with
+every other row in its own table is a finding, not noise; it was written down and not followed.
+
+**The property is not modern.** Every corpus demo back to the 2007 build declares
+`DT_BaseViewModel.m_nViewModelIndex` at 1 bit unsigned — asserted per demo in
+`ViewmodelConformanceTests`, from each file's own schema rather than from the SDK header. The era
+question was raised as possibly needing a decompiler and needed nothing: **a demo carries the schema
+that describes it**, so "did this field exist in 2009" is answerable from the 2009 file.
+
+**An absent slot means the main hand, not an unknown one.** `CBaseViewModel`'s constructor sets
+`m_nViewModelIndex = 0` (`baseviewmodel_shared.cpp:53`), so a property that never arrived is the
+engine's default. `EntityState.ViewmodelSlot()` still reports null for "the demo did not say" — the
+reader states the wire, the consumer applies the default.
+
+### The off hand is drawn as well as the weapon, not instead of it
+
+From the owner, who has played the class:
+
+> main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and everything
+> goes transparent
+
+and on which hand is which:
+
+> yep the watch is the left hand, the weapon in in the right, unless you use left handed
+> viewmodels, then its the opposite
+
+So a spy mid-cloak has both viewmodels on screen at once, and `ViewmodelAt` answering with the main
+hand is one weapon short of what that player saw. That is a deliberate, smaller error than the wrong
+weapon; drawing both is separate work. *(evidence class: owner's account of the live game)*
+
+**A screenshot of a fully cloaked spy settles what "transparent" means here**, and it is stronger
+than the word suggests: at full cloak the viewmodels are drawn so far towards invisible that the
+frame reads as the bare world, with only a faint sliver left at the bottom of the screen. So the
+entity is present, networked and animating the whole time — the change is in the material, not in
+whether the model exists. A reader that inferred "the spy's weapon disappears" from looking at
+gameplay would conclude the viewmodel was removed, and be wrong about the thing this project
+actually decodes. *(evidence class: owner's screenshot of the live game, 2026-08-20)*
+
+The handedness note lands on the cull mode rather than on the lookup: `cl_flipviewmodels` mirrors
+the model, and `C_BaseViewModel::InternalDrawModel` switches to `MATERIAL_CULLMODE_CW` when it is
+mirrored. A demo records the entity, not the viewer's preference, so which hand a weapon appears in
+is a property of the person watching the playback — not of the recording.
+
+### What the agreement test settled on the way past
+
+`ViewmodelClassAgreementTests` cross-checks the resolved model path against the recorder's networked
+`m_iClass` — two unrelated decode paths, a Snappy-compressed string table resolved by index and a
+delta-compressed integer on the player entity. After the fix, no demo disagrees.
+
+It also closed an open question in the other direction. The 2013 badlands POV resolves
+`c_sniper_arms`, and the owner said he never played sniper on it. The demo says otherwise, and says
+it twice: at some ticks `m_iClass` is 2 with `v_sniperrifle_sniper` in hand. Across the file he
+plays scout, sniper, soldier, demo and pyro. **The resolution was right and the recollection was
+not** — which is why the test was written against the demo rather than against anyone's memory.
+
+**The test now asserts rather than reports.** As first written it printed AGREED and DISAGREED lists
+and asserted only that *something* was compared, so the fix could not have been proved by it. An
+empty disagreement list is also what "this demo stopped resolving a weapon at all" looks like, so it
+now names the two-viewmodel demo explicitly and requires a comparison from it.
+
+### Cloak is computed, not recorded — and how much of it depends on who is watching
+
+The blur is client-only, and the SDK says exactly how much of it we would have to compute.
+
+**`m_flInvisibility` is not on the wire.** It has no SendProp; the only cloak value networked is
+`m_flCloakMeter` (the ammo). The invisibility level is recomputed every frame in
+`CTFPlayerShared::InvisibilityThink` from conditions and timers — `IsStealthed()`,
+`m_flInvisChangeCompleteTime`, `TF_COND_STEALTHED_BLINK`, and for motion cloak the player's own
+speed. What a demo carries is `m_nPlayerCond`, a networked varint bitfield (`tf_player_shared.cpp:536`).
+So cloak is reproducible from the recording, but only by re-running the engine's arithmetic — which
+is the same shape as the feet-yaw and air-walk work already in `DemoTimeline`. *(evidence class:
+read from published source)*
+
+**The viewmodel never goes fully invisible.** `CViewModelInvisProxy::OnBind` (`tf_viewmodel.cpp:432`)
+remaps the player's invisibility into a narrow band:
+
+```cpp
+#define TF_VM_MIN_INVIS  0.22
+#define TF_VM_MAX_INVIS  0.5
+
+flWeaponInvis = ( flPercentInvisible < 0.01 ) ? 0.0
+              : RemapVal( flPercentInvisible, 0.0, 1.0, TF_VM_MIN_INVIS, TF_VM_MAX_INVIS );
+```
+
+At 100% cloak the weapon sits at 0.5, and a blink pins it to 0.3. That is why the owner's
+full-cloak screenshot still shows a sliver of the model rather than nothing: the first-person case
+tops out half-transparent by design.
+
+Incidentally the proxy finds its player through `pVM->GetOwner()` — the same `m_hOwner` this project
+reads off `DT_BaseViewModel`, arrived at independently.
+
+**For other players the spy is not blurry, he is gone — unless you are spectating.**
+`C_TFPlayer::GetEffectiveInvisibilityLevel` splits on the viewer:
+
+```cpp
+bool bLimitedInvis = !IsEnemyPlayer() || bHalloweenSpellStealth;
+
+// If this is a teammate of the local player or viewer is observer,
+// dont go above a certain max invis
+if ( bLimitedInvis ) { flPercentInvisible = min( flPercentInvisible, tf_teammate_max_invis ); }
+```
+
+`tf_teammate_max_invis` defaults to **0.95** (`c_tf_player.cpp:1702`). An enemy gets the unclamped
+1.0 and sees nothing at all, which is the whole point of the ability; a teammate or an observer gets
+0.95, a faint shimmer rather than a blur.
+
+**That second branch is the one this project is in.** `IsEnemyPlayer()` returns false when there is
+no local player, which is exactly a demo. So the reference behaviour for a viewer here is the 0.95
+clamp — a cloaked spy should be drawn barely-there, not culled — and it matches what spectating in
+the live game looks like. Getting this backwards would mean a spy vanishing from a demo the engine
+would have shown. *(evidence class: read from published source, prompted by the owner's account)*

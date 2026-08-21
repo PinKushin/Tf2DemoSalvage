@@ -86,15 +86,35 @@ public sealed class TransportUiTests
         // and it says which tick rather than only that a slider moved.
         string StartTick() => _viewer.Find(TransportBar.TickLabelId).Name;
 
+        // **Put playback somewhere known first, because this fixture is shared and arrival state is
+        // not a given.** As written this read the current tick, pressed End, and waited for the
+        // reading to CHANGE — which is a test of "the button moved playback from wherever it
+        // happened to be". Another fixture leaves the demo at its last tick, so End had nothing to
+        // do, the reading never changed, and the failure said "Jumping to the end did not move
+        // playback; the tick still reads tick 8065 / 8065" against a button that works.
+        //
+        // The claim is "End goes to the end", so it is measured as that: seek to the start, prove
+        // we are not at the end, then press End and require the two halves of the readout to meet.
+        // That is independent of where playback started and it is a stronger statement than
+        // "something changed".
+        _viewer.Find(TransportBar.StartButtonId).AsButton().Invoke();
+
+        Retry.WhileFalse(
+            () => !AtEnd(StartTick()),
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage:
+                $"Jumping to the start left playback at the end; the tick reads {StartTick()}.");
+
         string before = StartTick();
 
         _viewer.Find(TransportBar.EndButtonId).AsButton().Invoke();
 
         Retry.WhileFalse(
-            () => StartTick() != before,
+            () => AtEnd(StartTick()),
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
-            timeoutMessage: $"Jumping to the end did not move playback; the tick still reads {before}.");
+            timeoutMessage: $"Jumping to the end did not reach it; the tick reads {StartTick()}.");
 
         string atEnd = StartTick();
 
@@ -115,5 +135,22 @@ public sealed class TransportUiTests
         // stays true whatever the readout's wording is and whatever tick a demo starts on. Demo
         // ticks do not begin at zero, so a literal 0 here would be wrong for most files.
         StartTick().ShouldBe(before, "the start button seeks back to the demo's first tick");
+    }
+
+    /// <summary>Whether a tick readout says playback has reached the last tick.</summary>
+    /// <param name="readout">The label's text, formatted <c>tick {current} / {last}</c>.</param>
+    /// <remarks>
+    /// Parsed rather than compared against a remembered string, because the question is "are the
+    /// two halves equal" and that cannot be asked of the text as a whole. The format is the bar's
+    /// own: <c>$"tick {_scrub.Value} / {_scrub.Maximum}"</c>.
+    /// </remarks>
+    private static bool AtEnd(string readout)
+    {
+        string[] halves = readout.Replace("tick", string.Empty, StringComparison.Ordinal)
+            .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        // Not the shape expected, so no claim either way — a malformed readout is a different
+        // failure and the caller's retry message will show it verbatim.
+        return halves.Length == 2 && string.Equals(halves[0], halves[1], StringComparison.Ordinal);
     }
 }

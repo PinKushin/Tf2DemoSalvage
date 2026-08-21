@@ -20,6 +20,10 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="SkinSwap">Which material replaces which for its team, or null.</param>
 /// <param name="BodyParts">The model's body parts, for reading its body number.</param>
 /// <param name="Body">Which alternative each body part shows, as m_nBody packs it.</param>
+/// <param name="Mirrored">
+/// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
+/// flip with it or the weapon draws inside out.
+/// </param>
 internal readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -30,7 +34,8 @@ internal readonly record struct ModelInstance(
     IReadOnlyList<float[]>? Bones = null,
     IReadOnlyDictionary<int, int>? SkinSwap = null,
     IReadOnlyList<(int Base, int Count)>? BodyParts = null,
-    int Body = 0);
+    int Body = 0,
+    bool Mirrored = false);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -107,24 +112,12 @@ internal sealed class EntityModelSet
             pose.Z + z);
     }
 
-    /// <summary>Whether an ambient cube carries no light at all.</summary>
     /// <summary>The whole cube's brightness, for comparing one instance against another.</summary>
-    /// <param name="cube">The sampled ambient cube.</param>
-    /// <returns>Mean of the six faces' mean channel.</returns>
     /// <remarks>
-    /// A crude average on purpose. It is a diagnostic for ranking instances of the same model
-    /// against each other, not a photometric quantity — the question it answers is "is this one
-    /// darker than its neighbours", and any monotonic summary answers that.
+    /// Moved onto <see cref="AmbientCube"/> so the light sampler can print the same summary; see
+    /// <see cref="AmbientCube.Luminance"/> for why it is a crude average.
     /// </remarks>
-    private static float Luminance(AmbientCube cube)
-    {
-        static float Mean((float Red, float Green, float Blue) face) =>
-            (face.Red + face.Green + face.Blue) / 3f;
-
-        return (Mean(cube.PositiveX) + Mean(cube.NegativeX) +
-                Mean(cube.PositiveY) + Mean(cube.NegativeY) +
-                Mean(cube.PositiveZ) + Mean(cube.NegativeZ)) / 6f;
-    }
+    private static float Luminance(AmbientCube cube) => AmbientCube.Luminance(cube);
 
     /// <summary>Entities whose sampled light has been reported, one line each.</summary>
     private readonly HashSet<int> _reportedLight = [];
@@ -252,11 +245,23 @@ internal sealed class EntityModelSet
         // That mistake cost a full round of investigation, and it is the same one as measuring at
         // a tick the demo does not contain: an instrument answering confidently about the wrong
         // quantity.
+        // **The root bone's own matrix, because extents cannot separate a rotation from a move.**
+        // Two poses of one model came out as the same three ranges with the axes cycled, which is
+        // a basis change rather than a different pose — but the extents alone cannot say whether
+        // the translation came with it. The matrix can: its last column is where the root sits and
+        // its first three are what it does to the axes.
+        string root = bones.Count > 0 && bones[0] is { Length: >= 12 } first
+            ? $"root [{first[0]:0.##} {first[1]:0.##} {first[2]:0.##} | " +
+              $"{first[4]:0.##} {first[5]:0.##} {first[6]:0.##} | " +
+              $"{first[8]:0.##} {first[9]:0.##} {first[10]:0.##}] " +
+              $"at ({first[3]:0.#}, {first[7]:0.#}, {first[11]:0.#})"
+            : "root none";
+
         ViewerLog.Write(
             "props",
             $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
             $"{bones.Count} bones, x {minimumX:0.#}..{maximumX:0.#} " +
-            $"y {minimumY:0.#}..{maximumY:0.#} z {minimumZ:0.#}..{maximumZ:0.#}");
+            $"y {minimumY:0.#}..{maximumY:0.#} z {minimumZ:0.#}..{maximumZ:0.#}, {root}");
     }
 
     /// <summary>Every packed model's triangles, in model space.</summary>
@@ -294,6 +299,39 @@ internal sealed class EntityModelSet
         }
 
         return frames[Math.Clamp(frame, 0, frames.Count - 1)];
+    }
+
+    /// <summary>The first sequence of a model whose activity contains a fragment.</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>
+    /// <returns>A merged sequence number, or −1 when nothing claims it.</returns>
+    /// <remarks>
+    /// **Asked by NAME because a demo's sequence number cannot be checked against anything.** The
+    /// viewmodel arms were playing merged sequence 1, which on an arms model is <c>r_handposes</c> —
+    /// a one-frame pose holder that leaves the root bone at identity and the model in its authored
+    /// Y-up space. The animations a viewmodel actually plays begin at 2 and carry
+    /// <c>ACT_*_VM_IDLE</c> and its neighbours.
+    /// </remarks>
+    public int SequenceByActivity(string modelPath, string fragment)
+    {
+        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames))
+        {
+            // **Three ways to answer "no" and they are different faults**, which is the whole
+            // reason they are separated: the model was never packed, the model was packed without
+            // a skeleton, or the skeleton simply has no such activity. A single −1 sent this
+            // investigation at a sequence list that turned out to contain exactly what was being
+            // looked for.
+            ViewerLog.Warn("render", $"no packed frames for {modelPath}, so no activity lookup");
+            return -1;
+        }
+
+        if (frames.Skinned is not { } skinned)
+        {
+            ViewerLog.Warn("render", $"{modelPath} was baked rather than skinned, so it has no sequence table");
+            return -1;
+        }
+
+        return skinned.SequenceByActivity(fragment);
     }
 
     /// <summary>Which sequence a player of this model should play.</summary>
@@ -690,6 +728,11 @@ internal sealed class EntityModelSet
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
+            // Set only for an item hanging from a named attachment, which cannot be expressed as a
+            // PropTransform: the point carries the bone's rotation as well as its position, and
+            // decomposing that back into angles to rebuild it would be work for no gain.
+            float[]? placement = null;
+
             // **Lit from where it stands, which is what the engine does.** A model has no
             // lightmap, so vrad's per-leaf ambient cube is the light it gets - sampled at the
             // origin rather than per vertex, exactly as the client samples it once per model.
@@ -855,7 +898,9 @@ internal sealed class EntityModelSet
                 {
                     ViewerLog.Write(
                         "render",
-                        $"skinned {prop.ModelPath}: sequence {sequence}, " +
+                        $"skinned {prop.ModelPath}: sequence {sequence}" +
+                        $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
+                        $"{skinned.UnimplementedFor(sequence)}, " +
                         $"{skinned.Frames(sequence)} frames at " +
                         $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
                         $"phase {phase:0.###} -> frame {posedFrame}");
@@ -909,6 +954,39 @@ internal sealed class EntityModelSet
                 bones = Merge(prop.ModelPath, bones, worn);
                 transform = worn.Where;
 
+                // **An item can hang from a named point instead of merging, and bone merging cannot
+                // place it.** A hat shares bone names with the player and takes their matrices; a
+                // halo, an MvM canteen, a spellbook and a spy's sapper share none — the spellbook's
+                // only bone is called `mvm` and no player has one — so Merge matches nothing and
+                // the item keeps the wearer's transform, which on a player is their feet (B82).
+                //
+                // The engine hangs those off the WEARER's attachment table:
+                // `ConcatTransforms( GetBone( iBone ), pattachment.local, world )`, one-based.
+                if (prop.AttachmentPoint is { } point &&
+                    _frames.TryGetValue(worn.ModelPath, out PropModels.ModelFrames? wearerModel) &&
+                    wearerModel.Attachments is { Count: > 0 } attachments &&
+                    point >= 1 && point <= attachments.Count)
+                {
+                    StudioAttachment attachment = attachments[point - 1];
+
+                    if (attachment.Bone >= 0 && attachment.Bone < worn.Bones.Count)
+                    {
+                        placement = AttachmentPlacement.Matrix(
+                            worn.Bones[attachment.Bone],
+                            attachment.Local,
+                            worn.Where.ToMatrix(),
+                            attachment.IsWorldAligned);
+
+                        if (_reportedPoses.Add(prop.ModelPath + "#attached"))
+                        {
+                            ViewerLog.Write(
+                                "props",
+                                $"attached {prop.ModelPath} to {attachment.Name} " +
+                                $"(point {point}, bone {attachment.Bone}) on {worn.ModelPath}");
+                        }
+                    }
+                }
+
                 // **Measured AFTER the merge, which is the only measurement that answers it.** The
                 // extents reported above are of the item's own pose, before it was put on anybody
                 // - so they say nothing about where it ends up. What decides whether a hat is on a
@@ -945,7 +1023,7 @@ internal sealed class EntityModelSet
 
             into.Add(new ModelInstance(
                 prop.ModelPath,
-                transform.ToMatrix(),
+                placement ?? transform.ToMatrix(),
                 light,
 
                 // Cached alongside the cube, because the sun costs more than it looks: it traces a

@@ -33,5 +33,18 @@ returns absolute paths while `SourceSdk.Text` takes a path relative to the check
 empty sweep that reads as "everything conforms". Any SDK-crawling test needs a positive control
 asserting it found a known pair — [[an-empty-search-needs-a-control]].
 
+**Third instance, 2026-08-20, and this one denied the property existed at all.** `EntityState`
+carried "a viewmodel inherits no `DT_BaseEntity` — no origin, no angles, no `m_fEffects`". The first
+two are right; `DT_BaseViewModel` declares its own `m_fEffects` at ten bits
+(`baseviewmodel_shared.cpp:565`). **`BEGIN_NETWORK_TABLE_NOBASE` stops a table INHERITING a property,
+not declaring one** — and the inference was durable precisely because everything else in that list
+was correct.
+
+`IsDrawn` looked in `DT_BaseEntity`, got null, and null means "no flags", which means draw it. So the
+spy's watch — hidden by `EF_NODRAW` on exactly that property — would have been drawn in every
+player's hand for a whole match. **The reader now resolves effects from whichever table declares
+them, in one place**, so no call site has to know what kind of entity it holds.
+
 Related: [[wire-names-are-strings]] for the other half of this, where `SENDINFO_NAME` sends under its
-second argument so the member name never appears on the wire.
+second argument so the member name never appears on the wire, and [[a-player-has-two-viewmodels]] for
+what the missing flag cost.

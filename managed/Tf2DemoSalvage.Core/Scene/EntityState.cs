@@ -292,8 +292,30 @@ public sealed class EntityState
     /// PVS, which is a different thing from being deleted and a different thing again from being
     /// told not to draw.
     /// </remarks>
-    public bool IsDrawn =>
-        IsVisible && ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & NoDraw) == 0;
+    public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
+
+    /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
+    /// <remarks>
+    /// **Two tables, because a viewmodel declares its own copy.** <c>DT_BaseViewModel</c> is
+    /// <c>BEGIN_NETWORK_TABLE_NOBASE</c> and so inherits no <c>DT_BaseEntity</c> — but NOBASE means
+    /// it inherits nothing, not that it can declare nothing, and
+    /// <c>baseviewmodel_shared.cpp:565</c> sends <c>m_fEffects</c> at ten bits unsigned.
+    ///
+    /// **This was written down backwards and cost the off hand.** The comment on
+    /// <see cref="ViewModelTable"/> asserted "no origin, no angles, no <c>m_fEffects</c>" — right
+    /// about the first two, wrong about the third — and because the lookup was hardcoded to
+    /// <c>DT_BaseEntity</c>, a viewmodel answered null, which reads as no flags and therefore as
+    /// "draw it". The engine hides the spy's watch with exactly this flag:
+    /// <c>CTFWeaponInvis::SetWeaponVisible</c> resolves the viewmodel and calls
+    /// <c>vm->AddEffects( EF_NODRAW )</c>. See <c>ViewmodelVisibilityConformanceTests</c>.
+    ///
+    /// Resolved here rather than at each call site so there is one answer to "is this drawn",
+    /// whatever kind of entity is asking. A class declares one of these tables, never both.
+    /// </remarks>
+    private int Effects() =>
+        Integer($"{BaseEntityTable}.{EffectsProperty}") ??
+        Integer($"{ViewModelTable}.{EffectsProperty}") ??
+        0;
 
     /// <summary>Which model the entity is, as an index into <c>modelprecache</c>.</summary>
     /// <returns>The index, or <c>null</c> when the entity never sent one.</returns>
@@ -307,6 +329,94 @@ public sealed class EntityState
     /// hides a decode that missed a property behind a value that looks deliberate.
     /// </remarks>
     public int? ModelIndex() => Integer($"{BaseEntityTable}.{ModelIndexProperty}");
+
+    /// <summary>The table a viewmodel's properties arrive under.</summary>
+    /// <remarks>
+    /// **Its own table and nothing else.** <c>baseviewmodel_shared.cpp:557</c> declares it
+    /// <c>BEGIN_NETWORK_TABLE_NOBASE</c>, so a viewmodel inherits no <c>DT_BaseEntity</c> — no
+    /// origin, no angles, and an owner handle under a different name. Every other reader on this
+    /// class looks in <c>DT_BaseEntity</c> and would answer null for a viewmodel that is perfectly
+    /// well described on the wire.
+    ///
+    /// **It does send <c>m_fEffects</c>, and this comment used to say it did not.** NOBASE stops it
+    /// inheriting a property; it does not stop the table declaring one, and line 565 declares this
+    /// one. The mistake was invisible because the reader looked in <c>DT_BaseEntity</c> and got
+    /// null, which means "draw it" — see <see cref="Effects"/>.
+    /// </remarks>
+    private const string ViewModelTable = "DT_BaseViewModel";
+
+    /// <summary>The model a viewmodel is showing, or <c>null</c> when this is not one.</summary>
+    /// <remarks>
+    /// Separate from <see cref="ModelIndex"/> rather than folded into it, because the two answer
+    /// different questions: that one is "where does this entity's own model index live", and
+    /// merging them would make every ordinary entity search a table it does not have.
+    /// </remarks>
+    public int? ViewmodelModelIndex() => Integer($"{ViewModelTable}.{ModelIndexProperty}");
+
+    /// <summary>Which player a viewmodel belongs to, or <c>null</c> when this is not one.</summary>
+    /// <remarks>
+    /// **<c>m_hOwner</c>, not <c>m_hOwnerEntity</c>** — a different property in a different table
+    /// from the one <see cref="Attachment"/> reads, and not gated on <c>EF_BONEMERGE</c>, which a
+    /// viewmodel never sets. Masked through <see cref="Slot"/> like every other handle, so an
+    /// unset one is nobody rather than entity 2047.
+    /// </remarks>
+    public int? ViewmodelOwner() => Slot(Integer($"{ViewModelTable}.m_hOwner"));
+
+    /// <summary>Which animation a viewmodel is playing.</summary>
+    public int? ViewmodelSequence() => Integer($"{ViewModelTable}.m_nSequence");
+
+    /// <summary>Which of a player's two viewmodels this one is.</summary>
+    /// <returns>0 for the weapon in hand, 1 for the off hand, or <c>null</c> when unstated.</returns>
+    /// <remarks>
+    /// **A player has two of these, and without the slot they are indistinguishable.**
+    /// <c>shareddefs.h:325</c> sets <c>MAX_VIEWMODELS 2</c>, and TF2 names the second one outright:
+    ///
+    /// <code>
+    /// CBaseViewModel *CTFPlayer::GetOffHandViewModel()
+    /// {
+    ///     // off hand model is slot 1
+    ///     return GetViewModel( 1 );
+    /// }
+    /// </code>
+    ///
+    /// Exactly two things claim it — <c>CTFWeaponInvis::Spawn</c>, the spy's watch, and
+    /// <c>tf_weaponbase_grenade</c> — so a recording of a spy carries both at once and a reader
+    /// with no slot shows whichever it happened to walk past last.
+    ///
+    /// **Two values and no more**, because <c>VIEWMODEL_INDEX_BITS</c> is 1 and the property is
+    /// <c>SPROP_UNSIGNED</c> (<c>baseviewmodel_shared.h:29</c>, <c>.cpp:563</c>). Measured on the
+    /// corpus: every demo back to 2007 declares it at that width, so this is not a modern field.
+    /// </remarks>
+    public int? ViewmodelSlot() => Integer($"{ViewModelTable}.m_nViewModelIndex");
+
+    /// <summary>Which item in TF2's schema this entity is, when it is an econ item.</summary>
+    /// <returns>The definition index, or <c>null</c> for anything that is not one.</returns>
+    /// <remarks>
+    /// **This is what identifies the weapon a player is holding, and it is the only thing that
+    /// can.** The model a player sees in their own hands is a client-side entity the recording
+    /// cannot carry (<c>econ_entity.cpp:1153</c>), the held weapon entity sends no model of its
+    /// own, and most weapon scripts no longer name one. What the demo does carry is the item's
+    /// index into the schema, and <c>items_game.txt</c> turns that into a model.
+    ///
+    /// **<c>DT_ScriptCreatedItem</c>, which is neither the weapon's table nor the player's.** An
+    /// econ item is a <c>CEconItemView</c> held inside the weapon through an attribute manager, so
+    /// the property arrives under the item's own table rather than under <c>DT_TFWeaponBase</c> —
+    /// a lookup on the weapon's table finds nothing at all.
+    ///
+    /// **Present from the 2009 build onward**, measured across the corpus: the 2007 and 2008
+    /// specimens declare no such property, because the item schema did not exist yet. A demo from
+    /// before then answers null here, which is correct — those weapons carry their model in the
+    /// weapon script instead.
+    /// </remarks>
+    public int? ItemDefinitionIndex() => Integer("DT_ScriptCreatedItem.m_iItemDefinitionIndex");
+
+    /// <summary>How fast a viewmodel's animation is playing.</summary>
+    /// <remarks>
+    /// The third factor in Valve's cycle advance, and the one that was once decoded, retained,
+    /// unit-tested and read by nothing — so every animation played at rate 1. Carried here so the
+    /// viewmodel cannot repeat that.
+    /// </remarks>
+    public float? ViewmodelPlaybackRate() => Number($"{ViewModelTable}.m_flPlaybackRate");
 
     /// <summary>The entity this one hangs off, when it is bone-merged onto another.</summary>
     /// <returns>The owner's entity index, or <c>null</c> when it stands on its own.</returns>
@@ -365,6 +475,34 @@ public sealed class EntityState
             ? null
             : Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
     }
+
+    /// <summary>Which of its parent's attachment points this entity hangs from.</summary>
+    /// <returns>A one-based attachment number, or <c>null</c> when it hangs from none.</returns>
+    /// <remarks>
+    /// **The other way an item rides a wearer, and the one that puts things on the floor when it is
+    /// missing.** A hat shares bone names with the player and is bone-merged; a halo, an MvM
+    /// canteen and a spellbook do not — <c>hwn_spellbook_complete.mdl</c> has one bone called
+    /// <c>mvm</c> and no player skeleton has it, so nothing matches and the item falls back to the
+    /// wearer's transform, at their feet (RISKS B82).
+    ///
+    /// **One-based, because the engine stores attachments that way.**
+    /// <c>SetupBones_AttachmentHelper</c> ends with <c>PutAttachment( i + 1, world )</c>, so zero
+    /// means "not attached" rather than "the first one". Returned as null for zero so a caller
+    /// cannot accidentally index a real point with it — the mistake would hang every such item off
+    /// a genuine but wrong place, which looks like a placement bug rather than an off-by-one.
+    ///
+    /// **It names a point on the PARENT, not on the item.** Measured: the spellbook declares no
+    /// attachments at all, while a scout declares 29 — <c>head</c>, <c>back_upper</c>,
+    /// <c>partyhat</c> and the rest. So this is an index into the wearer's table.
+    ///
+    /// <c>DT_BaseEntity.m_iParentAttachment</c>, 6 bits unsigned
+    /// (<c>NUM_PARENTATTACHMENT_BITS</c>, <c>baseentity_shared.h:41</c>), carried by every demo in
+    /// the corpus from the 2007 build onward.
+    /// </remarks>
+    public int? ParentAttachment() =>
+        Integer($"{BaseEntityTable}.m_iParentAttachment") is { } attachment && attachment > 0
+            ? attachment
+            : null;
 
     /// <summary>Which entity is the weapon this one is holding, or null when it holds none.</summary>
     /// <returns>The weapon's entity slot.</returns>

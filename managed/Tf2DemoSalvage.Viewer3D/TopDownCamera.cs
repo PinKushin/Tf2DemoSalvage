@@ -166,7 +166,7 @@ internal sealed class TopDownCamera
     /// <param name="highest">World height that should land nearest.</param>
     /// <returns>A camera whose matrix projects world height into the depth range.</returns>
     /// <remarks>
-    /// **D21: the camera owns the projection, and depth is part of it.** Height used to be
+    /// **D35: the camera owns the projection, and depth is part of it.** Height used to be
     /// flattened into every vertex before the matrix ran, which is a top-down projection baked
     /// into the geometry — fine while the overhead view was the only camera, and exactly what a
     /// free camera would have to undo.

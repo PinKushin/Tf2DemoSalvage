@@ -1055,7 +1055,7 @@ internal class MainForm : Form
                     // bright, and it is the reason a pack outdoors looked like one indoors.
                     // Kept whole, not just the sun: the sun is the only light applied to the world
                     // surfaces, but a model also takes direct light from the point and spot lights
-                    // around it (B95, D23), and those are the other 475 entries on cp_process.
+                    // around it (B95, D37), and those are the other 475 entries on cp_process.
                     _worldLights = BspWorldLights.Read(bytes);
                     _sun = BspWorldLights.Sun(_worldLights);
 
@@ -1343,8 +1343,50 @@ internal class MainForm : Form
         // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
         // every light past the nearest four. Without this a prop out of daylight is lit by the
         // bounce alone, which is why anything indoors read as though it were in shade (B95).
-        return LocalLights.AddTo(bounced, _worldLights, x, y, z);
+        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z);
+
+        // **The two terms reported apart, because one number cannot say which is missing.** Every
+        // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
+        // and the single figure is consistent with two unrelated faults: no light near enough to be
+        // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
+        // the total makes those indistinguishable — see
+        // docs/memory/a-log-must-name-what-it-measured.md.
+        ReportLightTerms(bounced, lit, x, y, z);
+
+        return lit;
     }
+
+    /// <summary>Says what the bounce gave and what the direct lights added, once per place.</summary>
+    /// <remarks>
+    /// Sampled rather than per call: this runs for every model every time one moves, and the
+    /// question it answers is about a PLACE rather than about a frame.
+    /// </remarks>
+    private void ReportLightTerms(AmbientCube bounced, AmbientCube lit, float x, float y, float z)
+    {
+        if (_worldLights.Count == 0 || !_reportedLightTerms.Add(((int)x, (int)y, (int)z)))
+        {
+            return;
+        }
+
+        if (_reportedLightTerms.Count > LightTermReportLimit)
+        {
+            return;
+        }
+
+        ViewerLog.Write(
+            "render",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
+                $"with direct {AmbientCube.Luminance(lit):0.####}, " +
+                $"{_worldLights.Count} world lights on the map"));
+    }
+
+    /// <summary>Places already reported, so the line does not repeat per frame.</summary>
+    private readonly HashSet<(int X, int Y, int Z)> _reportedLightTerms = [];
+
+    /// <summary>How many places to report before falling silent.</summary>
+    private const int LightTermReportLimit = 40;
 
     /// <summary>The sun reaching a world position, or null when it does not.</summary>
     /// <remarks>
@@ -1511,45 +1553,81 @@ internal class MainForm : Form
             }
         }
 
+        // **The first-person models, which are in neither of the sets above.** A viewmodel is not a
+        // prop — it has no origin, so the timeline deliberately keeps it out of Props — and the
+        // weapon in its hands is not an entity at all. Both are loaded here or they are never
+        // loaded: this set is what MapAssets is given, and the loader is a dictionary lookup rather
+        // than an on-demand read, so a model absent from it packs to nothing for ever.
+        //
+        // It cost a whole feature. The viewer resolved c_demo_arms.mdl, packed it, reported "0
+        // instances" and drew nothing, with the model sitting in the archive the entire time.
+        foreach (string arms in timeline.ViewmodelModels)
+        {
+            paths.Add(arms);
+        }
+
+        foreach (string weapon in HeldWeaponModels(timeline))
+        {
+            paths.Add(weapon);
+        }
+
         return paths;
+    }
+
+    /// <summary>Every weapon model any player holds at any point in the demo.</summary>
+    /// <remarks>
+    /// **Resolved up front for the same reason the class models are.** A player switches weapon
+    /// constantly and a set built from what is held right now is missing whatever they draw next —
+    /// which does not fail loudly, it just leaves an empty hand.
+    ///
+    /// Distinct pairs rather than distinct players: a whole match resolves to a few dozen models.
+    /// </remarks>
+    private IEnumerable<string> HeldWeaponModels(DemoTimeline timeline)
+    {
+        if (ItemDefinitions() is null)
+        {
+            yield break;
+        }
+
+        HashSet<(int? Item, string? Weapon, int Class)> seen = [];
+
+        foreach (TimelineFrame frame in timeline.Frames)
+        {
+            foreach (ScenePlayer player in frame.Players)
+            {
+                if (player.ActiveWeapon is null ||
+                    !seen.Add((player.WeaponItem, player.WeaponClass, player.PlayerClass ?? 0)))
+                {
+                    continue;
+                }
+
+                if (WeaponModel(player) is { Length: > 0 } model)
+                {
+                    yield return model;
+                }
+            }
+        }
     }
 
     /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
     /// <remarks>
-    /// **These must be skinned rather than baked, and the reason is not performance.** A
-    /// bone-merged item is placed entirely by its wearer's bones, so baking - which pre-transforms
-    /// the vertices by one pose and throws the bone indices away - leaves nothing to attach it by.
-    /// It then draws at the wearer's origin, which on a player is their FEET.
-    ///
-    /// Measured on cp_process: every cosmetic is a few thousand corners and a single sequence, so
-    /// the corner budget baked all of them and the hats sat at ankle height while the merge
-    /// reported nothing at all.
+    /// The rule itself is <see cref="WornModels.From"/>, which is where its reasoning and its tests
+    /// live. This supplies the two sources: the demo's own prop tracks, and the first-person weapons,
+    /// which are built by the viewer and appear in no timeline.
     /// </remarks>
-    private HashSet<string> WornModelPaths()
-    {
-        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-
-        if (_timeline is not { } timeline)
-        {
-            return paths;
-        }
-
-        foreach (ScenePropTrack track in timeline.Props)
-        {
-            if (track.AttachedTo is not null && track.Kind == SceneModelKind.Studio)
-            {
-                paths.Add(track.ModelPath);
-            }
-        }
-
-        return paths;
-    }
+    private HashSet<string> WornModelPaths() =>
+        _timeline is { } timeline
+            ? WornModels.From(timeline.Props, HeldWeaponModels(timeline))
+            : [];
 
     /// <summary>Where to write an automatic capture, when one was asked for.</summary>
     private string? _shotPath;
 
     /// <summary>Which tick to show before capturing.</summary>
     private int _shotTick;
+
+    /// <summary>Whether an automatic capture should be taken from the player's own eyes.</summary>
+    private bool _shotFirstPerson;
 
     /// <summary>Where to point the camera before capturing, in world units.</summary>
     private (float X, float Y)? _shotLookAt;
@@ -1603,6 +1681,17 @@ internal class MainForm : Form
                 continue;
             }
 
+            // **The capture that a person actually wants to look at is the first-person one**, and
+            // until this flag existed the only route to it was the UI suite pressing V — which
+            // meant it could only be taken on whichever demo that suite happens to open, at
+            // whichever tick it could reach. See docs/findings/29 for what that produced: a
+            // picture of a wall at the last tick of a solo recording.
+            if (argument == "--first-person")
+            {
+                _shotFirstPerson = true;
+                continue;
+            }
+
             if (argument == "--zoom" && pending.Count > 0)
             {
                 string value = pending.Dequeue();
@@ -1614,6 +1703,26 @@ internal class MainForm : Form
                 }
 
                 ViewerLog.Warn("viewer", $"--zoom {value} is not a number; ignoring it");
+                continue;
+            }
+
+            // **Which player to watch, because otherwise there is no choosing.** The viewer
+            // spectates whoever `SpectatorTarget.Choose` picks — the lowest entity index on a
+            // playing team — and a match has eighteen players. Anything that happens to anybody
+            // else is on screen for nobody, which made the off hand unviewable: z1800 carries six
+            // spies with a watch drawn, and not one of them is ever the chosen target.
+            if (argument == "--spectate" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (int.TryParse(
+                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
+                {
+                    _spectating = entity;
+                    continue;
+                }
+
+                ViewerLog.Warn("viewer", $"--spectate {value} is not a number; ignoring it");
                 continue;
             }
 
@@ -1648,7 +1757,12 @@ internal class MainForm : Form
     /// </remarks>
     private void TakeAutomaticShot()
     {
-        if (_shotPath is not { } path)
+        // **The opening state is not the capture, and tying them together made half the switches
+        // unusable.** `--tick`, `--first-person`, `--spectate` and `--colours` all say where to
+        // START; `--shot` says to photograph it and quit. Gating the first on the second meant the
+        // only way to be put at a tick was to be handed a PNG, which is no way to LOOK at
+        // something — and looking is the only instrument for anything about a picture.
+        if (_shotPath is null && _openingDone)
         {
             return;
         }
@@ -1657,6 +1771,8 @@ internal class MainForm : Form
         {
             if (_shotDelay == 40 && _timeline is not null)
             {
+                _openingDone = true;
+
                 // **The clock too, not just the transport.** Moving the camera marks the world
                 // stale, and the reprojection that follows re-reads the moment from the clock - so
                 // a capture that only told the transport photographed tick zero while every log
@@ -1670,6 +1786,16 @@ internal class MainForm : Form
                     _surfaceColours.Checked = true;
                 }
 
+                // **After the seek, because entering the first-person view reads the moment.**
+                // The camera is placed from the recorded view or from the followed player at the
+                // CURRENT tick, so switching before the clock moves photographs the right mode at
+                // the wrong instant — and the picture looks like a camera bug rather than an
+                // ordering one.
+                if (_shotFirstPerson)
+                {
+                    _ = ToggleFirstPerson();
+                }
+
                 if (_shotLookAt is { } centre)
                 {
                     _zoom = _shotZoom;
@@ -1681,11 +1807,24 @@ internal class MainForm : Form
             return;
         }
 
+        if (_shotPath is not { } path)
+        {
+            return;
+        }
+
         _shotPath = null;
 
         CaptureViewport(path);
         BeginInvoke(Close);
     }
+
+    /// <summary>Whether the opening tick, view and target have been applied.</summary>
+    /// <remarks>
+    /// Latched rather than inferred from the countdown, because the countdown keeps running after
+    /// it reaches zero and re-applying the seek every frame would pin the transport to one tick —
+    /// a viewer that cannot be scrubbed, which is the opposite of the point.
+    /// </remarks>
+    private bool _openingDone;
 
     /// <summary>The free camera, orbiting whatever the top-down view is centred on.</summary>
     /// <remarks>
@@ -1761,6 +1900,366 @@ internal class MainForm : Form
         return true;
     }
 
+    /// <summary>Puts the followed player's weapon in front of the camera.</summary>
+    /// <param name="seconds">Demo time, for advancing the weapon's own animation.</param>
+    /// <remarks>
+    /// **A viewmodel has no position of its own, so this is where it gets one.** Its table is
+    /// declared <c>BEGIN_NETWORK_TABLE_NOBASE</c> and carries no origin and no angles at all — the
+    /// demo names the model and the pose, and <c>CBaseViewModel::CalcViewModelView</c> starts it at
+    /// the eye:
+    ///
+    /// <code>
+    /// QAngle vmangles = eyeAngles;
+    /// Vector vmorigin = eyePosition;
+    /// </code>
+    ///
+    /// **The bob, the lag and the shake that follow in the engine are deliberately not copied.**
+    /// Every one of them is a function of movement and elapsed time rather than of anything the
+    /// recording holds, so reproducing them would be this viewer inventing motion — which is the
+    /// one thing it exists not to do. What is drawn is where the weapon was; how it swayed is not
+    /// in the file.
+    ///
+    /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
+    /// wrong does not fail, it draws the weapon inside out.
+    /// </remarks>
+    private void AddViewmodel(double seconds)
+    {
+        if (!_firstPerson ||
+            _timeline is not { } timeline ||
+            FollowedEntity() is not { } follower ||
+            FirstPersonCamera() is not { } camera)
+        {
+            // **Dropping the camera is how "draw none" is said.** The instance list is owned by the
+            // pose step and survives paused frames on purpose, so leaving it populated while first
+            // person is off would keep a weapon on screen after V was pressed.
+            _viewmodelCamera = null;
+            return;
+        }
+
+        if (timeline.ViewmodelAt(_transport.CurrentTick, follower) is not { } weapon)
+        {
+            ViewerLog.Warn(
+                "render",
+                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
+            return;
+        }
+
+        // **At the eye, which is where CalcViewModelView puts it**, and where it stays until the
+        // reason it is not visible is understood rather than guessed at. Two offsets were tried and
+        // neither helped: pushing it 24 units forward (the near plane is 7, so clipping was the
+        // obvious suspect) and rotating its yaw by −90 (the posed geometry sits along +Y, which is
+        // camera-left). See docs/findings/30 for what IS known.
+        SceneProp prop = new(
+            ViewmodelEntityIndex,
+            weapon.ModelPath,
+            SceneModelKind.Studio,
+            new ScenePose
+            {
+                X = camera.Origin.X,
+                Y = camera.Origin.Y,
+                Z = camera.Origin.Z,
+                Pitch = camera.Angles.Pitch,
+                Yaw = camera.Angles.Yaw,
+                Roll = camera.Angles.Roll,
+                Sequence = weapon.Sequence,
+                PlaybackRate = weapon.PlaybackRate,
+            });
+
+        // Packed on demand like any other model, so a weapon seen for the first time is loaded
+        // rather than skipped — and skipped silently, since a missing model draws nothing.
+        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
+        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
+        // `UploadModels` is called. The world's props do that whenever their set grows, and the
+        // viewmodel's Add was ignoring the same signal — so the arms were packed, posed, instanced,
+        // transformed correctly and submitted against geometry the renderer did not have.
+        //
+        // It said so on every frame: "a model was posed but the renderer has no geometry for it".
+        bool grew = _models.Add([prop], ModelGeometry);
+
+        // **The demo's sequence is played, never one chosen here.** This used to substitute the
+        // model's `VM_IDLE` whenever it differed, which on the spy meant replacing the recorded
+        // sequence 34 with 3 on every frame — the recording says what the weapon was doing and
+        // overriding it is this viewer inventing motion, which is the one thing it exists not to do.
+        // The owner's rule, and it is the right one: "we shouldnt be forcing any sequence only stuff
+        // from the demo or how valve does it".
+        //
+        // The engine agrees. `C_BaseViewModel` plays `m_nSequence` as it arrives; nothing anywhere
+        // in the viewmodel path picks an idle for it.
+        //
+        // **The substitution was added for a real symptom and cost the placement.** Merged sequence
+        // 1 on an arms model is `r_handposes`, a one-frame pose holder whose root sits at identity,
+        // which leaves the arms off screen — so forcing VM_IDLE made them appear. It also replaced
+        // the spy's recorded 34 with 3, which posed the arms for a weapon they were not holding and
+        // dropped the knife to the bottom of the frame. The owner spotted that as "the knifes there
+        // its jkust super low", and removing the substitution put it in the grip.
+        //
+        // **The recorded index means what the engine means by it, measured rather than assumed.**
+        // The worry was that a demo's sequence number indexes the weapon's own table while ours is
+        // merged from two models and 98 sequences deep, so the two might disagree silently. They do
+        // not: 34 plays a correct spy knife pose on z1800. Worth re-checking on any model whose
+        // merge is a different shape, since the failure would be a plausible wrong animation.
+        ViewerLog.Write(
+            "render",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"viewmodel sequence: demo says {weapon.Sequence}, " +
+                $"VM_IDLE would be {_models.SequenceByActivity(weapon.ModelPath, "VM_IDLE")}, " +
+                $"playing {prop.Pose.Sequence}"));
+
+        List<SceneProp> viewmodelProps = [prop];
+
+        // **The weapon is a second model, parented to the arms.** In modern TF2 the networked
+        // viewmodel carries the player's ARMS — c_sniper_arms, c_pyro_arms — and the gun is a
+        // separate C_ViewmodelAttachmentModel the CLIENT creates and parents to it
+        // (econ_entity.cpp:1153). It is not networked, so no demo carries it and it has to be
+        // rebuilt from the item the player is holding.
+        //
+        // Drawn at the viewmodel's own transform because that is where the engine puts it: the
+        // attachment is parented with SetLocalOrigin( vec3_origin ) and bone-merged, so its bones
+        // take the arms' outright. Mirrored with them for the same reason they are.
+        if (WeaponModelFor(follower) is { Length: > 0 } held)
+        {
+            // **Bone-merged onto the arms, not posed beside them.** The engine parents the
+            // attachment with `SetLocalOrigin( vec3_origin )` and blends it through
+            // `C_ViewmodelAttachmentModel::StandardBlendingRules`, so it has no pose of its own —
+            // it takes the viewmodel's bone matrices by name, exactly as a hat takes a player's.
+            //
+            // Posed independently it sits at its own origin, which after the transform is AT the
+            // camera and therefore inside the near plane: packed, instanced, drawn and invisible.
+            // A weapon model carries one sequence and no animation to move it anywhere else.
+            SceneProp gun = new(
+                WeaponEntityIndex,
+                held,
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = camera.Origin.X,
+                    Y = camera.Origin.Y,
+                    Z = camera.Origin.Z,
+                    Pitch = camera.Angles.Pitch,
+                    Yaw = camera.Angles.Yaw,
+                    Roll = camera.Angles.Roll,
+                    Sequence = weapon.Sequence,
+                    PlaybackRate = weapon.PlaybackRate,
+                },
+                AttachedTo: ViewmodelEntityIndex);
+
+            grew |= _models.Add([gun], ModelGeometry);
+            viewmodelProps.Add(gun);
+        }
+
+        // **The off hand, drawn beside the weapon rather than instead of it.** Only the spy's watch
+        // uses slot 1 — `CTFWeaponInvis::Spawn` calls `SetViewModelIndex( 1 )` — so this is nothing
+        // for eight classes and most of the ninth's time. The lookup has already applied the two
+        // rules that decide it: EF_NODRAW on the viewmodel's own table, which is how
+        // `SetWeaponVisible` puts the watch away, and a model index of zero, which is what an unused
+        // off hand sends. All 22 of z1800's send exactly that.
+        //
+        // Posed at the camera like the arms, and with no weapon merged onto it, because the watch's
+        // viewmodel IS the item's player model rather than a pair of arms.
+        if (timeline.OffHandViewmodelAt(_transport.CurrentTick, follower) is { } offHand)
+        {
+            SceneProp watch = new(
+                OffHandEntityIndex,
+                offHand.ModelPath,
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = camera.Origin.X,
+                    Y = camera.Origin.Y,
+                    Z = camera.Origin.Z,
+                    Pitch = camera.Angles.Pitch,
+                    Yaw = camera.Angles.Yaw,
+                    Roll = camera.Angles.Roll,
+                    Sequence = offHand.Sequence,
+                    PlaybackRate = offHand.PlaybackRate,
+                });
+
+            grew |= _models.Add([watch], ModelGeometry);
+
+            viewmodelProps.Add(watch);
+
+            // The recorded sequence, like the main hand: nothing is substituted here either.
+            ViewerLog.Write(
+                "render",
+                $"off hand {offHand.ModelPath} seq {offHand.Sequence} at tick " +
+                $"{_transport.CurrentTick}");
+        }
+
+        if (grew && _device is { } packed)
+        {
+            packed.UploadModels(_models);
+
+            ViewerLog.Write(
+                "render",
+                $"viewmodel models uploaded: {_models.Count} packed, " +
+                $"{_models.Vertices.Count} vertices");
+        }
+
+        // **One call for both, because Instances CLEARS the list it is given.** Posing the arms and
+        // then the weapon into the same list threw the arms away and drew the gun alone — a bug
+        // that reads as "the arms do not work" and was invisible next to a viewmodel that was not
+        // on screen for other reasons anyway.
+        _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
+
+        // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
+        // and then yields no instance is indistinguishable on screen from one that was never
+        // looked up — and that distinction is exactly what went wrong the first time this ran.
+        ViewerLog.Write(
+            "render",
+            $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
+            $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
+            $"{_viewmodelInstances.Count} instances");
+
+        // **Kept OUT of the world list, because they are drawn in their own pass.** The engine
+        // draws viewmodels after the world with a different projection and a compressed depth
+        // range (CViewRender::DrawViewModels); putting them in with everything else is what left
+        // them packed, posed, instanced, listed for drawing and invisible.
+        //
+        // **Not mirrored.** `cl_flipviewmodels` mirrors for a left-handed view and is off by
+        // default — the owner, who has played the game: "the watch is the left hand, the weapon in
+        // the right, unless you use left handed viewmodels, then its the opposite".
+        // `C_BaseViewModel::InternalDrawModel` switches to MATERIAL_CULLMODE_CW *when* mirrored,
+        // which is the same conditional from the renderer's side.
+        _viewmodelCamera = new FreeCamera
+        {
+            Origin = camera.Origin,
+            Angles = camera.Angles,
+            Aspect = camera.Aspect,
+            FarZ = camera.FarZ,
+            FieldOfView = _settings.ViewmodelFieldOfView,
+            NearZ = ViewmodelPass.NearPlane,
+        };
+    }
+
+    /// <summary>The camera the viewmodel pass uses, or null when nothing is drawn in it.</summary>
+    private FreeCamera? _viewmodelCamera;
+
+    /// <summary>The model of the weapon in a player's hands, or <c>null</c>.</summary>
+    /// <param name="player">The player being followed.</param>
+    /// <remarks>
+    /// **Two routes, and the second is needed more often than it looks.** A demo names the item the
+    /// player holds — <c>m_iItemDefinitionIndex</c> — and the schema turns that into a model. But
+    /// measured on z1800, 22 of 56 held weapons never send one, so the weapon's own class is used
+    /// to find the stock item for it instead. Together they answered for 56 of 56.
+    ///
+    /// Both are lookups into <c>items_game.txt</c>, which is read once and kept: it is eight
+    /// megabytes, and this is asked every frame.
+    /// </remarks>
+    private string? WeaponModelFor(int player) =>
+        PlayerAt(_transport.CurrentTick, player) is { } holder ? WeaponModel(holder) : null;
+
+    /// <summary>The model of the weapon a player is holding, or <c>null</c>.</summary>
+    /// <param name="holder">The player, at whichever tick they were read.</param>
+    /// <remarks>
+    /// Shared by the draw path and by the load set, deliberately: the set decides which models are
+    /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
+    /// that resolves and cannot be drawn — which is exactly the failure this feature already had
+    /// once, from the other direction.
+    /// </remarks>
+    private string? WeaponModel(ScenePlayer holder)
+    {
+        if (ItemDefinitions() is not { } schema)
+        {
+            return null;
+        }
+
+        int playerClass = holder.PlayerClass ?? 0;
+
+        if (holder.WeaponItem is { } item &&
+            schema.ModelFor(item, playerClass) is { Length: > 0 } named)
+        {
+            return named;
+        }
+
+        if (holder.WeaponClass is not { } weaponClass)
+        {
+            return null;
+        }
+
+        foreach (string candidate in WeaponScriptName.Candidates(weaponClass, holder.PlayerClass))
+        {
+            if (schema.ModelForClass(candidate, playerClass) is { Length: > 0 } stock)
+            {
+                return stock;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>TF2's item schema, read from the installed game once.</summary>
+    /// <remarks>
+    /// Null when the game is not installed or the file is not where it should be, which is the
+    /// same condition every other asset lookup here already tolerates — the viewer draws what it
+    /// can find and says what it could not.
+    /// </remarks>
+    private ItemSchema? ItemDefinitions()
+    {
+        if (_itemSchema is not null || _itemSchemaMissing)
+        {
+            return _itemSchema;
+        }
+
+        if (_archives?.Read("scripts/items/items_game.txt") is not { } bytes)
+        {
+            // Recorded so the eight-megabyte read is not attempted every frame, and reported once
+            // so a viewer with no weapons in hand says why.
+            _itemSchemaMissing = true;
+            ViewerLog.Warn("render", "no items_game.txt, so no weapon models in first person");
+            return null;
+        }
+
+        _itemSchema = ItemSchema.Read(bytes);
+        ViewerLog.Write("render", "item schema read");
+
+        return _itemSchema;
+    }
+
+    /// <summary>The item schema, once read.</summary>
+    private ItemSchema? _itemSchema;
+
+    /// <summary>Whether the schema was looked for and not found.</summary>
+    private bool _itemSchemaMissing;
+
+    /// <summary>The slot the weapon in hand is drawn under, beside the arms.</summary>
+    /// <remarks>
+    /// Its own index rather than the viewmodel's, because the two are separate models packed and
+    /// posed separately — sharing one would have the second overwrite the first's geometry.
+    /// </remarks>
+    private const int WeaponEntityIndex = 4097;
+
+    /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
+    private readonly List<ModelInstance> _viewmodelInstances = [];
+
+
+    /// <summary>
+    /// The entity slot the viewmodel is drawn under, which is not a real one.
+    /// </summary>
+    /// <remarks>
+    /// A viewmodel is not in the scene the timeline builds — it has no position, so it is not a
+    /// prop — and it still needs an index to be packed and posed like one. Chosen above every real
+    /// slot so it cannot collide with an entity the demo describes.
+    /// </remarks>
+    private const int ViewmodelEntityIndex = 4096;
+
+    /// <summary>The slot the off-hand viewmodel is drawn under.</summary>
+    /// <remarks>
+    /// **A third index, because all three are on screen together.** The owner, who has played the
+    /// class: "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
+    /// everything goes transparent". So the off hand is a model BESIDE the weapon, not instead of
+    /// it, and sharing an index with either would have one overwrite the other's geometry.
+    ///
+    /// **It needs no weapon of its own, and that is measured rather than reasoned.** Every off hand
+    /// z1800 ever offers is a complete watch model — <c>v_watch_spy</c>,
+    /// <c>v_watch_leather_spy</c>, <c>v_watch_pocket_spy</c>, three of them across 190 of 9,165
+    /// player-ticks — where a modern main-hand viewmodel is a pair of arms that needs a
+    /// client-built weapon merged onto it. Valve's comment on
+    /// <c>CTFWeaponInvis::GetViewModel</c> says why: "Watch uses the player model as its viewmodel,
+    /// because it's never seen being carried by the player".
+    /// </remarks>
+    private const int OffHandEntityIndex = 4098;
+
     /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
     /// <remarks>
     /// **The same choice the camera makes, asked separately** — the camera needs a position and
@@ -1780,13 +2279,54 @@ internal class MainForm : Form
             return timeline.RecorderEntityIndex;
         }
 
-        // The first player the timeline reports, matching the camera's own placeholder choice.
-        // Picking a target deliberately is separate work; until then the two must agree, which is
-        // why both take the first rather than each choosing.
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
-
-        return players.Count > 0 ? players[0].EntityIndex : null;
+        // Whoever the camera is spectating, asked in one place so the two cannot disagree — this
+        // decides which player is hidden from their own view, and a mismatch would hide the wrong
+        // body or leave the spectated one standing in front of the lens.
+        return Spectated(_transport.CurrentTick)?.EntityIndex;
     }
+
+    /// <summary>The player being spectated at a tick, honouring <c>--spectate</c>.</summary>
+    /// <remarks>
+    /// **One resolver, because two call sites decide different halves of the same picture** — the
+    /// camera's position and which body to hide. They read this rather than
+    /// <see cref="SpectatorTarget.Choose"/> directly, so an override cannot reach one and miss the
+    /// other and leave a player standing in front of their own lens.
+    ///
+    /// The override falls back rather than failing when the named entity is not playing at this
+    /// tick: a spy is dead, in the lobby, or another class for most of a match, and a viewer that
+    /// went black for those stretches would be worse than one that shows somebody. It says so in the
+    /// log rather than silently, because "I asked for entity 11 and got somebody else" is exactly
+    /// the kind of thing that reads as a decode bug.
+    /// </remarks>
+    private ScenePlayer? Spectated(int tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
+
+        if (_spectating is { } wanted)
+        {
+            foreach (ScenePlayer player in players)
+            {
+                if (player.EntityIndex == wanted)
+                {
+                    return player;
+                }
+            }
+
+            ViewerLog.Warn(
+                "viewer",
+                $"--spectate {wanted} is not playing at tick {tick}; following the default");
+        }
+
+        return SpectatorTarget.Choose(players);
+    }
+
+    /// <summary>The entity <c>--spectate</c> named, or <c>null</c> to choose automatically.</summary>
+    private int? _spectating;
 
     /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
     /// <remarks>
@@ -1828,17 +2368,13 @@ internal class MainForm : Form
                 aspect);
         }
 
-        // No recorded camera: spectate somebody. The first player the timeline reports is a
-        // placeholder for a chosen target — picking one is a separate piece of work, and a view
-        // that follows an arbitrary player is still better than a key that does nothing.
-        List<ScenePlayer> players = [.. timeline.PlayersAt(tick)];
-
-        if (players.Count == 0)
+        // No recorded camera: spectate somebody who is actually playing. Taking the first player
+        // in the list took the SourceTV camera instead — see SpectatorTarget, and
+        // docs/findings/29 for the three identical captures that found it.
+        if (Spectated(tick) is not { } target)
         {
             return null;
         }
-
-        ScenePlayer target = players[0];
 
         return FreeCamera.SpectatingEye(
             (target.X, target.Y, target.Z),
@@ -2003,7 +2539,7 @@ internal class MainForm : Form
             ? zoomed.LookingAt(centre.X, centre.Y)
             : zoomed;
 
-        // **D21: the camera projects height, so it has to know the range.** The geometry carries
+        // **D35: the camera projects height, so it has to know the range.** The geometry carries
         // world Z now; without this the third row is a pass-through and every surface lands at a
         // depth of its own world height in units, which is far outside the clip range and draws
         // nothing at all.
@@ -2274,6 +2810,8 @@ internal class MainForm : Form
         long posedAt = Stopwatch.GetTimestamp();
 
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
+
+        AddViewmodel(seconds);
 
         _posingTicks += Stopwatch.GetTimestamp() - posedAt;
 
@@ -2780,6 +3318,12 @@ internal class MainForm : Form
             // border style and window state but has not re-laid-out, so the viewport still reports
             // its windowed rectangle - and the overlay lands wherever the bottom of the small
             // viewport used to be, which on a maximised window is the middle of the screen.
+            // **Logged on both sides of Activate, because the question is whether it WORKED.**
+            // SetForegroundWindow is refused rather than obeyed for a process that is not already
+            // foreground, so Activate can return having done nothing at all — and the symptom is
+            // keys going to another application, which looks like the viewer ignoring them.
+            ViewerLog.Write("render", "full screen: " + ForegroundProbe.Describe(Handle) + FocusHere());
+
             BeginInvoke(() =>
             {
                 _overlay?.PositionOver(_viewport);
@@ -2787,6 +3331,25 @@ internal class MainForm : Form
                 // Last thing, after every window has settled. Without it the keys stopped landing
                 // on entering full screen and there was no way back out but alt-tab.
                 Activate();
+
+                // **Activation is not focus, and only the second one delivers a keystroke.**
+                // Measured 2026-08-20: the window held the foreground on both sides of this
+                // transition — the probe says so — and `ContainsFocus` was still false, because
+                // full screen hides the playlist and the playlist is what had the focus. A form
+                // with no focused child receives no key messages, so `ProcessCmdKey` never ran and
+                // Escape had nowhere to land. The window sat full screen with the overlay up and
+                // ignored every key until the user alt-tabbed away and back, which is what put a
+                // focused child back.
+                //
+                // Cleared before focusing: `ActiveControl` still points at the hidden playlist, and
+                // focusing a container walks to its active control — which would hand it straight
+                // back to the control that cannot take it.
+                ActiveControl = null;
+                _ = Focus();
+
+                ViewerLog.Write(
+                    "render",
+                    "full screen after Activate: " + ForegroundProbe.Describe(Handle) + FocusHere());
             });
 
             // **And again on every layout while full screen.** One shot is not enough: the form is
@@ -3239,7 +3802,7 @@ internal class MainForm : Form
     ///
     /// **Safe to use instead of a full rebuild in the FREE view only**, and each half of that was
     /// checked rather than assumed. The world's vertices are in map coordinates and only the view
-    /// changes (D21). The 3D models are world-space too, placed by their own matrices. And the
+    /// changes (D35). The 3D models are world-space too, placed by their own matrices. And the
     /// screen-space scene points are a map-view fallback drawn only for players with no model, so
     /// they are empty in any modern demo and are projected through the top-down camera anyway. The
     /// map view still rebuilds, because there everything IS projected to screen space.
@@ -3332,7 +3895,17 @@ internal class MainForm : Form
             _mapFill,
             _outline.Checked ? _mapLines : [],
             _scene,
-            _instances);
+            _instances,
+            _viewmodelInstances,
+            _viewmodelCamera?.ToMatrix());
+
+        // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
+        // it is emptied and refilled by the pose step exactly like the world's own list — and the
+        // pose step does not run on a paused frame. Clearing after the draw meant the viewmodel
+        // survived exactly one frame and every capture, which is taken while paused, got nothing.
+        //
+        // The pass is fed empty when first person is off because AddViewmodel drops the camera
+        // then, which is the state that actually means "draw none".
 
         if (_fullScreenClock is { } clock)
         {
@@ -3610,6 +4183,19 @@ internal class MainForm : Form
             return true;
         }
 
+        // **Logged before the guard, so a key that ARRIVED is distinguishable from one that never
+        // did.** Full screen has twice been reported as impossible to leave, and the two states
+        // look identical from outside: the key reaching this method and being ignored, and the key
+        // going to whichever window took the foreground. Only a line written here separates them.
+        if (keyData is Keys.Escape or Keys.F11)
+        {
+            ViewerLog.Write(
+                "render",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{keyData} reached the form; full screen is {IsFullScreen}"));
+        }
+
         if (keyData == Keys.Escape && IsFullScreen)
         {
             SetFullScreen(false);
@@ -3618,6 +4204,24 @@ internal class MainForm : Form
 
         return base.ProcessCmdKey(ref msg, keyData);
     }
+
+    /// <summary>Where keyboard focus sits inside this form, for the log.</summary>
+    /// <remarks>
+    /// **The foreground and the focus are different questions, and only the second was open.** The
+    /// probe showed this window holding the foreground on both sides of the full-screen transition
+    /// while Escape never reached <see cref="ProcessCmdKey"/> at all — so the key was not going to
+    /// another application, it was being dropped inside this one.
+    ///
+    /// The candidate is stated in the transition itself: the playlist takes focus when the window
+    /// opens, and full screen hides it. A control that is hidden while focused leaves the form with
+    /// no focused child, and a keystroke with nowhere to land goes nowhere.
+    /// </remarks>
+    private string FocusHere() =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"; active control {ActiveControl?.Name ?? "none"}" +
+            $" (visible {ActiveControl?.Visible.ToString() ?? "n/a"})" +
+            $", form contains focus {ContainsFocus}");
 
     /// <summary>Test seam onto <see cref="ProcessCmdKey"/>, which is protected.</summary>
     /// <param name="msg">The window message.</param>

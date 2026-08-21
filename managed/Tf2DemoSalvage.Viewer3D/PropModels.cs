@@ -555,6 +555,37 @@ internal static class PropModels
 
             StudioSequenceTable table = StudioSequenceTable.Merge(groups);
 
+            // **The merged table's first entries, by NAME.** A demo says `m_nSequence`, and a
+            // number can only be compared against another number — which is how a viewmodel came to
+            // play a sequence that left its root bone at identity and the model on its side. The
+            // name says what the engine would call it, so the two tables can actually be compared.
+            //
+            // Capped and logged once per model: the interesting part is the front of the list,
+            // where a merge order that disagrees with the engine's shows up first.
+            if (table.Count > 0)
+            {
+                ViewerLog.Write(
+                    "props",
+                    $"sequences {path}: {table.Count} merged, " +
+                    string.Join(
+                        ", ",
+                        Enumerable.Range(0, Math.Min(8, table.Count))
+                            .Select(index =>
+                            {
+                                if (table.At(index) is not { } at ||
+                                    at.Group >= groups.Count ||
+                                    at.Local >= groups[at.Group].Sequences.Count)
+                                {
+                                    return $"[{index}] unresolved";
+                                }
+
+                                StudioSequence entry = groups[at.Group].Sequences[at.Local];
+
+                                return $"[{index}] g{at.Group} '{entry.Label}'" +
+                                    (entry.Activity.Length > 0 ? $" act {entry.Activity}" : string.Empty);
+                            })));
+            }
+
             // **One pose parameter list across the base model and everything it includes.** A
             // player model declares two of its own; move_x and move_y arrive with the animation
             // model, and a sequence's paramindex is local to whichever group owns it. Built here
@@ -894,7 +925,12 @@ internal static class PropModels
                         : null,
                     IlluminationOf(modelFile),
                     byFamily,
-                    model.BodyParts));
+                    model.BodyParts,
+
+                    // Read for every model rather than only for wearers: which models get worn is
+                    // not known here, and a table of a few dozen entries costs nothing next to the
+                    // geometry beside it.
+                    StudioAttachment.Read(modelFile)));
         }
         catch (InvalidDataException failure)
         {
@@ -1459,6 +1495,83 @@ internal static class PropModels
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
 
+        /// <summary>The first merged sequence whose activity contains a fragment.</summary>
+        /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>
+        /// <returns>The merged sequence number, or −1 when no sequence claims it.</returns>
+        /// <remarks>
+        /// **Activities are how the engine asks for an animation, and names are how two sequence
+        /// tables can be compared at all.** A demo carries `m_nSequence`, a number, and a number can
+        /// only be checked against another number — which is how the viewmodel came to play
+        /// `r_handposes`, a one-frame pose holder sitting at merged index 1, while the actual
+        /// viewmodel animations start at 2 and carry `ACT_PRIMARY_VM_IDLE` and friends.
+        /// </remarks>
+        public int SequenceByActivity(string fragment)
+        {
+            ArgumentNullException.ThrowIfNull(fragment);
+
+            for (int index = 0; index < Sequences.Count; index++)
+            {
+                if (Sequences.At(index) is not { } at ||
+                    at.Group >= Groups.Count ||
+                    at.Local >= Groups[at.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                if (Groups[at.Group].Sequences[at.Local].Activity
+                    .Contains(fragment, StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>What the animation behind a sequence uses that this reader does not implement.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>A short note for the log, or empty when it uses neither mechanism.</returns>
+        /// <remarks>
+        /// Reported rather than assumed. Zero-frame data and local hierarchy both sit between an
+        /// animation's bone tracks and the final pose, and a viewer that implements neither is only
+        /// wrong for animations that actually carry them — which is a measurement, not a guess.
+        /// </remarks>
+        public string UnimplementedFor(int sequence)
+        {
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return string.Empty;
+            }
+
+            (int hierarchy, int zeroFrames) = StudioAnimation.Unimplemented(
+                Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
+
+            return (hierarchy, zeroFrames) switch
+            {
+                (0, 0) => string.Empty,
+                (0, _) => $" ZEROFRAME x{zeroFrames}",
+                (_, 0) => $" LOCALHIERARCHY x{hierarchy}",
+                _ => $" LOCALHIERARCHY x{hierarchy} ZEROFRAME x{zeroFrames}",
+            };
+        }
+
+        /// <summary>Whether a merged sequence is a DELTA, meant to be layered rather than played.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether it carries <c>STUDIO_DELTA</c>.</returns>
+        /// <remarks>
+        /// Reported rather than acted on for now: a delta posed on its own builds a skeleton from
+        /// differences with nothing underneath, and the tell is a bone sitting at identity where its
+        /// rest rotation carried a real orientation. Knowing whether the viewmodel's sequence is one
+        /// separates "we are playing the wrong sequence" from "we are playing it the wrong way".
+        /// </remarks>
+        public bool IsDelta(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].IsDelta;
+
         /// <summary>How many frames the animation behind a sequence has.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>The frame count, or one when the sequence does not resolve.</returns>
@@ -1482,6 +1595,10 @@ internal static class PropModels
     /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
     /// <param name="SkinSwaps">Per extra skin family, how each material of family zero is replaced.</param>
     /// <param name="BodyParts">Each body part's place value and alternative count, for m_nBody.</param>
+    /// <param name="Attachments">
+    /// The named points other entities hang from, in the model's own order. Indexed ONE-based by
+    /// <c>m_iParentAttachment</c>, because the engine stores them that way.
+    /// </param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -1495,7 +1612,13 @@ internal static class PropModels
         SkinnedModel? Skinned = null,
         (float X, float Y, float Z) Illumination = default,
         IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null,
-        IReadOnlyList<(int Base, int Count)>? BodyParts = null)
+        IReadOnlyList<(int Base, int Count)>? BodyParts = null,
+
+        // **The named points other entities hang from.** A hat merges bones by name; a halo, a
+        // canteen, a spellbook and a spy's sapper share no bone name with their wearer and hang
+        // from one of these instead. Kept on the WEARER's model, because m_iParentAttachment indexes
+        // the parent's table — the spellbook itself declares none at all, while a scout declares 29.
+        IReadOnlyList<StudioAttachment>? Attachments = null)
     {
         /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
         /// <remarks>

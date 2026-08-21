@@ -36,6 +36,29 @@ public readonly record struct AmbientCube(
     (float Red, float Green, float Blue) PositiveZ,
     (float Red, float Green, float Blue) NegativeZ)
 {
+    /// <summary>The whole cube's brightness, for comparing one sample against another.</summary>
+    /// <param name="cube">The sampled ambient cube.</param>
+    /// <returns>Mean of the six faces' mean channel.</returns>
+    /// <remarks>
+    /// **A crude average on purpose.** It is a diagnostic for ranking one sample against another —
+    /// "is this darker than its neighbours" — not a photometric quantity, and any monotonic summary
+    /// answers that question.
+    ///
+    /// Lives on the type because two callers need it: the renderer reporting how a model was lit,
+    /// and the light sampler reporting the bounce and direct terms apart. It was private to one of
+    /// them, and copying it would have been two summaries that could drift into disagreeing about
+    /// the number they both print.
+    /// </remarks>
+    public static float Luminance(AmbientCube cube)
+    {
+        static float Mean((float Red, float Green, float Blue) face) =>
+            (face.Red + face.Green + face.Blue) / 3f;
+
+        return (Mean(cube.PositiveX) + Mean(cube.NegativeX) +
+                Mean(cube.PositiveY) + Mean(cube.NegativeY) +
+                Mean(cube.PositiveZ) + Mean(cube.NegativeZ)) / 6f;
+    }
+
     /// <summary>Evaluates the cube for a surface facing a direction.</summary>
     /// <param name="normalX">World normal, east-west.</param>
     /// <param name="normalY">World normal, north-south.</param>

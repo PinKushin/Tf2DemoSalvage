@@ -2,6 +2,72 @@
 
 Short record of every locked decision from planning, with the reasoning. If you're reconsidering any of these, read the reasoning first — most were argued through explicit wins/drawbacks, not just picked.
 
+## Adding a decision
+
+**The next number is D43.** Take it from the index below, never by scrolling to the end — entries are
+in the order they were written and the file is not sorted, so the last heading is not the highest
+number. D32 and D33 sit between D34 and D35.
+
+**A number is permanent once cited.** Correcting a decision means an addendum under its existing
+heading (`### D15 addendum`, `### D25 outcome`) or a new number that says what it reverses. Never
+renumber a live entry.
+
+This section is deliberately not itself a numbered decision: it has to be read by whoever is about to
+add one, and that is the top of the file, not entry 43 of 43.
+
+`build/assert-decision-numbers.sh` fails the gate on a number used twice, and `build/gate.sh` runs
+it. It exists because D20–D28 each named two different decisions for a while (B118): a session
+restarted the count at D20 without reading the file, the two series interleaved, and the heading
+level was the only thing telling them apart — invisible in a citation. Both series were cited from
+live source comments, and half the "D20" citations pointed each way.
+
+## Index
+
+| # | Decision |
+|---|---|
+| D1 | scope: extraction first, 2D viewer, 3D viewer, repair parked |
+| D2 | language: pure C# for Phase 1 and 2, native C deferred |
+| D3 | native build: MSBuild/vcxproj, not CMake |
+| D4 | Source SDK: not used by default, per-format only in Phase 3 |
+| D5 | corpus strategy: two different problems, not one |
+| D6 | engineering practice: TDD, SOLID, DRY |
+| D7 | licence: MIT, public repo |
+| D8 | fuzzing: adopted, two layers, primitives first |
+| D9 | map assets resolved at runtime, not bundled |
+| D10 | rendering API: Direct3D 11, not DX9 (binding choice superseded by D34) |
+| D11 | demo corpus storage: Git LFS |
+| D12 | property-based testing with CsCheck |
+| D13 | the mutation gate runs incrementally, fully before a merge |
+| D14 | the corpus stores one demo per map |
+| D15 | the mutation gate runs at most once a day (+ two addenda) |
+| D16 | JSON Lines is the machine-readable output |
+| D17 | SQLite export is removed, not deferred |
+| D18 | the primary output is a Quake-style trace |
+| D19 | old demos need old binaries, not old source (+ two addenda) |
+| D20 | the protocol boundary list comes from Valve |
+| D21 | the era boundaries stay open, a demo is cheaper than research (+ outcome) |
+| D22 | the trace reaches the command line, the CLI gets its own tests |
+| D23 | corpus work is cached per process |
+| D24 | a faster suite recalibrated the mutation tool (+ correction) |
+| D25 | the test project splits along the pure/stateful seam (+ outcome) |
+| D26 | CI runs mutation and fuzzing on separate schedules |
+| D27 | entity baselines, and what they are not wired to yet |
+| D28 | user messages are named, not decoded |
+| D29 | mutation testing moves to the shared Oracle box |
+| D30 | date a candidate build before downloading it |
+| D31 | two corpora: gcor per generation, lcor everything else |
+| D32 | a downloaded BSP is hostile input |
+| D33 | FlaUI for the UI tests |
+| D34 | one renderer with two camera modes, Direct3D 11 via Silk.NET |
+| D35 | geometry is world space; only the camera knows about the view |
+| D36 | surf and jump runs are a named audience |
+| D37 | models are lit the way the engine lights them |
+| D38 | the suite runs on synthetic demos; the corpus keeps what only real bytes prove |
+| D39 | test names are `{Subject}_{Scenario}_{Expected}` |
+| D40 | no scripted edits to source files |
+| D41 | this project's measurement check names this project |
+| D42 | the viewmodel lookup answers the main hand |
+
 ## D1. Scope: extraction first, 2D viewer, 3D viewer (primitives first), repair parked
 
 Goal is "recover data from TF2 demos of any age" primarily, with a viewing story on top, in the spirit of Quake community demo tools (parse → text/data → 2D playback → 3D playback), not dependent on Valve's live client.
@@ -1243,7 +1309,7 @@ specimen nothing.
 both remaining protocol gaps adds a few MB, not tens — provided the recordings stay short, which
 is a condition rather than a promise.
 
-## D20 — one renderer with two camera modes, on Direct3D 11 via Silk.NET
+## D34 — one renderer with two camera modes, on Direct3D 11 via Silk.NET
 
 Decided 2026-08-11, when the viewer stopped being hypothetical.
 
@@ -1361,7 +1427,7 @@ Practical consequence for anyone reading this later: **`ViewerApplication` is th
 references FlaUI types.** Tests speak to it, not to the library, so the blast radius of that
 migration is one file plus whatever assertions genuinely depend on driver behaviour.
 
-## D21 — geometry is world space; the camera is the only thing that knows about the view
+## D35 — geometry is world space; the camera is the only thing that knows about the view
 
 **Decided 2026-08-13**, while wiring entity models into the viewer, and it changes what "add
 models" means.
@@ -1399,7 +1465,7 @@ after. Flattening geometry per camera is a thing this project invented, not a th
 works on the precomputed depth. It becomes a world-height test instead, which is what it always
 meant — and it is the mechanism B49's black lids need, so the two land together.
 
-## D22 — surf and jump runs are a named audience, and they set the accuracy bar
+## D36 — surf and jump runs are a named audience, and they set the accuracy bar
 
 **Stated by the owner, 2026-08-16.** Part of why this parser exists is so TF2's surf and jump
 communities can properly document old runs — recordings the live client can no longer play, which is
@@ -1432,7 +1498,7 @@ replayed with no client at all. That is a much larger job and is not needed to d
 decoding gives the run as recorded. The two compose if it is ever built: inputs from the demo,
 positions from emulation, and any disagreement is a finding.
 
-## D23 — models are lit the way the engine lights them, ambient cube plus local lights
+## D37 — models are lit the way the engine lights them, ambient cube plus local lights
 
 **Owner's decision, 2026-08-17, stated when brush entities first drew and came out flat-lit:** the
 lighting should be done as Valve does it. This closes a question the B71 amendment had left open,
@@ -1471,7 +1537,7 @@ is stated inline in `public/bspfile.h`, the ambient reconstruction is `Mod_LeafA
 `utils/vrad/leaf_ambient_lighting.cpp`, and `utils/` generally holds the compilers that WRITE the
 data the engine reads. See the `nothing-is-closed` memory.
 
-## D24 — the test suite runs on synthetic demos; the corpus keeps only what real bytes alone can prove
+## D38 — the test suite runs on synthetic demos; the corpus keeps only what real bytes alone can prove
 
 **Owner's direction, 2026-08-19**, given in several steps over one session. Recorded together
 because the reasoning only makes sense as a sequence, and because two of the steps reversed an
@@ -1525,7 +1591,7 @@ Everything else converts. Where a corpus test asserted a plausibility RANGE — 
 bounds", "more than ten distinct positions" — the synthetic version asserts the value, because a
 written demo knows the answer and found data does not.
 
-## D25 — test names are `{Subject}_{Scenario}_{Expected}`, converted repo-wide
+## D39 — test names are `{Subject}_{Scenario}_{Expected}`, converted repo-wide
 
 **Owner's decision, 2026-08-19, and a reversal within the same session.** First position:
 *"just dont change it, its no big deal"* and *"im not wasting time and money fixing this."* Then,
@@ -1553,7 +1619,7 @@ area into `Core.Decode.Tests` and similar, and renaming `Corpus.Tests` to match 
 Owner: *"just dont change it, its no big deal, we are moving out of corpus.tests anyway which it
 the weird one."*
 
-## D26 — no scripted edits to source files, restated after a live near-miss
+## D40 — no scripted edits to source files, restated after a live near-miss
 
 The global standards already ban editing source with `sed`/Python. It happened anyway on
 2026-08-19, and the failure is worth recording because it is the exact one the rule predicts.
@@ -1572,7 +1638,7 @@ the new one did not already exist, and that the counts match afterwards. That is
 free-hand edit would have left dangling. It did not save the call-site rewrite above, because that
 edit had no such guard.
 
-## D27 — this project's measurement check names this project, on every line
+## D41 — this project's measurement check names this project, on every line
 
 `build/check-measurements.ps1` reports Tf2DemoSalvage's own runs on the shared boxes, and says
 "Tf2DemoSalvage" in its header, in each box heading, and in its summary line.
@@ -1614,3 +1680,84 @@ Two things the first version got wrong, both found by running it:
 **The daily schedule is session-only and this is a real limitation.** `CronCreate` jobs live in
 one Claude session and auto-expire after seven days, so the durable artefact is the script; the
 schedule around it has to be re-made, or wired into a Windows scheduled task, to outlive a session.
+
+## D42 — the viewmodel lookup answers the main hand, and the off hand is left undrawn on purpose
+
+A player carries two viewmodels: `MAX_VIEWMODELS` is 2, slot 0 is the weapon in hand and slot 1 is
+the off hand — `CTFPlayer::GetOffHandViewModel` is `return GetViewModel( 1 )`. TF2 puts the spy's
+Invis Watch in slot 1, and **the watch is the only thing that uses it.**
+
+The SDK reads as though there were two. `tf_weaponbase_grenade.cpp:74` also calls
+`SetViewModelIndex( 1 )` and was cited here as a second case — but TF2's throwable grenades were cut
+before release. The class is still linked and nothing shipped names it: the only
+`tf_weapon_grenade*` item class in `items_game.txt` is `tf_weapon_grenadelauncher`, the demoman's
+PRIMARY. The owner caught the claim ("this isnt tf1, tf2 only has the spy watch for offhand"), and
+the correction is kept because it is the recurring shape of error here — living SDK code that
+nothing shipped exercises, read as evidence about the game.
+
+The first implementation of `DemoTimeline.ViewmodelAt` kept
+whichever viewmodel it saw last and therefore showed a spy watch in a soldier's hands on the one
+corpus demo that carries both.
+
+`ViewmodelAt` now filters on `m_nViewModelIndex` and answers with the main hand only.
+
+**The off hand is not an alternative to the main hand — both are on screen at once.** The owner,
+asked directly:
+
+> main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and everything
+> goes transparent
+
+and:
+
+> yep the watch is the left hand, the weapon in in the right, unless you use left handed
+> viewmodels, then its the opposite
+
+So answering with the main hand alone is knowingly one weapon short of what a cloaking spy saw.
+That is the decision: **one weapon short beats the wrong weapon**, and drawing both is its own
+piece of work with its own test. Recorded rather than fixed in passing so the gap is a known
+absence instead of a surprise the next time somebody watches a spy demo.
+
+The handedness remark does not change the lookup at all, and that is worth stating because it looks
+like it should. `cl_flipviewmodels` is a setting on the machine playing the demo, not something the
+recording carries; the demo names the entity and the model, and which hand it appears in is decided
+at draw time by `C_BaseViewModel::InternalDrawModel` switching to `MATERIAL_CULLMODE_CW` when the
+model is mirrored.
+
+### D42 outcome, 2026-08-20 — the off hand is drawn, and the gap was a missing property
+
+The known absence above is closed. `MainForm.AddViewmodel` now draws the off hand beside the weapon,
+under its own entity index because all three models are on screen together.
+
+**What made it a piece of work rather than a second lookup was a property this file said did not
+exist.** The comment on `EntityState.ViewModelTable` read "a viewmodel inherits no `DT_BaseEntity` —
+no origin, no angles, no `m_fEffects`". The first two are true. The third is not:
+`baseviewmodel_shared.cpp:565` declares `m_fEffects` on `DT_BaseViewModel` itself, ten bits
+unsigned. NOBASE stops a table INHERITING a property; it does not stop it declaring one.
+
+That mattered because **a slot-1 entity is not a watch in a hand.** Every player carries both
+viewmodels for their whole life. Drawing every slot-1 entity would have put a watch in eighteen
+players' hands for a whole match, and the engine's answer is exactly the property we had written off:
+`CTFWeaponInvis::SetWeaponVisible` resolves `pOwner->GetViewModel( m_nViewModelIndex )` and calls
+`vm->AddEffects( EF_NODRAW )` on it.
+
+Nothing failed while the claim was wrong. `IsDrawn` looked in `DT_BaseEntity`, a viewmodel answered
+null, and null reads as "no flags set" and therefore as "draw it". Third time in this repository that
+a right property name in the wrong table has been silent — see
+`docs/memory/a-property-name-needs-its-declaring-table.md`.
+
+**Two ways a viewmodel leaves the screen, and both are now handled in one place.** `EF_NODRAW`, and a
+model index of zero, which is what an unused off hand sends — all 22 of z1800's do. Both are recorded
+onto the sample rather than filtered at record time, because a viewmodel that is emptied or hidden
+must not leave its last drawable sample standing: the lookup keeps the newest match, so a skipped
+update means a watch that was put away stays in frame for the rest of the demo.
+
+**Measured on z1800 afterwards: 190 of 9,165 sampled player-ticks, three distinct models, every one a
+spy watch** — the stock Invis Watch, the Enthusiast's Timepiece and the Quäckenbirdt. The corpus
+agreeing with the SDK that only `CTFWeaponInvis` claims slot 1, and confirming the off hand needs no
+weapon merged onto it: each path is a complete model, not arms.
+
+**Nothing here needed a decompiler, and it was proposed that it might.** The concern was reasonable
+— the defect appears only on older demos, and the SDK is the 2013 tree — but a demo carries the
+schema that describes it, so "did the 2009 build send this property" is a question the 2009 file
+answers itself. `ViewmodelConformanceTests` asserts the property's presence and its 1-bit unsigned
+width against each demo's own schema, back to the 2007 build.

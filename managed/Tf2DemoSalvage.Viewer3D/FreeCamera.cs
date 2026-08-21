@@ -59,7 +59,14 @@ internal sealed class FreeCamera
     /// engine uses 7 for a player view and this keeps that: at 3 units the same buffer resolves
     /// roughly half as finely far away, which is where a map's coplanar surfaces already fight.
     /// </remarks>
-    public float NearZ { get; init; } = 7f;
+    public float NearZ { get; init; } = WorldNearPlane;
+
+    /// <summary>The engine's <c>VIEW_NEARZ</c>, which the world pass uses.</summary>
+    /// <remarks>
+    /// <c>view.h:26</c>. Named rather than left as a literal because the viewmodel pass deliberately
+    /// uses a different one — 1 — and the pair only makes sense read together.
+    /// </remarks>
+    public const float WorldNearPlane = 7f;
 
     /// <summary>Furthest drawn distance.</summary>
     public float FarZ { get; init; } = 28_000f;

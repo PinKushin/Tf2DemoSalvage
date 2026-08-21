@@ -102,6 +102,45 @@ public static class StudioAnimation
             : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFrameCountOffset)..]));
     }
 
+    /// <summary>What an animation carries that this reader does not implement.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <returns>Its local-hierarchy and zero-frame counts, both zero when it uses neither.</returns>
+    /// <remarks>
+    /// **Two mechanisms sit between an animation's bone tracks and the pose the engine ends up
+    /// with, and neither is implemented here.** <c>CalcZeroframeData</c> fills bones the animation
+    /// does not mention from a compressed span table, and <c>CalcLocalHierarchyAnimation</c>
+    /// reparents a bone for the duration of the animation (<c>bone_setup.cpp:990</c>).
+    ///
+    /// This exists so the question "does the animation we are posing actually use them" can be
+    /// answered before anyone implements either. An unimplemented mechanism that the data never
+    /// exercises is not a bug, and this project has spent whole sessions on the difference.
+    /// </remarks>
+    public static (int LocalHierarchy, int ZeroFrames) Unimplemented(
+        ReadOnlyMemory<byte> file, int animation)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file))
+        {
+            return (0, 0);
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        if (at < 0 || at + AnimationStride > bytes.Length)
+        {
+            return (0, 0);
+        }
+
+        return (
+            BinaryPrimitives.ReadInt32LittleEndian(
+                bytes[(at + StudioLayout.AnimationLocalHierarchyCountOffset)..]),
+            BinaryPrimitives.ReadInt16LittleEndian(
+                bytes[(at + StudioLayout.AnimationZeroFrameCountOffset)..]));
+    }
+
     /// <summary>How many cycles a second an animation advances at.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="animation">Which local animation.</param>

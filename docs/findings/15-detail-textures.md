@@ -231,3 +231,56 @@ a detail texture is a subtle multiply. It is a floor on the effect, not a measur
 **Still open from this chain:** modes 5, 6 and 10 are implemented but unexercised — no material on
 this map uses them, so they are transcription rather than measurement. Mode 10 additionally needs
 `$bumpmap`, which is the next item.
+
+## `_white` was not white, and it painted a chequer onto every model with a detail
+
+*(measured on the running viewer, 20 August 2026)*
+
+Every player in a first-person capture came out in purple and grey squares. The owner spotted it in
+the picture; nothing in the suite could, because no assertion looks at what a player is coloured.
+
+**The name was the bug.** `WorldRenderer._white` is built by `Missing()` — the magenta-and-black
+chequer Source draws for an unresolved material, which this viewer implements deliberately so a
+missing texture looks like a fault rather than like art. It is then used in two quite different
+roles:
+
+- as the fallback for a **base** texture that did not upload, which is exactly right, and
+- as the neutral default for the **detail** and **bump** slots, which is not.
+
+The second is defensible only under a condition nobody stated: the shader skips the detail combine
+when the material's mode is −1, so a chequer bound for a material with no detail is never sampled.
+Three of the five draw paths did the real lookup anyway —
+
+```csharp
+ComPtr<ID3D11ShaderResourceView> detail =
+    _details[batch.MaterialIndex].Handle is not null ? _details[batch.MaterialIndex] : _white;
+```
+
+— and two, the model path and the decal path, bound `_white` unconditionally. So any **model**
+material declaring `$detail` had a magenta chequer multiplied into its albedo, at whatever scale
+`$detailscale` asked for. A medic's coat came out in purple and grey squares.
+
+**Why it was confined to players, which is what made it hard to see.** The map and the props are
+drawn by the paths that do the lookup, so the same frame showed a correct building, correct
+brushwork and correct static props with chequered characters standing among them — which reads as a
+character-specific fault, and sent the investigation at the player texture, the player material and
+the player lighting in turn.
+
+Four things were eliminated before the draw call was read at all, and each was worth eliminating:
+
+| Suspected | Measured |
+|---|---|
+| the missing-material chequer being bound | **0** materials had a null handle |
+| the material resolving to the wrong name | pairs to `models/player/medic/medic_red` |
+| the `--colours` diagnostic view (also magenta) | not enabled |
+| the VTF decode | `medic_red` decodes to a white coat and a red shirt, perfectly |
+
+**The texture probe is the step that turned it round**, and only because it wrote a picture out
+rather than a number. Its first version reported an average colour — four healthy browns — while
+the screen showed chequered coats, because a checkerboard of magenta and grey averages to something
+unremarkable. An average is exactly the wrong instrument for a pattern.
+
+Fixed by giving the model and decal paths the same lookup the other three have. The deeper fix is
+the name: a fallback that means "this is missing, look at it" and a fallback that means "nothing
+here, carry on" are different values, and calling the first one `_white` is what let it be used as
+the second.

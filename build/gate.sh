@@ -24,6 +24,16 @@
 # Ratcheted rather than exact: adding a test must not redden the build, but removing three hundred
 # must. Raise them when the suite grows; lowering one is a decision to state out loud.
 #
+# **"Test Run Aborted" in the viewer suite is probably the desktop, not the code.** Seen once on
+# 2026-08-20: the run died at 192 of 512 and the floor caught it. Viewer3D.Tests creates real D3D
+# devices, and at the time another application was in exclusive full screen — the owner's video
+# player — which is a known way for device creation to fail. Unproven: it did not reproduce in four
+# clean runs afterwards, and nothing was captured from the crash itself.
+#
+# Worth knowing before chasing it as a defect, and worth noting that this suite is NOT run under
+# run-exclusive.ps1 the way the UI suite is, because it takes no desktop of its own — it just wants
+# a GPU that nobody else has taken exclusively.
+#
 # **No --filter here, and that is deliberate.** Passing one changes which tests EXIST, not merely
 # which of them run: NUnit's adapter includes [Explicit] tests when no filter is given and drops
 # them as soon as any filter is present. Measured on Content.Tests — 441 unfiltered against 436
@@ -40,6 +50,10 @@ here=$(dirname "$0")
 # about thirty seconds, and the difference is 774 MB of modern matches against 20 MB of era
 # specimens. Pass TF2DEMOSALVAGE_GCOR_ONLY=0 for the full superset.
 export TF2DEMOSALVAGE_GCOR_ONLY="${TF2DEMOSALVAGE_GCOR_ONLY:-1}"
+
+# First, because it takes no time and its failure mode is silent: a decision number used twice makes
+# every citation of it ambiguous, and nothing else in the build notices (B118).
+"$here/assert-decision-numbers.sh"
 
 run() {
     local project=$1 name=$2 floor=$3
@@ -69,12 +83,12 @@ rm -f /tmp/gate-*.log
 # Set to the exact count, so adding tests keeps passing and REMOVING them fails until the number
 # is lowered on purpose. The ratchet is the feature — every lowering should be a deliberate edit
 # in the same commit that deleted the tests, which is what makes a silent loss impossible.
-run Tf2DemoSalvage.Core.Tests     core     1419
+run Tf2DemoSalvage.Core.Tests     core     1450
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
-run Tf2DemoSalvage.Content.Tests  content   561
-run Tf2DemoSalvage.Corpus.Tests   corpus     72
-run Tf2DemoSalvage.Viewer3D.Tests viewer    481
+run Tf2DemoSalvage.Content.Tests  content   598
+run Tf2DemoSalvage.Corpus.Tests   corpus     87
+run Tf2DemoSalvage.Viewer3D.Tests viewer    512
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

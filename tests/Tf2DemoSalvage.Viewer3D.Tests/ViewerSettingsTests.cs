@@ -95,6 +95,38 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void SaveThenLoad_KeepsTheViewmodelFieldOfView()
+    {
+        // **TF2 lets a player change this, so this viewer does too** — the standing rule in
+        // docs/findings/13-settings-parity.md. It was nearly shipped as a constant off the back of
+        // reading the SDK, which is the shape of miss that rule exists to catch: the number was
+        // right and the choice was taken away.
+        string file = Path.Combine(_folder, "settings.cfg");
+
+        new ViewerSettings { ViewmodelFieldOfView = 68f }.Save(file).ShouldBeNull();
+
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(68f, 0.01f);
+    }
+
+    [Test]
+    public void Load_AViewmodelFieldOfViewOutsideTheGamesRange_IsClamped()
+    {
+        // `ConVar v_viewmodel_fov( "viewmodel_fov", "54", ..., true, 54, true, 70, NULL )` —
+        // view.cpp:111. A ConVar with bounds clamps rather than refuses, so a config asking for 90
+        // gets 70 in the game and gets 70 here. Refusing it instead would be this viewer
+        // disagreeing with a file TF2 itself would accept.
+        string file = Path.Combine(_folder, "settings.cfg");
+
+        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} 90\n");
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(70f, 0.01f);
+
+        // The floor too, which is the end a player cannot lower past — and the end a test that
+        // only checked the ceiling would leave unmeasured.
+        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} 10\n");
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(54f, 0.01f);
+    }
+
+    [Test]
     public void ViewerSettings_TheTextureQualityValues_ArePixelCaps()
     {
         // The enum's values ARE the sizes, so they can be handed to the decoder directly. A

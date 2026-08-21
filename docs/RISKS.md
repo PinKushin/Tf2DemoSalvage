@@ -1158,7 +1158,7 @@ question this answers is "who played in this match", not "who is connected now".
 reused overwrites the record, which is correct for both readings.
 
 Still open, and now unblocked: `instancebaseline` updates use the same path (62 in one demo, 13
-in the 2009 one), so static entity baselines are the next step — see `DECISIONS.md` D24 and the
+in the 2009 one), so static entity baselines are the next step — see `DECISIONS.md` D27 and the
 baseline research.
 
 ## B23 — the schema's bit-count field is six bits before protocol 15 — FIXED
@@ -3416,7 +3416,7 @@ So the capabilities worth aiming at, ordered by fit with what exists here rather
 owner's value ordering above:
 
 - **Camera paths and smoothing.** HLAE's `mirv_campath` exists because a SourceTV camera snaps
-  between players. This viewer owns its camera outright (D21) and interpolates already.
+  between players. This viewer owns its camera outright (D35) and interpolates already.
 - **Demo scanning.** Finding the kills is what Méliès automates; the event stream is already
   decoded here.
 - **Element isolation.** SparklyFX records separate streams so an editor can composite. A renderer
@@ -5668,7 +5668,194 @@ builds and is therefore map data, not a defect.
 
 Evidence class: read from published source (vrad), measured on two builds of one map.
 
-### B95 — local lights are still not applied — OPEN, and separate from B83
+### B95 — local lights are applied and contribute almost nothing — FIXED
+
+#### The cause, 2026-08-20 — vrad divides intensity by 255 on write, and we divided again
+
+`lightmap.cpp:1647`, under a comment of Valve's asking why the scale is what it is:
+
+```cpp
+VectorScale( dl->light.intensity, (1.0 / 255.0), wl->intensity );
+```
+
+**vrad works in 0–255 linear and stores 0–1.** The runtime multiplies by 255 to get back, which is the
+counterpart of the unexplained 255 in `ColorRGBExp32ToVector` — divide on write, multiply on read, and
+Valve flags both. An ambient cube reaches the shader as `linear / 255`, so in the cube's units a
+light's contribution is simply `stored / falloff`, with no scale at all.
+
+`LocalLights.IntensityScale` was `1/255` — that same factor a second time, in the same direction. Now
+1.
+
+**Measured on `koth_harvest_final`, the same frame before and after:**
+
+```
+bounce 0.1875  ->  with direct 0.1928      becomes  1.5385
+bounce 0.0723  ->  with direct 0.0732      becomes  0.2924
+bounce 0       ->  with direct 0.0011      becomes  0.2678
+```
+
+On screen: the spy's knife reads as steel rather than a silhouette, the sleeve is white, and the
+gloves — black in TF2, so still dark — show knuckles and a highlight where they were a flat shape.
+
+#### How it was found, because the obvious routes all failed
+
+Four measurements, each ruling out the story the previous one suggested:
+
+1. **The two terms reported apart.** One number could not say whether nothing was near or everything
+   near contributed nothing.
+2. **The map's lights characterised.** The innocent explanation — that most lights are surface lights,
+   which carry no falloff and are rightly excluded — is false here: 126 of 136 are eligible
+   spotlights, two of them 127 units overhead and inside their cones.
+3. **Lightmap against ambient cube, in the shader's space.** 0.214 against 0.2358, agreeing within a
+   tenth, which cleared the cube and put the fault on the light side. The first version of this
+   comparison used the lightmap's STORED value and reported 231.8x, one edit from "fixing" a correct
+   decoder.
+4. **Every decoded light joined to its entity BY ORIGIN** and compared against the authored `_light`
+   key through vrad's own arithmetic. Guessing the pairing gave per-channel factors of 102, 90 and 78
+   — not constant, the signature of comparing two different lamps. Joined properly, one light came
+   back short by exactly 255, and the spotlights by 171 because they carry
+   `_fifty_percent_distance` and so take vrad's other branch, which never applies the ratio-at-100
+   scale that the comparison divided out.
+
+#### Why twelve tests agreed with the wrong constant
+
+Every one supplies its own intensity and writes the divide into its own expected value. The old
+remarks on `IntensityScale` stated the reason this could not work — "a test that supplies its own
+intensity has no opinion about what units a map uses" — and the constant was then chosen on exactly
+such a test, from a viewer-log observation of luminances of 140 to 1535.
+
+They are corrected by scaling their INPUTS into the lump's real units, which leaves every expected
+value unchanged: those tests are about falloff, cones, ranking and culling, and none of those claims
+ever depended on the scale. `WorldLightScaleConformanceTests` now pins the scale itself against vrad's
+arithmetic, including that a lamp overhead must outweigh the bounce.
+
+#### Still open, deliberately not folded in
+
+**vrad multiplies a spotlight's falloff by `dot2` as well as by the cone fringe** (`lightmap.cpp:1934`),
+and `LocalLights.Cone` returns only the fringe. Worth about 1.75x at the angle measured. Filed as B122
+so this change could be measured alone.
+
+---
+
+### B95, as originally written — local lights are applied and contribute almost nothing
+
+**The heading and the paragraph below it were true when written and have been stale since**
+`LocalLights.AddTo` was wired into `MainForm.LightAt`. Local lights are implemented, tested twelve
+ways, and running. Read as "not implemented", this sent a later session off to build a feature that
+already existed — the same waste as B120's duplicate, from the opposite direction. **A risk entry that
+is not revised when its subject changes is worse than no entry**, because it is believed.
+
+What is actually wrong is quantitative, and the original text is kept below for the history.
+
+#### Measured 2026-08-20 — the direct term is a rounding error
+
+Reporting the bounce and direct terms apart, across `koth_harvest_final`:
+
+```
+bounce 0.0723, with direct 0.0732      bounce 0.2561, with direct 0.2562
+bounce 0.1875, with direct 0.1928      bounce 0.1677, with direct 0.1679
+```
+
+Under three per cent at best, usually under one, from 136 world lights.
+
+**The lights are not the problem, which had to be checked because it was the likelier story.** A
+near-zero direct term is CORRECT on a map whose lights are mostly surface lights, since those carry
+no falloff and are rightly excluded as non-runtime. Harvest is the opposite:
+
+```
+Spotlight: 126, 126 with a falloff        Surface: 8, 0 with a falloff
+SkyLight: 1, 0 with a falloff             SkyAmbient: 1, 0 with a falloff
+```
+
+**126 of 136 are eligible**, all pure inverse-square. And at the exact spot the symptom was seen —
+the spy of `z1800` at tick 47601 — two of them are close and inside their cones:
+
+```
+Spotlight 127 units away: cone dot 0.570 against stop 0.707/0.259, gives 1.8687 INSIDE the cone
+Spotlight 135 units away: cone dot 0.471 against stop 0.574/0.423, gives 0.8626 INSIDE the cone
+```
+
+Contributions of 1.87 and 0.86 against an ambient cube of 0.11. So the selection works, the cone
+maths works, the falloff works, and something after them divides the answer away.
+
+#### The suspect is one constant, and the argument for it cuts both ways
+
+`LocalLights.IntensityScale` is `1f / 255f`, justified in its own remarks as reconciling a cube that
+is "0–1 (`sample[i] / 255f`)" with a world light that is 0–255. **The cube is not divided by 255.**
+`BspAmbientLight.Colour` is `mantissa * 2^exponent` and nothing else, and the comment beside it records
+that a 255 was once there and made every cube "255 times too dark … which drew every player model as
+a black silhouette".
+
+So the stated reason for the constant describes a normalisation that was deliberately removed from the
+other side of the sum. That is a strong argument that it should be 1.
+
+**And a strong argument that it should not**, from the same remarks: without it, luminances of 140,
+311, 903 and 1535 were measured against cubes of 0.1 to 0.4. `ColorRGBExp32` with the negative
+exponents these samples carry lands naturally in 0–1 regardless of there being no explicit divide,
+while vrad builds a world light as `pow(r/255, 2.2) * 255`, which is plainly 0–255. Two scales, and
+the constant is doing real work.
+
+**Both cannot be right and neither is settled by reading.** Removing it makes a lamp overhead dominate
+a dark cube, which is what a lamp does; keeping it makes the sum well-behaved, which is what the
+earlier session measured.
+
+#### The experiment, run 2026-08-20 — the cube is right, and the constant is not the whole story
+
+Comparing our model lighting against our own lightmap, whole-map distributions on
+`koth_harvest_final`, in the space the shader receives each:
+
+```
+lightmap luxels:      588,480 values, median 0.2144, 90th 0.944, max 2.0
+ambient cube samples:  13,193 values, median 0.2358, 90th 0.354, max 0.596
+```
+
+**The medians agree within a tenth**, so models are not systematically darker than the world and the
+ambient cube's decode is correct. `AmbientCubeScaleConformanceTests` now pins that, two-sided, and was
+verified by sabotage: multiplying the cube by 255 reddens it at 280x.
+
+**What the distributions do say is where the gap is.** The lightmap's 90th percentile is 0.94 against
+the cube's 0.354. A surface near a lamp gets nearly three times what the cube ever gives, because a
+leaf's ambient sample averages a volume that includes shadow while a luxel sits on the lit surface.
+**Closing that gap for models is exactly what the direct term exists to do, and it is contributing
+0.007.**
+
+A quantified target follows. At the spot measured, the nearest spotlight is 127 units away and vrad
+baked the floor beneath it at roughly 0.9 in shader space; evaluating the same light at runtime gives
+`39215 / 127²` = 2.43 in vrad's units, which the 1/255 scale turns into 0.0095. **About a hundredfold
+short of what the compiler put in the lightmap for the same lamp at the same place.** Whether the
+error is in the scale, in the assumption that stored intensity is pre-multiplied by the falloff at one
+hundred units, or in the spotlight's cone normalisation is the open question — but it is now a
+question with a number attached and a reference to check against.
+
+#### An instrument that accused a correct decoder
+
+The first version of the comparison reported **231.8x** and blamed the byte scale, and it was one edit
+away from "fixing" `BspAmbientLight.Colour`, which is correct. It compared the lightmap's STORED
+linear value, 0 to 510, against the cube's USED value. The texture is sampled as `byte / 255` and
+doubled by the shader, so what reaches the arithmetic is `linear / 255` — the space the cube is
+already in.
+
+Two different spaces, one confident number, and a conclusion that inverted once the units were made to
+match. Worth recording beside the finding because the wrong version was more persuasive than the right
+one: 231.8 is so close to 255 that it read as proof.
+
+#### The original plan for that experiment
+
+**Compare our model lighting against our own lightmap at the same point.** The brushes in that room are
+lit by these same lamps, decoded by us, and look correct on screen — so the lightmap is a known-good
+reference for how bright that place should be. If the floor's lightmap luminance next to the spy is
+several times the model's ambient cube, models are too dark by that factor and the constant is wrong.
+If they agree, the constant is right and the darkness is elsewhere — the cube's per-leaf coarseness,
+or the shader's handling of it.
+
+That comparison needs nothing from the engine, uses two decoders this project already has, and gives a
+number rather than an opinion. It is the next step, and the reason no fix was attempted here: a
+constant changed to make one picture look better, with no measurement able to say which value is
+right, is how the wrong one got in.
+
+`LocalLightContributionProbe` reports the light-side half of it and is the instrument to extend.
+
+#### The original entry, kept because it dated the work
 
 `istudiorender.h` describes a model's lighting as an ambient cube "and lights that aren't in
 locallight[]", beside `m_nLocalLightCount` and `m_LocalLightDescs[4]`. We apply the cube and the sun
@@ -5686,6 +5873,31 @@ spotlights**, 108 surface, 77 point, 1 sky, 1 sky ambient. Spotlights dominate a
 (`stopdot`, `stopdot2`, `exponent`) are the main case rather than an extra. Every point light on the
 map is pure inverse-square: constant 0, linear 0, quadratic 1.
 
+**The cost, measured 2026-08-20 on z1800 in a lamplit interior (B120, filed as new and folded back
+here).** Every model in one frame, sampled at its own position:
+
+```
+lbtf_medal_participant_demo 0.0934    c_spy_arms       0.1111
+c_proto_backpack            0.0946    c_knife          0.1112
+homefront_blindfold         0.1037    spr17_upgrade    0.1114
+fob_e_sniperrifle           0.1050    ghost_aspect     0.1191
+v_watch_leather_spy         0.1086    c_engineer_arms  0.1192
+```
+
+**Twenty unrelated models between 0.09 and 0.12**, in a room with three ceiling lamps directly
+overhead, while the walls and floor around them read as correctly lit. That contrast is the whole of
+this defect made visible: the brushes carry the lamps in their lightmaps and the models cannot receive
+them, so the split is not subtle and it is not confined to dark corners.
+
+The owner noticed it as a spy's gloves looking flat black. The gloves are a red herring — a spy's
+gloves are genuinely black — but they are where a scene-wide tenth becomes obvious first, because a
+dark albedo times a tenth is indistinguishable from nothing.
+
+**A before-figure to check an implementation against:** these numbers should rise for the models
+under those lamps and stay put for anything genuinely in shade. Since this viewer renders
+deterministically — two identical launches produce byte-identical captures — a frame hash plus this
+table is a usable check that the change did something and did it where expected.
+
 ### B96 — no visibility culling, so a roof hides the map from above — OPEN, owner-diagnosed
 
 **Not a lighting defect, and it was nearly chased as one.** The large black regions in the viewer's
@@ -5698,7 +5910,7 @@ is drawn correctly, from a viewpoint the engine would never have drawn it from.
 
 The engine culls per frame against the view frustum and the PVS, from wherever the camera is. This
 project culls at BUILD time and only by normal — which the `MapWorld` comments already describe as
-the deliberate deviation (D21 and the B68 work), on the reasoning that a build-time cull is only
+the deliberate deviation (D35 and the B68 work), on the reasoning that a build-time cull is only
 equivalent for a camera that never moves. A free camera above the map is exactly the case that
 breaks.
 
@@ -5754,7 +5966,7 @@ latency.
 The fix is to hold a pressed-key set from the key down and up messages and integrate movement per
 frame against the frame time, which is also what makes diagonal movement and acceleration possible.
 
-### D23 addendum — whether the recorded camera should share the interpolation delay is OPEN
+### D37 addendum — whether the recorded camera should share the interpolation delay is OPEN
 
 Entities are now drawn 0.1 s behind the tick asked for, because that is where a client draws. The
 demo's own recorded view origin is not: it is taken at the tick. Whether the two should agree has not
@@ -5806,7 +6018,7 @@ budget, and during playback it competes with the per-frame scene rebuild, so fra
 vary. Paused, it is the only work and stays even.
 
 **The fix is to separate the two**, and the geometry already allows it: the world's vertices are in
-map coordinates and only the view changes (D21), so a camera move is sixty-four bytes rather than a
+map coordinates and only the view changes (D35), so a camera move is sixty-four bytes rather than a
 projection. Extract the `SetCamera` call from `ProjectMap` and have flight call that alone.
 
 One thing to check before taking it: `ReprojectScene` is gated on the same `_worldIsStale` flag and
@@ -5826,7 +6038,7 @@ Affordable at one camera move per keystroke; the frame budget once the camera fl
 per-frame scene rebuild was competing for the same milliseconds.
 
 `UploadCamera` now sends the matrix alone. Each reason it is safe in the free view was checked rather
-than assumed: the world's vertices are in map coordinates and only the view changes (D21); the 3D
+than assumed: the world's vertices are in map coordinates and only the view changes (D35); the 3D
 models are world-space and placed by their own matrices; and the screen-space scene points are a
 map-view fallback drawn only for players with NO model, so they are empty in any modern demo and are
 projected through the top-down camera anyway. The map view still rebuilds in full, because there
@@ -5967,7 +6179,7 @@ are special-cased in the same branch as the ordinary `ACT_MP_STAND_PRIMARY`.
 **Do not optimise bone matrices before this.** Posing owns about 600 ms a second and bones are most
 of it, but making the wrong animation cheaper is the wrong order.
 
-### D23 addendum — the lighting is not verified, only unglitchy
+### D37 addendum — the lighting is not verified, only unglitchy
 
 Worth stating plainly because a five-times frame rate is easy to mistake for a correctness result.
 The owner's assessment of the lighting is "I really don't know if it is right, I'm assuming it is,
@@ -7021,3 +7233,332 @@ published source. Recorded on the constant itself.
 
 Specified before it was built, in `UnimplementedRenderingConformanceTests`; the rendering suite's
 skip count went 6 to 5.
+
+---
+
+### B118 — `docs/DECISIONS.md` numbered nine decisions twice — FIXED
+
+**D20 through D28 each named two different decisions**, and both were cited in live comments.
+
+| Number | kept — the `###` series | renumbered — the `##` series |
+|---|---|---|
+| D20 | the protocol boundary list comes from Valve | **D34** one renderer, two camera modes, Direct3D 11 |
+| D21 | the era boundaries stay open | **D35** geometry is world space; the camera owns the view |
+| D22 | the trace reaches the command line | **D36** surf and jump runs set the accuracy bar |
+| D23 | corpus work is cached per process | **D37** models are lit the way the engine lights them |
+| D24 | a faster suite recalibrated the mutation tool | **D38** the suite runs on synthetic demos |
+| D25 | the test project splits pure/stateful | **D39** test names are `{Subject}_{Scenario}_{Expected}` |
+| D26 | CI mutation and fuzzing schedules | **D40** no scripted edits to source files |
+| D27 | entity baselines | **D41** the measurement check names this project |
+| D28 | user messages are named, not decoded | **D42** the viewmodel lookup answers the main hand |
+
+**The `###` series kept its numbers** because it is contiguous D1–D33 and carries the older
+citations. The later series moved to D34–D42 in file order.
+
+**A later session restarted numbering at D20 without reading the file first**, and the two series
+interleave rather than sit apart — `## D20` is at line 1246, between `### D31` and `### D32`. The
+heading level is the only thing that tells them apart, which is invisible in a citation.
+
+**This is confirmed to be ambiguous in practice, not just in principle.** Both series are cited from
+source comments, sometimes for the same number:
+
+```
+D20 can be trusted to cover: it lists what the *engine* branches on     -> ### D20
+D20's choice of thin Direct3D bindings over an                          -> ## D20
+```
+
+**Why it matters more here than a duplicate number usually would:** the decisions log exists so the
+reasoning behind a choice survives next to the choice. The owner's standing instruction is explicit
+that this has to be defensible months later, when the conversation is gone. A citation that resolves
+to two different decisions defeats exactly that, and it degrades quietly — nothing fails, the reader
+just reads the wrong entry.
+
+#### The fix, applied 2026-08-20
+
+**Every citation in the repository was classified by reading what it says**, which is why this was
+not a substitution: the same token meant different things in adjacent files. **Seventeen moved** —
+eleven in code, tests and memory across seven files, six in this document — and the rest already
+pointed at the surviving series.
+
+- **All eleven `D21` citations meant the camera** — `MapWorld`, `TopDownCamera`, `MainForm`,
+  `CameraMatrixTests` and four passages in this file — so they became D35.
+- **All seven `D25` citations meant the mutation split**, not the test-name convention, so none of
+  them moved. The number they wanted was already correct.
+- **`D20` split down the middle.** `OldProtocolTests`, `SPEC.md` and two entries here mean the
+  protocol boundary list; `NativeOpus.cs` means the Direct3D binding choice and became D34. Both
+  readings were live in the repository at once, which is the concrete proof this was ambiguous in
+  practice and not only in principle.
+
+**Two judgement calls, recorded because they are the parts a later reader could reasonably dispute:**
+
+1. **`### D23 addendum — whether the recorded camera should share the interpolation delay`** was
+   renumbered to D37, the lighting decision, on the strength of its own sentence "that is where a
+   client draws" — the same match-the-engine principle D37 states. It is not a lighting question, so
+   this is inference rather than a citation. The alternative reading is that it was never attached to
+   any decision.
+2. **One citation was simply wrong and was corrected, not renumbered.** B22 pointed at "`DECISIONS.md`
+   D24 and the baseline research" for entity baselines; entity baselines are D27, and neither D24
+   was ever about them. Found only because the collision forced every citation to be read.
+
+**Guard, now in place.** `build/assert-decision-numbers.sh`, run first by `build/gate.sh`. It fails
+on a number used twice and on a gap in the sequence, and — the part that matters — **it fails when
+its own pattern matches nothing**, since a check that silently matches zero headings is the same
+class of defect it exists to catch. Verified by sabotage in all three directions before being
+trusted: a duplicated D28 names both lines, a D99 reports the gap, and a changed heading style
+reports the stale pattern.
+
+`docs/DECISIONS.md` also gained an index and an explicit "the next number is D43", because the
+original mistake was reasonable: the file is in write order, not number order, and D32 and D33 sit
+between D34 and D35. Scrolling to the end to find the highest number gives the wrong answer.
+
+---
+
+### B119 — the spy's knife is drawn at the camera, not in the hand — FIXED
+
+**Confirmed by looking**, 2026-08-20, `z1800` entity 11 tick 47601 in first person. The arms and the
+watch are both correct; the right hand is empty, fingers curled around nothing.
+
+**It is not missing geometry, which is what the log suggests at first reading.** `c_knife` is packed,
+uploaded as the 78th model, and the poser reports `asked for 3, produced 3; skipped 0 no-batches`. It
+produces an instance every frame and is listed in the viewmodel pass beside the arms and the watch.
+
+The tell is the line before it draws:
+
+```
+animating c_knife.mdl: sequence 34 cycle 0 -> baked frame 0 of 1 blend 0 yaw -117.54 at (-232,-1896,72)
+```
+
+It is posed **at the camera origin with the camera's yaw** — its own rest pose, not the arms'. A
+knife is 14 units long (`extents ... z from -3.8 to 10.5`) against a viewmodel near plane of 1, so at
+the eye it straddles the near plane and clips away entirely.
+
+**The likely mechanism, not yet proven.** `EntityModels` merges a child onto its wearer and
+deliberately keeps the child's own matrix for any bone the parent does not have:
+
+> Bones the parent does not have keep the child's own … an item with a part the player has no bone
+> for keeps the shape the artist gave it rather than collapsing to the origin.
+
+That fallback is right for a cosmetic and wrong here. If `c_knife`'s bone names do not match
+`c_spy_arms`, every bone takes the fallback, the model keeps its rest skeleton, and `transform`
+becomes the wearer's — which for a viewmodel is the camera. **The same shape as B82**, where a
+spellbook whose only bone is `mvm` matched nothing and sat at the player's feet.
+
+No `remap group` line appears for the knife, where one appears for models that do merge. That is
+consistent with the above and does not prove it: the merge may be running and matching nothing.
+
+**Two ways this differs from what was working.** The sniper rifle on the same code path reported
+`bone-merged … root permuted at (26.4,-9.6,-8.7)` and appeared correctly, so either the spy's arms
+differ from the sniper's or the knife differs from the rifle. And the knife is on the BAKED path
+(`1 baked frames`) while `c_spy_arms` is `posed on the GPU` — worth checking whether merging is
+applied on one path and not the other, since that would explain a per-model split with no per-model
+cause.
+
+**First step is an instrument, not a fix.** `Merge` must report how many of the child's bones matched
+the parent, because zero-matched and all-matched currently produce the same silence — and zero is the
+hypothesis. Everything after that depends on the number.
+
+**Found only by looking**, and the log actively misled: reading it alone gave "packed, uploaded,
+merged, instanced, drawn", and the flat-colour capture — where a blade against a near-white wall
+would be unmissable — showed nothing in the hand. `docs/memory/output-level-assertion-or-it-is-not-done.md`
+again, one level further out: even an output-level count can agree while the picture is wrong.
+
+#### Resolution, 2026-08-20 — two causes, and the instrument was already there
+
+**The instrument the section above asks for existed the whole time.** `EntityModels.Merge` already
+logged `N of M bones matched`, with the matched and missing names. The reason no such line appeared
+for the knife is that `Merge` never reached it — the first guard returns early when the model has no
+skeleton, and says nothing.
+
+**Cause one: the knife was baked, so it had no skeleton to merge.** `WornModelPaths()` decides
+`mustSkin`, and it only walks `timeline.Props`. The first-person weapon is not a prop track — the
+client creates it (`econ_entity.cpp:1153`) so no demo carries it, and `AddViewmodel` builds it ad hoc.
+It therefore never entered the worn set, was loaded unskinned, and baking pre-transforms the vertices
+by one pose and discards the bone indices. `Merge` then returns the model's own matrices while the
+caller has already set the transform to the WEARER's — the camera. A fourteen-unit knife against a
+near plane of one clips away entirely.
+
+**This is the same defect as the cosmetics-at-ankle-height one that `mustSkin` was created for**, and
+the remarks on `WornModelPaths` describe it exactly. The knife simply took a route into the renderer
+that bypasses the set the flag is built from. Fixed by adding `HeldWeaponModels(timeline)` to that
+set, which already existed and already fed the LOAD set.
+
+After it: `skinning c_knife.mdl: 5,808 corners against a budget of 371,712, so it is posed on the GPU`
+and `bone merge c_knife.mdl onto c_spy_arms.mdl: 5 of 6 bones matched; matched weapon_bone,
+vm_weapon_bone, vm_weapon_bone_1..3; missing c_weapon_stattrack`. The only miss is a StatTrak counter
+bone, which correctly keeps its own matrix.
+
+**Cause two: the viewer was overriding the recorded animation.** With the knife visible it sat at the
+bottom of the frame, which the owner caught: "the knifes there its jkust super low". `AddViewmodel`
+substituted the model's `VM_IDLE` for the demo's sequence whenever they differed — on this spy,
+replacing the recorded 34 with 3 on every frame, posing the arms for a weapon they were not holding.
+
+The owner's rule, and it is the correct one: **"we shouldnt be forcing any sequence only stuff from
+the demo or how valve does it"**. The engine agrees — `C_BaseViewModel` plays `m_nSequence` as it
+arrives and nothing in the viewmodel path picks an idle. Substitution removed from both hands; the
+knife moved into the grip.
+
+**The log was reporting the recorded sequence while drawing the substituted one**, so `seq 34`
+appeared in every line while 3 was on screen. It now prints all three — recorded, what `VM_IDLE`
+would have been, and what is actually played. That line would have shown this a fortnight ago.
+
+**One worry raised and then killed by measurement.** A recorded sequence indexes the weapon's own
+table, while ours is merged from two models and 98 entries deep, so the two could disagree silently
+and produce a plausible wrong animation. They agree: `demo says 34, VM_IDLE would be 3, playing 34`
+poses a correct spy knife. Worth re-checking on a model whose merge has a different shape.
+
+**The regression test, and the seam it needed.** The rule lived in a private method on a `Form`, so
+asserting it meant opening a window, so it was never asserted — that missing seam is what let this
+ship. It is now `WornModels.From(props, heldWeapons)`, a pure function, with
+`WornModelsTests` covering it: the held weapon is worn (the regression), an attached studio track is
+worn, an unattached track is NOT (the control that stops "return everything" passing), a brush entity
+is not, and the set is case-insensitive and rejects empty paths.
+
+**Verified by manipulation rather than by being green**, since it was written after the fix. Deleting
+the `heldWeapons` loop — B119 exactly — reddened precisely two tests: the regression itself and the
+case-insensitivity one, which also feeds only weapons. The other five stayed green, so the failure is
+specific to the weapons path and not a blanket break. Restored with the inverse edit.
+
+One deliberate widening: `Tf2DemoSalvage.Core` now grants `InternalsVisibleTo` to
+`Tf2DemoSalvage.Viewer3D.Tests`. `ScenePropTrack.AttachedTo` is written only by the timeline and so
+has an internal setter, which meant the viewer's own suite could not construct a worn track at all.
+
+**What made the fix checkable was determinism.** Two identical launches produce byte-identical
+captures (`352EBD85…` twice), so a frame hash is a valid regression instrument for this viewer: after
+the merge fix `B2192859…`, after the sequence fix `08C14B3E…`. Each change was proved to have done
+something before the picture was even looked at.
+
+---
+
+### B120 — every model in the scene is lit at about a tenth — DUPLICATE OF B95
+
+**Filed as new and it is not: this is B95, "local lights are still not applied", measured from the
+other end.** B95 says no prop receives direct light from a point or spot light, because the renderer
+applies the ambient cube and the sun and nothing else. The room in this capture has three ceiling
+lamps. The world's brushes carry them in baked lightmaps and look correctly lit; the models cannot
+receive them at all, so they sit at ambient-only — which is the ~0.1 below.
+
+Kept rather than deleted because the numbers are new and belong to B95: they turn "no prop receives
+direct light" from a statement about the code into a measured consequence, and they give whoever
+implements it a before-figure to check against.
+
+**Recording the mistake too.** The risks log was searched for this symptom and not for its cause —
+`LocalLights.cs` cites B95 in a comment three lines long, and reading that first would have skipped
+the entire filing. Same shape as B118's duplicate decision numbers, one document over: a register
+only works if it is read before it is written to.
+
+Noticed by the owner as "the gloves look dark too but im not sure if thats lighting ot what", on the
+same capture. The gloves are a red herring — a spy's gloves are genuinely black — but the instinct
+was right and the scope is much larger than the viewmodel.
+
+Every model in that frame, sampled at its own position:
+
+```
+lbtf_medal_participant_demo  0.0934      c_spy_arms      0.1111
+c_proto_backpack             0.0946      c_knife         0.1112
+homefront_blindfold          0.1037      spr17_upgrade   0.1114
+fob_e_sniperrifle            0.1050      ghost_aspect    0.1191
+v_watch_leather_spy          0.1086      c_engineer_arms 0.1192
+```
+
+**A range of 0.09 to 0.12 across twenty unrelated models**, while the world brushes in the same shot
+— walls, floor, a lit doorway — read as correctly lit. Models and world are lit by different paths
+here, and only one of them looks right.
+
+**Not yet established: whether 0.1 is wrong.** The scene is a dim wooden interior and an ambient
+sample of 0.11 may be honest; the map's brightness comes from lightmaps carrying direct light, which
+the ambient cube would not. The measurement says models agree with each other, not that they agree
+with the engine. What would settle it is the same view in TF2, or the ambient cube for that leaf
+computed independently.
+
+Related: the same run warns `*27 is lit by nothing at (-416,-1862,130); its leaf carries no ambient
+light, so it draws black`, so at least some leaves in this map genuinely carry none.
+
+Also in that run and unrelated to either: nine `.vhv` prop-lighting files fail their checksum against
+the model they belong to (`sp_224`, `sp_287`, `sp_290`, `sp_294`, `sp_306`, `sp_463`, `sp_465`,
+`sp_474`, and one more), so those props fall back to unlit.
+
+---
+
+### B121 — the SDK sweep handed out its cache, and callers mutated it — FIXED
+
+**Found as flake and it was not flake.** `SendProps_Moveparent_IsARealSendPropUnderAnAlias` failed
+inside a full gate run, passed in isolation, and passed on a re-run. This project's rule is that flake
+is a defect in the code or in the synchronisation, never noise, so it was chased rather than retried.
+
+The failure named its own cause. `ShouldContain("moveparent")` failed while the message printed
+`"moveparent"` among the actual values — a collection being mutated while it was read.
+
+**`SourceSdk.Names` cached its sweep and returned the cached `HashSet` itself.**
+`SendPropConformanceTests.SentProperties` then calls `UnionWith` on that result to fold in the
+aliased `SENDINFO_NAME` names. Two separate faults follow:
+
+- **A race.** NUnit runs these in parallel, so one test's `UnionWith` overlapped another's `Contains`
+  on an unsynchronised `HashSet`. Intermittent by nature, which is why it survived so long.
+- **Cache poisoning, which is worse.** The additions were written into the entry cached for the FIRST
+  pattern, so any later caller sweeping that pattern received names it never asked for. `Names`' own
+  remarks say this exact thing must not happen — "two callers sweeping the same directory for
+  different things must not share an answer. That would be a wrong result rather than a slow one" —
+  and the mutation defeated it by a route the keying could not guard.
+
+The consequence of the second is the quiet kind: a conformance suite's denominator silently widens,
+so it stops reporting properties it should report. Nothing fails; the suite just goes blind in a
+direction nobody chose.
+
+**Fixed by returning a copy.** Affordable by the cache's own measurements, which record its benefit as
+unmeasurable — 553 ms against 532–648 ms — so correctness here costs nothing worth counting.
+
+**`SourceSdkCacheTests` pins both halves.** The race cannot be reproduced on demand; the pollution can,
+and it is the more dangerous half, so that is what is asserted: mutating a result must not reach the
+next call, and two calls must not be the same instance. Verified by sabotage — returning the cached
+set directly reddens both.
+
+**The general shape, worth carrying:** a cache that hands out a mutable reference is not a cache, it
+is shared state. Every consumer of one is trusted not to write to it, and one of six was not.
+
+---
+
+### B122 — a spotlight's cosine term is missing from the falloff — FIXED
+
+**Fixed 2026-08-20**, `Cone` now returns `dot2 * fringe`. Measured on the same frame:
+
+```
+(415,1891,57)    direct 1.5385  ->  0.9944
+(-632,-1988,64)  direct 0.2924  ->  0.1908
+(632,2031,64)    direct 0.2678  ->  0.1305
+```
+
+About a third off, which is a cosine averaging roughly 0.65 over those points. The lamp still
+outweighs the bounce where it is overhead, so this trims rather than undoes B95.
+
+**`SpotlightFalloffConformanceTests` pins it, and needed an OFF-AXIS condition to do so.** The
+existing `ASpotlightInsideItsInnerCone_IsAtFullStrength` sits exactly on the axis, where `dot2` is one
+and multiplying by it changes nothing — which is how the wrong behaviour stayed green. Two controls
+guard the fix in both directions: the on-axis spotlight, unchanged; and an off-axis POINT light, which
+must keep its full falloff because `emit_point` has no cosine term. Without the second, a fix applying
+the cosine to every light kind would have passed.
+
+#### As originally filed
+
+vrad computes a spotlight's falloff as the inverse of the attenuation polynomial **multiplied by the
+cosine between the light's direction and the direction to the lit point**, and only then applies the
+penumbra fringe (`lightmap.cpp:1929`-1942):
+
+```cpp
+out.m_flFalloff = ReciprocalSIMD( out.m_flFalloff );
+out.m_flFalloff = MulSIMD( out.m_flFalloff, dot2 );      // <- this
+// outside the inner cone
+mult = ... ( dot2 - stopdot2 ) / ( stopdot - stopdot2 ) ...
+```
+
+`LocalLights.Cone` returns the fringe alone and never multiplies by `dot2`, so a light is at full
+strength anywhere inside its inner cone rather than falling off toward the cone's edge.
+
+**Worth about 1.75x at the angle measured** — the spotlight 127 units above the spy of `z1800` has a
+cone dot of 0.57 — so it is a real error and a small one next to the 255 that B95 turned out to be.
+Held back deliberately so that fix could be measured on its own.
+
+**Note it is the same `dot2` twice, for two purposes**, which is what makes it easy to read as already
+handled: once as the cone mask and fringe, and once as a plain cosine on the falloff. Our code
+computes `dot2` and uses it for the first only.
+
+Point lights are unaffected — `emit_point` has no such term (`lightmap.cpp:1885`-1895).

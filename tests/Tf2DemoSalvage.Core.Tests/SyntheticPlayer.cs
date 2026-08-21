@@ -700,6 +700,287 @@ internal static class SyntheticPlayer
     /// <summary>Bytes of <c>democmdinfo_t</c> and the sequence numbers before a packet's body.</summary>
     private const int PrologueBytes = 76 + 8;
 
+    /// <summary>Class id of the viewmodel entity, when the schema declares one.</summary>
+    public const int ViewmodelClassId = 3;
+
+    /// <summary>Entity slot the viewmodel occupies.</summary>
+    private const int ViewmodelEntityIndex = 8;
+
+    /// <summary>Entity slot the off-hand viewmodel occupies, when the fixture carries one.</summary>
+    /// <remarks>
+    /// **After the main hand, deliberately.** The defect this fixture exists to catch is a lookup
+    /// that keeps whichever viewmodel it saw last, so an off hand recorded FIRST would let the
+    /// broken reader answer correctly by accident. See
+    /// <c>docs/memory/real-data-hides-bugs-small-inputs-expose.md</c> — the condition has to be one
+    /// where correct and broken disagree.
+    /// </remarks>
+    private const int OffHandEntityIndex = 9;
+
+    /// <summary>Source's <c>SPROP_UNSIGNED</c>.</summary>
+    private const int UnsignedFlag = 1 << 0;
+
+    /// <summary>The later tick at which <c>offHandHiddenLater</c> flags the off hand.</summary>
+    /// <remarks>
+    /// **A second tick is what separates two designs that both pass on one.** Recording a hidden
+    /// viewmodel as hidden and skipping it at record time are indistinguishable when the demo has
+    /// only ever described it once. They differ the moment a watch is put away: skipping leaves the
+    /// last recorded sample saying "visible", and the lookup keeps answering with it for ever.
+    /// </remarks>
+    internal const int HiddenTick = 132;
+
+    /// <summary>A demo carrying a player and the weapon they see in their own hands.</summary>
+    /// <param name="owner">
+    /// The entity the viewmodel names as its owner, or <c>null</c> for the point-of-view shape
+    /// where the demo names nobody.
+    /// </param>
+    /// <param name="offHandModelIndex">
+    /// A second viewmodel in slot 1, or <c>null</c> for the one-viewmodel shape.
+    /// </param>
+    /// <param name="offHandOwner">Who owns that second one, defaulting to the first's owner.</param>
+    /// <param name="secondUnowned">
+    /// Make the second viewmodel a main hand naming NO owner, which is the SourceTV shape that
+    /// broke the lookup: a demo carrying owned viewmodels and one whose owner did not decode.
+    /// </param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **Both shapes are real and the corpus has both.** A point-of-view recording carries exactly
+    /// one viewmodel and never names an owner, because a client only ever receives its own; a
+    /// modern SourceTV recording carries one per player and names each. A fixture offering only the
+    /// second would let a lookup that requires an owner pass, and that lookup finds nothing on
+    /// eight of the nine corpus demos.
+    /// </remarks>
+    /// <param name="offHandHidden">Flag the off hand <c>EF_NODRAW</c> from the first tick.</param>
+    /// <param name="offHandHiddenLater">
+    /// Describe the scene a second time at <see cref="HiddenTick"/> with the off hand flagged, which
+    /// is a watch being put away.
+    /// </param>
+    /// <param name="offHandStowedLater">
+    /// The same second tick, but with the off hand's MODEL cleared to index 0 rather than flagged.
+    /// The other way a viewmodel leaves the screen, and a separate chance to get it wrong.
+    /// </param>
+    public static byte[] DemoWithViewmodel(
+        int? owner,
+        int? offHandModelIndex = null,
+        int? offHandOwner = null,
+        bool secondUnowned = false,
+        bool offHandHidden = false,
+        bool offHandHiddenLater = false,
+        bool offHandStowedLater = false)
+    {
+        DemoSchema schema = SchemaWithViewmodel();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        DecodedEntity player = Entity(
+            decoder,
+            PlayerClassId,
+            1,
+            new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            });
+
+        List<DecodedEntity> entities =
+        [
+            player,
+            Entity(
+                decoder,
+                ViewmodelClassId,
+                ViewmodelEntityIndex,
+                Viewmodel(modelIndex: 4, slot: 0, owner)),
+        ];
+
+        // The off hand, when the fixture is the two-viewmodel shape. TF2 gives it to the spy's
+        // watch and to grenades — `CTFWeaponInvis::Spawn` calls `SetViewModelIndex( 1 )`.
+        if (offHandModelIndex is { } offHand)
+        {
+            entities.Add(Entity(
+                decoder,
+                ViewmodelClassId,
+                OffHandEntityIndex,
+                Viewmodel(
+                    offHand,
+                    slot: secondUnowned ? 0 : 1,
+                    secondUnowned ? null : offHandOwner ?? owner,
+                    hidden: offHandHidden)));
+        }
+
+        byte[] body = decoder.EncodeEntities(
+            [.. entities], [], isDelta: false, 0, out int bits);
+
+        // **The same scene again with the watch put away**, sent whole rather than as a delta so
+        // the fixture exercises the timeline rather than the delta decoder.
+        List<DemoCommand> later = [];
+
+        if ((offHandHiddenLater || offHandStowedLater) && offHandModelIndex is { } present)
+        {
+            // Stowing clears the MODEL; hiding sets EF_NODRAW. Two different ways the engine takes
+            // a viewmodel off screen, and a reader can get one right and the other wrong.
+            int stowed = offHandStowedLater ? 0 : present;
+
+            later.Add(SecondTick(decoder, owner, offHandOwner, stowed, hidden: offHandHiddenLater));
+        }
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+
+                // The precache is what turns the model index into a path, and without it the
+                // viewmodel decodes perfectly and resolves to nothing.
+                SyntheticDemo.StringTable(
+                    "modelprecache",
+                    ["", "a.mdl", "b.mdl", "models/weapons/v_watch.mdl",
+                     "models/weapons/v_scattergun.mdl"],
+                    maxEntries: 1024)),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                66,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)),
+            .. later,
+        ];
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>The same scene at <see cref="HiddenTick"/>, with the off hand flagged EF_NODRAW.</summary>
+    /// <remarks>
+    /// Whole rather than a delta, because what is under test is what the TIMELINE does with a
+    /// viewmodel that stops being drawn — routing it through the delta decoder would put a second
+    /// subject in an experiment that already has one.
+    /// </remarks>
+    private static DemoCommand SecondTick(
+        EntityDecoder decoder, int? owner, int? offHandOwner, int offHandModelIndex, bool hidden)
+    {
+        List<DecodedEntity> entities =
+        [
+            Entity(
+                decoder,
+                PlayerClassId,
+                1,
+                new Dictionary<string, PropertyValue>
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    ["m_lifeState"] = PropertyValue.FromInt(0),
+                }),
+            Entity(
+                decoder,
+                ViewmodelClassId,
+                ViewmodelEntityIndex,
+                Viewmodel(modelIndex: 4, slot: 0, owner)),
+            Entity(
+                decoder,
+                ViewmodelClassId,
+                OffHandEntityIndex,
+                Viewmodel(offHandModelIndex, slot: 1, offHandOwner ?? owner, hidden)),
+        ];
+
+        byte[] body = decoder.EncodeEntities(
+            [.. entities], [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.Packet(
+            SyntheticDemo.DefaultProtocol,
+            HiddenTick,
+            new PacketEntitiesMessage(
+                MaxEntries: 64,
+                IsDelta: false,
+                DeltaFromTick: null,
+                BaselineIndex: false,
+                UpdatedEntries: entities.Count,
+                LengthBits: bits,
+                UpdateBaseline: false,
+                Body: body));
+    }
+
+    /// <summary>One viewmodel's properties, as <c>DT_BaseViewModel</c> carries them.</summary>
+    /// <param name="modelIndex">Index into <c>modelprecache</c>.</param>
+    /// <param name="slot">0 for the weapon in hand, 1 for the off hand.</param>
+    /// <param name="owner">
+    /// The owning player, or <c>null</c> for the point-of-view shape where the demo names nobody.
+    /// </param>
+    /// <param name="hidden">
+    /// Whether to set <c>EF_NODRAW</c>, as <c>CTFWeaponInvis::SetWeaponVisible</c> does on the
+    /// watch's viewmodel when it is not deployed.
+    /// </param>
+    private static Dictionary<string, PropertyValue> Viewmodel(
+        int modelIndex, int slot, int? owner, bool hidden = false)
+    {
+        Dictionary<string, PropertyValue> properties = new()
+        {
+            ["m_nModelIndex"] = PropertyValue.FromInt(modelIndex),
+            ["m_nSequence"] = PropertyValue.FromInt(7),
+            ["m_flPlaybackRate"] = PropertyValue.FromFloat(1f),
+            ["m_nViewModelIndex"] = PropertyValue.FromInt(slot),
+
+            // Always sent, hidden or not, because the engine sends the whole field and a fixture
+            // that omitted it when clear would not distinguish "no flags" from "never said".
+            ["m_fEffects"] = PropertyValue.FromInt(hidden ? 0x020 : 0),
+        };
+
+        // Absent rather than zero: an unset handle is how a POV demo says "mine", and zero would
+        // be entity slot zero, which is the world.
+        if (owner is { } entity)
+        {
+            properties["m_hOwner"] = PropertyValue.FromInt(entity);
+        }
+
+        return properties;
+    }
+
+    /// <summary>A schema that also declares a viewmodel class, with no base table.</summary>
+    /// <remarks>
+    /// **<c>DT_BaseViewModel</c> and nothing else, which is the point.** The real table is declared
+    /// <c>BEGIN_NETWORK_TABLE_NOBASE</c>, so a viewmodel inherits no <c>DT_BaseEntity</c> — no
+    /// origin, no angles, and an owner under <c>m_hOwner</c> rather than <c>m_hOwnerEntity</c>. A
+    /// fixture that gave it a base table would let a reader looking in the wrong place pass.
+    /// </remarks>
+    private static DemoSchema SchemaWithViewmodel()
+    {
+        DemoSchema baseline = Schema();
+
+        return new DemoSchema(
+            [
+                .. baseline.Tables,
+                new SendTable("DT_BaseViewModel", NeedsDecoder: true,
+                [
+                    Int("m_nModelIndex", bits: 13),
+                    Int("m_nSequence", bits: 8),
+                    Float("m_flPlaybackRate", low: -4f, high: 12f, bits: 8),
+                    Int("m_hOwner", bits: 21),
+
+                    // One bit unsigned, as `VIEWMODEL_INDEX_BITS` declares it — signed would make
+                    // slot 1 arrive as -1 and the fixture would agree with a reader that never
+                    // matched it.
+                    UnsignedInt("m_nViewModelIndex", bits: 1),
+
+                    // **Ten bits unsigned, and the reason this table needed correcting.** NOBASE
+                    // means a viewmodel inherits no DT_BaseEntity, and this project read that as
+                    // "so it has no m_fEffects" — but the table declares its own
+                    // (`baseviewmodel_shared.cpp:565`), and EF_NODRAW on it is how the engine hides
+                    // the spy's watch. A fixture without it would agree with the wrong reader.
+                    UnsignedInt("m_fEffects", bits: 10),
+                ]),
+            ],
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(ViewmodelClassId, "CTFViewModel", "DT_BaseViewModel"),
+            ]);
+    }
+
     /// <summary>A schema that also declares an ordinary drawable prop class.</summary>
     internal static DemoSchema SchemaWithProp()
     {
@@ -811,6 +1092,9 @@ internal static class SyntheticPlayer
 
     private static SendProperty Int(string name, int bits) =>
         new(SendPropType.Int, name, 0, string.Empty, 0f, 0f, bits, 0);
+
+    private static SendProperty UnsignedInt(string name, int bits) =>
+        new(SendPropType.Int, name, UnsignedFlag, string.Empty, 0f, 0f, bits, 0);
 
     private static SendProperty Float(string name, float low, float high, int bits) =>
         new(SendPropType.Float, name, 0, string.Empty, low, high, bits, 0);

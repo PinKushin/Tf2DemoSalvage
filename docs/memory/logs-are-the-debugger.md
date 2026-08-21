@@ -43,6 +43,20 @@ stating a whole picture ("48 unimplemented parameters across 189 materials: …"
 event, which is unreadable at map scale — but name the individual items for the MISSING category,
 because a count says something is wrong and a name says which object to go and look at.
 
+**The other half of the rule: READ the logs already being written, before adding more.** The
+viewmodel spent four rounds of new instrumentation being invisible while the renderer printed, on
+every frame:
+
+```
+WARN [render] a model was posed but the renderer has no geometry for it
+```
+
+with a comment above it in the source reading "the renderer's copy of the packed set is older than
+the caller's, which draws nothing and reports nothing" — a description of the exact bug, written
+before it happened. A past session had anticipated the failure, logged it, explained it, and nobody
+looked. **Diagnosis starts by reading the existing output, not by writing new output**; a log added
+in preference to one already there also costs the time it takes to write.
+
 Related: [[measure-the-output-not-the-capability]] is the same failure seen from the reporting side,
 [[instrument-bugs-outnumber-decoder-bugs]] is why the log itself needs checking before it is
 believed, and [[log-what-is-about-to-be-drawn]] is this rule applied to the renderer.

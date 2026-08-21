@@ -51,4 +51,12 @@ internal static class StudioFlags
     /// real sequence gives an empty animation rather than an error.
     /// </remarks>
     public const int SequenceForwardDeclared = 0x0800;
+
+    /// <summary><c>STUDIO_DELTA</c> — a difference from the rest pose, meant to be layered.</summary>
+    /// <remarks>
+    /// <c>studio.h:659</c>. The engine adds a delta sequence on top of an already-posed skeleton
+    /// (<c>AccumulatePose</c>) rather than playing it; posing one on its own builds a skeleton out
+    /// of differences with nothing underneath them.
+    /// </remarks>
+    public const int SequenceDelta = 0x0004;
 }

@@ -86,3 +86,14 @@
 - [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — FirstOrDefault plus `is not { }` compiles and never fires; this repo is full of record structs.
 - [A layout driven by its own length cannot fail](a-layout-driven-by-its-own-length-cannot-fail.md) — TextMsg read to the end, so its exact-consumption guard was decorative and it accepted 511 empty strings.
 - [Unreachable can be proved, not just observed](unreachable-can-be-proved-not-just-observed.md) — a coverage gap is a finding either way: prove the branch dead by arithmetic, or write the input that reaches it.
+- [A player has two viewmodels](a-player-has-two-viewmodels.md) — slot 1 is the off hand and is drawn alongside the weapon; a slot-blind lookup put a spy watch in a soldier's hands.
+- [The demo dates its own fields](the-demo-dates-its-own-fields.md) — an era question about a property is answered by that demo's embedded schema, not by the SDK snapshot or a decompiler.
+- [Foreground is not focus](foreground-is-not-focus.md) — a window can own the foreground with nothing inside it focused, and then no key arrives; hiding a focused control is the hazard.
+- [A count cannot see past a pruner](a-count-cannot-see-past-a-pruner.md) — waiting for a file count to grow breaks once retention caps the folder; compare the set instead.
+- [A neutral default must be neutral](a-neutral-default-must-be-neutral.md) — `_white` is the magenta chequer; binding it as a detail texture chequered every model while the map looked fine.
+- [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — the first-person weapon is a client-side entity no demo contains; the item index plus `items_game.txt` rebuilds it.
+- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — bones stay Valve column-vector and reach the shader raw; crossing to the row-vector model matrix belongs in one place, and its test needs a rotation.
+- [A default is not a constant](a-default-is-not-a-constant.md) — `viewmodel_fov` 54 is a cvar default, not a fixed value; grep for `ConVar` before writing an SDK number in.
+- [A launch notification is not an exit](a-launch-notification-is-not-an-exit.md) — the task "completed" reports the wrapper; ask Get-Process, and never read a still-growing log as a crash.
+- [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the 2007/2008/2011/2013 period clients and the SDK are all on `F:`; no decomp output is cached anywhere, on purpose.
+- [The viewer suite wants the GPU](the-viewer-suite-wants-the-gpu.md) — Viewer3D.Tests makes real D3D devices, so an exclusive-fullscreen app may abort it; the console total disagrees with the trx by one.

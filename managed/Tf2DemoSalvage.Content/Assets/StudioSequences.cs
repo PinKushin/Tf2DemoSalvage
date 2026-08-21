@@ -45,11 +45,26 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool IsForwardDeclaration => (Flags & ForwardDeclared) != 0;
 
+    /// <summary>Whether this sequence is a DELTA, meant to be layered rather than played.</summary>
+    /// <remarks>
+    /// <c>STUDIO_DELTA</c> is <c>0x4</c> (<c>studio.h</c>). A delta sequence carries a difference
+    /// from the rest pose, not a pose — the engine adds it on top of whatever is already posed
+    /// (<c>AccumulatePose</c>), and playing one as if it were an ordinary sequence gives a skeleton
+    /// built from differences with nothing underneath.
+    ///
+    /// The tell is a bone left at identity where its rest rotation carried something: measured on
+    /// <c>c_demo_arms.mdl</c>, whose root is a permutation matrix at one sequence and identity at
+    /// another, taking the whole model's up-axis with it.
+    /// </remarks>
+    public bool IsDelta => (Flags & DeltaSequence) != 0;
+
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = StudioFlags.SequenceLooping;
 
     /// <summary><c>STUDIO_OVERRIDE</c> from <c>studio.h</c>.</summary>
     private const int ForwardDeclared = StudioFlags.SequenceForwardDeclared;
+
+    private const int DeltaSequence = StudioFlags.SequenceDelta;
 }
 
 /// <summary>
