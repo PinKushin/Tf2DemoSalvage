@@ -293,3 +293,36 @@ and the margin against the 11.6 ms budget is thirty-fold, so the conclusion does
 precision. And an earlier claim of mine was wrong and is corrected in D51: COM does not preclude
 cross-platform — Media Foundation specifically is Windows-only, but a portable C decoder behind a C
 ABI would run anywhere. The testability argument stands only against Media Foundation.
+
+### Correction: the budget was invented, and Valve ships a real one
+
+The paragraph above compared NLayer's first-buffer cost against "a 512-sample buffer at 44.1 kHz is
+11.6 ms". **That number was chosen, not sourced** — the owner challenged it immediately: *"how can
+we know it will be fast enough without something to compare against? can we find tf2s audio
+latency?"*
+
+Yes, and it is in the engine, read the same way `snd_refdist` was — the default string sits
+immediately before its cvar name in `.rdata`:
+
+```
+3049240  "0.1"
+3049244  "snd_mixahead"
+```
+
+**`snd_mixahead` = 0.1, so Valve mixes 100 ms ahead of the play cursor.** That is the engine's own
+latency budget: the window between a sound being triggered and being heard.
+
+| | |
+|---|---|
+| Valve's mix-ahead window | **100 ms** |
+| NLayer, first buffer | **0.33 – 0.47 ms** |
+| margin | **~250x** |
+
+So the conclusion is unchanged and the reasoning behind it is now sourced rather than assumed — and
+the margin is twenty times larger than the invented budget suggested, not smaller.
+
+**The method was the problem, not the answer**, which is the part worth keeping. "Fast enough"
+against a threshold nobody can cite is the same fault as a conformance test asserting the SDK
+against itself: it cannot fail for a reason that concerns the thing being judged. The same
+adjacency trick that recovered `snd_refdist 36` and `snd_refdb 60` gave the real figure in about a
+minute.
