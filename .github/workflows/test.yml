@@ -98,7 +98,7 @@ jobs:
         # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md:
         # adding tests keeps passing, removing them fails until the number is lowered on purpose.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1497 Core
+          ./build/assert-test-count.sh '**/core.trx' 1504 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           ./build/assert-test-count.sh '**/content.trx' 628 Content
 

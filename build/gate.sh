@@ -91,7 +91,7 @@ rm -f /tmp/gate-*.log
 # Raised to 1491: SchemaGapTests, four cases proving the gap instrument works in both directions
 # and across both metadata encodings before any marker rests on it.
 # 1497: SoundCharConformanceTests, the six that pin soundchars.h against SoundName.
-run Tf2DemoSalvage.Core.Tests     core     1497
+run Tf2DemoSalvage.Core.Tests     core     1504
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

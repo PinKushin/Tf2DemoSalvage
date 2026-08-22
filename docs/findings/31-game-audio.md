@@ -369,3 +369,39 @@ Two consequences, and the second is a parity requirement rather than a benchmark
 MEANING is documented in published game code that merely consumes it — the same shape as
 `docs/memory/shipped-data-is-a-source.md` and `nothing-is-closed.md`. A grep of the SDK for the
 cvar name found it immediately; the decompiler was never needed for this part.
+
+## The audible radius IS published — found by grepping for callers
+
+*(evidence class: read from published source)*
+
+Acting on the lesson from `snd_mixahead`: the mixer is closed, so grep for what CALLS it rather than
+for it. `SNDLVL_TO_ATTN` has four callers in the SDK, and one of them is the server deciding who is
+sent a sound at all — which means it has to know how far the sound carries.
+
+```cpp
+// game/server/recipientfilter.cpp:409
+maxAudible = ( 2 * SOUND_NORMAL_CLIP_DIST ) / attenuation;   // const.h:428 — 1000.0f
+
+// :374, and this is the half that inverts easily
+if ( attenuation <= 0 )
+    return;              // no cropping at all: ATTN_NONE carries everywhere in the PVS
+```
+
+**So the audible radius is `2000 / attenuation`.** At `SNDLVL_NORM` (75) the attenuation is 0.8 and
+the radius is **2,500 units**; at the clamped end, attenuation 4 gives **500 units**.
+
+Two things worth stating because the intuition runs backwards on both:
+
+- **A low soundlevel gives the SHORTEST radius, not the longest.** `SNDLVL_TO_ATTN` clamps to 4.0 at
+  or below 50, and a larger attenuation divides into a smaller radius. Quiet sounds do not carry.
+- **Attenuation zero means unbounded, not silent.** Valve's `Filter` returns early rather than
+  computing a radius, leaving every recipient in. Reading it as a radius of zero would silence
+  precisely the sounds meant to carry everywhere, and it would fail as a plausible mix rather than
+  as an error.
+
+**This is a cutoff, not a falloff.** It bounds where sound stops; it says nothing about the gain
+curve inside that radius, which is what `snd_refdist` 36 and `snd_refdb` 60 parameterise and which
+remains unrecovered. Implemented as `SoundAttenuation` with `SoundAttenuationConformanceTests`
+pinning every constant against the SDK — seven tests, two verified by sabotage: reading zero as
+silent reddens the ATTN_NONE test, and `>= 50` instead of `> 50` (a divide by zero at the boundary)
+reddens two.
