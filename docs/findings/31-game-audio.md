@@ -256,3 +256,40 @@ byte-level tests over hand-built and real inputs, and `Content.Tests` was just a
 job specifically so those readers are gated. A managed decoder can be tested that way anywhere; an
 OS codec reached through COM cannot be tested on the Linux job at all, and would skip exactly where
 the gate was just extended to cover.
+
+## NLayer is fast enough, measured — so the C and COM options need not be built
+
+*(evidence class: measured, BenchmarkDotNet ShortRun on this machine)*
+
+The choice was NLayer (managed), Media Foundation through COM (Windows only), or a portable C
+decoder such as dr_mp3 behind a C ABI. The latter two are real work, so the cheap move was to
+measure the easy option and find out whether the others are worth building.
+
+| clip | decode whole | **first buffer** | allocated (whole) |
+|---|---:|---:|---:|
+| short voice line | 2.9 ms | **0.37 ms** | 73 KB |
+| long voice line | 14.0 ms | **0.33 ms** | 171 KB |
+| music track | 137.4 ms | **0.47 ms** | 1,009 KB |
+
+**The first-buffer column is the one that decides it.** Throughput was never in doubt — a match
+fires a handful of voice lines a second and no plausible decoder is short of that. The risk was
+LATENCY at the moment a sound starts, and it is **~0.4 ms, flat regardless of clip length**. A
+512-sample buffer at 44.1 kHz is 11.6 ms of audio, so beginning a sound costs about 3% of one buffer
+period. It cannot hitch.
+
+The whole-clip figures are decode-ahead costs paid once, and a voice line is replayed constantly, so
+caching removes them entirely after the first play. Music at 137 ms is the largest file in the game
+and would stream rather than decode whole — and even taken whole that is a real-time factor in the
+thousands.
+
+**So the C and COM alternatives are not worth building.** `CLAUDE.md` requires native code to be
+justified by profiling rather than assumption, and the profile says there is nothing to fix. If that
+ever changes, dr_mp3 behind a C ABI is a drop-in for the same narrow job — bytes to PCM — which is
+exactly why this choice is low-stakes and reversible in a way the mixer's is not.
+
+**Two honest qualifications.** This is a ShortRun of three iterations, and the error on the
+whole-clip numbers is wide (the short clip reads 2.9 ms ± 1.3). The first-buffer numbers are tight,
+and the margin against the 11.6 ms budget is thirty-fold, so the conclusion does not rest on the
+precision. And an earlier claim of mine was wrong and is corrected in D51: COM does not preclude
+cross-platform — Media Foundation specifically is Windows-only, but a portable C decoder behind a C
+ABI would run anywhere. The testability argument stands only against Media Foundation.

@@ -45,3 +45,7 @@ tools/native-audio/*.dll
 # Coverage reports from `--collect:"XPlat Code Coverage"`. CI writes them under coverage/ and
 # uploads them as an artifact on failure; they are never committed.
 coverage/
+
+# BenchmarkDotNet's generated harness projects and reports.
+BenchmarkDotNet.Artifacts/
+*-ShortRun-*/

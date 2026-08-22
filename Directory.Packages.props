@@ -55,6 +55,18 @@
     <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Benchmarking">
+    <!-- **Local only, and that is a rule rather than a preference.** A benchmark's value comes from
+         stable hardware; the Oracle measurement boxes are shared cloud vCPUs and too noisy for it,
+         so mutation and fuzzing go there and benchmarks never do. -->
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+
+    <!-- **Referenced by the BENCHMARK project only, not by production.** It is a candidate being
+         measured, not a decision — D51 covers the output device, and the MP3 decoder is still open.
+         Keeping it out of managed/ means the evaluation cannot quietly become a dependency. -->
+    <PackageVersion Include="NLayer" Version="2.0.1" />
+  </ItemGroup>
+
   <ItemGroup Label="Testing">
     <!-- NUnit by the global standard, and never a deprecated package - xUnit v2 is deprecated and
          NuGet reports that as a build warning, which Zero Warnings turns into a failure. -->

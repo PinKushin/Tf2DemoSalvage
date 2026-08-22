@@ -35,6 +35,7 @@ public sealed class Mp3HeaderProbe
         Dictionary<string, int> versions = [];
         Dictionary<int, int> rates = [];
         Dictionary<int, int> channelModes = [];
+        Dictionary<string, int> byPlacement = [];
         int id3 = 0;
         int examined = 0;
         int noSync = 0;
@@ -123,6 +124,20 @@ public sealed class Mp3HeaderProbe
 
                 rates[rate] = rates.GetValueOrDefault(rate) + 1;
                 channelModes[mode] = channelModes.GetValueOrDefault(mode) + 1;
+
+                // **The cross-check on the whole model.** Only a MONO source can be placed in 3D —
+                // a stereo file already has its own left and right, and there is nothing sensible
+                // to pan. So if Valve positions player voices, the positioned ones should be mono
+                // and the unpositioned ones (announcer, ambience, music) should be the stereo tail.
+                //
+                // If that does NOT hold, the model is wrong somewhere and it is better to find out
+                // before a mixer is built on it.
+                int slash = path.LastIndexOf('/');
+                string folder = slash > 0 ? path[..slash] : "(root)";
+                string bucket = mode == 3 ? "mono" : "stereo";
+
+                byPlacement[$"{bucket}  {folder}"] =
+                    byPlacement.GetValueOrDefault($"{bucket}  {folder}") + 1;
             }
         }
 
@@ -146,6 +161,26 @@ public sealed class Mp3HeaderProbe
         foreach ((int mode, int count) in channelModes.OrderByDescending(e => e.Value))
         {
             TestContext.Out.WriteLine($"  mode {mode}  {count}");
+        }
+
+        TestContext.Out.WriteLine("where the STEREO ones live (these should be the unpositioned):");
+
+        foreach ((string what, int count) in byPlacement
+            .Where(entry => entry.Key.StartsWith("stereo", StringComparison.Ordinal))
+            .OrderByDescending(entry => entry.Value)
+            .Take(12))
+        {
+            TestContext.Out.WriteLine($"  {count,5}  {what}");
+        }
+
+        TestContext.Out.WriteLine("and the MONO ones (these should be the positioned):");
+
+        foreach ((string what, int count) in byPlacement
+            .Where(entry => entry.Key.StartsWith("mono", StringComparison.Ordinal))
+            .OrderByDescending(entry => entry.Value)
+            .Take(8))
+        {
+            TestContext.Out.WriteLine($"  {count,5}  {what}");
         }
 
         examined.ShouldBeGreaterThan(0);

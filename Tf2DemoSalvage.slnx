@@ -7,6 +7,7 @@
     <Project Path="tests/Tf2DemoSalvage.Viewer3D.Tests/Tf2DemoSalvage.Viewer3D.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Viewer3D.UiTests/Tf2DemoSalvage.Viewer3D.UiTests.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Audio/Tf2DemoSalvage.Audio.csproj" />
+    <Project Path="benchmarks/Tf2DemoSalvage.Benchmarks/Tf2DemoSalvage.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />
