@@ -8673,3 +8673,56 @@ measures nothing, and `OverlayPassConformanceTests` now picks a layered map for 
 any fixture — the reader was pointed at every map Valve ships, including the seasonal and community
 ones, and the face-count guard rejected none of them. `docs/memory/decode-must-be-total.md` asks for
 exactly this and it had never been run on the overlay lump.
+
+---
+
+## B139 — fog is decoded, retained, tested, and never rendered — OPEN
+
+**Found 2026-08-21 by the conformance sweep, and it is the fourth instance of one pattern.**
+
+`SceneFog` carries start, end, three colour channels and max density, decoded per tick from
+`DT_FogController`. `DemoTimeline` keeps a sample list and offers `FogAt(tick)`.
+
+**Every consumer of either is a test.** Grep for `FogAt` or `FogSamples` outside `DemoTimeline`
+itself and the only hits are in `Tf2DemoSalvage.Corpus.Tests`. Nothing in `Tf2DemoSalvage.Viewer3D`
+mentions `SceneFog` at all — no constant buffer field, no shader parameter, nothing.
+
+So a map whose fog controller says "grey haze from 500 to 3000 units" draws with perfectly clear
+air, and the decoder that reads it has a green suite.
+
+### Why it was invisible
+
+`FogConformanceTests` existed, with four tests. **Every one of them asserted Valve's shader source
+and then checked arithmetic transcribed into helper functions in the same file** — `Squared(0.5f)`
+against `ShouldBe(0.25f)`, which tests that squaring squares. Not one line touched this project's
+renderer, so the suite reported conformance for a feature with no implementation behind it.
+
+`FogDecodeTests` in Corpus.Tests is real and passes: 3 of the 10 committed demos carry a controller
+and the values come out. Decoding is genuinely done. **The gap is the whole second half.**
+
+### The pattern, now with four instances
+
+`docs/memory/output-level-assertion-or-it-is-not-done.md` records three:
+
+1. the dumper's kill annotation matched `int` where `customkill` arrives as a `byte`
+2. the kill feed resolved fields through a renderer returning strings, so its numeric lookup
+   returned null for all 407 lines
+3. `m_flPlaybackRate` was decoded, retained and unit-tested, and no production code read it — every
+   animation played at rate 1
+
+**Fog is the fourth, and it is the same shape as the third exactly**: a value decoded correctly,
+covered by tests, and never wired to anything. All four were found by looking at output or at
+consumers, never by the tests covering the code.
+
+### What to do
+
+Implement it, or say it is not being implemented. The specification is already written down —
+`FogConformanceTests` now holds Valve's three equations as citations with what each one costs if got
+wrong (the squared blend factor, maxdensity clamping BEFORE the saturate, and
+`flFogStartOverRange` being start/(end−start) rather than a distance).
+
+**The gap marker fails when fog arrives.** `Fog_NothingInThisRendererReadsTheDecodedFog_WhichIsB139`
+sweeps the Viewer3D assembly for any member mentioning `SceneFog` and asserts there is none, with a
+control that the same sweep finds a scene type the renderer really does use. Adding a fog parameter
+anywhere in the renderer reddens it, at which point it should be replaced by a parity test against
+those equations rather than deleted (D45).

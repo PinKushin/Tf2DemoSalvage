@@ -83,7 +83,9 @@ rm -f /tmp/gate-*.log
 # Set to the exact count, so adding tests keeps passing and REMOVING them fails until the number
 # is lowered on purpose. The ratchet is the feature — every lowering should be a deliberate edit
 # in the same commit that deleted the tests, which is what makes a silent loss impossible.
-run Tf2DemoSalvage.Core.Tests     core     1461
+# Raised to 1463: FogControllerConformanceTests, which compares EntityState's fog wire names against
+# the SENDINFO_STRUCTELEM declarations in fogcontroller.cpp.
+run Tf2DemoSalvage.Core.Tests     core     1463
 run Tf2DemoSalvage.Cli.Tests      cli        68
 run Tf2DemoSalvage.Audio.Tests    audio      28
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
@@ -119,7 +121,22 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     95
 # Raised to 568: ClipFaceToOverlay_AFaceAtAnAngleToTheBasis_StillProducesAFragment and
 # BrushModels_TheGeometryThisProjectBuilds_CarriesTheAtlasCoordinatesTheWorldUses, the measured
 # halves of two files that until then only quoted vbsp and vrad.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    572
+# **Lowered from 572 to 570, net -2, and the arithmetic is the justification.** FogConformanceTests
+# went from four tests to two:
+#
+#   -2  Fog_TheBlendFactor_IsSquaredBeforeTheLerp and
+#       Fog_TheRangeFactor_IsClampedByMaxDensityBeforeSaturating asserted Valve's shader source and
+#       then checked arithmetic transcribed into helper functions in the same file —
+#       `Squared(0.5f).ShouldBe(0.25f)` tests that squaring squares. Their citations are preserved
+#       in Fog_TheEquations_AreRecordedForAnImplementationThatDoesNotExistYet.
+#   -1  Fog_TheFirstParameter_IsStartOverRangeDespiteItsMacroName, same, folded into the same test.
+#   +1  Fog_NothingInThisRendererReadsTheDecodedFog_WhichIsB139 — the gap, measured by sweeping the
+#       Viewer3D assembly for any member naming SceneFog, with a control that the sweep finds a
+#       scene type the renderer really uses.
+#
+# The wire-name half moved to Core.Tests as FogControllerConformanceTests (+2 there), which is why
+# the core floor went up in the same commit.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    570
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

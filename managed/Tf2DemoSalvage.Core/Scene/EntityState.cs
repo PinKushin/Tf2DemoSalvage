@@ -74,11 +74,15 @@ public sealed class EntityState
     /// </remarks>
     internal const string FogControllerTable = "DT_FogController";
 
-    private const string FogEnableProperty = "m_fog.enable";
-    private const string FogStartProperty = "m_fog.start";
-    private const string FogEndProperty = "m_fog.end";
-    private const string FogColourProperty = "m_fog.colorPrimary";
-    private const string FogMaxDensityProperty = "m_fog.maxdensity";
+    // Internal rather than private so FogControllerConformanceTests can compare each one against
+    // the SENDINFO_STRUCTELEM that declares it in fogcontroller.cpp. A wire name is a claim about
+    // somebody else's schema, and this project has been bitten by unchecked ones before —
+    // docs/memory/wire-names-are-strings.md.
+    internal const string FogEnableProperty = "m_fog.enable";
+    internal const string FogStartProperty = "m_fog.start";
+    internal const string FogEndProperty = "m_fog.end";
+    internal const string FogColourProperty = "m_fog.colorPrimary";
+    internal const string FogMaxDensityProperty = "m_fog.maxdensity";
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
 

@@ -207,6 +207,61 @@ allowed to refuse exclusive; exclusive is the lower-latency path and the owner's
 Still wanted: viewer resolution, and export format (JSON or the Quake-style assembly script). No
 options dialog yet; the list is here so the shell keeps room for one.
 
+### Open a compressed demo without the user unpacking it first (owner-stated, 2026-08-21)
+
+> *"we need to add a decompression algo to the roadmap too, so we can decompress demos, and play
+> them, or add them to a playlist, without the user having to decompress themselves. this will
+> probably require a library or using 7zip or somthing."*
+
+**Recorded as a roadmap item, not started.** Applies to opening a file, to adding one to a playlist,
+and to anything that walks a folder — an archive should behave like a demo everywhere a demo is
+accepted, rather than at one entry point.
+
+**Why it matters more here than it looks.** Demos are shared as archives almost universally: a
+match's POV recordings arrive as one zip, community collections as `.7z` or `.rar`, and the older
+the material the more likely it is packed. This project's whole reason for existing is the demos
+nobody can play any more, and those are exactly the ones sitting in an archive somebody made in 2011.
+Requiring a manual unpack puts a step between the user and the file for the entire long tail.
+
+#### What .NET already has, and what it does not
+
+`System.IO.Compression` ships Deflate, GZip, ZLib, Brotli and `ZipArchive`. So **zip and gzip need no
+dependency at all**. It has no bzip2, no 7z, and no rar.
+
+#### The likely answer is one managed library, not 7-Zip
+
+**SharpCompress** (MIT) reads zip, 7z, rar, tar, gzip and bzip2 through one API and is pure managed
+code — no native binary, no P/Invoke, nothing to ship per architecture. That last point is what
+decides it against shelling out to `7z.exe`:
+
+- **An external process is a dependency the user has to install**, and a missing one fails at the
+  moment they try to open a file rather than at build time.
+- **It is a command-injection surface**, and the input is a path the user supplies. `CLAUDE.md`'s
+  security section is explicit about never passing user input into a process argument string.
+- **It cannot be tested the way everything else here is.** A managed reader can be handed bytes in a
+  unit test; a subprocess needs the tool installed on whatever machine runs the suite, including CI.
+
+Not decided yet — it wants its own `docs/DECISIONS.md` entry when it is, per the standing rule that a
+new package is flagged rather than added quietly.
+
+#### Things to settle before writing any of it
+
+- **Solid archives and seeking.** 7z and rar are often solid, so extracting one member can mean
+  decompressing everything before it. A 2 GB collection cannot be held in memory, so the reader
+  wants a spill-to-temp path and a cleanup that survives a crash.
+- **A demo is identified by content, not extension.** An archive may hold `.dem` files beside
+  screenshots, configs and a readme. The `HL2DEMO` stamp is the test, and this project already reads
+  it — see `docs/SPEC.md`.
+- **Nested archives and zip-bombs.** A depth limit and a total-bytes limit, both stated, because the
+  input is a file from the internet. Same class of untrusted input as everything in `CLAUDE.md`'s
+  security list.
+- **Path traversal on extraction.** `..` in an archive entry name is the classic one; extraction must
+  resolve and prefix-check against the temp root, and `CLAUDE.md` requires exactly that for any path
+  derived from user input.
+- **Does anything need extracting at all?** For a single-member gzip or a stored (uncompressed) zip
+  entry the reader can be handed a stream and never touch the disk. Worth doing, because it makes the
+  common case free — and this project's parser already reads from a stream.
+
 ### Beyond TF2's own quality (owner-stated, 2026-08-16)
 
 **Upsample the textures and models so the viewer can look better than the game.** Recorded as a

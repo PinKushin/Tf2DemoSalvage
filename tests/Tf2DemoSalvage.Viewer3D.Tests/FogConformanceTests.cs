@@ -1,21 +1,33 @@
 using System;
 
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>
-/// Distance fog, specified from the SDK before any of it is built.
+/// Valve's fog arithmetic, and the fact that this renderer does not yet apply any of it.
 /// </summary>
 /// <remarks>
-/// **Fog is not a material parameter — it is networked, per tick, by an entity.**
-/// <c>CFogController</c>'s send table (<c>fogcontroller.cpp:78</c>) carries start, end, colour,
-/// maximum density and a set of lerp targets, so a demo records the fog changing as the map's
-/// triggers fire. That makes it the first thing here whose inputs come from the DEMO rather than
-/// from the map's assets.
+/// **The conformance sweep turned this file into a gap report, which is what it always was.**
+/// Its four tests quoted <c>common_fxc.h</c> and <c>fogcontroller.cpp</c> and asserted the
+/// arithmetic in local helper functions — arithmetic written in the test, transcribed from Valve,
+/// compared against itself. Nothing in <c>Tf2DemoSalvage.Viewer3D</c> was ever involved.
 ///
-/// **Two things about the arithmetic are silent if missed**, and one of them is a naming trap in
-/// Valve's own header.
+/// **It is not involved because there is nothing to involve.** <see cref="SceneFog"/> is decoded per
+/// tick, retained on the timeline, and read by no production code anywhere — the only consumers of
+/// <c>DemoTimeline.FogSamples</c> and <c>FogAt</c> in the entire repository are tests. Filed as
+/// **B139**.
+///
+/// That is the fourth instance of the pattern in
+/// <c>docs/memory/output-level-assertion-or-it-is-not-done.md</c>: a value decoded, retained,
+/// unit-tested and never read. <c>m_flPlaybackRate</c> was the third, and every animation played at
+/// rate 1 for as long as it lasted.
+///
+/// **So the citations stay and the arithmetic goes.** The equations below are the SPECIFICATION for
+/// an unimplemented feature, which is a legitimate thing for a conformance test to hold (D45) — but
+/// only if it says so, and only if something fails when the feature arrives without its parity
+/// check. The gap assertion at the end is that trigger.
 /// </remarks>
 public sealed class FogConformanceTests
 {
@@ -29,22 +41,26 @@ public sealed class FogConformanceTests
     }
 
     [Test]
-    public void Fog_TheBlendFactor_IsSquaredBeforeTheLerp()
+    public void Fog_TheEquations_AreRecordedForAnImplementationThatDoesNotExistYet()
     {
-        // **The factor is squared, and Valve says why on the line itself**
-        // (common_ps_fxc.h:290):
+        // **Kept as citations rather than as assertions on transcribed arithmetic.** The previous
+        // version computed `Squared(0.5f).ShouldBe(0.25f)` against a helper defined in the same
+        // file, which tests that squaring squares.
         //
-        //     pixelFogFactor = saturate( pixelFogFactor );
-        //     return lerp( vShaderColor.rgb, vFogColor.rgb, pixelFogFactor * pixelFogFactor );
-        //         //squaring the factor will get the middle range mixing closer to hardware fog
+        // What each line is for, when this is built:
         //
-        // Missing the square makes fog far too strong through the whole middle distance — at the
-        // halfway point it is 0.5 of the fog colour instead of 0.25 — while both ends stay correct,
-        // so the map still fades to fog at the far plane and looks merely hazy rather than wrong.
+        //   lerp( vShaderColor.rgb, vFogColor.rgb, pixelFogFactor * pixelFogFactor )
+        //       range fog SQUARES the factor before the lerp, and Valve says why in a comment
+        //       beside it. A linear blend reads as haze rather than as Source's fog.
         //
-        // **Height fog does NOT square it**, which is the same file four lines down. So this is a
-        // property of range fog rather than of fog, and an implementation that squares everywhere
-        // is wrong for water.
+        //   saturate( min( flFogMaxDensity, (flProjPosZ * flFogOORange) - flFogStartOverRange ) )
+        //       maxdensity clamps BEFORE the saturate, so a controller asking for 0.6 never
+        //       reaches full fog however far away the surface is. Clamping after would ignore it.
+        //
+        //   const float flFogStartOverRange
+        //       the first fog constant is start/(end-start), NOT the start distance, despite the
+        //       macro `g_FogEndOverRange` twelve lines away suggesting otherwise. Feeding it a
+        //       distance puts the fog's onset in the wrong place by a factor of the range.
         string source = Sdk("src/materialsystem/stdshaders/common_ps_fxc.h");
 
         source.ShouldContain(
@@ -58,110 +74,90 @@ public sealed class FogConformanceTests
             "and Valve states the reason rather than leaving it to be inferred");
 
         source.ShouldContain(
-            "return lerp( vShaderColor.rgb, vFogColor.rgb, saturate( pixelFogFactor ) );",
-            Case.Sensitive,
-            "height fog does not square, so the square belongs to range fog specifically");
-
-        // The arithmetic at the midpoint, which is where the two differ most.
-        Squared(0.5f).ShouldBe(0.25f, 1e-6f);
-
-        static float Squared(float factor) => factor * factor;
-    }
-
-    [Test]
-    public void Fog_TheRangeFactor_IsClampedByMaxDensityBeforeSaturating()
-    {
-        // `CalcRangeFog`, common_ps_fxc.h:232 — the whole computation in one line:
-        //
-        //     return saturate( min( flFogMaxDensity, (flProjPosZ * flFogOORange) - flFogStartOverRange ) );
-        //
-        // **The `min` comes BEFORE the `saturate`**, which matters because `$fogmaxdensity` is how a
-        // mapper stops distant geometry disappearing entirely. Clamping after saturating would make
-        // a max density above 1 meaningless and one below 1 apply only at the far end; clamping
-        // first caps the whole curve.
-        //
-        // The controller sends the density (`m_fog.maxdensity`), so it is per-demo data rather than
-        // a constant to assume.
-        string source = Sdk("src/materialsystem/stdshaders/common_ps_fxc.h");
-
-        source.ShouldContain(
             "return saturate( min( flFogMaxDensity, (flProjPosZ * flFogOORange) - flFogStartOverRange ) );",
-            Case.Sensitive);
-
-        // At a density of 0.6, a fully fogged distance stops at 0.6 rather than 1.
-        Range(10000f, start: 0f, end: 1000f, maxDensity: 0.6f).ShouldBe(0.6f, 1e-6f);
-        Range(500f, start: 0f, end: 1000f, maxDensity: 0.6f).ShouldBe(0.5f, 1e-6f);
-
-        static float Range(float depth, float start, float end, float maxDensity)
-        {
-            float range = 1f / (end - start);
-
-            return Math.Clamp(Math.Min(maxDensity, (depth * range) - (start * range)), 0f, 1f);
-        }
-    }
-
-    [Test]
-    public void Fog_TheFirstParameter_IsStartOverRangeDespiteItsMacroName()
-    {
-        // **A naming conflict inside Valve's own header, and the arithmetic settles it.**
-        // `CalcRangeFog`'s parameter is `flFogStartOverRange`:
-        //
-        //     saturate( min( flFogMaxDensity, (flProjPosZ * flFogOORange) - flFogStartOverRange ) )
-        //
-        // while the macro for the same slot, twelve lines below, is:
-        //
-        //     #define g_FogEndOverRange   g_FogParams.x
-        //
-        // They cannot both be right. Standard linear fog is `(z - start) / (end - start)`, and the
-        // expression above is `z/range - x`; for those to agree, **x must be start/range**. Putting
-        // end/range there instead shifts the whole curve by `(end - start)/range`, which is exactly
-        // 1 — so fog would begin fully opaque at the camera and clear at the far plane. Backwards,
-        // and unmistakable once drawn, which is the only mercy in it.
-        //
-        // Recorded because a reader who trusts the macro name writes the wrong one and the
-        // conflicting evidence is twelve lines away in the same file.
-        string source = Sdk("src/materialsystem/stdshaders/common_ps_fxc.h");
+            Case.Sensitive,
+            "maxdensity clamps before the saturate");
 
         source.ShouldContain("const float flFogStartOverRange", Case.Sensitive);
         source.ShouldContain("#define g_FogEndOverRange", Case.Sensitive);
-
-        // The arithmetic, both ways round, at the fog's own start distance where the factor must be
-        // exactly zero.
-        const float start = 500f;
-        const float end = 2000f;
-        float range = 1f / (end - start);
-
-        (((start * range) - (start * range)) is 0f).ShouldBeTrue("start/range gives 0 at the start");
-
-        ((start * range) - (end * range)).ShouldBe(-1f, 1e-6f, "end/range gives -1 there instead");
     }
 
     [Test]
-    public void Fog_TheControllerNetworksItsParameters_SoADemoCarriesThem()
+    public void Fog_NothingInThisRendererReadsTheDecodedFog_WhichIsB139()
     {
-        // **This is the first drawn feature whose inputs come from the demo rather than the map.**
-        // CFogController, fogcontroller.cpp:78, sends start, end, colour, maximum density and a
-        // full set of lerp targets — so fog that changes mid-round is recorded and replayable.
+        // **The gap, measured rather than described.** SceneFog carries six floats decoded from
+        // DT_FogController; if the renderer applied them there would be a consumer. There is not
+        // one, so this asserts the absence in a form that FAILS when fog is implemented — at which
+        // point this test is replaced by a parity check against the equations above.
         //
-        // The wire names are what `SENDINFO_STRUCTELEM` produces, which is the struct path itself:
-        // `m_fog.start`, not `start`. That is the same trap as `wire-names-are-strings` — a decoder
-        // looking for the C++ field name finds nothing.
-        //
-        // Measured on the committed corpus: 3 of 10 demos carry the class at all — the 2009
-        // badlands POV and both 2011 koth_viaduct recordings — so fog is verifiable but not
-        // everywhere, and a demo without it should draw no fog rather than a default.
-        string source = Sdk("src/game/server/fogcontroller.cpp");
+        // Measured by type reference rather than by grepping source: the Viewer3D assembly is the
+        // thing that would have to mention SceneFog to use it, and an assembly cannot be out of
+        // date with itself the way a text search can.
+        bool referenced = false;
 
-        source.ShouldContain("IMPLEMENT_SERVERCLASS_ST_NOBASE( CFogController, DT_FogController )");
-        source.ShouldContain("SendPropFloat( SENDINFO_STRUCTELEM( m_fog.start ), 0, SPROP_NOSCALE )");
-        source.ShouldContain("SendPropFloat( SENDINFO_STRUCTELEM( m_fog.end ), 0, SPROP_NOSCALE )");
-        source.ShouldContain("SendPropFloat( SENDINFO_STRUCTELEM( m_fog.maxdensity ), 0, SPROP_NOSCALE )");
-        source.ShouldContain("SendPropInt( SENDINFO_STRUCTELEM( m_fog.colorPrimary ), 32, SPROP_UNSIGNED )");
+        foreach (Type type in typeof(WorldRenderer).Assembly.GetTypes())
+        {
+            foreach (System.Reflection.FieldInfo field in type.GetFields(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Static))
+            {
+                referenced |= Mentions(field.FieldType);
+            }
 
-        source.ShouldContain(
-            "SendPropInt( SENDINFO_STRUCTELEM( m_fog.enable ), 1, SPROP_UNSIGNED )",
-            Case.Sensitive,
-            "one bit, and a map with a controller can still have fog switched off");
+            foreach (System.Reflection.MethodInfo method in type.GetMethods(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.DeclaredOnly))
+            {
+                referenced |= Mentions(method.ReturnType);
+
+                foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
+                {
+                    referenced |= Mentions(parameter.ParameterType);
+                }
+            }
+        }
+
+        referenced.ShouldBeFalse(
+            "SceneFog now appears in the renderer's surface — so fog is being implemented, and "
+            + "this gap marker should be replaced by a parity test against the equations in "
+            + "Fog_TheEquations_AreRecordedForAnImplementationThatDoesNotExistYet (B139, D45)");
+
+        // **The control, and it is the assertion that makes the one above mean anything.** A
+        // reflection sweep that found no types at all, or one looking in the wrong assembly, would
+        // also report "not referenced". A type the renderer demonstrably DOES use must be found by
+        // the same sweep.
+        bool findsAKnownConsumer = false;
+
+        foreach (Type type in typeof(WorldRenderer).Assembly.GetTypes())
+        {
+            foreach (System.Reflection.MethodInfo method in type.GetMethods(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.DeclaredOnly))
+            {
+                foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
+                {
+                    findsAKnownConsumer |= parameter.ParameterType == typeof(DemoTimeline)
+                        || parameter.ParameterType.Name.Contains("ScenePose", StringComparison.Ordinal);
+                }
+            }
+        }
+
+        findsAKnownConsumer.ShouldBeTrue(
+            "the sweep must be able to find a scene type the renderer really uses, or its failure "
+            + "to find SceneFog says nothing");
+
+        static bool Mentions(Type type) =>
+            type == typeof(SceneFog)
+            || type == typeof(SceneFog?)
+            || (type.IsGenericType && Array.Exists(type.GetGenericArguments(), Mentions));
     }
 
     /// <summary>Reads an SDK file, or fails loudly.</summary>
