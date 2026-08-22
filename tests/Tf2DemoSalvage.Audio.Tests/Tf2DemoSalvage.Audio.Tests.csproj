@@ -38,6 +38,13 @@
          exercised both by the deterministic suite and by libFuzzer, so the cheap layer and the
          expensive layer cannot drift apart about what "correct" means. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Fuzz\Tf2DemoSalvage.Fuzz.csproj" />
+
+    <!-- VpkArchive, to read the soundscripts and wavs TF2 actually ships. -->
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+
+    <!-- SourceSdk for the conformance suites, and GameInstall for the tests that read the
+         install (D52). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
 </Project>

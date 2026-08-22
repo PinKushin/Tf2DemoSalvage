@@ -5,7 +5,7 @@ using System.Linq;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
 
-namespace Tf2DemoSalvage.Content.Tests.Assets;
+namespace Tf2DemoSalvage.Audio.Tests;
 
 /// <summary>What TF2's shipped soundscripts actually contain, before a reader is written for them.</summary>
 [Explicit("Scans the game's script files; run deliberately.")]

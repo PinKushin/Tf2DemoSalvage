@@ -2,10 +2,9 @@ using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.SdkReference;
 
-namespace Tf2DemoSalvage.Core.Tests.Net;
+namespace Tf2DemoSalvage.Audio.Tests;
 
 /// <summary>
 /// The soundlevel scale and the audible radius, parsed from Valve's source and compared against ours.

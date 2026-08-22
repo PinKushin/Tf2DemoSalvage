@@ -19,7 +19,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Audio.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+
+    <!-- For KeyValuesReader, which soundscripts are written in. Audio depends on Content and
+         nothing depends on Audio, so this adds no cycle. The direction is the right way round:
+         a soundscript is a game file, and reading game files is Content's job - but deciding
+         what a sound IS belongs here, with everything else about sound. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
   </ItemGroup>
 
   <!-- celt.dll and speex.dll are not committed (tools/native-audio/README.md) - built once by
