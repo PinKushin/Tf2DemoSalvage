@@ -88,7 +88,9 @@ rm -f /tmp/gate-*.log
 # Raised to 1487: DemoHeaderHostileInputTests, 24 cases of input no engine writes — a stamp one
 # byte wrong, an unterminated text field, invalid UTF-8, negative counts, NaN and infinity. The
 # corpus cannot supply any of them, because every demo in it was written by the engine.
-run Tf2DemoSalvage.Core.Tests     core     1487
+# Raised to 1491: SchemaGapTests, four cases proving the gap instrument works in both directions
+# and across both metadata encodings before any marker rests on it.
+run Tf2DemoSalvage.Core.Tests     core     1491
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

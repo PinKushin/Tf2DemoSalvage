@@ -143,6 +143,14 @@ public sealed class LocalTableConformanceTests
         types["TF_FLAGTYPE_CTF"].ShouldBe(0);
         types.Count.ShouldBeGreaterThanOrEqualTo(7);
 
+        // The gap, with its control, so this marker fails when the field is read (D45).
+        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
+            "the search cannot find a name that is demonstrably compiled in");
+
+        SchemaGap.AnyProductionAssemblyMentions("m_nType").ShouldBeFalse(
+            "the flag's type field is now read — replace this marker with a parity test against " +
+            "ETFFlagType above, and check the drawing distinguishes the seven modes");
+
         Assert.Ignore(
             "the flag type is not read. One entity class serves seven game modes " +
             "(tf_shareddefs.h:258), so drawing it as 'the intelligence' is wrong in six of them.");

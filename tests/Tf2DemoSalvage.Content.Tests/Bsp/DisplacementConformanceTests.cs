@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
@@ -59,7 +60,11 @@ public sealed class DisplacementConformanceTests
         // alpha: twenty bytes, which is the stride BspTerrain walks.
         CLayout vertex = Layout("CDispVert");
 
-        vertex.Size.ShouldBe(20);
+        // **Against the reader's own stride, not against 20.** Deriving the size from the SDK and
+        // then comparing it to a number typed into the test proves the parser can add up; the
+        // question that matters is whether BspTerrain steps by the same amount the engine does.
+        vertex.Size.ShouldBe(BspStructLayout.DispVertStride);
+
         vertex.Offset("m_vVector").ShouldBe(0);
         vertex.Offset("m_flDist").ShouldBe(12);
         vertex.Offset("m_flAlpha").ShouldBe(16);
@@ -70,10 +75,13 @@ public sealed class DisplacementConformanceTests
     {
         CLayout info = Layout("ddispinfo_t", Composites());
 
-        info.Size.ShouldBe(176);
-        info.Offset("startPosition").ShouldBe(0);
-        info.Offset("m_iDispVertStart").ShouldBe(12);
-        info.Offset("power").ShouldBe(20);
+        // Every one against the constant the reader actually uses. These four are what
+        // BspTerrain slices with, so a disagreement here is a misread record rather than a
+        // bookkeeping error in a test.
+        info.Size.ShouldBe(BspStructLayout.DispInfoStride);
+        info.Offset("startPosition").ShouldBe(BspStructLayout.DispStartPositionOffset);
+        info.Offset("m_iDispVertStart").ShouldBe(BspStructLayout.DispVertexStartOffset);
+        info.Offset("power").ShouldBe(BspStructLayout.DispPowerOffset);
     }
 
     [Test]
@@ -97,7 +105,8 @@ public sealed class DisplacementConformanceTests
         // And the array really is the tail: the record ends where it does because of this.
         CLayout info = Layout("ddispinfo_t", Composites());
 
-        info.Offset("m_AllowedVerts").ShouldBe(176 - (AllowedVertexWords * 4));
+        info.Offset("m_AllowedVerts")
+            .ShouldBe(BspStructLayout.DispInfoStride - (AllowedVertexWords * 4));
     }
 
     /// <summary>Words in <c>m_AllowedVerts</c>: 289 vertices padded to 320 bits, over 32.</summary>

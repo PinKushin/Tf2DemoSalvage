@@ -91,6 +91,14 @@ public sealed class PlayerResourceConformanceTests
             team.ShouldContain($"RECVINFO({field})");
         }
 
+        // The gap, with its control, so this marker fails when the team entity is read (D45).
+        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
+            "the search cannot find a name that is demonstrably compiled in");
+
+        SchemaGap.AnyProductionAssemblyMentions("m_iRoundsWon").ShouldBeFalse(
+            "team standing is now decoded — replace this marker with a parity test against the " +
+            "RECVINFO list above");
+
         Assert.Ignore(
             "team standing is not decoded. Score and rounds won are separate fields on the team " +
             "entity (c_team.cpp:33) — on a round-based map the number players remember is " +

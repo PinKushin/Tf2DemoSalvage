@@ -73,10 +73,10 @@ public static class BspStaticProps
     private const int DirectoryEntryBytes = 16;
 
     /// <summary>Bytes per model path in the dictionary, fixed since the format's first version.</summary>
-    private const int ModelNameBytes = 128;
+    internal const int ModelNameBytes = 128;
 
     /// <summary>The fields every version of the placement structure shares.</summary>
-    private const int MinimumPropStride = 56;
+    internal const int MinimumPropStride = 56;
 
     /// <summary>Beyond this, the stride is not a placement structure.</summary>
     /// <remarks>
@@ -87,11 +87,11 @@ public static class BspStaticProps
     private const int MaximumPropStride = 256;
 
     /// <summary>The version that added uniform scale, as its own trailing float.</summary>
-    private const int ScaleVersion = 11;
+    internal const int ScaleVersion = 11;
 
-    private const int OriginOffset = 0;
-    private const int AnglesOffset = 12;
-    private const int PropTypeOffset = 24;
+    internal const int OriginOffset = 0;
+    internal const int AnglesOffset = 12;
+    internal const int PropTypeOffset = 24;
 
     /// <summary>Offset of <c>StaticPropLump_t.m_Skin</c>, in every declared version.</summary>
     /// <remarks>
@@ -102,8 +102,12 @@ public static class BspStaticProps
     ///
     /// Derived independently by <c>StaticPropConformanceTests</c> from the declaration itself, so
     /// this constant is checked rather than asserted.
+    ///
+    /// **That sentence was false until 2026-08-21**: the test derived 32 from the SDK and compared
+    /// it against the literal 32, never against this field. It is internal now so the comparison it
+    /// claims can actually happen — which is the whole conformance sweep in one example.
     /// </remarks>
-    private const int SkinOffset = 32;
+    internal const int SkinOffset = 32;
 
     /// <summary>Reads every static prop a map places.</summary>
     /// <param name="file">The map's bytes.</param>

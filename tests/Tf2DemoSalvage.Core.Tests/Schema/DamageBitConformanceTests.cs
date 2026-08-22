@@ -96,8 +96,22 @@ public sealed class DamageBitConformanceTests
         highest.ShouldBe(defs["DMG_BUCKSHOT"]);
         highest.ShouldBeLessThan(1 << 30);
 
+        // **The gap, asserted so this marker can close (D45).** The control first: a search that
+        // never finds anything would let every marker skip for ever.
+        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
+            "the search cannot find a name that is demonstrably compiled in");
+
+        SchemaGap.AnyProductionAssemblyMentions("DMG_BLAST").ShouldBeFalse(
+            "a named damage flag now exists in the build, so the bits are being interpreted — " +
+            "replace this marker with a parity test against the enumeration above");
+
+        // **The word IS decoded, which this marker used to deny.** `UserMessageBody.Damage` reads a
+        // 32-bit field and surfaces it as "bits" — it is the INTERPRETATION that is missing, not the
+        // decode. Corrected 2026-08-21; the previous text said "damage bits are not decoded" and
+        // would have sent somebody to write a reader that already exists.
         Assert.Ignore(
-            "damage bits are not decoded. 30 flags in one word ending at DMG_BUCKSHOT (1<<29), " +
+            "the damage word is decoded (UserMessageBody.Damage surfaces it as \"bits\") and not " +
+            "interpreted: no flag is named. 30 flags in one word ending at DMG_BUCKSHOT (1<<29), " +
             "with bits 30 and 31 deliberately free for a game's own types — and bit 31 is the sign " +
             "bit, so this word must be masked rather than compared as a number.");
     }

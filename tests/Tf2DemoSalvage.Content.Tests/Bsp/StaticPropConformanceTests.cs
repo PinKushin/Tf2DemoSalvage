@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
@@ -61,9 +62,12 @@ public sealed class StaticPropConformanceTests
         {
             CLayout layout = Layout(version);
 
-            Check(version, layout, "m_Origin", 0, moved);
-            Check(version, layout, "m_Angles", 12, moved);
-            Check(version, layout, "m_PropType", 24, moved);
+            // **Against the reader's own offsets.** Deriving them from the SDK and comparing to
+            // literals typed here would confirm the parser and say nothing about BspStaticProps,
+            // which is what actually slices these bytes.
+            Check(version, layout, "m_Origin", BspStaticProps.OriginOffset, moved);
+            Check(version, layout, "m_Angles", BspStaticProps.AnglesOffset, moved);
+            Check(version, layout, "m_PropType", BspStaticProps.PropTypeOffset, moved);
         }
 
         moved.ShouldBeEmpty(
@@ -99,8 +103,12 @@ public sealed class StaticPropConformanceTests
     {
         // BspStaticProps refuses a lump whose stride is below the smallest declared shape, which is
         // the bound that stops a corrupt count producing millions of props. 56 is not a number
-        // someone chose; it is what V4 comes to.
-        Layout("StaticPropLumpV4_t").Size.ShouldBe(56);
+        // someone chose; it is what V4 comes to — so the guard is compared against the declaration
+        // rather than against a copy of it.
+        Layout("StaticPropLumpV4_t").Size.ShouldBe(
+            BspStaticProps.MinimumPropStride,
+            "a guard stricter than the oldest declared version rejects maps the engine loads, and "
+            + "one looser lets a corrupt count produce millions of props");
     }
 
     [Test]
@@ -116,7 +124,16 @@ public sealed class StaticPropConformanceTests
         CLayout latest = Layout("StaticPropLump_t");
 
         latest.Offset("m_Flags").ShouldBe(64);
-        latest.Offset("m_Skin").ShouldBe(32);
+
+        // **The skin offset, against the reader's constant.** Its doc comment has claimed since it
+        // was written that this test "derives it independently, so the constant is checked rather
+        // than asserted" — and until 2026-08-21 the test compared the derived value to the literal
+        // 32 and never looked at the field. The claim is now true.
+        //
+        // The derivation is worth keeping beside it: m_PropType, m_FirstLeaf and m_LeafCount are
+        // three unsigned shorts ending at 30, then m_Solid takes byte 30. The next member is an
+        // int, aligned to four, so byte 31 is padding and the skin begins at 32.
+        latest.Offset("m_Skin").ShouldBe(BspStaticProps.SkinOffset);
     }
 
     /// <summary>Adds a complaint when a field is not where every version should put it.</summary>
