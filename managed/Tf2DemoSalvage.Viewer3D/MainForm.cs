@@ -2722,7 +2722,7 @@ internal class MainForm : Form
                     // Not reproduced here: the client's two skin OVERRIDES, applied straight after
                     // the lines above - AdjustSkinIndexForZombie for Halloween, and the gold
                     // ragdoll from TF_DMG_CUSTOM_GOLD_WRENCH.
-                    Skin = player.Team == SceneTeams.Blu ? 1 : 0,
+                    Skin = PlayerSkin.ForTeam(player.Team),
                 }));
         }
 

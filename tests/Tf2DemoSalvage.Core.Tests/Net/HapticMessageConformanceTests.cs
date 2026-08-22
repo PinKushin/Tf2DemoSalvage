@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
@@ -45,15 +46,22 @@ public sealed class HapticMessageConformanceTests
         // Asserted as an ordered list because the ORDER is the finding: these are appended after the
         // game's own messages, so each one's position decides its id. HapSetDrag being fourth is
         // where the +4 that puzzled an earlier investigation comes from.
-        List<(string Name, int Size)> block =
-        [
-            ("SPHapWeapEvent", 4),
-            ("HapDmg", -1),
-            ("HapPunch", -1),
-            ("HapSetDrag", -1),
-            ("HapSetConst", -1),
-            ("HapMeleeContact", 0),
-        ];
+        //
+        // **The sizes are stated here and the NAMES come from this project's own table**, which is
+        // the comparison that was missing. Restating both would check Valve's file against a copy
+        // of Valve's file; taking the names from `UserMessageNames.Haptics` means a reordering or a
+        // typo there fails, and that array is what actually assigns ids to real demos.
+        int[] sizes = [4, -1, -1, -1, -1, 0];
+
+        UserMessageNames.Haptics.Length.ShouldBe(
+            sizes.Length, "the size list and this project's name list describe the same block");
+
+        List<(string Name, int Size)> block = [];
+
+        for (int index = 0; index < sizes.Length; index++)
+        {
+            block.Add((UserMessageNames.Haptics[index], sizes[index]));
+        }
 
         int at = source.IndexOf("void RegisterHapticMessages", StringComparison.Ordinal);
 

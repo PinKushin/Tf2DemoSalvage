@@ -136,6 +136,19 @@ internal static class MaterialCensus
     {
         "$surfaceprop",
         "$surfaceprop2",
+
+        // **Dead in the engine, not merely unimplemented here — and the distinction is the whole
+        // reason it belongs in this list rather than in a backlog.** `$modblend` is declared by
+        // three shipped TF2 VMTs and read by NOTHING: zero published shaders mention it, no shipped
+        // binary contains the string, and its only would-be consumer is an `Equals` proxy commented
+        // out four lines below its declaration.
+        //
+        // So the correct implementation is nothing, and a census that goes on reporting it is
+        // asking for work that cannot be done. It was moved out of `Implemented` when that entry
+        // was found to be false and then sat in neither set, which meant every map load reported it
+        // for ever. Measured by `DeadShaderParameterConformanceTests` against the SDK rather than
+        // asserted here — see `docs/findings/12-shader-parity.md`.
+        "$modblend",
     };
 
     /// <summary>Whether a key is a tool or compile keyword rather than a shader parameter.</summary>
@@ -211,6 +224,14 @@ internal static class MaterialCensus
     /// and that diff needs to see the set.
     /// </remarks>
     internal static IReadOnlyCollection<string> ImplementedParameters => Implemented;
+
+    /// <summary>Parameters the census stays silent about because drawing ignores them.</summary>
+    /// <remarks>
+    /// Exposed so <c>DeadShaderParameterConformanceTests</c> can compare a measurement of the SDK
+    /// against this classification: a parameter no published shader declares must be in here, or
+    /// the census asks for work that cannot be done.
+    /// </remarks>
+    internal static IReadOnlyCollection<string> IgnoredParameters => NoRenderingEffect;
 
     /// <summary>The shaders this project reproduces, for the same check.</summary>
     internal static IReadOnlyCollection<string> ImplementedShaderNames => ImplementedShaders;

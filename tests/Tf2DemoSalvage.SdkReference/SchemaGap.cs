@@ -4,7 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 
-namespace Tf2DemoSalvage.Core.Tests.Schema;
+namespace Tf2DemoSalvage.SdkReference;
 
 /// <summary>
 /// Asks whether a wire property name appears anywhere in the shipped code.
@@ -35,7 +35,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// wrong path, a stale binary or an encoding mistake all read as "not implemented"
 /// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
 /// </remarks>
-internal static class SchemaGap
+public static class SchemaGap
 {
     /// <summary>A wire name this project demonstrably does read, for use as a control.</summary>
     /// <remarks>
@@ -43,11 +43,11 @@ internal static class SchemaGap
     /// against Valve's own <c>SENDINFO_STRUCTELEM</c>. If the search cannot find this, it cannot
     /// find anything.
     /// </remarks>
-    internal const string KnownPresent = "m_fog.start";
+    public const string KnownPresent = "m_fog.start";
 
     /// <summary>Does any shipped assembly contain this string as a literal?</summary>
     /// <param name="name">A wire property or table name, exactly as it travels.</param>
-    internal static bool AnyProductionAssemblyMentions(string name)
+    public static bool AnyProductionAssemblyMentions(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
@@ -75,25 +75,35 @@ internal static class SchemaGap
         return false;
     }
 
-    /// <summary>The shipped assemblies, beside the test binary.</summary>
+    /// <summary>The shipped assemblies sitting beside the test binary.</summary>
     /// <remarks>
-    /// Located by type rather than by file name, so a rename cannot silently empty the list — and
-    /// the count is asserted by the callers' control rather than trusted.
+    /// **Found on disk rather than by referencing a type**, so this lives in the reference project
+    /// and every test assembly can use it — Core.Tests, Content.Tests and Viewer3D.Tests all need
+    /// to ask the same question, and only one of them can name a type from each production project.
+    ///
+    /// The build copies every referenced assembly next to the tests, so the search sees whichever
+    /// of them that test project pulls in. A test asking about a name in a project it does not
+    /// reference gets a false "absent" — which is why the positive control is not optional, and why
+    /// callers should assert it in the same test rather than once somewhere else.
     /// </remarks>
     private static HashSet<string> ProductionAssemblies()
     {
         HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+        string beside = AppContext.BaseDirectory;
 
-        foreach (Assembly assembly in new[]
+        foreach (string path in Directory.EnumerateFiles(beside, "Tf2DemoSalvage.*.dll"))
         {
-            typeof(Core.Scene.EntityState).Assembly,
-            typeof(Core.Container.DemoHeader).Assembly,
-        })
-        {
-            if (!string.IsNullOrEmpty(assembly.Location) && File.Exists(assembly.Location))
+            string name = Path.GetFileNameWithoutExtension(path);
+
+            // Test assemblies and the reference helper are not production code, and a wire name
+            // mentioned in a TEST must not count as the feature being implemented.
+            if (name.EndsWith(".Tests", StringComparison.Ordinal) ||
+                name.Equals("Tf2DemoSalvage.SdkReference", StringComparison.Ordinal))
             {
-                paths.Add(assembly.Location);
+                continue;
             }
+
+            paths.Add(path);
         }
 
         return paths;

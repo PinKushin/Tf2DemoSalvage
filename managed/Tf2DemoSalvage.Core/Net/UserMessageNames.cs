@@ -176,7 +176,13 @@ internal static class UserMessageNames
     /// Absent from the 2007 and 2008 clients entirely, which is exactly why those two eras are the
     /// only ones in the corpus with no unnamed ids at all.
     /// </remarks>
-    private static readonly string[] Haptics =
+    /// <remarks>
+    /// Internal so <c>HapticMessageConformanceTests</c> can compare this list, in order, against
+    /// <c>RegisterHapticMessages</c> in <c>public/haptics/haptic_msgs.cpp</c>. The ORDER is the
+    /// whole finding — each entry's position decides its id — so a test that checked Valve's file
+    /// and never looked at this array was checking the half that cannot drift.
+    /// </remarks>
+    internal static readonly string[] Haptics =
         ["SPHapWeapEvent", "HapDmg", "HapPunch", "HapSetDrag", "HapSetConst", "HapMeleeContact"];
 
     // Stryker restore String

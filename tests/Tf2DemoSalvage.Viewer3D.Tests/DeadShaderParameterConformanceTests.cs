@@ -58,6 +58,22 @@ public sealed class DeadShaderParameterConformanceTests
 
         // The measurement, meaningful only against those controls.
         ShadersDeclaring("$modblend").ShouldBe(0);
+
+        // **And what this project does about it, which is the half that was missing.** A parameter
+        // no published shader declares cannot be implemented, so the census must stay silent about
+        // it — otherwise every map load reports work that does not exist.
+        //
+        // It was in `Implemented`, which was false; removing it left it in NEITHER set, so the
+        // report came back for ever. That is the state this assertion catches.
+        MaterialCensus.IgnoredParameters.ShouldContain(
+            "$modblend",
+            "no published shader reads it and no shipped binary contains the string, so the " +
+            "correct implementation is nothing — a census still naming it is asking for a feature " +
+            "that cannot be built");
+
+        // The control on OUR side: a parameter that IS widely declared must not be in the ignored
+        // set, or the assertion above would be satisfied by a census that ignores everything.
+        MaterialCensus.IgnoredParameters.ShouldNotContain("$detail");
     }
 
     [Test]

@@ -125,6 +125,23 @@ public sealed class ControlPointAppearanceConformanceTests
         source.ShouldContain("SetModel( STRING(m_TeamData[m_iTeam].iszModel) )");
         source.ShouldContain("SetBodygroup( 0, m_iTeam )");
         source.ShouldContain("m_nSkin = ( m_iTeam == TEAM_UNASSIGNED ) ? 2 : (m_iTeam - 2)");
+
+        // **The gap, asserted so this marker can close (D45).** A control point's appearance is
+        // three coupled changes and this project reproduces none of them, so a captured point looks
+        // exactly like an uncaptured one. Control first, or an always-false search would let every
+        // marker skip for ever.
+        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
+            "the search cannot find a name that is demonstrably compiled in");
+
+        SchemaGap.AnyProductionAssemblyMentions("m_TeamData").ShouldBeFalse(
+            "the point's per-team data is now read — replace this marker with a parity test that "
+            + "covers all THREE changes, since reading any one alone gives a mechanism that is "
+            + "real and insufficient");
+
+        Assert.Ignore(
+            "control point appearance is not reproduced: the model, the bodygroup and the skin all "
+            + "change on capture (team_control_point.cpp), and none of the three is read here — so "
+            + "a captured point is indistinguishable from an uncaptured one.");
     }
 
 }

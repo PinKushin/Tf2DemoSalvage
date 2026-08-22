@@ -1,3 +1,4 @@
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -46,6 +47,19 @@ public sealed class SkinOverrideConformanceTests
 
         player.ShouldContain("if ( m_iTeam == TF_TEAM_RED )");
         player.ShouldContain("DEFINE_PRED_FIELD( m_nSkin, FIELD_INTEGER, FTYPEDESC_OVERRIDE | FTYPEDESC_PRIVATE )");
+
+        // **Ours, which this test had no way to reach until the rule was extracted.** Both teams,
+        // because one of them alone is satisfied by a function that returns a constant — and
+        // returning 0 for everything is exactly the defect the rule exists to prevent, since the
+        // model's first family is red and both teams would draw in it.
+        PlayerSkin.ForTeam(SceneTeams.Red).ShouldBe(0);
+        PlayerSkin.ForTeam(SceneTeams.Blu).ShouldBe(1);
+
+        // **And the case Valve's expression does not have.** A player entity can exist before the
+        // demo says which side they are on, so the team is nullable here; Valve's form would send
+        // that to BLU and make every joining player flash blue. Pinned as a deliberate divergence
+        // rather than left to look like a transcription slip.
+        PlayerSkin.ForTeam(null).ShouldBe(0);
     }
 
     [Test]
@@ -61,6 +75,14 @@ public sealed class SkinOverrideConformanceTests
         string player = SourceSdk.Text(TfPlayer).ShouldNotBeNull();
 
         player.ShouldContain("AdjustSkinIndexForZombie( m_iClass, m_nSkin )");
+
+        // The gap, with its control, so this marker fails when the override lands (D45).
+        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
+            "the search cannot find a name that is demonstrably compiled in");
+
+        SchemaGap.AnyProductionAssemblyMentions("Zombie").ShouldBeFalse(
+            "a zombie skin path now exists — replace this marker with a parity test, and check it "
+            + "is per CLASS rather than one shared index");
 
         Assert.Ignore(
             "the zombie skin override is not implemented. AdjustSkinIndexForZombie rewrites the " +
@@ -86,6 +108,14 @@ public sealed class SkinOverrideConformanceTests
 
         player.ShouldContain("m_bGoldRagdoll || m_iDamageCustom == TF_DMG_CUSTOM_GOLD_WRENCH");
         player.ShouldContain("to maintain old demos involving the golden wrench");
+
+        // The gap, with its control, so this marker fails when the override lands (D45).
+        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
+            "the search cannot find a name that is demonstrably compiled in");
+
+        SchemaGap.AnyProductionAssemblyMentions("m_bGoldRagdoll").ShouldBeFalse(
+            "the gold ragdoll is now detected — replace this marker with a parity test, and cover "
+            + "BOTH of Valve's routes, since the old one exists precisely for old demos");
 
         Assert.Ignore(
             "the gold ragdoll override is not implemented. Note that Valve keeps TWO detection " +

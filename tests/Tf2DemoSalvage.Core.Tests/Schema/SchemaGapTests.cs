@@ -1,3 +1,5 @@
+using Tf2DemoSalvage.SdkReference;
+
 namespace Tf2DemoSalvage.Core.Tests.Schema;
 
 /// <summary>
