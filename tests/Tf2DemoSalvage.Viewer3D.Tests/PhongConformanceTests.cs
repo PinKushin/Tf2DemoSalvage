@@ -1,5 +1,6 @@
 using System;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -130,6 +131,18 @@ public sealed class PhongConformanceTests
             "SHADER_PARAM( PHONGEXPONENT, SHADER_PARAM_TYPE_FLOAT, \"5.0\"",
             Case.Sensitive,
             "and the exponent to 5, which is broad rather than tight");
+
+        // **Ours, parsed from those same declarations rather than restated.** A default reaches the
+        // shader for every material that omits the key, which is most of them — so a wrong default
+        // is a rendering error on almost every model rather than an edge case.
+        VmtMaterial bare = Vmt("$phong 1");
+
+        bare.PhongBoost.ShouldBe(Declared(declaration, "PHONGBOOST"), 1e-5f);
+        bare.PhongExponent.ShouldBe(Declared(declaration, "PHONGEXPONENT"), 1e-5f);
+
+        // The control: a material that STATES a value must override the default, or the two
+        // assertions above are satisfied by an accessor that ignores the VMT entirely.
+        Vmt("$phongboost 12").PhongBoost.ShouldBe(12f, 1e-5f);
     }
 
     [Test]
@@ -166,14 +179,32 @@ public sealed class PhongConformanceTests
             Case.Sensitive,
             "and the default the encoding is applied to");
 
-        // The arithmetic, because what matters is what an implementer computes. At the default
-        // [0 0.5 1] the encoded triple is (1, 0.5, 1), and the piecewise function then sweeps the
-        // full range: 0 head-on, 1 at grazing.
-        (float Low, float Mid, float High) encoded = Encode(0f, 0.5f, 1f);
+        // **OURS does the encoding, and this is where that is checked.** The local `Encode` helper
+        // below used to compute the triple and the test compared it against itself — Valve's
+        // formula transcribed twice, agreeing with itself, while `VmtMaterial.PhongFresnelRanges`
+        // (the code that actually feeds the shader) was never called.
+        //
+        // Two materials: one stating the ranges explicitly, one omitting them, because the default
+        // path and the parse path are different code and the trap applies to both.
+        (float Low, float Mid, float High) encoded = Vmt("$phongfresnelranges \"[0 0.5 1]\"")
+            .PhongFresnelRanges;
 
         encoded.Low.ShouldBe(1f);
         encoded.Mid.ShouldBe(0.5f);
         encoded.High.ShouldBe(1f);
+
+        // Absent, the declared default is the same triple — so the encoded result must match.
+        Vmt("$phong 1").PhongFresnelRanges.ShouldBe(encoded);
+
+        // And a non-default triple, because [0 0.5 1] is symmetric: (mid-min)*2 and (max-mid)*2 are
+        // both 1 there, so it cannot tell the two halves apart. [0.1 0.4 1.0] gives 0.6 and 1.2,
+        // which a swapped or duplicated term would fail.
+        (float Low, float Mid, float High) asymmetric =
+            Vmt("$phongfresnelranges \"[0.1 0.4 1.0]\"").PhongFresnelRanges;
+
+        asymmetric.Low.ShouldBe(0.6f, 1e-5f);
+        asymmetric.Mid.ShouldBe(0.4f, 1e-5f);
+        asymmetric.High.ShouldBe(1.2f, 1e-5f);
 
         Ranged(1f, encoded).ShouldBe(0f, 1e-6f);    // head-on:  dot = 1, f = 0
         Ranged(0f, encoded).ShouldBe(1f, 1e-6f);    // grazing:  dot = 0, f = 1
@@ -191,9 +222,10 @@ public sealed class PhongConformanceTests
         Ranged(1f, raw).ShouldNotBe(
             Ranged(1f, encoded), "the encoding is what makes a head-on surface unlit");
 
-        static (float Low, float Mid, float High) Encode(float low, float mid, float high) =>
-            ((mid - low) * 2f, mid, (high - mid) * 2f);
-
+        // `Encode` used to live here and is gone: VmtMaterial.PhongFresnelRanges does the encoding
+        // now and is what the assertions above call. `Ranged` stays, because it is Valve's SHADER
+        // expression rather than ours — the encoded triple has to be fed through it to show what
+        // the encoding buys, and no C# of ours evaluates that.
         static float Ranged(float dot, (float Low, float Mid, float High) ranges)
         {
             float f = Math.Clamp(1f - dot, 0f, 1f);
@@ -322,6 +354,23 @@ public sealed class PhongConformanceTests
         declaration.ShouldContain(
             "SHADER_PARAM( RIMLIGHTBOOST, SHADER_PARAM_TYPE_FLOAT, \"1.0\"", Case.Sensitive);
 
+        // **Ours, and the pair is what matters: rim 4 against phong 5.** Reading either alone
+        // cannot catch the two being swapped, and swapping them is the plausible mistake — the
+        // declarations sit beside each other and differ by one.
+        VmtMaterial bare = Vmt("$phong 1\n\t$rimlight 1");
+
+        bare.RimLightExponent.ShouldBe(Declared(declaration, "RIMLIGHTEXPONENT"), 1e-5f);
+        bare.RimLightBoost.ShouldBe(Declared(declaration, "RIMLIGHTBOOST"), 1e-5f);
+
+        bare.RimLightExponent.ShouldNotBe(
+            bare.PhongExponent, "the two exponents differ, and that is the point of the pair");
+
+        // **And the engine's own dispatch, which is a rule rather than a default.** Rim lighting
+        // lives in the Skin shader, which VertexLitGeneric reaches only when $phong is set — so a
+        // material asking for a rim and no phong gets neither.
+        Vmt("$rimlight 1").HasPhong.ShouldBeFalse();
+        Vmt("$phong 1\n\t$rimlight 1").HasPhong.ShouldBeTrue();
+
         // The fourth power against the square, at a mid angle: the rim's falls off much faster,
         // which is what "more subtle" means and why swapping them is visible.
         Fourth(0.5f).ShouldBe(0.0625f, 1e-6f);
@@ -407,4 +456,29 @@ public sealed class PhongConformanceTests
     /// <summary>Reads an SDK file, or fails loudly.</summary>
     private static string Sdk(string path) =>
         SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");
+
+    /// <summary>The default a <c>SHADER_PARAM</c> declares, parsed rather than restated.</summary>
+    /// <remarks>
+    /// Taking the number from Valve's declaration is what makes the comparison meaningful: writing
+    /// <c>5f</c> into the test would pin what somebody believed the default was, and the whole
+    /// hazard here is that a default reaches the shader for every material that omits the key.
+    /// </remarks>
+    private static float Declared(string source, string parameter)
+    {
+        System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+            source,
+            @"SHADER_PARAM\(\s*" + parameter + @"\s*,\s*SHADER_PARAM_TYPE_FLOAT\s*,\s*""(?<value>[-0-9.]+)""",
+            System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromSeconds(5));
+
+        match.Success.ShouldBeTrue($"{parameter} was not declared as a float in the shader");
+
+        return float.Parse(
+            match.Groups["value"].Value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>A VertexLitGeneric material with the given body.</summary>
+    private static VmtMaterial Vmt(string body) =>
+        VmtMaterial.Parse(
+            System.Text.Encoding.UTF8.GetBytes($"\"VertexLitGeneric\"\n{{\n\t{body}\n}}\n"));
 }
