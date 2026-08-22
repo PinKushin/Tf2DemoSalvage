@@ -16,6 +16,26 @@ finding it costs a directory sweep of a large disk, and one such sweep timed out
 | Period clients | `F:\tf2-builds\tf2-2007`, `tf2-2008`, `tf2-2011`, `tf2-2013` |
 | Probe builds | `F:\tf2-builds\probe-2011`, `probe-2013` |
 | Download and extract logs | `F:\tf2-builds\*.log`, `*.err` — how each build was obtained |
+| **A 380-demo competitive archive** | `D:\tf2-demo-archive` — ESEA seasons 29–31, ETF2L seasons 29/30/32, plus the owner's own |
+
+**The archive is the population the corpus is a sample of, and it answers questions the corpus
+cannot.** `tools/corpus` holds 53 demos chosen for era coverage; this holds 380 from real leagues,
+which is what makes a rate meaningful. It settled two on 2026-08-21 in a couple of minutes, both by
+seeking 12 bytes per file rather than parsing anything:
+
+- **ESEA demos declare zero ticks, 152 of 152**; ETF2L, 5 of 218. See
+  [[a-header-written-last-is-absent]].
+- **No demo anywhere has a negative tick, frame or signon length** — 0 of 380, and 0 of the 53 in
+  the corpus.
+
+It is **not** in the repository and must not be; it is a reference set, like the SDK checkout.
+Reading a header field across all of it costs seconds:
+
+```bash
+find "D:/tf2-demo-archive" -name "*.dem" | while read -r f; do
+  od -An -td4 -j1060 -N4 "$f" | tr -d ' '
+done
+```
 
 **The period clients are the instrument behind the era axis.** Each one's `version` output dates its
 build exactly, which is what turned protocol numbers into real dates

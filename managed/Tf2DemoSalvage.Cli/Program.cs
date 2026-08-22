@@ -125,16 +125,52 @@ public static class Program
     /// stopped early, and neither is an error — a demo missing its <c>dem_stop</c> is a recording
     /// that was killed rather than a file that is broken, and it still decodes.
     /// </remarks>
-    private static void Report(
+    internal static void Report(
         ILogger logger, string name, int bytes, DemoHeader header,
         List<DemoCommand> commands, Stopwatch clock)
     {
+        // **Zero here means "the header says nothing", not "nothing happened".** The playback
+        // fields are written by seeking back to offset zero when recording stops, so a recording
+        // that ended any other way leaves them as they started. Reporting the zero as a duration
+        // states a false measurement — "0.0s of play" on a 41 MB file — and that is worse than
+        // declining to give one. DemoSurvey.Measure has always handled this; this line did not.
+        //
+        // Common in the wild and absent from this corpus: all 53 demos here declare real values,
+        // while an outside survey reports 152 of 152 ESEA-sourced demos at zero. See
+        // docs/memory/a-header-written-last-is-absent.md.
+        // **NaN and infinity are treated as "not stated", exactly like zero, and they are a
+        // different case from a negative count.** A negative tick count is at least a number a
+        // reader can reason about; NaN is not. It compares false against every bound, so it passes
+        // any `> 0` guard, and then `{Seconds:N1}` prints "NaN" — or, formatted differently,
+        // propagates into anything derived from it without a single comparison failing
+        // (docs/memory/numeric-decoding-traps.md).
+        //
+        // No engine writes it, so unlike an unfinalised zero this is not a case to preserve. It is
+        // still not a reason to REFUSE the file: the rest of the header is fine and the match is
+        // intact, which is the whole salvage argument. Declining to quote one field costs nothing.
+        bool declared = header.PlaybackTicks > 0
+            && header.PlaybackTimeSeconds >= 0f
+            && float.IsFinite(header.PlaybackTimeSeconds);
+
         if (logger.IsEnabled(LogLevel.Information))
         {
-            logger.LogInformation(
-                "{Name}: {Bytes:N0} bytes, protocol {Protocol}, map {Map}, {Seconds:N1}s of play",
-                name, bytes, header.NetworkProtocol, header.MapName,
-                header.PlaybackTimeSeconds);
+            if (declared)
+            {
+                logger.LogInformation(
+                    "{Name}: {Bytes:N0} bytes, protocol {Protocol}, map {Map}, {Seconds:N1}s of play",
+                    name, bytes, header.NetworkProtocol, header.MapName,
+                    header.PlaybackTimeSeconds);
+            }
+            else
+            {
+                // The frame count IS known — it is a property of the stream rather than of the
+                // header — so report that rather than nothing at all.
+                logger.LogInformation(
+                    "{Name}: {Bytes:N0} bytes, protocol {Protocol}, map {Map}, "
+                    + "{Frames:N0} frames (the header declares no length)",
+                    name, bytes, header.NetworkProtocol, header.MapName,
+                    commands.Count(command => command.Type == DemoCommandType.Packet));
+            }
         }
 
         // Guarded rather than left to the logger to discard: grouping the command list is real
@@ -163,13 +199,19 @@ public static class Program
 
         // The header states the frame count and the stream contains it, by completely different
         // paths. They disagree when a demo was cut mid-write.
+        //
+        // **Only when the header actually stated one.** A header left unfinalised declares zero,
+        // and zero is not a claim to disagree with — warning on it puts "declares 0 frames but
+        // holds 41,006" on every demo from a source that drops those fields, which is a false
+        // alarm on the entire long tail this project exists to read.
         int packets = commands.Count(command => command.Type == DemoCommandType.Packet);
-        int declared = header.PlaybackFrames;
-        if (packets != declared)
+        int statedFrames = header.PlaybackFrames;
+
+        if (statedFrames > 0 && packets != statedFrames)
         {
             logger.LogWarning(
                 "{Name} declares {Declared:N0} frames but holds {Actual:N0}",
-                name, declared, packets);
+                name, statedFrames, packets);
         }
     }
 

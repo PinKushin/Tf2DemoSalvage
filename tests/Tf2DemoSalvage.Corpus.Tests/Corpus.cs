@@ -178,8 +178,31 @@ internal static class Corpus
     /// <summary>The demo's header.</summary>
     /// <param name="path">Path to a corpus demo.</param>
     /// <returns>The parsed header.</returns>
+    /// <remarks>
+    /// **Reads 1,072 bytes, not the file.** It used to be
+    /// <c>DemoHeader.Parse(File.ReadAllBytes(p))</c>, which pulled an entire demo off disk to parse
+    /// its first kilobyte — reported 2026-08-21 by the tf2-comp-archive agent in
+    /// <c>PinKushin/TF2DEMOSALVAGE-LOG.md</c> while building an independent header reader.
+    ///
+    /// Across the 53 committed and local demos that is 1,757 MB read against 0.057 MB needed, a
+    /// factor of about 31,000. **The I/O was probably not the real cost** — the dictionary caches
+    /// per path, the OS page-caches the files and most tests parse them fully anyway — but
+    /// <c>File.ReadAllBytes</c> on a 100 MB demo puts a 100 MB array straight on the Large Object
+    /// Heap, and doing that per demo is GC pressure that shows up as pauses rather than as slow
+    /// reads.
+    ///
+    /// <see cref="ProtocolOf"/> already did it this way, so the two paths to a header disagreed with
+    /// each other. That is the part worth fixing regardless of the timing.
+    /// </remarks>
     public static DemoHeader Header(string path) =>
-        Headers.GetOrAdd(path, static p => DemoHeader.Parse(File.ReadAllBytes(p)));
+        Headers.GetOrAdd(path, static p =>
+        {
+            byte[] header = new byte[DemoHeader.SizeBytes];
+            using FileStream stream = File.OpenRead(p);
+            stream.ReadExactly(header);
+
+            return DemoHeader.Parse(header);
+        });
 
     /// <summary>
     /// The entity schema the demo carries, parsed once per process.

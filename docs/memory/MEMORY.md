@@ -80,7 +80,7 @@
 - [A floor must track the number it guards](a-floor-must-track-the-number-it-guards.md) — the count floor sat at 34 against 352, so a truncated run passed; --filter also drops every [Explicit] test.
 - [Material variables split three ways](material-variables-split-three-ways.md) — shader params, MATERIAL_VAR flags and standard vars; the coverage test has accused correct code twice for knowing only two.
 - [Struct padding is on disk](struct-padding-is-on-disk.md) — lump stride is sizeof(), not the field sum; ten tests passed the wrong stride because the fixture shared the belief.
-- [Put the real file in the fixture](put-the-real-file-in-the-fixture.md) — three bugs in one session survived their own tests because the fixture was authored from the same belief as the code.
+- [Source the fixture from the right reference](put-the-real-file-in-the-fixture.md) — synthetic is fine and mutation runs require it; authoring it from OUR code is what let three bugs pass their own tests.
 - [Author the specimen the corpus lacks](author-the-specimen-the-corpus-lacks.md) — the writer is a test instrument; a case no demo contains can be written rather than hunted for.
 - [Test naming convention](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}; prose names cost a file-open on every red run, so they are being converted.
 - [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — FirstOrDefault plus `is not { }` compiles and never fires; this repo is full of record structs.

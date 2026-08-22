@@ -93,6 +93,26 @@ public sealed record DemoHeader
                 $"Expected the file stamp '{ExpectedStamp}' but found '{stamp}'."));
         }
 
+        float seconds = BitConverter.ToSingle(data[1056..]);
+        int ticks = BitConverter.ToInt32(data[1060..]);
+        int frames = BitConverter.ToInt32(data[1064..]);
+        int signon = BitConverter.ToInt32(data[1068..]);
+
+        // **Nothing below is validated, and that is a decision rather than an omission.** A
+        // malformed value is the caller's to judge: this is a salvage tool, and a file whose header
+        // claims -4 ticks may still hold a perfectly good match. Refusing to open it would lose the
+        // match to protect nobody.
+        //
+        // The obligation that replaces validation is on the CONSUMERS, and it is not optional —
+        // `DemoSurvey.Measure` treats any non-positive tick count as "the header states nothing"
+        // and recovers the real extent by walking the command stream, which is salvage rather than
+        // rejection. `DemoHeaderHostileInputTests` holds that line for each field: the value
+        // survives parsing, and whatever reads it copes.
+        //
+        // Guards were briefly added here on 2026-08-21 and reverted the same day, because two
+        // existing tests already recorded this decision and both went red. See
+        // `Parse_NonPositiveSignonLength_IsAcceptedAndReported` and
+        // `Measure_HeaderDeclaresNegativeTicks_IsTreatedAsUnstated`.
         return new DemoHeader
         {
             DemoProtocol = BitConverter.ToInt32(data[8..]),
@@ -101,10 +121,10 @@ public sealed record DemoHeader
             ClientName = ReadFixedText(data.Slice(276, TextFieldWidth)),
             MapName = ReadFixedText(data.Slice(536, TextFieldWidth)),
             GameDirectory = ReadFixedText(data.Slice(796, TextFieldWidth)),
-            PlaybackTimeSeconds = BitConverter.ToSingle(data[1056..]),
-            PlaybackTicks = BitConverter.ToInt32(data[1060..]),
-            PlaybackFrames = BitConverter.ToInt32(data[1064..]),
-            SignonLengthBytes = BitConverter.ToInt32(data[1068..]),
+            PlaybackTimeSeconds = seconds,
+            PlaybackTicks = ticks,
+            PlaybackFrames = frames,
+            SignonLengthBytes = signon,
         };
     }
 

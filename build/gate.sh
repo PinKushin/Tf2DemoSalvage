@@ -85,8 +85,14 @@ rm -f /tmp/gate-*.log
 # in the same commit that deleted the tests, which is what makes a silent loss impossible.
 # Raised to 1463: FogControllerConformanceTests, which compares EntityState's fog wire names against
 # the SENDINFO_STRUCTELEM declarations in fogcontroller.cpp.
-run Tf2DemoSalvage.Core.Tests     core     1463
-run Tf2DemoSalvage.Cli.Tests      cli        68
+# Raised to 1487: DemoHeaderHostileInputTests, 24 cases of input no engine writes — a stamp one
+# byte wrong, an unterminated text field, invalid UTF-8, negative counts, NaN and infinity. The
+# corpus cannot supply any of them, because every demo in it was written by the engine.
+run Tf2DemoSalvage.Core.Tests     core     1487
+
+# Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
+# "did the header state a length" check plus the finalised-header control.
+run Tf2DemoSalvage.Cli.Tests      cli        74
 run Tf2DemoSalvage.Audio.Tests    audio      28
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
