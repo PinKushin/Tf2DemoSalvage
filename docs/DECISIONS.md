@@ -3098,3 +3098,65 @@ assemblies. That surfaced six analyzer complaints, split by what they actually a
 
 **Verification: all 570 viewer tests still pass**, along with every other suite. For a move of this
 size that is the only check that means anything.
+
+## D61 — the renderer is its own project too, and `System.Drawing` had to go for it
+
+**Continues D60.** With the scene layer extracted, `Viewer3D` still held six Direct3D files behind
+the `net10.0-windows` framework. They are now `Tf2DemoSalvage.Render`, plain `net10.0`, leaving the
+WinForms host as the only project on the Windows framework — five files.
+
+| Project | Framework | Files |
+|---|---|---|
+| `Tf2DemoSalvage.Scene` | `net10.0` | 35 |
+| `Tf2DemoSalvage.Render` | `net10.0` | 7 |
+| `Tf2DemoSalvage.Viewer3D` | `net10.0-windows` | 5 |
+
+**`System.Drawing` was the only thing standing in the way**, in exactly two places — a screenshot
+writer in `Device3D` and a frame dump in `OffscreenTarget`. `System.Drawing.Common` is Windows-only
+by design since .NET 7, so keeping it would have locked the render layer to Windows for the sake of
+writing a PNG.
+
+**So `PngWriter` was written**, and the requirement is genuinely small: one colour type, no
+interlacing, no palette, filter 0. PNG's container is four chunks and a CRC, and the compression is
+`ZLibStream` out of the framework. A package would have been larger than the code and carried
+decoding, resizing and conversion that nothing here needs.
+
+**`OffscreenTarget.SavePng` had no callers at all** — it was dead. It was reimplemented rather than
+deleted because its own doc comment makes the case for the capability: *"A test that renders can
+leave the picture behind, and it should."*
+
+### The lenient decoder, which is the finding worth keeping
+
+The encoder was verified differentially — encode with ours, decode with `System.Drawing`, compare
+pixels — on the reasoning that a fixture cannot falsify your own reading of a specification.
+
+**Then the sabotage passed.** Swapping `ZLibStream` for `DeflateStream` writes raw deflate with no
+zlib header and no Adler-32 trailer, which PNG forbids, and **all eight round-trip tests still
+passed**: Microsoft's decoder accepts it.
+
+So the independent decoder is *more lenient than the specification*, which makes it the wrong
+instrument for that particular claim — the same shape as
+`docs/memory/a-faithful-fixture-can-be-blind.md`, and with the same remedy: measure the thing
+directly instead of strengthening an assertion that was never sensitive. A byte-level check of the
+IDAT payload against RFC 1950 §2.2 — low nibble 8, and the first two bytes a multiple of 31 — now
+fails on that sabotage while the round-trips continue to cover the pixels.
+
+**A differential test is only as strict as the other implementation.**
+
+### The `.editorconfig` followed its code
+
+The S6640 suppression (*"avoid using this unsafe code block"*) was scoped to `Viewer3D` and its
+comment said "scoped to the Direct3D layer only". That layer is now its own project and **no file
+left in `Viewer3D` uses `unsafe` at all**, so the file moved with the code it was written for rather
+than staying with the folder name.
+
+### A gap marker's control did its job
+
+`Fog_NothingInThisRendererReadsTheDecodedFog_WhichIsB139` went red — **on its control, not its
+claim**. The sweep looks for `SceneFog` in `typeof(WorldRenderer).Assembly`, which correctly followed
+the renderer into its new project; the control asked whether the same sweep could find a scene type
+the renderer really uses, and named `DemoTimeline` — which the *form* consumes, not the renderer.
+
+The claim was still true, so without the control the suite would have gone on asserting an
+unfalsifiable "not referenced" forever. `MapAssets` replaces it, since `WorldRenderer.UploadTextures`
+takes one. This is D45's rule earning its keep: a gap marker must be able to fail.

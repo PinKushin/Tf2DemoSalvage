@@ -7,7 +7,7 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>One point to draw, already projected into normalised device coordinates.</summary>
 /// <param name="X">Horizontal position, -1 to 1.</param>
@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Red">Red channel, 0 to 1.</param>
 /// <param name="Green">Green channel, 0 to 1.</param>
 /// <param name="Blue">Blue channel, 0 to 1.</param>
-internal readonly record struct ScenePoint(float X, float Y, float Red, float Green, float Blue);
+public readonly record struct ScenePoint(float X, float Y, float Red, float Green, float Blue);
 
 /// <summary>
 /// Draws a set of points as small quads.

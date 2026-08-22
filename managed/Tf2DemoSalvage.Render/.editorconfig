@@ -1,4 +1,8 @@
 # Scoped to the Direct3D layer only. Nothing here relaxes a rule for the rest of the solution.
+#
+# Moved here from Viewer3D on 2026-08-22 with the renderer itself (D61). It always said "scoped to
+# the Direct3D layer"; that layer is now its own project, and no file left in Viewer3D uses unsafe
+# at all — so this follows the code it was written for rather than staying with the folder name.
 
 [*.cs]
 

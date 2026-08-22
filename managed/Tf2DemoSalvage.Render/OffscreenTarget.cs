@@ -1,6 +1,4 @@
 using System;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -11,7 +9,7 @@ using Silk.NET.DXGI;
 
 using Tf2DemoSalvage.Content.Bsp;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>
 /// A render target in memory, with the pixels readable back on the CPU.
@@ -265,19 +263,23 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             Directory.CreateDirectory(folder);
         }
 
-        using Bitmap bitmap = new(_width, _height, PixelFormat.Format32bppArgb);
+        byte[] rgba = new byte[_width * _height * 4];
 
         for (int y = 0; y < _height; y++)
         {
             for (int x = 0; x < _width; x++)
             {
                 (int red, int green, int blue) = PixelAt(x, y);
+                int at = ((y * _width) + x) * 4;
 
-                bitmap.SetPixel(x, y, Color.FromArgb(255, red, green, blue));
+                rgba[at] = (byte)red;
+                rgba[at + 1] = (byte)green;
+                rgba[at + 2] = (byte)blue;
+                rgba[at + 3] = 255;
             }
         }
 
-        bitmap.Save(path, ImageFormat.Png);
+        PngWriter.Write(path, _width, _height, rgba);
     }
 
     /// <summary>Fills the target with one colour.</summary>
