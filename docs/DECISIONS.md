@@ -2840,9 +2840,20 @@ second-hand, as an assistant's paraphrase, and therefore never treated as scope.
 > kinda important to me becasue i played tf2 from season 12 to the season right before esea ended
 > tf2 maybe 2 seasons before
 
-**That is the target era, and it is a personal one rather than an abstract "all of TF2".** It is
-also the reason the project exists, which is worth recording next to the technical decisions: the
-demos being salvaged are the ones from seasons this person played.
+**Corrected 2026-08-22, immediately, because the first version of this entry got the scope wrong.**
+It read the quote above as the *boundary* of what the project supports. It is not:
+
+> the era scope is fully season 2, tf2 beta, till today, but the esea time period is the big thing
+> im trying to get back the demos for
+
+**Scope is the whole history — TF2 beta and season 2 through today. The ESEA period is the
+PRIORITY within that, not the edge of it.** Those are different claims and conflating them would
+have quietly licensed dropping support for anything outside a window, which is the opposite of the
+project's founding sentence: *"we need to plan out how to parse tf2 demos of arbitrarily old age"*.
+
+So the personal motivation and the technical scope are separate facts, and both are worth keeping:
+the demos most wanted back are the ones from seasons this person played, and the parser is meant to
+read everything from the beta onward regardless.
 
 ### Why it changes a priority rather than just adding colour
 
@@ -2850,9 +2861,13 @@ demos being salvaged are the ones from seasons this person played.
 months between protocol 16 (15 June 2011) and protocol 24 (25 March 2013) — and has a whole section
 on failing to find a specimen. It is currently framed as a completeness problem.
 
-If the target window starts around ESEA season 12, **the 17–23 gap sits inside the era this project
-is for, not beside it.** That moves it from "the axis has a hole" to "the demos this was built for
-may be exactly the ones we cannot decode", which is a different priority entirely.
+**The 17–23 gap sits inside the ESEA window, which is the priority band.** That moves it from "the
+axis has a hole" to "the demos most wanted back may be exactly the ones we cannot decode" — a
+different priority entirely, even though every era remains in scope.
+
+Note the gap is a *decoding* priority, not a scope boundary: protocols 11 through 16 and 24 are
+already measured and supported, so nothing outside the ESEA window is at risk from ranking 17–23
+first.
 
 **Stated as conditional on purpose, because the dates are not established.** ESEA season numbers
 have not been mapped to calendar dates anywhere in this repository, and guessing them would be the
@@ -2925,6 +2940,17 @@ down. The owner's ruling:
 > ive told you to match valve, ive also told you to keep to proper .net naming conventions wherever
 > possible. The only time our naming may not be able to be .net convention, is when we have to name
 > it to match the sdk or it wont be called
+
+**The principle behind it, stated separately because it is broader than naming:**
+
+> proper porting means using the conventions of the language you are porting to
+
+That is the general rule and the naming ruling is one consequence of it. Transcribing a routine from
+Valve's C++ into C# is a *port*, and a port that carries the source language's conventions across is
+a bad port — Hungarian prefixes, `::`-flavoured static helpers, out-parameters where a tuple or a
+record belongs. The behaviour is what must match; the spelling and the shape should look like the
+language it now lives in. The owner has applied this consistently elsewhere, asking of NLayer —
+itself a port of a Java decoder — whether "they at least do it properly and follow c# conventions".
 
 **So .NET conventions govern identifiers, and the exception is not stylistic — it is when the name
 is load-bearing.** "Or it won't be called" is the test: does anything resolve this name at runtime
