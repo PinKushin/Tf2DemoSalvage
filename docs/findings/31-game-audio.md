@@ -531,3 +531,62 @@ assert exact values against one real shipped entry.
 - **Sound characters appear inside soundscripts too.** Shipped entries include
   `"wave" ">weapons/fx/nearmiss/bulletLtoR08.wav"`. Wave names are therefore kept verbatim and split
   at the point of use, so the prefix handling lives in one place rather than two.
+
+## The manifest is not a glob, and the difference is 3,910 entries
+
+*Evidence class: read from published source, then measured on the shipped install.*
+
+**`scripts/game_sounds_manifest.txt` decides which soundscripts exist.** The SDK states the rule
+from the other side, identically in `baseentity.h` and `c_baseentity.h`:
+
+> These files need to be listed in scripts/game_sounds_manifest.txt
+
+Loading every `game_sounds*.txt` in the archive is the obvious shortcut and it is wrong. Measured:
+
+| | |
+|---|---|
+| `game_sounds*.txt` files shipped | 20 |
+| files the manifest lists | **16** |
+| entries a glob would load | 13,052 |
+| entries the manifest actually loads | **9,142** |
+
+**A glob adds 3,910 entries the engine does not have — 30% more than exist.** Every one of them
+would resolve to a plausible sound, which is the failure mode that has no symptom.
+
+**Three entries are commented out with `//` in the shipped manifest**, not absent from it:
+
+```
+	"preload_file"  	"scripts/game_sounds_player.txt"
+	"precache_file"  	"scripts/game_sounds_mvm.txt"
+//	"preload_file"  	"scripts/game_sounds_vo_mvm.txt"
+//	"preload_file"  	"scripts/game_sounds_vo_mvm_mighty.txt"
+//	"precache_file" 	"scripts/mvm_level_sounds.txt"
+```
+
+So Valve disabled two MvM voice scripts and left them shipping. A reader that does not handle
+KeyValues comments loads them.
+
+**Two keys name a script, not one.** `precache_file` and `preload_file` differ in *when* the engine
+pulls samples into memory, not in whether the entries exist. Handling only `precache_file` loses
+`game_sounds_player.txt` — the pain and footstep sounds, which is to say most of what a demo plays.
+
+**Two files ship and are never listed at all**: `game_sounds_footsteps.txt` and
+`game_sounds_vo_phonemes.txt`. Whether anything else loads them is *not* established here — this
+manifest is the one in `tf2_misc_dir.vpk`, and a search path can carry another. Recorded as an open
+question rather than as a conclusion: what is measured is that this manifest does not name them.
+
+### The test that passed for the wrong reason
+
+Worth recording because it nearly shipped. `Load_ACommentedOutEntry_IsNotRead` was written in
+Valve's exact shape — `//`, then the key, then the path — and it **passed with comment handling
+sabotaged**. An unhandled `//` becomes a token itself and shifts the pairing to
+`("//", "precache_file")`, leaving the path orphaned in key position, so the script fails to load in
+both worlds and the assertion cannot tell them apart.
+
+That is a wrong *condition*, not a weak assertion, and the doctrine's remedy applies exactly: fix
+the input. One extra token ahead of the key makes an unhandled comment pair
+`("//", "x")` and then `("precache_file", "scripts/disabled.txt")` — which loads it, so correct and
+broken now differ. Only then did the sabotage turn the test red.
+
+**The general shape: a test whose fixture mimics real data exactly can be blind precisely because
+the real data is well formed.** The distinguishing input was one no shipped file contains.

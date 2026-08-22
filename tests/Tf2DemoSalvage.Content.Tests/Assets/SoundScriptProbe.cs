@@ -41,7 +41,7 @@ public sealed class SoundScriptProbe
         {
             TestContext.Out.WriteLine($"--- {manifest} ---");
             TestContext.Out.WriteLine(
-                System.Text.Encoding.UTF8.GetString(bytes)[..Math.Min(700, bytes.Length)]);
+                System.Text.Encoding.UTF8.GetString(bytes)[..Math.Min(3000, bytes.Length)]);
         }
 
         // And one real script, so the syntax is read rather than assumed.

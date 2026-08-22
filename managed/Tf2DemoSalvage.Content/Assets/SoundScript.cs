@@ -75,17 +75,21 @@ public readonly record struct SoundScriptEntry(
 /// </remarks>
 public static class SoundScript
 {
+    // **Valve's defaults, from `CSoundParameters`' constructor**, public because a caller resolving
+    // a raw path needs the same values a script-less entry would get. Two copies of "the default
+    // volume is 1" would be two places for a wrong sound to come from.
+
     /// <summary><c>VOL_NORM</c>.</summary>
-    private const float NormalVolume = 1f;
+    public const float NormalVolume = 1f;
 
     /// <summary><c>PITCH_NORM</c>.</summary>
-    private const int NormalPitch = 100;
+    public const int NormalPitch = 100;
 
     /// <summary><c>SNDLVL_NORM</c>.</summary>
-    private const int NormalSoundLevel = 75;
+    public const int NormalSoundLevel = 75;
 
     /// <summary><c>CHAN_AUTO</c>.</summary>
-    private const int AutoChannel = 0;
+    public const int AutoChannel = 0;
 
     /// <summary>The channels, as `game_sounds_weapons.txt` lists them in its own header.</summary>
     private static readonly Dictionary<string, int> Channels = new(StringComparer.OrdinalIgnoreCase)
