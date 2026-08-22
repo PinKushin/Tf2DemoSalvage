@@ -2360,3 +2360,87 @@ somebody doing exactly that.
 and the fit is decided by what the code does, not by which repo is stricter. The same document
 recommended two things this repo should take from a REST-client SDK and one it must refuse, and
 getting the third wrong would have cost more than the first two gained.
+
+---
+
+## D51 — game audio: Valve's mixing reproduced by us, `Silk.NET.XAudio` as a dumb sink
+
+**Owner's direction, 2026-08-22**, on starting game audio: *"its kinda boring watching demos without
+game audio"*, then, weighing the output API: *"silk i think, unless it makes more sens to match
+valves audio which is probably WASAPI"* and *"valve has decent 3d audio, 1.6 is the gold standard
+imo, source is worse but not bad"*.
+
+### The question was the wrong one, and answering it properly reframed the work
+
+"Match Valve's audio API" is a non-question, because **Valve does not use a 3D audio API**. The
+engine mixes in software — computes per-channel gains, spatialises to stereo, sums into a paint
+buffer — and hands finished PCM to the operating system. Which OS API receives that PCM has no
+bearing on what anybody hears.
+
+So the parity question is entirely about the **mixer**, and the output device is a sink.
+
+### Why not OpenAL, which was the first suggestion
+
+**OpenAL would do the spatialisation for us, and its model is not Valve's.** Distance attenuation,
+panning and the doppler treatment would all be OpenAL's, in exactly the place the owner says Valve
+is good. Worse, it would sound *plausible* — a distance falloff that is merely a different curve is
+not something a screenshot or an assertion catches, and it would be very hard to unpick later.
+
+Using OpenAL purely as a stereo sink avoids that and wastes its only advantage.
+
+Two practical points settle the rest:
+
+- **`Silk.NET.XAudio` is version 2.23.0**, the same version as the four Silk.NET packages this
+  project already ships. No new vendor, and the version is already pinned centrally (D50).
+- **XAudio2 is an OS component, so there is no native binary to build or ship.** OpenAL Soft needs
+  one per architecture, and this project already has friction there — `tools/native-audio/build.ps1`
+  builds celt and speex, and CI carries a whole step for it.
+
+### The mixer is closed, and that is a decompiler job rather than a wall
+
+`snd_dma.cpp` and `SND_Spatialize` are not in `source-sdk-2013`; the mixer lives in `engine.dll`.
+That binary is already imported in the Ghidra project from the `$decal` work
+(`docs/memory/where-the-game-and-clients-live.md`), so this is an afternoon's habit rather than an
+expedition — the same conclusion `findings/18-decals.md` drew.
+
+What **is** published gives the frame to hang the recovered rules on, in `public/soundflags.h`:
+
+```c
+SNDLVL_NORM = 75
+#define SNDLVL_TO_ATTN( a ) ((a > 50) ? (20.0f / (float)(a - 50)) : 4.0)
+#define ATTN_TO_SNDLVL( a ) (soundlevel_t)(int)((a) ? (50 + 20 / ((float)a)) : 0)
+#define MAX_SNDLVL_BITS  9      // 0-255 regular, 256-511 goldsrc-compatible
+#define MAX_ATTENUATION  3.98f  // attenuation * 64 in 8 bits
+```
+
+**Note the reserved range.** Soundlevels 256–511 are "reserved for sounds using goldsrc
+compatibility attenuation" — Valve kept the 1.6 model addressable from Source, which is worth
+knowing given the owner rates 1.6 as the better of the two.
+
+The engine-side parameters are **not** in the SDK at all — `snd_refdb`, `snd_refdist`,
+`snd_foliage_db_loss`, `snd_gain_max`, `snd_gain_min` return nothing from a full grep of the
+checkout. Those cvars ARE the attenuation model, which is what makes them the decompiler's anchor:
+find their registration, and the function that reads them is the curve.
+
+### The layering this produces
+
+| layer | source |
+|---|---|
+| sound events | already decoded — `DecodedSound` from `svc_Sounds` |
+| name to file | `SoundName` (prefix characters, done), then soundscripts |
+| WAV/MP3 to PCM | ours, no dependency |
+| **spatialisation and mix** | **Valve's rules, recovered from `engine.dll`** |
+| output | `Silk.NET.XAudio`, fed finished stereo |
+
+### Assets are read from the user's install and never packed
+
+Owner, same conversation: *"those wav files are in the tf2 folder right? we are not needing to pack
+them? I dont want to include wav files in this program"*.
+
+Correct, and it needs no change: sounds are read through `GameArchives.Read`, the same path models,
+textures and maps already use, and D32 makes the user's install read-only to this project. Nothing
+is copied into the repository and nothing is redistributed — decoded PCM exists in memory for as
+long as it is playing.
+
+That also disposes of the size objection on its own terms: a WAV's cost is a storage cost, and this
+project never stores one.

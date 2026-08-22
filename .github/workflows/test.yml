@@ -100,7 +100,7 @@ jobs:
         run: |
           ./build/assert-test-count.sh '**/core.trx' 1497 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
-          ./build/assert-test-count.sh '**/content.trx' 612 Content
+          ./build/assert-test-count.sh '**/content.trx' 613 Content
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
