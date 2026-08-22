@@ -661,3 +661,50 @@ That is not a dead end, because the period clients are already on disk for the p
 the period engine. So the search path becomes era-aware: resolve against the install matching the
 demo's protocol, and fall back to the modern one. Unmeasured as yet — what is measured is that the
 modern install alone is insufficient, by a factor of two thirds.
+
+### Correction: the population above was the wrong one, and the real number is 10–20 per demo
+
+*Evidence class: measured. Supersedes the percentages in the table above.*
+
+**The precache table is the capability; `svc_Sounds` is the output.** A precache table lists
+everything the map and the game modes *might* play, so measuring against it answers a question about
+the install's completeness rather than about whether a given demo can be voiced. That is exactly the
+error `docs/memory/measure-the-output-not-the-capability.md` names, committed here one commit after
+citing that memory in a different context.
+
+Measured on what each demo actually **plays**, distinct sound indices reached through `svc_Sounds`:
+
+| Demo | Distinct played | Open | Missing |
+|---|---|---|---|
+| 2007 build 3258 POV | 22 | 12 | **10** |
+| 2007 build 3258 STV | 30 | 19 | 11 |
+| 2008 build 3420 POV | 36 | 20 | 16 |
+| 2008 build 3420 STV | 45 | 27 | 18 |
+| 2009 build 3862 POV | 46 | 26 | 20 |
+| 2011 build 4604 POV | 37 | 24 | 13 |
+| 2011 build 4604 STV | 43 | 28 | 15 |
+| 2013 POV | 27 | 18 | 9 |
+| 2013 STV | 76 | 57 | 19 |
+| z1800 (modern) | 741 | 660 | **0** |
+
+**Ten to twenty distinct sounds per old demo, not one to three thousand.** The proportion is similar
+— a quarter to a half — but the absolute number is what decides the engineering, and it turns a
+"ship the 2007 sound content" problem into a table small enough to write by hand.
+
+That matters because **the app cannot go looking for period installs.** Owner, on being asked
+whether resolution should become era-aware:
+
+> uhh we cant look for old clients, if we need something from the old clients we have to include it
+> in our app itself
+
+Correct, and it should not have needed saying: the period clients on `F:` are research artefacts for
+dating protocols. An end user has one modern install. Combined with the standing refusal to bundle
+WAVs — *"they are horribly big for what they are"* — the only remaining shape is to ship the
+**knowledge** rather than the assets: a mapping from removed paths to their surviving equivalents,
+which is a few dozen rows of text.
+
+Unresolved, and named rather than buried: **the probe's own table is incomplete.** It applies
+`CreateStringTable` but not `UpdateStringTable`, so indices added by a later update cannot be
+resolved and are skipped — 81 of z1800's 741 played indices fall in that hole. The missing counts
+above are therefore over the *resolvable* subset. Fixing it needs the table-id-to-name mapping the
+trace writer already does, and it can only make the "open" column larger.

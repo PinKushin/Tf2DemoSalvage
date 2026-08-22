@@ -63,7 +63,7 @@ public sealed class SoundResolutionProbe
 
         foreach (string path in Corpus.Files())
         {
-            SoundNames names = Precached(path);
+            (SoundNames names, HashSet<int> played) = Walk(path);
 
             if (names.Count == 0)
             {
@@ -72,6 +72,36 @@ public sealed class SoundResolutionProbe
 
             demos++;
             int demoMissing = 0;
+
+            // **The population that matters is what the demo PLAYS, not what it precaches.** A
+            // precache table lists everything the map and game modes might use; measuring against
+            // it answers a question about the install's completeness rather than about whether
+            // this demo can be voiced. `docs/memory/measure-the-output-not-the-capability.md`.
+            int playedMissing = 0;
+            int playedResolved = 0;
+
+            foreach (int index in played)
+            {
+                if (names.Resolve(index) is not { } playedName)
+                {
+                    continue;
+                }
+
+                ResolvedSound sound = catalog.Resolve(playedName);
+
+                if (sound.Waves.Count == 0 || archives.Read(sound.Waves[0]) is null)
+                {
+                    playedMissing++;
+                }
+                else
+                {
+                    playedResolved++;
+                }
+            }
+
+            TestContext.Out.WriteLine(
+                $"PLAYED {Path.GetFileName(path)}: {played.Count} distinct sounds played, " +
+                $"{playedResolved} open, {playedMissing} missing");
 
             foreach (string name in names.Names)
             {
@@ -143,12 +173,20 @@ public sealed class SoundResolutionProbe
         fromPath.ShouldBeGreaterThan(0, "no precached name resolved as a raw path");
     }
 
-    /// <summary>The soundprecache table of one demo, built the way production builds it.</summary>
-    private static SoundNames Precached(string path)
+    /// <summary>
+    /// One demo's soundprecache table, and the set of sound indices it actually played.
+    /// </summary>
+    /// <remarks>
+    /// Both in one walk, because the table and the plays arrive interleaved in the same message
+    /// stream and reading the file twice would double the probe's cost for nothing.
+    /// </remarks>
+    private static (SoundNames Names, HashSet<int> Played) Walk(string path)
     {
         byte[] bytes = File.ReadAllBytes(path);
-        NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
+        ushort protocol = Corpus.ProtocolOf(path);
+        NetDecodeState state = new() { NetworkProtocol = protocol };
         SoundNames names = new();
+        HashSet<int> played = [];
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
         {
@@ -164,10 +202,18 @@ public sealed class SoundResolutionProbe
                 {
                     names.Add(created);
                 }
+                else if (message is SoundsMessage sounds && !sounds.Body.IsEmpty)
+                {
+                    foreach (DecodedSound sound in SoundDecoder.Decode(
+                        sounds.Body.Span, sounds.Count, sounds.BodyBits, protocol))
+                    {
+                        played.Add(sound.SoundNumber);
+                    }
+                }
             }
         }
 
-        return names;
+        return (names, played);
     }
 
     /// <summary>Where the game is, when it is installed.</summary>
