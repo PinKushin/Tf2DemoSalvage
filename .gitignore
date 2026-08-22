@@ -41,3 +41,7 @@ tools/corpus/local/
 # Native audio codec binaries — built by tools/native-audio/build.ps1, not committed.
 # See tools/native-audio/README.md.
 tools/native-audio/*.dll
+
+# Coverage reports from `--collect:"XPlat Code Coverage"`. CI writes them under coverage/ and
+# uploads them as an artifact on failure; they are never committed.
+coverage/

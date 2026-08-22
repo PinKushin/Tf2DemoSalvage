@@ -2246,3 +2246,117 @@ rather than correctness — so it is a question for the owner's eyes, not for a 
 **What it does not license.** Deleting the ortho paths pre-emptively, or leaving B136 unfixed on the
 grounds that its camera is going. The height cut is wrong under the free camera *today*, which is the
 camera the owner is using.
+
+---
+
+## D50 — the convention audit against TcgDex.CSharpSdk: adopt all four, refuse one
+
+**Source: the TcgDex.CSharpSdk agent, at the owner's direction**, comparing the convention-bearing
+files of both repositories — `.gitattributes`, `.editorconfig`, `Directory.Build.props`,
+`Directory.Packages.props`, the workflows, `dotnet-tools.json`, `GlobalUsings`, `docs/memory`.
+Written up in `PinKushin/TF2DEMOSALVAGE-LOG.md`, 2026-08-22 00:31.
+
+**Every claim was checked against this repository before acting.** The log's own convention says an
+outside observation is a claim until the project's agent has run it, and the standing instruction
+here is not to take another agent's results at face value. All four held: no CodeQL workflow (only
+`fuzz`, `mutation`, `test`), no `NuGetAudit`, no `Directory.Packages.props`, and no
+`InvariantGlobalization`.
+
+### Adopted
+
+**CodeQL** (`.github/workflows/codeql.yml`). The audit's own argument for it is the right one and
+worth restating: this repository is the *stronger* candidate of the two. Almost everything here
+parses hostile binary from strangers — demos from ESEA, ETF2L and archive.org, BSP maps, VTF
+textures, MDL models — and there is a fuzzing harness whose entire job is to feed the decoders
+malformed bytes. A REST client has an attack surface; a parser IS one.
+
+**What it adds over the analyzers already here**, which is the question worth answering before
+adding a second tool: `AnalysisMode=All` plus SonarAnalyzer is a strict stack, but it is
+per-compilation and largely syntactic. CodeQL builds a database and asks **interprocedural**
+questions — whether a length read out of a file reaches an allocation or an index without passing a
+bound, across method and assembly boundaries. That is the shape of every parser defect in
+`RISKS.md`, and it is the shape a per-file analyzer cannot see.
+
+Scoped to `Core` and `Content` explicitly rather than by autobuild, because the Viewer3D projects
+are `net10.0-windows` and cannot build on ubuntu — an autobuild would fail or quietly analyze a
+subset. Those two are also where the hostile input is actually read.
+
+**`NuGetAudit`**, in `Directory.Build.props`, with `NuGetAuditMode=all` and `NuGetAuditLevel=low`.
+The mode matters more than the switch: the SDK default has historically covered **direct**
+dependencies only, so an advisory against something a package pulls in would not have been reported.
+`low` because a severity threshold is a decision about which vulnerabilities to ignore, and a few
+dozen packages is not a graph that needs triage. Paired with `TreatWarningsAsErrors`, which is what
+turns a new advisory into a failed build rather than a line that scrolls past.
+
+**Central Package Management** (`Directory.Packages.props`), with
+`CentralPackageTransitivePinningEnabled`. Versions had lived in twelve `.csproj` files.
+
+**What it fixes is drift that has not happened yet, and that is worth saying plainly rather than
+overselling:** the inventory taken first found every package on exactly one version across all
+twelve projects, so nothing was broken. What was missing is anything that would keep it that way —
+seven test projects each pinned NUnit, Shouldly, the test SDK and the adapter separately.
+
+The clearest case in the repo is Silk.NET: its four packages are generated together, and a
+mismatched pair between DXGI and Direct3D11 surfaces as a marshalling fault at runtime rather than
+as a restore error.
+
+Transitive pinning is on because auditing transitively (`NuGetAuditMode=all`) while letting
+transitive *versions* float would be half a decision. `TargetFramework` stays in each `.csproj` —
+CPM centralises versions, and the Stryker/Buildalyzer problem is a different property.
+
+**A CI code-coverage gate**, in the unit job, via `build/assert-coverage.sh`.
+
+**Gated per ASSEMBLY, not per report, and that distinction is the whole test.** A Cobertura file's
+root `line-rate` averages every assembly the run loaded, including ones the suite never touches.
+Measured 2026-08-22:
+
+| suite | file total | the assembly under test |
+|---|---|---|
+| `Core.Tests` | 88.8 line / 83.9 branch | **Core: 96.0 / 89.5** |
+| `Cli.Tests` | 37.1 line / 33.5 branch | **Cli: 99.6 / 97.0** |
+
+Cli's file number is dragged to 37% by Core sitting at 56% in its report. **A gate on the file total
+would have been set to something below 37 and could then never fail** — the same instrument fault as
+everything else in this repository, with the same tempting wrong fix of adjusting the threshold
+instead of the measurement.
+
+Floors are 90/85 and 95/92: a ratchet below the current numbers, deliberately a "don't regress off a
+cliff" line rather than a target. The owner's framing is that implementations are being taken fast,
+so this must not become a tax on writing code. The mutation score stays a fluctuating signal rather
+than a gate (`docs/memory/mutation-score-is-a-ratchet.md`).
+
+**Not extended to the Windows job, and that is a scoping decision rather than an omission.**
+`Viewer3D.Tests` creates real Direct3D devices and skips what it cannot run, so its coverage in CI —
+on a runner with no GPU — would differ from a local run and move with the runner image rather than
+with the code. A floor that drifts for reasons unrelated to the commit is worse than none.
+
+### Also found while adopting these
+
+Two things the audit did not raise, noted here rather than acted on:
+
+- **`Content.Tests` is not run by CI at all** — 612 tests, including every BSP, VTF and MDL reader
+  test, gated only by the local `build/gate.sh`.
+- **The CI count floors are far below the real counts** — Core 1000 against 1491, Viewer 340 against
+  570. `docs/memory/a-floor-must-track-the-number-it-guards.md` is explicit that a floor is only a
+  guard while it is close to the number it guards, and the workflow's own comment says so. Not
+  changed here because CI's counts are not the local ones and I cannot run CI to measure them.
+
+### Forbidden, and this is the entry that matters most
+
+**`InvariantGlobalization` must never be set in this repository.** The SDK sets it; the audit
+flagged it as the one thing not to copy, and that flag is correct.
+
+It strips ICU and culture data, and `docs/memory/international-names-are-required.md` records the
+defect it would resurrect: a player named `miałker` came through the demo header as `mia??ker` while
+the `userinfo` table read the same name correctly — **both plausible, in the same dump, and only
+visible because they disagreed**. This project's inputs are strangers' player names by definition.
+
+Correct for a REST client with no culture-sensitive string work; wrong here. It is written into
+`Directory.Build.props` as a comment beside the settings that *were* adopted, because the natural
+way to act on a convention audit is to work down the list, and this is the entry that has to survive
+somebody doing exactly that.
+
+**The transferable point.** A convention audit is "adopt what fits", not "match the other repo" —
+and the fit is decided by what the code does, not by which repo is stricter. The same document
+recommended two things this repo should take from a REST-client SDK and one it must refuse, and
+getting the third wrong would have cost more than the first two gained.

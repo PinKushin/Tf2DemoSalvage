@@ -15,7 +15,7 @@
          could run on. No managed wrapper - the P/Invoke surface here is this project's own,
          against the published opus.h, because a managed wrapper library would be one more
          thing between this project and the bits the engine actually produced. -->
-    <PackageReference Include="libopus" Version="1.6.1.3" />
+    <PackageReference Include="libopus" />
   </ItemGroup>
 
   <ItemGroup>

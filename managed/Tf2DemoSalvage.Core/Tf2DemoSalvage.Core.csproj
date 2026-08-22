@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="LZMA-SDK" Version="22.1.1" />
+    <PackageReference Include="LZMA-SDK" />
   </ItemGroup>
 
 </Project>

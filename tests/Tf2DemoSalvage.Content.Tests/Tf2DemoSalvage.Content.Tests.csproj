@@ -17,19 +17,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageReference Include="NUnit" Version="4.6.1" />
-    <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
     <!-- Catches what NUnit otherwise accepts silently: a [Test] on a non-public method, an
          async void test, a [TestCase] whose arguments do not match the signature. -->
-    <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
+    <PackageReference Include="NUnit.Analyzers">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <!-- NUnit, the house standard. Package set mirrors PokemonBattleJournal's, which has
          run NUnit under Stryker nightly for months. Migrated off xunit.v3 2026-08-12. -->
-    <PackageReference Include="coverlet.collector" Version="10.0.1" />
-    <PackageReference Include="Shouldly" Version="4.3.0" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
     <!-- Property-based testing (D12). Apache-2.0. Generates inputs and shrinks failures to a
          minimal reproducing case, which removes hand-computed expected values - the source of
          most fixture bugs in this project so far. -->

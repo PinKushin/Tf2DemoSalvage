@@ -1,0 +1,76 @@
+<Project>
+
+  <!--
+    Central Package Management: every package VERSION in this repository lives here, and the
+    .csproj files carry only the names.
+
+    **What this fixes is drift that has not happened yet, and saying so honestly matters.** The
+    inventory taken before adopting it (2026-08-22) found every package on exactly one version
+    across all twelve projects - so nothing was broken. What was missing is anything that would
+    KEEP it that way: seven test projects each pinned NUnit, Shouldly, the test SDK and the
+    adapter separately, so bumping one and forgetting another was a silent two-version state that
+    no build, test or analyzer would have reported.
+
+    Adopted from the TcgDex.CSharpSdk convention audit - D50.
+
+    **TargetFramework stays in each .csproj and is unaffected by this.** Stryker's project analysis
+    (Buildalyzer) fails outright when the TFM comes from Directory.Build.props, bisected 2026-08-07
+    and documented at the top of that file. CPM centralises VERSIONS, which is a different property
+    and does not go near it.
+
+    **Transitive pinning is on.** Without it, a transitive dependency can still float to whatever
+    version the graph resolves - which is exactly the hole NuGetAuditMode=all was turned on to see
+    into (D50). Auditing transitively while letting transitive versions float would be half a
+    decision.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Analyzers">
+    <!-- Referenced from Directory.Build.props, so it applies to every project. -->
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.31.0.145097" />
+  </ItemGroup>
+
+  <ItemGroup Label="Runtime">
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.10" />
+    <PackageVersion Include="System.IO.Hashing" Version="10.0.11" />
+
+    <!-- The 7-Zip SDK, for the compressed-lump reader. LZMA is how every BSP lump is packed. -->
+    <PackageVersion Include="LZMA-SDK" Version="22.1.1" />
+
+    <!-- Voice: CELT and Speex come from tools/native-audio; libopus is the managed binding. -->
+    <PackageVersion Include="libopus" Version="1.6.1.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Rendering">
+    <!-- Kept on one version deliberately: Silk.NET's packages are generated together and a
+         mismatched pair between DXGI and Direct3D11 surfaces as a marshalling fault at runtime
+         rather than as a restore error. This is the clearest case in the repo for CPM. -->
+    <PackageVersion Include="Silk.NET.Direct3D11" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Direct3D.Compilers" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.DXGI" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <!-- NUnit by the global standard, and never a deprecated package - xUnit v2 is deprecated and
+         NuGet reports that as a build warning, which Zero Warnings turns into a failure. -->
+    <PackageVersion Include="NUnit" Version="4.6.1" />
+    <PackageVersion Include="NUnit.Analyzers" Version="4.14.0" />
+    <PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+
+    <!-- Property-based testing, and the fuzzing bridge. -->
+    <PackageVersion Include="CsCheck" Version="4.8.0" />
+    <PackageVersion Include="SharpFuzz" Version="2.3.0" />
+
+    <!-- Drives the real viewer window in the UI suite. -->
+    <PackageVersion Include="FlaUI.UIA3" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,90 @@
+# Static security analysis.
+#
+# **This repository is an unusually strong candidate for it, which is why it was added.** Almost
+# everything here parses hostile binary input from strangers: demo files pulled from ESEA and ETF2L
+# archives and from archive.org, BSP maps, VTF textures, MDL models, and a fuzzing harness whose
+# whole job is to feed the decoders malformed bytes. The threat model is not "somebody attacks our
+# web endpoint" - there isn't one - it is "a demo somebody sends the user reads past a buffer".
+#
+# Suggested by the TcgDex.CSharpSdk agent's convention audit (PinKushin/TF2DEMOSALVAGE-LOG.md,
+# 2026-08-22), which noted this repo had no CodeQL workflow while a REST-client SDK did, and that
+# the fit is the other way round.
+#
+# **What it adds over the analyzers already in Directory.Build.props.** Those are per-compilation
+# and mostly syntactic - AnalysisMode=All plus SonarAnalyzer.CSharp, which is a strict stack and
+# catches a great deal. CodeQL builds a database and asks INTERPROCEDURAL questions: whether a
+# length read out of a file reaches an allocation or an index without passing a bound, across
+# method and assembly boundaries. That is precisely the shape of every parser defect in RISKS, and
+# it is the shape a per-file analyzer cannot see.
+#
+# **Action version looked up rather than remembered**: github/codeql-action is on **v4**
+# (v4.37.8 at the time of writing), not the v3 that comes to mind. The global standard says to
+# query the current release before writing any `uses:` line, because a stale major is reported as a
+# deprecation ANNOTATION rather than an error - a green tick with a warning nobody reads.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, because CodeQL's own query packs are updated independently of this repository - a
+    # commit that was clean in March can be flagged in April without anything here changing.
+    # Monday 04:00 UTC, well clear of the nightly fuzz and mutation jobs.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze C#
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      # Writing the results back to the Security tab is the whole point; without this the run
+      # succeeds and reports nowhere.
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # **No LFS.** CodeQL reads source, not demos, and the free tier is 1 GiB of bandwidth a
+          # month - the same reason the unit job in test.yml sets this.
+          lfs: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # security-and-quality over the default security-only: this repo already treats every
+          # warning as a defect, so the quality queries cost nothing it was not going to fix.
+          queries: security-and-quality
+
+      # **Built explicitly rather than by autobuild, and the reason is the Viewer3D projects.**
+      # They are net10.0-windows and cannot build on ubuntu, so an autobuild would either fail or
+      # quietly analyze a subset. Naming the two projects that hold every parser makes the scope a
+      # decision rather than an accident of what happened to compile.
+      #
+      # Core and Content are where the hostile input is read - the demo container, the entity
+      # decode, BSP, VTF, MDL. The renderer reads only what those two produce.
+      - name: Build
+        run: |
+          dotnet build managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj -c Release
+          dotnet build managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj -c Release
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:csharp

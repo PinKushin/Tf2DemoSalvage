@@ -49,10 +49,16 @@ jobs:
       # binary in place to be tested. `dotnet test` builds by default, so this is simply the
       # flag being absent, but it is absent deliberately.
       - name: Core
-        run: dotnet test tests/Tf2DemoSalvage.Core.Tests -c Release --logger 'trx;LogFileName=core.trx'
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Core.Tests -c Release
+          --logger 'trx;LogFileName=core.trx'
+          --collect:"XPlat Code Coverage" --results-directory coverage/core
 
       - name: Cli
-        run: dotnet test tests/Tf2DemoSalvage.Cli.Tests -c Release --logger 'trx;LogFileName=cli.trx'
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Cli.Tests -c Release
+          --logger 'trx;LogFileName=cli.trx'
+          --collect:"XPlat Code Coverage" --results-directory coverage/cli
 
       - name: Check the counts
         # "Passed!" is not the result, the count is. A crashed test host prints a pass line with
@@ -69,11 +75,34 @@ jobs:
           ./build/assert-test-count.sh '**/core.trx' 1000 Core
           ./build/assert-test-count.sh '**/cli.trx' 63 Cli
 
+      # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
+      # averages every assembly the run loaded, including ones the suite never touches — measured
+      # 2026-08-22, Cli.Tests reports 37% at the file level and 99% for the Cli assembly itself,
+      # because its report also carries Core at 56%. Gating the file total would have produced a
+      # floor that can never fail. build/assert-coverage.sh reads the package element.
+      #
+      # Floors are a ratchet, set below the current numbers so ordinary churn stays green and a
+      # cliff does not. Measured when added: Core 95.2 line / 89.3 branch, Cli 99.3 / 97.1.
+      #
+      # Deliberately a "don't regress off a cliff" line rather than a target. The owner's framing
+      # (D50) is that implementations are being taken fast, so this must not become a tax on
+      # writing code — it exists to catch a whole area losing its tests, not to chase a number.
+      - name: Check the coverage
+        run: |
+          ./build/assert-coverage.sh \
+            "$(find coverage/core -name coverage.cobertura.xml | head -1)" \
+            Tf2DemoSalvage.Core 90 85
+          ./build/assert-coverage.sh \
+            "$(find coverage/cli -name coverage.cobertura.xml | head -1)" \
+            tf2demosalvage 95 92
+
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: unit-trx
-          path: '**/*.trx'
+          path: |
+            **/*.trx
+            coverage/**/coverage.cobertura.xml
 
   corpus:
     name: Corpus + Audio (Windows)

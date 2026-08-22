@@ -24,6 +24,40 @@
     <AnalysisMode>All</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
 
+    <!-- **Dependency advisories fail the restore, transitive ones included.**
+
+         Stated explicitly rather than left to the SDK default, which has historically covered
+         DIRECT dependencies only - so an advisory against something a package pulls in would not
+         have been reported at all. `all` is the mode that walks the whole graph and `low` is the
+         floor, because a severity threshold is a decision about which vulnerabilities to ignore
+         and this project has no reason to ignore any: it is a few dozen packages, not hundreds.
+
+         Paired with TreatWarningsAsErrors above, which is what turns a new advisory into a failed
+         build rather than a line that scrolls past. That pairing is the point - NuGetAudit on its
+         own emits warnings, and this repo's whole convention is that a warning is a defect.
+
+         Suggested by the TcgDex.CSharpSdk agent's convention audit (PinKushin/TF2DEMOSALVAGE-LOG.md,
+         2026-08-22) and verified absent here before adding. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+
+    <!-- **InvariantGlobalization is deliberately NOT set, and this comment exists so it stays
+         that way.**
+
+         The same convention audit flagged it as something the SDK sets and this repo must not:
+         it strips ICU and culture data, and `docs/memory/international-names-are-required.md`
+         records a real defect it would resurrect - a player named `miałker` came through the
+         header as `mia??ker` while the userinfo table read it correctly, and both looked like
+         plausible names.
+
+         Correct for a REST client with no culture-sensitive string work; wrong for a decoder whose
+         inputs are strangers' player names. Written down because the natural way to adopt a
+         convention audit is to copy the list, and this is the entry that must not be copied. -->
+  </PropertyGroup>
+
+  <PropertyGroup>
+
     <!-- **Unsafe is the project's stated first resort, not its last.** CLAUDE.md is explicit that
          C# comes first for everything including the performance-sensitive parts, and that
          `unsafe`/`Span<T>`/`stackalloc`/`MemoryMarshal` are what to reach for before dropping to
@@ -44,7 +78,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.31.0.145097">
+    <!-- Version in Directory.Packages.props, like every other package (D50). -->
+    <PackageReference Include="SonarAnalyzer.CSharp">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
