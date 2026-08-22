@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;

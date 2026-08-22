@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>

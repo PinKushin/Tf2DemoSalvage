@@ -590,3 +590,74 @@ broken now differ. Only then did the sabotage turn the test red.
 
 **The general shape: a test whose fixture mimics real data exactly can be blind precisely because
 the real data is well formed.** The distinguishing input was one no shipped file contains.
+
+## Measured: the precache table holds paths, never script names — and old demos point at deleted sounds
+
+*Evidence class: measured, across all ten gcor demos (34,436 precached names).*
+
+Two findings, and the first invalidates an assumption this project's own soundscript reader was
+built on.
+
+### 1. Not one precached name is a soundscript key
+
+`SoundScript`'s doc comment stated that a precached name *"may be a path — or a SCRIPT NAME like
+`FX_RicochetSound.Ricochet`"*. That was reasoned, not measured. Measured, across every demo in the
+committed corpus:
+
+| | |
+|---|---|
+| precached names | 34,436 |
+| resolved through a soundscript | **0** |
+| resolved as a raw path | **34,436** |
+
+Zero out of thirty-four thousand is not a corpus gap, it is the answer. **`soundprecache` carries
+file paths.** Script names are what *game code* uses — `PrecacheScriptSound`, `EmitSound` — and the
+engine resolves them to waves before the table is built.
+
+**And `svc_Sounds` already carries the parameters**, which is the other half of why this matters.
+`DecodedSound` has held `Volume`, `SoundLevel`, `Pitch`, `Channel`, `Flags`, the origin and the delay
+since it was written. So the playback chain is shorter than the one built for it:
+
+```
+svc_Sounds → SoundNumber → soundprecache path → GameArchives → PCM
+              └─ volume, soundlevel, pitch, channel all arrive in the message
+```
+
+`SoundScriptCatalog` is therefore **not on the critical path for demo playback**. It is not wasted —
+it still holds the `rndwave` sets and the parameters for sounds triggered by game code rather than
+by `svc_Sounds`, and its manifest work stands — but it was built one layer ahead of the evidence.
+
+**This is the failure `docs/memory/read-the-spec-before-measuring-our-data.md` describes, arriving
+from the other direction.** That memory warns against measuring our own data when the question is
+what the format does. Here the reverse: an assumption about what the format contains went unmeasured
+for two commits while nineteen tests were written on top of it, every one of them green, because
+they all asked whether the catalog agreed with its author.
+
+### 2. Two thirds of a 2007 demo's sounds are not in the modern install
+
+Resolving each precached path against a current TF2 install:
+
+| Demo | Protocol | Precached | Cannot be opened |
+|---|---|---|---|
+| 2007 build 3258 | 11 | 2,230 | **1,476 (66%)** |
+| 2008 build 3420 | 14 | 2,231 | 1,476 (66%) |
+| 2009 build 3862 | 15 | 2,746 | 1,907 (69%) |
+| 2011 build 4604 | 16 | 3,542 | 2,604 (74%) |
+| 2013 build 1729296 | 24 | 4,437 | 3,316 (75%) |
+| z1800 (modern) | 24 | 6,802 | **24 (0.35%)** |
+
+**z1800 is the control and it is what makes this a finding rather than a bug report.** Same code,
+same install, same resolver: 0.35% against 66–75%. The mechanism works; the content is gone.
+Examples are unambiguous — `player/pain6.wav` through `player/pain14.wav`, and
+`physics/metal/metal_grenade_roll_loop1.wav`. TF2 consolidated its pain sounds and the old files
+were removed.
+
+**The consequence for this project's whole premise is direct.** Decoding an old demo is only half of
+playing one: the sounds it names no longer ship. A modern install cannot voice a 2007 demo, and no
+amount of parser work changes that.
+
+That is not a dead end, because the period clients are already on disk for the protocol dating work
+(`docs/memory/where-the-game-and-clients-live.md`) and they carry the period *content* as well as
+the period engine. So the search path becomes era-aware: resolve against the install matching the
+demo's protocol, and fall back to the modern one. Unmeasured as yet — what is measured is that the
+modern install alone is insufficient, by a factor of two thirds.

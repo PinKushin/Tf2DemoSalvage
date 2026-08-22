@@ -32,6 +32,16 @@ public sealed class SoundNames
     /// <summary>Number of resolvable names held.</summary>
     public int Count => _byIndex.Count;
 
+    /// <summary>Every precached name held, in no particular order.</summary>
+    /// <remarks>
+    /// **For the callers that need the whole table rather than one index.** The mixer prefetches,
+    /// and a test that checks every precached sound can be opened has to be able to ask for all of
+    /// them. Collecting them at the call site instead would mean re-implementing the
+    /// <see cref="TableName"/> filter above, so the caller would be measuring its own copy of the
+    /// rule rather than this one.
+    /// </remarks>
+    public IEnumerable<string> Names => _byIndex.Values;
+
     /// <summary>Takes the entries of a created string table, if it is the sound table.</summary>
     /// <param name="table">Any created string table; non-sound tables are ignored.</param>
     /// <exception cref="ArgumentNullException"><paramref name="table"/> is null.</exception>

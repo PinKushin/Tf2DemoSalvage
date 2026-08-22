@@ -120,7 +120,10 @@ run Tf2DemoSalvage.Audio.Tests    audio      68
 # audio floor gained, so nothing was deleted.
 run Tf2DemoSalvage.Content.Tests  content   615
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
-run Tf2DemoSalvage.Corpus.Tests   corpus     96
+# 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
+# synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
+# install — on CI and the measurement boxes it would Assert.Ignore and check nothing.
+run Tf2DemoSalvage.Corpus.Tests   corpus     97
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

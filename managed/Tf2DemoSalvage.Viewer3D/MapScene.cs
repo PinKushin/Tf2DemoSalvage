@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Viewer3D;
@@ -93,7 +94,7 @@ internal static class MapSceneReader
         return new MapScene(
             bytes,
             MapOutline.FromFaces(BspGeometry.Read(bytes).Faces),
-            MapAssets.Load(bytes, GameArchives.Open(gameFolder), maximumTextureSize),
+            MapAssets.Load(bytes, GameArchives.Open(gameFolder, ViewerLog.Write), maximumTextureSize),
             BspSurfaces.Read(bytes),
             terrain,
             overlays);

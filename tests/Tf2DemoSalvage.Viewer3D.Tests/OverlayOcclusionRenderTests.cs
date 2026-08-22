@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
