@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    What a demo describes, resolved into something drawable - and NOTHING about drawing it.
+
+    Maps and their geometry, materials and their parameters, models and their skeletons, the scene
+    at a tick, the camera. All of it pure computation over Core and Content.
+
+    Split out of Viewer3D on 2026-08-22 (D59), and the check that made the split cheap is worth
+    recording because it was better than anyone expected: of the 35 files moved here, FIVE mentioned
+    a renderer or form type at all, and every one of those five was a COMMENT - "see
+    WorldRenderer.DrawModel", the phrase "Program Files". Not one code dependency pointed upward.
+    The layering was already right; it simply had no boundary to prove it.
+
+    **The TargetFramework is the point of this project.** Viewer3D is net10.0-windows because it
+    hosts WinForms, and that TFM cannot run on the Linux measurement boxes - so every file sharing
+    that assembly was excluded from mutation testing and fuzzing for a reason that had nothing to do
+    with the file. 506 of the viewer suite's 570 tests never touch Direct3D; they were locked to
+    Windows by association alone.
+
+    Nothing here may reference System.Windows.Forms or Silk.NET. That is enforced by this file
+    rather than by discipline, which is the whole argument D54 records for choosing MVP.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Scene</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      Three analyzer rules are suppressed here, and they are NOT the same kind of suppression.
+      Splitting them out because "we turned the rule off" is exactly the note that rots.
+
+      CA1027 - "mark enums with FlagsAttribute". A FALSE POSITIVE, demonstrably: TextureQuality's
+      members are 0, 1024, 512 and 256, which are PIXEL DIMENSIONS. They are powers of two because
+      texture sizes are, not because they combine, and OR-ing Medium with Low would be meaningless.
+
+      CA1819 - "properties should not return arrays". Inapplicable rather than wrong: the two sites
+      are per-vertex and per-lightmap data on the draw path, and D56 records the decision to keep
+      that path low level - structs and arrays, no wrappers. Returning ReadOnlyCollection would
+      allocate per access on exactly the code that decision was written to protect.
+
+      CA1034 - "do not nest type". A JUDGEMENT CALL, and flagged as one rather than dressed up as a
+      false positive. PropModels.SkinnedModel and PropModels.ModelFrames became externally visible
+      when the Scene/Render seam was drawn (D59); the rule's own alternative - make them not
+      externally visible - is unavailable, because the renderer genuinely consumes them. The name
+      PropModels.ModelFrames also says which subsystem produced it, which is worth something. Both
+      are large records with method bodies and ~62 call sites, so un-nesting is a real change with
+      real brace-matching risk for a guideline aimed at published library APIs, which this seam is
+      not. Revisit if Scene ever becomes a package anyone outside this solution consumes.
+    -->
+    <NoWarn>$(NoWarn);CA1027;CA1819;CA1034</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
+
+    <!-- The viewer's own suite still covers most of this while the split settles; it moves to
+         Scene.Tests as the tests follow their subjects. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -3025,3 +3025,76 @@ It is the right call for reference and the wrong call to leave permanently: this
 already been bitten by stale markers that outlived their subject (D45, and the five deleted gap
 markers behind the viewer floor drop). The old form should be deleted in the commit that proves the
 replacement covers it, not left indefinitely as a fossil nobody dares remove.
+
+## D60 — the scene layer is its own project on plain `net10.0`, and the boundary is proved
+
+**Owner's direction, 2026-08-22**, on being shown that only the presenters would gain a
+compiler-enforced boundary under the first plan:
+
+> we want as much on .net10 plain as we can, when we have to use -windows we cant run it on the
+> linux boxes. I want the model compiler enforcement too this needs to be done right, not half
+> assed
+
+### The measurement that made this worth doing
+
+`Viewer3D` was `net10.0-windows` because it hosts WinForms — and **that TFM cannot run on the ARM64
+Linux measurement boxes**, so every file sharing the assembly was excluded from mutation testing and
+fuzzing for a reason that had nothing to do with the file. Measured before moving anything:
+
+| | |
+|---|---|
+| files in `Viewer3D` | 46 |
+| files touching WinForms **or** Silk.NET | **11** |
+| viewer tests that reference Direct3D at all | 64 of 570 |
+| **tests locked to Windows by association alone** | **506** |
+
+**Silk.NET's D3D11 bindings need no `-windows` TFM.** They are P/Invoke wrappers, so the render layer
+is plain `net10.0` as well — only WinForms forces the Windows TFM.
+
+### What was moved, and what the compiler found
+
+35 files to `Tf2DemoSalvage.Scene`, `net10.0`. The pre-move check said no scene file referenced a
+renderer or form type in code — five did, and **every one was a comment** ("see
+WorldRenderer.DrawModel", the phrase "Program Files").
+
+**That check was still wrong, and the compiler said so.** It grepped for type names matching FILE
+names, and a C# file declares more than one type: `WorldVertex`, `WorldBatch` and `SunLight` sat at
+the top of `WorldRenderer.cs` and are pure data — a vertex, a run of triangles, a light colour and
+direction, carrying no Direct3D type at all. They belonged to the scene layer and now live in
+`WorldGeometry.cs`. Worth recording as a method note: *grepping for file names does not enumerate
+types*.
+
+**A layering error surfaced that the TFM alone would never have caught.** `MessageQueue` and
+`ForegroundProbe` P/Invoke `user32.dll`, and they compiled perfectly happily inside a plain
+`net10.0` project — because **a plain TFM blocks WinForms *types*, not P/Invoke into Windows DLLs**.
+Both are message-pump and foreground-window concerns; both went back to `Viewer3D` and back to
+`internal`. Anything doing `DllImport`/`LibraryImport` on a Windows library is a Windows-layer file
+regardless of what its project file says.
+
+### The boundary is proved, not asserted
+
+A temporary file using `System.Windows.Forms.Button` fails in `Scene` with CS0246, and so does one
+using `Silk.NET.Direct3D11`. Both were compiled deliberately and removed. D54's argument was that
+MVP's boundary *can be made a compiler error*; this is that claim tested rather than trusted.
+
+### The cost, stated
+
+35 types became `public` where they had been `internal`, because they are now a contract between
+assemblies. That surfaced six analyzer complaints, split by what they actually are:
+
+- **Fixed**: CA1002 (`List<string>` parameter → `ICollection<string>`), CA1062 (two missing null
+  guards on newly-public methods) and CA2000 — the last by giving `MapDownloader` a `Create` factory
+  so ownership of its `HttpClient` never crosses a call site, which is better API than the argument
+  it replaced.
+- **Suppressed as a false positive**: CA1027 on `TextureQuality`, whose members are 0, 1024, 512 and
+  256 — *pixel dimensions*, powers of two because texture sizes are, not because they combine.
+- **Suppressed as inapplicable**: CA1819 (arrays returned from properties) on per-vertex and
+  per-lightmap draw-path data, which D56 explicitly requires stay low level.
+- **Suppressed as a judgement call, and labelled as one**: CA1034 on `PropModels.SkinnedModel` and
+  `PropModels.ModelFrames`. The rule's own alternative — make them not externally visible — is
+  unavailable because the renderer consumes them, and un-nesting two large records with method
+  bodies across ~62 call sites is real risk for a guideline aimed at published library APIs. Not
+  dressed up as a false positive; revisit if `Scene` ever ships to anyone outside this solution.
+
+**Verification: all 570 viewer tests still pass**, along with every other suite. For a move of this
+size that is the only check that means anything.
