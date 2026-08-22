@@ -44,3 +44,33 @@ cost of each gap. Only the generated half catches a MISSING feature; only the ha
 catches a WRONG one — an extraction cannot tell you `$detail` uses the wrong blend mode.
 
 Related: [[read-the-spec-before-measuring-our-data]], [[measure-every-hop-before-blaming-one]].
+
+---
+
+## The reason is ENUMERATION, not ceremony — B135, 2026-08-21
+
+The owner, after four divergences were found one at a time by staring at screenshots:
+
+> *"dont just implement or fix, conf test then implement/fix. you would have found the divergence if
+> you went to conf tests first"*
+
+**That is the argument, and it is stronger than "write the test first because tests are good."**
+Writing a conformance test forces the engine's behaviour to be *enumerated* — you have to go and read
+what it does across the whole feature to know what to assert. Reacting to a symptom only ever finds
+the one thing that showed, and each fix then exposes the next.
+
+Measured: B135 was four divergences at once — pass order, cull mode, depth writes, and a depth bias —
+in the overlay path. They were found across an evening, one per screenshot, each fix revealing the
+next symptom. **Two more turned up in the minute it took to start writing the conformance test**, and
+neither had produced a symptom anyone had noticed: overlay render order (four layers packed into
+`m_nFaceCountAndRenderOrder`, parsed here and then ignored) and overlay fade (`LUMP_OVERLAY_FADES`,
+lump 60, not read at all).
+
+**So the order is not test-then-code for its own sake.** It is: go and read the whole of what the
+engine does for this feature, write it down as assertions with citations, and only then look at what
+we do. The divergences fall out of the reading. Fixing from a picture finds one at a time, in the
+order the pictures happen to reveal them, which is the slowest possible sequence.
+
+**The tell that this rule is being skipped:** editing renderer code with a citation in the commit
+message and no test beside it. A citation in prose does not redden when someone changes the value
+back, and it does not enumerate anything.

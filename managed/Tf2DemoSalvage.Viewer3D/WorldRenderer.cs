@@ -1508,8 +1508,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // So this is the first time the number means what Valve means by it. Kept together with the
         // depth-write behaviour their decal shaders set — see _decalDepth — because the two are one
         // arrangement rather than two knobs.
-        biased.DepthBias = -262144;
-        biased.SlopeScaledDepthBias = -0.5f;
+        // **Back faces culled, like every other material the engine draws (B135).** This state was
+        // copied from the both-sided one the world uses, so an overlay drew on the far side of a
+        // wall as well as the near one — cp_process's REDSTONE CARGO lettering appeared MIRRORED
+        // through its own silo, which is the back face of the overlay seen from behind. An
+        // `info_overlay`'s material is drawn with the material's cull mode, and
+        // `MATERIAL_CULLMODE_CCW` — "this culls polygons with counterclockwise winding",
+        // `imaterialsystem.h:180` — is the engine's default. Same reasoning and same winding as the
+        // model state above.
+        biased.CullMode = CullMode.Back;
+
+        // **No constant bias, on D46's own qualification rather than on arithmetic.** Valve's
+        // `m_DepthBias_Decal = -262144` is a Direct3D 9 value, and the two APIs do not agree on what
+        // a depth bias IS: D3D9's `D3DRS_DEPTHBIAS` is a float added to depth, D3D11's an integer
+        // scaled by a factor the buffer format decides. The premise the constant was chosen under
+        // has expired, so the thing to reproduce is the INTENT — an offset just large enough to stop
+        // a marking fighting the surface it lies on.
+        //
+        // Here that intent needs nothing, because since B134 a fragment is the wall's own vertices
+        // clipped in the wall's own plane: it rasterises to the wall's own depth, which LessEqual
+        // admits. Applied, the constant is 1.6% of the depth range, which at any distance is enough
+        // to pull an overlay clean through the geometry in front of it — visible on cp_process as
+        // signage floating in mid-air with no wall behind it.
+        biased.DepthBias = 0;
+        biased.SlopeScaledDepthBias = 0f;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));

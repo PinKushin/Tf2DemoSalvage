@@ -208,3 +208,43 @@ the coverage was ever wrong.
 lump by name — `doverlay`, `Overlay_`, `OVERLAY_BSP_FACE_COUNT` — finds vbsp and `bspfile.h` and
 nothing else. The algorithm above is derived from what an overlay is, not read off Valve's. Flagged
 per D44; a decompiler is the next step if it is ever found wanting.
+
+---
+
+## Where this project's overlay path differs from the engine's, item by item
+
+*(evidence class: read from published source, except where marked)*
+
+Compiled after B135 was chased through screenshots for an evening. **The list is the deliverable** —
+each row is checkable, and the ones already fixed are kept so the next reader can see which were
+wrong together.
+
+| aspect | the engine | this project | |
+|---|---|---|---|
+| pass order | `DrawWorld` (surfaces **and** overlays), then `DrawOpaqueRenderables` (static props, brush models) — `viewrender.cpp:5487` | props were batched **with** the world, so they preceded the overlay pass | **fixed**, B135 |
+| overlay cull mode | the material's, and `MATERIAL_CULLMODE_CCW` is the default — `imaterialsystem.h:180` | `CullMode.None`, copied from the world's both-sided state | **fixed**, B135 |
+| depth writes on a marking | `EnableDepthWrites( false )` — `DecalModulate_dx9.cpp:66` | wrote depth, so an overlay occluded what was drawn afterwards | **fixed**, B135 |
+| depth bias | `SHADER_POLYOFFSET_DECAL` → `m_DepthBias_Decal = -262144` — `materialsystem_config.h:223` | none. Valve's number is a **D3D9** value and the APIs disagree on what a bias is (D46, D48); our fragments are coplanar by construction since B134, so the intent needs no offset | differs **deliberately** |
+| render order | four layers, `OVERLAY_RENDER_ORDER_NUM_BITS`, packed into `m_nFaceCountAndRenderOrder` and set by `SetRenderOrder` | **read and then ignored.** `BspOverlay.RenderOrder` is parsed and nothing sorts by it | **open** |
+| fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), with `r_overlayfadeenable`, `r_overlayfademin`, `r_overlayfademax` | **lump not read at all** | **open** |
+| fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
+
+### The two still open, and why they are worth doing
+
+**Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
+layers and draws them in that order, which is how a sign on top of a stripe stays on top. This
+project draws them in whatever order the material dictionary iterates — stable, arbitrary, and
+correct only by luck. With depth writes off (as they now are) two overlapping overlays both draw and
+blend, so the order decides the result.
+
+**Fade is why distant signage does not shimmer in the game.** Not read here, so every overlay draws
+at every distance. Lump 60 is a fixed-size record per overlay and the reader already walks lump 45
+beside it.
+
+### What this list is really evidence of
+
+Every row above was found by reading Valve's source *after* the symptom appeared, and four of them
+were wrong at once. They are also all of one kind — **not what the format says, but what the renderer
+does with it**: an order, a cull mode, a write mask, a sort. `docs/CONFORMANCE.md` records the same
+conclusion from the other end: no conformance suite here describes a frame, so none of these could
+have been caught by a test.
