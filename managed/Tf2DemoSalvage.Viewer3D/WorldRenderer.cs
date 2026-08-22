@@ -2986,12 +2986,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // a shipping container drew through it (B135). Both were fixed by making some pass tidy up
         // after another; this is the fix that stops the class.
         //
-        // **What is transcribed and what is inferred, kept apart (D44).** That a MARKING writes no
-        // depth is Valve's, in one line: EnableDepthWrites( false ) at DecalModulate_dx9.cpp:66.
-        // That a translucent, additive or modulate material writes none is this project's own
-        // convention — it matches what DrawTranslucent already did, and Valve's shaders disable
-        // writes conditionally per path (`bNoWriteZ`) rather than blanket-by-translucency, so it is
-        // an inference from "none of them replaces what is behind it" rather than something read.
+        // **What is transcribed and what is invented, kept apart (D44) — and the invented half is a
+        // DIVERGENCE TO FIX rather than a gap to tolerate (B137).** That a MARKING writes no depth is
+        // Valve's, in one line: EnableDepthWrites( false ) at DecalModulate_dx9.cpp:66.
+        //
+        // That a translucent, additive or modulate material writes none is this project's own rule.
+        // Valve decides per shader, inside each SHADOW_STATE block, starting from
+        // SetInitialShadowState() and turning writes off on specific paths behind `bNoWriteZ` — so
+        // blending and depth writing are two decisions there and one here. It draws correctly today
+        // only because every material this project meets happens to want both together, and the
+        // first that wants one without the other will get the wrong state silently. Same shape as
+        // the decal bias, which was right until a perspective camera existed.
         //
         // The $decal key itself is no longer inferred: materialsystem.dll holds the flag-name table
         // as a `const char *` array INDEXED BY BIT POSITION, and $decal sits at index 16 — exactly

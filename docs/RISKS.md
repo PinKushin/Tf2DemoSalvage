@@ -8471,3 +8471,69 @@ turned out to be, twice, after the same appearance was read as a decal fault.
 that was never drawn looks exactly like a floating decal" is written in B68 in those words, and it
 has already cost this project an evening. The measurement to make first is whether the wall under
 one of those stripes is being clipped or was never built.
+
+---
+
+## B137 — depth writes are decided by our own convention where Valve decides per shader — OPEN
+
+**This is a divergence, not merely an unsourced claim, and D46 says our code changes.** It has been
+recorded as "an inference" in `WorldRenderer.SetMaterial`, which understates it: an inference that
+happens to draw the right picture is still a rule this project invented in place of one the engine
+already has.
+
+### What each does
+
+**Ours** — one blanket rule, in `SetMaterial`:
+
+```csharp
+bool blends = marks
+    || _translucent.Contains(materialIndex)
+    || _additive.Contains(materialIndex)
+    || _modulate.ContainsKey(materialIndex);
+
+ComPtr<ID3D11DepthStencilState> depth = blends ? _decalDepth : _depthWrite;
+```
+
+So "does it blend" decides "does it write depth", for every material, everywhere.
+
+**Valve's** — a per-shader decision inside each `SHADOW_STATE` block. The decal shaders say
+`EnableDepthWrites( false )` outright (`DecalModulate_dx9.cpp:66`); `BaseVSShader` turns them off
+behind a `bNoWriteZ` condition on specific paths (`BaseVSShader.cpp:1266`, `1363`); and
+`SetInitialShadowState()` establishes the material's defaults first, so every shader begins from a
+known state and overrides only what it means to.
+
+Blending and depth writing are therefore **two separate decisions** there, made per shader. Here they
+are one decision made by a category.
+
+### Why it matters even though the picture is currently right
+
+**A rule that is right by coincidence fails silently when the coincidence ends.** Every material this
+project draws today happens to want writes off exactly when it blends. The first material that wants
+one without the other — a blended surface that should still occlude, an opaque one that should not
+write — will get the wrong state, and the symptom will be somebody else's bug: geometry drawing
+through something, or failing to.
+
+That is the same shape as three defects already closed here. The decal bias was "right" until a
+perspective camera existed (B135). The height cut is "right" until the camera is not overhead (B136).
+`clip depth is height` was true of one projection and written down as though it were a definition.
+
+### What settling it needs
+
+The published half is readable: which shaders call `EnableDepthWrites( false )`, and under what
+condition. That is enough to replace the blanket rule with a per-material one derived from the
+material's own shader and flags, rather than from a category this project made up.
+
+The unpublished half is what the SURFACE renderer does with `MATERIAL_VAR_TRANSLUCENT` — whether a
+translucent world surface has writes disabled by its shader, by the render path, or not at all. That
+is `engine.dll` rather than the material system, so it is a decompilation target if the published
+half turns out to be insufficient. The project and its paths are set up
+(`docs/memory/where-the-game-and-clients-live.md`), and `$decal` was settled the same way in twenty
+minutes.
+
+### The related claim, same status
+
+`MATERIAL_VAR_DECAL`'s *effect* is also unsettled. Both published reads —
+`lightmappedgeneric_dx9_helper.cpp:155` and `BaseVSShader.cpp:2134` — only set
+`MATERIAL_VAR_NO_DEBUG_OVERRIDE`, so what else the flag does is in the surface renderer too. This
+project currently decides what a marking needs by its own reasoning, which is the same divergence
+wearing a different name.

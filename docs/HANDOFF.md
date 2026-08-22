@@ -83,14 +83,22 @@ filed as **unexplained** and should be measured, not guessed.
 **Settled this session:** `$decal` → `MATERIAL_VAR_DECAL` is bit 16, read out of `materialsystem.dll`
 (`docs/findings/18-decals.md`). Four keys, one base, every one on its documented bit.
 
-**Still not sourced:**
+**Still not sourced — and one of them is a divergence to FIX, not just a gap to fill:**
 
+- **B137: depth writes are decided by our own convention.** `SetMaterial` uses one blanket rule —
+  "does it blend" decides "does it write depth" — where Valve decides per shader inside each
+  `SHADOW_STATE` block, starting from `SetInitialShadowState()` and turning writes off on specific
+  paths behind `bNoWriteZ`. Blending and depth writing are two decisions there and one here.
+
+  **The picture is currently right, which is the danger.** Every material drawn today happens to want
+  writes off exactly when it blends; the first that wants one without the other gets the wrong state,
+  and the symptom will look like somebody else's bug. That is the same shape as the decal bias (right
+  until a perspective camera existed) and the height cut (right until the camera was not overhead).
+  D46 applies: our code changes.
 - **What `MATERIAL_VAR_DECAL` causes.** Both published reads only set
   `MATERIAL_VAR_NO_DEBUG_OVERRIDE`. The rest is in the surface renderer — a second decompilation
-  target.
-- **"translucent and additive write no depth."** This project's convention, asserted in
-  `WorldRenderer.SetMaterial`. Valve disables writes conditionally per shader path (`bNoWriteZ`), not
-  by translucency. Marked as an inference in the code.
+  target, and the same divergence wearing a different name: this project decides what a marking needs
+  by its own reasoning.
 - **The overlay fragment builder** (B134). `engine/Overlay.cpp` is unpublished and nothing in
   source-sdk-2013 touches the lump outside vbsp. `COverlayMgr::RenderOverlays` is located at
   `FUN_1010ce60` in `engine-live-x86.dll` if it needs settling.
