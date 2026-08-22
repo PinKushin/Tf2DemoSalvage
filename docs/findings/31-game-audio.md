@@ -220,3 +220,39 @@ dominant. Keying on the directory inverted the answer.
 
 Same shape as every other instrument fault recorded here: the number was real, and it was a number
 about the grouping rather than about the game.
+
+## TF2's MP3s are ordinary, which decides where "control" actually lives
+
+*(evidence class: measured on the shipped game)*
+
+Before choosing between a library and a hand-rolled or OS decoder, the question worth answering is
+whether Valve ships anything unusual. `Mp3HeaderProbe`, over 3,000 files from both sound archives:
+
+| | count |
+|---|---:|
+| MPEG-1 Layer III | 2,991 |
+| MPEG-2 Layer III | 9 |
+| 44,100 Hz | 2,991 |
+| 22,050 Hz | 9 |
+| mono | 2,745 |
+| stereo | 205 |
+| joint stereo | 50 |
+| carrying ID3v2 tags | 2,273 |
+| **no frame sync found** | **0** |
+
+**Plain, mostly-mono MPEG-1 Layer III at 44.1 kHz with ID3 tags** — files any player opens, authored
+with ordinary tools. No custom container, no free-format frames, no odd rates.
+
+**So there is no Valve-shaped behaviour in the MP3 layer to keep control of.** Everything Valve does
+that this project cares about happens AFTER decode — attenuation, spatialisation, pitch, DSP, the
+soundlevel scale — and all of that is in the mixer, which is ours by D51. The codec's whole job is
+bytes to PCM frames, against a standard frozen in 1993.
+
+That also makes a dormant library a smaller risk than it looks: a decoder for a standard that cannot
+change is not the same liability as a dormant HTTP client.
+
+**The argument that decides it for this repository is testability.** Every reader here has
+byte-level tests over hand-built and real inputs, and `Content.Tests` was just added to CI's Linux
+job specifically so those readers are gated. A managed decoder can be tested that way anywhere; an
+OS codec reached through COM cannot be tested on the Linux job at all, and would skip exactly where
+the gate was just extended to cover.
