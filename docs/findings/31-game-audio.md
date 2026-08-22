@@ -326,3 +326,46 @@ against a threshold nobody can cite is the same fault as a conformance test asse
 against itself: it cannot fail for a reason that concerns the thing being judged. The same
 adjacency trick that recovered `snd_refdist 36` and `snd_refdb 60` gave the real figure in about a
 minute.
+
+### What `snd_mixahead` actually means, from Valve's own game code
+
+The entry above called it "how far ahead the mixer renders" and treated that as a budget. The owner
+asked the right follow-up: *"does valve actually run it or does it work more like a clamp where
+audio isnt heard if its over that latency?"* — and the answer is in `source-sdk-2013`, on the GAME
+side, describing an engine cvar:
+
+```cpp
+// game/server/sceneentity.cpp:57
+// Assume sound system is 100 msec lagged (only used if we can't find snd_mixahead cvar!)
+#define SOUND_SYSTEM_LATENCY_DEFAULT ( 0.1f )
+
+// :945
+float CSceneEntity::GetSoundSystemLatency( void )
+{
+    if ( m_pcvSndMixahead )
+        return m_pcvSndMixahead->GetFloat();
+
+    // Assume 100 msec sound system latency
+    return SOUND_SYSTEM_LATENCY_DEFAULT;
+}
+```
+
+**It is neither a target the mixer chases nor a clamp that drops late audio. It is a fixed pipeline
+DELAY that the engine treats as a known constant and schedules around.** The accessor is named
+`GetSoundSystemLatency`, and `CSceneEntity` — choreographed scenes, lipsync, captions — reads it to
+align facial animation with speech that will not be heard for another 100 ms. Nothing is discarded
+for missing a deadline; everything is uniformly late by the same amount.
+
+Two consequences, and the second is a parity requirement rather than a benchmark note:
+
+- **For the decoder**, the reading is confirmed and the margin holds. 100 ms of already-mixed audio
+  sits between the mixer and the speaker, so a 0.4 ms first buffer has enormous slack before a stall
+  could be audible.
+- **For the mixer**, a sound triggered at tick T is heard 100 ms later, and anything that must
+  synchronise to audio has to account for it. That is a constant this project will need when the
+  mix loop exists, alongside `snd_refdist 36` and `snd_refdb 60`.
+
+**And the source is worth noting as much as the answer.** The mixer is closed, but its cvar's
+MEANING is documented in published game code that merely consumes it — the same shape as
+`docs/memory/shipped-data-is-a-source.md` and `nothing-is-closed.md`. A grep of the SDK for the
+cvar name found it immediately; the decompiler was never needed for this part.
