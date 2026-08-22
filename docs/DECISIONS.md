@@ -97,6 +97,29 @@ Trade-off accepted knowingly: Windows/MSVC-only, no cheap Linux CI for ASan/UBSa
 
 ## D4. Source SDK: not used by default; evaluated per-format only in Phase 3
 
+> **SUPERSEDED IN PRACTICE, 2026-08-22.** Both halves of this entry are now wrong, and it is left
+> standing with this note because a decision that was quietly deleted is one nobody can learn from.
+>
+> **The factual premise is false.** "Only mod-side game code" understates it badly: the SDK carries
+> **1,318 files of TF2's own game code**, including the HUD, player conditions and the econ schema —
+> see `docs/memory/tf2-game-code-is-in-the-sdk.md`, written after "TF2 is closed" had been asserted
+> in three places and checked in none. `docs/memory/nothing-is-closed.md` is the general form: check
+> the SDK, then the shipped data, then a decompiler, before ever writing "unavailable".
+>
+> **The conclusion is contradicted by daily practice.** This project reads the SDK constantly and
+> deliberately. `tests/Tf2DemoSalvage.SdkReference` exists solely to read it; `CLAUDE.md` instructs
+> to *"read and cite freely; quoting it in comments is the point"*; and `SdkCoverageTests` generates
+> its denominator from the SDK — 489 shader parameters, 66 lumps, 54 studio structures. Every
+> conformance suite in the repository rests on it.
+>
+> **The licence worry was also relitigated and settled differently.** The owner's position is that
+> the legal question is grey and not a practical concern here, and that the hard rule about
+> decompilers is about **repository size**, not licensing (`~/.claude/CLAUDE.md`). Reading published
+> source was never decompilation in the first place.
+>
+> What survives unchanged: clean-room parsing of the asset formats, and the rule that if C++ is ever
+> pulled in it stays behind a C ABI shim. Nothing in this project has needed that yet.
+
 Source SDK 2013 does **not** contain the demo/net parser or renderer (`engine.dll` stays closed) — it only has mod-side game code, `tier0`/`tier1`/mathlib utilities, and compiler tool headers (`bspfile.h`, `studio.h`). So it's irrelevant to Phase 1/2 regardless.
 
 For Phase 3 asset parsing (BSP/MDL/VTF), default is clean-room parsing from community-documented formats (Valve Developer Community wiki, cross-checked against prior art like SourceIO/Crowbar/HLLib) to avoid the SDK's license ambiguity (written around non-commercial mods requiring the base game — a standalone public tool is a gray-area fit) and to avoid pulling C++ into the codebase. Reconsider **only** if a specific format (most likely MDL/VVD/VTX skeletal animation) proves too error-prone to reverse-engineer cleanly — and if so, wrap it behind a C ABI shim like the core, don't let C++ leak into the rest of the codebase.
@@ -2807,3 +2830,88 @@ multiplied across thousands of demos in a batch.
   itself a violation — the rule is about the decode loop, not the codebase — but nothing has ever
   checked which of those are on the hot path. Filed as a risk rather than claimed either way.
 - **Parallelise across the corpus**: not applicable yet; no batch mode exists.
+
+## D57 — the era this project exists for, in the owner's words
+
+**Recovered 2026-08-22 from the planning conversation.** Previously in this repository only
+second-hand, as an assistant's paraphrase, and therefore never treated as scope.
+
+> this is a niche within a niche not many people are going to use this im sure, but i wanna try its
+> kinda important to me becasue i played tf2 from season 12 to the season right before esea ended
+> tf2 maybe 2 seasons before
+
+**That is the target era, and it is a personal one rather than an abstract "all of TF2".** It is
+also the reason the project exists, which is worth recording next to the technical decisions: the
+demos being salvaged are the ones from seasons this person played.
+
+### Why it changes a priority rather than just adding colour
+
+`docs/TIMELINE.md` treats protocols **17–23** as the remaining gap on the era axis — twenty-one
+months between protocol 16 (15 June 2011) and protocol 24 (25 March 2013) — and has a whole section
+on failing to find a specimen. It is currently framed as a completeness problem.
+
+If the target window starts around ESEA season 12, **the 17–23 gap sits inside the era this project
+is for, not beside it.** That moves it from "the axis has a hole" to "the demos this was built for
+may be exactly the ones we cannot decode", which is a different priority entirely.
+
+**Stated as conditional on purpose, because the dates are not established.** ESEA season numbers
+have not been mapped to calendar dates anywhere in this repository, and guessing them would be the
+same error as dating a demo from its protocol number (`docs/memory/z1800-is-modern-not-2015.md`).
+The mapping is discoverable rather than unknowable: `http://demos.igmdb.org/` carries **per-season
+directories**, already cited in `docs/findings/01-container.md`, so a season maps to a date range by
+reading what is in it.
+
+**Do that before acting on this entry.** Until then the claim is "the target era plausibly overlaps
+the gap", not "it does".
+
+### Immediate application
+
+Twenty demos from roughly 2011, from professional matches, are expected shortly. Protocol 16 is
+dated 15 June 2011, so anything recorded after that date is a candidate for 17–23. **Read the
+headers before anything else** — the protocol is in the demo header and needs no client — and apply
+`tools/corpus/manifest.json`'s rule: a new protocol earns a place in gcor, everything else goes to
+lcor, because GitHub's free LFS tier is 1 GiB/month and every CI job pays for it.
+
+## D58 — the name is one fused word, because a dot must split two real things
+
+**Recovered 2026-08-22 from the planning conversation.** The repository went `tf2-demo-parser` →
+`tf2-demo-salvage` → `Tf2Demo.Salvage` (proposed) → **`Tf2DemoSalvage`**, and only the final name
+survived into the repository. The rule that produced it did not.
+
+### The rule, in the owner's words
+
+> well this isnt an add on to another tool so I dont really like the dot, if the front wasnt tf2demo
+> making it look like it was a plugin or addition for another app that would work, but I dont have a
+> buisness name to put in front like newtonsoft, the base project everthing else is built on
+> shouldn't have a dot thats not needed in it imo either, i dont really like that convention, because
+> it cause some dots in your dot notation in code to not actually be real dot notation, there is no
+> way to split newtonsoft from json and anything work so why not just call it NewtonsoftJson imo
+
+**A dot is legitimate only when it separates two independently real things.** `Newtonsoft.Json`
+earns one — a business and a library. `TcgDex.CSharpSdk` earns one — an API and which per-language
+SDK this is. `Tf2Demo.Salvage` earns nothing, because there is no separate `Tf2Demo` product this
+attaches to, so the dot would be decoration that *looks* like namespace structure.
+
+The sharpest part is the last clause: a decorative dot **makes some dots in dot notation not real
+dot notation**. `Newtonsoft.Json` cannot be split at its dot and have either half mean anything.
+
+### What follows from it
+
+- **The repo is `Tf2DemoSalvage`** — fused, PascalCase.
+- **The namespaces follow**: `Tf2DemoSalvage.Core`, `.Cli`, `.Content`, `.Audio`, `.Viewer3D`. Those
+  dots *are* the legitimate kind — product root, then a specific sub-project.
+- **`Tf2`, not `TF2`**, which is .NET's convention for a three-character abbreviation.
+- **PascalCase over kebab-case**, matching the owner's other repositories and .NET open source
+  generally (`Newtonsoft.Json`, `AutoMapper`, `CommunityToolkit.Mvvm`), against the JS/Python/Rust
+  lean toward kebab.
+
+### Not a reason to rename anything else
+
+The owner second-guessed `TcgDex.CSharpSdk` on the strength of this and was talked out of it:
+
+> honestly that name for the sdk was probably bad because i used the tcgdex name like that with a
+> dot, but i decided on that naming a long time ago to differentiate me from the already existing sdks
+
+That dot is the legitimate kind — the language stands in for the product name, distinguishing this
+SDK from siblings for the same API. The rule is *"a dot must split two real things"*, not *"dots are
+bad"*, and applying it correctly leaves `TcgDex.CSharpSdk` alone.
