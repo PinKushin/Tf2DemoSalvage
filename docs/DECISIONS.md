@@ -2596,6 +2596,22 @@ reasoning forward is the entire purpose of the initial scaffold commit — `7c83
 scaffold: architecture, decisions, and corpus seed"* — and MVP did not make it in. The one document
 whose job was to prevent exactly this is the document that dropped it.
 
+**The root cause, established afterwards: the planning session was a CLOUD session, and nothing
+crosses that boundary.** The owner's first assumption was that it had been local:
+
+> i thought i did it local, but if it was on clowd then that was probably the real issue
+
+Checked, and it holds. The four memories that session reported writing are in none of the nine local
+project memory directories nor in `~/.claude/memory`, and its transcript is not in
+`~/.claude/projects/` — the one apparent `MVVM` hit in a local transcript turned out to be base64
+inside an encoded blob. A Cowork session's memory and transcript are both server-side, so **the only
+thing that crosses to the machine is what somebody writes into a repo file before the session ends.**
+
+That makes the handoff document the single point of failure, and this one had the right instructions
+and still leaked: `CLAUDE.md` opens by saying the project was planned in a Cowork conversation and
+that `ROADMAP.md` and this file are where that planning survives. The mechanism was understood. MVP
+did not make it through.
+
 **The lesson generalises past MVP: a decision made before the first commit has no code to leave a
 trace in.** Every later decision is at least inferable from a diff — someone can look at the codebase
 and reconstruct that a choice was made, even without the reason. A pre-repo decision leaves nothing
