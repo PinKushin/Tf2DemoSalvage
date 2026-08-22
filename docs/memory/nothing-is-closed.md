@@ -24,6 +24,18 @@ Three, all found by going and checking:
   including the HUD and the econ schema, are in the SDK — see [[tf2-game-code-is-in-the-sdk]].
 - `$modblend` was filed as needing a decompiler. It is declared in three shipped VMTs and read by a
   commented-out proxy — see [[shipped-data-is-a-source]].
+- **The sound mixer is genuinely closed and its cvar's MEANING still was not** (2026-08-22). The
+  claim in hand was that `snd_mixahead` is how far ahead the mixer renders. Half right, and the
+  useful half was missing: `game/server/sceneentity.cpp` reads it through a function called
+  `GetSoundSystemLatency()`, with `SOUND_SYSTEM_LATENCY_DEFAULT (0.1f)` as the fallback, to align
+  lipsync with speech that will not be heard for 100 ms. It is a fixed pipeline DELAY the engine
+  schedules around, not a target and not a clamp.
+
+**That last one adds a case the rule did not cover: a closed component's behaviour can be documented
+by published code that merely CONSUMES it.** `snd_dma.cpp` is not in the SDK and never will be, so
+"the mixer is closed" was true — and answering the actual question needed no decompiler at all,
+because a game-side caller had to reason about the engine's latency and wrote down what it is. When
+the implementation is closed, grep for its CALLERS.
 
 **How to apply:** before writing that anything is unavailable, check in this order and say which one
 you checked — `source-sdk-2013` (including `utils/`, which holds the compilers and is where the

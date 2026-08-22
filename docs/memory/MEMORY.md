@@ -73,7 +73,8 @@
 - [TF2's game code is in the SDK](tf2-game-code-is-in-the-sdk.md) — 1,318 files including the HUD, player conditions and econ schema; "TF2 is closed" was written in three places and checked in none.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale .cfg read makes a correct fix look failed; type the single cvar, and only `ultra` is a reference profile.
 - [POV demos are PVS-limited](pov-demos-are-pvs-limited.md) — 16 props against SourceTV's 94; missing props imitate a regression exactly, so verify rendering on an STV demo.
-- [Nothing is closed](nothing-is-closed.md) — the ambient blend was published in vrad all along; check SDK, shipped data, then a decompiler before ever writing "unavailable".
+- [Nothing is closed](nothing-is-closed.md) — the ambient blend was published in vrad all along; check SDK, shipped data, then a decompiler before ever writing "unavailable". When the implementation is closed, grep for its CALLERS.
+- [A ConVar default sits beside its name](a-convar-default-sits-beside-its-name.md) — engine tuning constants are readable with ripgrep and od; gave snd_refdist 36, snd_refdb 60, snd_mixahead 0.1 with no decompiler.
 - [Death is EF_NODRAW, not an animation](death-is-ef-nodraw-not-an-animation.md) — TF2 never animates a dying player; the corpse is a separate CTFRagdoll entity.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — move_x is not in scout.mdl; paramindex is local to its group, and reading it against the base model ran everyone backwards.
 - [A property name needs its declaring table](a-property-name-needs-its-declaring-table.md) — m_fFlags and m_flCycle were both in the wrong table and both silent; check the pair, not the name.
