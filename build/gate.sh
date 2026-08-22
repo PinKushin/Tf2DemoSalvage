@@ -116,7 +116,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     95
 #       of the depth-bias threshold, so the pair measures the bias rather than the fixture.
 #
 # Two of the three are relocations and show up in the content floor; only the Assert.Pass is gone.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    566
+# Raised to 568: ClipFaceToOverlay_AFaceAtAnAngleToTheBasis_StillProducesAFragment and
+# BrushModels_TheGeometryThisProjectBuilds_CarriesTheAtlasCoordinatesTheWorldUses, the measured
+# halves of two files that until then only quoted vbsp and vrad.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    568
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
