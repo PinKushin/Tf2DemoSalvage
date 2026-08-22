@@ -98,7 +98,7 @@ jobs:
         # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md:
         # adding tests keeps passing, removing them fails until the number is lowered on purpose.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1491 Core
+          ./build/assert-test-count.sh '**/core.trx' 1497 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           ./build/assert-test-count.sh '**/content.trx' 612 Content
 
@@ -108,23 +108,43 @@ jobs:
       # because its report also carries Core at 56%. Gating the file total would have produced a
       # floor that can never fail. build/assert-coverage.sh reads the package element.
       #
-      # Floors are a ratchet, set below the current numbers so ordinary churn stays green and a
-      # cliff does not. Measured when added: Core 95.2 line / 89.3 branch, Cli 99.3 / 97.1.
+      # **Floors are set from CI's numbers, which are NOT the local ones — unlike the test counts.**
+      # A .trx total counts skipped tests, so a count is the same in both places; coverage is what
+      # actually EXECUTED, so it moves with the environment. Measured on run 32553892662:
+      #
+      #   assembly   local            CI            why they differ
+      #   Core       96.0 / 89.5      95.3 / 89.0   almost none
+      #   Cli        99.6 / 97.0      81.1 / 86.9   this job runs lfs:false, so the CLI tests take
+      #                                             their no-demo paths — they pass, and cover less
+      #   Content    86.5 / 73.3      (see below)   366 of 612 execute without an installed game
+      #
+      # So the Cli floor is 78/83 rather than the 95/92 a local measurement suggests. **Raising it
+      # to match local would mean fetching the LFS blobs into this job**, which costs bandwidth
+      # against a 1 GiB monthly budget to gate a number, and is not worth it.
+      #
+      # Content's floor is provisional: its number has never printed, because the first version of
+      # this step stopped at Cli's failure. Tightened once a run reports it.
       #
       # Deliberately a "don't regress off a cliff" line rather than a target. The owner's framing
       # (D50) is that implementations are being taken fast, so this must not become a tax on
       # writing code — it exists to catch a whole area losing its tests, not to chase a number.
+      # **All three report before any of them fails, and that is a fix rather than a nicety.** The
+      # first version ran them as three statements under `set -e`, so Cli failing meant Content's
+      # number was never printed — one run told me about one assembly. A gate that stops at the
+      # first problem makes every diagnosis serial.
       - name: Check the coverage
         run: |
+          failed=0
           ./build/assert-coverage.sh \
             "$(find coverage/core -name coverage.cobertura.xml | head -1)" \
-            Tf2DemoSalvage.Core 90 85
+            Tf2DemoSalvage.Core 90 85 || failed=1
           ./build/assert-coverage.sh \
             "$(find coverage/cli -name coverage.cobertura.xml | head -1)" \
-            tf2demosalvage 95 92
+            tf2demosalvage 78 83 || failed=1
           ./build/assert-coverage.sh \
             "$(find coverage/content -name coverage.cobertura.xml | head -1)" \
-            Tf2DemoSalvage.Content 80 70
+            Tf2DemoSalvage.Content 55 45 || failed=1
+          exit $failed
 
       - uses: actions/upload-artifact@v7
         if: failure()
@@ -252,7 +272,7 @@ jobs:
           ./build/assert-test-count.sh '**/audio.trx' 28 Audio
           ./build/assert-test-count.sh '**/viewer.trx' 570 Viewer
           ./build/assert-test-count.sh '**/viewer-ui.trx' 12 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 95 Corpus
+          ./build/assert-test-count.sh '**/corpus.trx' 96 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

@@ -90,7 +90,8 @@ rm -f /tmp/gate-*.log
 # corpus cannot supply any of them, because every demo in it was written by the engine.
 # Raised to 1491: SchemaGapTests, four cases proving the gap instrument works in both directions
 # and across both metadata encodings before any marker rests on it.
-run Tf2DemoSalvage.Core.Tests     core     1491
+# 1497: SoundCharConformanceTests, the six that pin soundchars.h against SoundName.
+run Tf2DemoSalvage.Core.Tests     core     1497
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -99,7 +100,8 @@ run Tf2DemoSalvage.Audio.Tests    audio      28
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 run Tf2DemoSalvage.Content.Tests  content   612
-run Tf2DemoSalvage.Corpus.Tests   corpus     95
+# 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
+run Tf2DemoSalvage.Corpus.Tests   corpus     96
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
