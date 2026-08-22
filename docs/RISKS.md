@@ -8794,3 +8794,27 @@ done, which is what happened with fog's conformance tests (B139) and with `m_flP
 **Before building on `PlayerAnimation`, check whether the layer underneath is wired rather than
 merely present.** It composes poses, and a new feature layered on it while gestures are absent is
 correct and still invisible — which reads as a defect in the new work.
+
+## B141 — the "no LINQ in the decode loop" rule was never checked, and 97 files use LINQ — OPEN
+
+**Found 2026-08-22 by recovering D56 from the planning conversation**, not by profiling.
+
+The decode path was specified at planning time as low level: no LINQ and no exceptions in the decode
+loop, because iterator and delegate allocations and exception unwinding are both hot-loop traps. That
+rule was never written into the repository, so nothing has ever enforced or measured it.
+
+**What is known:** 97 files under `managed/` use LINQ. **What is not known:** how many of those are
+on the decode hot path, which is the only place the rule applies. A viewer method using `Select` once
+per frame is not a violation; `BitReader`'s inner loop doing so would be.
+
+Deliberately not stated as a defect. The count is a fact about the codebase, not about the hot path,
+and reporting it as a violation would be the same error as measuring the precache table instead of
+what a demo plays — the wrong population, producing a number that sounds like a finding.
+
+**How to close it:** BenchmarkDotNet already exists (D50), so the honest route is to profile the
+decode path and look at allocations rather than to grep. A `Gen0` count that scales with tick count
+is the signal; a LINQ call that never allocates in practice is not worth removing. Until that is run,
+neither "we follow the rule" nor "we violate it" is a supportable claim.
+
+Related: D56 for the rule and its reasoning, D2 for the native-C deferral the performance bet rests
+on.

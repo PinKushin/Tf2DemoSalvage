@@ -2558,11 +2558,59 @@ small shared primitive, not to move the soundscript reader back.
 
 ### The decision
 
-The WinForms viewer follows **Model-View-Presenter**. **MVVM was considered and rejected**, because
-its binding model is WPF-shaped and WinForms cannot express it: there is no `ICommand`, no
-`DataTemplate`, and data binding beyond simple property links has to be written by hand — at which
-point the view model is being driven manually and the pattern is paying nothing. MVP's passive view,
-where a presenter drives the form through an interface, is the pattern WinForms was designed around.
+The WinForms viewer follows **Model-View-Presenter**.
+
+**The owner opened by naming MVVM** — but as the only pattern he knew, not as a position:
+
+> we didnt decide on every architectural decision yet, are we using MVVM, i kinda want to use MVVM
+> and winforms
+
+Clarified by him afterwards, and it changes how this reads:
+
+> the argument for mvvm from me was only that it was the only thing i knew, thats why i asked about
+> other ones
+
+So this was **a question, not a preference that was overturned**. Worth stating plainly, because the
+first draft of this entry framed it as the owner being "argued out of" MVVM, which invents a
+contested decision where there was an open one. It also means the reasoning below carries the entire
+weight of the choice: nothing was traded away for it, and there is no dissenting position to
+reconsider — only an argument that either holds or does not.
+
+**The argument that won, recovered verbatim on 2026-08-22 from the planning conversation** — and it
+is not the one this entry first claimed:
+
+> The reason MVVM's binding felt shaky as a fit and MVP doesn't isn't really about familiarity —
+> it's that **MVP's boundary can be made a compiler error**, not just a convention someone (or
+> something) has to remember to follow. If `Presenter` classes live in a project that has no
+> reference to `System.Windows.Forms.dll` at all, then a Presenter reaching for a `Button` or a
+> `Control` doesn't compile.
+
+Two supporting reasons, both recovered with it:
+
+- **It composes with the TDD requirement.** A Presenter test needs a fake `IView` that records what
+  was called and nothing else — no WinForms runtime, no STA thread, no window. On this project that
+  is worth more than usual: the UI suite takes the desktop and needs `run-exclusive.ps1`, which is
+  why `docs/memory/ui-suite-optional-until-ui-grows.md` exists.
+- **MVP is old and boring, and that is a point in its favour**, because "a well-known, decades-old
+  pattern name gives an AI a strong, consistent prior to pattern-match against; a bespoke in-house
+  architecture has to be re-explained perfectly every time or it drifts inconsistently across
+  files."
+
+### This entry originally recorded the wrong reason, which is worth keeping
+
+The first version of D54 said MVVM was rejected because "its binding model is WPF-shaped and
+WinForms cannot express it — no `ICommand`, no `DataTemplate`". **That was a reconstruction and it
+is not what happened.** It was inferred from the owner's later recollection, *"it was something i
+specifically talked about because MVVM doesnt work well on winforms"* — which is a compressed memory
+of a much more specific argument about **enforceability**, not about binding.
+
+Both are now recorded because the gap between them is the point. `CLAUDE.md` says to write the
+owner's reasoning in his words where he gave it *"rather than your reconstruction of it"*, and this
+is what the failure looks like when it is subtle: the reconstruction was plausible, technically
+defensible on its own terms, and would have been quoted as authoritative by anyone who found it. A
+reader acting on the wrong version would have concluded that MVVM becomes acceptable wherever
+binding is good enough — when the actual reason has nothing to do with binding and does not weaken
+anywhere.
 
 - **Model** — already correct: `DemoTimeline`, `MapScene`, and the `Core` / `Content` / `Audio`
   projects behind them.
@@ -2647,3 +2695,115 @@ Owner, same conversation:
 > follow MVP
 
 So: finish the audio pipeline, then retrofit MVP. Not started here.
+
+## D55 — the MVP contract: what the Form may not do, and where the Presenters live
+
+**Recovered 2026-08-22 from the planning conversation, alongside D54.** These are the rules that
+were agreed with MVP and never written down, so the viewer was built without them.
+
+### The three roles
+
+**View is a thin interface, not the Form.** The shape agreed at the time:
+
+```csharp
+public interface IDemoViewerView
+{
+    event Action PlayPauseClicked;
+    event Action<int> ScrubberMoved;      // tick the user dragged to
+
+    void SetCurrentTick(int tick);
+    void SetPlaybackState(bool isPlaying);
+    void SetEventList(IReadOnlyList<TimelineEvent> events);
+}
+```
+
+`DemoViewerForm : Form, IDemoViewerView` implements it, and its job is *"purely mechanical
+translation"* — a real button click raises `PlayPauseClicked`; `SetCurrentTick(500)` sets a label and
+moves the scrubber. No knowledge of what a tick means.
+
+**The tell, and it is a good one:**
+
+> If a Form method needs an `if` statement about business state, that's the tell it's doing the
+> Presenter's job.
+
+**Presenter** holds the interface, not the concrete Form, plus the logic — "when the scrubber moves
+to tick X, ask the parsed demo for the state at that tick, then push the result to the view". A
+plain C# class with **zero UI framework dependency**.
+
+**Model** is `Tf2DemoSalvage.Core`'s parsed demo and playback state. The Presenter mediates; Model
+and View never know about each other.
+
+### The assembly boundary is the mechanism, not the pattern name
+
+This is the load-bearing rule and the reason MVP was chosen at all (D54): **Presenters live in a
+project with no reference to `System.Windows.Forms`**, so a Presenter touching a `Button` fails to
+compile. Only the Forms project references both the presentation layer and WinForms. The dependency
+graph enforces the rule rather than a comment asking politely.
+
+### The failure mode to watch, named in advance
+
+> A single Presenter can grow into a "God Presenter" if one `IView` interface tries to cover too
+> much — e.g., cramming playback controls, the event list, and render-surface state into one
+> `IDemoViewerView`.
+
+The fix is the D6 one: **several small view interfaces per cohesive concern** —
+`IPlaybackControlsView`, `ITimelineEventListView`, `IRenderSurfaceView` — composed together in the
+Form, rather than one interface that does everything.
+
+**Current state, for honesty:** `MainForm.cs` is 4,436 lines, 95 methods and 103 fields, calls
+`DemoTimeline.Build` itself and carries domain helpers. It is the God Presenter and the View at
+once. The retrofit is queued behind the audio work at the owner's direction.
+
+## D56 — enterprise patterns are refused; the decode path stays low level
+
+**Recovered 2026-08-22 from the planning conversation.** The owner asked whether any enterprise
+patterns would help, and the answer was a deliberate refusal rather than an omission — which is
+exactly the kind of decision that leaves no trace in code and so cannot be inferred later.
+
+> is there anything im not thinking of like maybe some enterprise patterns that will come in handy
+> for this, or instructions to keep things as low level as possible for speed, because this app has
+> to be super performant
+
+### Refused, and why
+
+Repository/Unit-of-Work, heavy DI containers, CQRS/MediatR pipelines, layered DTO + AutoMapper
+stacks. They exist to let large teams work independently, decouple deployment, or abstract swappable
+infrastructure. This is one developer plus an AI, one data source, one output format at a time —
+so they are not merely unnecessary ceremony, they **fight the stated performance goal**: every
+mapping layer, container resolution and repository abstraction is indirection and allocation
+multiplied across thousands of demos in a batch.
+
+### Kept, both already implied by earlier decisions rather than new ceremony
+
+- **Strategy**, for per-protocol quirk handling (D1/D6's Open/Closed point) — one implementation per
+  version range, selected once per file at parse start. This is the actual mechanism that makes "a
+  new TF2 era does not require touching working code" true.
+- **Builder**, optionally, for assembling the parsed result incrementally — *"only if the result
+  object ends up complex enough to warrant it; don't add it preemptively."*
+
+### The low-level rules, as agreed
+
+| Rule | Reason given |
+|---|---|
+| **Span/Memory zero-copy parsing** | read over `ReadOnlySpan<byte>`, no intermediate `byte[]` per field. This is the specific capability that makes deferring native C (D2) justified rather than optimistic |
+| **Memory-map the `.dem`** (`MemoryMappedFile`), not `File.ReadAllBytes` | avoids double-buffering a file that can be tens of megabytes for a long STV demo; lets the OS page cache work |
+| **Structs, not classes, on the hot path** | tens of thousands of ticks × many entity deltas; class instances there are GC pressure that shows up in profiling |
+| **No LINQ and no exceptions in the decode loop** | LINQ's iterator/delegate allocations and .NET's exception unwinding are both hot-loop traps. Malformed input is `TryParse`-shaped; exceptions are for outer-boundary failures ("this isn't an HL2DEMO file at all") |
+| **Streaming/callback emission** | not "materialise every tick into one giant list first". Pairs with MVP's push model on the viewer side |
+| **Parallelise across the corpus, never within one file** | a demo's command stream is inherently sequential — each tick's entity state depends on the prior tick's delta — so the throughput lever is a producer/consumer pipeline over many files, each decoded efficiently single-threaded |
+| **BenchmarkDotNet from day one on the decode hot path** | D2 defers native C on the bet that C# is fast enough, *"and that bet needs actual measurement, not assumption"*. A benchmark showing a primitive cannot hit throughput in C# is the evidence D2 requires before reaching for C |
+
+### What was actually done, measured against the above
+
+- **Memory mapping**: adopted — 23 files use `MemoryMappedFile`. Never recorded until now.
+- **Structs on the hot path**: adopted, extensively — the repository is full of record structs, to
+  the point that `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md` exists because of it.
+- **Strategy for protocol quirks**: adopted.
+- **Enterprise patterns**: correctly absent — no AutoMapper, MediatR or CQRS anywhere.
+- **BenchmarkDotNet "from day one"**: **not honoured.** It was added on 2026-08-21, two weeks in and
+  only when the MP3 decoder question forced it. D50 records adding it as though it were a new idea,
+  because the decision requiring it had been lost.
+- **No LINQ in the decode loop**: **unverified, and 97 files under `managed/` use LINQ.** That is not
+  itself a violation — the rule is about the decode loop, not the codebase — but nothing has ever
+  checked which of those are on the hot path. Filed as a risk rather than claimed either way.
+- **Parallelise across the corpus**: not applicable yet; no batch mode exists.
