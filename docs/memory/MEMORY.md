@@ -107,3 +107,5 @@
 - [Name the reading you picked](name-the-reading-you-picked.md) — "a top down map view" became a projection; a decision recorded as a requirement cannot be revisited.
 - [Never revert without asking](never-revert-without-asking.md) — revert scratch work freely; a change that was asked for, works, and should have been a commit is not yours to discard.
 - [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — an effect built from a hardware quirk looks like a bug wherever you find it; arbitrary AND precise means a trick, not a mistake.
+- [A skip is not a pass or a failure](a-skip-is-not-a-pass-or-a-failure.md) — a broken precondition disarms a test via Assert.Ignore; invisible in a summary line and it passes the count floor.
+- [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — the gate's floors are trx numbers and the console prints a smaller one; 623 vs 638 looked exactly like lost tests.
