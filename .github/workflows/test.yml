@@ -85,14 +85,22 @@ jobs:
         # suites held 1034 and 352, and on 2026-08-17 a solution-wide run reported 50 of Viewer's
         # 350 tests as a pass (B104) — which 34 would have accepted. A floor is only a guard while
         # it is close to the number it guards.
-        # **Set from a measured CI run, not from the local gate's numbers.** CI totals are a few
-        # per cent below local ones because some parameterised cases enumerate from files that are
-        # not on a runner. Read off run 32516362350 and the first run after this change; the local
-        # floors in build/gate.sh are a separate, higher set and the two must not be copied across.
+        # **Measured on run 32553435747, not inferred.** These were set by arithmetic first —
+        # an older run's numbers plus the tests added since — and the arithmetic rested on a
+        # premise that turned out to be false: that CI totals sit below local ones because some
+        # cases enumerate from files a runner lacks.
+        #
+        # They do not. CI reported 1491 / 74 / 612, which is exactly what build/gate.sh reports
+        # locally. The older run's lower figures were simply an older commit. A .trx total counts
+        # SKIPPED tests, so a case that cannot run on a runner still appears — Content executed 366
+        # of 612 here against 587 locally, and the total is identical either way.
+        #
+        # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md:
+        # adding tests keeps passing, removing them fails until the number is lowered on purpose.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1485 Core
+          ./build/assert-test-count.sh '**/core.trx' 1491 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
-          ./build/assert-test-count.sh '**/content.trx' 600 Content
+          ./build/assert-test-count.sh '**/content.trx' 612 Content
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -225,17 +233,26 @@ jobs:
 
       - name: Check the counts
         shell: bash
-        # The corpus floor is the load-bearing one, and it is deliberately NOT the number a local
-        # run produces. Several corpus tests are per-demo, so the count tracks how many demos
-        # were found: 99 in CI against the committed corpus, 130 locally where
-        # tools/corpus/local is also picked up. The CI number is the floor precisely because a
-        # drop below it means demos went missing — which is the failure that would otherwise be
-        # invisible, since a corpus test over zero demos passes.
+        # The corpus floor is the load-bearing one, and it is deliberately NOT the number a full
+        # local run produces. Several corpus tests are per-demo, so the count tracks how many demos
+        # were found: 95 in CI against the committed corpus, ~130 locally where tools/corpus/local
+        # is also picked up. The CI number is the floor precisely because a drop below it means
+        # demos went missing — the failure that would otherwise be invisible, since a corpus test
+        # over zero demos passes.
+        #
+        # **That reasoning was written down correctly and then the LOCAL number was used.** The
+        # floor sat at 130 against a CI count of 95, so it could only ever fail — and it never ran,
+        # because the UI step above it failed first and stopped the job. Two faults, each hiding the
+        # other, for at least five consecutive pushes. Fixed 2026-08-22 and measured on run
+        # 32553435747: audio 28, viewer 570, viewer-ui 12, corpus 95.
+        #
+        # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md. The
+        # old values had 200 tests of slack on Viewer and 12 on Audio, which is not a guard.
         run: |
-          ./build/assert-test-count.sh '**/audio.trx' 16 Audio
-          ./build/assert-test-count.sh '**/viewer.trx' 340 Viewer
-          ./build/assert-test-count.sh '**/viewer-ui.trx' 8 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 130 Corpus
+          ./build/assert-test-count.sh '**/audio.trx' 28 Audio
+          ./build/assert-test-count.sh '**/viewer.trx' 570 Viewer
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 12 ViewerUi
+          ./build/assert-test-count.sh '**/corpus.trx' 95 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()
