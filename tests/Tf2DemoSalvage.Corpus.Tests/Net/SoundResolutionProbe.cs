@@ -58,6 +58,10 @@ public sealed class SoundResolutionProbe
         int precached = 0;
         int fromScript = 0;
         int fromPath = 0;
+
+        // Refusals counted by REASON, not just tallied. "12 sounds would not decode" cannot say
+        // whether that is two ADPCM files or a broken MP3 path, and those want different work.
+        Dictionary<string, int> refusals = [];
         List<string> unresolved = [];
         List<string> missing = [];
 
@@ -91,9 +95,24 @@ public sealed class SoundResolutionProbe
 
                 // Through SoundFile, so the container fallback is exercised: 60 of the 63 sounds
                 // this used to report missing are the same stem shipping as MP3.
-                if (sound.Waves.Count == 0 || SoundFile.Open(sound.Waves[0], archives.Read) is null)
+                if (sound.Waves.Count == 0 ||
+                    SoundFile.Open(sound.Waves[0], archives.Read) is not { } opened)
                 {
                     playedMissing++;
+                    continue;
+                }
+
+                // **And decoded, not merely opened.** Opening proves the resolver found a file;
+                // only decoding proves it found the right KIND of file and that we can play it.
+                // Those fail identically from the outside — silence — which is why the count is
+                // taken here rather than assumed from the open.
+                SoundSampleResult decoded = SoundSampleReader.Read(opened.Bytes);
+
+                if (decoded.Sample is null)
+                {
+                    playedMissing++;
+                    refusals[decoded.Refusal ?? "unstated"] =
+                        refusals.GetValueOrDefault(decoded.Refusal ?? "unstated") + 1;
                 }
                 else
                 {
@@ -150,6 +169,12 @@ public sealed class SoundResolutionProbe
                 $"{Path.GetFileName(path)} (protocol {Corpus.ProtocolOf(path)}): " +
                 $"{names.Count} precached, {demoMissing} unopenable");
         }
+
+        TestContext.Out.WriteLine(
+            "DECODE refusals by reason: " + (refusals.Count == 0
+                ? "none"
+                : string.Join(", ", refusals.OrderByDescending(r => r.Value)
+                    .Select(r => $"{r.Value}x {r.Key}"))));
 
         TestContext.Out.WriteLine(
             $"TOTAL {demos} demos, {precached} precached names: " +

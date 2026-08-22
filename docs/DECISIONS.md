@@ -2974,3 +2974,54 @@ does imports Valve's convention into code that has no need of it; renaming the *
 `Cycle` because .NET prefers PascalCase breaks the lookup silently, and a silent lookup failure here
 reads as missing data rather than as an error — see
 `docs/memory/lookups-must-match-exactly.md`.
+
+## D59 — the MVP work is a rewrite beside the old code, not a retrofit
+
+**Owner's direction, 2026-08-22**, given while sequencing the work after audio:
+
+> fix the audio, then start the mvp "retrofit" even though i hate the fact we even have to retrofit,
+> so im tempted to tell you to "remove" the problem projects and just redo them, by which i mean
+> build the replacement beside what we have so we can reference our current code, but remove it for
+> being called so we can effectivly start from scratch
+
+**Recorded as a stated lean rather than a locked decision**, because it was put as a temptation and
+the audio work comes first. The final call is made when that finishes; this exists so the reasoning
+is not lost in the meantime.
+
+### Why a rewrite beats a retrofit here
+
+A retrofit extracts presenters from `MainForm` incrementally. It never breaks the app and keeps the
+suite green throughout — but the shape of the existing code biases every step, and the usual outcome
+is MVP-flavoured code rather than MVP. D55's rule is an **assembly boundary**: presenters in a
+project that cannot reference WinForms. That is not something a file arrives at by degrees; either
+the project exists with the reference absent or it does not.
+
+Building beside, with the old code present but no longer called, gets the boundary on day one and
+keeps the previous implementation readable as reference.
+
+### The risk, which is real and specific
+
+`MainForm` contains a great deal of behaviour that was found empirically and never written down as a
+requirement — the taskbar staying on top in full screen, focus that could not be asserted, a
+transport bar drawn a quarter of the way up the viewport, an empty sidebar left docked. Several of
+those exist in `docs/memory/` precisely because **they were caught by a person looking at the
+screen, not by a test**. A rewrite drops that silently, and the 8 UI tests are nowhere near a safety
+net for it.
+
+**Two things make it survivable, and they should be treated as preconditions:**
+
+1. **Scope the rewrite to the presentation layer only.** "The problem projects" is really
+   `MainForm` and the logic it has absorbed — around 4,400 lines. `WorldRenderer`, `MapAssets`,
+   `PropModels`, `EntityModels` and the rest are Model-side, carry 570 tests between them, and are
+   not what MVP is about. Rewriting those would discard the most expensively-earned code in the
+   repository for no architectural gain.
+2. **Harvest before disconnecting.** Sweep `MainForm` for the empirically-found fixes and turn each
+   into a test, a note, or a line in the new implementation *before* it stops being called.
+   `docs/memory/` already names many of them and is the place to start.
+
+### On leaving the old code in place
+
+It is the right call for reference and the wrong call to leave permanently: this repository has
+already been bitten by stale markers that outlived their subject (D45, and the five deleted gap
+markers behind the viewer floor drop). The old form should be deleted in the commit that proves the
+replacement covers it, not left indefinitely as a fossil nobody dares remove.

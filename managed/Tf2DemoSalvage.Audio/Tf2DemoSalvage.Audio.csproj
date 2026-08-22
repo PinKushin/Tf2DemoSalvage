@@ -16,6 +16,13 @@
          against the published opus.h, because a managed wrapper library would be one more
          thing between this project and the bits the engine actually produced. -->
     <PackageReference Include="libopus" />
+
+    <!-- MP3, which is 82% of the sound files TF2 ships (13,140 of 15,958) because the voice
+         archive is almost entirely MP3. Chosen over dr_mp3 via P/Invoke and over Media Foundation
+         after benchmarking: NLayer decodes a voice line in 0.4 ms, which is far inside the 100 ms
+         snd_mixahead budget, and it is managed so it needs no native build step per architecture.
+         See docs/findings/31-game-audio.md. -->
+    <PackageReference Include="NLayer" />
   </ItemGroup>
 
   <ItemGroup>

@@ -767,3 +767,43 @@ Still open, and it is the probe's limitation rather than the resolver's: 81 of z
 indices are not in the probe's table at all, because it applies `CreateStringTable` and not
 `UpdateStringTable`. Production handles both — `DemoTraceWriter` resolves the table id — so this is
 a gap in the measurement, and closing it can only raise the "open" column.
+
+## Every sound every corpus demo plays now decodes, with zero refusals
+
+*Evidence class: measured.*
+
+`SoundSampleReader` gives one decoded type — `SoundSample`, interleaved floats — for both containers,
+because the mixer must not care which it got. TF2 ships 82% MP3 and 18% WAV, and the same weapon can
+be either across eras.
+
+**The container is sniffed from the bytes, never from the path**, and that is not fastidiousness:
+`SoundFile` serves 60 of the corpus's `.wav` names from `.mp3` files, so the extension a demo asked
+for says nothing about what actually arrived. Trusting it would hand MP3 bytes to the RIFF walk.
+
+**Measured over the whole corpus, on the sounds demos actually play:**
+
+```
+DECODE refusals by reason: none
+```
+
+Every sound that opens also decodes — 22 and 30 at 2007, 46 at 2009, 43 at 2011, 76 at 2013, and
+660 in z1800, MP3 voice lines included. The counts are identical to the open counts, so nothing was
+lost between finding a file and turning it into samples.
+
+### Three details that fail as plausible audio rather than as errors
+
+- **16-bit PCM normalises against 32768, not 32767.** Two's complement runs −32768…32767, so
+  dividing by 32767 lets the single most negative sample reach −1.000031 and clip. One value in the
+  whole range is affected, which is precisely why it needs a test rather than an ear.
+- **8-bit WAV is UNSIGNED and centred on 128**, where every wider depth is signed. Read as signed it
+  comes out inverted and offset — a click and a hum, not an exception.
+- **ADPCM is refused by name.** Two of TF2's 2,817 WAVs are ADPCM and deferring it was agreed only
+  *"provided it is reported rather than silently skipped"*. A bare null would make "not implemented"
+  indistinguishable from "corrupt file" and from "nothing was playing", and silence that reports
+  nothing is this area's characteristic failure. The probe now counts refusals **by reason** for the
+  same purpose: "12 sounds would not decode" cannot say whether that is two ADPCM files or a broken
+  MP3 path, and those want different work.
+
+**NLayer needed no fallback.** The benchmark that chose it measured 0.4 ms for a voice line against
+a 100 ms `snd_mixahead` budget; against the corpus it also decoded every MP3 without one malformed-
+input refusal. The C and COM options costed in `docs/findings/31-game-audio.md` stay unbuilt.
