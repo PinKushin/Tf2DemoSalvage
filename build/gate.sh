@@ -104,7 +104,10 @@ run Tf2DemoSalvage.Audio.Tests    audio      28
 # checks SoundScript's defaults against CSoundParameters' constructor, its SNDLVL_/CHAN_ resolution
 # against soundflags.h and the shipped script headers, and then reads all 21 game_sounds*.txt files
 # TF2 ships — 13,052 entries, every one required to carry a wave and an in-range soundlevel.
-run Tf2DemoSalvage.Content.Tests  content   638
+# 648: SoundScriptCatalogConformanceTests (10). The manifest decides which scripts load, and that is
+# not the same set as a glob: TF2 ships 20 game_sounds*.txt files, the manifest lists 16, and reading
+# it rather than globbing excludes 3,910 entries the engine does not have.
+run Tf2DemoSalvage.Content.Tests  content   648
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 run Tf2DemoSalvage.Corpus.Tests   corpus     96
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
