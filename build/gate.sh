@@ -100,7 +100,7 @@ run Tf2DemoSalvage.Audio.Tests    audio      28
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
-run Tf2DemoSalvage.Content.Tests  content   613
+run Tf2DemoSalvage.Content.Tests  content   626
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 run Tf2DemoSalvage.Corpus.Tests   corpus     96
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers

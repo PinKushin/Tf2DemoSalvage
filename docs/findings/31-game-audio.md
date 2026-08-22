@@ -110,3 +110,36 @@ for whoever continues:
   these — then decompiling.
 
 Related: `docs/DECISIONS.md` D51 for why the mixing is ours and the output device is a sink.
+
+## The WAV reader, and the one file that proved it too strict
+
+*(evidence class: measured on the shipped game)*
+
+`RiffWave` walks the chunks — it does not take the format at offset 20, because Valve ships its own
+`VDAT` and `PADD` chunks and a sample rate read out of one of those plays the sound at the wrong
+speed rather than failing. Odd-sized chunks carry a pad byte the size does not count, so skipping
+exactly `size` lands one byte early on everything after it.
+
+**Then it was run over all 2,757 shipped WAVs, and refused one.**
+
+`sound/player/taunt_eng_swoosh.wav` carries a valid `fmt ` at offset 12 and a valid `data` at 36 —
+100,924 bytes of audio, already read correctly — followed by `LIST`, `bext`, and an `FLLR` filler
+chunk. After `FLLR` the ids read as `filr`, then `ilrl`, then four zero bytes: an authoring tool's
+padding that nothing is meant to walk.
+
+The reader returned null for the whole file. **It threw away audio it had already parsed**, because
+of bytes past the end of everything it needed.
+
+The fix is one word — `break` rather than `return null` — and the rule behind it is worth stating:
+**a malformed chunk stops the walk; it does not condemn the file.** The engine reads `fmt ` and
+`data` and does not care what trails them. A file whose damage lands *before* both chunks still
+yields null, which is what the hostile-length test asserts, so the strictness that matters is
+retained.
+
+**Found by running against real data, not by thinking about it.** Ten hand-written fixtures all
+passed; the file that mattered was the 2,757th real one. That is
+`docs/memory/output-level-assertion-or-it-is-not-done.md` and `decode-must-be-total.md` arriving
+together — a majority is not the standard, because the engine opens every one of these.
+
+Sample rates across the 2,757: 44,100 for 2,449 of them, 22,050 for 302, 11,025 for four, and a
+single file at 48,000. So a mixer has to resample, and the common case is a 44.1 kHz source.
