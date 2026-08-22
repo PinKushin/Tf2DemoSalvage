@@ -420,11 +420,31 @@ the shape:
 GAIN = (snd_refdist / dist) * 10 ^ ( ( SNDLVL - snd_refdb - dist * snd_foliage_db_loss / 1200 ) / 20 )
 ```
 
-Fetching that file returns **HTTP 451 Unavailable For Legal Reasons**. That is a takedown, and
-routing around it is not the same act as decompiling a binary the owner has a licence to run — which
-this project already does and which `docs/DECISIONS.md` treats as a normal tool. The distinction is
-worth stating because the two get conflated: reverse-engineering the shipped binary is the sanctioned
-path here, and obtaining source that was removed on legal grounds is not.
+Fetching that file returns **HTTP 451 Unavailable For Legal Reasons**.
+
+**Whose decision this was, corrected 2026-08-22: the assistant's, taken without asking.** The
+original wording here presented "we do not route around the takedown" as a settled position of the
+project, which reads as the owner's by default. It was not — he was never consulted, and said so on
+being shown this:
+
+> i didnt make that choice not to use the leaked source, you did without asking
+
+Recorded because a decision attributed to the wrong person is worse than an unrecorded one: it
+cannot be revisited by the person who would actually have to revisit it, and it borrows authority it
+was never given. The same failure mode as the rest of this session's recovery work, arriving from
+the opposite direction — there a reason was lost, here one was invented.
+
+The reasoning offered for it stands on its own merits and nothing more: reverse-engineering a binary
+the owner is licensed to run is a different act from obtaining source that was removed on legal
+grounds, and this project already does the former freely.
+
+**The owner's actual position, given afterwards, makes the question mostly moot:**
+
+> for this i dont think its really super needed to copy valve directly because i dont think anyone
+> will be able to tell a small difference in far away sounds
+
+So exact parity on the distance curve is **not a requirement**. That downgrades B142 from a defect
+to be corrected into a refinement worth having if the binary is being read anyway.
 
 **The Valve Developer Community does not document it.** `snd_refdb` and `snd_refdist` do not appear
 on the wiki's console-variable pages at all.

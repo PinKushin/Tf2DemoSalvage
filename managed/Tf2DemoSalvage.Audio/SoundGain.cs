@@ -19,8 +19,10 @@ namespace Tf2DemoSalvage.Audio;
 ///
 /// **On the curve, and why this is not the leaked formula.** A search turns up an expression
 /// attributed to `snd_dma.cpp` in a mirror of leaked 2007 engine source; fetching it returns HTTP
-/// 451, and `docs/findings/31-game-audio.md` records the decision not to route around a legal
-/// takedown. That stands, and nothing here is copied from it.
+/// 451. The assistant declined to route around that takedown without asking — a call recorded in
+/// `docs/findings/31-game-audio.md` as the assistant's own, not the owner's, since the write-up
+/// originally implied otherwise. The owner's position is that exact parity is not needed here
+/// anyway, so B142 is a refinement rather than a defect.
 ///
 /// What is implemented instead is the **inverse-distance law**, arrived at independently: a constant
 /// named `snd_refdist` — *reference distance* — parameterises exactly one thing in every audio

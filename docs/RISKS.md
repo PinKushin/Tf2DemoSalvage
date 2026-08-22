@@ -8819,21 +8819,27 @@ neither "we follow the rule" nor "we violate it" is a supportable claim.
 Related: D56 for the rule and its reasoning, D2 for the native-C deferral the performance bet rests
 on.
 
-## B142 — the distance falloff curve is this project's, not Valve's — OPEN
+## B142 — the distance falloff curve is this project's, not Valve's — OPEN, LOW PRIORITY
 
 `SoundGain.AtDistance` implements an inverse-distance law anchored on `snd_refdist` (36, recovered
 from `engine.dll`) and faded to zero at the audible radius Valve publishes in `recipientfilter.cpp`.
 **The cutoff is Valve's; the shape between is ours.**
 
 The engine's own curve is in `snd_dma.cpp`, which is closed. A web search surfaces an expression
-attributed to it in a mirror of leaked 2007 source, and `docs/findings/31-game-audio.md` records the
-decision not to route around the HTTP 451 takedown that serves it — a decision unchanged here, and
-distinct from decompiling a binary the owner is licensed to run, which this project treats as a
-normal tool.
+attributed to it in a mirror of leaked 2007 source, served behind an HTTP 451 takedown. **The
+assistant declined to route around that without asking, and then wrote it up as a project position;
+the owner had never been consulted** — see `docs/findings/31-game-audio.md`, corrected 2026-08-22.
+The reasoning stands on its own merits and carries no authority beyond them.
 
-**Why this is a risk and not merely an approximation:** a wrong falloff sounds *fine*. Every sound
-plays, at a plausible volume, falling off plausibly with distance. Nothing reports it. It is only
-audible in comparison with the game, and only for someone who knows what the game sounds like.
+**The owner's position, once asked, is that exact parity is not needed here:** *"i dont think anyone
+will be able to tell a small difference in far away sounds"*. Hence LOW PRIORITY rather than open
+defect — this is a refinement to pick up if the binary is being read anyway (B143 wants the same
+function), not something to schedule on its own.
+
+**Why it is still worth recording as a risk:** a wrong falloff sounds *fine*. Every sound plays, at
+a plausible volume, falling off plausibly with distance, and nothing reports it. If the mix is ever
+judged wrong by ear, this is the first place to look — and knowing it was never Valve's curve is
+what makes that a five-minute conclusion rather than a day of debugging the mixer.
 
 **The tests were written to accommodate replacing it**, deliberately: they assert monotonicity,
 boundedness and the cutoff rather than pinning curve values, so the real formula can drop in without
