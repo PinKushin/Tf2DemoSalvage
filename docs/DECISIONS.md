@@ -2915,3 +2915,36 @@ The owner second-guessed `TcgDex.CSharpSdk` on the strength of this and was talk
 That dot is the legitimate kind — the language stands in for the product name, distinguishing this
 SDK from siblings for the same API. The rule is *"a dot must split two real things"*, not *"dots are
 bad"*, and applying it correctly leaves `TcgDex.CSharpSdk` alone.
+
+### Inside the code: .NET conventions win, and the exception is narrow
+
+**Added 2026-08-22.** This repository carries two standing instructions that can conflict — *match
+Valve's conventions* and *keep to proper .NET naming* — and which one governs was never written
+down. The owner's ruling:
+
+> ive told you to match valve, ive also told you to keep to proper .net naming conventions wherever
+> possible. The only time our naming may not be able to be .net convention, is when we have to name
+> it to match the sdk or it wont be called
+
+**So .NET conventions govern identifiers, and the exception is not stylistic — it is when the name
+is load-bearing.** "Or it won't be called" is the test: does anything resolve this name at runtime
+or by string lookup? If yes, spell it the way the thing on the other side spells it. If no, it is a
+C# identifier and gets PascalCase.
+
+| Load-bearing — spell it Valve's way | Not load-bearing — spell it .NET's way |
+|---|---|
+| wire property names (`m_flCycle`, `m_iRawValue32`) — these are **string data**, matched against the demo's own schema | the C# property that holds a decoded value |
+| shader and material parameters (`$detail`, `$basetexture`) | the type modelling a material |
+| game event field names, string table names (`soundprecache`) | the reader that walks them |
+| P/Invoke symbols, where the exported name must match | the managed wrapper method, which may rename via `EntryPoint` |
+
+**Most apparent conflicts are not conflicts**, which is why this needed saying rather than
+enforcing: `m_flCycle` and `$detail` live in *string literals* and lookup tables, and string
+literals have no naming convention to violate. The genuine cases are narrow — an exported symbol, a
+serialized member name — and everything else is an ordinary C# identifier that should look like one.
+
+The failure this prevents runs in both directions. Naming a C# property `m_flCycle` because the wire
+does imports Valve's convention into code that has no need of it; renaming the *string* to
+`Cycle` because .NET prefers PascalCase breaks the lookup silently, and a silent lookup failure here
+reads as missing data rather than as an error — see
+`docs/memory/lookups-must-match-exactly.md`.
