@@ -572,6 +572,20 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool HasPhong => Flag("$phong");
 
+    /// <summary>Whether this material marks a surface rather than being one.</summary>
+    /// <remarks>
+    /// <c>$decal</c> sets <c>MATERIAL_VAR_DECAL</c> (<c>imaterial.h:372</c>), and cp_process's wall
+    /// stripes carry it — <c>concrete/stripe_blue</c>, <c>overlays/stripe_red</c> and
+    /// <c>signs/team_blue</c> all declare <c>"$decal" "1"</c> on a <c>LightmappedGeneric</c> shader.
+    ///
+    /// **What the flag causes is not settled from published source.** Both places the SDK reads it
+    /// — <c>lightmappedgeneric_dx9_helper.cpp:155</c> and <c>BaseVSShader.cpp:2134</c> — only set
+    /// <c>MATERIAL_VAR_NO_DEBUG_OVERRIDE</c> with it, and whatever else the engine does with it is
+    /// in the closed surface renderer. So this reports the flag; the renderer decides what a
+    /// marking needs, and records its reasoning where it does (B135).
+    /// </remarks>
+    public bool IsDecal => Flag("$decal");
+
     /// <summary>Whether the material carries a rim light along its silhouette.</summary>
     /// <remarks>
     /// <c>SHADER_PARAM( RIMLIGHT, SHADER_PARAM_TYPE_BOOL, "0", "enables rim lighting" )</c>.

@@ -1129,6 +1129,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Materials blended with what is behind them, drawn last and sorted.</summary>
     private readonly HashSet<int> _translucent = [];
 
+    /// <summary>Materials that mark a surface rather than being one — <c>$decal</c>.</summary>
+    /// <remarks>
+    /// **The key that makes depth state a property of the MATERIAL (B135).** In Source every shader
+    /// declares its own render state in a <c>SHADOW_STATE</c> block and the material system applies
+    /// it on bind, so passes can be reordered freely and none inherits anything. This project set
+    /// state per pass instead, and the same defect appeared twice from opposite directions: a
+    /// translucent pass leaving a read-only depth state behind, so models drew without depth writes
+    /// (B72); and an overlay pass leaving the same state behind, so static props did (B135).
+    ///
+    /// <c>SetMaterial</c> now chooses the depth state from this and the blend sets above, which is
+    /// the engine's arrangement rather than a rule about who tidies up.
+    /// </remarks>
+    private readonly HashSet<int> _decalMaterials = [];
+
     /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
     private readonly Dictionary<int, bool> _modulate = [];
 
@@ -1140,6 +1154,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>The decal batches, drawn over the world with a depth bias.</summary>
     private IReadOnlyList<WorldBatch> _decals = [];
+
+    /// <summary>Depth state for an opaque pass: tested and written, nearer wins.</summary>
+    /// <remarks>
+    /// **Owned here because the props pass has to ESTABLISH it, not inherit it (B135).** The overlay
+    /// pass immediately before sets depth writes off — correctly, a marking must not occlude — and
+    /// the props pass then ran with that state, so static props stopped writing depth altogether.
+    /// Two props no longer occluded each other, and whichever drew last won per pixel: on
+    /// cp_process's mid, the rocks behind a shipping container drew straight through it.
+    ///
+    /// Exactly the defect B72 records, in the other direction — there a translucent pass left a
+    /// read-only state behind and the model pass inherited it. The rule it produced is the one that
+    /// was broken here: **a pass that depends on a state establishes it.**
+    /// </remarks>
+    private ComPtr<ID3D11DepthStencilState> _depthWrite;
 
     /// <summary>Static props, drawn after the overlays.</summary>
     /// <remarks>
@@ -1530,8 +1558,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // admits. Applied, the constant is 1.6% of the depth range, which at any distance is enough
         // to pull an overlay clean through the geometry in front of it — visible on cp_process as
         // signage floating in mid-air with no wall behind it.
+        // **Valve's slope-scaled term, and only that term.** Measured 2026-08-21 with both at zero:
+        // the stripes tore into diagonal hatching where the overlay and its wall alternate per
+        // pixel. That is z-fighting, and it is not avoidable by geometry — a fragment is the face's
+        // polygon CLIPPED, so it is a differently triangulated piece of the same plane, and two
+        // triangulations interpolate depth slightly differently across a pixel.
+        //
+        // **So this is what SHADER_POLYOFFSET_DECAL is trading against**, and the answer to "name
+        // the trade" (D46) for the offset Valve puts on every decal shader. Reproducing it needs the
+        // half that transfers: `SlopeScaledDepthBias` is a multiple of the polygon's depth GRADIENT,
+        // which is exactly what the interpolation difference is proportional to, and it means the
+        // same thing under any projection and any buffer format.
+        //
+        // The constant term stays at zero. It is a fixed fraction of the depth RANGE, so under
+        // perspective it is a sliver of a world unit up close and hundreds far away — which pulled
+        // overlays clean through the walls in front of them. Its value in Valve's config is a D3D9
+        // number besides, and the two APIs do not agree on what a depth bias is (D46, D48).
         biased.DepthBias = 0;
-        biased.SlopeScaledDepthBias = 0f;
+        biased.SlopeScaledDepthBias = -0.5f;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
@@ -1679,6 +1723,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _depthReadOnly = state2;
         }
 
+        if (_depthWrite.Handle is null)
+        {
+            // Tested and written, nearer wins — what an opaque pass needs, so the props pass can
+            // establish it rather than inherit whatever the overlay pass left behind.
+            DepthStencilDesc writing = default;
+
+            writing.DepthEnable = 1;
+            writing.DepthWriteMask = DepthWriteMask.All;
+            writing.DepthFunc = ComparisonFunc.Less;
+
+            ComPtr<ID3D11DepthStencilState> writingState = default;
+
+            SilkMarshal.ThrowHResult(
+                device.CreateDepthStencilState(in writing, ref writingState));
+
+            _depthWrite = writingState;
+        }
+
         if (_decalDepth.Handle is null)
         {
             // Tested but never written, compared with DecalDepthFunc — see both remarks.
@@ -1763,6 +1825,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             else if (texture is { IsTranslucent: true })
             {
                 _translucent.Add(index);
+            }
+
+            // **Recorded separately from the blend kinds, because it decides DEPTH rather than
+            // colour (B135).** A marking is drawn where its surface already is, so it must not write
+            // depth — Valve's decal shaders say `EnableDepthWrites( false )` — and it needs a
+            // slope-scaled offset to stop it fighting the surface it lies on. Whether it is also
+            // translucent is a separate question its material answers separately.
+            if (texture is { IsDecal: true })
+            {
+                _decalMaterials.Add(index);
             }
         }
 
@@ -2225,6 +2297,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         //
         // **Additive last**, which is unchanged: an additive fragment brightens whatever is behind
         // it, so anything drawn later would be added to nothing.
+        // **No pass sets a depth state here any more; SetMaterial does, on bind.** That is the
+        // engine's arrangement and the reason this ordering is safe to change at all — see the
+        // remarks there. A first fix established the writing state at the top of the props pass,
+        // which worked and left the next reordering to break the same way again.
         DrawOpaqueBatches(context, _batches);
         DrawDecals(context);
         DrawOpaqueBatches(context, _props);
@@ -2898,6 +2974,42 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private void SetMaterial(ComPtr<ID3D11DeviceContext> context, int materialIndex)
     {
+        // **The material carries its own depth state, which is the engine's arrangement (B135).**
+        // A shader in Source declares its render state in a SHADOW_STATE block and the material
+        // system applies it when the material is bound — `EnableDepthWrites( false )` in
+        // DecalModulate_dx9.cpp:66 is the plain case — so no pass inherits anything and the order
+        // of passes is free.
+        //
+        // Setting it per PASS instead produced the same defect twice from opposite ends: a
+        // translucent pass left a read-only state behind and models drew with no depth writes (B72),
+        // and an overlay pass left the same state behind and static props did, so the rocks behind
+        // a shipping container drew through it (B135). Both were fixed by making some pass tidy up
+        // after another; this is the fix that stops the class.
+        //
+        // **What is transcribed and what is inferred, kept apart (D44).** That a MARKING writes no
+        // depth is Valve's, in one line: EnableDepthWrites( false ) at DecalModulate_dx9.cpp:66.
+        // That a translucent, additive or modulate material writes none is this project's own
+        // convention — it matches what DrawTranslucent already did, and Valve's shaders disable
+        // writes conditionally per path (`bNoWriteZ`) rather than blanket-by-translucency, so it is
+        // an inference from "none of them replaces what is behind it" rather than something read.
+        //
+        // The $decal key itself is inferred too: MATERIAL_VAR_DECAL is named in imaterial.h:372 and
+        // cp_process's stripe materials declare "$decal" "1", but the table joining the two is in
+        // the closed material system. See DecalRenderStateConformanceTests.
+        bool marks = _decalMaterials.Contains(materialIndex);
+
+        bool blends = marks
+            || _translucent.Contains(materialIndex)
+            || _additive.Contains(materialIndex)
+            || _modulate.ContainsKey(materialIndex);
+
+        ComPtr<ID3D11DepthStencilState> depth = blends ? _decalDepth : _depthWrite;
+
+        if (depth.Handle is not null)
+        {
+            context.OMSetDepthStencilState(depth, 0);
+        }
+
         if (_material.Handle is null)
         {
             return;
@@ -3189,6 +3301,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _alphaBlend.Dispose();
         _depthReadOnly.Dispose();
         _decalDepth.Dispose();
+        _depthWrite.Dispose();
         ReleaseMap();
         _material.Dispose();
         _camera.Dispose();

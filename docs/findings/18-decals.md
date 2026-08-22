@@ -248,3 +248,47 @@ were wrong at once. They are also all of one kind — **not what the format says
 does with it**: an order, a cull mode, a write mask, a sort. `docs/CONFORMANCE.md` records the same
 conclusion from the other end: no conformance suite here describes a frame, so none of these could
 have been caught by a test.
+
+### The divergence underneath all of them: state belongs to the material, not to the pass
+
+*(evidence class: read from published source)*
+
+**Valve's code would have survived the pass reorder. Ours did not, and that is the finding.**
+
+Moving static props after the overlays broke them instantly: `DrawDecals` sets depth writes off —
+correct for a marking — and the props pass ran next and inherited it, so props stopped writing depth
+altogether. Two props no longer occluded each other and the rocks behind a shipping container drew
+straight through it.
+
+**In Source that cannot happen, because no pass inherits anything.** Every shader declares its own
+render state in a `SHADOW_STATE` block, and the material system snapshots it and applies it when the
+material is bound. `DecalModulate_dx9.cpp:62` is the plain example:
+
+```cpp
+SHADOW_STATE
+{
+    pShaderShadow->EnableAlphaTest( true );
+    pShaderShadow->AlphaFunc( SHADER_ALPHAFUNC_GREATER, 0.0f );
+    pShaderShadow->EnableDepthWrites( false );
+    pShaderShadow->EnablePolyOffset( SHADER_POLYOFFSET_DECAL );
+    ...
+    pShaderShadow->EnableBlending( true );
+```
+
+An opaque material turns writes **on** as it binds; a decal material turns them **off**. Order is
+therefore free: passes can be reordered, interleaved or sorted without any of them having to know
+what ran before.
+
+**This project sets state imperatively per pass** — `RSSetState`, `OMSetDepthStencilState` — which
+makes every pass boundary a place where the next one must remember to re-establish what it needs.
+B72 was this defect in the other direction: a translucent pass left a read-only depth state behind
+and the model pass inherited it, so models drew with no depth writes and a medkit covered the medic
+standing in front of it.
+
+So the same fault has now been found twice, from opposite ends, and the local fix both times was "the
+pass that depends on a state establishes it". **That rule is a workaround for not having
+material-owned state**, and it will keep costing until the render state moves onto the material where
+the engine keeps it.
+
+Not attempted here: it is a real change to how materials are bound, and it wants its own decision
+entry rather than being folded into a rendering fix.

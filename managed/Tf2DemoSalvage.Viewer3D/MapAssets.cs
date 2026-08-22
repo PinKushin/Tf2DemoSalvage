@@ -23,6 +23,12 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// over exactly what it exists to shade.
 /// </param>
 /// <param name="IsModulateTwice">Whether that multiply doubles, so mid grey changes nothing.</param>
+/// <param name="IsDecal">
+/// Whether the material MARKS a surface rather than being one — <c>$decal</c>,
+/// <c>MATERIAL_VAR_DECAL</c>. Carried per material because that is where the engine keeps render
+/// state: a shader declares its own in a <c>SHADOW_STATE</c> block and the material system applies
+/// it when the material is bound, so no pass inherits anything from the pass before it (B135).
+/// </param>
 /// <param name="IsNoCull">
 /// Whether the material draws from both sides. $nocull sets MATERIAL_VAR_NOCULL in the engine
 /// (imaterial.h:369) and shaders test it per material; everything else culls back faces.
@@ -66,7 +72,13 @@ internal readonly record struct MapTexture(
     bool MultipliesTextures = false,
     bool IsHalfLambert = false,
     float AlphaTestReference = 0f,
-    (float Red, float Green, float Blue, float Alpha)? Modulation = null);
+    (float Red, float Green, float Blue, float Alpha)? Modulation = null,
+
+    // **Whether this material MARKS a surface rather than being one.** $decal, MATERIAL_VAR_DECAL.
+    // Carried per material because that is where the engine keeps render state — a shader declares
+    // its own in a SHADOW_STATE block and the material system applies it on bind, so no pass ever
+    // inherits anything (B135).
+    bool IsDecal = false);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -1509,7 +1521,8 @@ internal sealed class MapAssets
                     // **Null rather than white when the material names neither**, so the renderer
                     // can tell "no modulation" from "modulation that happens to be the identity"
                     // and the census can report the parameter as consumed only where it is.
-                    material.IsModulated ? material.Modulation : null);
+                    material.IsModulated ? material.Modulation : null,
+                    material.IsDecal);
             }
             catch (InvalidDataException failure)
             {

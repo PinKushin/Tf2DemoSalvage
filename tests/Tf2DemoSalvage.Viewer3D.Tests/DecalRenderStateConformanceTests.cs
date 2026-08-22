@@ -106,6 +106,120 @@ public sealed class DecalRenderStateConformanceTests
         offscreen.ShouldNotContain("FormatD32Float");
     }
 
+    [Test]
+    public void RenderState_TheEngine_DeclaresItPerMaterialRatherThanPerPass()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        // **This is the divergence underneath B72 and B135 both.** In Source a shader declares its
+        // own render state in a SHADOW_STATE block, and the material system applies it when the
+        // material is bound — so an opaque material turns depth writes ON as it binds and a decal
+        // material turns them OFF, and no pass ever inherits anything from the pass before it.
+        //
+        // This project sets state imperatively per pass, which makes every pass boundary a place
+        // the next pass must remember to re-establish what it needs. Reordering the props pass after
+        // the overlays broke props instantly (B135); a translucent pass leaving a read-only state
+        // behind broke models the same way from the other direction (B72).
+        string shadow = SourceSdk.Text("src/public/shaderapi/ishadershadow.h")
+            ?? throw new InvalidOperationException("ishadershadow.h is missing");
+
+        // The interface is the evidence: these are per-shader declarations, not context calls.
+        foreach (string declaration in new[]
+        {
+            "EnableDepthWrites",
+            "EnableDepthTest",
+            "EnableBlending",
+            "EnablePolyOffset",
+            "EnableCulling",
+        })
+        {
+            shadow.ShouldContain(
+                declaration,
+                Case.Sensitive,
+                $"IShaderShadow declares {declaration}, so this state belongs to a material");
+        }
+
+        // And a decal shader uses it to differ from an opaque one, which is what makes the state
+        // per-material in practice rather than merely in principle.
+        string decal = SourceSdk.Text("src/materialsystem/stdshaders/DecalModulate_dx9.cpp")
+            ?? throw new InvalidOperationException("DecalModulate_dx9.cpp is missing");
+
+        decal.ShouldContain("SHADOW_STATE");
+        decal.ShouldContain("EnableDepthWrites( false )");
+
+        // The control: LightmappedGeneric — an ordinary opaque world material — does NOT disable
+        // depth writes, so the two materials genuinely carry different state. Without this the
+        // assertion above would be consistent with "every shader disables writes", which would make
+        // per-material state irrelevant to the defect.
+        string opaque = SourceSdk.Text("src/materialsystem/stdshaders/lightmappedgeneric_dx9_helper.cpp")
+            ?? throw new InvalidOperationException("lightmappedgeneric_dx9_helper.cpp is missing");
+
+        opaque.ShouldNotContain(
+            "EnableDepthWrites( false )",
+            Case.Sensitive,
+            "an opaque world material must keep depth writes, which is the contrast that makes " +
+            "render state a property of the material rather than of the pass");
+    }
+
+    [Test]
+    public void RenderState_EveryShader_StartsFromTheMaterialsOwnDefaults()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        string text = SourceSdk.Text("src/materialsystem/stdshaders/BaseVSShader.cpp")
+            ?? throw new InvalidOperationException("BaseVSShader.cpp is missing");
+
+        // **`SetInitialShadowState()` is the other half of per-material state.** Every shader's
+        // SHADOW_STATE block begins by establishing the material's defaults and then overrides what
+        // it needs — so binding a material always produces a complete state rather than a delta
+        // against whatever was set last. That is precisely what this project lacked when a pass
+        // could leave depth writes off for the pass after it (B72, B135).
+        text.ShouldContain("SetInitialShadowState");
+
+        // Conditional, and worth pinning as such: depth writes are turned off where a shader path
+        // needs it (`bNoWriteZ`), not blanket-disabled. This project treats translucent, additive
+        // and modulate materials as writing no depth, which matches its own existing passes and is
+        // NOT read from Valve — recorded as an inference in WorldRenderer.SetMaterial (D44).
+        text.ShouldContain("bNoWriteZ");
+    }
+
+    [Test]
+    public void DecalFlag_TheMaterialVariable_ExistsButItsVmtKeyIsNotPublished()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        string text = SourceSdk.Text("src/public/materialsystem/imaterial.h")
+            ?? throw new InvalidOperationException("imaterial.h is missing");
+
+        // The flag is real and named.
+        text.ShouldContain("MATERIAL_VAR_DECAL");
+
+        // **And this is what is NOT establishable, recorded so nobody re-derives it as settled.**
+        // The table mapping a VMT key such as `$decal` onto a MATERIAL_VAR_ flag lives in the closed
+        // material system; `$decal` is read here from the shipped VMTs of cp_process's wall stripes
+        // (OverlayMaterialProbe) and matched to this flag by naming convention alone. The convention
+        // is consistent — `$translucent` to MATERIAL_VAR_TRANSLUCENT, and so on — but consistency is
+        // not a citation.
+        //
+        // What the flag CAUSES is separately unknown: both published reads of it, at
+        // lightmappedgeneric_dx9_helper.cpp:155 and BaseVSShader.cpp:2134, only set
+        // MATERIAL_VAR_NO_DEBUG_OVERRIDE.
+        text.ShouldContain("MATERIAL_VAR_TRANSLUCENT");
+        text.ShouldContain("MATERIAL_VAR_NO_DEBUG_OVERRIDE");
+    }
+
     /// <summary>Walks up from the test binary to the repository root.</summary>
     private static string RepositoryRoot()
     {

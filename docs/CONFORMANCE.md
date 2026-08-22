@@ -348,3 +348,58 @@ hand-written suite checks a value against a citation. None of them describes a f
 exist, in what order, writing and testing what.
 
 That is the gap B135 fell into, and it is where the next conformance tests belong.
+
+---
+
+## Audit: 107 conformance tests assert nothing about this project
+
+**Counted 2026-08-21, after the owner named the flaw:**
+
+> "the conf tests have to test our code against valves or its really not testing anything because im
+> pretty sure valve tested their code themselves, a lot, so us retesting the unchanging sdk is
+> worthless."
+
+Measured by import: a file that imports `Tf2DemoSalvage.SdkReference` and **no** production
+namespace cannot be comparing anything of ours.
+
+| | files | tests |
+|---|---|---|
+| assert only against the SDK | **29** | **107** |
+| SDK **and** our code | 38 | — |
+| our code only | 364 | — |
+
+An SDK checkout does not change. Valve tested that code. So those 107 can fail for exactly two
+reasons — the checkout moved, or the grep was wrong — and neither is a fact about this renderer.
+
+**This is why none of them caught B135.** Four divergences in the overlay path, and the suite that
+exists to catch divergence was asserting that Valve's own file still says what it says.
+`ScenePassOrderConformanceTests` states the limitation in its own remarks — *"it cannot go red on
+ours"* — and was committed that way.
+
+### What a conformance test has to look like instead
+
+`OverlayOcclusionRenderTests` is the pattern: **Valve's rule is the citation, our pixels are the
+assertion.** It renders a wall, a marking on it, and something in front, then names which surface won
+each pixel by its colour.
+
+Getting it to measure anything took four corrections, all of them classic:
+
+1. **Wrong instrument.** First version asserted the centre pixel was non-black — "something drew",
+   where the variable is "which thing drew". Passed identically with the defect restored.
+2. **Wrong fixture.** Hand-built quads wound anticlockwise, which the now-culled overlay pass
+   discards, so the marking never drew. The CONTROL caught it.
+3. **Wrong material.** Depth state is per material now, so a marking whose material lacks `$decal`
+   correctly gets the opaque state and loses to its own wall. The fixture has to use a material the
+   map really declares as a marking.
+4. **Effect size below resolution.** The occluder was placed 0.4 in front of the marking while the
+   bias under test is 0.0156 — far beyond its reach, so both arrangements drew the same picture. The
+   gap has to be smaller than the bias for the two to differ at all.
+
+Only after the fourth did it go red under sabotage. **Three of those four produced a green test that
+proved nothing**, which is the same failure the 107 have, arrived at from a different direction.
+
+### The work this implies
+
+Each of the 29 files should either compare an SDK-derived value against **ours**, or be re-stated as
+what it actually is — a gap marker, which is a different thing with a different job (D45). Not
+attempted here; it is a sweep, and it wants doing with the list above rather than opportunistically.
