@@ -1983,10 +1983,46 @@ picture. Reproduce the *intent* instead, and say in the code which premise lapse
 sound. The question then changes from "what is this trading against" to "what did Direct3D 9 do here
 that Direct3D 11 does not".
 
-Already met: the decal bias. `m_DepthBias_Decal = -262144` is a D3D9-era value, and the two APIs do
-not agree on what a depth bias is — D3D9's `D3DRS_DEPTHBIAS` is a float added to depth, D3D11's is an
-integer scaled by a factor the buffer format decides. The number cannot mean the same thing in both,
-whatever the format (D48).
+> **Reversal, 2026-08-21 — the worked example of this qualification was wrong, and it was mine.**
+>
+> This paragraph used to read: *"Already met: the decal bias. `m_DepthBias_Decal = -262144` is a
+> D3D9-era value, and the two APIs do not agree on what a depth bias is — D3D9's `D3DRS_DEPTHBIAS`
+> is a float added to depth, D3D11's is an integer scaled by a factor the buffer format decides. The
+> number cannot mean the same thing in both, whatever the format."*
+>
+> **They do agree, and Valve says so in published source.** `public/togl/linuxwin/dxabstract.h:966`
+> is Valve's own D3D9-to-OpenGL translation layer handling that exact render state:
+>
+> ```cpp
+> case D3DRS_DEPTHBIAS:            // kGLDepthBias
+> {
+>     // the value in the dword is actually a float
+>     float fvalue = *(float*)&Value;
+>     gl.m_DepthBias.units = fvalue;
+> ```
+>
+> `units` is the second argument of `glPolygonOffset(factor, units)`, which OpenGL scales by **r,
+> the smallest resolvable depth difference** — 1/2²⁴ on a 24-bit fixed-point buffer. Direct3D 11
+> defines its integer `DepthBias` with the same scale on a UNORM format. **One quantity, three
+> APIs**, and Valve's constant transfers unchanged: −262144 · r = −0.015625 of the depth range under
+> any of them.
+>
+> The constant is now set to Valve's value, and `DecalRenderStateConformanceTests` parses it out of
+> `materialsystem_config.h` and asserts ours equals it.
+>
+> **What made this expensive is that it was the *illustration* of a real rule.** The qualification
+> above is sound — a trade can expire — and attaching a false example to a true rule makes the
+> example inherit the rule's authority. It sat here as the canonical case of "the premise lapsed"
+> and was quoted twice more, in `WorldRenderer` and in `docs/HANDOFF.md`, in both places as settled.
+>
+> **And it was reachable the whole time.** `togl` is in `source-sdk-2013`, in the same checkout every
+> other citation here comes from. Nobody looked, because the claim sounded like an API fact rather
+> than like something Valve would have written down — which is the same shape as
+> [[nothing-is-closed]] and the "TF2's game code is closed" correction in `docs/CONFORMANCE.md`.
+> **The tell is a confident claim about someone else's system with no citation attached.**
+
+**A genuine instance of the qualification is still wanted**, and the decal bias is no longer it. The
+rule stands on its own reasoning; what it lacks now is a case that actually demonstrates it.
 
 **Console paths are simply out of scope, and need no weighing:** *"for all intents we can ignore tf2
 on console, its not even current"*. The console versions were the 2007 Orange Box release and never
@@ -2120,10 +2156,23 @@ certain, recurring debugging cost — the owner's argument, and the right one.
 float precision with a projection's depth distribution and would beat both options in the far field.
 Parity was chosen over it deliberately. The eight stencil bits are unused.
 
-**What it does not license.** Copying Valve's depth constants now that the format agrees. The
-arithmetic in B70 shows `m_DepthBias_Decal` cannot be applied as a plain rasteriser bias in the world
-pass even at Valve's own near and far planes, so having their number is still not having their
-mechanism. Matching the format removes a confound; it does not import a solution.
+**What it does not license.** Copying Valve's depth constants now that the format agrees. Matching
+the format removes a confound; it does not by itself import a solution.
+
+> **Amended 2026-08-21.** This paragraph went on to say the arithmetic in B70 showed
+> `m_DepthBias_Decal` *"cannot be applied as a plain rasteriser bias in the world pass even at
+> Valve's own near and far planes"*. **With the format matched, it can be, and it now is.**
+>
+> `DecalState.ConstantBias` is Valve's −262144 and `DecalRenderStateConformanceTests` parses the
+> number out of `materialsystem_config.h` to check it. What settled the units was `togl` — see the
+> reversal recorded under D46 — and what settled the behaviour was rendering it:
+> `OverlayOcclusionRenderTests` puts an occluder either side of the bias's reach and measures which
+> surface wins each pixel.
+>
+> The caution was not baseless, it was just aimed at the wrong thing. The constant genuinely does
+> misbehave under an ORTHOGRAPHIC projection, where depth is linear over a whole map's height and
+> 1.6% of the range is about twenty-five world units. That is D49's problem, not the constant's, and
+> D49 is removing the camera responsible.
 
 ---
 

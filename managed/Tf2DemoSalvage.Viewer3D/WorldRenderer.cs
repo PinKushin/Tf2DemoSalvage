@@ -1179,58 +1179,31 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private IReadOnlyList<WorldBatch> _props = [];
 
-    /// <summary>Depth comparison the overlay pass draws with.</summary>
+    /// <summary>Depth state for the overlay pass, built from <see cref="DecalState"/>.</summary>
     /// <remarks>
-    /// **`LessEqual`, because an overlay fragment is coplanar with the wall by construction.** Since
-    /// B134 it is built from that wall's own vertices, clipped in the wall's own plane — so it
-    /// rasterises to exactly the wall's depth, and a comparison that rejects equality would reject
-    /// the marking outright.
+    /// Tested, never written, compared <c>LessEqual</c>. The values and the reasoning behind each
+    /// are on <see cref="DecalState"/>, which is also what
+    /// <c>DecalRenderStateConformanceTests</c> compares against Valve's — deliberately one place,
+    /// so a number and its justification cannot drift apart.
     ///
-    /// **That coplanarity is measured, not assumed.** Run with every bias at zero, the stripes do
-    /// not flicker — which is what z-fighting would look like if the fragments were merely close to
-    /// their walls rather than on them. An earlier attempt at the same experiment left the
-    /// slope-scaled bias in and proved nothing.
-    /// </remarks>
-    private const ComparisonFunc DecalDepthFunc = ComparisonFunc.LessEqual;
-
-    /// <summary>Depth state for the overlay pass: tested, never written.</summary>
-    /// <remarks>
-    /// **Writing depth is what let a stripe hide a pipe (B135).** An overlay is a marking on a wall
-    /// that has already written its own depth; writing again — especially through a rasteriser bias,
-    /// which puts a NEARER value in the buffer than the wall ever had — leaves everything drawn
-    /// afterwards testing against a surface that does not exist.
-    ///
-    /// Valve's decal shaders say the same in one line — <c>EnableDepthWrites( false )</c>,
-    /// <c>DecalModulate_dx9.cpp:66</c> — though for sprayed decals rather than overlays, so applying
-    /// it here is an interpolation (D44) rather than a transcription. The reasoning stands on its
-    /// own: nothing that marks a surface should occlude what stands in front of it.
+    /// Valve's decal shaders set this for sprayed decals rather than for overlays, so applying it
+    /// here is an interpolation (D44) rather than a transcription. The reasoning stands on its own:
+    /// nothing that marks a surface should occlude what stands in front of it.
     /// </remarks>
     private ComPtr<ID3D11DepthStencilState> _decalDepth;
 
-    /// <summary>Rasteriser state that pulls a decal toward the camera.</summary>
+    /// <summary>Rasteriser state for the overlay pass, built from <see cref="DecalState"/>.</summary>
     /// <remarks>
-    /// **Valve's own numbers, from materialsystem_config.h**, which is published even though the
-    /// overlay renderer is not:
+    /// Back faces culled, no constant bias, Valve's slope-scaled term. Each of those three and its
+    /// reason are on <see cref="DecalState"/>.
     ///
-    /// <code>
-    /// m_SlopeScaleDepthBias_Decal = -0.5f;
-    /// m_DepthBias_Decal = -262144;
-    /// </code>
-    ///
-    /// Against a 24-bit depth buffer, -262144 is a push of 262144 / 2^24, about **1.6% of the
-    /// range** — and that is the trap. Valve's projection is perspective, where most of the depth
-    /// range sits close to the camera, so 1.6% near the surface being decalled is a fraction of a
-    /// unit. This projection is orthographic over the whole map's height: 1.6% of a 1,600-unit
-    /// range is **twenty-five world units**, which is taller than a health pack.
-    ///
-    /// The visible result was a decal painted over the pickup standing on it, with the pack's
-    /// shape faintly showing through — reported as "the health packs are not drawing" and chased
-    /// through the model pipeline for an evening. Comparing against TF2 itself is what settled it:
-    /// in game the pack sits clearly on top of a much smaller patch.
-    ///
-    /// So the bias is computed from the map's own height range to be worth about one world unit,
-    /// which is what Valve's constant achieves in Valve's projection. Copying the number without
-    /// matching the projection copies the intent and inverts the effect.
+    /// **The history worth keeping here is what the constant bias did when it was applied.** At
+    /// 262144/2²⁴ it is 1.6% of the depth range, and this projection is orthographic over a whole
+    /// map's height — so 1.6% of a 1,600-unit range is **twenty-five world units**, taller than a
+    /// health pack. The visible result was a marking painted over the pickup standing on it, with
+    /// the pack's shape faintly showing through, reported as "the health packs are not drawing" and
+    /// chased through the model pipeline for an evening. Comparing against TF2 itself is what
+    /// settled it: in game the pack sits clearly on top of a much smaller patch.
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
 
@@ -1513,69 +1486,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SilkMarshal.ThrowHResult(
             device.CreateRasterizerState(in mirroredRasterizer, ref mirrored));
 
-        // The same state pulled toward the camera, by an amount worth about a world unit rather
-        // than by Valve's raw constant - see the remarks on _decalOffset.
+        // **The overlay pass's rasteriser, entirely from DecalState.** Back faces culled, no
+        // constant bias, Valve's slope-scaled term — each value's reasoning, its citation and the
+        // measurement behind it live on that type, which is also what the conformance test compares
+        // against Valve's own numbers. Nothing here is a literal, deliberately: a value the test
+        // reads and a value the state is built from have to be the same value.
         RasterizerDesc biased = rasterizer;
 
-        // **Valve's own values, on Valve's own buffer format — a combination that had never
-        // existed here until D48 (B135).**
-        //
-        //   m_DepthBias_Decal          = -262144
-        //   m_SlopeScaleDepthBias_Decal = -0.5f
-        //
-        // public/materialsystem/materialsystem_config.h:223.
-        //
-        // **Both previous attempts at this constant were run against a D32_FLOAT buffer** — on
-        // 2026-08-14 and again earlier on 2026-08-21 — and both were reverted after the decals
-        // floated. Neither was a test of Valve's value. D3D11 scales a rasteriser's DepthBias by a
-        // factor the FORMAT decides: the fixed 1/2^24 for UNORM, which is what the constant is
-        // calibrated against, and a data-dependent 2^(exponent−23) for FLOAT, roughly double near a
-        // depth of 1 and applied at every range rather than shrinking with it. The format was only
-        // matched to the engine's in D48, after the second revert.
-        //
-        // So this is the first time the number means what Valve means by it. Kept together with the
-        // depth-write behaviour their decal shaders set — see _decalDepth — because the two are one
-        // arrangement rather than two knobs.
-        // **Back faces culled, like every other material the engine draws (B135).** This state was
-        // copied from the both-sided one the world uses, so an overlay drew on the far side of a
-        // wall as well as the near one — cp_process's REDSTONE CARGO lettering appeared MIRRORED
-        // through its own silo, which is the back face of the overlay seen from behind. An
-        // `info_overlay`'s material is drawn with the material's cull mode, and
-        // `MATERIAL_CULLMODE_CCW` — "this culls polygons with counterclockwise winding",
-        // `imaterialsystem.h:180` — is the engine's default. Same reasoning and same winding as the
-        // model state above.
-        biased.CullMode = CullMode.Back;
-
-        // **No constant bias, on D46's own qualification rather than on arithmetic.** Valve's
-        // `m_DepthBias_Decal = -262144` is a Direct3D 9 value, and the two APIs do not agree on what
-        // a depth bias IS: D3D9's `D3DRS_DEPTHBIAS` is a float added to depth, D3D11's an integer
-        // scaled by a factor the buffer format decides. The premise the constant was chosen under
-        // has expired, so the thing to reproduce is the INTENT — an offset just large enough to stop
-        // a marking fighting the surface it lies on.
-        //
-        // Here that intent needs nothing, because since B134 a fragment is the wall's own vertices
-        // clipped in the wall's own plane: it rasterises to the wall's own depth, which LessEqual
-        // admits. Applied, the constant is 1.6% of the depth range, which at any distance is enough
-        // to pull an overlay clean through the geometry in front of it — visible on cp_process as
-        // signage floating in mid-air with no wall behind it.
-        // **Valve's slope-scaled term, and only that term.** Measured 2026-08-21 with both at zero:
-        // the stripes tore into diagonal hatching where the overlay and its wall alternate per
-        // pixel. That is z-fighting, and it is not avoidable by geometry — a fragment is the face's
-        // polygon CLIPPED, so it is a differently triangulated piece of the same plane, and two
-        // triangulations interpolate depth slightly differently across a pixel.
-        //
-        // **So this is what SHADER_POLYOFFSET_DECAL is trading against**, and the answer to "name
-        // the trade" (D46) for the offset Valve puts on every decal shader. Reproducing it needs the
-        // half that transfers: `SlopeScaledDepthBias` is a multiple of the polygon's depth GRADIENT,
-        // which is exactly what the interpolation difference is proportional to, and it means the
-        // same thing under any projection and any buffer format.
-        //
-        // The constant term stays at zero. It is a fixed fraction of the depth RANGE, so under
-        // perspective it is a sliver of a world unit up close and hundreds far away — which pulled
-        // overlays clean through the walls in front of them. Its value in Valve's config is a D3D9
-        // number besides, and the two APIs do not agree on what a depth bias is (D46, D48).
-        biased.DepthBias = 0;
-        biased.SlopeScaledDepthBias = -0.5f;
+        biased.CullMode = DecalState.Cull;
+        biased.DepthBias = DecalState.ConstantBias;
+        biased.SlopeScaledDepthBias = DecalState.SlopeScaledBias;
 
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
@@ -1743,12 +1663,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         if (_decalDepth.Handle is null)
         {
-            // Tested but never written, compared with DecalDepthFunc — see both remarks.
+            // Tested but never written, compared with DecalState.DepthFunc — see its remarks.
             DepthStencilDesc overlayDepth = default;
 
             overlayDepth.DepthEnable = 1;
-            overlayDepth.DepthWriteMask = DepthWriteMask.Zero;
-            overlayDepth.DepthFunc = DecalDepthFunc;
+
+            overlayDepth.DepthWriteMask =
+                DecalState.WritesDepth ? DepthWriteMask.All : DepthWriteMask.Zero;
+
+            overlayDepth.DepthFunc = DecalState.DepthFunc;
 
             ComPtr<ID3D11DepthStencilState> overlayState = default;
 

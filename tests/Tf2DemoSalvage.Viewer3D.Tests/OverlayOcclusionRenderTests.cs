@@ -95,18 +95,21 @@ public sealed class OverlayOcclusionRenderTests
     {
         // **The case a depth bias actually decides, and the two tests above cannot.** With depth
         // writes off a marking never writes, so a prop drawn afterwards tests against the WALL and
-        // wins whatever bias the marking carried — which is why restoring Valve's -262144 changed
-        // nothing in either of them. The bias only decides whether the marking itself clears
-        // geometry standing in front of it.
+        // wins whatever bias the marking carried. The bias only decides whether the marking itself
+        // clears geometry standing in front of it.
         //
         // The owner saw this on cp_process as signage floating in mid-air and REDSTONE CARGO
         // readable through its own silo.
         //
-        // **The GAP is the condition, and the first version of this test got it backwards.** Valve's
-        // -262144 against a 24-bit buffer is 0.0156 of the depth range — 1.6%. An occluder placed
-        // 0.4 in front is therefore far beyond its reach, and the test passed with the bias restored
-        // while claiming to detect it. The gap has to be SMALLER than the bias for the two
-        // arrangements to differ at all: 0.005 here, a third of it.
+        // **The GAP is the condition, and this test has had it wrong in both directions.** Valve's
+        // -262144 against a 24-bit buffer is 0.015625 of the depth range. An occluder 0.4 in front
+        // is far beyond its reach, so the first version passed with the defect restored. It was then
+        // narrowed to 0.005 — a third of the bias — which made it sensitive and made it assert that
+        // this renderer must NOT do what Valve's constant does. That case is real and is measured by
+        // the test below, as the trade rather than as a defect.
+        //
+        // Here the gap is 0.05, three times the bias, which is the arrangement the visible defect
+        // was: signage floating clear of a silo, not a marking bleeding through a hairline gap.
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
         if (target is null)
@@ -130,7 +133,7 @@ public sealed class OverlayOcclusionRenderTests
         // The occluder goes in the WORLD batch, so it is in the depth buffer before the overlay
         // pass runs — the same position a wall between the camera and a marked surface occupies.
         (List<WorldVertex> occluder, WorldBatch occluderBatch) =
-            Quad(0.895f, material: 0, firstVertex: 12, colour: (0f, 1f, 0f), half: 0.5f);
+            Quad(0.85f, material: 0, firstVertex: 12, colour: (0f, 1f, 0f), half: 0.5f);
 
         List<WorldVertex> all = [.. wall, .. mark, .. occluder];
 
@@ -149,6 +152,70 @@ public sealed class OverlayOcclusionRenderTests
 
         // The control: outside the occluder the marking IS what should be there, so a marking that
         // simply never drew could not pass the assertion above.
+        (int cornerRed, int cornerGreen, int cornerBlue) = target.PixelAt(4, 4);
+
+        Winner(cornerRed, cornerGreen, cornerBlue).ShouldBe(
+            "marking", "outside the occluder the marking on the wall is what draws");
+    }
+
+    [Test]
+    public void Render_AnOccluderNearerThanTheBias_LosesToTheMarkingAsValvesConstantIntends()
+    {
+        // **The trade `SHADER_POLYOFFSET_DECAL` makes, recorded as behaviour rather than as a bug.**
+        // A depth bias moves a marking toward the camera by a fixed fraction of the depth range, so
+        // anything standing in front of it by LESS than that fraction is beaten. That is not a
+        // defect in this renderer; it is what the constant is for, and Valve accepts it in exchange
+        // for markings that do not z-fight with the surfaces they lie on.
+        //
+        // 0.005 against a bias of 0.015625 — a third of it. The sibling test above uses 0.05, three
+        // times the bias, and asserts the opposite outcome. **Two conditions either side of one
+        // threshold is what makes this a measurement of the bias rather than of the fixture**, and
+        // it is why the pair is worth more than either alone: a renderer with no bias at all passes
+        // the sibling and fails this one.
+        //
+        // Under perspective, which is what Valve draws with and what D49 moves this project to, a
+        // 0.005 slice of NDC depth is a fraction of a world unit near the camera — so the case this
+        // test describes is a hairline, not the signage-floating-off-a-silo the owner reported.
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        (List<WorldVertex> wall, WorldBatch wallBatch) =
+            Quad(0.9f, material: 0, firstVertex: 0, colour: (0f, 0f, 1f));
+
+        (List<WorldVertex> mark, WorldBatch markBatch) =
+            Quad(0.9f, material: DecalMaterial(assets), firstVertex: 6, colour: (1f, 0f, 0f));
+
+        (List<WorldVertex> occluder, WorldBatch occluderBatch) =
+            Quad(0.895f, material: 0, firstVertex: 12, colour: (0f, 1f, 0f), half: 0.5f);
+
+        List<WorldVertex> all = [.. wall, .. mark, .. occluder];
+
+        target.Clear(0f, 0f, 0f);
+
+        target.DrawWorld(
+            all, [wallBatch, occluderBatch], Identity, assets, surfaceColours: true,
+            decals: [markBatch]);
+
+        (int red, int green, int blue) = target.PixelAt(32, 32);
+
+        Winner(red, green, blue).ShouldBe(
+            "marking",
+            "an occluder closer than the bias is beaten by it — remove the constant bias and this " +
+            "reports the prop, which is how the pair distinguishes a biased pass from an unbiased one");
+
+        // The control: the marking has to be drawing at all for the assertion above to mean it won
+        // a contest rather than that the occluder simply was not there.
         (int cornerRed, int cornerGreen, int cornerBlue) = target.PixelAt(4, 4);
 
         Winner(cornerRed, cornerGreen, cornerBlue).ShouldBe(

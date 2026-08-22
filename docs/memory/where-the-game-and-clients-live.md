@@ -40,7 +40,20 @@ and *"the decomp paths were supposed to be added to memory"*.
 
 **The binaries are ALSO on F: as ordinary game installs** — `F:\tf2-builds\{tf2-2007,tf2-2008,tf2-2011,tf2-2013,probe-2011,probe-2013}`, each with `bin\engine.dll` and most with `bin\shaderapidx9.dll`. Those are the source material; `D:\ghidra-proj\bin` holds the copies that were imported and analysed.
 
-**Note what is NOT imported: `shaderapidx9.dll`.** So a rendering-state question — how `SHADER_POLYOFFSET_DECAL` becomes a Direct3D bias, for instance — needs a fresh import from `F:\tf2-builds\…\bin\shaderapidx9.dll` before it can be asked. The existing project is aimed at the demo format, not the renderer.
+**Note what is NOT imported: `shaderapidx9.dll`.** So a rendering-state question needs a fresh import before it can be asked. The existing project is aimed at the demo format, not the renderer.
+
+**Decompile the LIVE client by default; reach for a period build only when the question is about
+that era.** Owner's direction, 2026-08-21: *"you shoiuld probably use the modern client for most
+decomps really, unless we are doing something that we need to check the old clients for, like why
+demos failed or something"*.
+
+The era builds exist to answer era questions — why a 2011 demo will not play, when a protocol
+changed, which message id moved. A question about how the renderer works today is answered by the
+binary that renders today, and picking a 2008 DLL for it means measuring a build nobody runs.
+
+It bites here in particular: **the only `shaderapidx9.dll` under `F:\tf2-builds` is the 2008 one**,
+so a sweep of that folder finds exactly the wrong binary and finds it easily. The live one is at
+`F:\SteamLibrary\steamapps\common\Team Fortress 2\bin\shaderapidx9.dll`.
 
 **The pattern for running it** is in `run-engine.sh`: set `_JAVA_OPTIONS`, call `analyzeHeadless` with the project directory and name, `-import` the DLL, `-scriptPath` the scripts folder, `-postScript` the analysis, and redirect both streams to a log with `</dev/null`. Output goes to `out/`.
 

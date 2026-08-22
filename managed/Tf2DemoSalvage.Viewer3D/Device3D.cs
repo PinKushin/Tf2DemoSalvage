@@ -1010,6 +1010,20 @@ internal sealed unsafe class Device3D : IDisposable
     /// which pairs float precision with a projection's distribution and would beat both options in
     /// the far field. Parity was chosen over it deliberately. The eight stencil bits are unused.
     /// </remarks>
+    /// <summary>The depth buffer format, matching the engine's (D48).</summary>
+    /// <remarks>
+    /// **Named rather than repeated, because two buffers have to agree and a test has to be able to
+    /// ask.** <see cref="OffscreenTarget"/> builds its depth buffer from this same constant: a
+    /// D3D11 rasteriser's <c>DepthBias</c> is scaled by a factor the FORMAT decides — a fixed 1/2²⁴
+    /// for UNORM, data-dependent for FLOAT — so a capture on one format and a window on the other
+    /// place markings differently, and the capture is what tests and screenshots are read from.
+    ///
+    /// It was two literals in two files until the conformance sweep, and the test that checked they
+    /// agreed did it by reading both files as TEXT. That instrument passes on a comment and fails
+    /// on a rename, neither of which is the question.
+    /// </remarks>
+    internal const Format DepthFormat = Format.FormatD24UnormS8Uint;
+
     private void CreateDepthView()
     {
         Texture2DDesc description = new()
@@ -1018,7 +1032,7 @@ internal sealed unsafe class Device3D : IDisposable
             Height = (uint)_height,
             MipLevels = 1,
             ArraySize = 1,
-            Format = Format.FormatD24UnormS8Uint,
+            Format = DepthFormat,
             SampleDesc = new SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)BindFlag.DepthStencil,

@@ -8505,6 +8505,40 @@ known state and overrides only what it means to.
 Blending and depth writing are therefore **two separate decisions** there, made per shader. Here they
 are one decision made by a category.
 
+### Measured 2026-08-21: Valve's correlation is 70%, not a rule
+
+The paragraph below used to argue this from principle. It can be counted instead, across the 213
+published shaders in `materialsystem/stdshaders`:
+
+| | shaders |
+|---|---:|
+| call `EnableBlending( true )` | **60** |
+| ...and also `EnableDepthWrites( false )` | 42 |
+| ...and **keep** depth writes | **18** |
+
+**So 30% of Valve's blending shaders write depth**, and this project's rule gets every one of them
+wrong. The count is by file rather than by `SHADOW_STATE` block, which makes 42 an upper bound on
+agreement and leaves **18 as a firm lower bound on disagreement** — a file containing no
+`EnableDepthWrites( false )` anywhere cannot be tying the two.
+
+**The clearest single counterexample is an overlay**, which is what makes it load-bearing here rather
+than academic. `overlay_fit.cpp` blends `SRC_ALPHA / ONE_MINUS_SRC_ALPHA`, takes the decal poly-offset
+— `EnablePolyOffset( SHADER_POLYOFFSET_DECAL )`, line 68 — and **never disables depth writes**. Under
+our rule that material would get writes off; under Valve's it gets them on, with the bias.
+
+That same line settles a separate question in the other direction: `SHADER_POLYOFFSET_DECAL` is **not
+exclusive to sprayed decals**, so applying the decal bias to overlays is a transcription rather than
+the D44 interpolation it has been carried as. The bias half is now sourced; the depth-write half is
+now sourced *against* us.
+
+**Still open, and it is what decides the fix:** which shader actually draws a TF2 `info_overlay`.
+`overlay_fit` is a dx8-era shader with its own name; an `info_overlay` in TF2 carries whatever
+material the mapper assigned, ordinarily `LightmappedGeneric` with `$decal 1` — and
+`LightmappedGeneric` calls `EnablePolyOffset` nowhere. So the offset is likely applied by the
+material system off `MATERIAL_VAR_DECAL`, which is the same closed surface-renderer question as
+"what does the flag cause" in `findings/18-decals.md`. **Do not change the depth-write rule before
+settling that**, or the fix is another invented convention.
+
 ### Why it matters even though the picture is currently right
 
 **A rule that is right by coincidence fails silently when the coincidence ends.** Every material this

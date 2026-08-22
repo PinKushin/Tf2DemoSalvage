@@ -427,7 +427,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // see is worse than no picture, which is the same trap the comment above records.
         Texture2DDesc depthDescription = description with
         {
-            Format = Format.FormatD24UnormS8Uint,
+            Format = Device3D.DepthFormat,
             BindFlags = (uint)BindFlag.DepthStencil,
         };
 

@@ -330,3 +330,81 @@ renderer rather than in the material system, so a second decompilation target wo
 `D:\ghidra-proj` already had the pattern — `analyzeHeadless`, `-import`, `-postScript` — and the
 binaries are ordinary game files on `F:`. A decompilation question here is an afternoon's habit, not
 an expedition, and this one had been carried as an unresolved inference for want of trying it.
+
+---
+
+## `m_DepthBias_Decal` is `glPolygonOffset`'s `units`, and it transfers to D3D11 unchanged
+
+*(evidence class: read from published source — Valve's own D3D9-to-OpenGL layer)*
+
+**This project spent two evenings and three reverts on Valve's decal bias, and the whole time the
+answer was in the same SDK checkout every other citation here comes from.**
+
+The constant is `m_DepthBias_Decal = -262144`, declared as a `float` in
+`public/materialsystem/materialsystem_config.h:226`. It looks impossible: Direct3D 9's
+`D3DRS_DEPTHBIAS` is documented as a value in the [0,1] depth range, and −262144 is not in [0,1] by
+five orders of magnitude. That apparent impossibility is what produced the wrong conclusion — that
+the number was a D3D9 artefact that could not mean anything under D3D11.
+
+**`togl` settles it.** Valve ships their own D3D9-to-OpenGL translation layer, and it handles this
+exact render state (`public/togl/linuxwin/dxabstract.h:966`):
+
+```cpp
+case D3DRS_DEPTHBIAS:            // kGLDepthBias
+{
+    // the value in the dword is actually a float
+    float fvalue = *(float*)&Value;
+    gl.m_DepthBias.units = fvalue;
+
+    m_ctx->WriteDepthBias( &gl.m_DepthBias );
+    break;
+}
+// good ref on these: http://aras-p.info/blog/2008/06/12/depth-bias-and-the-power-of-deceiving-yourself/
+case D3DRS_SLOPESCALEDEPTHBIAS:
+{
+    float fvalue = *(float*)&Value;
+    gl.m_DepthBias.factor = fvalue;
+```
+
+`units` and `factor` are the two arguments of `glPolygonOffset(factor, units)`, and OpenGL's
+definition is:
+
+```
+offset = factor · dz + r · units
+```
+
+where **`r` is the smallest resolvable depth difference** — 1/2²⁴ on a 24-bit fixed-point buffer.
+Direct3D 11 defines its integer `DepthBias` with the same scale on a UNORM format:
+
+```
+bias = DepthBias · r + SlopeScaledDepthBias · maxDepthSlope
+```
+
+**So it is one quantity under three APIs.** −262144 · r = **−0.015625**, exactly 1/64 of the depth
+range, whichever of them draws it. The value even reads as deliberate once it is in the right units:
+−262144 is −2¹⁸, chosen so that against a 24-bit buffer it lands on a round binary fraction.
+
+Two things follow, and the second is the more useful:
+
+- **Valve's constant is now this project's constant**, in `DecalState.ConstantBias`, and
+  `DecalRenderStateConformanceTests` parses it out of the header rather than restating it.
+- **The behaviour it buys is a trade, and it is now measured rather than argued about.**
+  `OverlayOcclusionRenderTests` renders an occluder on each side of the bias's reach — 0.05 and 0.005
+  against a bias of 0.015625 — and asserts which surface wins the centre pixel. A marking beats
+  anything standing less than 1.6% of the depth range in front of it. That is the cost of never
+  z-fighting with the surface it lies on, and it is what `SHADER_POLYOFFSET_DECAL` is for.
+
+### What went wrong, since that is the part worth keeping
+
+The false claim was written into `docs/DECISIONS.md` **as the worked example of a true rule** — D46's
+qualification that a Valve trade may have been made against a platform that no longer exists. The
+rule is sound. Attaching a wrong example to it made the example inherit the rule's authority, and it
+was then quoted twice more, in `WorldRenderer` and in `docs/HANDOFF.md`, as settled fact.
+
+**The tell was there and unread: a confident claim about somebody else's system with no citation
+attached.** Every other assertion in that file carries a file and a line. This one carried a
+plausible-sounding API fact, and plausible-sounding is exactly what nobody checks.
+
+Same family as the `$modblend` and "TF2's game code is closed" corrections — see
+`docs/memory/nothing-is-closed.md`. **Three instances now**, and all three were reachable from the
+published SDK by somebody willing to grep for the thing they had already concluded was not there.

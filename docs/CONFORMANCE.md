@@ -368,6 +368,27 @@ namespace cannot be comparing anything of ours.
 | SDK **and** our code | 38 | — |
 | our code only | 364 | — |
 
+> **Correction, 2026-08-21 — that instrument is wrong in both directions, and re-measuring changed
+> the work.** The audit above counts a file as SDK-only when it has no `using` for a production
+> namespace. **C# does not need one.** A test in `Tf2DemoSalvage.Viewer3D.Tests` resolves
+> `Tf2DemoSalvage.Viewer3D` by walking up the namespace, so a file can use production types with no
+> import at all.
+>
+> - **Too high:** `BlendStateConformanceTests` was counted among the 29 and has compared
+>   `BlendStates.Additive` against Valve's `BT_ADD` equation since the day it was written.
+> - **Too low:** the unit is wrong. A file that names a production type *somewhere* still passes the
+>   filter while containing tests that assert nothing about ours — `EnvmapConformanceTests` has
+>   **12** such tests and was never counted at all.
+>
+> Re-measured per TEST, against an index of all 318 production type names rather than against
+> imports: **158 of 306** conformance tests name no production type. Of those, roughly 50 are
+> `Unimplemented*` gap markers doing a legitimate job (D45) and a dozen are controls asserting that
+> an extraction found anything. The rest are the work.
+>
+> **Same shape as the six instances in `docs/memory/an-empty-search-needs-a-control.md`, and this
+> one was the audit itself** — the document written to catch tests that cannot fail was measured by
+> a grep that could not see the answer. A count is a measurement and needs its own control.
+
 An SDK checkout does not change. Valve tested that code. So those 107 can fail for exactly two
 reasons — the checkout moved, or the grep was wrong — and neither is a fact about this renderer.
 
@@ -435,6 +456,29 @@ WorldRenderer.DecalBias.ShouldBe(valves);             // OUR value, compared to 
 
 The second fails when someone edits our constant. The first cannot fail at all.
 
-**Where the two are deliberately different**, as with the decal bias — a D3D9 value that does not
-carry to D3D11 (D46, D48) — the test should say so and assert the DIFFERENCE, so that a divergence
-is recorded rather than merely absent.
+**Where the two are deliberately different**, the test should say so and assert the DIFFERENCE, so
+that a divergence is recorded rather than merely absent.
+
+> **The worked example this used to give was the decal bias, and it was not a real divergence.**
+> The text read: *"as with the decal bias — a D3D9 value that does not carry to D3D11 (D46, D48)"*.
+> Writing the comparison is what exposed that: Valve's `togl` layer puts `D3DRS_DEPTHBIAS` straight
+> into `glPolygonOffset`'s `units`, which is D3D11's definition of the same field, so the number
+> transfers unchanged. Ours is now Valve's, and the test asserts equality. See the reversal under
+> D46 and `findings/18-decals.md`.
+>
+> **That is the sweep paying for itself on its first file**, and it is the argument for doing the
+> rest. A value pin cannot expose a wrong divergence, because it never puts the two numbers in the
+> same expression. The comparison did it in one line.
+
+### Done so far
+
+| file | what it compares now |
+|---|---|
+| `DecalRenderStateConformanceTests` | 7 tests, each parsing a Valve number or rule and asserting `DecalState` / `Device3D.DepthFormat` / `VmtMaterial.IsDecal` against it. Every one verified sensitive by sabotage — the value changed, the predicted test observed red, the value restored |
+
+**Verify by sabotage, one value at a time.** Four of the five corrections that made
+`OverlayOcclusionRenderTests` mean anything produced a green test first, and on this file one
+sabotage passed — `IsDecal => Flag("$decal") || Flag("$basetexture")` — because `Flag` parses digits
+and the control fixture's `$basetexture "concrete/wall"` is not a number. **The sabotage was
+insensitive, not the test**, which is a distinction worth making before rewriting an assertion that
+was fine.
