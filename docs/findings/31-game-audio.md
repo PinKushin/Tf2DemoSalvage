@@ -143,3 +143,80 @@ together — a majority is not the standard, because the engine opens every one 
 
 Sample rates across the 2,757: 44,100 for 2,449 of them, 22,050 for 302, 11,025 for four, and a
 single file at 48,000. So a mixer has to resample, and the common case is a 44.1 kHz source.
+
+## The attenuation parameters, recovered — the curve itself, not yet
+
+*(evidence class: read from a decompilation, partial)*
+
+The six cvars that parameterise Source's distance attenuation are all present in the live engine and
+registered together in one block, `1032c490`–`1032c4dc`:
+
+```
+snd_refdist   snd_refdb   snd_foliage_db_loss   snd_gain   snd_gain_max   snd_gain_min
+```
+
+Their **defaults** were read straight out of the binary rather than from a decompiled function — the
+compiler pools the literals, so each default sits beside its name in `.rdata`:
+
+```
+3320972  "36"            <- default
+3320976  "snd_refdist"
+3320988  "60"            <- default
+3320992  "snd_refdb"
+3321008  "snd_foliage_db_loss"
+```
+
+**`snd_refdist` = 36, `snd_refdb` = 60.** A reference distance and a reference level in dB, which
+together are what a soundlevel is measured against.
+
+**The formula is still missing, and this is the honest state of it.** The six use sites are all
+inside one contiguous block at `1004249b`–`1004258b`, spaced exactly `0x30` apart — that is the
+ConVar *registration*, a static initialiser, not the code that reads them. Ghidra has defined no
+function there and the region is not disassembled, so nothing came out.
+
+Two instrument notes for whoever finishes it:
+
+- **Ghidra's reference table is empty for these strings** even though the program is analysed —
+  11,170 functions, 11,960 symbols, and `getReferenceCountTo` returns 0 for every one. The byte
+  scan for the little-endian address constant found all six, which is what
+  `docs/memory/binaries-answer-what-the-sdk-cannot.md` already prescribes.
+- The next step is not another scan. It is finding the function that reads the ConVar OBJECTS —
+  reached from the object, not from the name string — which means defining functions in that region
+  first.
+
+**Do not guess the curve from the parameter names.** Several plausible dB falloff formulas fit
+"reference distance 36, reference level 60", they disagree by several dB at ordinary ranges, and a
+wrong one is a plausible mix rather than an audible error.
+
+## The MP3s are voice, not music — and the first cut of my own measurement was wrong
+
+*(evidence class: measured on the shipped game)*
+
+13,140 of 15,958 sound files are MP3, and "we need an MP3 decoder" was too coarse to act on. The
+owner's question was the right one: *"see what files those mp3s actually are, because we dont need
+the main menu music and stuff like that, we only need sounds which you hear in game"*.
+
+| folder | files | size | heard in an ordinary demo? |
+|---|---:|---:|---|
+| `sound/vo` | **4,447** | 167 MB | **yes** — class responses and announcer |
+| `sound/vo/mvm/*` | ~4,041 | 79 MB | only in an MvM demo |
+| `sound/vo/compmode` | 926 | 42 MB | competitive mode |
+| `sound/vo/halloween_*` | ~1,200 | 94 MB | event maps only |
+| `sound/vo/taunts/*` | ~1,300 | 30 MB | **yes** |
+| `sound/ambient_mp3/*` | ~250 | 30 MB | event and MvM map ambience |
+| `sound/ui/holiday` | 4 | 7 MB | the only UI audio at all |
+
+**There is essentially no menu music to skip.** The split is voice against everything else, and
+voice is heard in game — so an MP3 decoder is needed. What the breakdown does say is that roughly
+40% of the MP3s (MvM, Halloween, contract VO) belong to content a competitive or pub demo never
+touches, and that this is a *runtime* saving rather than a shipping one: nothing is bundled, and a
+file is only ever decoded when a demo names it.
+
+**The first run of this probe reported MvM as the largest category, and that was an instrument
+bug.** It keyed on the first three path segments, so for `sound/vo/announcer_am_lastmanalive01.mp3`
+the third segment is the FILENAME — the largest population split into thousands of singletons and
+disappeared from the list entirely, while the deeply-nested MvM folders survived intact and looked
+dominant. Keying on the directory inverted the answer.
+
+Same shape as every other instrument fault recorded here: the number was real, and it was a number
+about the grouping rather than about the game.
