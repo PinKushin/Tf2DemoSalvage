@@ -112,7 +112,11 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # PCM normalises against 32768 not 32767 (one value in the range clips otherwise), 8-bit WAV is
 # UNSIGNED and centred on 128 where every wider depth is signed, and ADPCM is refused BY NAME because
 # deferring it was agreed only "provided it is reported rather than silently skipped".
-run Tf2DemoSalvage.Audio.Tests    audio      89
+# 102: SoundGainTests (12) and the SNDLVL_NONE probe (1, [Explicit]). The tests are split by evidence
+# class — Valve's cutoff is compared against the SDK, while the falloff shape and the pan law are this
+# project's (B142) and so assert PROPERTIES any acceptable curve must hold rather than pinned values
+# that a recovered formula would redden.
+run Tf2DemoSalvage.Audio.Tests    audio     102
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

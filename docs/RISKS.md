@@ -8844,7 +8844,7 @@ lead to the ConVar registration block; the code that reads them reaches the ConV
 steps are to recover each object's address from the constructors, scan `.text` for references, and
 force disassembly there — Ghidra's existing analysis covers none of that region.
 
-## B143 — `SNDLVL_NONE` is taken as unattenuated, and Valve's macros disagree at zero — OPEN
+## B143 — `SNDLVL_NONE` is taken as unattenuated, and Valve's macros disagree at zero — LARGELY CLOSED
 
 `soundflags.h` publishes both directions and they are not inverses at zero:
 
@@ -8868,9 +8868,26 @@ like global sounds rather than like the quietest in the game.
 entries would go from audible anywhere to audible within 500 units, or the reverse. Like B142 it
 fails as a plausible mix rather than as an error.
 
-**How to close it, cheapest first:**
+**Step 1 was done immediately, and it confirms the reading.** *(Evidence class: measured on the
+shipped install.)* Of the 675 entries the manifest-driven catalog loads at `SNDLVL_NONE`, grouped by
+the first segment of their wave path:
 
-1. **Read what the 676 entries actually are.** If they are announcer lines, UI and music, the
-   reading here is confirmed by behaviour. This needs no decompiler and has not been done.
-2. Read the engine's `SND_GetGain` path in the binary, which settles it outright and is the same
-   work as B142.
+| Count | Folder |
+|---:|---|
+| **463** | `vo/` — announcer and class voice lines |
+| **69** | `ui/` |
+| 33 | `player/` |
+| 7 | `items/` |
+| — | killstreak tiers, the MvM capture klaxon, `ambient_mp3/` |
+
+**That is global-sound territory almost exclusively.** Announcer callouts, UI feedback and
+killstreak stingers are heard wherever the player is; none of it behaves like "the quietest sounds in
+the game", which is what the forward macro's 4.0 would make them. The 33 `player/` entries fit the
+same reading — your own pain and footstep sounds are effectively 2D.
+
+So `SoundGain`'s choice stands on behavioural evidence rather than on a coin toss, and the risk drops
+from "which of two opposite readings" to "confirm the mechanism".
+
+**What remains, and it is optional:** reading the engine's `SND_GetGain` path in the binary would
+settle *how* the special case is implemented rather than *that* it exists. Same work as B142, and
+worth doing at the same time rather than on its own.

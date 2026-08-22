@@ -12,6 +12,49 @@ namespace Tf2DemoSalvage.Audio.Tests;
 public sealed class SoundScriptProbe
 {
     [Test]
+    public void SoundLevelNone_WhatDeclaresIt_IsListedToSettleB143()
+    {
+        // **B143 step 1, and it needs no decompiler.** Valve's macros disagree at zero:
+        // ATTN_TO_SNDLVL(0) is 0 and recipientfilter leaves every recipient in at attenuation zero,
+        // but SNDLVL_TO_ATTN(0) returns 4.0 — near maximum attenuation. SoundGain took SNDLVL_NONE
+        // to mean unattenuated, and what actually declares it is evidence either way: announcer
+        // lines, UI and music behave globally, while footsteps and cloth would not.
+        if (GameInstall.Vpk("tf2_misc") is not { } directory)
+        {
+            Assert.Ignore(GameInstall.Missing);
+            return;
+        }
+
+        VpkArchive archive = VpkArchive.Open(directory);
+        SoundScriptCatalog catalog = SoundScriptCatalog.Load(
+            path => archive.ReadFile(path.ToUpperInvariant()));
+
+        List<SoundScriptEntry> silent =
+            [.. catalog.Entries.Values.Where(entry => entry.SoundLevel == 0)];
+
+        TestContext.Out.WriteLine($"SNDLVL_NONE entries: {silent.Count}");
+
+        // Grouped by the first segment of the wave path, which is what says whether these are
+        // global sounds or local ones — `ui/`, `vo/` and `music/` behave one way, `player/` and
+        // `weapons/` the other.
+        foreach (IGrouping<string, SoundScriptEntry> group in silent
+            .GroupBy(entry => entry.Waves[0].Split('/')[0].ToUpperInvariant())
+            .OrderByDescending(group => group.Count()))
+        {
+            TestContext.Out.WriteLine($"  {group.Count(),5}  {group.Key}");
+        }
+
+        TestContext.Out.WriteLine("--- a sample of the names ---");
+
+        foreach (SoundScriptEntry entry in silent.Take(15))
+        {
+            TestContext.Out.WriteLine($"  {entry.Name}  ->  {entry.Waves[0]}");
+        }
+
+        silent.Count.ShouldBeGreaterThan(0, "nothing declares SNDLVL_NONE, so this measured nothing");
+    }
+
+    [Test]
     public void SoundScripts_TheirKeysAndShape_AreCounted()
     {
         if (GameInstall.Vpk("tf2_misc") is not { } directory)
