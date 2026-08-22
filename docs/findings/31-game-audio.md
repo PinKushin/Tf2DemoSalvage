@@ -405,3 +405,55 @@ remains unrecovered. Implemented as `SoundAttenuation` with `SoundAttenuationCon
 pinning every constant against the SDK — seven tests, two verified by sabotage: reading zero as
 silent reddens the ATTN_NONE test, and `>= 50` instead of `> 50` (a divide by zero at the boundary)
 reddens two.
+
+## The gain curve: what searching turned up, and why it is not being used
+
+*(evidence class: none yet — this records a dead end, not a result)*
+
+Two routes were tried after the parameters were recovered.
+
+**The web has the formula, in a repository GitHub has legally removed.** A search surfaces it
+attributed to `engine/audio/private/snd_dma.cpp` in a mirror of leaked 2007 Source engine code, in
+the shape:
+
+```
+GAIN = (snd_refdist / dist) * 10 ^ ( ( SNDLVL - snd_refdb - dist * snd_foliage_db_loss / 1200 ) / 20 )
+```
+
+Fetching that file returns **HTTP 451 Unavailable For Legal Reasons**. That is a takedown, and
+routing around it is not the same act as decompiling a binary the owner has a licence to run — which
+this project already does and which `docs/DECISIONS.md` treats as a normal tool. The distinction is
+worth stating because the two get conflated: reverse-engineering the shipped binary is the sanctioned
+path here, and obtaining source that was removed on legal grounds is not.
+
+**The Valve Developer Community does not document it.** `snd_refdb` and `snd_refdist` do not appear
+on the wiki's console-variable pages at all.
+
+**So the formula above is a hypothesis with no citable provenance, and it is NOT implemented.** It is
+recorded here only so the next attempt knows what to test against, and because leaving it out would
+invite somebody to re-derive the same dead end.
+
+**It is at least consistent with what was recovered independently**, which is worth noting as a
+weak check rather than as support:
+
+| | |
+|---|---|
+| unity gain at | `36 × 10^((75−60)/20)` = **202 units** |
+| gain at the published cutoff (2,500) | `(36/2500) × 5.62` = 0.081, about **−22 dB** |
+
+Both are plausible, and consistency is not evidence — many curves through two points would satisfy
+it. `docs/memory/fallbacks-do-not-make-guesses-safe.md` applies exactly: a formula that produces
+sensible-looking numbers is the failure mode here, not the safeguard.
+
+**The remaining legitimate route is the decompiler, and it needs one more step than the constants
+did.** The six cvar name strings lead only to the ConVar REGISTRATION block — six constructors
+`0x30` apart in a static initialiser. The code that READS them reaches the ConVar OBJECTS, not the
+name strings, so the next attempt is:
+
+1. disassemble the registration block to recover each ConVar object's address (the `this` passed to
+   the constructor),
+2. scan `.text` for references to those object addresses,
+3. define functions at the hits and decompile.
+
+Ghidra has 11,170 functions in this binary and none covering that region, so step 3 means forcing
+disassembly rather than relying on the existing analysis.
