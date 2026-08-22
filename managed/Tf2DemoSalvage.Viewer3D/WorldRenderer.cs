@@ -2909,17 +2909,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // a shipping container drew through it (B135). Both were fixed by making some pass tidy up
         // after another; this is the fix that stops the class.
         //
-        // **What is transcribed and what is invented, kept apart (D44) — and the invented half is a
-        // DIVERGENCE TO FIX rather than a gap to tolerate (B137).** That a MARKING writes no depth is
-        // Valve's, in one line: EnableDepthWrites( false ) at DecalModulate_dx9.cpp:66.
+        // **Every clause below is Valve's, and B137 was filed saying otherwise (see its entry).**
+        // The rule is one flag test per kind, each with a shader that states it:
         //
-        // That a translucent, additive or modulate material writes none is this project's own rule.
-        // Valve decides per shader, inside each SHADOW_STATE block, starting from
-        // SetInitialShadowState() and turning writes off on specific paths behind `bNoWriteZ` — so
-        // blending and depth writing are two decisions there and one here. It draws correctly today
-        // only because every material this project meets happens to want both together, and the
-        // first that wants one without the other will get the wrong state silently. Same shape as
-        // the decal bias, which was right until a perspective camera existed.
+        //   $translucent  cable_dx9.cpp:55   if ( IS_FLAG_SET( MATERIAL_VAR_TRANSLUCENT ) )
+        //                                    { EnableDepthWrites( false ); EnableBlending( true ); }
+        //   $additive     cloud_dx9.cpp:52   EnableDepthWrites( false ); EnableBlending( true );
+        //                                    then the flag picks ONE/ONE over SRC_ALPHA/INV
+        //   a marking     DecalModulate_dx9.cpp:66   EnableDepthWrites( false )
+        //   $alphatest    excluded, and that is the important one — EvaluateBlendRequirements
+        //                 (BaseVSShader.cpp:1580) drops texture alpha from its translucency test
+        //                 when MATERIAL_VAR_ALPHATEST is set, so foliage writes depth like any
+        //                 opaque surface. VmtMaterial.IsTranslucent returns false for it.
+        //
+        // So blending and depth writing ARE one decision for these kinds in Valve's own shaders,
+        // which is what this project does. Pinned by DepthWriteConformanceTests against the clauses
+        // above rather than left as an assertion in a comment.
         //
         // The $decal key itself is no longer inferred: materialsystem.dll holds the flag-name table
         // as a `const char *` array INDEXED BY BIT POSITION, and $decal sits at index 16 — exactly
@@ -2928,10 +2933,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // DecalRenderStateConformanceTests.
         bool marks = _decalMaterials.Contains(materialIndex);
 
-        bool blends = marks
-            || _translucent.Contains(materialIndex)
-            || _additive.Contains(materialIndex)
-            || _modulate.ContainsKey(materialIndex);
+        bool blends = Blends(
+            marks,
+            _translucent.Contains(materialIndex),
+            _additive.Contains(materialIndex),
+            _modulate.ContainsKey(materialIndex));
 
         ComPtr<ID3D11DepthStencilState> depth = blends ? _decalDepth : _depthWrite;
 
@@ -3018,6 +3024,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Far to near means LARGEST depth first: height is inverted into depth, so the ground is far
     /// and a roof is near.
     /// </remarks>
+    /// <summary>Does this material blend, and therefore write no depth?</summary>
+    /// <param name="marks">It carries <c>$decal</c>.</param>
+    /// <param name="translucent">
+    /// <see cref="Content.Assets.VmtMaterial.IsTranslucent"/> — <c>$translucent</c>,
+    /// <c>$vertexalpha</c> or a fractional <c>$alpha</c>, and NOT <c>$alphatest</c>.
+    /// </param>
+    /// <param name="additive"><c>$additive</c>.</param>
+    /// <param name="modulate">The shader is <c>Modulate</c>.</param>
+    /// <remarks>
+    /// **Extracted so a conformance test can compare it against Valve's clauses without a GPU.**
+    /// The four kinds and their citations are listed at the call site in <c>SetMaterial</c>; the
+    /// reason it is one decision rather than two is that Valve's own shaders make it one decision —
+    /// <c>cable_dx9.cpp:55</c> sets <c>EnableDepthWrites( false )</c> and <c>EnableBlending( true )</c>
+    /// inside a single <c>IS_FLAG_SET( MATERIAL_VAR_TRANSLUCENT )</c>.
+    ///
+    /// **The clause that carries the weight is the one that is absent**: alpha-tested materials are
+    /// not here, so foliage and grates write depth like any opaque surface. Getting that wrong is
+    /// invisible on a screenshot and wrecks everything drawn behind a fence.
+    /// </remarks>
+    internal static bool Blends(bool marks, bool translucent, bool additive, bool modulate) =>
+        marks || translucent || additive || modulate;
+
     /// <summary>A batch's average depth, for ordering.</summary>
     private static float MeanDepth(IReadOnlyList<WorldVertex> vertices, WorldBatch batch)
     {

@@ -8474,7 +8474,55 @@ one of those stripes is being clipped or was never built.
 
 ---
 
-## B137 — depth writes are decided by our own convention where Valve decides per shader — OPEN
+## B137 — depth writes are decided by our own convention where Valve decides per shader — WITHDRAWN
+
+> **Withdrawn 2026-08-21, the same day it was filed. There was no divergence. The rule is Valve's,
+> the flag is `$translucent`, and the entry below argued from a count over the wrong population.**
+>
+> The owner's question is what settled it:
+>
+> > "if a blanket rule is wrong there has to be a way to tell when to use what like a flag"
+>
+> **There is, and it is the flag.** Two published shaders state the rule outright:
+>
+> ```cpp
+> // cable_dx9.cpp:55 — one condition, both consequences
+> if ( IS_FLAG_SET( MATERIAL_VAR_TRANSLUCENT ) )
+> {
+>     pShaderShadow->EnableDepthWrites( false );
+>     pShaderShadow->EnableBlending( true );
+>     pShaderShadow->BlendFunc( SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE_MINUS_SRC_ALPHA );
+> }
+>
+> // cloud_dx9.cpp:52 — writes off FIRST, the flag only picks the blend function
+> pShaderShadow->EnableDepthWrites( false );
+> pShaderShadow->EnableBlending( true );
+> if ( IS_FLAG_SET( MATERIAL_VAR_ADDITIVE ) ) { BlendFunc( ONE, ONE ); }
+> else                                        { BlendFunc( SRC_ALPHA, INV_SRC_ALPHA ); }
+> ```
+>
+> So blending and depth writing are **one decision** in Valve's own shaders for exactly the kinds
+> this project treats that way. And the clause that carries the weight is the one that is absent:
+> `EvaluateBlendRequirements` (`BaseVSShader.cpp:1580`) drops texture alpha from its translucency
+> test when `MATERIAL_VAR_ALPHATEST` is set, so a fence writes depth like any wall.
+> `VmtMaterial.IsTranslucent` opens with exactly that exclusion.
+>
+> **Why the count was wrong, because the number itself was correct.** 18 of 60 published shaders do
+> enable blending without disabling depth writes. **Thirteen of the eighteen are dx6/dx7/dx8
+> fallbacks or full-screen post effects**, and the other five are Portal and HL2 shaders and a
+> dx8-era overlay path. Not one is a shader TF2 uses for a world or model material. The denominator
+> was "every .cpp in stdshaders", which includes three dead APIs and two other games.
+>
+> **The transferable part.** A ratio computed over a directory is not a measurement of a convention
+> unless the directory is the population. Counting was the right instinct and picking `ls *.cpp` as
+> the population was the error — the same shape as
+> [[an-empty-search-needs-a-control]], where a grep's scope silently became the claim.
+>
+> Pinned now rather than argued: `DepthWriteConformanceTests` asserts each clause against
+> `WorldRenderer.Blends` and `VmtMaterial.IsTranslucent`, and the alpha-test exclusion is verified
+> red under sabotage.
+
+**Kept below as filed, because a withdrawn entry that deletes its own reasoning teaches nothing.**
 
 **This is a divergence, not merely an unsourced claim, and D46 says our code changes.** It has been
 recorded as "an inference" in `WorldRenderer.SetMaterial`, which understates it: an inference that
