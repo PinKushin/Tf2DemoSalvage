@@ -8676,9 +8676,38 @@ exactly this and it had never been run on the overlay lump.
 
 ---
 
-## B139 — fog is decoded, retained, tested, and never rendered — OPEN
+## B139 — the conformance suite counted fog as parity; nothing renders it — OPEN
 
-**Found 2026-08-21 by the conformance sweep, and it is the fourth instance of one pattern.**
+> **Reframed 2026-08-21, same day, after the owner corrected the premise:**
+>
+> > *"the decode should basically be completely done for the most part, the core parser got to 100%
+> > demo decode before i even started anythign else, I required a real demo to be parsed to our
+> > quake code then recompiled byte identical into a new demo file"*
+>
+> **So "decoded but not drawn" is the architecture, not a defect.** The decoder was taken to
+> completeness first and validated by a round trip — real demo → Quake-style assembly → recompiled →
+> byte-identical — before any drawing existed. Every value the format carries is therefore decoded,
+> and a long list of them is not yet drawn. That is the plan working.
+>
+> **This entry was filed as "the fourth instance" of the no-op pattern and that was wrong**, because
+> it conflates two different things:
+>
+> | | what happened | how it is found |
+> |---|---|---|
+> | **a no-op** | production code was SUPPOSED to read a value and did not, so a feature believed finished silently does nothing | looking at the output |
+> | **not yet drawn** | decode complete by design, drawing not started | reading the backlog |
+>
+> `m_flPlaybackRate` was the first kind: the animation path existed, should have used it, and every
+> animation played at rate 1 while the feature was thought done. **Fog is the second kind.** No fog
+> rendering code exists to have missed it.
+>
+> **The real defect here is the one below, and it is about the TEST, not the feature.**
+
+**What was actually wrong:** `FogConformanceTests` held four tests that `docs/CONFORMANCE.md` counted
+as *parity*, and they asserted Valve's shader source and then checked arithmetic transcribed into
+helper functions in the same file — `Squared(0.5f).ShouldBe(0.25f)` tests that squaring squares. So
+the conformance ledger reported parity for a feature with no implementation behind it, which is the
+one thing a gap ledger must never do.
 
 `SceneFog` carries start, end, three colour channels and max density, decoded per tick from
 `DT_FogController`. `DemoTimeline` keeps a sample list and offers `FogAt(tick)`.
@@ -8748,18 +8777,20 @@ the legs keep running, a taunt, a weapon swap. Without them a player's whole bod
 locomotion layer alone, so every one of those actions is simply absent: a medic running with a
 healing beam attached plays a run cycle, not the heal pose.
 
-### The same shape as B139, and that is why it is filed together
+### This is draw-side backlog, not a defect — same correction as B139
 
-Fog was found by asking what consumes `SceneFog`. Running the same question over every scene and
-schema type turned this up in one pass. **Two features in the same state is a pattern, not an
-accident** — the decode side of this project is well ahead of the draw side, and the test suite
-cannot see the gap because both halves are individually well tested.
+Filed alongside fog as evidence of a "pattern". **It is a pattern, and the pattern is the plan.**
+The decoder was taken to 100% and validated byte-for-byte by round trip before drawing began
+(owner, 2026-08-21), so every value the format carries is decoded and a long list is not yet drawn.
+Gestures are on that list.
 
-`docs/memory/output-level-assertion-or-it-is-not-done.md` now carries the technique: a grep for the
-consumers is cheaper than a rendered-artefact test and catches this whole class.
+What the sweep is genuinely good for is **producing the list**, cheaply: asking what consumes each
+scene type takes seconds and tells you exactly which decoded values have no renderer. That is a
+backlog query, not a bug hunt — and it only becomes a bug hunt when something CLAIMS the feature is
+done, which is what happened with fog's conformance tests (B139) and with `m_flPlaybackRate`.
 
-### Before implementing anything that sits on top of animation
+### The one thing that is a real hazard here
 
-**Check whether the layer underneath is wired, not merely present.** That is the concrete hazard for
-the next feature: `PlayerAnimation` composes poses, and building on it while gesture layers are
-absent means the new feature is correct and still invisible.
+**Before building on `PlayerAnimation`, check whether the layer underneath is wired rather than
+merely present.** It composes poses, and a new feature layered on it while gestures are absent is
+correct and still invisible — which reads as a defect in the new work.

@@ -8,6 +8,18 @@ metadata:
   modified: 2026-08-11T11:22:45.536Z
 ---
 
+**The byte-identical round trip was a GATE, and it was passed before anything else began.** Owner,
+2026-08-21:
+
+> *"the core parser got to 100% demo decode before i even started anythign else, I required a real
+> demo to be parsed to our quake code then recompiled byte identical into a new demo file"*
+
+That sequencing explains the shape of the whole repository and is worth knowing before reading it:
+**the decode side is complete and the draw side is the backlog.** A decoded value with no renderer
+is the expected state, not a no-op — see the distinction under
+[[output-level-assertion-or-it-is-not-done]], which was filed against fog and gestures before this
+was understood.
+
 **A round trip proves fidelity, not understanding.** Writing back the bytes you were handed can be
 achieved by copying them. The real test is whether a file this project *invented* is one the engine
 accepts — and it is.
