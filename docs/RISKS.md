@@ -8818,3 +8818,59 @@ neither "we follow the rule" nor "we violate it" is a supportable claim.
 
 Related: D56 for the rule and its reasoning, D2 for the native-C deferral the performance bet rests
 on.
+
+## B142 — the distance falloff curve is this project's, not Valve's — OPEN
+
+`SoundGain.AtDistance` implements an inverse-distance law anchored on `snd_refdist` (36, recovered
+from `engine.dll`) and faded to zero at the audible radius Valve publishes in `recipientfilter.cpp`.
+**The cutoff is Valve's; the shape between is ours.**
+
+The engine's own curve is in `snd_dma.cpp`, which is closed. A web search surfaces an expression
+attributed to it in a mirror of leaked 2007 source, and `docs/findings/31-game-audio.md` records the
+decision not to route around the HTTP 451 takedown that serves it — a decision unchanged here, and
+distinct from decompiling a binary the owner is licensed to run, which this project treats as a
+normal tool.
+
+**Why this is a risk and not merely an approximation:** a wrong falloff sounds *fine*. Every sound
+plays, at a plausible volume, falling off plausibly with distance. Nothing reports it. It is only
+audible in comparison with the game, and only for someone who knows what the game sounds like.
+
+**The tests were written to accommodate replacing it**, deliberately: they assert monotonicity,
+boundedness and the cutoff rather than pinning curve values, so the real formula can drop in without
+a wall of red that looks like a regression.
+
+**How to close it:** the route is already scouted in `findings/31`. The six sound cvars' name strings
+lead to the ConVar registration block; the code that reads them reaches the ConVar *objects*, so the
+steps are to recover each object's address from the constructors, scan `.text` for references, and
+force disassembly there — Ghidra's existing analysis covers none of that region.
+
+## B143 — `SNDLVL_NONE` is taken as unattenuated, and Valve's macros disagree at zero — OPEN
+
+`soundflags.h` publishes both directions and they are not inverses at zero:
+
+```c
+#define SNDLVL_TO_ATTN( a ) ((a > 50) ? (20.0f / (float)(a - 50)) : 4.0)
+#define ATTN_TO_SNDLVL( a ) (soundlevel_t)(int)((a) ? (50 + 20 / ((float)a)) : 0)
+```
+
+`ATTN_TO_SNDLVL(0)` is **0**, and `recipientfilter.cpp` returns early on `if ( attenuation <= 0 )`
+leaving every recipient in — so attenuation zero means "heard anywhere". But `SNDLVL_TO_ATTN(0)`
+lands on the `a <= 50` branch and yields **4.0**, close to `MAX_ATTENUATION` 3.98, which would make
+the sound intensely local instead.
+
+Both cannot hold, so the engine special-cases one end and the published macros do not say which.
+
+**`SoundGain` takes `SNDLVL_NONE` to mean unattenuated**, on two grounds: it is what the reverse
+macro says, and **676 of TF2's shipped soundscript entries declare it** — a population that behaves
+like global sounds rather than like the quietest in the game.
+
+**Why it matters:** getting it backwards inverts the loudest and quietest sounds in the mix. 676
+entries would go from audible anywhere to audible within 500 units, or the reverse. Like B142 it
+fails as a plausible mix rather than as an error.
+
+**How to close it, cheapest first:**
+
+1. **Read what the 676 entries actually are.** If they are announcer lines, UI and music, the
+   reading here is confirmed by behaviour. This needs no decompiler and has not been done.
+2. Read the engine's `SND_GetGain` path in the binary, which settles it outright and is the same
+   work as B142.
