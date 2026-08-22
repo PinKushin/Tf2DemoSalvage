@@ -91,12 +91,19 @@ rm -f /tmp/gate-*.log
 # Raised to 1491: SchemaGapTests, four cases proving the gap instrument works in both directions
 # and across both metadata encodings before any marker rests on it.
 # 1497: SoundCharConformanceTests, the six that pin soundchars.h against SoundName.
-run Tf2DemoSalvage.Core.Tests     core     1504
+# **Lowered 1504 -> 1497 on 2026-08-22, and the arithmetic is the justification.**
+# SoundAttenuationConformanceTests (7) moved to Audio.Tests with SoundAttenuation itself (D53).
+# Nothing was deleted: core -7 and content -33 are exactly the +40 the audio floor gained.
+run Tf2DemoSalvage.Core.Tests     core     1497
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
 run Tf2DemoSalvage.Cli.Tests      cli        74
-run Tf2DemoSalvage.Audio.Tests    audio      28
+# Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
+# SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
+# SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
+# belongs to the audio project, including its own parsing (D53).
+run Tf2DemoSalvage.Audio.Tests    audio      68
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -107,7 +114,11 @@ run Tf2DemoSalvage.Audio.Tests    audio      28
 # 648: SoundScriptCatalogConformanceTests (10). The manifest decides which scripts load, and that is
 # not the same set as a glob: TF2 ships 20 game_sounds*.txt files, the manifest lists 16, and reading
 # it rather than globbing excludes 3,910 entries the engine does not have.
-run Tf2DemoSalvage.Content.Tests  content   648
+# **Lowered 648 -> 615 on 2026-08-22, and the arithmetic is the justification.** RiffConformance (8),
+# SoundScriptConformance (9), SoundScriptCatalogConformance (10) and SoundScriptProbe (1) moved to
+# Audio.Tests along with the readers they cover (D53). 33 here plus 7 from core is exactly the 40 the
+# audio floor gained, so nothing was deleted.
+run Tf2DemoSalvage.Content.Tests  content   615
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 run Tf2DemoSalvage.Corpus.Tests   corpus     96
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers

@@ -6,7 +6,7 @@ using System.Text;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
 
-namespace Tf2DemoSalvage.Content.Tests.Assets;
+namespace Tf2DemoSalvage.Audio.Tests;
 
 /// <summary>
 /// Soundscript entries, against Valve's published defaults and against every script TF2 ships.

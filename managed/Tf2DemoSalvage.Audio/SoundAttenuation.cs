@@ -1,6 +1,6 @@
 using System;
 
-namespace Tf2DemoSalvage.Core.Net;
+namespace Tf2DemoSalvage.Audio;
 
 /// <summary>
 /// Turns a sound's level into an attenuation and an audible radius, as Valve publishes them.

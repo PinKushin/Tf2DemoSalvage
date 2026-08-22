@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Net;
 
-namespace Tf2DemoSalvage.Content.Assets;
+namespace Tf2DemoSalvage.Audio;
 
 /// <summary>What a precached sound name turns out to be: files to play, and how to play them.</summary>
 /// <param name="Name">The precached name this came from.</param>

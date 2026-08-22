@@ -2489,3 +2489,145 @@ the files this change added.
 **Related:** `docs/memory/edit-files-with-the-file-tools.md` (how the corruption got there),
 `docs/memory/one-place-or-it-drifts.md`, `docs/memory/measure-the-output-not-the-capability.md` (a
 fallback branch making a dead test look healthy).
+
+## D53 — sound belongs to the audio project, including its own parsing
+
+**Owner's direction, 2026-08-22.** On finding the soundscript reader, the WAV reader and the
+attenuation constants spread across `Tf2DemoSalvage.Content` and `Tf2DemoSalvage.Core`:
+
+> i kinda figured the audio would be in the audio project
+
+and, on the principle behind it:
+
+> i figured either all the audio should be in audio or audio should be renamed to voice if its
+> solely dealing with voice audio lol, but i think the audio project makes more sense, we already
+> seperate projects based on what they are doing, the parser is seperate from the 3dviewer which is
+> seperate from the audio and even its own parsing logic
+
+### The tension this resolves, and it was a real one
+
+`SoundScript` reads a KeyValues file. So does `ItemSchema`, and so does `VmtMaterial`, and both live
+in `Tf2DemoSalvage.Content` — which is organised as "the game's file formats". By that rule a
+soundscript reader belongs in Content, and that is where it was first written.
+
+**The owner's rule is different and it is the better one: projects are split by WHAT THEY DO, and
+each owns its own parsing.** Under that rule the file's syntax is irrelevant to where the reader
+lives. A soundscript is not interesting because it is KeyValues; it is interesting because it says
+how loud a shotgun is. That belongs with everything else about sound.
+
+The naming observation is the sharpest part of the argument: the project was called `Audio` while
+containing only voice-chat codecs, so either the contents were wrong or the name was. Renaming it to
+`Voice` was a live option and was rejected in favour of making the name true.
+
+### What moved
+
+| from | to |
+|---|---|
+| `Content/Assets/RiffWave.cs` | `Audio/RiffWave.cs` |
+| `Content/Assets/SoundScript.cs` | `Audio/SoundScript.cs` |
+| `Content/Assets/SoundScriptCatalog.cs` | `Audio/SoundScriptCatalog.cs` |
+| `Core/Net/SoundAttenuation.cs` | `Audio/SoundAttenuation.cs` |
+
+with their five test files. Counts: core −7, content −33, audio +40. **The arithmetic balancing
+exactly is the evidence that nothing was lost**, which is the only check a move like this really
+has.
+
+### What did NOT move, and why
+
+**`SoundName` stays in `Core/Net`.** It parses the `soundchars.h` prefixes off a precached name, and
+`DemoTraceWriter` and `SoundNames` — both in Core — use it to write the text trace. Moving it would
+mean `Core` referencing `Audio`, and Core references nothing on purpose. It is also genuinely
+wire-level: it decodes a name out of the demo's string table, which is parsing the demo rather than
+playing a sound.
+
+### The cost, stated rather than hidden
+
+`Audio` now references `Content` for one type, `KeyValuesReader`, and so drags in the BSP, VTF, VPK
+and studio-model readers it will never call. No cycle — nothing references `Audio` — so this is
+weight, not entanglement. If it becomes annoying, the fix is to extract `KeyValuesReader` into a
+small shared primitive, not to move the soundscript reader back.
+
+## D54 — the viewer follows MVP, not MVVM; recorded late, and the delay is the finding
+
+**Owner's decision, made early in the project and NEVER WRITTEN DOWN until 2026-08-22.**
+
+> it was something i specifically talked about because MVVM doesnt work well on winforms
+
+> its also the obvious thing we should have been using even without me mentioning it because its
+> [...] win forms and was made to use MVP
+
+### The decision
+
+The WinForms viewer follows **Model-View-Presenter**. **MVVM was considered and rejected**, because
+its binding model is WPF-shaped and WinForms cannot express it: there is no `ICommand`, no
+`DataTemplate`, and data binding beyond simple property links has to be written by hand — at which
+point the view model is being driven manually and the pattern is paying nothing. MVP's passive view,
+where a presenter drives the form through an interface, is the pattern WinForms was designed around.
+
+- **Model** — already correct: `DemoTimeline`, `MapScene`, and the `Core` / `Content` / `Audio`
+  projects behind them.
+- **View** — `MainForm`, reduced to controls, events and property setters. No decisions.
+- **Presenter** — does not exist yet. This is the whole of the work.
+
+### Why it is being recorded now instead of then
+
+**It was not deleted. It was never written.** Checked rather than assumed, across 1,225 commits:
+
+```
+git log -S"MVP" --oneline --all          # no results
+git log -S"Presenter" --oneline --all    # no results
+git log -S"Model-View" --oneline --all   # no results
+git log --diff-filter=D --name-only -- 'docs/*'   # no docs ever deleted
+```
+
+The owner's account is that this took **over an hour to decide** and was discussed specifically. None
+of that reached the repository, so the reasoning — including the rejection of MVVM, which is the
+valuable half — existed only in a conversation that is gone.
+
+**And it was decided before the repository existed, which is what makes the loss structural rather
+than incidental.** Owner:
+
+> an hour of reasoning at the very start before the repo was even made is what makes it hurt the
+> most
+
+`CLAUDE.md` opens by stating that this project *"was planned in a Cowork conversation before any code
+existed"*, and that `ROADMAP.md` and this file are where that planning survives. Carrying pre-repo
+reasoning forward is the entire purpose of the initial scaffold commit — `7c83a6e`, *"Initial
+scaffold: architecture, decisions, and corpus seed"* — and MVP did not make it in. The one document
+whose job was to prevent exactly this is the document that dropped it.
+
+**The lesson generalises past MVP: a decision made before the first commit has no code to leave a
+trace in.** Every later decision is at least inferable from a diff — someone can look at the codebase
+and reconstruct that a choice was made, even without the reason. A pre-repo decision leaves nothing
+at all, so if the scaffold omits it, it is gone with no evidence that anything is missing. Those
+decisions need recording *first* and checking *hardest*, and the check is to read the list back to
+the person who made them.
+
+**This is exactly the failure `CLAUDE.md` already describes for test naming**: a convention that
+lives only in someone's head, or only in the surrounding code, drifts, and nobody can distinguish
+drift from a decision. It cost the same thing here that it cost there — the code grew for two weeks
+in a shape nobody had agreed to, and the divergence was invisible because there was nothing to
+compare against.
+
+### The state it is being recorded against
+
+`MainForm.cs` is **4,436 lines, 95 methods and 103 fields**. It calls `DemoTimeline.Build` itself,
+holds `_timeline`, and carries domain helpers such as `HeldWeaponModels(DemoTimeline)`. That is a
+form doing a presenter's job, and it is the largest file in the viewer apart from the renderer.
+
+### What this buys beyond correctness of pattern
+
+The viewer's 8 UI tests take the desktop and need `run-exclusive.ps1`, which is why
+`docs/memory/ui-suite-optional-until-ui-grows.md` exists at all. **A presenter is testable in the
+ordinary suite** — no window, no desktop lock, no focus stealing — so the same logic that today can
+only be checked by driving a real form becomes six ordinary unit tests. That is a direct answer to a
+measured, recurring cost in this project rather than an abstract benefit.
+
+### Sequencing
+
+Owner, same conversation:
+
+> once we finish this audio shit we will have to redo the 3dviewer/winforms project to properly
+> follow MVP
+
+So: finish the audio pipeline, then retrofit MVP. Not started here.

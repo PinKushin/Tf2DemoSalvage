@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
 
-namespace Tf2DemoSalvage.Content.Tests.Assets;
+namespace Tf2DemoSalvage.Audio.Tests;
 
 /// <summary>
 /// The RIFF chunks and format codes Valve declares, against the ones this reader handles.

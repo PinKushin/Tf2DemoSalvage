@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Assets;
+
+namespace Tf2DemoSalvage.Audio;
 
 /// <summary>A value a soundscript may state as a single number or as a range.</summary>
 /// <param name="Low">The low end, or the only value.</param>

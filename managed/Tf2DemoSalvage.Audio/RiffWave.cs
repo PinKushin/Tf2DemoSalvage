@@ -1,7 +1,7 @@
 using System;
 using System.Buffers.Binary;
 
-namespace Tf2DemoSalvage.Content.Assets;
+namespace Tf2DemoSalvage.Audio;
 
 /// <summary>Audio encodings a RIFF/WAVE file may declare, as <c>tier2/riff.h</c> names them.</summary>
 /// <remarks>

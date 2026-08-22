@@ -6,7 +6,7 @@ using System.Text;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
 
-namespace Tf2DemoSalvage.Content.Tests.Assets;
+namespace Tf2DemoSalvage.Audio.Tests;
 
 /// <summary>
 /// The manifest decides which soundscripts exist, and what a precached name resolves to.
