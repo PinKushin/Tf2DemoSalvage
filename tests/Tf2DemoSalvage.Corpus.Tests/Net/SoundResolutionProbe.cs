@@ -89,7 +89,9 @@ public sealed class SoundResolutionProbe
 
                 ResolvedSound sound = catalog.Resolve(playedName);
 
-                if (sound.Waves.Count == 0 || archives.Read(sound.Waves[0]) is null)
+                // Through SoundFile, so the container fallback is exercised: 60 of the 63 sounds
+                // this used to report missing are the same stem shipping as MP3.
+                if (sound.Waves.Count == 0 || SoundFile.Open(sound.Waves[0], archives.Read) is null)
                 {
                     playedMissing++;
                 }
@@ -171,6 +173,109 @@ public sealed class SoundResolutionProbe
         // only raw paths would pass with the soundscript lookup never taken.
         fromScript.ShouldBeGreaterThan(0, "no precached name resolved through a soundscript");
         fromPath.ShouldBeGreaterThan(0, "no precached name resolved as a raw path");
+    }
+
+    [Test]
+    public void MissingSounds_SearchedByFilenameAcrossTheInstall_AreMovedOrTrulyGone()
+    {
+        // **Tests the owner's hypothesis rather than assuming it**: "i really dont think any sounds
+        // have been removed, only moved and renamed". If that holds, a mapping table is enough and
+        // nothing has to be shipped. If it does not, whatever is genuinely absent is the list that
+        // would have to travel with the app.
+        //
+        // The search is by FILENAME across every sound the install carries, so a file that moved
+        // folders is found wherever it went. A file that was renamed is not, which is why the
+        // report below prints the near misses by stem as well.
+        if (GameInstallFolder is not { } game)
+        {
+            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
+            return;
+        }
+
+        GameArchives archives = GameArchives.Open(game);
+        SoundScriptCatalog catalog = SoundScriptCatalog.Load(archives.Read);
+
+        Dictionary<string, List<string>> byFilename = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string archive in new[] { "tf2_sound_misc", "tf2_sound_vo_english", "tf2_misc" })
+        {
+            string? directory = Path.Combine(game, archive + "_dir.vpk");
+
+            if (!File.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (string entry in VpkArchive.Open(directory).Paths)
+            {
+                // **Keyed by STEM, not by filename.** Searching for `scout_BattleCry01.wav`
+                // finds nothing if Valve now ships `scout_BattleCry01.mp3`, and this project has
+                // already measured that TF2's voice lines are largely MP3 today. An index that
+                // keeps the extension answers "was this exact file moved" when the question is
+                // "does this sound still exist".
+                string stem = Path.GetFileNameWithoutExtension(entry);
+
+                if (!byFilename.TryGetValue(stem, out List<string>? where))
+                {
+                    byFilename[stem] = where = [];
+                }
+
+                where.Add(entry);
+            }
+        }
+
+        byFilename.Count.ShouldBeGreaterThan(
+            1000, "the install's sound files were indexed, so an absence below means something");
+
+        HashSet<string> missing = [];
+
+        foreach (string path in Corpus.Files())
+        {
+            (SoundNames names, HashSet<int> played) = Walk(path);
+
+            foreach (int index in played)
+            {
+                if (names.Resolve(index) is not { } name)
+                {
+                    continue;
+                }
+
+                ResolvedSound sound = catalog.Resolve(name);
+
+                if (sound.Waves.Count > 0 && archives.Read(sound.Waves[0]) is null)
+                {
+                    missing.Add(sound.Waves[0]);
+                }
+            }
+        }
+
+        int moved = 0;
+        List<string> gone = [];
+
+        foreach (string wave in missing.OrderBy(w => w, StringComparer.Ordinal))
+        {
+            string file = Path.GetFileNameWithoutExtension(wave);
+
+            if (byFilename.TryGetValue(file, out List<string>? where))
+            {
+                moved++;
+                TestContext.Out.WriteLine($"MOVED   {wave}  ->  {where[0]}");
+            }
+            else
+            {
+                gone.Add(wave);
+            }
+        }
+
+        TestContext.Out.WriteLine(
+            $"MISSING {missing.Count} distinct played sounds: {moved} moved, {gone.Count} not found");
+
+        foreach (string wave in gone.Take(40))
+        {
+            TestContext.Out.WriteLine($"GONE    {wave}");
+        }
+
+        missing.Count.ShouldBeGreaterThan(0, "nothing was missing, so this measures nothing");
     }
 
     /// <summary>

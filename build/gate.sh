@@ -103,7 +103,11 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
 # belongs to the audio project, including its own parsing (D53).
-run Tf2DemoSalvage.Audio.Tests    audio      68
+# 76: SoundFileTests (8). TF2 re-encoded its voice lines from WAV to MP3 keeping the stem, so a 2007
+# demo names a .wav that ships today as .mp3 — 60 of the corpus's 63 unopenable played sounds. The
+# fallback tries the stated path first, with a both-containers-present control, because without one
+# "fell back correctly" and "always uses the mp3" are indistinguishable.
+run Tf2DemoSalvage.Audio.Tests    audio      76
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -123,7 +127,9 @@ run Tf2DemoSalvage.Content.Tests  content   615
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
 # install — on CI and the measurement boxes it would Assert.Ignore and check nothing.
-run Tf2DemoSalvage.Corpus.Tests   corpus     97
+# 98: the probe's second test, which asks whether a sound that will not open still exists under
+# another container. That is what turned "63 sounds deleted" into "60 re-encoded, 3 gone".
+run Tf2DemoSalvage.Corpus.Tests   corpus     98
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

@@ -708,3 +708,62 @@ Unresolved, and named rather than buried: **the probe's own table is incomplete.
 resolved and are skipped — 81 of z1800's 741 played indices fall in that hole. The missing counts
 above are therefore over the *resolvable* subset. Fixing it needs the table-id-to-name mapping the
 trace writer already does, and it can only make the "open" column larger.
+
+### Resolved: they were re-encoded, not deleted. 60 of 63, recovered by an extension fallback
+
+*Evidence class: measured.*
+
+The owner's hypothesis, before any of this was checked:
+
+> i really dont think any sounds have been removed, only moved and renamed
+
+Correct, and the mechanism is narrower than "renamed": **TF2 re-encoded its voice lines from WAV to
+MP3**, keeping the stem and the folder. `sound/vo/scout_BattleCry01.wav` ships today as
+`sound/vo/scout_BattleCry01.mp3`.
+
+The first search for them missed it by asking the wrong question — it indexed the install by
+FILENAME, so `scout_BattleCry01.wav` matched nothing and reported 63 of 63 gone. Indexing by
+**stem** instead:
+
+| | |
+|---|---|
+| distinct played sounds that would not open | 63 |
+| present under the same stem as MP3 | **60** |
+| absent under any extension | **3** |
+
+The three are `player/pl_fallpain4`, `8` and `10`.
+
+**With a stated-path-first container fallback (`SoundFile`), the corpus resolves essentially
+completely:**
+
+| Demo | Played | Open | Missing |
+|---|---|---|---|
+| 2007 build 3258 POV | 22 | **22** | 0 |
+| 2007 build 3258 STV | 30 | **30** | 0 |
+| 2008 build 3420 POV | 36 | 34 | 2 |
+| 2008 build 3420 STV | 45 | 44 | 1 |
+| 2009 build 3862 POV | 46 | **46** | 0 |
+| 2011 build 4604 POV / STV | 37 / 43 | **37 / 43** | 0 |
+| 2013 POV / STV | 27 / 76 | **27 / 76** | 0 |
+| z1800 (modern) | 741 | 660 | 0 |
+
+**Three unopenable sounds across the entire corpus**, all the same fall-damage trio. A 2007 demo is
+fully voiced by a 2026 install.
+
+**Stated path first, always.** A file that still exists under its own name is the one the demo
+meant, so the fallback runs only on a miss and can never prefer a re-encode over the original. That
+ordering has its own test with a both-containers-present control, because without one "fell back
+correctly" and "always uses the MP3" are indistinguishable.
+
+**And if the last three ever do get shipped, MP3 is what Valve themselves chose.** Owner:
+
+> tf2 even went mp3 in its later life too so us going to mp3 and converting old sounds wouldnt
+> actually be different than valve really
+
+So the size objection to bundling loses its force for a handful of files — though at three sounds,
+silence is defensible too, and nothing is being shipped for now.
+
+Still open, and it is the probe's limitation rather than the resolver's: 81 of z1800's 741 played
+indices are not in the probe's table at all, because it applies `CreateStringTable` and not
+`UpdateStringTable`. Production handles both — `DemoTraceWriter` resolves the table id — so this is
+a gap in the measurement, and closing it can only raise the "open" column.
