@@ -8726,3 +8726,40 @@ sweeps the Viewer3D assembly for any member mentioning `SceneFog` and asserts th
 control that the same sweep finds a scene type the renderer really does use. Adding a fog parameter
 anywhere in the renderer reddens it, at which point it should be replaced by a parity test against
 those equations rather than deleted (D45).
+
+---
+
+## B140 — gesture layers are decoded, typed, tested, and reach no renderer — OPEN
+
+**Found 2026-08-21 by sweeping for the B139 pattern rather than by tripping over it.**
+
+`GestureLayer`, `GestureSlot`, `GestureContext`, `GestureTrigger`, `PlayerAnimEvent` and
+`PlayerGestureEvent.Map` are all implemented in `Tf2DemoSalvage.Core.Scene`, with
+`GestureConformanceTests` beside them.
+
+**The only mention of a gesture anywhere outside Core is a comment saying they are missing**
+(`PlayerAnimation.cs:19`). Nothing in `Tf2DemoSalvage.Viewer3D` or `Tf2DemoSalvage.Cli` names any of
+those types.
+
+### What it costs on screen
+
+A gesture layer is how TF2 plays an animation *over* the base movement — the arms reloading while
+the legs keep running, a taunt, a weapon swap. Without them a player's whole body is driven by the
+locomotion layer alone, so every one of those actions is simply absent: a medic running with a
+healing beam attached plays a run cycle, not the heal pose.
+
+### The same shape as B139, and that is why it is filed together
+
+Fog was found by asking what consumes `SceneFog`. Running the same question over every scene and
+schema type turned this up in one pass. **Two features in the same state is a pattern, not an
+accident** — the decode side of this project is well ahead of the draw side, and the test suite
+cannot see the gap because both halves are individually well tested.
+
+`docs/memory/output-level-assertion-or-it-is-not-done.md` now carries the technique: a grep for the
+consumers is cheaper than a rendered-artefact test and catches this whole class.
+
+### Before implementing anything that sits on top of animation
+
+**Check whether the layer underneath is wired, not merely present.** That is the concrete hazard for
+the next feature: `PlayerAnimation` composes poses, and building on it while gesture layers are
+absent means the new feature is correct and still invisible.
