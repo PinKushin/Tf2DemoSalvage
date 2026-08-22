@@ -946,7 +946,7 @@ internal class MainForm : Form
 
         try
         {
-            _downloader ??= new MapDownloader(new HttpClient(), MapDownloader.DefaultFolder);
+            _downloader ??= MapDownloader.Create(MapDownloader.DefaultFolder);
 
             string? downloaded = await _downloader
                 .TryDownloadAsync(mapName, CancellationToken.None)
