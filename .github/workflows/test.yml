@@ -60,6 +60,20 @@ jobs:
           --logger 'trx;LogFileName=cli.trx'
           --collect:"XPlat Code Coverage" --results-directory coverage/cli
 
+      # **Content was not run by CI at all until 2026-08-22** — 612 tests covering every BSP, VTF,
+      # MDL, VMT and VPK reader, gated only by the local build/gate.sh. That is the largest suite
+      # after Core and it reads the most hostile input of any of them.
+      #
+      # It belongs in this job rather than the Windows one: the project is plain net10.0, it needs
+      # no Git LFS blobs (only ToolMaterialFlagsProbe touches the corpus, and that is [Explicit]),
+      # and the tests that want an installed game already skip through
+      # GameAssetIntegrationTests.GameFolder. So it costs no LFS bandwidth and no Windows minutes.
+      - name: Content
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Content.Tests -c Release
+          --logger 'trx;LogFileName=content.trx'
+          --collect:"XPlat Code Coverage" --results-directory coverage/content
+
       - name: Check the counts
         # "Passed!" is not the result, the count is. A crashed test host prints a pass line with
         # a truncated total, and a --filter matching nothing exits 0 with no summary at all.
@@ -71,9 +85,14 @@ jobs:
         # suites held 1034 and 352, and on 2026-08-17 a solution-wide run reported 50 of Viewer's
         # 350 tests as a pass (B104) — which 34 would have accepted. A floor is only a guard while
         # it is close to the number it guards.
+        # **Set from a measured CI run, not from the local gate's numbers.** CI totals are a few
+        # per cent below local ones because some parameterised cases enumerate from files that are
+        # not on a runner. Read off run 32516362350 and the first run after this change; the local
+        # floors in build/gate.sh are a separate, higher set and the two must not be copied across.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1000 Core
-          ./build/assert-test-count.sh '**/cli.trx' 63 Cli
+          ./build/assert-test-count.sh '**/core.trx' 1485 Core
+          ./build/assert-test-count.sh '**/cli.trx' 74 Cli
+          ./build/assert-test-count.sh '**/content.trx' 600 Content
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -95,6 +114,9 @@ jobs:
           ./build/assert-coverage.sh \
             "$(find coverage/cli -name coverage.cobertura.xml | head -1)" \
             tf2demosalvage 95 92
+          ./build/assert-coverage.sh \
+            "$(find coverage/content -name coverage.cobertura.xml | head -1)" \
+            Tf2DemoSalvage.Content 80 70
 
       - uses: actions/upload-artifact@v7
         if: failure()

@@ -109,6 +109,12 @@ public sealed class FirstPersonUiTests
     [Test]
     public void FirstPerson_Capture_WritesAPictureForSomebodyToLookAt()
     {
+        // **A viewmodel is a game asset, so with no game there is nothing to wait for.** Without
+        // this the test waits fifteen seconds for `models/weapons/v_*.mdl` to be drawn, times out,
+        // and reports "the viewmodel never reached the screen" — a true sentence about a missing
+        // install, presented as a rendering defect. That is what has kept CI red.
+        ViewerSession.RequireTheGame();
+
         // **This asserts almost nothing on purpose.** Whether the first-person view looks RIGHT is
         // not answerable by an assertion: a camera at the correct coordinates pointing the correct
         // way still draws a wrong picture if the projection, the basis or the eye height is wrong,

@@ -43,6 +43,54 @@ internal sealed partial class ViewerSession
         "The viewer is not running; ViewerSession did not complete its setup.");
 
     /// <summary>A committed demo whose map ships with the game.</summary>
+    /// <summary>Skips the caller unless Team Fortress 2 is installed on this machine.</summary>
+    /// <remarks>
+    /// **The UI suite never had this gate and CI has been red because of it.** A test that waits
+    /// for a viewmodel to be drawn is waiting for `models/weapons/v_*.mdl` out of TF2's VPKs; with
+    /// no game installed the model cannot resolve, nothing draws, and the wait times out with
+    /// *"The viewmodel never reached the screen"*. That message is true and the conclusion drawn
+    /// from it is wrong — it reports a missing environment as a defect in the renderer.
+    ///
+    /// Observed on run 32516362350 and every run around it: the job stopped there, so the count
+    /// checks after it had never executed at all. One un-gated precondition was hiding the state of
+    /// the whole gate.
+    ///
+    /// **The convention is not new — it is copied from
+    /// <c>GameAssetIntegrationTests.GameFolder</c>**, which has gated on exactly this since it was
+    /// written. `TF2_FOLDER` first, then the standard library roots, and the file it looks for is a
+    /// VPK rather than the folder, because a Steam library keeps a directory for a game that has
+    /// been uninstalled.
+    ///
+    /// Only tests that need game ASSETS call this. The shell and transport tests drive the window
+    /// and need no models, so gating them would hide real breakage.
+    /// </remarks>
+    public static void RequireTheGame()
+    {
+        string? configured = Environment.GetEnvironmentVariable("TF2_FOLDER");
+
+        if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
+        {
+            return;
+        }
+
+        foreach (string root in new[]
+        {
+            @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
+            @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
+            @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
+        })
+        {
+            if (File.Exists(Path.Combine(root, "tf2_textures_dir.vpk")))
+            {
+                return;
+            }
+        }
+
+        Assert.Ignore(
+            "Team Fortress 2 is not installed, so no model can resolve and nothing can be drawn "
+            + "into a viewmodel. Set TF2_FOLDER to run these.");
+    }
+
     public static string DemoPath => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
         "..", "..", "..", "..", "..",
