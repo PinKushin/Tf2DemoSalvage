@@ -457,3 +457,77 @@ name strings, so the next attempt is:
 
 Ghidra has 11,170 functions in this binary and none covering that region, so step 3 means forcing
 disassembly rather than relying on the existing analysis.
+
+## Soundscripts: 13,052 entries, and 78% of them are one soundlevel
+
+*Evidence class: measured on the shipped install, plus read from published source.*
+
+**A precached name that is not a path is a soundscript key**, and this is the table that resolves
+it. `FX_RicochetSound.Ricochet` names an entry in `scripts/game_sounds_weapons.txt` carrying a
+channel, a volume, a pitch, a soundlevel, and one or more waves — so the demo says *what happened*
+and the script says *what that sounds like*.
+
+**The defaults are published**, in `CSoundParameters`' constructor in
+`public/SoundEmitterSystem/isoundemittersystembase.h`:
+
+| field | default |
+|---|---|
+| `channel` | `CHAN_AUTO` (0) |
+| `volume` | `VOL_NORM` (1) |
+| `pitch` | `PITCH_NORM` (100) |
+| `soundlevel` | `SNDLVL_NORM` (75) |
+
+These matter more than an edge case would, because **most entries state only some fields**. A wrong
+default is not a wrong sound in one place; it is a wrong sound across thousands.
+
+**The shipped scripts document their own syntax**, which is where the symbolic values were read from
+rather than from a wiki. `game_sounds_weapons.txt` opens with the channel list, the statement that
+*"these can be set with `channel` `2` or `channel` `chan_voice`"* — both forms occur, and handling
+one silently mis-channels every entry using the other — and the legacy attenuation constants under
+Valve's own heading, *"DON'T USE THESE - USE SNDLVL_ INSTEAD!!!"*.
+
+That header also states `ATTN_NORM 0.8f`. **This is an independent confirmation of
+`SNDLVL_TO_ATTN(75) = 0.8` from `soundflags.h`** — two shipped sources, one code and one data,
+agreeing on a number that was previously known from one. Worth more than either alone, and it is
+exactly the *shipped data is a source* point: the answer was sitting in a text file the game reads.
+
+**Measured across the whole install** — all 21 `game_sounds*.txt` files in `tf2_misc_dir.vpk`:
+
+| | |
+|---|---|
+| scripts | 21 |
+| entries | **13,052** |
+| entries using `rndwave` | 1,626 |
+| entries stating a range for pitch or volume | 343 |
+
+Every one of them parsed, every one carried at least one wave, and every soundlevel landed inside
+the declared range. That is the standard `decode-must-be-total` sets and the same one that caught
+`taunt_eng_swoosh.wav` in the WAV reader.
+
+**The soundlevel distribution is lopsided in a way worth recording:**
+
+| `SNDLVL` | entries |
+|---|---|
+| 95 | **10,115** |
+| 75 (`SNDLVL_NORM`) | 759 |
+| 0 (`SNDLVL_NONE`) | 676 |
+| 74 | 330 |
+| 80 (`SNDLVL_TALKING`) | 198 |
+
+78% of every entry TF2 ships is `SNDLVL_95dB`, because the bulk of the entries are voice lines and
+they are loud. Two consequences: the attenuation curve will be exercised almost entirely at one
+input, and **a test asserting only that a soundlevel is "in range" cannot see a total failure of
+symbolic resolution** — a collapse to the default puts everything at 75, which is in range. That
+weakness was live in the first draft of the conformance suite and was found by sabotage, not by
+review; the fix was to predict the shape (95 must outnumber 75 by an order of magnitude) and to
+assert exact values against one real shipped entry.
+
+**Two smaller findings:**
+
+- **Ranges are ordinary, not exotic.** `"pitch" "90, 110"` means the engine picks per play, which is
+  what stops a repeated sound going mechanical. A reader taking the first number produces a
+  plausible sound with no variation — audible only by comparison with the game, and so among the
+  hardest defects to notice.
+- **Sound characters appear inside soundscripts too.** Shipped entries include
+  `"wave" ">weapons/fx/nearmiss/bulletLtoR08.wav"`. Wave names are therefore kept verbatim and split
+  at the point of use, so the prefix handling lives in one place rather than two.

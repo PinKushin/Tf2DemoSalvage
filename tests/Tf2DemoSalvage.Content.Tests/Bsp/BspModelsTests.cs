@@ -1,8 +1,9 @@
-using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 
@@ -38,29 +39,21 @@ public sealed class BspModelsTests
     [Test]
     public void BspModels_ARealMap_DeclaresAWorldAndNonOverlappingSubmodels()
     {
-        string? path = null;
-
-        foreach (string? root in new[]
+        // **This lookup was corrupt, and the test had stopped reading any map at all.** It carried
+        // its own copy of the install path with `\common` and `\tf` run through escape
+        // interpretation — a literal 0x0F where the `\c` was and a tab where the `\t` was, inside a
+        // verbatim string. A path that cannot exist takes the skip branch below, so the loss showed
+        // up as a SKIP rather than a failure, which is invisible in a summary line.
+        //
+        // `GameInstall` is the single copy now. That is the fix: a hardcoded path repeated across
+        // seventy-three files is a claim nobody can check, and this one had been false for a while.
+        if (GameInstall.Find("maps/cp_process_final.bsp") is not { } path)
         {
-            Environment.GetEnvironmentVariable("TF2_FOLDER"),
-            @"F:SteamLibrarysteamappsmmonTeam Fortress 2	f",
-        })
-        {
-            if (!string.IsNullOrWhiteSpace(root) &&
-                System.IO.File.Exists(System.IO.Path.Combine(root, "maps", "cp_process_final.bsp")))
-            {
-                path = System.IO.Path.Combine(root, "maps", "cp_process_final.bsp");
-                break;
-            }
-        }
-
-        if (path is null)
-        {
-            Assert.Ignore("No map available; set TF2_FOLDER to run this.");
+            Assert.Ignore(GameInstall.Missing);
             return;
         }
 
-        IReadOnlyList<BspModel> models = BspModels.Read(System.IO.File.ReadAllBytes(path));
+        IReadOnlyList<BspModel> models = BspModels.Read(File.ReadAllBytes(path));
 
         models.Count.ShouldBeGreaterThan(1, "a real map has moving brushwork");
 
