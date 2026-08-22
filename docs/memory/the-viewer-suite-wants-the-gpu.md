@@ -24,7 +24,22 @@ screen, then re-run. A genuine crash reproduces; this did not. And do not confus
 ordinary sense — [[ui-tests-run-every-time]] and the standing rule that flake is a defect still hold
 for anything that fails rather than aborts.
 
-**One trap noticed while chasing it:** the console logger and the `.trx` disagree by one on this
-suite's total — console says 511, `<Counters total="512">`. `assert-test-count.sh` reads the trx, so
-the floor is right and the console line is not. Do not lower a floor on the strength of the console
-summary ([[a-log-must-name-what-it-measured]]).
+**One trap noticed while chasing it, and it is much bigger than first written:** the console logger
+and the `.trx` disagree on the total, and **not by a constant**. First seen as one on this suite
+(console 511, `<Counters total="512">`), and measured on 2026-08-21 as **eleven** on
+`Content.Tests` — console `Total: 601`, trx `total="612"`. The gap grows with the number of skipped
+and `[Explicit]` tests, which the two count differently.
+
+`assert-test-count.sh` reads the trx, so **the floor is right and the console line is not**.
+
+**How to apply:** never compare a console `Total:` against a gate floor. It reads as tests having
+vanished, and it cost a real detour — 601 against a floor of 606 looked like eleven tests lost while
+six had just been ADDED. Read the counters instead:
+
+```bash
+dotnet test tests/<project> --logger "trx;LogFileName=check.trx" && \
+  find . -name check.trx | head -1 | xargs grep -oE '<Counters[^/]*/>'
+```
+
+Same family as [[a-log-must-name-what-it-measured]]: two instruments reporting "total" and meaning
+different things, with nothing on either line saying which.

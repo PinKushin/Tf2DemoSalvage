@@ -8571,3 +8571,57 @@ minutes.
 `MATERIAL_VAR_NO_DEBUG_OVERRIDE`, so what else the flag does is in the surface renderer too. This
 project currently decides what a marking needs by its own reasoning, which is the same divergence
 wearing a different name.
+
+---
+
+## B138 — overlay render order is parsed and ignored, and 58% of stock maps use it — OPEN
+
+**Filed 2026-08-21, during the conformance sweep, with a number rather than a worry.**
+
+`doverlay_t` packs a two-bit render order into the top of the same short as the face count
+(`OVERLAY_RENDER_ORDER_MASK`, `bspfile.h:1005`). `BspOverlays` reads it correctly — the mask, the
+shift and the face-count guard are each compared against Valve's own `#define` by
+`OverlayLumpConformanceTests` — and **nothing downstream sorts by it**. `BspOverlay.RenderOrder` has
+no consumer.
+
+### Why it matters, and why it looked like it did not
+
+With depth writes off, which is correct and what the engine does, two overlapping overlays **both
+draw and both blend**. Order is therefore the whole result, not a tie-break: paint A over B and you
+get a different picture from B over A.
+
+**cp_process cannot show it.** Every overlay on that map is at render order 0, so the map this
+project renders for every visual check is exactly the map on which the defect is invisible. The
+conformance test skipped with that reason rather than passing, which is what prompted measuring the
+rest.
+
+### Measured across every stock map — `OverlayRenderOrderProbe`
+
+234 maps read, **0 unreadable**:
+
+| render order | overlays |
+|---:|---:|
+| 0 | 45,706 |
+| 1 | 816 |
+| 2 | 191 |
+| 3 | 73 |
+
+**136 of 234 maps use more than one order** — 58%. cp_badlands, cp_dustbowl, cp_granary, cp_gorge,
+cp_gravelpit and cp_5gorge are all in the list; `cp_carrier` uses all four. So this is not an
+obscure corner of the format, and the 1,080 layered overlays are exactly the ones an artist placed
+*deliberately on top of something else*.
+
+### What to do
+
+Sort the decal batches by `RenderOrder` before drawing, ascending — higher draws later. The field is
+already on the record, so this is a sort in the pass rather than a change to the reader.
+
+**Verify on cp_badlands, not cp_process.** Same reason the gap hid: a test on a map with one layer
+measures nothing, and `OverlayPassConformanceTests` now picks a layered map for exactly this.
+
+### Worth keeping from the measurement
+
+**234 stock maps parsed with zero failures.** That is a stronger statement about `BspOverlays` than
+any fixture — the reader was pointed at every map Valve ships, including the seasonal and community
+ones, and the face-count guard rejected none of them. `docs/memory/decode-must-be-total.md` asks for
+exactly this and it had never been run on the overlay lump.

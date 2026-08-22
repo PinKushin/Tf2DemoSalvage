@@ -111,10 +111,25 @@ public sealed record BspOverlay(
 public static class BspOverlays
 {
     /// <summary>Most faces one overlay can name: <c>OVERLAY_BSP_FACE_COUNT</c>.</summary>
-    private const int MaximumFaces = 64;
+    /// <remarks>
+    /// Internal rather than private so <c>OverlayLumpConformanceTests</c> can compare it against
+    /// Valve's own <c>#define</c>. A doc comment citing an engine identifier is a claim, and a claim
+    /// no test can reach is one nobody checks.
+    /// </remarks>
+    internal const int MaximumFaces = 64;
 
     /// <summary>The top two bits of the packed field hold the render order.</summary>
-    private const int RenderOrderMask = 0xC000;
+    /// <remarks><c>OVERLAY_RENDER_ORDER_MASK</c>, <c>bspfile.h:1005</c>.</remarks>
+    internal const int RenderOrderMask = 0xC000;
+
+    /// <summary>How far to shift the render order down, once masked.</summary>
+    /// <remarks>
+    /// <c>16 - OVERLAY_RENDER_ORDER_NUM_BITS</c>, which is how <c>GetRenderOrder</c> writes it
+    /// (<c>bspfile.h:1052</c>). Valve shifts the whole unsigned short without masking first, which
+    /// reaches the same answer for a 16-bit field; masking first is what makes it safe here, where
+    /// the value has already been widened to an <c>int</c>.
+    /// </remarks>
+    internal const int RenderOrderShift = 14;
 
     /// <summary>Reads every overlay in a map.</summary>
     /// <param name="file">The map's bytes.</param>
@@ -142,7 +157,7 @@ public static class BspOverlays
             // order, and then the face loop walks straight off the end of the struct.
             int packed = BinaryPrimitives.ReadUInt16LittleEndian(entry[OverlayFaceCountOffset..]);
             int faceCount = packed & ~RenderOrderMask;
-            int renderOrder = (packed & RenderOrderMask) >> 14;
+            int renderOrder = (packed & RenderOrderMask) >> RenderOrderShift;
 
             if (faceCount is < 0 or > MaximumFaces)
             {

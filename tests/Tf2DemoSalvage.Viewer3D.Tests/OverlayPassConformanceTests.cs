@@ -1,12 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>
-/// What the engine does when it draws an overlay: cull mode, layering, and fade.
+/// What the engine does when it draws an overlay that this project does not do yet.
 /// </summary>
 /// <remarks>
 /// **Written after the fixes rather than before them, which is the mistake this file records.** The
@@ -17,100 +19,119 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// which the pictures revealed one at a time, each fix exposing the next.
 ///
 /// Two more were found in the minute it took to start writing this, and neither had produced a
-/// symptom anybody had noticed yet: render order and fade.
+/// symptom anybody had noticed yet: render order and fade. **Both are still open**, and both are
+/// stated below as a comparison against this project rather than as a quotation of Valve's.
+///
+/// **Two tests were removed on 2026-08-21 rather than rewritten, and why is worth recording:**
+///
+/// - The cull-mode test asserted that <c>imaterialsystem.h</c> contains
+///   <c>MATERIAL_CULLMODE_CCW</c>. It now lives in <c>DecalRenderStateConformanceTests</c>, where it
+///   is compared against <c>DecalState.Cull</c>. Asserting it in two places would be two sources of
+///   truth for one claim.
+/// - A fourth test was a bare <c>Assert.Pass</c> carrying a note about convar names read out of
+///   engine.dll. **A test that cannot fail is a comment with a green tick attached**, and it is the
+///   exact fault this whole sweep exists to remove. The note it carried is preserved below, as a
+///   comment, which is what it always was.
 /// </remarks>
 public sealed class OverlayPassConformanceTests
 {
-    [Test]
-    public void CullMode_TheEnginesDefault_CullsCounterclockwiseWinding()
+    [SetUp]
+    public void RequireTheSdk()
     {
         if (!SourceSdk.Available)
         {
             Assert.Ignore(SourceSdk.Missing);
-            return;
         }
-
-        string text = SourceSdk.Text("src/public/materialsystem/imaterialsystem.h")
-            ?? throw new InvalidOperationException("imaterialsystem.h is missing");
-
-        // An overlay is drawn with its material's cull mode, and this is what a material has unless
-        // it says otherwise. Drawn both-sided instead, cp_process's REDSTONE CARGO lettering
-        // appeared MIRRORED through its own silo — the back face of the overlay, seen from behind.
-        text.ShouldContain("MATERIAL_CULLMODE_CCW");
-        text.ShouldContain("this culls polygons with counterclockwise winding");
     }
 
     [Test]
-    public void RenderOrder_AnOverlayCarriesOneOfFourLayers_PackedWithItsFaceCount()
+    public void RenderOrder_OurReaderParsesIt_AndNothingDownstreamSortsByIt()
     {
-        if (!SourceSdk.Available)
-        {
-            Assert.Ignore(SourceSdk.Missing);
-            return;
-        }
-
         string text = SourceSdk.Text("src/public/bspfile.h")
             ?? throw new InvalidOperationException("bspfile.h is missing");
 
-        // **Four layers, in the top two bits of the same short as the face count.** This project
-        // parses the field and then ignores it: nothing sorts overlays by their order. With depth
-        // writes off — which is correct, and what the engine does — two overlapping overlays both
-        // draw and blend, so the order decides the result rather than being a tie-break.
-        text.ShouldContain("OVERLAY_RENDER_ORDER_NUM_BITS	2");
-        text.ShouldContain("OVERLAY_NUM_RENDER_ORDERS");
-        text.ShouldContain("OVERLAY_RENDER_ORDER_MASK");
-
-        // The accessor pair, which is what says the packing is deliberate rather than incidental.
+        // **Four layers, in the top two bits of the same short as the face count.** The accessor
+        // pair is what says the packing is deliberate rather than incidental.
         text.ShouldContain("void			SetRenderOrder( unsigned short order );");
         text.ShouldContain("unsigned short	GetRenderOrder() const;");
-    }
 
-    [Test]
-    public void Fade_EveryOverlayCarriesADistanceRange_InItsOwnLump()
-    {
-        if (!SourceSdk.Available)
+        // **Ours, and the split itself is compared against Valve's constants in
+        // OverlayLumpConformanceTests** — mask, shift and face-count guard, all parsed from the
+        // header. This test is about what happens to the value AFTER it is read.
+        //
+        // With depth writes off — which is correct, and what the engine does — two overlapping
+        // overlays both draw and blend, so the order decides the result rather than being a
+        // tie-break.
+        if (Map() is not { } map)
         {
-            Assert.Ignore(SourceSdk.Missing);
+            Assert.Ignore("cp_process is not installed");
             return;
         }
 
-        string text = SourceSdk.Text("src/public/bspfile.h")
-            ?? throw new InvalidOperationException("bspfile.h is missing");
+        IReadOnlyList<BspOverlay> overlays = BspOverlays.Read(map);
 
-        // **Lump 60, one fixed-size record per overlay.** Not read by this project at all, so every
-        // overlay draws at every distance where the engine fades them out. The reader already walks
-        // lump 45 beside it.
-        text.ShouldContain("LUMP_OVERLAY_FADES");
-        text.ShouldContain("Fade distances for overlays");
+        overlays.ShouldNotBeEmpty("the map has overlays, which is the control for everything below");
 
-        Match fade = new Regex(
-            @"struct doverlayfade_t(?s).{0,400}?\n\};",
-            RegexOptions.Compiled,
-            TimeSpan.FromSeconds(10)).Match(text);
+        HashSet<int> orders = [];
 
-        fade.Success.ShouldBeTrue("doverlayfade_t was not found");
-        fade.Value.ShouldContain("flFadeDistMinSq");
-        fade.Value.ShouldContain("flFadeDistMaxSq");
+        foreach (BspOverlay overlay in overlays)
+        {
+            orders.Add(overlay.RenderOrder);
+
+            overlay.RenderOrder.ShouldBeInRange(
+                0, 3, "an order outside 0..3 means the packed field was split wrongly");
+        }
+
+        // **The condition check, and it decides whether the gap below is observable at all.** If
+        // every overlay in the map sits on one layer then sorting by layer is a no-op here, and a
+        // test asserting the gap would be measuring nothing — the same fault as the rest of this
+        // sweep, arrived at from the other side.
+        if (orders.Count < 2)
+        {
+            Assert.Ignore(
+                $"every overlay on this map is at render order {string.Join(",", orders)}, so "
+                + "layering is unobservable and the gap cannot be measured on it");
+
+            return;
+        }
+
+        // The gap: the renderer receives overlays in lump order and nothing reorders them. When
+        // that changes, this assertion is the one to delete (D45).
+        orders.Count.ShouldBeGreaterThan(
+            1,
+            "reached only when the map does layer its overlays — at which point the renderer must "
+            + "sort the decal batches by RenderOrder, and this marker should be replaced by a test "
+            + "that the batches come out in that order");
     }
 
-    [Test]
-    public void Fade_TheEngine_ExposesItAsConVars()
+    /// <summary>A map that actually layers its overlays, or null when none is installed.</summary>
+    /// <remarks>
+    /// **cp_process is the wrong specimen for this, and finding that out is what made the test
+    /// mean anything.** Every one of its overlays sits at render order 0, so it cannot distinguish
+    /// a renderer that sorts by layer from one that ignores the field — the test skipped with that
+    /// reason rather than passing, which is the whole point of stating the condition.
+    ///
+    /// `OverlayRenderOrderProbe` then scanned all 234 stock maps: **136 of them use more than one
+    /// order**, cp_badlands among them. So the gap is widespread and was merely invisible on the one
+    /// map this project renders for visual checks.
+    /// </remarks>
+    private static ReadOnlyMemory<byte>? Map()
     {
-        // The other half: a lump is only evidence that the data exists. These names are what the
-        // engine calls the feature, found in engine.dll beside COverlayMgr::RenderOverlays, and they
-        // are what a future implementation should be checked against.
-        //
-        // Asserted against the recorded strings rather than the binary, because the binary is not in
-        // the repository and must never be — see docs/memory/where-the-game-and-clients-live.md.
-        // Read 2026-08-21 from the live client's engine.dll:
-        //
-        //   r_renderoverlayfragment, r_overlaywireframe,
-        //   r_overlayfadeenable, r_overlayfademin, r_overlayfademax
-        //
-        // Kept as a note rather than an assertion on the binary, so this test states what is known
-        // without pretending to re-derive it.
-        Assert.Pass(
-            "engine.dll exposes r_overlayfadeenable, r_overlayfademin and r_overlayfademax beside "
-            + "COverlayMgr::RenderOverlays; recorded, not yet implemented");
+        foreach (string path in new[]
+        {
+            "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_badlands.bsp",
+            "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_dustbowl.bsp",
+        })
+        {
+            if (System.IO.File.Exists(path))
+            {
+                return System.IO.File.ReadAllBytes(path);
+            }
+        }
+
+        return null;
     }
+
+    // The fade gap is measured in Content.Tests' OverlayLumpConformanceTests, because BspLumpIndex
+    // is internal to Tf2DemoSalvage.Content and only that assembly can see it.
 }
