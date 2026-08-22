@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
+using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
@@ -38,9 +41,15 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// wall disappears behind the stripe painted on it. That is a divergence in ORDER, and no amount of
 /// tuning the bias fixes it.
 ///
-/// The test pins Valve's order rather than ours, deliberately: it is a statement about the engine
-/// that stays true whatever this renderer does, and it reddens if a future SDK snapshot reorders the
-/// passes.
+/// **Two of the three tests here assert Valve's source and one asserts ours, and the split is the
+/// point.** An SDK checkout does not change and Valve tested that code, so a test of it alone cannot
+/// fail for any reason that concerns this renderer — the flaw the owner named after this file was
+/// committed saying, in its own remarks, that it could not go red on our side.
+///
+/// The citations stay because they are the reference an assertion needs. What was added is the
+/// assertion: static props must be their own run, which is the structural condition for reproducing
+/// the engine's order at all. The behavioural half — a prop actually occluding a marking on the wall
+/// behind it — is measured in pixels by <c>OverlayOcclusionRenderTests</c>.
 /// </remarks>
 public sealed class ScenePassOrderConformanceTests
 {
@@ -82,6 +91,43 @@ public sealed class ScenePassOrderConformanceTests
             translucent,
             "the engine draws opaque renderables before translucent ones");
     }
+
+    [Test]
+    public void PassOrder_ThisRenderer_KeepsPropsOutOfTheWorldsOwnBatches()
+    {
+        // **The half this file was missing, and said so in its own remarks before being committed
+        // anyway.** Everything above asserts Valve's source, which does not change and which Valve
+        // already tested; it cannot fail for any reason that concerns this renderer.
+        //
+        // The engine's order — world and its overlays, THEN opaque renderables — is only reproducible
+        // if static props are a separate run from world surfaces. Merged into one batch list they
+        // are necessarily drawn with the world, whatever the pass sequence says, because a batch
+        // list is drawn in one go. So the structural claim is checkable directly: MapWorld must
+        // carry props apart from surfaces.
+        //
+        // The behavioural half — that a prop therefore occludes a marking on the wall behind it —
+        // is measured in pixels by OverlayOcclusionRenderTests, which is the test that would have
+        // caught B135.
+        MapWorld world = MapWorldBuilder.Build(
+            null,
+            [],
+            [],
+            LightmapAtlas.Pack([]),
+            [
+                new PropVertex(0f, 0f, 0f, 0f, 0f, 0),
+                new PropVertex(1f, 0f, 0f, 1f, 0f, 0),
+                new PropVertex(1f, 1f, 0f, 1f, 1f, 0),
+            ],
+            TopDownCamera.Fit([(0f, 0f), (1000f, 1000f)], 800, 600),
+            area: null);
+
+        world.Props.ShouldNotBeEmpty("a static prop must be its own run, drawn after the overlays");
+
+        world.Batches.ShouldBeEmpty(
+            "and it must NOT be in the world's batches: those are drawn before the overlay pass, " +
+            "which is the arrangement that let a marking paint over a pipe (B135)");
+    }
+
 
     [Test]
     public void DrawOpaqueRenderables_IsWhereStaticPropsAreDrawn()

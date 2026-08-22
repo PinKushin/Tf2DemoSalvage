@@ -403,3 +403,38 @@ proved nothing**, which is the same failure the 107 have, arrived at from a diff
 Each of the 29 files should either compare an SDK-derived value against **ours**, or be re-stated as
 what it actually is — a gap marker, which is a different thing with a different job (D45). Not
 attempted here; it is a sweep, and it wants doing with the list above rather than opportunistically.
+
+### The 29, classified — they are not all the same defect
+
+Counting them together overstates the damage. Sorted by what they are actually for:
+
+| kind | files | tests | verdict |
+|---|---|---|---|
+| **gap markers** — `Unimplemented*`, asserting the SDK has a feature this project does not | 8 | ~34 | **legitimate but mislabelled.** They document a gap (D45); they are not conformance checks and should not be counted as such. Better still if each measured OUR census reporting the gap, so a marker cannot outlive it |
+| **value pins** — Phong, BlendState, Fog, Displacement, StaticProp, DamageBit, LocalTable, PlayerResource, Haptic, AudienceSplit, SkinOverride, ControlPoint | 12 | ~45 | **the real problem.** Each asserts an SDK constant and nothing else. Every one should compare that constant against the value THIS project uses — which is the whole point and is one line per test |
+| **SDK-helper tests** — `SourceSdkCacheTests`, `SdkConstantResolutionTests` | 2 | 5 | **correct as they are.** The helper is the code under test, so the SDK is legitimately the subject |
+| **written for B135 tonight** — Decal, OverlayPass, ScenePassOrder, BrushLighting, OverlayFaceList | 5 | ~16 | **mine, and the same mistake fresh.** `ScenePassOrderConformanceTests` names its own limitation and was committed anyway |
+
+**So the number that matters is roughly 45**, not 107 — the value pins. The gap markers have a job
+and the helper tests are fine.
+
+### What "compare against ours" looks like in one line
+
+A value pin today:
+
+```csharp
+text.ShouldContain("m_DepthBias_Decal = -262144;");   // asserts Valve's file, and nothing else
+```
+
+The same test, made to mean something:
+
+```csharp
+int valves = SdkConstant("m_DepthBias_Decal");        // parsed from the SDK
+WorldRenderer.DecalBias.ShouldBe(valves);             // OUR value, compared to it
+```
+
+The second fails when someone edits our constant. The first cannot fail at all.
+
+**Where the two are deliberately different**, as with the decal bias — a D3D9 value that does not
+carry to D3D11 (D46, D48) — the test should say so and assert the DIFFERENCE, so that a divergence
+is recorded rather than merely absent.

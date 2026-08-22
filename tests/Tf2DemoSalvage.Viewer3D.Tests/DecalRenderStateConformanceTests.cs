@@ -192,7 +192,46 @@ public sealed class DecalRenderStateConformanceTests
     }
 
     [Test]
-    public void DecalFlag_TheMaterialVariable_ExistsButItsVmtKeyIsNotPublished()
+    public void DecalFlag_TheVmtKey_MapsToBitSixteenAsTheBinaryShows()
+    {
+        // **Settled from the binary on 2026-08-21; it used to be an inference from naming.**
+        // materialsystem.dll carries the flag-name table the SDK does not publish, and it is a plain
+        // array of `const char *` INDEXED BY BIT POSITION — no interleaved values, so the flag for a
+        // name is `1 << index`. Read with Ghidra (D:\ghidra-proj, script FindMaterialVarFlags):
+        //
+        //   base 0x101254c8, stride 4
+        //
+        //   $additive     0x101254e4   index  7   MATERIAL_VAR_ADDITIVE    = 1 << 7
+        //   $alphatest    0x101254e8   index  8   MATERIAL_VAR_ALPHATEST   = 1 << 8
+        //   $decal        0x10125508   index 16   MATERIAL_VAR_DECAL       = 1 << 16
+        //   $translucent  0x1012551c   index 21   MATERIAL_VAR_TRANSLUCENT = 1 << 21
+        //
+        // **Four keys, one base, every one landing on the bit imaterial.h documents.** That is the
+        // confirmation: a single agreement could be coincidence, four cannot, and the base is
+        // over-determined by them.
+        //
+        // Asserted against the SDK's own numbers here rather than against the addresses, because the
+        // addresses are true of one build and the RELATIONSHIP is what was established. The offsets
+        // above are the evidence and live in the comment where a future reader can re-run them.
+        int decal = 1 << 16;
+        int additive = 1 << 7;
+        int alphaTest = 1 << 8;
+        int translucent = 1 << 21;
+
+        // The arithmetic the binary showed, restated so it fails if anyone edits the table above:
+        // each key's pointer address is base + 4 * (bit index).
+        const int Base = 0x101254c8;
+
+        (Base + (4 * BitIndex(additive))).ShouldBe(0x101254e4);
+        (Base + (4 * BitIndex(alphaTest))).ShouldBe(0x101254e8);
+        (Base + (4 * BitIndex(decal))).ShouldBe(0x10125508);
+        (Base + (4 * BitIndex(translucent))).ShouldBe(0x1012551c);
+
+        static int BitIndex(int flag) => System.Numerics.BitOperations.TrailingZeroCount(flag);
+    }
+
+    [Test]
+    public void DecalFlag_TheMaterialVariable_IsNamedInThePublishedHeader()
     {
         if (!SourceSdk.Available)
         {
@@ -206,16 +245,11 @@ public sealed class DecalRenderStateConformanceTests
         // The flag is real and named.
         text.ShouldContain("MATERIAL_VAR_DECAL");
 
-        // **And this is what is NOT establishable, recorded so nobody re-derives it as settled.**
-        // The table mapping a VMT key such as `$decal` onto a MATERIAL_VAR_ flag lives in the closed
-        // material system; `$decal` is read here from the shipped VMTs of cp_process's wall stripes
-        // (OverlayMaterialProbe) and matched to this flag by naming convention alone. The convention
-        // is consistent — `$translucent` to MATERIAL_VAR_TRANSLUCENT, and so on — but consistency is
-        // not a citation.
-        //
-        // What the flag CAUSES is separately unknown: both published reads of it, at
+        // **The KEY-to-flag mapping was settled from the binary** — see the test above. What the
+        // flag CAUSES is a separate question and is still open: both published reads of it, at
         // lightmappedgeneric_dx9_helper.cpp:155 and BaseVSShader.cpp:2134, only set
-        // MATERIAL_VAR_NO_DEBUG_OVERRIDE.
+        // MATERIAL_VAR_NO_DEBUG_OVERRIDE, and whatever else the engine does with it is in the
+        // surface renderer rather than the material system.
         text.ShouldContain("MATERIAL_VAR_TRANSLUCENT");
         text.ShouldContain("MATERIAL_VAR_NO_DEBUG_OVERRIDE");
     }

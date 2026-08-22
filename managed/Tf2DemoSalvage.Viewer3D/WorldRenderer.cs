@@ -2993,9 +2993,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // writes conditionally per path (`bNoWriteZ`) rather than blanket-by-translucency, so it is
         // an inference from "none of them replaces what is behind it" rather than something read.
         //
-        // The $decal key itself is inferred too: MATERIAL_VAR_DECAL is named in imaterial.h:372 and
-        // cp_process's stripe materials declare "$decal" "1", but the table joining the two is in
-        // the closed material system. See DecalRenderStateConformanceTests.
+        // The $decal key itself is no longer inferred: materialsystem.dll holds the flag-name table
+        // as a `const char *` array INDEXED BY BIT POSITION, and $decal sits at index 16 — exactly
+        // MATERIAL_VAR_DECAL = (1 << 16) from imaterial.h:372. Confirmed alongside $additive (7),
+        // $alphatest (8) and $translucent (21), all from one base. See
+        // DecalRenderStateConformanceTests.
         bool marks = _decalMaterials.Contains(materialIndex);
 
         bool blends = marks

@@ -292,3 +292,41 @@ the engine keeps it.
 
 Not attempted here: it is a real change to how materials are bound, and it wants its own decision
 entry rather than being folded into a rendering fix.
+
+---
+
+## `$decal` is bit 16, read out of materialsystem.dll
+
+*(evidence class: read from a decompilation — the first in this project)*
+
+**The flag-name table is a plain `const char *` array indexed by BIT POSITION.** No interleaved
+values, no pairs: the flag for a key is `1 << index`. Found by importing the live client's
+`materialsystem.dll` into the existing Ghidra project and walking the references to each `"$..."`
+string (`D:\ghidra-proj`, script `FindMaterialVarFlags.java`).
+
+Base `0x101254c8`, stride 4:
+
+| key | pointer | index | `imaterial.h` |
+|---|---|---|---|
+| `$additive` | `0x101254e4` | 7 | `MATERIAL_VAR_ADDITIVE = (1 << 7)` |
+| `$alphatest` | `0x101254e8` | 8 | `MATERIAL_VAR_ALPHATEST = (1 << 8)` |
+| `$decal` | `0x10125508` | **16** | `MATERIAL_VAR_DECAL = (1 << 16)` |
+| `$translucent` | `0x1012551c` | 21 | `MATERIAL_VAR_TRANSLUCENT = (1 << 21)` |
+
+**Four keys, one base, every one landing on the bit the published header documents.** That is what
+makes it a confirmation rather than a coincidence: a single agreement proves nothing, and the base is
+over-determined by four.
+
+So `$decal` → `MATERIAL_VAR_DECAL` is settled. It had been carried as "inferred from naming" since
+the flag was first read, and the naming convention was in fact right — but a convention is not a
+citation, and this project had two claims resting on one.
+
+**What is still NOT settled, and is a different question:** what the flag *causes*. Both published
+reads of `MATERIAL_VAR_DECAL` — `lightmappedgeneric_dx9_helper.cpp:155` and `BaseVSShader.cpp:2134` —
+only set `MATERIAL_VAR_NO_DEBUG_OVERRIDE`. Whatever else the engine does with it lives in the surface
+renderer rather than in the material system, so a second decompilation target would be needed.
+
+**Worth knowing for the next one:** the whole job took one script and one import. The project at
+`D:\ghidra-proj` already had the pattern — `analyzeHeadless`, `-import`, `-postScript` — and the
+binaries are ordinary game files on `F:`. A decompilation question here is an afternoon's habit, not
+an expedition, and this one had been carried as an unresolved inference for want of trying it.
