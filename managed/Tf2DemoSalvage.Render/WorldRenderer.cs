@@ -11,7 +11,7 @@ using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Diagnostics;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>
 /// Draws a map with its own textures and its own baked lighting.

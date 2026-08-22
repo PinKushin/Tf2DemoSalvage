@@ -1,6 +1,6 @@
 using Silk.NET.Direct3D11;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>
 /// The render state a surface marking is drawn with — Valve's values, in Valve's units.

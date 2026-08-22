@@ -1,6 +1,6 @@
 using Silk.NET.Direct3D11;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>
 /// The blend states a material's mode maps to, as <c>BlendType_t</c> defines them.

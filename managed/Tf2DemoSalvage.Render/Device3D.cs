@@ -8,7 +8,7 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>
 /// Owns the Direct3D 11 device, swap chain and back buffer view for one window.
@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// is for: the alternative at this boundary is a copy per frame, and this is exactly the case the
 /// "unsafe before native" rule describes.
 /// </remarks>
-internal sealed unsafe class Device3D : IDisposable
+public sealed unsafe class Device3D : IDisposable
 {
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>
@@ -298,15 +298,10 @@ internal sealed unsafe class Device3D : IDisposable
 
     private static void WritePng(string path, int width, int height, MappedSubresource mapped)
     {
-        string? folder = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
-
-        if (folder is not null)
-        {
-            System.IO.Directory.CreateDirectory(folder);
-        }
-
-        using System.Drawing.Bitmap bitmap = new(
-            width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        // Packed tightly into RGBA for PngWriter, which is this project's own encoder. It replaced
+        // System.Drawing here because that assembly is Windows-only by design in modern .NET and
+        // was the one thing keeping this layer on the net10.0-windows framework (D61).
+        byte[] rgba = new byte[width * height * 4];
 
         for (int y = 0; y < height; y++)
         {
@@ -316,14 +311,17 @@ internal sealed unsafe class Device3D : IDisposable
             for (int x = 0; x < width; x++)
             {
                 byte* pixel = row + (x * 4);
+                int at = ((y * width) + x) * 4;
 
-                // The back buffer is B8G8R8A8, so the bytes arrive blue first.
-                bitmap.SetPixel(
-                    x, y, System.Drawing.Color.FromArgb(255, pixel[2], pixel[1], pixel[0]));
+                // The back buffer is B8G8R8A8, so the bytes arrive blue first and are swapped here.
+                rgba[at] = pixel[2];
+                rgba[at + 1] = pixel[1];
+                rgba[at + 2] = pixel[0];
+                rgba[at + 3] = 255;
             }
         }
 
-        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        PngWriter.Write(path, width, height, rgba);
 
         ViewerLog.Write("render", $"captured the viewport to {path}");
     }
@@ -474,6 +472,16 @@ internal sealed unsafe class Device3D : IDisposable
     /// wanted: for a flat overhead view the draw order IS the layering, and it is one fewer
     /// resource to resize when the window changes.
     /// </remarks>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Design",
+        "CA1062:Validate arguments of public methods",
+        Justification =
+            "viewmodels is OPTIONAL - nullable with a default of null - so throwing on null would " +
+            "break its contract rather than protect it. The only use is DrawViewmodels, which " +
+            "handles null explicitly and logs which of its three preconditions failed. The rule " +
+            "fires because it does not follow the null check across the private call. Raised when " +
+            "this type became public at the Render seam (D61); it was internal before and the rule " +
+            "did not apply.")]
     public void DrawFrame(
         float red,
         float green,

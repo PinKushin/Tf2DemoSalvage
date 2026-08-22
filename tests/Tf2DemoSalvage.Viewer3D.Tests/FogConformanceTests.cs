@@ -144,8 +144,17 @@ public sealed class FogConformanceTests
             {
                 foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
                 {
-                    findsAKnownConsumer |= parameter.ParameterType == typeof(DemoTimeline)
-                        || parameter.ParameterType.Name.Contains("ScenePose", StringComparison.Ordinal);
+                    // **The control's subject changed with the split (D61) and that is why it is a
+                    // control.** It named DemoTimeline, which the FORM consumes; when the renderer
+                    // moved to its own assembly the sweep followed WorldRenderer correctly and the
+                    // control went red, because no method in the render layer takes a timeline. The
+                    // claim above was still true, so without this the suite would have gone on
+                    // asserting an unfalsifiable "not referenced".
+                    //
+                    // MapAssets is the replacement: WorldRenderer.UploadTextures takes one, so it
+                    // is a scene type the renderer demonstrably does use.
+                    findsAKnownConsumer |= parameter.ParameterType == typeof(MapAssets)
+                        || parameter.ParameterType.Name.Contains("ModelInstance", StringComparison.Ordinal);
                 }
             }
         }

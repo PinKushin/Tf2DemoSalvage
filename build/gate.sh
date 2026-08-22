@@ -183,7 +183,14 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     98
 #
 # The wire-name half moved to Core.Tests as FogControllerConformanceTests (+2 there), which is why
 # the core floor went up in the same commit.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    570
+# 579: PngWriterTests (9). The render layer's own PNG encoder, written to get System.Drawing — which
+# is Windows-only by design in modern .NET — out of the way so Render could be plain net10.0 (D61).
+#
+# Worth knowing why the suite has both a round-trip and a byte-level check: the round-trip decodes
+# our file with System.Drawing, and swapping ZLibStream for DeflateStream (raw deflate, which PNG
+# forbids) was sabotaged deliberately and ALL EIGHT round-trip tests still passed, because that
+# decoder is more lenient than the spec. The zlib-header assertion is what actually catches it.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    579
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

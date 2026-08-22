@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Direct3D 11. Everything that talks to a GPU, and nothing that decides what to draw.
+
+    Split from Viewer3D on 2026-08-22 (D60/D61) so the WinForms host is the only project carrying
+    the net10.0-windows framework. Silk.NET's D3D bindings are P/Invoke wrappers over d3d11.dll and
+    dxgi.dll, so they impose no framework requirement of their own - the Windows TFM was only ever
+    needed for WinForms.
+
+    **Plain net10.0 here is not a claim that this runs on Linux.** Creating a device obviously fails
+    where there is no Direct3D. What it buys is that the render state logic - blend modes, depth
+    bias, the decal states pinned against Valve's own shaders - compiles and is testable anywhere,
+    and that nothing in this project can quietly reach for a Form.
+
+    Note the lesson recorded in D60: a plain TargetFramework blocks WinForms TYPES, not P/Invoke
+    into Windows libraries. Anything doing DllImport on user32 or kernel32 belongs in Viewer3D
+    however portable its project file looks.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Render</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Render.Tests" />
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Direct3D11" />
+    <PackageReference Include="Silk.NET.Direct3D.Compilers" />
+    <PackageReference Include="Silk.NET.DXGI" />
+    <PackageReference Include="Silk.NET.Maths" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
+  </ItemGroup>
+
+</Project>
