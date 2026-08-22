@@ -100,7 +100,11 @@ run Tf2DemoSalvage.Audio.Tests    audio      28
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
-run Tf2DemoSalvage.Content.Tests  content   628
+# 638: SoundScriptConformanceTests (9) and SoundScriptProbe (1, [Explicit]). The conformance suite
+# checks SoundScript's defaults against CSoundParameters' constructor, its SNDLVL_/CHAN_ resolution
+# against soundflags.h and the shipped script headers, and then reads all 21 game_sounds*.txt files
+# TF2 ships — 13,052 entries, every one required to carry a wave and an in-range soundlevel.
+run Tf2DemoSalvage.Content.Tests  content   638
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 run Tf2DemoSalvage.Corpus.Tests   corpus     96
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers

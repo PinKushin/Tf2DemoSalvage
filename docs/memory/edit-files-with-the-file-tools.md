@@ -31,3 +31,24 @@ file back to verify — never trust an exit code.
 
 The same reasoning as [[a-log-must-name-what-it-measured]]: a tool that reports success while doing
 nothing is worse than one that fails, because it ends an investigation instead of starting one.
+
+**A surviving instance was found in this repo on 2026-08-22, and it had been silently disarming a
+test.** `BspModelsTests` carried its own copy of the install path, written as a verbatim string:
+
+```
+@"F:SteamLibrarysteamapps<0x0F>mmonTeam Fortress 2<TAB>f"
+```
+
+`\common` had been run through escape interpretation into a literal 0x0F, and `\tf` into a literal
+tab — inside `@"..."`, where C# itself interprets nothing. So the corruption happened on the way to
+the file, which is the escaping failure above, months after it was written up.
+
+**The damage was not a build break, which is why it lasted.** The test looked the path up, found
+nothing, and took its `Assert.Ignore` branch. A skip is invisible in a summary line and passes the
+gate's count floor, so the map had not been read for an unknown length of time while the suite
+stayed green. That is the same shape as [[measure-the-output-not-the-capability]]: the fallback path
+made a dead test look like a healthy one.
+
+Two fixes, and the second is the durable one: the path was repaired, and the 73 copies of it were
+given a single home in `GameInstall` ([[one-place-or-it-drifts]]). A hardcoded path is a claim about
+a machine, and a claim repeated 73 times is one nobody can check.

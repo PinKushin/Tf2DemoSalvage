@@ -2444,3 +2444,48 @@ long as it is playing.
 
 That also disposes of the size objection on its own terms: a WAV's cost is a storage cost, and this
 project never stores one.
+
+## D52 — one place knows where the game is installed, because 73 places did
+
+**Decided 2026-08-22, while writing the soundscript conformance suite.**
+
+Tests that read TF2's shipped data — VMTs, BSPs, VPK archives, soundscripts — each carried their own
+copy of the install path: an environment-variable check, a list of Steam library roots, and a file
+whose presence proved the folder was really the game. Seventy-three files had one.
+
+**A copy of that lookup was already corrupt, and it had disarmed a test without breaking a build.**
+`BspModelsTests` held the path as
+
+```
+@"F:SteamLibrarysteamapps<0x0F>mmonTeam Fortress 2<TAB>f"
+```
+
+— `\common` and `\tf` run through escape interpretation, inside a verbatim string where C#
+interprets nothing, so the mangling happened before the file was written. The test looked the path
+up, found nothing, and took its `Assert.Ignore` branch. **A skip is not a failure**: it passes the
+gate, it passes the count floor, and it prints nothing anyone reads. The map had gone unread for an
+unknown length of time behind a green suite.
+
+**So the decision is not "tidy the duplication".** It is that a hardcoded absolute path is an
+unfalsifiable claim about a machine, and repeating it 73 times makes it unfalsifiable 73 times over.
+One copy can be wrong; it cannot be wrong *invisibly*, because everything that reads game data fails
+together and the failure is loud.
+
+`GameInstall` lives in `tests/Tf2DemoSalvage.SdkReference` beside `SourceSdk`, which exists for
+exactly the same reason at smaller scale — its own header says "One place that knows where the SDK
+lives, because three had it." The two are now symmetrical: `Root`, `Available`, `Missing`, and
+accessors that return null for an absent file so the caller skips rather than throws.
+
+**Existence is checked inside the helper rather than left to callers**, because the corrupt path
+proved the check is precisely where the silence gets in. `Vpk("tf2_misc")` exists separately from
+`Find(...)` for the same reason: every caller spelling `_dir.vpk` itself is another chance for a
+misspelling to skip instead of fail.
+
+**What was NOT done, deliberately:** the other 72 files were left alone in this change. Converting
+them is mechanical, touches a large number of test files, and belongs in its own commit where the
+count floors can be read as evidence that nothing was lost. Only the corrupt one was migrated, plus
+the files this change added.
+
+**Related:** `docs/memory/edit-files-with-the-file-tools.md` (how the corruption got there),
+`docs/memory/one-place-or-it-drifts.md`, `docs/memory/measure-the-output-not-the-capability.md` (a
+fallback branch making a dead test look healthy).
