@@ -740,7 +740,8 @@ public sealed unsafe class Device3D : IDisposable
         // toggle flipped before the first map would otherwise be silently forgotten.
         _world.Wireframe = _wireframe;
 
-        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut, _specular);
+        _world.SetCamera(
+            _device, _context, matrix, surfaceColours, heightCut, _specular, _fullbright);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
@@ -795,6 +796,26 @@ public sealed unsafe class Device3D : IDisposable
     }
 
     private bool _specular = true;
+
+    /// <summary>Which <c>mat_fullbright</c> substitution the world draws with.</summary>
+    /// <remarks>
+    /// **The two non-zero states answer opposite questions**, which is why Valve has both and why
+    /// this is not a boolean: 1 removes the lighting and asks "is that dark patch a shadow or a
+    /// missing texture", 2 removes the albedo and asks "is that shape in the lighting or painted
+    /// into the texture". See <see cref="Fullbright"/>.
+    /// </remarks>
+    public Fullbright Fullbright
+    {
+        get => _fullbright;
+
+        set
+        {
+            _fullbright = value;
+            _worldCamera = null;
+        }
+    }
+
+    private Fullbright _fullbright = Fullbright.Off;
 
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;

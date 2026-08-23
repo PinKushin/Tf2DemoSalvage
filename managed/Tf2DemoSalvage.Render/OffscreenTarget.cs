@@ -131,6 +131,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="bumped">Light bumped surfaces directionally; false uses the flat lightmap.</param>
     /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
     /// <param name="props">Static prop runs, drawn after the overlays as the engine does.</param>
+    /// <param name="fullbright">Which <c>mat_fullbright</c> substitution to draw with.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -152,7 +153,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool detail = true,
         bool bumped = true,
         IReadOnlyList<WorldBatch>? decals = null,
-        IReadOnlyList<WorldBatch>? props = null)
+        IReadOnlyList<WorldBatch>? props = null,
+        Fullbright fullbright = Fullbright.Off)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -168,7 +170,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
         _world.UploadTextures(_device, _context, assets);
         _world.UploadGeometry(_device, vertices, batches, decals, props);
-        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut);
+        _world.SetCamera(
+            _device, _context, matrix, surfaceColours, heightCut, specular: true, fullbright);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

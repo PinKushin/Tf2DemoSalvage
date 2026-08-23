@@ -83,6 +83,14 @@ internal class MainForm : Form
     /// <summary>Automation id of the reflections toggle — Valve's <c>mat_specular</c>.</summary>
     public const string SpecularItemId = "SpecularMenuItem";
 
+    /// <summary>Automation id prefix of the lighting submenu — Valve's <c>mat_fullbright</c>.</summary>
+    /// <remarks>
+    /// Each item's id is this plus its <see cref="Fullbright"/> value, so automation can name a
+    /// state rather than an index — an index would silently point at a different mode the moment
+    /// the order changed.
+    /// </remarks>
+    public const string FullbrightItemId = "FullbrightMenuItem";
+
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
 
@@ -385,6 +393,36 @@ internal class MainForm : Form
     /// </remarks>
     private readonly ToolStripMenuItem _wireframe;
     private readonly ToolStripMenuItem _specular;
+    private readonly ToolStripMenuItem _fullbrightMenu;
+
+    /// <summary>Which <c>mat_fullbright</c> substitution is showing.</summary>
+    public Fullbright Fullbright { get; private set; } = Fullbright.Off;
+
+    /// <summary>Chooses a lighting substitution and ticks the matching menu item.</summary>
+    /// <param name="mode">Which substitution to show.</param>
+    /// <remarks>
+    /// Public so a test can drive it without synthesising a menu click. The menu items call this
+    /// too, so there is one path rather than a UI path and a test path that can disagree.
+    /// </remarks>
+    public void SetFullbright(Fullbright mode)
+    {
+        Fullbright = mode;
+
+        foreach (ToolStripItem entry in _fullbrightMenu.DropDownItems)
+        {
+            if (entry is ToolStripMenuItem item)
+            {
+                item.Checked = item.Name == FullbrightItemId + mode;
+            }
+        }
+
+        ViewerLog.Write("render", $"mat_fullbright {(int)mode}");
+
+        if (_device is { } device)
+        {
+            device.Fullbright = mode;
+        }
+    }
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
 
@@ -770,6 +808,39 @@ internal class MainForm : Form
                 "a reflection is hiding a surface.",
         };
 
+        // **A submenu of three, because `mat_fullbright` has three states.** Offering it as a
+        // checkbox would be the same mistake as reading the cvar's name and assuming a boolean —
+        // and it is the more useful state, lighting-only, that a checkbox would drop.
+        _fullbrightMenu = new ToolStripMenuItem("&Lighting")
+        {
+            Name = FullbrightItemId,
+            AccessibleName = "Lighting",
+            AccessibleDescription =
+                "Substitutes the lighting or the texture, to tell a shadow apart from a dark " +
+                "texture and a painted shape apart from a lit one.",
+        };
+
+        foreach ((Fullbright mode, string label, Keys key) in new[]
+        {
+            (Fullbright.Off, "&Normal", Keys.F5),
+            (Fullbright.NoLighting, "&No lighting (mat_fullbright 1)", Keys.F6),
+            (Fullbright.LightingOnly, "Lighting &only (mat_fullbright 2)", Keys.F7),
+        })
+        {
+            Fullbright chosen = mode;
+
+            ToolStripMenuItem item = new(label)
+            {
+                Name = FullbrightItemId + chosen,
+                ShortcutKeys = key,
+                Checked = chosen == Fullbright.Off,
+            };
+
+            item.Click += (_, _) => SetFullbright(chosen);
+
+            _fullbrightMenu.DropDownItems.Add(item);
+        }
+
         _specular.CheckedChanged += (_, _) =>
         {
             ViewerLog.Write("render", $"mat_specular {(_specular.Checked ? 1 : 0)}");
@@ -795,6 +866,7 @@ internal class MainForm : Form
         view.DropDownItems.Add(screenshot);
         view.DropDownItems.Add(_wireframe);
         view.DropDownItems.Add(_specular);
+        view.DropDownItems.Add(_fullbrightMenu);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
@@ -5167,6 +5239,9 @@ internal class MainForm : Form
             _overlay?.Dispose();
             _wireframe.Dispose();
             _specular.Dispose();
+
+            // Disposing the submenu disposes the three items it owns.
+            _fullbrightMenu.Dispose();
             _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }

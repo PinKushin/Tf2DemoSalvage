@@ -773,6 +773,33 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 }
             }
 
+            // **mat_fullbright, and it is a texture SUBSTITUTION in the engine rather than a
+            // branch.** Valve replaces the lightmap with TEXTURE_LIGHTMAP_FULLBRIGHT for 1 and the
+            // albedo with TEXTURE_GREY for 2 (BaseVSShader.cpp:1094, ishaderdynamic.h:60), which is
+            // why both compose with everything else a material does — a substituted albedo still
+            // gets its detail texture, its envmap and its alpha test. Substituting the VALUES here
+            // rather than binding replacement textures reaches the same place without shipping two
+            // more textures to look up per draw.
+            //
+            // Grey is 128/255, which is what TEXTURE_GREY holds.
+            if (surfaceColours.w > 1.5f)
+            {
+                albedo.rgb = float3(0.5019608f, 0.5019608f, 0.5019608f);
+            }
+            else if (surfaceColours.w > 0.5f)
+            {
+                // **OverbrightScale, not one, and the measurement is what said so.** Substituting
+                // the RESULT with 1 made a lit wall DARKER — (255,180,4) against (255,255,8) —
+                // because a Source lightmap texel is scaled by 2 after sampling, so a fully lit
+                // surface already sits above unity. Valve replaces the TEXTURE
+                // (TEXTURE_LIGHTMAP_FULLBRIGHT) and the shader's own arithmetic still runs over it,
+                // so the equivalent here is a white sample carried through the same scale.
+                //
+                // The general form: when copying a substitution, substitute at the point Valve does.
+                // One step later is a different quantity that happens to have the same name.
+                light = float3(OverbrightScale, OverbrightScale, OverbrightScale);
+            }
+
             float3 lit = albedo.rgb * light * input.vc;
 
             if (mode >= 0)
@@ -2390,6 +2417,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Whether cubemap reflections are added — Valve's <c>mat_specular</c>, whose own comment for
     /// the same switch is "If mat_specular 0, then get rid of envmap".
     /// </param>
+    /// <param name="fullbright">
+    /// Which of Valve's <c>mat_fullbright</c> substitutions to apply; see <see cref="Fullbright"/>
+    /// for why there are three of them rather than two.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -2403,7 +2434,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] matrix,
         bool surfaceColours = false,
         float heightCut = 0f,
-        bool specular = true)
+        bool specular = true,
+        Fullbright fullbright = Fullbright.Off)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -2443,7 +2475,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] contents =
         [
             .. matrix,
-            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), specular ? 1f : 0f, 0f,
+            surfaceColours ? 1f : 0f,
+            Math.Clamp(heightCut, 0f, 1f),
+            specular ? 1f : 0f,
+            (float)fullbright,
             eye.X, eye.Y, eye.Z, hasEye,
         ];
 
