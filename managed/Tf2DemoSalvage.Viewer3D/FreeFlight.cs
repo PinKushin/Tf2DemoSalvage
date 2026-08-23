@@ -53,7 +53,7 @@ internal static class FreeFlight
     /// <remarks>
     /// **Compared by NAME rather than by key code, which is what collapses the sided modifiers.**
     /// Windows reports a held Shift as `ShiftKey`, `LShiftKey` or `RShiftKey` depending on how it
-    /// was read, and a config binds one name — `SHIFT`. <see cref="KeyNames.NameOf"/> maps all three
+    /// was read, and a config binds one name — `SHIFT`. <see cref="KeyNames.NameOf(System.Windows.Forms.Keys)"/> maps all three
     /// onto it, so this and the console agree by construction instead of by both remembering to
     /// special-case the same three codes. That special-casing used to live here, in an `IsDown`
     /// helper, and having it in two places is exactly how one side gains a key the other does not

@@ -8948,7 +8948,7 @@ distinguishing test.
 **Unverified here.** No specimen has been read, and nothing in the corpus is from that window. The
 class-253 detail is quoted from a 2011 forum post, not measured.
 
-## B145 — spectator target cycling is bound, tested, and reaches no code — OPEN
+## B145 — spectator target cycling is bound, tested, and reaches no code — CLOSED 2026-08-23
 
 `ViewerAction.CycleTargetForward` and `CycleTargetReverse` are declared, given default bindings
 (`MOUSE1`/`MOUSE2`), given Source command names (`+attack`/`+attack2`), and asserted on by three
@@ -8977,3 +8977,14 @@ done. Conformance first, per `CLAUDE.md`: TF2's own spectator HUD strings in `tf
 the actions (`TF_Spectator_CycleTargetFwdKey`, `[%attack%]`) and the observer-mode code in the SDK
 carries the cycling behaviour. Then the tests, then the code. Update the stale `KeyNames` mouse
 entries in the same change.
+
+**Closed 2026-08-23.** `SpectatorTarget.Next` implements TF2's own search, `MainForm` routes mouse
+buttons into the console and acts on what comes back, and the stale `KeyNames` mouse spellings are
+now Source's. Recorded as D72.
+
+**The instrument that was missing is the interesting part.** Three tests covered these actions and
+all three passed while nothing was wired — because they asserted that a binding table contained what
+it should, and it did. What was needed was a test that clicks the real button in the real window and
+asks whether the spectator code ran. That test exists now
+(`Click_TheCycleTargetButton_ReachesTheSpectatorCode`), and it was verified by removing the
+`CycleTarget` call and watching it, and only it, go red.

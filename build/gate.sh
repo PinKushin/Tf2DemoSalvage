@@ -148,7 +148,11 @@ run Tf2DemoSalvage.Content.Tests  content   615
 # install — on CI and the measurement boxes it would Assert.Ignore and check nothing.
 # 98: the probe's second test, which asks whether a sound that will not open still exists under
 # another container. That is what turned "63 sounds deleted" into "60 re-encoded, 3 gone".
-run Tf2DemoSalvage.Corpus.Tests   corpus     98
+# Raised 98 -> 101 on 2026-08-23: spectator target cycling walked across z1800's real player list
+# (B145). The conformance suite for it is hand-built from the measured shape of that demo, so it
+# cannot say whether a real timeline cycles sensibly; these three can, and one of them proves the
+# SourceTV camera is never landed on across 222 cycles.
+run Tf2DemoSalvage.Corpus.Tests   corpus     101
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -205,7 +209,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     98
 # which only became possible to get wrong once Shift went through the console) and RealTf2ConfigTests
 # gained two that execute the owner's own null-cancelling config rather than counting its binds.
 # Net +6 with the rest from the same change.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    591
+run Tf2DemoSalvage.Viewer3D.Tests viewer    602
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

@@ -438,6 +438,7 @@ internal class MainForm : Form
         // reaches. Done in the constructor because the alternative — loading with the map, where the
         // archives are already opened — would leave the keys wrong until a demo was opened.
         LoadUserConfig();
+        _console.Triggered += OnConsoleAction;
 
         Text = "TF2 Demo Salvage";
         Name = "MainWindow";
@@ -4115,12 +4116,33 @@ internal class MainForm : Form
         OnViewportWheel(sender, new MouseEventArgs(e.Button, e.Clicks, inViewport.X, inViewport.Y, e.Delta));
     }
 
+    /// <remarks>
+    /// **The click goes into the console, so whatever the player bound the button to is what
+    /// happens (B145).** That is how the game does it — `ClientModeShared::HandleSpectatorKeyInput`
+    /// dispatches on `pszCurrentBinding`, the bound command STRING, not on a key code:
+    ///
+    /// <code>
+    /// else if ( down &amp;&amp; pszCurrentBinding &amp;&amp; Q_strcmp( pszCurrentBinding, "+attack" ) == 0 )
+    /// {
+    ///     engine->ClientCmd( "spec_next" );
+    ///     return 0;
+    /// }
+    /// </code>
+    ///
+    /// So somebody who has moved attack to a thumb button gets target cycling on that thumb button,
+    /// without this method knowing anything about it.
+    ///
+    /// **The drag is kept separate and deliberately not routed through the console**, because it is
+    /// not a bound action at all — it is a gesture, and it has no Source command to name it.
+    /// </remarks>
     private void OnViewportMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button == MouseButtons.Left)
         {
             _dragFrom = e.Location;
         }
+
+        _console.KeyDown(KeyNames.NameOf(e.Button));
     }
 
     private void OnViewportMouseMove(object? sender, MouseEventArgs e)
@@ -4156,7 +4178,75 @@ internal class MainForm : Form
         _worldIsStale = true;
     }
 
-    private void OnViewportMouseUp(object? sender, MouseEventArgs e) => _dragFrom = null;
+    private void OnViewportMouseUp(object? sender, MouseEventArgs e)
+    {
+        _dragFrom = null;
+        _console.KeyUp(KeyNames.NameOf(e.Button));
+    }
+
+    /// <summary>Performs an action a bound key or button asked for.</summary>
+    /// <remarks>
+    /// **Only the instant actions arrive here.** Flight is held rather than triggered and is read
+    /// per frame by <see cref="FlyCamera"/>; the console tells the two apart by
+    /// <see cref="ConfigConsole.HeldActions"/> rather than by the command's spelling, because TF2
+    /// writes the camera switch as `+jump` even though nothing about it is continuous.
+    ///
+    /// **Camera mode and reset are still handled in `ProcessCmdKey` by comparing key codes**, and
+    /// that inconsistency is known rather than overlooked: moving them here means pressing every
+    /// bound key into the console, which changes what `ProcessCmdKey` swallows and is a bigger
+    /// change than this one. Filed as the remaining half of B145.
+    /// </remarks>
+    private void OnConsoleAction(object? sender, ViewerActionEventArgs e)
+    {
+        switch (e.Action)
+        {
+            case ViewerAction.CycleTargetForward:
+                CycleTarget(reverse: false);
+                break;
+
+            case ViewerAction.CycleTargetReverse:
+                CycleTarget(reverse: true);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>Follows the next or previous player.</summary>
+    /// <remarks>
+    /// **Only while spectating, which is the gate the game applies too.** `spec_next` does nothing
+    /// unless `GetObserverMode() > OBS_MODE_FIXED`, and in the free camera the left button is
+    /// already the look-around drag — cycling on it would fight the gesture.
+    ///
+    /// **A cycle that finds nobody leaves the camera where it is**, following
+    /// `if ( target ) SetObserverTarget( target );`. The first seconds of a competitive match really
+    /// are SourceTV alone, and a click then must not blank the view.
+    /// </remarks>
+    private void CycleTarget(bool reverse)
+    {
+        if (!_firstPerson || _timeline is not { } timeline)
+        {
+            return;
+        }
+
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
+
+        if (SpectatorTarget.Next(players, _spectating ?? FollowedEntity(), reverse) is not { } next)
+        {
+            ViewerLog.Write("spectate", "nobody else to follow at this tick");
+            return;
+        }
+
+        _spectating = next.EntityIndex;
+        _worldIsStale = true;
+        _viewport.Invalidate();
+
+        ViewerLog.Write(
+            "spectate",
+            $"following entity {next.EntityIndex} (team {next.Team}) " +
+            $"of {players.Count} at tick {_transport.CurrentTick}");
+    }
 
     /// <summary>The world position under a point in the viewport.</summary>
     private (float X, float Y) WorldAt(Point point)

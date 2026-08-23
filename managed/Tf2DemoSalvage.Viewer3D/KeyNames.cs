@@ -56,10 +56,17 @@ internal static class KeyNames
             "'" or "APOSTROPHE" or "QUOTE" => Keys.OemQuotes,
             "/" or "SLASH" => Keys.OemQuestion,
 
-            // Mouse buttons are bound like keys by every game and are not members of Keys. They are
-            // resolved by the mouse handlers rather than here, so this reports "not a key" for them
-            // instead of guessing.
-            "MOUSELEFT" or "MOUSERIGHT" or "MOUSEMIDDLE" => Keys.None,
+            // **Mouse buttons are bound like keys by every Source game and are not members of
+            // `Keys`.** They are resolved by the mouse handlers, through
+            // <see cref="NameOf(System.Windows.Forms.MouseButtons)"/>, so this reports "not a key" rather than guessing.
+            //
+            // **These were `MOUSELEFT`/`MOUSERIGHT`/`MOUSEMIDDLE` until 2026-08-23**, which is .NET's
+            // vocabulary and matches nothing a player ever typed. The defaults moved to Source's
+            // spelling when D69 made configs land without translation, and these three were missed —
+            // dead as written, and correct only by accident, since the live names fell through to
+            // the `Enum.TryParse` fallback and also produced `Keys.None`. Two ways to be right for
+            // different reasons is how a rename goes unnoticed.
+            "MOUSE1" or "MOUSE2" or "MOUSE3" or "MOUSE4" or "MOUSE5" => Keys.None,
 
             _ => Enum.TryParse(name.Trim(), ignoreCase: true, out Keys parsed) ? parsed : Keys.None,
         };
@@ -100,5 +107,30 @@ internal static class KeyNames
 
         Keys.None => string.Empty,
         _ => Enum.GetName(key & Keys.KeyCode) ?? string.Empty,
+    };
+
+    /// <summary>What a config would call this mouse button.</summary>
+    /// <param name="button">The button the toolkit reported.</param>
+    /// <returns>The Source name, or an empty string for anything else.</returns>
+    /// <remarks>
+    /// **Source numbers its mouse buttons and every config in existence uses those names**: `MOUSE1`
+    /// is left, `MOUSE2` right, `MOUSE3` the wheel click, and `MOUSE4`/`MOUSE5` the side buttons.
+    /// TF2's own `config_default.cfg` writes `bind "MOUSE1" "+attack"`.
+    ///
+    /// **This is the reason mouse buttons can be bound at all.** They are not members of
+    /// <see cref="Keys"/>, so the key path cannot carry them; naming them here lets a click go into
+    /// the same console as a keystroke and mean whatever the player's config says it means.
+    ///
+    /// **`XButton1`/`XButton2` map to `MOUSE4`/`MOUSE5`**, which is the correspondence Windows and
+    /// Source both use for the two thumb buttons.
+    /// </remarks>
+    public static string NameOf(MouseButtons button) => button switch
+    {
+        MouseButtons.Left => "MOUSE1",
+        MouseButtons.Right => "MOUSE2",
+        MouseButtons.Middle => "MOUSE3",
+        MouseButtons.XButton1 => "MOUSE4",
+        MouseButtons.XButton2 => "MOUSE5",
+        _ => string.Empty,
     };
 }
