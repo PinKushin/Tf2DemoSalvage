@@ -37,6 +37,7 @@
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Render\Tf2DemoSalvage.Render.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.Presentation\Tf2DemoSalvage.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

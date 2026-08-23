@@ -25,10 +25,10 @@ public sealed class PlayingEventArgs(bool playing) : EventArgs
 
 /// <summary>The user changed the playback speed.</summary>
 /// <param name="speed">The multiplier, 1 being real time and negative running backwards.</param>
-public sealed class SpeedEventArgs(float speed) : EventArgs
+public sealed class SpeedEventArgs(double speed) : EventArgs
 {
     /// <summary>The speed multiplier.</summary>
-    public float Speed { get; } = speed;
+    public double Speed { get; } = speed;
 }
 
 /// <summary>The moment the scene should now show.</summary>
