@@ -928,7 +928,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
                 specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
 
-                lit += specular;
+                // **mat_specular, and Valve's own wording for it is "get rid of envmap".** The
+                // engine does it one level up, by undefining $envmap when the config says
+                // UseSpecular() is false (lightmappedgeneric_dx9_helper.cpp:166,
+                // BaseVSShader.cpp:2148) — which is why changing it reloads every material. Here
+                // the envmap is per-material constants rather than a compiled-in branch, so the
+                // same result comes from not adding the term. The observable output is identical;
+                // what differs is that ours costs nothing to toggle.
+                if (surfaceColours.z > 0.5f)
+                {
+                    lit += specular;
+                }
             }
 
             return float4(lit, albedo.a);
@@ -2228,6 +2238,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
+    /// <param name="specular">
+    /// Whether cubemap reflections are added — Valve's <c>mat_specular</c>, whose own comment for
+    /// the same switch is "If mat_specular 0, then get rid of envmap".
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -2240,7 +2254,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
         bool surfaceColours = false,
-        float heightCut = 0f)
+        float heightCut = 0f,
+        bool specular = true)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -2280,7 +2295,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] contents =
         [
             .. matrix,
-            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), 0f, 0f,
+            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), specular ? 1f : 0f, 0f,
             eye.X, eye.Y, eye.Z, hasEye,
         ];
 
