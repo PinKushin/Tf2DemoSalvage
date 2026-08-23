@@ -3942,10 +3942,29 @@ and look. Z-fighting means the geometry is coincident and the bias was only ever
 proves candidate 1. Decals still hanging in space with no z-fighting proves the surface behind them
 is absent, which is candidate 2 and an entirely different bug.
 
-### B70 — REFUTED 2026-08-21. Returning to Valve's constant floats every decal off the map
+### B70 — CLOSED 2026-08-23. The constant is Valve's; the surfaces it applies to are not ours
+
+**Closed with the mechanism, which is what the two refutations below were missing.** They were right
+and they were unpersuasive, because "restoring this number produces a wrong picture" invites the
+reply that the picture was wrong for some other reason — and on 2026-08-21 at 21:37 it got exactly
+that reply, in the form of a third attempt arguing the earlier ones had run against the wrong buffer
+format. The constant then sat in `main` for two days and reached the owner as "there are overlays
+showing through everywhere".
+
+**What settles it is published and needed no decompiler.** `EnablePolyOffset` is declared once in
+the entire SDK, on `IShaderShadow` (`ishadershadow.h:255`); `IMaterialSystem`, `IMatRenderContext`,
+`IMesh` and `IShaderAPI` have no polygon-offset entry point; nothing outside `stdshaders` calls the
+one that exists; and `lightmappedgeneric_dx9.cpp` — which is what an `info_overlay` ordinarily is —
+never calls it. So a polygon offset in Source belongs to the SHADER, and Valve's −262144 governs
+bullet holes and sprays, not the stripes down a corridor. `docs/findings/18-decals.md` has the
+table.
+
+**The general form, which is the part to carry away: a constant carries no scope.** Quoting
+`m_DepthBias_Decal` accurately, with a file and a line, said nothing about which surfaces it applies
+to — and the citation made it read as settled. Ask what a value is applied TO before matching it.
 
 **The requirement below was tried and it is wrong.** Kept in full, because a prediction that failed
-is worth more than its own deletion, and because it was acted on twice.
+is worth more than its own deletion, and because it was acted on three times.
 
 **What killed it: a picture.** With Valve's `-262144` restored for the perspective cameras, the
 stripes on cp_process hang in mid-air across the room — the owner's words were "the stripes are just
