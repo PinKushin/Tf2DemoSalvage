@@ -9480,3 +9480,52 @@ and the first two have better answers elsewhere.
 The FGDs above are a different case entirely, and not an exception to this. They are shipped DATA
 read by the game's own tools, so they are the authoritative palette rather than a description of
 one — the same category as `items_game.txt` or `modevents.res`.
+
+### Hammer's default entity colour, looked up rather than assumed (2026-08-23)
+
+Asked whether "null, never a default" is how Valve handles an entity class with no `color()`. It is
+not, and saying so was an assertion dressed as a finding. Measured over the three shipped FGDs: **58
+of 598 entity classes state a colour, and 9 of 80 base classes do** — so most entities resolve to
+nothing through the chain, and Hammer visibly draws them as something.
+
+**Looked it up rather than decompiling, on the owner's choice.** TWHL's FGD reference states it:
+
+> The `color()` helper can be used to set the colour of the display cube for point entities, in R,
+> G, B (0-255). Otherwise it will use the **default magenta**.
+
+**No exact RGB is published**, in the VDC wiki, TWHL, or the Level Design Book — the hue is
+documented and the number is not. A remembered value of `220 30 220` was NOT written in, because an
+unverified constant in a file whose whole claim is "these are Valve's numbers" is worse than an
+honest gap.
+
+**And the lookup changed the decision rather than completing it.** This project's category view
+already draws magenta for a material that could not be resolved. Adopting Hammer's default would
+make an uncoloured entity indistinguishable from a broken material — spending a defect signal on a
+routine one. So the divergence stands, now for a reason rather than for want of a number.
+
+Worth keeping as a shape: **matching a reference exactly is not always the right call, and you can
+only tell once you know what you would be matching.** The lookup was still the right move; it just
+argued the other way than expected.
+
+## B157 — a missing MODEL should be Valve's ERROR mesh, not nothing — OPEN
+
+Valve has two placeholders and they are not interchangeable, which the owner spotted before it was
+checked: "i think all valves missing textures and meshes and maybe materials are checkered while i
+think props are solid, but idk".
+
+Confirmed from the SDK:
+
+| missing | Valve draws | us |
+|---|---|---|
+| material / texture | the magenta-and-black chequer | **done** — the category view binds it, and the textured view already did |
+| model | `models/error.mdl`, a solid mesh — `game/server/props.cpp:245` does `SetModelName( AllocPooledString( "models/error.mdl" ) )`, and `detailobjectsystem.cpp:1603` loads the same | **nothing is drawn** |
+
+**The asymmetry is deliberate on Valve's part and worth preserving.** A chequer needs a surface to
+sit on, so it can only report a material fault; a model that failed to load has no surface at all,
+and the only way to report it is to put something there. Drawing nothing is the failure mode this
+project already has a memory about — a hole reads as art direction and nobody investigates it, while
+something loud gets reported.
+
+Ours currently logs `MISSING n models that would not load` and draws nothing, so the information
+exists and never reaches the screen. Substituting `models/error.mdl` would use Valve's own asset for
+Valve's own purpose, which is the same standard the chequer and the dev grid now meet.

@@ -48,8 +48,12 @@ public sealed class FgdClassesTests
     {
         FgdClasses classes = FgdClasses.Parse("@PointClass base(Targetname) = env_plain : \"\"\n");
 
-        // **Null, not a fallback.** Hammer's own default is a property of Hammer; inventing one here
-        // would be exactly the "our colours" that reading Valve's file exists to avoid.
+        // **Null, and this is a DIVERGENCE from Hammer rather than a match.** 58 of the 598 entity
+        // classes in the shipped FGDs state a colour and 9 of the 80 base classes do, so most
+        // entities resolve to nothing here while Hammer draws them as something — it has a default
+        // and this does not reproduce it. Null keeps "Valve said this colour" and "nobody said"
+        // distinguishable for the caller, which is worth having, but it is a gap and is recorded as
+        // one rather than as a design win.
         classes.Colour("env_plain").ShouldBeNull();
         classes.Colour("never_declared").ShouldBeNull();
     }

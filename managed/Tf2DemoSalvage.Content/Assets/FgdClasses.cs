@@ -29,9 +29,26 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// depth limit rather than eagerly, because an FGD is hand-edited and a cycle in the base graph is a
 /// plausible typo that must not hang a viewer.
 ///
-/// **A class with no colour anywhere returns null rather than a default.** Hammer's own fallback is
-/// a property of Hammer, and inventing one here would be exactly the "our colours" this exists to
-/// avoid — the caller knows better what an uncoloured entity should look like in its own view.
+/// **A class with no colour anywhere returns null, and that is OUR choice rather than Valve's.**
+/// Stated plainly because an earlier version of this remark implied the opposite. Measured over the
+/// three shipped files: 58 of 598 entity classes state a colour, and 9 of 80 base classes do — so
+/// the large majority resolve to nothing, and Hammer visibly draws them as something. It therefore
+/// has a default, and this does not reproduce it.
+///
+/// **Hammer's default is magenta, and that is exactly why this does not adopt it.** TWHL's FGD
+/// reference: "The color() helper can be used to set the colour of the display cube for point
+/// entities, in R, G, B (0-255). Otherwise it will use the default magenta." No exact RGB is
+/// published anywhere reachable — not the SDK, not the FGDs, not the shipped data — so the number
+/// itself is unknown, but the hue is documented.
+///
+/// This project's category view already draws MAGENTA for a material that could not be resolved.
+/// Adopting Hammer's default would make an entity nobody assigned a colour indistinguishable from a
+/// broken material — diluting a defect signal with a routine one, which is worth more than the
+/// parity it would buy. So the divergence is deliberate and has a reason beyond "we did not know".
+///
+/// Null is returned so the CALLER decides, which also keeps "Valve said this colour" and "nobody
+/// said" distinguishable — the distinction `docs/memory/sentinels-conflate-unknown-with-answer.md`
+/// exists for.
 /// </remarks>
 public sealed class FgdClasses
 {

@@ -1213,6 +1213,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Valve's measurement grid, drawn under the category tint.</summary>
     private ComPtr<ID3D11ShaderResourceView> _devGrid;
 
+    /// <summary>Materials that resolved to nothing and draw as the missing-material chequer.</summary>
+    /// <remarks>
+    /// **Kept so the category view can show Valve's chequer rather than a colour standing in for
+    /// it.** An unresolved material is magenta-and-black chequered in the engine and in every Source
+    /// tool, and that pattern is the signal — a flat colour saying "missing" is a translation of it,
+    /// and the owner's rule is that where Valve has a real appearance we use it: "if valves stuff is
+    /// suppose to be checkered then we need to do that".
+    /// </remarks>
+    private readonly HashSet<int> _chequered = [];
+
     /// <summary>The detail pattern for each material, empty where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
 
@@ -1779,6 +1789,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (uploaded.Handle is null)
             {
                 chequered.Add(index);
+                _chequered.Add(index);
             }
 
             _textures.Add(uploaded);
@@ -3018,6 +3029,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private void SetMaterial(ComPtr<ID3D11DeviceContext> context, int materialIndex)
     {
+        // **The category view's underlay, chosen per material because that is what decides it.**
+        // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
+        // else draws Valve's measurement grid. Bound to one slot either way, so the shader has no
+        // branch to keep in step, and set HERE rather than at the three call sites for the reason
+        // the depth state below is — three copies of one decision is how they drift apart.
+        ComPtr<ID3D11ShaderResourceView> underlay =
+            _chequered.Contains(materialIndex) || _devGrid.Handle is null ? _white : _devGrid;
+
+        context.PSSetShaderResources(7, 1, ref underlay);
+
         // **The material carries its own depth state, which is the engine's arrangement (B135).**
         // A shader in Source declares its render state in a SHADOW_STATE block and the material
         // system applies it when the material is bound — `EnableDepthWrites( false )` in

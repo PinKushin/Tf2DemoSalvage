@@ -466,14 +466,36 @@ internal class MainForm : Form
     private (float Red, float Green, float Blue)? EntityTint(int model)
     {
         if (_entityClasses is not { } classes ||
-            !_brushModelClasses.TryGetValue(model, out string? classname) ||
-            classes.Colour(classname) is not { } colour)
+            !_brushModelClasses.TryGetValue(model, out string? classname))
         {
+            // Not an entity at all, or the map named no class for it. Ordinary brushwork.
             return null;
+        }
+
+        if (classes.Colour(classname) is not { } colour)
+        {
+            // **Hammer's default, which is magenta.** 58 of the 598 classes in the shipped FGDs
+            // state a colour, so this is the common case rather than the exceptional one, and
+            // leaving it uncoloured would mean most entities never showed as entities at all.
+            //
+            // The hue is documented — TWHL's FGD reference: "Otherwise it will use the default
+            // magenta" — and the exact RGB is published nowhere reachable, so this is full magenta
+            // as the plainest reading of the word. Labelled rather than smuggled in: it is the one
+            // number here that is not lifted from a Valve file.
+            return HammerDefaultEntityColour;
         }
 
         return (colour.Red / 255f, colour.Green / 255f, colour.Blue / 255f);
     }
+
+    /// <summary>What Hammer draws an entity class that states no colour of its own.</summary>
+    /// <remarks>
+    /// **This collided with the missing-material colour, and the missing-material colour moved.**
+    /// The owner's rule when a real Valve behaviour meets one of our inventions: "if the default
+    /// would colide with our imp, then we need to change our imp to not block". Magenta belongs to
+    /// Hammer here; the category view's "no material" signal is ours and had no claim on it.
+    /// </remarks>
+    private static (float Red, float Green, float Blue) HammerDefaultEntityColour => (1f, 0f, 1f);
 
     /// <summary>Chooses a lighting substitution and ticks the matching menu item.</summary>
     /// <param name="mode">Which substitution to show.</param>
@@ -829,7 +851,9 @@ internal class MainForm : Form
                 "render",
                 _surfaceColours.Checked
                     ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
-                      "violet overlays, magenta missing material"
+                      "violet overlays, Valve's magenta chequer where a material resolved to " +
+                      "nothing; brush entities take their own FGD colour, magenta where the class " +
+                      "states none, as Hammer draws them"
                     : "surface colours off");
 
             _device?.ClearWorld();
