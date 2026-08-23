@@ -9558,3 +9558,18 @@ The general form, and it is the argument for doing the rest of B153 now rather t
 diagnostic built against your own scaffolding expires with the scaffolding, and it expires
 silently — it keeps running and keeps answering, just not the question you are asking.** Built
 against the engine's own definition, it survives every refactor the engine survived.
+
+### The ortho map fill still draws before the 3D world (B151)
+
+Observed 2026-08-23: "theres still an old overlay materials thing drawing like the ortho camera
+before the actual right 3d map comes up in free cam". That is `_mapFill` — the flat, projected map
+surfaces the overhead view drew, still rendered through `PointRenderer` while the textured world is
+being built.
+
+**It belongs with the brush outline rather than with the renderer.** Both are what the viewer drew
+before it could draw a map, both are projected for a camera that no longer exists, and the outline
+has already been removed. This is the same removal, deferred with it because `MapOutline` computes
+`MainBounds` alongside the segments and untangling those two is the actual work.
+
+Worth doing at the same time, and worth knowing in the meantime: what appears during load is not the
+world failing to draw, it is a different and much older thing succeeding.

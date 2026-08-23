@@ -1026,6 +1026,7 @@ internal class MainForm : Form
             ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1),
             ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
             ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
+            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4),
         })
         {
             string which = cvar;
@@ -1048,7 +1049,8 @@ internal class MainForm : Form
                 {
                     nameof(DebugModes.DrawFlat) => _debug with { DrawFlat = toggled.Checked },
                     nameof(DebugModes.Luxels) => _debug with { Luxels = toggled.Checked },
-                    _ => _debug with { NormalMaps = toggled.Checked },
+                    nameof(DebugModes.NormalMaps) => _debug with { NormalMaps = toggled.Checked },
+                    _ => _debug with { BumpBasis = toggled.Checked },
                 };
 
                 ViewerLog.Write("render", $"debug views: {_debug}");
