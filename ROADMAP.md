@@ -221,10 +221,34 @@ binds are what matter and they are all there.
   one: `docs/findings/24-reference-capture.md` pins the reference capture state against
   `mastercomfig-base.vpk`, and `VpkArchive` is the tool.
 
+**And it requires running the config rather than reading it** (owner, same day, D70):
+
+> since we are going to take valve cfgs, we have to allow scripting or it wont work. valve configs
+> are little state machines themselves
+
+`alias` is a *runtime* command that redefines other aliases as it runs, which is how null-cancelling
+movement scripts work — and those are what most competitive configs are. `ConfigConsole` is the
+interpreter: a mutable alias table, a bind table, and one `kbutton_t` per action, all read from
+`in_main.cpp` and `kbutton.h` and pinned by conformance tests written before the code.
+
 **Done:** full screen mode (borderless/exclusive), texture detail, rebindable actions with TF2's
-default bindings (D68).
-**Wanted:** reading a real `.cfg`, reading a config VPK, viewer resolution, export format, mouse
-sensitivity.
+default bindings (D68), **reading and executing a real `.cfg` (D70)**, **loading the player's own
+configs at startup including from a VPK (D71)** — `Tf2ConfigFiles` goes through `GameArchives`,
+which already mounts `tf/custom/*`, so a mastercomfig pack is read without anything knowing a VPK is
+involved.
+
+**Measured on the owner's install:** three configs, 12 of 95 binds applied, no control left
+unreachable. Pressing W flies forward through his null-cancel script; holding S overrides it;
+releasing S resumes forward.
+
+**Wanted:** viewer resolution, export format, mouse sensitivity, and a settings screen that shows
+the bindings the console resolved.
+
+**One rule worth carrying to any other config import (D71):** a key the config binds to a command
+this viewer does not implement keeps whatever this viewer had on it. `resetcamera` and `playpause`
+are names this project invented because TF2 has no equivalent, so no TF2 config can ever bind them —
+it just uses `f` and `k` for its own purposes and those controls vanish. **A config cannot express a
+preference about a feature the game does not have.**
 
 ### Options, eventually
 
