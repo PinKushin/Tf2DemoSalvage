@@ -3467,3 +3467,71 @@ from the demo rather than from a constant.
 play-area geometry, but whether the framing *looks* right is a UI claim, and the owner has said
 matching the old ortho view exactly is not the concern yet — being above the map rather than under
 it is.
+
+## D68 — actions are bound, not keys, and the defaults are TF2's
+
+**Owner, 2026-08-22:** *"the key should be settable by the user, so dont hard code it, cam changes
+should be on space like valves controls in real tf2, if i remember right"* — and, on the awkward
+ones: *"we keep the same defaults then, but allow them to be changed just like tf2"*.
+
+### The shape, which TF2 supplies
+
+TF2 does not hardcode keys anywhere the player can see. Its spectator HUD carries
+
+```
+"TF_Spectator_SwitchCamModeKey"   "[%jump%]"
+"TF_Spectator_SwitchCamMode"      "Switch Camera Mode"
+"TF_Spectator_CycleTargetFwdKey"  "[%attack%]"
+```
+
+— the label names the **action** and the engine substitutes whatever the player bound. `ViewerAction`
+plus `KeyBindings` is the same idea: the presenter deals in actions and never sees a key, the view
+owns the mapping, and rebinding changes one table.
+
+**This extends the seam D65 opened.** That split "which keys mean what" from "what the movement is";
+this makes the first half data instead of code.
+
+### The defaults, all read from the game rather than remembered
+
+| Action | Key | Source |
+|---|---|---|
+| Switch camera mode | `Space` | `[%jump%]` in `tf_english.txt` |
+| Cycle target forward / reverse | `MouseLeft` / `MouseRight` | `[%attack%]`, `[%attack2%]` |
+| Fly up / down | `'` / `/` | `bind "'" "+moveup"` in `config_default.cfg` |
+
+**The vertical keys are the interesting ones.** `in_main.cpp` builds the roaming camera's vertical
+from `in_up`/`in_down` — that is `+moveup`/`+movedown`, **separate commands from `+jump`** — so
+Valve has no collision between "go up" and "switch mode".
+
+I proposed E and Q instead, on the grounds that `'` and `/` are Quake-era leftovers nowhere near
+WASD. **Overruled, and the owner's reasoning is better:** a TF2 player's own config translates, and
+rebinding is the escape hatch exactly as in the game. Picking friendlier keys would make this
+viewer's controls a third thing to learn. *"them being all the way over there is why i never used
+them"* — which is a criticism of Valve's default, not a reason for us to invent a fourth convention.
+
+### The collision that bit, because it is instructive
+
+`FlyUp` was on `Space` alongside `SwitchCameraMode` for one commit. `ProcessCmdKey` checks flight
+keys first, so it swallowed the press, the camera mode never switched, and **three UI tests failed
+by timing out on a key that did nothing** — with Windows dinging on every unhandled press.
+
+The owner diagnosed it from the sound before any log said anything, which is another entry for
+`docs/memory/` on UI defects living where automated instruments do not look.
+
+Two things came out of it:
+
+- **`Defaults_NoTwoActions_ShareAKey`**, which would have caught it. Sharing a key is legal and
+  `ActionsFor` deliberately reports every match — but a *default* that shares one is a control the
+  user cannot reach out of the box, and it fails by doing nothing.
+- **UI tests now press what is bound**, asserting the binding first. A test pressing a literal key
+  fails the wrong way when a binding moves: it times out rather than saying the binding changed.
+
+### `KeyNames` is the other half of the boundary
+
+`KeyBindings` cannot reference `System.Windows.Forms.Keys`, so a binding is a **name** and
+`KeyNames` resolves it. That also means bindings survive in a settings file as text a person edits,
+which is what `config.cfg` does.
+
+Note `'` and `/` are `Keys.OemQuotes` and `Keys.OemQuestion` — named after scan codes rather than
+the characters printed on them, so neither resolves by `Enum.TryParse` and both would otherwise
+become `Keys.None`: a binding that reads correctly in a file and does nothing.

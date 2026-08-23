@@ -6,6 +6,8 @@ using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 
+using Tf2DemoSalvage.Presentation;
+
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
 /// <summary>
@@ -34,21 +36,42 @@ public sealed class FirstPersonUiTests
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
     private static ViewerApplication Viewer => ViewerSession.App;
 
+    /// <summary>Presses whatever key is bound to switching the camera mode.</summary>
+    /// <remarks>
+    /// **Pinned rather than hardcoded, and the pinning is the point.** This action was on `V` until
+    /// bindings arrived (D68) and is now on `Space`, matching what TF2 binds — its spectator HUD
+    /// prints `[%jump%]` beside "Switch Camera Mode".
+    ///
+    /// A test pressing a literal key fails the *wrong way* when a binding moves: it presses a key
+    /// that does nothing, waits for a state change that cannot happen, and reports a timeout. Three
+    /// of these did exactly that, and the visible symptom was Windows dinging on every unhandled
+    /// press while the retry loop spun — the owner diagnosed it by ear before the log said anything.
+    ///
+    /// Asserting the binding first turns that into one clear failure naming the cause.
+    /// </remarks>
+    private static void PressSwitchCameraMode()
+    {
+        KeyBindings.Defaults[ViewerAction.SwitchCameraMode].ShouldBe(
+            "Space", "this test presses SPACE below — rebind both together");
+
+        Viewer.PressKey(VirtualKeyShort.SPACE);
+    }
+
     /// <summary>What the viewer logs when the recorded camera is being followed.</summary>
     private const string FollowingRecorded = "first person on, following the recording's own camera";
 
     /// <summary>What it logs on the way back out.</summary>
-    private const string BackToMap = "first person off, back to the map view";
+    private const string BackToMap = "first person off, back to the free camera";
 
     [TearDown]
     public void ReturnToTheMapView()
     {
         // **The mode leaks otherwise**, and the next test in this assembly would run against a
-        // camera it did not choose. Pressing V is how the viewer itself leaves, so this uses the
+        // camera it did not choose. The bound key is how the viewer itself leaves, so this uses the
         // same route rather than reaching past the UI.
         if (Viewer.Count(FollowingRecorded) > Viewer.Count(BackToMap))
         {
-            Viewer.PressKey(VirtualKeyShort.KEY_V);
+            PressSwitchCameraMode();
 
             Retry.WhileFalse(
                 () => Viewer.Count(BackToMap) >= Viewer.Count(FollowingRecorded),
@@ -57,7 +80,7 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
-    public void FirstPerson_PressingV_FollowsTheRecordingsOwnCamera()
+    public void FirstPerson_PressingSwitchCameraMode_FollowsTheRecordingsOwnCamera()
     {
         // **The demo decides which mechanism is used, and the viewer says which.** A message that
         // named neither would leave "it is following the recorder" and "it is spectating an
@@ -65,14 +88,14 @@ public sealed class FirstPersonUiTests
         // until the recorder dies.
         int before = Viewer.Count(FollowingRecorded);
 
-        Viewer.PressKey(VirtualKeyShort.KEY_V);
+        PressSwitchCameraMode();
 
         Retry.WhileFalse(
             () => Viewer.Count(FollowingRecorded) > before,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage:
-                "V did not put the viewer into the first-person view following the recording.");
+                "Switching camera mode did not follow the recording's own camera.");
 
         // Stated as an assertion as well as a wait: the retry establishes WHEN to look and this
         // establishes WHAT was found, and only the second appears in a failure report.
@@ -80,28 +103,28 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
-    public void FirstPerson_PressingVTwice_ReturnsToTheMapView()
+    public void FirstPerson_PressingSwitchCameraModeTwice_ReturnsToTheOverheadView()
     {
         // **A mode, not a one-way door.** The map view is what works on every demo, so leaving has
         // to be as easy as entering — and a toggle that only ever entered would strand somebody on
         // a camera that cannot see the match.
-        Viewer.PressKey(VirtualKeyShort.KEY_V);
+        PressSwitchCameraMode();
 
         Retry.WhileFalse(
             () => Viewer.Count(FollowingRecorded) > 0,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
-            timeoutMessage: "V did not enter the first-person view.");
+            timeoutMessage: "Switching camera mode did not enter the first-person view.");
 
         int before = Viewer.Count(BackToMap);
 
-        Viewer.PressKey(VirtualKeyShort.KEY_V);
+        PressSwitchCameraMode();
 
         Retry.WhileFalse(
             () => Viewer.Count(BackToMap) > before,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
-            timeoutMessage: "A second V did not return the viewer to the map view.");
+            timeoutMessage: "A second switch did not return the viewer to the overhead camera.");
 
         Viewer.Count(BackToMap).ShouldBeGreaterThan(before);
     }
@@ -147,13 +170,13 @@ public sealed class FirstPersonUiTests
         Retry.WhileFalse(
             () => Viewer.Count("wrote ") > 0, TimeSpan.FromSeconds(10));
 
-        Viewer.PressKey(VirtualKeyShort.KEY_V);
+        PressSwitchCameraMode();
 
         Retry.WhileFalse(
             () => Viewer.Count(FollowingRecorded) > 0,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
-            timeoutMessage: "V did not enter the first-person view, so there is nothing to capture.");
+            timeoutMessage: "Switching camera mode did not enter the first-person view, so there is nothing to capture.");
 
         // **Wait for the viewmodel to be DRAWN, not merely resolved.** This waited on the lookup
         // instead, excused by the claim that a 2013 recording names `v_` models the current install
@@ -251,7 +274,7 @@ public sealed class FirstPersonUiTests
         int cameras = Viewer.Count("camera");
         int worlds = Viewer.Count(ViewerSession.WorldBuildLine);
 
-        Viewer.PressKey(VirtualKeyShort.KEY_V);
+        PressSwitchCameraMode();
 
         Retry.WhileFalse(
             () => Viewer.Count("camera") > cameras,

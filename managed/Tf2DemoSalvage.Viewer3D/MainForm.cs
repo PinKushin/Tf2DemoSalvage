@@ -279,7 +279,7 @@ internal class MainForm : Form
     /// directly overhead.
     /// </remarks>
     /// <summary>Which camera the viewport is drawn through.</summary>
-    private CameraMode _cameraMode = CameraMode.Map;
+    private CameraMode _cameraMode = CameraMode.Free;
 
     /// <summary>
     /// Shorthand for the free camera, so the flight and drag handlers read as they did.
@@ -303,9 +303,9 @@ internal class MainForm : Form
     /// </remarks>
     private (float Pitch, float Yaw) _freeAngles = (35f, 0f);
 
-    /// <summary>How far the free camera sits from what it is looking at, in world units.</summary>
-    /// <remarks>Only used to place the camera when the free view is first entered.</remarks>
-    private const float FreeEntryDistance = 800f;
+    // FreeEntryDistance (800 units) went with the orbit placement on 2026-08-22 (D67). The camera
+    // no longer sits a fixed distance from a focus point — it is placed above the map at whatever
+    // height frames the play area, which is a computed distance rather than a chosen one.
 
     /// <summary>Where the free camera is, once it has been placed.</summary>
     /// <remarks>
@@ -327,6 +327,15 @@ internal class MainForm : Form
     /// pixel — so this is chosen for the drag rather than taken from the engine.
     /// </remarks>
     private const float DegreesPerPixel = 0.25f;
+
+    /// <summary>Which key performs which action (D68).</summary>
+    /// <remarks>
+    /// **Actions are bound, not keys, which is how TF2 works.** Its spectator HUD prints
+    /// `[%jump%]` beside "Switch Camera Mode" and substitutes the player's own binding — nothing in
+    /// the game hardcodes Space. Defaults follow TF2 where TF2 has an equivalent, and the table is
+    /// meant to be loaded from settings so a user can rebind exactly as they would in the game.
+    /// </remarks>
+    private readonly KeyBindings _bindings = new();
 
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private Point? _dragFrom;
@@ -1856,10 +1865,10 @@ internal class MainForm : Form
     {
         if (_firstPerson)
         {
-            _cameraMode = CameraMode.Map;
+            _cameraMode = CameraMode.Free;
             _worldIsStale = true;
             _viewport.Invalidate();
-            ViewerLog.Write("render", "first person off, back to the map view");
+            ViewerLog.Write("render", "first person off, back to the free camera");
             return true;
         }
 
@@ -3835,7 +3844,7 @@ internal class MainForm : Form
         seconds = Math.Min(seconds, MaximumFrameSeconds);
 
         (float X, float Y, float Z) moved = FreeFlight.Movement(
-            _heldKeys, seconds, _freeAngles.Pitch, _freeAngles.Yaw, IsShiftHeld());
+            _heldKeys, seconds, _freeAngles.Pitch, _freeAngles.Yaw, IsShiftHeld(), _bindings);
 
         if (moved == (0f, 0f, 0f))
         {
@@ -4123,46 +4132,44 @@ internal class MainForm : Form
         // message meant Windows' auto-repeat set the speed: nothing for the repeat delay, then fixed
         // jumps at the repeat rate, and never two directions at once because auto-repeat reports
         // only the last key held. See FreeFlight.
-        if (_freeLook && FreeFlight.IsFlightKey(keyData & Keys.KeyCode))
+        if (_freeLook && FreeFlight.IsFlightKey(keyData & Keys.KeyCode, _bindings))
         {
             _heldKeys.Add(keyData & Keys.KeyCode);
             return true;
         }
 
-        // **F toggles the free camera.** The map view is what a demo is normally watched from, so
-        // this is a mode rather than a replacement — and switching keeps the same subject in the
-        // middle, since the free camera starts where the map view was looking.
-        // **V enters and leaves the first-person view.** Next to F for the free camera, and chosen
-        // because it is what TF2 itself does not use for anything a demo watcher presses.
-        if (keyData == Keys.V)
+        // **Bound actions rather than hardcoded keys (D68).** TF2 does the same: its spectator HUD
+        // prints `[%jump%]` beside "Switch Camera Mode" and substitutes whatever the player bound,
+        // so nothing in the game hardcodes Space — it hardcodes the action. These resolve through
+        // `_bindings`, which a settings file can override.
+        //
+        // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
             return ToggleFirstPerson();
         }
 
-        if (keyData == Keys.F)
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ResetCamera)))
         {
-            _cameraMode = _freeLook ? CameraMode.Map : CameraMode.Free;
+            // **F now RESETS the camera to the overhead placement rather than switching mode.**
+            // It used to toggle between the map view and the free camera; with the orthographic
+            // camera gone (D49) there is no second mode to switch to, and the overhead view is a
+            // placement of this one. So the key keeps its meaning — "show me the whole map again" —
+            // and drops the mode it used to carry.
+            _cameraMode = CameraMode.Free;
+            _freeOrigin = null;
 
-            // Forgotten on the way out, so entering again places the camera at whatever the map
-            // view is looking at NOW rather than where it was flown to half a match ago.
-            if (!_freeLook)
-            {
-                _freeOrigin = null;
-
-                // Nothing is flying any more, and a key still recorded as held would move the
-                // camera the moment the free view was entered again.
-                ReleaseHeldKeys();
-            }
+            // A key still recorded as held would move the camera the instant it is re-placed.
+            ReleaseHeldKeys();
 
             _worldIsStale = true;
             _viewport.Invalidate();
 
-            ViewerLog.Write(
-                "render",
-                _freeLook
-                    ? $"free camera on: pitch {_freeAngles.Pitch:0.#}, yaw {_freeAngles.Yaw:0.#}, " +
-                      $"distance {FreeEntryDistance:0}"
-                    : "free camera off, back to the map view");
+            // **Says what it did, not which mode it is in.** The old line reported "free camera on"
+            // or "free camera off, back to the map view", and both are now false: there is one
+            // camera and this key does not switch anything. A log that names the wrong quantity
+            // misdirects with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
+            ViewerLog.Write("render", "camera reset to the overhead placement");
 
             return true;
         }
