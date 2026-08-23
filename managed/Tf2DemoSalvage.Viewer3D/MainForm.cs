@@ -1027,6 +1027,7 @@ internal class MainForm : Form
             ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
             ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
             ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4),
+            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.F11),
         })
         {
             string which = cvar;
@@ -1050,7 +1051,8 @@ internal class MainForm : Form
                     nameof(DebugModes.DrawFlat) => _debug with { DrawFlat = toggled.Checked },
                     nameof(DebugModes.Luxels) => _debug with { Luxels = toggled.Checked },
                     nameof(DebugModes.NormalMaps) => _debug with { NormalMaps = toggled.Checked },
-                    _ => _debug with { BumpBasis = toggled.Checked },
+                    nameof(DebugModes.BumpBasis) => _debug with { BumpBasis = toggled.Checked },
+                    _ => _debug with { LeafVis = toggled.Checked },
                 };
 
                 ViewerLog.Write("render", $"debug views: {_debug}");
@@ -2502,6 +2504,89 @@ internal class MainForm : Form
         }
 
         return _freeLook ? FreeLookCamera().ToMatrix() : map.ToMatrix();
+    }
+
+    /// <summary>The twelve edges of the leaf the camera stands in, projected — <c>mat_leafvis</c>.</summary>
+    /// <param name="matrix">The view-projection the world is drawn with, row major.</param>
+    /// <returns>Clip-space segments, or nothing when the mode is off or there is no leaf.</returns>
+    /// <remarks>
+    /// **The leaf the CAMERA is in, which is what Valve draws.** A BSP leaf is the unit the engine
+    /// culls and traces against, so "which one am I in and how big is it" is the question behind
+    /// every visibility oddity — a prop that vanishes at a doorway, a sound that carries too far.
+    /// Drawing all of them would be a wireframe of the whole tree and answer nothing.
+    ///
+    /// **Projected here rather than drawn in world space** because the line channel takes clip-space
+    /// segments and ignores depth, which is what an annotation should do: the box is a statement
+    /// about where you are, and a box half-hidden by the wall it describes would be worse than
+    /// useless. That is the same reason the player markers ignore depth.
+    ///
+    /// A corner behind the eye is dropped rather than projected: dividing by a w at or below zero
+    /// mirrors the point through the camera, and the edge then streaks across the screen from
+    /// somewhere it is not.
+    /// </remarks>
+    private List<((float X, float Y) From, (float X, float Y) To)> LeafBoxLines(
+        float[] matrix)
+    {
+        if (!_debug.LeafVis || _leaves is not { } tree)
+        {
+            return [];
+        }
+
+        // The same origin the free camera flies from, so the box is the leaf the VIEWER is in
+        // rather than the one the recording happens to be looking from.
+        (float X, float Y, float Z) eye = _freeOrigin ?? FreeLookCamera().Origin;
+
+        if (tree.Bounds(tree.LeafAt(eye.X, eye.Y, eye.Z)) is not { } box)
+        {
+            return [];
+        }
+
+        (float X, float Y, float Z) Corner(int which) => (
+            (which & 1) == 0 ? box.Min.X : box.Max.X,
+            (which & 2) == 0 ? box.Min.Y : box.Max.Y,
+            (which & 4) == 0 ? box.Min.Z : box.Max.Z);
+
+        (float X, float Y)? Project((float X, float Y, float Z) point)
+        {
+            // **Row-vector, which is what the shader does: `mul(world, viewProjection)` with the
+            // matrix declared `row_major`.** So a point multiplies the matrix from the LEFT, the
+            // translation lives in elements 12–14, and w comes from element 11 — `FreeCamera` sets
+            // `projection[11] = 1`, which is the giveaway.
+            //
+            // The first version indexed this as column-vector, taking w from 12–15. That does not
+            // fail, it produces a projection: the owner saw the box as "a dot that gets kinda
+            // triangular", which is a room-sized box collapsed through the wrong transform. This
+            // project already carries a memory about the two conventions it uses on purpose; this
+            // is what mixing them looks like from the outside.
+            float x = (point.X * matrix[0]) + (point.Y * matrix[4]) + (point.Z * matrix[8]) + matrix[12];
+            float y = (point.X * matrix[1]) + (point.Y * matrix[5]) + (point.Z * matrix[9]) + matrix[13];
+            float w = (point.X * matrix[3]) + (point.Y * matrix[7]) + (point.Z * matrix[11]) + matrix[15];
+
+            return w > 0.0001f ? (x / w, y / w) : null;
+        }
+
+        List<((float X, float Y) From, (float X, float Y) To)> lines = [];
+
+        // The twelve edges of a box: every pair of corners differing in exactly one axis bit.
+        for (int from = 0; from < 8; from++)
+        {
+            foreach (int axis in new[] { 1, 2, 4 })
+            {
+                int to = from | axis;
+
+                if (to == from)
+                {
+                    continue;
+                }
+
+                if (Project(Corner(from)) is { } a && Project(Corner(to)) is { } b)
+                {
+                    lines.Add((a, b));
+                }
+            }
+        }
+
+        return lines;
     }
 
     /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
@@ -4862,6 +4947,20 @@ internal class MainForm : Form
 
         FlyCamera();
 
+        // **Every frame, because the view can change without anything here being told.** This used
+        // to be sent only from FlyCamera, and only when the free camera had actually moved — so in
+        // the first-person view the recorded camera advanced every tick, produced a correct matrix,
+        // and never reached the GPU. The owner: "pov isnt actually updating cam position at the
+        // tick rate either, the only way to get the cam in pov to move is by clicking and moving
+        // the mouse", which is mouse-look going through the flight path that does upload.
+        //
+        // Same shape as the debug views not appearing until the camera moved, and the same lesson:
+        // a value computed correctly and not sent is indistinguishable from one computed wrongly.
+        // Uploading unconditionally costs one 112-byte constant write per frame and removes the
+        // whole class — a spectator switch, a scrub, a demo change and playback itself all move the
+        // view without touching FlyCamera.
+        UploadCamera();
+
         // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
         // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
         // step of a full-screen transition - or every pixel of a window drag - is collapsed into
@@ -4896,12 +4995,15 @@ internal class MainForm : Form
             BackgroundGreen,
             BackgroundBlue,
             _mapFill,
-            // **No line overlay any more.** These are the BSP's own edge segments, drawn flat over
-            // the world for the overhead view; `mat_wireframe` replaces them with the real thing.
+            // **The line channel now carries mat_leafvis instead of the brush outline.** Those were
+            // the BSP's own edge segments projected for the overhead view, and `mat_wireframe`
+            // replaced them; the channel itself is exactly what a leaf box wants — clip-space
+            // segments drawn over the world without depth, which is what an annotation should be.
+            //
             // `_mapLines` is still built and still exposed as `MapLines`, because MapOutline also
-            // computes the play-area bounds several things still read — splitting those two jobs
-            // apart is filed rather than done here (B151).
-            [],
+            // computes the play-area bounds several things read — splitting those two jobs apart is
+            // filed rather than done here (B151).
+            LeafBoxLines(ViewMatrix(MapCamera())),
             _scene,
             _instances,
             _viewmodelInstances,

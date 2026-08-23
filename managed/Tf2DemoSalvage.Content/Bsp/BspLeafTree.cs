@@ -165,6 +165,44 @@ public sealed class BspLeafTree
         return true;
     }
 
+    /// <summary>The world-space box a leaf occupies, or null when there is no such leaf.</summary>
+    /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
+    /// <returns>Its minimum and maximum corner, in world units.</returns>
+    /// <remarks>
+    /// **Shorts, and at the same offsets in both versions of the struct**, which is the only reason
+    /// one reader serves both. `bspfile.h` declares `short mins[3]` at offset 8 and `short maxs[3]`
+    /// at 14 in `dleaf_t` and in `dleaf_version_0_t` alike; version 0 is larger only because it
+    /// carries a `CompressedLightCube` AFTER those fields. So the stride differs and the offsets do
+    /// not, and this needs no version test of its own.
+    ///
+    /// **A leaf's box is for frustum culling** — Valve's own comment on the field — so it is a
+    /// conservative bound rather than a tight one. That is what `mat_leafvis` draws, and it is the
+    /// right thing to draw: the box is what the engine tests, and a picture of a tighter shape
+    /// would answer a question nobody asks.
+    /// </remarks>
+    public ((float X, float Y, float Z) Min, (float X, float Y, float Z) Max)? Bounds(int leaf)
+    {
+        if (leaf < 0)
+        {
+            return null;
+        }
+
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        if (at < 0 || at + _leafStride > leaves.Length)
+        {
+            return null;
+        }
+
+        static float Read(ReadOnlySpan<byte> from, int offset) =>
+            BinaryPrimitives.ReadInt16LittleEndian(from[offset..]);
+
+        return (
+            (Read(leaves, at + 8), Read(leaves, at + 10), Read(leaves, at + 12)),
+            (Read(leaves, at + 14), Read(leaves, at + 16), Read(leaves, at + 18)));
+    }
+
     /// <summary>Which leaf contains a point.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>
