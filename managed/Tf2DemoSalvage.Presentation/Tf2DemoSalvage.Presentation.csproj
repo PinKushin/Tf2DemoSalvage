@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Presenters, and the view interfaces they drive. The Presenter half of MVP (D54, D55).
+
+    **The absence of a WinForms reference IS the design.** D54 records why MVP was chosen over
+    MVVM in the first place, and it was not familiarity: MVP's boundary can be made a compiler
+    error rather than a convention someone has to remember. A presenter here that reaches for a
+    Button, a Control or a Form does not compile, and no comment, review or convention is doing
+    that work.
+
+    That is also why this is plain net10.0 with no reference to Render or Viewer3D. It depends on
+    Core alone - the model - so a presenter cannot quietly acquire a dependency on how anything is
+    drawn, and every test over this project runs on the Linux measurement boxes.
+
+    A presenter here is a plain class: it holds the model, subscribes to a view interface's events,
+    and pushes results back through that interface's methods. The Form implements the interface and
+    does nothing else - "if a Form method needs an `if` statement about business state, that's the
+    tell it's doing the Presenter's job" (D55).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Presentation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+  </ItemGroup>
+
+</Project>

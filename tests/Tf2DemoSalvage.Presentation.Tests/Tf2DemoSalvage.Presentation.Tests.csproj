@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Presenter tests. No window, no STA thread, no desktop lock.
+
+    This project is the concrete payoff D54 predicted when MVP was chosen: "A Presenter test needs a
+    fake IView that records what was called and nothing else." Everything here ran inside MainForm
+    until 2026-08-22 and was therefore reachable only by driving a real form under
+    run-exclusive.ps1 - which is why behaviour written from a string of bugs had no tests at all.
+
+    Plain net10.0, like the project it covers, so it runs on the Linux measurement boxes.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Presentation.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal.
+         Inapplicable here rather than ignored. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Presentation\Tf2DemoSalvage.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>
