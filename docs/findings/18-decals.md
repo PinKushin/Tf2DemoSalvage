@@ -408,3 +408,45 @@ plausible-sounding API fact, and plausible-sounding is exactly what nobody check
 Same family as the `$modblend` and "TF2's game code is closed" corrections — see
 `docs/memory/nothing-is-closed.md`. **Three instances now**, and all three were reachable from the
 published SDK by somebody willing to grep for the thing they had already concluded was not there.
+
+## A fourth instance, and this time the missing citation was ours (2026-08-23)
+
+**The constant went back in on 2026-08-21 at 21:37, hours after B70 was refuted for the second
+time, and it survived two more days.** The owner met it on 2026-08-23 as "there are overlays showing
+through everywhere" — the third time the same picture has been reported.
+
+Every number in the case for it was correct. `m_DepthBias_Decal` really is −262144
+(`materialsystem_config.h:226`, and the string is in the shipped `MaterialSystem.dll` beside
+`mat_depthbias_decal`). It really is `glPolygonOffset`'s `units`
+(`togl/linuxwin/dxabstract.h:966`). 262144 really is 2¹⁸, so on a 24-bit buffer it is exactly 1/64
+of the depth range — a round number, chosen rather than tuned.
+
+**The unasked question was which surfaces Valve applies it to**, and the answer is published:
+
+| Reading | Says |
+|---|---|
+| `public/shaderapi/ishadershadow.h:255` | `EnablePolyOffset` is declared **once** in the whole tree, on `IShaderShadow` |
+| `imaterialsystem.h`, `imesh.h`, `ishaderapi.h` | contain no polygon-offset entry point at all |
+| grep over the tree | nothing outside `stdshaders` calls it |
+| `stdshaders` | `decal`, `decalmodulate`, the portal overlays, and `Overlay_Fit` — which is `"Help for TerrainTest2"`, `SHADER_NOT_EDITABLE` |
+| `lightmappedgeneric_dx9.cpp` | **zero occurrences** |
+
+A polygon offset in Source is therefore a property of the **shader**, fixed at shader-shadow time,
+and the engine has no route to add one to a material whose shader did not request it. An
+`info_overlay` is ordinarily LightmappedGeneric. Valve's decal bias governs bullet holes and sprays
+and has never touched the stripes painted down a corridor.
+
+**Why it looked plausible for three attempts.** Window depth goes as z ≈ 1 − N/d, so an offset Δz
+moves a surface Δd ≈ Δz·d²/N toward the camera — the world distance grows with the SQUARE of range.
+At `VIEW_NEARZ` 7 a marking 500 units out tests as though it were at 236. B70 published that
+arithmetic on 2026-08-21 and it was not contradicted by the third attempt; it was simply not read.
+
+**The lesson is the inverse of the previous three in this file.** Those were facts about Valve's
+system that were asserted without a citation and turned out to be reachable by grep. This one had
+citations for every claim it made, and the claim it needed was the one nobody wrote down: *this
+constant applies to surfaces drawn by these shaders*. **A constant carries no scope, so quoting it
+accurately says nothing about where it belongs** — and a number with a file-and-line beside it reads
+as settled in a way a number without one does not.
+
+`OverlayOcclusionRenderTests` kept its two-condition design and had its requirement inverted rather
+than deleted, so what is now under guard is that a surface in front of a marking hides it.

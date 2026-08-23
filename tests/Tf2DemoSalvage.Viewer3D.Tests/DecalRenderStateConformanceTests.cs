@@ -49,20 +49,19 @@ public sealed class DecalRenderStateConformanceTests
     }
 
     [Test]
-    public void DecalBias_TheConstantTerm_IsValves()
+    public void DecalBias_ValvesConstantTerm_IsMinus262144()
     {
         // Parsed, not restated: this is Valve's number arriving from Valve's file.
         float valves = Initialiser("m_DepthBias_Decal");
 
         valves.ShouldBe(-262144f, "materialsystem_config.h:226");
 
-        // **Ours, and it must be the same number.** It is an integer here because that is how D3D11
-        // types the field; Valve stores a float and passes its bits through a DWORD.
-        ((float)DecalState.ConstantBias).ShouldBe(
-            valves,
-            "the constant bias is glPolygonOffset's `units` under any of the three APIs — see " +
-            "dxabstract.h:966 — so Valve's value carries across unchanged");
-
+        // **This test says nothing about OUR constant, and that is the correction.** It used to
+        // assert the two were equal, on the reasoning that a depth bias means the same thing under
+        // all three APIs. That part is true — see the togl test below — and it is not the question.
+        // The question is whether the surface we draw is one Valve applies this bias to at all, and
+        // `PolyOffset_ForALightmappedGenericOverlay_IsNeverRequested` is where that is settled.
+        //
         // The control, and it is what makes the assertion above mean something. The same struct
         // initialises a normal bias of zero and a shadow bias of the opposite sign, so a parser that
         // matched loosely could not have produced −262144 for all three.
@@ -82,6 +81,52 @@ public sealed class DecalRenderStateConformanceTests
         // Control: the other two slope-scaled terms differ from this one and from each other.
         Initialiser("m_SlopeScaleDepthBias_Normal").ShouldBe(0f);
         Initialiser("m_SlopeScaleDepthBias_ShadowMap").ShouldBe(0.5f);
+    }
+
+    [Test]
+    public void PolyOffset_ForALightmappedGenericOverlay_IsNeverRequested()
+    {
+        // **Having Valve's number is not having Valve's mechanism**, and this is the test that
+        // separates them. A polygon offset in Source is a property of the SHADER, established at
+        // shader-shadow time — there is exactly one entry point to it in the whole published tree.
+        string shadow = Sdk("src/public/shaderapi/ishadershadow.h");
+
+        shadow.ShouldContain("EnablePolyOffset( PolygonOffsetMode_t", Case.Sensitive);
+
+        // **And no route around it.** If the engine could offset a surface without the shader
+        // asking, the paragraph below would prove nothing — a material system call could be adding
+        // the bias to overlays out of sight. There is no such call: the render context, the mesh
+        // interface and the shader API between them do not mention a polygon offset.
+        foreach (string header in new[]
+        {
+            "src/public/materialsystem/imaterialsystem.h",
+            "src/public/materialsystem/imesh.h",
+            "src/public/shaderapi/ishaderapi.h",
+        })
+        {
+            Sdk(header).ShouldNotContain("PolyOffset", Case.Sensitive, $"{header} offers a route");
+        }
+
+        // **The decal family asks for it. LightmappedGeneric does not.** That pair is the whole
+        // finding: an `info_overlay` is ordinarily LightmappedGeneric, so Valve's −262144 is applied
+        // to bullet holes and sprays and never to the stripes painted down a corridor.
+        Sdk("src/materialsystem/stdshaders/decalmodulate.cpp")
+            .ShouldContain("SHADER_POLYOFFSET_DECAL", Case.Sensitive);
+
+        // The control. Without it "LightmappedGeneric does not ask" is indistinguishable from a
+        // path typo reading an empty string — which is the failure this project files under
+        // `an-empty-search-needs-a-control`.
+        string world = Sdk("src/materialsystem/stdshaders/lightmappedgeneric_dx9.cpp");
+
+        world.Length.ShouldBeGreaterThan(1000, "the world shader should not be an empty read");
+        world.ShouldNotContain("PolyOffset", Case.Sensitive);
+
+        // **So our overlay pass carries no constant bias**, and the reason is Valve's, not a
+        // tuning. Restoring −262144 here has floated every marking off the map three times —
+        // 2026-08-14, and twice on 2026-08-21 — because a constant in depth-buffer units is a world
+        // distance that grows with the square of range under a perspective projection. B70.
+        DecalState.ConstantBias.ShouldBe(
+            0, "an overlay's shader never enables a polygon offset, so neither do we");
     }
 
     [Test]
@@ -114,7 +159,21 @@ public sealed class DecalRenderStateConformanceTests
 
         double step = 1.0 / (1 << 24);
 
-        (DecalState.ConstantBias * step).ShouldBe(-0.015625, 1e-9);
+        // **Valve's constant, not ours**, and 262144 is 2^18 — so this is exactly 1/64 of the depth
+        // range, a round number chosen deliberately rather than tuned.
+        (Initialiser("m_DepthBias_Decal") * step).ShouldBe(-0.015625, 1e-9);
+
+        // **What 1/64 of the range costs under perspective, which is why we do not apply it.**
+        // Window depth goes as z ≈ 1 − N/d, so an offset Δz moves a surface Δd ≈ Δz·d²/N toward the
+        // camera. At Valve's own VIEW_NEARZ of 7, a marking 500 units away tests as though it were
+        // at 236 — in front of everything between. That is a fact about the projection, and it is
+        // the reason `PolyOffset_ForALightmappedGenericOverlay_IsNeverRequested` holds ours at zero.
+        const double near = 7.0;
+        const double range = 500.0;
+
+        double biased = range / (1 + (0.015625 * range / near));
+
+        biased.ShouldBe(236.0, 1.0);
     }
 
     [Test]

@@ -39,25 +39,40 @@ namespace Tf2DemoSalvage.Render;
 /// </remarks>
 internal static class DecalState
 {
-    /// <summary><c>m_DepthBias_Decal</c>, in units of the buffer's smallest resolvable step.</summary>
+    /// <summary>No constant bias, because an overlay's shader never asks for one.</summary>
     /// <remarks>
-    /// **Valve's constant, on Valve's buffer format, for the first time.** Both previous attempts at
-    /// it — 2026-08-14 and earlier on 2026-08-21 — ran against a <c>D32_FLOAT</c> buffer, where
-    /// D3D11 scales the same integer by a data-dependent 2^(exponent−23) instead of a fixed 1/2²⁴.
-    /// Neither was a test of this number. The format was only matched to the engine's in D48, after
-    /// the second revert.
+    /// **Zero, and it is Valve's answer rather than a tuning of ours.** Valve's
+    /// <c>m_DepthBias_Decal</c> really is −262144, it really is <c>glPolygonOffset</c>'s
+    /// <c>units</c>, and 262144 being 2¹⁸ makes it exactly 1/64 of a 24-bit depth range. All of
+    /// that is true and none of it applies here, because of the question nobody asked for three
+    /// attempts: **which surfaces does Valve apply it to?**
     ///
-    /// **The one thing it depends on is the PROJECTION, and the projection is being fixed.**
-    /// −0.015625 is a fraction of the depth RANGE. Under perspective, which is what Valve draws
-    /// with, most of that range sits near the camera, so the offset is a fraction of a world unit
-    /// where a decal actually is. Under the overhead ORTHOGRAPHIC camera depth is linear over the
-    /// whole map's height, so the same fraction is about twenty-five world units — which is what
-    /// painted a marking over the health pack standing on it, and what got this constant reverted.
+    /// **A polygon offset in Source is a property of the SHADER.** <c>EnablePolyOffset</c> is
+    /// declared once in the entire published tree, on <c>IShaderShadow</c>
+    /// (<c>public/shaderapi/ishadershadow.h:255</c>), and it is called only from
+    /// <c>materialsystem/stdshaders</c> — by <c>decal</c>, <c>decalmodulate</c>, the portal
+    /// overlays and a terrain test shader. There is no equivalent on <c>IMaterialSystem</c>,
+    /// <c>IMatRenderContext</c>, <c>IMesh</c> or <c>IShaderAPI</c>, so the engine cannot add one to
+    /// a material whose shader did not request it. <c>lightmappedgeneric_dx9.cpp</c> does not
+    /// request it.
     ///
-    /// **That was a fact about the orthographic camera, and the orthographic camera is going out**
-    /// (D49, owner's direction). So it is not a reason to hold a Valve constant at the wrong value.
+    /// An <c>info_overlay</c> is ordinarily LightmappedGeneric. So Valve's decal bias governs
+    /// bullet holes and sprays, and never the stripes painted down a corridor — which is what this
+    /// project kept applying it to.
+    ///
+    /// **Why the wrong answer looked right three times.** −0.015625 is a fraction of the depth
+    /// RANGE, and window depth goes as z ≈ 1 − N/d, so the world distance it represents grows with
+    /// d². At <c>VIEW_NEARZ</c> 7 a marking 500 units away tests as though it were at 236, in front
+    /// of everything between. The owner has now seen that picture three times — 2026-08-14,
+    /// 2026-08-21, and again on 2026-08-23 as "there are overlays showing through everywhere" —
+    /// and each time the arithmetic was available and the mechanism was not checked. B70.
+    ///
+    /// **What holds the markings down instead** is B134: a fragment is the wall's own vertices
+    /// clipped in the wall's own plane, so it is coplanar by construction rather than projected
+    /// onto the surface, and a <c>LESS_EQUAL</c> comparison needs no constant term. Only the
+    /// slope-scaled term below is still required, and for a different reason.
     /// </remarks>
-    internal const int ConstantBias = -262144;
+    internal const int ConstantBias = 0;
 
     /// <summary><c>m_SlopeScaleDepthBias_Decal</c>, a multiple of the polygon's depth gradient.</summary>
     /// <remarks>

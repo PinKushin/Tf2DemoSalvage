@@ -160,23 +160,27 @@ public sealed class OverlayOcclusionRenderTests
     }
 
     [Test]
-    public void Render_AnOccluderNearerThanTheBias_LosesToTheMarkingAsValvesConstantIntends()
+    public void Render_AnOccluderOnlyJustInFrontOfAMarking_StillHidesIt()
     {
-        // **The trade `SHADER_POLYOFFSET_DECAL` makes, recorded as behaviour rather than as a bug.**
-        // A depth bias moves a marking toward the camera by a fixed fraction of the depth range, so
-        // anything standing in front of it by LESS than that fraction is beaten. That is not a
-        // defect in this renderer; it is what the constant is for, and Valve accepts it in exchange
-        // for markings that do not z-fight with the surfaces they lie on.
+        // **INVERTED 2026-08-23, and the inversion is the finding.** This test used to assert that
+        // the marking WINS here — that an occluder closer than the bias is beaten by it, recorded
+        // as "the trade `SHADER_POLYOFFSET_DECAL` makes" rather than as a defect. It was pinning a
+        // defect in place, and it is kept and turned round rather than deleted so that the
+        // requirement becomes the thing under guard.
         //
-        // 0.005 against a bias of 0.015625 — a third of it. The sibling test above uses 0.05, three
-        // times the bias, and asserts the opposite outcome. **Two conditions either side of one
-        // threshold is what makes this a measurement of the bias rather than of the fixture**, and
-        // it is why the pair is worth more than either alone: a renderer with no bias at all passes
-        // the sibling and fails this one.
+        // **What was wrong was not the arithmetic but the premise.** Valve's −262144 is real and it
+        // is glPolygonOffset's `units`, so a marking really would beat a nearer occluder — IF the
+        // marking's shader asked for a polygon offset. An `info_overlay` is LightmappedGeneric, and
+        // `lightmappedgeneric_dx9.cpp` never calls `EnablePolyOffset`; the only declaration of it
+        // in the published tree is on `IShaderShadow`, and nothing outside `stdshaders` calls it.
+        // So Valve applies that constant to bullet holes and sprays, never to these. See
+        // `DecalState.ConstantBias` and B70.
         //
-        // Under perspective, which is what Valve draws with and what D49 moves this project to, a
-        // 0.005 slice of NDC depth is a fraction of a world unit near the camera — so the case this
-        // test describes is a hairline, not the signage-floating-off-a-silo the owner reported.
+        // **The pair still measures a threshold**, which is what made it worth keeping. The sibling
+        // above puts the occluder 0.05 in front and this one 0.005 — ten times nearer to coplanar.
+        // With no constant bias both must report the occluder, and a renderer that reintroduced one
+        // would fail THIS one first, while the sibling stayed green. That is precisely the failure
+        // that reached the owner as "there are overlays showing through everywhere", three times.
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
         if (target is null)
@@ -211,9 +215,9 @@ public sealed class OverlayOcclusionRenderTests
         (int red, int green, int blue) = target.PixelAt(32, 32);
 
         Winner(red, green, blue).ShouldBe(
-            "marking",
-            "an occluder closer than the bias is beaten by it — remove the constant bias and this " +
-            "reports the prop, which is how the pair distinguishes a biased pass from an unbiased one");
+            "prop",
+            "a surface in front of a marking hides it, however small the gap — reintroduce a " +
+            "constant depth bias and this reports the marking while the sibling test stays green");
 
         // The control: the marking has to be drawing at all for the assertion above to mean it won
         // a contest rather than that the occluder simply was not there.
