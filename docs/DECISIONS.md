@@ -3897,3 +3897,91 @@ happened to be wrapped in a timer already, which is
 Two further defects fell out of chasing it, both filed rather than fixed: **B147**, the scrub bar
 cannot be set through automation and therefore not by anyone without a mouse; and **B148**, switching
 demos permanently costs 15x the frame time (300 fps to 19, paused, with posing and lighting at zero).
+
+## D74 — everything Valve puts on the GPU goes on the GPU, and fidelity decides the rest
+
+**Owner, 2026-08-23**, after finding every texture was being decompressed on the CPU:
+
+> i told the AI that was doing the decompressing to unload everything it could on the gpu and it must
+> have ignored me or not realized it had already put one on the CPU. thats fning source SDK and video
+> game dev 101 though, you offload everything you can to the gpu
+
+and then, when the rule was about to be applied as a blanket performance principle, he narrowed it:
+
+> when i say everything that can be on the gpu should be on the gpu, i really mean everything valve
+> puts on the gpu has to be there, and if they have something on the cpu we see why, and likely
+> follow it, but if theres not a good reason to keep it on the cpu anymore and it can be moved off
+> without changing too much when it comes to matching valve and wont cause bugs we cant use the sdk
+> and decomp to fix, then we might move it.
+
+**That second message is the rule, and the difference matters.** It is not "move work to the GPU
+because the GPU is faster". It is:
+
+1. **Whatever Valve does on the GPU, we do on the GPU.** Not negotiable — it is a fidelity
+   requirement, and performance is a side effect.
+2. **Whatever Valve does on the CPU, find out why, and expect to follow it.** Their reason is
+   usually still the reason.
+3. **Only then, and only if** moving it costs nothing in matching Valve and any resulting bug is one
+   the SDK or a decompiler can settle, is it a candidate to move.
+
+### Applied: B149, DXT textures
+
+Valve's material system hands a VTF to the device in whatever format it was stored in, and the
+shaders sample it there — `texCUBE( envmapSampler, reflect )` in `common_ps_fxc.h` for a cubemap,
+ordinary 2D samplers for everything else. So DXT belongs on the GPU by rule 1, before any argument
+about speed.
+
+That it also happened to be **the whole load time** is the side effect:
+
+| | before | after |
+|---|---|---|
+| VTF decode | 16.87 s CPU | **0.10 s** |
+| loading props | 4.52 s | 2.38 s |
+| loading entity models | 9.01 s | 2.29 s |
+| reading surfaces and textures | 17.85 s | **8.20 s** |
+| uploading textures | 0.92 s | 0.55 s |
+
+**Cubemaps were nearly excluded and should not have been.** The plan was to leave them on the RGBA
+path because combining six faces into one buffer is awkward with blocks. The owner refused:
+
+> dont skip the cubemaps, cubemap bugs are some of the most common map bugs in tf2, there may not be
+> a lot of them but they are heavy, and they break easily, so they need to be on the gpu like valve
+> has them.
+
+He was right on the principle and it turned out to be *easier* that way, not harder — a cube is six
+array slices times its mips, supplied at creation, which replaces the copy-into-one-buffer step
+rather than complicating it.
+
+### The CPU expander stays, and CI is the reason
+
+The tidy conclusion — delete the DXT decoder, since production no longer needs it — is wrong. Some
+tests genuinely read texel values: a Phong ramp's shape, a normal map's channels, a material's
+brightness against the map's stated reflectivity. The obvious replacement is to read the texture back
+off the device, which would test what is actually drawn.
+
+> just curious, but im making sure we are not creating a test that doesnt actually check anything in
+> a round about way.
+
+> no it has to be cpu, the ci has no gpu
+
+**A verification that cannot run where the suite runs is not a verification**, so `TextureImage.ToRgba`
+keeps the expander for callers that must read values, documented as never belonging in a load.
+
+### What the tests can and cannot reach, stated rather than implied
+
+- **Covered on CPU**: that the bytes handed over are the right bytes — offset, mip, face, level size,
+  chain order.
+- **Covered as arithmetic** (`BlockUploadDescriptionTests`): the DXGI format each DXT format maps to,
+  and the row pitch in blocks. These are the failures that leave the bytes correct and only the
+  *description* wrong — a DXT1 image called `BC3_UNORM`, or a pitch measured in pixels — which no
+  byte-level assertion can see and which produce a skewed or wrongly-lit picture rather than an
+  error.
+- **Not covered by anything**: whether the hardware's decode of a correctly-described block matches
+  Valve's. That is the S3TC specification and the driver, and the only instrument is looking at the
+  screen.
+
+### A number this corrected
+
+`PropModels.BakeSeconds` read **11.15 s** before this change and **2.44 s** after. Baking was not
+touched. The difference was CPU contention with 16.87 s of parallel texture decoding, so the earlier
+figure said more about the decode than about baking. B150's trade should be judged against 2.44 s.

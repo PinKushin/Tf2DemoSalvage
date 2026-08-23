@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
@@ -988,7 +989,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // protects nothing and costs the alpha that decals and translucent materials need to blend
         // with. A decal drawn against a flattened alpha paints its whole quad as solid colour,
         // which is what made the patch under a health pack look like a placeholder marker.
-        return CreateTexture(device, context, present.Width, present.Height, present.Pixels.Span);
+        return CreateTexture(device, context, present.Width, present.Height, present.Image);
     }
 
     /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
@@ -1608,7 +1609,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // that quietly falls back to white or to nothing is a surface nobody investigates. Several
         // defects in this project hid for hours behind exactly that: a hole and a dark patch look
         // like art, while a magenta chequer looks like a bug and gets reported.
-        _white = CreateTexture(device, context, MissingSize, MissingSize, Missing());
+        _white = CreateTexture(device, context, MissingSize, MissingSize, TextureImage.Rgba(Missing()));
 
         // **Which materials will draw as the chequer, said once, by index.** A batch whose texture
         // handle is null silently binds the missing-material chequer at draw time — which is the
@@ -1962,7 +1963,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context,
             assets.Lightmaps.Width,
             assets.Lightmaps.Height,
-            assets.Lightmaps.Pixels,
+            TextureImage.Rgba(assets.Lightmaps.Pixels),
             srgb: false);
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
@@ -3690,13 +3691,251 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// light and does not, since linearising values that never carried the curve darkens every
     /// shadow in the map.
     /// </remarks>
+    /// <remarks>
+    /// **Two shapes, because block-compressed textures cannot be treated like pixels (B149).**
+    ///
+    /// A DXT image goes up exactly as it sits in the file: `BC1`, `BC2` or `BC3` is what Direct3D
+    /// samples, so there is nothing to convert. Its mips come from the file too — `GenerateMips`
+    /// needs a render target and a BC format cannot be one, and Valve's chain is already there and
+    /// already filtered.
+    ///
+    /// Anything else is RGBA with one level, and keeps the old arrangement: an empty texture whose
+    /// mips the driver generates from level zero.
+    ///
+    /// **The pitch is the detail that decides whether this works.** For a block format Direct3D
+    /// wants bytes per row of BLOCKS, not of pixels — `ceil(width / 4) * blockBytes`. Give it a
+    /// pixel pitch and the image skews rather than failing.
+    /// </remarks>
     private static ComPtr<ID3D11ShaderResourceView> CreateTexture(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         int width,
         int height,
-        ReadOnlySpan<byte> pixels,
+        TextureImage image,
         bool srgb = true)
+    {
+        return image.IsBlockCompressed
+            ? CreateBlockTexture(device, width, height, image, srgb)
+            : CreatePixelTexture(device, context, width, height, image.Top.Span, srgb);
+    }
+
+    /// <summary>Uploads DXT blocks untouched, with the file's own mip chain.</summary>
+    private static ComPtr<ID3D11ShaderResourceView> CreateBlockTexture(
+        ComPtr<ID3D11Device> device, int width, int height, TextureImage image, bool srgb)
+    {
+        int levels = image.Levels.Count;
+        Texture2DDesc description = new()
+        {
+            Width = (uint)width,
+            Height = (uint)height,
+            MipLevels = (uint)levels,
+            ArraySize = 1,
+            Format = BlockFormat(image.Format, srgb),
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.ShaderResource,
+        };
+
+        // **Pinned together and supplied at creation**, because an immutable texture takes its data
+        // once. One entry per mip, in the order Direct3D numbers them: subresource zero is the top.
+        GCHandle[] pins = new GCHandle[levels];
+        SubresourceData[] data = new SubresourceData[levels];
+
+        try
+        {
+            for (int level = 0; level < levels; level++)
+            {
+                byte[] bytes = image.Levels[level].ToArray();
+                pins[level] = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+
+                data[level] = new SubresourceData
+                {
+                    PSysMem = (void*)pins[level].AddrOfPinnedObject(),
+                    SysMemPitch = (uint)BlockPitch(image.Format, width, level),
+                };
+            }
+
+            ComPtr<ID3D11Texture2D> texture = default;
+
+            fixed (SubresourceData* first = data)
+            {
+                SilkMarshal.ThrowHResult(device.CreateTexture2D(in description, first, ref texture));
+            }
+
+            ComPtr<ID3D11ShaderResourceView> view = default;
+            SilkMarshal.ThrowHResult(device.CreateShaderResourceView(
+                texture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref view));
+
+            texture.Dispose();
+            return view;
+        }
+        finally
+        {
+            foreach (GCHandle pin in pins)
+            {
+                if (pin.IsAllocated)
+                {
+                    pin.Free();
+                }
+            }
+        }
+    }
+
+    /// <summary>Uploads a baked reflection's six faces as a compressed cube texture.</summary>
+    /// <remarks>
+    /// **The same treatment every other texture gets, which is what Valve does (B149).** A baked
+    /// cubemap is a DXT VTF, and the engine samples it with `texCUBE` off a hardware cube texture —
+    /// so the blocks belong on the device untouched.
+    ///
+    /// **Subresources are indexed face-major**: `face * mips + mip`. Getting that order backwards
+    /// assembles a reflection out of the wrong images, which is the same failure mode as reading six
+    /// faces where the file has seven — a picture rather than an error.
+    ///
+    /// **The file's mip chain is used rather than one level.** The RGBA path above takes only the
+    /// top, on the grounds that a 32-pixel cube gains little from a chain; here the chain costs
+    /// nothing to carry — it is already in the file, and a BC texture cannot have mips generated
+    /// for it anyway.
+    /// </remarks>
+    private static ComPtr<ID3D11ShaderResourceView> UploadCompressedCube(
+        ComPtr<ID3D11Device> device, int size, IReadOnlyList<MapTexture> cubeFaces)
+    {
+        TextureImage first = cubeFaces[0].Image;
+
+        // Every face of a cube is the same size and format, so the shortest chain governs — a face
+        // that somehow carried fewer levels would otherwise leave a subresource unwritten.
+        int mips = first.Levels.Count;
+
+        for (int face = 1; face < 6; face++)
+        {
+            mips = Math.Min(mips, cubeFaces[face].Image.Levels.Count);
+        }
+
+        Texture2DDesc description = new()
+        {
+            Width = (uint)size,
+            Height = (uint)size,
+            MipLevels = (uint)mips,
+            ArraySize = 6,
+
+            // **Linear, not sRGB, exactly as the uncompressed path is.** A cubemap is light rather
+            // than a picture: it is added to the lit result, so it belongs in the same space as the
+            // lightmap. Treating it as sRGB darkens every reflection by the gamma curve.
+            Format = BlockFormat(first.Format, srgb: false),
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.ShaderResource,
+            MiscFlags = (uint)ResourceMiscFlag.Texturecube,
+        };
+
+        GCHandle[] pins = new GCHandle[6 * mips];
+        SubresourceData[] data = new SubresourceData[6 * mips];
+
+        try
+        {
+            for (int face = 0; face < 6; face++)
+            {
+                IReadOnlyList<ReadOnlyMemory<byte>> levels = cubeFaces[face].Image.Levels;
+
+                for (int mip = 0; mip < mips; mip++)
+                {
+                    int at = (face * mips) + mip;
+
+                    byte[] bytes = levels[mip].ToArray();
+                    pins[at] = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+
+                    data[at] = new SubresourceData
+                    {
+                        PSysMem = (void*)pins[at].AddrOfPinnedObject(),
+                        SysMemPitch = (uint)BlockPitch(first.Format, size, mip),
+                    };
+                }
+            }
+
+            ComPtr<ID3D11Texture2D> texture = default;
+
+            fixed (SubresourceData* firstData = data)
+            {
+                SilkMarshal.ThrowHResult(
+                    device.CreateTexture2D(in description, firstData, ref texture));
+            }
+
+            ShaderResourceViewDesc view = new()
+            {
+                Format = description.Format,
+                ViewDimension = Silk.NET.Core.Native.D3DSrvDimension.D3D11SrvDimensionTexturecube,
+            };
+
+            view.TextureCube.MipLevels = (uint)mips;
+            view.TextureCube.MostDetailedMip = 0;
+
+            ComPtr<ID3D11ShaderResourceView> resource = default;
+            SilkMarshal.ThrowHResult(device.CreateShaderResourceView(texture, in view, ref resource));
+
+            texture.Dispose();
+            return resource;
+        }
+        finally
+        {
+            foreach (GCHandle pin in pins)
+            {
+                if (pin.IsAllocated)
+                {
+                    pin.Free();
+                }
+            }
+        }
+    }
+
+    /// <summary>The DXGI format a VTF's block format maps onto.</summary>
+    /// <remarks>
+    /// **DXT1, DXT3 and DXT5 ARE BC1, BC2 and BC3** — the same bits under two names, which is the
+    /// whole reason none of this needs decoding.
+    ///
+    /// **sRGB matters and gets no error if it is wrong.** A colour texture uploaded as `BC1_UNORM`
+    /// rather than `BC1_UNORM_SRGB` samples too bright everywhere, uniformly, and looks like a
+    /// lighting choice rather than a mistake.
+    /// </remarks>
+    internal static Silk.NET.DXGI.Format BlockFormat(VtfFormat format, bool srgb) => format switch
+    {
+        VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha => srgb
+            ? Silk.NET.DXGI.Format.FormatBC1UnormSrgb
+            : Silk.NET.DXGI.Format.FormatBC1Unorm,
+
+        VtfFormat.Dxt3 => srgb
+            ? Silk.NET.DXGI.Format.FormatBC2UnormSrgb
+            : Silk.NET.DXGI.Format.FormatBC2Unorm,
+
+        _ => srgb
+            ? Silk.NET.DXGI.Format.FormatBC3UnormSrgb
+            : Silk.NET.DXGI.Format.FormatBC3Unorm,
+    };
+
+    /// <summary>Bytes per row of BLOCKS for one mip level of a block-compressed texture.</summary>
+    /// <param name="format">Which block format.</param>
+    /// <param name="width">The full texture width.</param>
+    /// <param name="level">Which mip; zero is the top.</param>
+    /// <returns>The pitch Direct3D wants.</returns>
+    /// <remarks>
+    /// **Separated out so it can be tested without a device.** A wrong pitch does not fail — it
+    /// skews the image — and CI has no GPU, so this arithmetic is the only part of the upload that
+    /// can be checked where the suite actually runs.
+    /// </remarks>
+    internal static int BlockPitch(VtfFormat format, int width, int level)
+    {
+        int blockBytes = format is VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha ? 8 : 16;
+        int levelWidth = Math.Max(1, width >> level);
+
+        return Math.Max(1, (levelWidth + 3) / 4) * blockBytes;
+    }
+
+    /// <summary>Uploads RGBA and lets the driver build the mips.</summary>
+    private static ComPtr<ID3D11ShaderResourceView> CreatePixelTexture(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        int width,
+        int height,
+        ReadOnlySpan<byte> pixels,
+        bool srgb)
     {
         Texture2DDesc description = new()
         {
@@ -3765,6 +4004,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         int size = cubeFaces[0].Width;
 
+        // **A cubemap goes up compressed like everything else (B149).** Valve's shaders sample one
+        // with `texCUBE( envmapSampler, reflect )` — a hardware cube texture — and the material
+        // system hands it to the device in whatever format the VTF stored, which for a baked
+        // reflection is DXT. Expanding it first was this viewer's own invention.
+        //
+        // **The owner asked for these specifically**: *"dont skip the cubemaps, cubemap bugs are
+        // some of the most common map bugs in tf2, there may not be a lot of them but they are
+        // heavy, and they break easily, so they need to be on the gpu like valve has them."*
+        TextureImage first = cubeFaces[0].Image;
+
+        if (first.IsBlockCompressed)
+        {
+            return UploadCompressedCube(device, size, cubeFaces);
+        }
+
         Texture2DDesc description = new()
         {
             Width = (uint)size,
@@ -3789,7 +4043,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         for (int face = 0; face < 6; face++)
         {
-            cubeFaces[face].Pixels.Span.CopyTo(all.AsSpan(face * faceBytes));
+            cubeFaces[face].Image.Top.Span.CopyTo(all.AsSpan(face * faceBytes));
         }
 
         SubresourceData[] faces = new SubresourceData[6];

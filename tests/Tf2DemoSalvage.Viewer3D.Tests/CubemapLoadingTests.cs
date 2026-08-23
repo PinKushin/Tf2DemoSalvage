@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -181,7 +182,12 @@ public sealed class CubemapLoadingTests
             foreach (MapTexture face in cubemap.Faces)
             {
                 face.Width.ShouldBeGreaterThan(0);
-                face.Pixels.Length.ShouldBe(face.Width * face.Height * 4);
+
+                // **A face is now measured in whatever it is stored in (B149).** This asked for
+                // `Width * Height * 4`, which only ever described an expanded image — and a baked
+                // cubemap is a DXT VTF, so it now arrives as blocks and goes to the device that way,
+                // which is what Valve's own material system does with it.
+                face.Image.Top.Length.ShouldBe(ExpectedBytes(face));
             }
         }
     }
@@ -202,7 +208,7 @@ public sealed class CubemapLoadingTests
 
         int distinct = cubemap.Faces
             .Select(face => Convert.ToHexString(
-                System.Security.Cryptography.SHA256.HashData(face.Pixels.Span)))
+                System.Security.Cryptography.SHA256.HashData(face.Image.ToRgba(face.Width, face.Height))))
             .Distinct(StringComparer.Ordinal)
             .Count();
 
@@ -300,4 +306,22 @@ public sealed class CubemapLoadingTests
     }
 
     private static MapAssets LoadTheMap() => MapCache.Load();
+    /// <summary>How many bytes one face of this texture should occupy, in its own format.</summary>
+    /// <remarks>
+    /// **Block formats are measured in blocks of 4x4 texels**, eight bytes for BC1 and sixteen for
+    /// BC2 and BC3, with a level rounded up to whole blocks. Anything else is four bytes a pixel.
+    /// </remarks>
+    private static int ExpectedBytes(MapTexture face)
+    {
+        if (!face.Image.IsBlockCompressed)
+        {
+            return face.Width * face.Height * 4;
+        }
+
+        int blockBytes = face.Image.Format is VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha ? 8 : 16;
+        int across = Math.Max(1, (face.Width + 3) / 4);
+        int down = Math.Max(1, (face.Height + 3) / 4);
+
+        return across * down * blockBytes;
+    }
 }

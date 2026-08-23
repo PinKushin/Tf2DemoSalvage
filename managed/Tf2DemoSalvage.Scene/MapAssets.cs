@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <summary>A decoded texture ready to upload.</summary>
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
-/// <param name="Pixels">The image, four bytes per pixel, red first.</param>
+/// <param name="Image">The image and its format, ready for the GPU.</param>
 /// <param name="IsTransparent">Whether the material is cut out by a threshold.</param>
 /// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
 /// <param name="IsTranslucent">Whether it is BLENDED with what is behind it instead.</param>
@@ -60,7 +60,7 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct MapTexture(
     int Width,
     int Height,
-    ReadOnlyMemory<byte> Pixels,
+    TextureImage Image,
     bool IsTransparent,
     bool IsAdditive = false,
     bool IsTranslucent = false,
@@ -851,10 +851,10 @@ public sealed class MapAssets
 
         for (int face = 0; face < 6; face++)
         {
-            VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize, face);
+            VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize, face);
 
             faces.Add(new MapTexture(
-                decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false));
+                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false));
         }
 
         return faces;
@@ -1199,7 +1199,7 @@ public sealed class MapAssets
             }
 
             return new MapTexture(
-                decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false);
+                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false);
         }
 
         MapBump? ResolveBump()
@@ -1223,7 +1223,7 @@ public sealed class MapAssets
             // materials that use one, but the flag is data and $ssbump is a statement about it.
             return new MapBump(
                 new MapTexture(
-                    decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false),
+                    decoded.Width, decoded.Height, decoded.Image, IsTransparent: false),
                 decoded.IsSelfShadowBump || material.IsSelfShadowingBump);
         }
 
@@ -1240,7 +1240,7 @@ public sealed class MapAssets
 
             try
             {
-                return VtfTexture.Decode(file, maximumTextureSize);
+                return VtfTexture.Read(file, maximumTextureSize);
             }
             catch (InvalidDataException failure)
             {
@@ -1274,7 +1274,7 @@ public sealed class MapAssets
 
             try
             {
-                VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize);
+                VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
 
                 // **The texture's own flag outranks the material's mode.** Valve's helper forces
                 // 10 or 11 when the detail is a self-shadowing bump map, whatever
@@ -1285,7 +1285,7 @@ public sealed class MapAssets
                     : material.DetailBlendMode;
 
                 return new MapDetail(
-                    new MapTexture(decoded.Width, decoded.Height, decoded.Pixels, IsTransparent: false),
+                    new MapTexture(decoded.Width, decoded.Height, decoded.Image, IsTransparent: false),
                     material.DetailScale,
                     material.DetailBlendFactor,
                     mode,
@@ -1327,12 +1327,12 @@ public sealed class MapAssets
 
             try
             {
-                VtfTexture decoded = VtfTexture.Decode(vtf, maximumTextureSize);
+                VtfTexture decoded = VtfTexture.Read(vtf, maximumTextureSize);
 
                 return new MapTexture(
                     decoded.Width,
                     decoded.Height,
-                    decoded.Pixels,
+                    decoded.Image,
                     transparent,
                     additive,
                     material.IsTranslucent,

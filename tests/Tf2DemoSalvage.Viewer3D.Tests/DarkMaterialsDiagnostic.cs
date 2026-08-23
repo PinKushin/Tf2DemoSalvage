@@ -91,7 +91,7 @@ public sealed class DarkMaterialsDiagnostic
                 continue;
             }
 
-            ReadOnlySpan<byte> pixels = texture.Pixels.Span;
+            ReadOnlySpan<byte> pixels = texture.Image.ToRgba(texture.Width, texture.Height);
             double total = 0;
             int counted = 0;
 

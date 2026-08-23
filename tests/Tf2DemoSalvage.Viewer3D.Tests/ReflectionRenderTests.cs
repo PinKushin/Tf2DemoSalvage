@@ -354,7 +354,7 @@ public sealed class ReflectionRenderTests
     private static ((float U, float V) Opaque, (float U, float V) Clear)? MaskPair(
         MapTexture bump, MapTexture albedo)
     {
-        ReadOnlySpan<byte> normals = bump.Pixels.Span;
+        ReadOnlySpan<byte> normals = bump.Image.ToRgba(bump.Width, bump.Height);
         int texels = normals.Length / 4;
 
         int most = -1;
@@ -402,7 +402,7 @@ public sealed class ReflectionRenderTests
             int y = Math.Clamp((int)(at.V * albedo.Height), 0, albedo.Height - 1);
             int start = ((y * albedo.Width) + x) * 4;
 
-            ReadOnlySpan<byte> pixels = albedo.Pixels.Span;
+            ReadOnlySpan<byte> pixels = albedo.Image.ToRgba(albedo.Width, albedo.Height);
 
             return start + 2 < pixels.Length
                 ? (pixels[start], pixels[start + 1], pixels[start + 2])
@@ -561,7 +561,7 @@ public sealed class ReflectionRenderTests
 
         foreach (MapTexture face in cubemap.Faces)
         {
-            ReadOnlySpan<byte> pixels = face.Pixels.Span;
+            ReadOnlySpan<byte> pixels = face.Image.ToRgba(face.Width, face.Height);
 
             for (int at = 0; at + 3 < pixels.Length; at += 4)
             {
@@ -610,7 +610,7 @@ public sealed class ReflectionRenderTests
     /// <summary>A texture's mean brightness over its opaque texels.</summary>
     private static double Brightness(MapTexture texture)
     {
-        ReadOnlySpan<byte> pixels = texture.Pixels.Span;
+        ReadOnlySpan<byte> pixels = texture.Image.ToRgba(texture.Width, texture.Height);
         double total = 0;
         long texels = 0;
 

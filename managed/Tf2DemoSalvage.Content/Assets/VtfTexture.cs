@@ -230,6 +230,19 @@ public sealed class VtfTexture
     /// </remarks>
     public IReadOnlyList<ReadOnlyMemory<byte>> Levels { get; }
 
+    /// <summary>This texture as the renderer wants it: a format and its mip levels.</summary>
+    /// <remarks>
+    /// **The single shape everything bound for the GPU travels in (B149).** A block format reports
+    /// itself and hands over <see cref="Levels"/>; anything widened to RGBA reports
+    /// <see cref="VtfFormat.Rgba8888"/> and hands over the one image, because no GPU format matches a
+    /// 24-bit VTF and it has to be expanded whatever happens.
+    ///
+    /// The renderer switches on the format and never asks which of those it got.
+    /// </remarks>
+    public TextureImage Image => IsBlockCompressed
+        ? new TextureImage(Format, Levels)
+        : TextureImage.Rgba(Pixels);
+
     /// <summary>Reads a texture, keeping DXT blocks compressed for the GPU.</summary>
     /// <param name="file">The VTF's bytes.</param>
     /// <param name="maximumSize">
@@ -445,7 +458,7 @@ public sealed class VtfTexture
                 levelWidth, levelHeight, format, mipCount, [], level, flags, chain);
         }
 
-        byte[] pixels = Decode(span.Slice(at, bytes), format, levelWidth, levelHeight);
+        byte[] pixels = Expand(span.Slice(at, bytes), format, levelWidth, levelHeight);
 
         return new VtfTexture(levelWidth, levelHeight, format, mipCount, pixels, level, flags, []);
     }
@@ -485,7 +498,17 @@ public sealed class VtfTexture
     private static int BlockCount(int width, int height) =>
         Math.Max(1, (width + 3) / 4) * Math.Max(1, (height + 3) / 4);
 
-    private static byte[] Decode(
+    /// <summary>Expands one level of image data to RGBA.</summary>
+    /// <param name="source">The stored bytes for one mip level.</param>
+    /// <param name="format">What those bytes are.</param>
+    /// <param name="width">The level's width.</param>
+    /// <param name="height">The level's height.</param>
+    /// <returns>Four bytes per pixel, red first.</returns>
+    /// <remarks>
+    /// **Not part of drawing anything (B149).** The GPU samples DXT natively, so production hands
+    /// blocks over untouched; this is for callers that have to read texel values.
+    /// </remarks>
+    internal static byte[] Expand(
         ReadOnlySpan<byte> source, VtfFormat format, int width, int height)
     {
         byte[] pixels = new byte[width * height * 4];

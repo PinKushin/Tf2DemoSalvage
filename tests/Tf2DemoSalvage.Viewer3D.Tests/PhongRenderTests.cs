@@ -300,7 +300,7 @@ public sealed class PhongRenderTests
     private static int Level(MapTexture ramp, float along)
     {
         int x = Math.Clamp((int)(along * (ramp.Width - 1)), 0, ramp.Width - 1);
-        ReadOnlySpan<byte> pixels = ramp.Pixels.Span;
+        ReadOnlySpan<byte> pixels = ramp.Image.ToRgba(ramp.Width, ramp.Height);
         int at = x * 4;
 
         return at + 2 < pixels.Length ? pixels[at] + pixels[at + 1] + pixels[at + 2] : 0;
@@ -336,7 +336,7 @@ public sealed class PhongRenderTests
                 continue;
             }
 
-            ReadOnlySpan<byte> pixels = texture.Pixels.Span;
+            ReadOnlySpan<byte> pixels = texture.Image.ToRgba(texture.Width, texture.Height);
             double total = 0;
             long texels = 0;
 
