@@ -113,3 +113,4 @@
 - [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md) — three of four defects in the MVP restructure were found by drawing the line, not by the new tests; a test checks behaviour within a structure, a boundary questions the structure.
 - [A config is a program](a-config-is-a-program.md) — Source .cfg files are executed and aliases redefine each other at runtime; static resolution is wrong by construction.
 - [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md) — an imported config cannot state an opinion about a feature the source program lacks; falling back is not overriding the user.
+- [Three test levels, and the third is missing](three-test-levels-and-the-third-is-missing.md) — conformance and real-data tests both pass on a feature nothing calls; only driving the real UI can fail when the wiring is absent.
