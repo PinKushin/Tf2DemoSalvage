@@ -17,6 +17,12 @@ namespace Tf2DemoSalvage.Render;
 /// `MaterialSystem_Config_t::bShowNormalMap`. A correctly decoded tangent-space normal map reads
 /// lilac where the surface is flat, so a wrong decode is obvious rather than merely odd-looking.
 /// </param>
+/// <param name="BumpBasis">
+/// <c>mat_bumpbasis</c> — which of Valve's three lightmap basis vectors a surface leans on, as red,
+/// green and blue. Uses the weights the bumped lighting already computes (`bumpvects.h`), so it
+/// shows the quantity actually in use rather than a parallel calculation that could disagree with
+/// it. A flat surface leans evenly and comes out grey.
+/// </param>
 /// <remarks>
 /// **One record rather than a growing parameter list**, and one shader register rather than one per
 /// mode. Valve's own budget is the reason: `common_vs_fxc.h` reserves c0–c37 for the engine and
@@ -31,11 +37,12 @@ namespace Tf2DemoSalvage.Render;
 public readonly record struct DebugModes(
     bool DrawFlat = false,
     bool Luxels = false,
-    bool NormalMaps = false)
+    bool NormalMaps = false,
+    bool BumpBasis = false)
 {
     /// <summary>Everything off, which is what the viewer draws normally.</summary>
     public static DebugModes None => default;
 
     /// <summary>Whether any mode is on, so callers can skip work the modes make pointless.</summary>
-    public bool Any => DrawFlat || Luxels || NormalMaps;
+    public bool Any => DrawFlat || Luxels || NormalMaps || BumpBasis;
 }

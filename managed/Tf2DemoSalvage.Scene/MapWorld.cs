@@ -102,6 +102,18 @@ public static class MapWorldBuilder
         // number and mean opposite things.
         Dictionary<string, int> dropped = [];
 
+        // Faces actually BUILT, by material and by kind — the question neither the totals nor the
+        // drop ledger can answer: what a surface IS.
+        Dictionary<int, (int Faces, SurfaceCategory Kind)> drawn = [];
+
+        void Built(int materialIndex, SurfaceCategory kind)
+        {
+            int faces = drawn.TryGetValue(
+                materialIndex, out (int Faces, SurfaceCategory Kind) seen) ? seen.Faces : 0;
+
+            drawn[materialIndex] = (faces + 1, kind);
+        }
+
         void Drop(string reason, int materialIndex)
         {
             string material = materialIndex >= 0 && materialIndex < materials.Count
@@ -220,6 +232,8 @@ public static class MapWorldBuilder
             {
                 terrainFaces++;
 
+                Built(surface.MaterialIndex, SurfaceCategory.Terrain);
+
                 IReadOnlyList<SurfaceVertex> subdivided = ReadTerrain(terrain, surface);
 
                 foreach (SurfaceVertex corner in subdivided)
@@ -237,6 +251,7 @@ public static class MapWorldBuilder
                 }
             }
 
+            Built(surface.MaterialIndex, SurfaceCategory.Brush);
             brushFaces++;
 
             // A fan from the first corner: faces out of a BSP are convex by construction.
@@ -289,6 +304,26 @@ public static class MapWorldBuilder
         // **Every dropped face, by reason and material, most numerous first.** Read this when a
         // piece of the map is absent: a real material's name in this list is geometry the player
         // should be seeing, and the reason beside it says which rule removed it.
+        // **What the map is actually MADE OF, by material and by kind.** The counts above say how
+        // many faces were drawn and the ledger says what was dropped; neither says what a surface
+        // IS, which is the question a category view exists to answer and the one that cannot be
+        // answered from a screenshot. Asked for after an evening of inferring a floor's nature from
+        // its appearance: "look at the bsp to see what the fuck the actual things are made from so
+        // we know what color it should be".
+        //
+        // The largest twenty-five, because a floor or a wall is large by definition and the tail is
+        // hundreds of trim pieces.
+        foreach ((int material, (int faces, SurfaceCategory kind)) in drawn
+            .OrderByDescending(entry => entry.Value.Faces)
+            .Take(25))
+        {
+            string name = material >= 0 && material < materials.Count
+                ? materials[material].Name
+                : "<no material>";
+
+            ViewerLog.Write("render", $"  built {faces} x {kind} '{name}' (material {material})");
+        }
+
         foreach ((string what, int count) in dropped.OrderByDescending(entry => entry.Value))
         {
             ViewerLog.Write("render", $"  dropped {count} x {what}");

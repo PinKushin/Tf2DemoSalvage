@@ -152,7 +152,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //    a soft-edged shadow that should be sharp actually is.
             // z: mat_normalmaps — the surface normal drawn as colour, the standard tangent-space
             //    encoding, so a flat surface reads lilac and a wrongly-decoded one does not.
-            // w: unused.
+            // w: mat_bumpbasis — which of the three lightmap basis vectors the surface leans on,
+            //    as red, green and blue. Grey means it leans evenly, which is what flat looks like.
             float4 debugModes;
         };
 
@@ -668,6 +669,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 float3 grid = devMap.Sample(wrapSampler, input.uv).rgb;
 
+                // (the substitution and its reasoning continue below)
+
                 // **The grid contributes STRUCTURE, the tint contributes COLOUR, and mixing those
                 // two jobs is what the first attempt got wrong.** `dev_measuregeneric01` is orange,
                 // so multiplying a tint by it dragged every category toward orange and the view
@@ -683,7 +686,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // Remapped rather than used raw: at full range the printed dimensions go black and
                 // the tint disappears with them. This keeps the grid legible while leaving the
                 // category colour the dominant reading, which is the order of importance here.
-                return float4(input.vc * (0.45f + (0.75f * ink)), 1.0f);
+                //
+                // **Substituted into the ALBEDO rather than returned, so the lighting still runs.**
+                // This returned here, and the result was a flat picture: no shadow, no shading, so
+                // a cylinder and a flat panel of the same category were the same shape on screen
+                // and telling one piece of geometry from another was hard exactly where it matters.
+                // The owner's words — "stuff stops having shadows so actually differentiating stuff
+                // becomes kinda hard".
+                //
+                // Falling through costs nothing extra: the lighting path already ends in
+                // `albedo.rgb * light * input.vc`, and in this view input.vc IS the category
+                // colour. So grid times lighting times category comes out of the arithmetic that
+                // is already there, and mat_fullbright still works on top of it.
+                //
+                // This is the same lesson as mat_fullbright's: substitute at the point the value is
+                // USED, not one step later where it has stopped being the same quantity.
+                albedo.rgb = 0.40f + (0.60f * ink);
             }
             float3 light;
 
@@ -816,6 +834,33 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // tangent-space encoding, so a flat surface is lilac (0.5, 0.5, 1) and a wrongly
             // decoded one is not — which is the whole value of it, because a wrong decode produces
             // plausible shading rather than an error.
+            // **mat_bumpbasis: which of Valve's three basis vectors a surface leans on.** The
+            // weights are already computed for bumped lighting — `saturate(dot(normal, bumpBasis[i]))`
+            // squared and normalised — so this shows the quantity the lighting actually uses rather
+            // than a separate calculation that could disagree with it.
+            //
+            // Red, green and blue are basis 0, 1 and 2 (`bumpvects.h`). A flat surface leans evenly
+            // and comes out grey; a strongly bumped one takes a hue. It answers whether a normal
+            // map is doing anything at all, which a lit picture cannot separate from the lighting
+            // simply being uneven.
+            if (debugModes.w > 0.5f)
+            {
+                float4 texel = bumpMap.Sample(wrapSampler, input.uv);
+                float3 normal = bump.y > 0.5f ? texel.rgb : texel.rgb * 2.0f - 1.0f;
+
+                float3 weights;
+                weights.x = saturate(dot(normal, bumpBasis[0]));
+                weights.y = saturate(dot(normal, bumpBasis[1]));
+                weights.z = saturate(dot(normal, bumpBasis[2]));
+                weights *= weights;
+
+                float total = weights.x + weights.y + weights.z;
+
+                // The same guard the lighting path carries: Valve divides here unchecked and a GPU
+                // answers NaN, which spreads through a frame as pixels nothing explains.
+                return float4(total > 0.0f ? weights / total : float3(0.0f, 0.0f, 0.0f), 1.0f);
+            }
+
             if (debugModes.z > 0.5f)
             {
                 // **Shown as STORED, for both kinds, and the ternary that was here was a no-op** —
@@ -868,7 +913,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float3 lit = albedo.rgb * light * input.vc;
 
-            if (mode >= 0)
+            // **Not in the category view.** Four of the twelve detail modes are applied AFTER the
+            // lighting, so they run past the albedo substitution above and put texture back into a
+            // picture whose whole job is to have none — which is what left the floors of cp_process
+            // showing concrete while the buildings showed the grid. A detail texture is texture
+            // information by definition, so the category view wants none of it.
+            //
+            // The pre-lighting combine needs no guard: the substitution happens after it and
+            // overwrites the result.
+            if (mode >= 0 && surfaceColours.x < 0.5f)
             {
                 lit = CombineDetailAfterLighting(lit, detailColour, mode, detail.y);
             }
@@ -876,7 +929,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **The base texture's alpha decides which parts light themselves**, one being fully
             // unlit and zero normally lit. Applied after the lightmap, because the whole point is
             // that these parts ignore it.
-            if (bump.z > 0.5f)
+            // Suppressed in the category view for the same reason as the detail combine: this
+            // replaces the lit colour with the MATERIAL's own tint, so a self-illuminated surface
+            // would report its material instead of its category — a lamp housing reading as
+            // something other than the prop it is.
+            if (bump.z > 0.5f && surfaceColours.x < 0.5f)
             {
                 lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, albedo.a);
             }
@@ -1065,7 +1122,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // the envmap is per-material constants rather than a compiled-in branch, so the
                 // same result comes from not adding the term. The observable output is identical;
                 // what differs is that ours costs nothing to toggle.
-                if (surfaceColours.z > 0.5f)
+                // **Not in the category view**, now that it is lit rather than returning early. A
+                // reflection is a picture of somewhere else added on top, which is noise in a view
+                // whose whole job is to say what a surface IS — and a strongly reflective prop
+                // would read as a different category. The lighting is wanted for shape; the
+                // reflection is not.
+                if (surfaceColours.z > 0.5f && surfaceColours.x < 0.5f)
                 {
                     lit += specular;
                 }
@@ -2599,7 +2661,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             debug.DrawFlat ? 1f : 0f,
             debug.Luxels ? 1f : 0f,
             debug.NormalMaps ? 1f : 0f,
-            0f,
+            debug.BumpBasis ? 1f : 0f,
         ];
 
         MappedSubresource mapped = default;
