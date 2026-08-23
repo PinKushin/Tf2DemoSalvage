@@ -9636,41 +9636,91 @@ every bone matrix at load — possible, and a real change to the animation path,
 ROTATION to mean anything: a symmetric matrix passes under both conventions, which is exactly how
 this class of bug survives a test suite.
 
-## B160 — viewmodel models are drawn in the WORLD pass, at the eye — OPEN
+## B160 — the viewmodel is drawn at the eye, with no `CalcViewModelView` transform — OPEN
 
-Reported 2026-08-23, and pre-existing rather than a regression: in the first-person view a weapon
-fills the screen from the centre. It is not the viewmodel drawn badly. It is the viewmodel drawn in
-the wrong pass.
+Reported 2026-08-23, pre-existing: in the first-person view the weapon fills the screen from the
+centre.
 
-Two log lines from the same frame say it:
+**An earlier version of this entry said the viewmodel pass was unwired, and that was wrong.** It was
+written from a grep of the wrong log — a run that never entered first person, where every frame
+naturally reports `viewmodel pass skipped: instances 0`. The run that did enter it built the
+viewmodel 12,570 times:
 
 ```
-[render] viewmodel pass skipped: world True, instances 0, camera False
-[render] drawing 276 posed models: ... 4xc_soldier_arms ... 2xc_demo_arms ... 1xc_pickaxe ...
+viewmodel models/weapons/c_models/c_demo_arms.mdl seq 17 at tick N: 2 props, 2 instances
 ```
 
-The viewmodel pass has nothing to draw, while the WORLD list carries `c_*` models — which are
-Source's viewmodel models. They are therefore drawn at the followed player's world position, and in
-first person that position is the camera, so the weapon is at the eye at world scale.
+So the pass runs, the models resolve, the instances pose, and the weapon is drawn. What is wrong is
+WHERE.
 
-**Why the first-person filter does not catch them.** `FirstPersonVisibility` hides a prop when
-`EntityIndex == hidden || AttachedTo == hidden`, and `AttachedTo` is only ever set for an entity
-that sends NO origin (`DemoTimeline`: `if (state.Origin() is { } placed) … else if
-(state.Attachment() is { } owner) attachedTo = owner`). Anything carrying an origin has
-`AttachedTo == null` and cannot match, whoever owns it.
+**The code already says so**, in `AddViewmodel`: the viewmodel sits "at the eye, which is where
+`CalcViewModelView` puts it, and where it stays until the reason it is not visible is understood
+rather than guessed at. Two offsets were tried and neither helped." So the placement was parked at
+the camera origin as a holding position — at a time when the first-person camera did not update per
+tick, so the result was never really looked at.
 
-So there are two candidate fixes and they are not the same:
+Now that the camera works, that holding position is what fills the screen: a world-scale weapon at
+the eye, with no forward offset, no hand attachment, and no viewmodel-space transform.
 
-- **Route them to the viewmodel pass**, which is what the engine does and what the pass exists for.
-  `_viewmodelInstances` is already plumbed through `DrawFrame` and the pass already has its own
-  camera, near plane and field of view — it is being handed nothing.
-- **Or widen the hiding rule** to ownership rather than parenthood, so a followed player's held
-  items disappear regardless of whether they sent an origin.
+**Read `CalcViewModelView` before trying a third offset.** Two guesses have already failed, which is
+the signature of a missing mechanism rather than a wrong constant — see
+`docs/memory/read-the-sdk-for-the-whole-mechanism.md`. A viewmodel is not the world weapon moved
+closer: it is drawn in its own space, from the model's own attachment, with its own field of view,
+which is why `ViewmodelPass` already carries a separate near plane and FOV.
 
-**The first is the real fix and the second is worth doing anyway**, because the hiding rule is
-wrong on its own terms: it claims to hide "anything attached to the hidden player" and silently
-means "anything with no origin of its own".
+**One mechanical assertion belongs with the fix**, because the capture test rendered this picture
+and passed: the viewmodel pass draws more than zero instances when first person is on. That would
+not have caught today's defect — it draws two — but it is the guard against the failure this entry
+originally and wrongly described, and it needs no judgement.
 
-Related: `docs/memory/a-player-has-two-viewmodels.md` (slot 1 is the off hand and is drawn
-alongside the weapon) and `docs/memory/the-client-builds-what-the-demo-omits.md` (the first-person
-weapon is a client-side entity no demo contains).
+Related: `docs/memory/a-player-has-two-viewmodels.md` (slot 1 is the off hand, drawn alongside the
+weapon) and `docs/memory/the-client-builds-what-the-demo-omits.md`.
+
+## B161 — automate capturing the same tick from real TF2, for golden comparison — OPEN
+
+Owner's idea, 2026-08-23: "it would be nice to get real SS's from the game, so we can golden image
+the game SS's with the viewers, i know its possible manually, but i mean have a way to automate the
+capture of the demo in real tf2."
+
+**This is the instrument several documents already assume exists.** `findings/13-settings-parity.md`
+and the roadmap's upsampling gate both say this project validates itself "against captures of the
+real game", and today that means somebody alt-tabbing. Automating it turns the whole parity
+programme from an argument into a measurement, and — per
+`docs/memory/a-picture-is-assertable.md` — a blessed reference is what makes an open-ended visual
+claim assertable at all.
+
+**The engine already has every piece**, all of them ordinary console commands:
+
+| need | command |
+|---|---|
+| play the demo | `+playdemo <name>` |
+| seek to our tick | `demo_gototick <tick>` |
+| deterministic time steps | `host_framerate <n>` — the engine advances a fixed step per frame instead of by wall clock |
+| write frames | `startmovie` / `endmovie`, or `screenshot` for one |
+| fixed geometry | `-w` / `-h`, `-windowed`, `-novid` |
+| our settings | `+exec` a config, so picmip, aniso and viewmodel FOV match what the viewer is set to |
+
+`host_framerate` is the one that matters most: without it a capture is at the mercy of frame timing
+and the same command sequence lands on different ticks between runs, which would make every
+comparison flaky for a reason that has nothing to do with rendering.
+
+**A TOOL, not a shipped feature** — the owner's framing, and it changes what "done" means. It lives
+beside the corpus scripts and the measurement runners, is allowed to be slow and Windows-only, and
+never has to survive a user's machine. Nothing about it goes in the viewer.
+
+**Two constraints the owner named, and the binary settles one of them.** `playdemo` resolves inside
+the game's own filesystem rather than taking an arbitrary path, so a tool has to copy the demo into
+`tf/` first and clean up after — that one is real and unavoidable. But seeking IS possible:
+`engine.dll` carries `demo_gototick`, alongside `demo_timescale`, `demo_pause`, `demoui`,
+`startmovie` and `host_framerate`. The doubt was reasonable and the strings are there.
+
+**Other constraints this project already knows about.** It needs the game installed and NOT already
+running; it takes over the desktop, so it goes inside `run-exclusive.ps1` exactly as the UI suite
+does; and it must write somewhere other than the viewer's own capture folder, which the
+`screenshot_folder` setting now makes easy.
+
+**The hard part is not the capture, it is the correspondence.** A golden comparison needs the same
+tick, the same eye, the same field of view and the same viewport, and a disagreement in any of them
+reads as a rendering difference. So the first version should compare a STILL from a fixed tick in
+the recorded camera, where both sides take their view from the demo rather than from a person
+flying — which is the one camera the two are guaranteed to agree on.
