@@ -309,7 +309,7 @@ public static class MapWorldBuilder
         }
 
         List<WorldBatch> decals = AppendDecals(
-            all, overlays, materials, surfaces, atlas, area);
+            all, overlays, materials, surfaces, atlas, area, categoryColours);
 
         // **After the decals in the buffer as well as in the pass list**, so the three runs read in
         // the order they are drawn. Nothing requires it — a batch names its own range — but a vertex
@@ -353,8 +353,13 @@ public static class MapWorldBuilder
         IReadOnlyList<BspMaterial> materials,
         IReadOnlyList<BspSurface> surfaces,
         LightmapAtlas atlas,
-        MapBounds? area)
+        MapBounds? area,
+        bool categoryColours)
     {
+        (float red, float green, float blue) = categoryColours
+            ? CategoryColour(SurfaceCategory.Overlay)
+            : (1f, 1f, 1f);
+
         List<WorldBatch> decals = [];
 
         if (overlays is null || overlays.Count == 0)
@@ -506,7 +511,10 @@ public static class MapWorldBuilder
                         v,
                         onFace.U + (Math.Clamp(lightU, 0f, 1f) * onFace.Width),
                         onFace.V + (Math.Clamp(lightV, 0f, 1f) * onFace.Height),
-                        0f));
+                        0f,
+                        red,
+                        green,
+                        blue));
                 }
 
                 // A fan, because clipping a convex quad against convex edges stays convex.
@@ -819,6 +827,10 @@ public static class MapWorldBuilder
         {
             SurfaceCategory.Terrain => (0.25f, 0.85f, 0.35f),
             SurfaceCategory.Prop => (1f, 0.6f, 0.15f),
+            // Violet, chosen to sit away from all four of the others rather than to look nice: an
+            // overlay lies ON brushwork and next to props, so it has to be told from grey-blue and
+            // orange at a glance and at a distance.
+            SurfaceCategory.Overlay => (0.62f, 0.4f, 0.92f),
             SurfaceCategory.Missing => (1f, 0f, 1f),
             _ => (0.55f, 0.6f, 0.72f),
         };
@@ -834,6 +846,17 @@ public static class MapWorldBuilder
 
         /// <summary>A placed model.</summary>
         Prop,
+
+        /// <summary>An overlay fragment — a marking clipped to the surface it lies on.</summary>
+        /// <remarks>
+        /// **Added because its absence was read as an answer.** Overlay fragments carried no vertex
+        /// colour, so they took the default of white — which is not a category colour but the lack
+        /// of one, and there was no legend entry saying so. During the B154 hunt that white was
+        /// read first as "an uncoloured surface" and then as the sign being investigated, and it
+        /// was neither. A diagnostic view that omits a category cannot answer "is anything here"
+        /// for that category, which is the one question it exists to answer.
+        /// </remarks>
+        Overlay,
 
         /// <summary>Anything whose material could not be resolved.</summary>
         Missing,

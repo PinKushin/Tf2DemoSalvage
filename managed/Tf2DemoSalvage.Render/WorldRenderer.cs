@@ -329,6 +329,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // other end of it.
         Texture2D    lightWarp   : register(t6);
 
+        // **Valve's own measurement grid, for the category view.** Bound once for the whole frame
+        // rather than per material: it replaces the material's texture instead of joining it, so
+        // there is nothing per-batch to say about it.
+        Texture2D    devMap      : register(t7);
+
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -623,10 +628,42 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 clip(albedo.a - bump.w);
             }
 
-            // In the category view the vertex colour IS the answer, so the texture is dropped.
+            // **The category view draws Valve's dev grid, tinted by what the surface IS.**
+            //
+            // The owner's reasoning, and it is about comparison rather than looks: "if our
+            // placeholders match valves, and our colors match valves then things become easily
+            // compared and you only have one legend to remember". A capture from this viewer and a
+            // shot of the same spot in Hammer or in the game's dev mode then read the same way, and
+            // nobody has to hold two vocabularies at once.
+            //
+            // **The grid is what a flat colour cannot give.** A solid shape says a surface exists;
+            // it says nothing about its scale, its orientation, or whether its texture coordinates
+            // are sane — and a wrongly-scaled or mirrored surface is exactly the defect a category
+            // view gets reached for. Valve's measure textures carry printed dimensions for that
+            // reason.
+            //
+            // Multiplied rather than replaced, so the category tint survives: the grid says how
+            // big and which way up, the tint says brushwork, terrain, prop, overlay or missing.
             if (surfaceColours.x > 0.5f)
             {
-                return float4(input.vc, 1.0f);
+                float3 grid = devMap.Sample(wrapSampler, input.uv).rgb;
+
+                // **The grid contributes STRUCTURE, the tint contributes COLOUR, and mixing those
+                // two jobs is what the first attempt got wrong.** `dev_measuregeneric01` is orange,
+                // so multiplying a tint by it dragged every category toward orange and the view
+                // reported one thing where it should report five. Valve's dev set is not one hue —
+                // Half-Life 2 ships twenty-four and TF2 adds blu and red variants — so picking a
+                // "neutral" one would work until somebody's install resolved a different candidate.
+                //
+                // Taking luminance makes it independent of which texture was found. Rec.601, the
+                // same weights the envmap saturation uses above, because a grid whose lines are
+                // green should not read as brighter than one whose lines are blue.
+                float ink = dot(grid, float3(0.299f, 0.587f, 0.114f));
+
+                // Remapped rather than used raw: at full range the printed dimensions go black and
+                // the tint disappears with them. This keeps the grid legible while leaving the
+                // category colour the dominant reading, which is the order of importance here.
+                return float4(input.vc * (0.45f + (0.75f * ink)), 1.0f);
             }
             float3 light;
 
@@ -1145,6 +1182,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
     private ComPtr<ID3D11ShaderResourceView> _lightmap;
     private ComPtr<ID3D11ShaderResourceView> _white;
+
+    /// <summary>Valve's measurement grid, drawn under the category tint.</summary>
+    private ComPtr<ID3D11ShaderResourceView> _devGrid;
 
     /// <summary>The detail pattern for each material, empty where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
@@ -1671,6 +1711,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // like art, while a magenta chequer looks like a bug and gets reported.
         _white = CreateTexture(device, context, MissingSize, MissingSize, TextureImage.Rgba(Missing()));
 
+        if (assets.DevGrid is { } grid)
+        {
+            _devGrid = CreateTexture(device, context, grid.Width, grid.Height, grid.Image);
+        }
+
         // **Which materials will draw as the chequer, said once, by index.** A batch whose texture
         // handle is null silently binds the missing-material chequer at draw time — which is the
         // right thing to draw and the wrong thing to say nothing about. The asset census reports
@@ -2169,6 +2214,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.VSSetConstantBuffers(0, 1, ref _camera);
         context.PSSetConstantBuffers(0, 1, ref _camera);
         context.PSSetShaderResources(1, 1, ref _lightmap);
+
+        // **Frame-constant, so it binds here with the lightmap rather than per batch.** The
+        // category view replaces every material's texture with this one grid, so there is nothing
+        // per-material to say about it — and binding it in the draw loop would be re-stating the
+        // same resource thirteen thousand times to no effect.
+        //
+        // Falls back to the chequer when the game has no dev texture, which keeps the shader's
+        // multiply well defined: white would be invisible in the tint, and the chequer at least
+        // says out loud that the grid is missing.
+        ComPtr<ID3D11ShaderResourceView> grid =
+            _devGrid.Handle is not null ? _devGrid : _white;
+
+        context.PSSetShaderResources(7, 1, ref grid);
 
         EnsureMaterialBuffer(context);
     }
@@ -3352,6 +3410,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         if (_white.Handle is not null)
         {
             _white.Dispose();
+            _devGrid.Dispose();
             _white = default;
         }
     }

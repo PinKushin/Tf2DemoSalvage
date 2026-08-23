@@ -300,4 +300,42 @@ public sealed class ViewerSettingsTests
         form.SetFullScreenMode(FullScreenMode.Borderless);
         form.FullScreenMode.ShouldBe(FullScreenMode.Borderless);
     }
+
+    [Test]
+    public void Parse_AScreenshotFolder_KeepsThePathAsWritten()
+    {
+        // Quoted, because a Windows path has spaces in it more often than not and Source's own
+        // config syntax accepts quotes around a value.
+        ViewerSettings settings = ViewerSettings.Parse(
+            "screenshot_folder \"D:\\Tf2DemoSalvage\\my shots\"");
+
+        settings.ScreenshotFolder.ShouldBe("D:\\Tf2DemoSalvage\\my shots");
+
+        // The control: absent means null, which is "beside the log", not an empty path that would
+        // be created as a folder called "" somewhere unpredictable.
+        ViewerSettings.Parse("frame_rate_limit 60").ScreenshotFolder.ShouldBeNull();
+    }
+
+    [Test]
+    public void Parse_OneCommandOntoExistingSettings_LeavesTheOthersAlone()
+    {
+        // **This is what makes `+command value` safe as a launch option.** Parsing a single command
+        // from the command line starts from whatever the config file already said; without the
+        // `onto` argument it would start from the defaults, and passing one setting at startup
+        // would silently reset every other one the user had chosen.
+        ViewerSettings configured = ViewerSettings.Parse(
+            "frame_rate_limit 60\nviewmodel_fov 54\ntexture_quality 256");
+
+        configured.FrameRateLimit.ShouldBe(60);
+
+        ViewerSettings overridden = ViewerSettings.Parse(
+            "screenshot_folder \"D:\\shots\"", onto: configured);
+
+        overridden.ScreenshotFolder.ShouldBe("D:\\shots");
+
+        // Everything the config chose survives — this is the assertion the feature turns on.
+        overridden.FrameRateLimit.ShouldBe(60);
+        overridden.ViewmodelFieldOfView.ShouldBe(54f, 0.01f);
+        overridden.TextureQuality.ShouldBe(configured.TextureQuality);
+    }
 }

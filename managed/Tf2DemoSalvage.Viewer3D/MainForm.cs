@@ -707,8 +707,15 @@ internal class MainForm : Form
 
         _surfaceColours.CheckedChanged += (_, _) =>
         {
+            // **The legend goes in the log, because a colour nobody can name is not an answer.**
+            // Violet was read as "the sign" and white as "an uncoloured surface" during the B154
+            // hunt, both wrong, and there was nowhere to look it up.
             ViewerLog.Write(
-                "render", $"surface colours {(_surfaceColours.Checked ? "on" : "off")}");
+                "render",
+                _surfaceColours.Checked
+                    ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
+                      "violet overlays, magenta missing material"
+                    : "surface colours off");
 
             _device?.ClearWorld();
             _worldIsStale = true;
@@ -1912,6 +1919,32 @@ internal class MainForm : Form
             if (argument == "--colours")
             {
                 _shotSurfaceColours = true;
+                continue;
+            }
+
+            // **`+command value`, which is how Source itself sets a cvar at startup.** The viewer
+            // already speaks Source's vocabulary in its config (D69/D70), so the command line
+            // speaks it too rather than growing a second spelling of the same settings.
+            //
+            // It overrides the config file rather than being merged into it: a value passed for one
+            // launch should not become the value for every later launch. That is also what makes it
+            // usable from the UI suite, which must redirect its captures without editing — and
+            // therefore without clobbering — the settings the owner actually uses.
+            if (argument.StartsWith('+') && argument.Length > 1 && pending.Count > 0)
+            {
+                string command = argument[1..];
+                string value = pending.Dequeue();
+
+                // **General, not a list of blessed commands.** Every setting the config file
+                // understands is settable this way for free, because it is the same parser reading
+                // the same command names — which is the property that makes Valve's launch options
+                // and Valve's cvars the same thing rather than two mechanisms that must be kept in
+                // step. An unknown command is ignored here exactly as it is in a config (D69).
+                _settings = ViewerSettings.Parse(
+                    string.Create(CultureInfo.InvariantCulture, $"{command} \"{value}\""),
+                    onto: _settings);
+
+                ViewerLog.Write("viewer", $"{command} {value} (from the command line)");
                 continue;
             }
 
@@ -3263,19 +3296,23 @@ internal class MainForm : Form
     /// occupying 203 MB once. Pointing this at another drive keeps as many as somebody wants without
     /// spending the disk that is short.
     /// </remarks>
-    public const string CaptureFolderVariable = "TF2VIEW_CAPTURE_FOLDER";
-
     /// <summary>Where captures are written; beside the log unless told otherwise.</summary>
     /// <remarks>
+    /// **A setting, not an environment variable** — <c>screenshot_folder</c> in the config, or
+    /// <c>+screenshot_folder &lt;path&gt;</c> at startup, which is Source's own convention for
+    /// setting a cvar from the command line. The variable this replaced had to be exported in the
+    /// shell that launched the viewer, so it was lost on every terminal restart and absent whenever
+    /// a demo was opened by double-clicking it — which is the ordinary way to open one.
+    ///
     /// Falls back rather than failing when the named folder cannot be made: a screenshot is not
     /// worth refusing to run over, and the log says where it actually went.
     /// </remarks>
-    public static string CaptureFolder
+    public string CaptureFolder
     {
         get
         {
             string beside = Path.GetDirectoryName(ViewerLog.Path) ?? ".";
-            string? wanted = Environment.GetEnvironmentVariable(CaptureFolderVariable);
+            string? wanted = _settings.ScreenshotFolder;
 
             if (string.IsNullOrWhiteSpace(wanted))
             {
