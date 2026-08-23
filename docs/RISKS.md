@@ -9451,6 +9451,32 @@ up in a compiled BSP. Neither is Hammer as a program to imitate. A future questi
 worth taking to Hammer's documentation and shipped data; a question about how something is DRAWN
 never is, because the answer is in the engine.
 
+### Why this will not come up again: vbsp is the boundary
+
+Asked to name a reason we would ever go to Hammer over the rest of the SDK, and looking for one
+rather than assuming there is none: everything Hammer knows falls into three buckets, and only one
+of them is unreachable.
+
+| bucket | example | who is authoritative |
+|---|---|---|
+| reaches the BSP | brushes, displacements, overlays, lightmap scale, smoothing baked into normals | **vbsp / vrad / vvis** — open in `src/utils`, and they are the programs that put it there |
+| presentation convention | entity colours, visgroups, editor icons | **shipped data** — `base.fgd`, `tf.fgd`, `materials/editor/` |
+| authoring-time only | visgroups as edited, cordons, selection, undo | nobody — it never survives compilation |
+
+The third bucket is unreachable **by definition**, because this project reads compiled artefacts and
+a running game, and that state is in neither. And the case that looks like Hammer's own — the `.vmf`
+itself — is not: `src/utils/vbsp/map.cpp` parses VMF directly, so even Hammer's output format is
+documented by open source.
+
+**The one hypothetical was authoring**, and the owner ruled it out rather than leaving it open:
+"no need for this to ever become a map editor, that would be a new project, and really no one is
+going to switch off of hammer, hammer is actually not bad as a tool, just a little obtuse to use at
+times due to its age."
+
+So this is a closed question, not a standing judgement call. If a future reader finds themselves
+reaching for Hammer, the thing to check first is which of the three buckets the question is in —
+and the first two have better answers elsewhere.
+
 The FGDs above are a different case entirely, and not an exception to this. They are shipped DATA
 read by the game's own tools, so they are the authoritative palette rather than a description of
 one — the same category as `items_game.txt` or `modevents.res`.
