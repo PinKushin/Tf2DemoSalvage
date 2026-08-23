@@ -50,16 +50,12 @@ public sealed class FirstPersonUiTests
     ///
     /// Asserting the binding first turns that into one clear failure naming the cause.
     /// </remarks>
-    private static void PressSwitchCameraMode()
-    {
-        // **`SPACE`, in Source's spelling.** The names became config names in D69 so that a pasted
-        // `bind "SPACE" "+jump"` lands without translation. This guard caught the change the moment
-        // it happened, which is the second time it has earned its place.
-        KeyBindings.Defaults[ViewerAction.SwitchCameraMode].ShouldBe(
-            "SPACE", "this test presses SPACE below — rebind both together");
-
-        Viewer.PressKey(VirtualKeyShort.SPACE);
-    }
+    /// <remarks>
+    /// **Moved to <see cref="ViewerSession"/> once a second fixture needed it.** A copy would be a
+    /// second place for the binding guard to go stale, and a stale guard is worse than none — it
+    /// asserts confidently about a binding that has moved.
+    /// </remarks>
+    private static void PressSwitchCameraMode() => ViewerSession.PressSwitchCameraMode();
 
     /// <summary>What the viewer logs when the recorded camera is being followed.</summary>
     private const string FollowingRecorded = "first person on, following the recording's own camera";

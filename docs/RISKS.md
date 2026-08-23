@@ -8988,3 +8988,151 @@ it should, and it did. What was needed was a test that clicks the real button in
 asks whether the spectator code ran. That test exists now
 (`Click_TheCycleTargetButton_ReachesTheSpectatorCode`), and it was verified by removing the
 `CycleTarget` call and watching it, and only it, go red.
+
+## B146 — loading a demo blocks the UI thread for seconds, and Windows calls it hung — OPEN
+
+**Observed by the owner watching a UI run, 2026-08-23:** *"the program is stalling for a few seconds
+on every load, windows even thinks the program is hung"*.
+
+**Evidence class: measured**, from the viewer's own log — `ViewerLog.Time` already wraps the
+expensive call, so the numbers were there to read rather than needing an experiment:
+
+| Demo | Size | `building the position timeline` |
+|---|---|---|
+| `tf2-2013-build1729296-pov-cp_badlands.dem` | 1.9 MB | 0.33 s – 0.76 s |
+| `z1800.dem` (24-minute, 24-player match) | 9.0 MB | **4.66 s – 4.88 s** |
+
+`MainForm.LoadDemo` runs entirely on the UI thread, and the costly line is
+
+```csharp
+_timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+```
+
+so for those seconds the message loop is not pumping. Windows marks a window that has not pumped in
+5 seconds as "Not Responding", which is precisely the threshold z1800 crosses.
+
+**Why it was invisible until now.** The UI suite opened one small point-of-view demo on the command
+line, where the build is under a second — long enough to be a stutter, short enough that nothing
+called it a defect. Opening a real match is what made it visible, and it is real matches the viewer
+exists for. Every demo in `tools/corpus/local/` is this size or larger.
+
+**A claim written here first and then checked, which turned out to be wrong.** The entry originally
+said the file is read twice, on the reasoning that `LoadedDemo.Load(path)` reads it and then
+`File.ReadAllBytes(path)` reads it again. `LoadedDemo.Load` reads **exactly the header** — a
+`FileStream` and `ReadAtLeast(DemoHeader.SizeBytes)` — and its own comment says why: a corrupt body
+should still open far enough to show what the recording claims to be. So the whole file is read once,
+and the seconds are entirely in the decode. Recorded rather than quietly deleted, because a
+plausible inference about I/O is exactly the kind of thing that gets repeated as fact.
+
+**How to act on it, in rough order of value:**
+
+1. **Move the load off the UI thread** and show progress. The work is already isolated behind
+   `DemoTimeline.Build`, so this is about `LoadDemo`'s structure rather than about the decoder.
+2. **Feed the bytes in once.** `LoadedDemo` has already read the file; handing those bytes to
+   `DemoTimeline.Build` removes a second read of every demo.
+3. **Only then consider the decode itself.** 4.9 s for a 24-minute match is not obviously wrong, and
+   optimising it before it is off the UI thread would be fixing the wrong problem — a background
+   build of 4.9 s is not a defect at all.
+
+### The decode is fixed, and it was the smaller half — corrected 2026-08-23
+
+`LoadDemoAsync` now decodes on a background thread and applies on the UI thread (D73). **Then the
+same log was read for the phases either side of it, and the entry above turns out to have been
+filed against the wrong quantity.** One demo switch, timed by the viewer's own `ViewerLog.Time`:
+
+| Phase | `cp_badlands` | `cp_granary` | Where it runs now |
+|---|---|---|---|
+| position timeline | 0.40–0.81 s | 0.29–0.51 s | **background** |
+| reading and packing lightmaps | 1.20 s | 0.17 s | UI thread |
+| resolving materials | 1.12 s | 0.78 s | UI thread |
+| loading props | 4.37 s | 4.57 s | UI thread |
+| loading entity models | 8.52 s | 7.56 s | UI thread |
+| **reading surfaces and textures** | **17.62 s** | **13.26 s** | UI thread |
+| uploading textures | 0.94 s | 1.18 s | UI thread, and must stay |
+| building the world | 0.63 s | 0.81 s | UI thread |
+
+**So roughly 20 seconds of a ~21-second switch is still blocking, and under a second was moved.**
+The owner's report — *"stalling for a few seconds on every load, windows even thinks the program is
+hung"* — was describing the assets, not the demo, and the first diagnosis picked the one phase that
+happened to be wrapped in a timer already. `docs/memory/a-log-must-name-what-it-measured.md`, and
+`docs/memory/measure-every-hop-before-blaming-one.md`: three correct measurements only prove the
+fault is in the fourth hop.
+
+**What remains, and why it is not a repeat of the same change.** `LoadMap` ends in `uploading
+textures`, which is Direct3D and belongs to the thread that owns the device — so this is not "move
+the method", it is a split down the middle of the asset pipeline: read and decode off-thread,
+upload on. `reading surfaces and textures` alone is 13–18 s of file I/O and image decoding with no
+device involved, and it is the single biggest win available anywhere in the viewer.
+
+**It also does not make anything faster** — the work is the same, it just stops holding the window.
+The UI suite still takes five minutes for two demo switches either way.
+
+## B147 — the scrub bar cannot be set by automation, and that is an accessibility gap first — OPEN
+
+**`TransportBar`'s scrub bar does not support the UI Automation `RangeValue` pattern.** Asking for it
+throws immediately — *"The requested pattern 'RangeValue' is not supported"*, with a null native
+pattern underneath. A WinForms `TrackBar` exposes value and range to a screen reader through its
+default accessible object, but not as a *settable* range, so nothing outside the process can move it.
+
+**Evidence class: measured**, twice and from two directions:
+
+1. `TransportUiTests.Transport_JumpToEnd_MovesTheScrubBar` was originally written against the
+   pattern and could never have passed. It threw in 43 ms, before the button under test was even
+   pressed — *a test that fails faster than the thing it measures could possibly happen is failing
+   at the instrument, not at the application.* It now reads the tick label instead.
+2. 2026-08-23: a UI test needed a demo positioned somewhere other than its first tick and there was
+   no way to do it. Working around it with the End button failed for a real reason — z1800's last
+   tick is after the players have disconnected, so the viewer correctly reported *"no recorded camera
+   and no player to follow at this tick"*.
+
+**Why this is a defect rather than a testing inconvenience.** `CLAUDE.md` requires every interactive
+element to be reachable by assistive technology. A slider a screen-reader user can read but not set
+is exactly the failure that rule exists to prevent, and the viewer's entire value is in moving
+through a demo. **The automation gap is a symptom; the accessibility gap is the defect.**
+
+**What it blocks concretely.** The multi-player half of the spectator-cycling UI tests (B145/D72) was
+written and then removed, because a match demo has to be positioned mid-match before there is
+anybody to spectate. The claim survives at two other levels — `CorpusSpectatorCyclingTests` walks
+z1800's real 24-player list, and `FirstPersonUiTests` proves a click reaches the spectator code — so
+what is missing is the top level only.
+
+**How to act on it:** give the scrub bar an `AccessibleObject` implementing `IRangeValueProvider`
+(or host a control that does), so `Value` can be set as well as read. Then the removed tests can come
+back, and the seek becomes reachable by anyone not using a mouse.
+
+## B148 — switching demos costs 15x the frame time, permanently — OPEN
+
+**Measured 2026-08-23**, from the viewer's own render log across one UI run that opens three demos:
+
+| When | Frames a second | Longest frame |
+|---|---|---|
+| before any switch | 282–300 | 3.3 ms |
+| after two switches | 16–20 | 55–66 ms |
+
+**Paused, with nothing to animate** — the same lines report `sampling 0 ms, posing 0 ms (lighting
+0 ms)`, so this is not animation work and not lighting. The viewer simply costs seventeen times more
+per frame to draw the same still scene after it has loaded a second and third demo.
+
+**It was found sideways, which is worth recording.** The UI suite went from twelve seconds to nearly
+five minutes when a second demo entered the session, and the demo switches were blamed twice — first
+the timeline decode (B146), then the log reader. Both were wrong. Per-test timings settled it: every
+test that runs *before* the playlist test takes under two seconds, and every test that runs *after*
+it takes 23–58 seconds. The tests are not slow; **the application is, and UI Automation can only go
+as fast as the message loop it is querying.** The owner saw this directly and said so —
+*"every other test is seeming to take forever too"*.
+
+**Specific lead, not yet confirmed.** `MainForm._models` is a `readonly EntityModelSet` created once
+at construction and never cleared. `LoadMap` resets the map, the surfaces, the overlays, the terrain
+and the device's world — but nothing resets the model set, so each demo adds its models to the same
+collection and `UploadModels(_models)` uploads the accumulated total. That would grow the per-frame
+draw without touching posing or lighting, which matches the measurement. **Unverified**: the
+alternative is somewhere in the world or prop draw, and picking the wrong one here would be the
+third wrong guess in a row on this same slowdown.
+
+**How to act on it:** confirm the cause before changing anything — `_models.Count` and
+`_models.Vertices.Count` are already logged on upload, so comparing them across a switch answers it
+outright. If the set is the cause, the fix is to clear it with the rest of the per-map state in
+`LoadMap`; if it is not, the numbers will say so and the next candidate is the world batch list.
+
+**This is a user-facing defect, not a test problem.** Anyone who opens a second demo in one sitting
+gets a viewer running at 19 frames a second until they restart it.

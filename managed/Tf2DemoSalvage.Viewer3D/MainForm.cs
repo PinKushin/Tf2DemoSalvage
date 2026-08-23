@@ -527,7 +527,10 @@ internal class MainForm : Form
 
         // Double-click and Enter both load, matching how a file browser and a video player behave.
         // Selecting alone does not: browsing a playlist should not read headers off disk.
-        _playlist.ItemActivate += (_, _) => LoadSelected();
+        // **Not `async void`.** The returned task is kept in `Loading`, so a failure has somewhere
+        // to be reported and a test has something to await — an `async void` handler throws on a
+        // thread with no handler and takes the process down instead.
+        _playlist.ItemActivate += (_, _) => Loading = LoadSelected();
 
         // A real archive folder is hundreds of files called esea_match_13977649.dem, where
         // scrolling finds nothing. The box sits above the list rather than beside it so the list
@@ -869,22 +872,39 @@ internal class MainForm : Form
     /// demos other software rejects, so a file that will not parse is an expected outcome and has
     /// to leave the application usable - the user picks another one from the same playlist.
     /// </remarks>
-    public void LoadSelected()
+    public Task<DemoLoadResult> LoadSelected()
     {
         if (_playlist.SelectedIndices.Count == 0)
         {
-            return;
+            return NothingSelected;
         }
 
         int index = _playlist.SelectedIndices[0];
 
         if (index < 0 || index >= _shown.Count)
         {
-            return;
+            return NothingSelected;
         }
 
-        LoadDemo(_shown[index].Path);
+        return LoadDemoAsync(_shown[index].Path);
     }
+
+    /// <summary>The load in flight, kept so it is observed rather than discarded.</summary>
+    /// <remarks>
+    /// **The alternative was `async void` on the event handler, and the owner ruled it out** —
+    /// *"we dont async void, we do pass back, at least just pass a sucess or fail message"*. He is
+    /// right, and the reason bites here specifically: an `async void` load throws on a thread with
+    /// no handler, so a demo that fails to open takes the process down instead of writing a line in
+    /// the status bar.
+    ///
+    /// So the task is held. It is what the UI tests await instead of watching the log, and it is
+    /// what a later "open the next demo in the playlist" would chain from.
+    /// </remarks>
+    public Task<DemoLoadResult> Loading { get; private set; } = NothingSelected;
+
+    /// <summary>The result for a request that never named a demo.</summary>
+    private static readonly Task<DemoLoadResult> NothingSelected =
+        Task.FromResult(new DemoLoadResult(DemoLoadOutcome.Superseded, "No demo is selected."));
 
     /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>
     /// <param name="mapName">Map name from the demo header.</param>
@@ -3105,129 +3125,263 @@ internal class MainForm : Form
     /// selection at all — which made the first version of this test fail for a reason that had
     /// nothing to do with loading.
     /// </remarks>
-    public void LoadDemo(string path)
+    public DemoLoadResult LoadDemo(string path)
     {
+        _loadsRequested++;
+
         try
         {
-            ViewerLog.Write("demo", $"opening {Path.GetFileName(path)}");
-            _demo = LoadedDemo.Load(path);
-            ViewerLog.Write(
-                "demo",
-                $"{_demo.MapName}, {_demo.LastTick} ticks, protocol {_demo.NetworkProtocol}" +
-                (_demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
-            _transport.SetDemoLength(_demo.LastTick);
-
-            // **Its own guard, because a timeline is not worth the demo.** A file with no schema,
-            // or one truncated mid-packet, still has a header, a map name and a length worth
-            // showing - so a failure here costs the player positions and nothing else.
-            try
-            {
-                using (ViewerLog.Time("demo", "building the position timeline"))
-                {
-                    _timeline = DemoTimeline.Build(File.ReadAllBytes(path));
-                }
-
-                ViewerLog.Write(
-                    "demo",
-                    $"{_timeline.Frames.Count} recorded moments, ticks {_timeline.FirstTick} to " +
-                    $"{_timeline.LastTick}");
-
-                // The weapon roles are NOT built here, and the first attempt was. See
-                // EnsureWeaponRoles: the archives are opened later than this, so building here
-                // silently produced nothing.
-                _weaponRoles = null;
-
-                // **The rate the recording server ran, not a constant.** It is a server setting, so
-                // a box left at its default runs 33 where a configured one runs 66, and replaying
-                // at the wrong rate reads as a slow or fast server rather than as a defect.
-                _clock = new PlaybackClock(_timeline.IntervalPerTick, _demo.LastTick);
-
-                // The presenter owns playback over this clock from here (D62).
-                _playback.Load(_clock);
-
-                // **Playback can be started by the environment, for measurement — and it has to
-                // happen HERE, after the clock exists.** A demo's first tick is before the match
-                // begins: no capture points, no holograms, nobody carrying anything. A
-                // launch-and-log run, which is the only way to ask the renderer a question with
-                // nobody driving it, therefore measures an almost empty scene and reports "never
-                // drawn" for models that simply had not appeared yet.
-                //
-                // Set before this line it does nothing but look right, which is exactly what it
-                // did: PlayingChanged starts the stopwatch only `if (playing && _clock is not
-                // null)`, so the button showed playing while no time was fed to a clock that did
-                // not exist, and the demo sat still until the user paused and played again.
-                if (Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 })
-                {
-                    _transport.Playing = true;
-
-                    ViewerLog.Write(
-                        "demo", $"{AutoPlayVariable} is set; playback started at load");
-                }
-
-                float interval = _timeline.IntervalPerTick > 0f
-                    ? _timeline.IntervalPerTick
-                    : PlaybackClock.DefaultIntervalPerTick;
-
-                string source = _timeline.IntervalPerTick > 0f
-                    ? "from svc_ServerInfo"
-                    : "the engine default - the demo never said";
-
-                ViewerLog.Write(
-                    "demo",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"{interval:F6}s per tick ({1f / interval:F1} per second), {source}"));
-
-                // **What is actually going to be drawn, said once per demo.** Counts here are what
-                // a defect looks like from the outside: a team colour that never arrives shows up
-                // as "0 red, 0 blu" the moment the file opens, rather than as grey dots that have
-                // to be noticed and then chased through a seven-minute suite.
-                ScenePlayer[] roster =
-                [
-                    .. _timeline.Frames
-                        .SelectMany(frame => frame.Players)
-                        .GroupBy(player => player.EntityIndex)
-                        .Select(group => group.First()),
-                ];
-
-                ViewerLog.Write(
-                    "demo",
-                    $"roster: {roster.Count(p => p.Team == SceneTeams.Red)} red, " +
-                    $"{roster.Count(p => p.Team == SceneTeams.Blu)} blu, " +
-                    $"{roster.Count(p => p.Team is SceneTeams.Spectator or SceneTeams.Unassigned)} watching, " +
-                    $"{roster.Count(p => p.Team is null)} unknown, " +
-                    $"{roster.Count(p => p.PlayerClass is >= 1 and <= 9)} of {roster.Length} with a class");
-
-                int drawn = _timeline.Frames.Count == 0
-                    ? 0
-                    : _timeline.PlayersAt(_timeline.Frames[_timeline.Frames.Count / 2].Tick)
-                        .Count(player => player.IsPlaying);
-
-                ViewerLog.Write("demo", $"{drawn} players drawn at the midpoint of the demo");
-            }
-            catch (Exception failure) when (
-                failure is ArgumentException or InvalidDataException or IOException)
-            {
-                _timeline = null;
-                ViewerLog.Warn("demo", "building the position timeline", failure);
-            }
-
-            bool haveMap = LoadMap(_demo.MapName);
-            _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
-
-            // The first frame, so opening a demo shows the players standing where they started
-            // rather than an empty map waiting for someone to press play.
-            ShowPlayers(_timeline?.PlayersAt(_timeline.FirstTick) ?? []);
+            return Apply(Decode(path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
-            _demo = null;
-            _timeline = null;
-            _clock = null;
-            _scene = [];
-            _transport.SetDemoLength(0);
-            _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
+            return CouldNotOpen(path, failure);
         }
+    }
+
+    /// <summary>Opens a demo without freezing the window (B146).</summary>
+    /// <param name="path">Full path to the demo.</param>
+    /// <returns>A task that completes when the demo is on screen.</returns>
+    /// <remarks>
+    /// **The decode is seconds of work and it was running in the click handler.** Measured from the
+    /// viewer's own log: 0.33–0.76 s for a small point-of-view recording, and **4.66–4.88 s** for
+    /// `z1800.dem`, a 24-minute nine-versus-nine match. Windows marks a window that has not pumped
+    /// messages for five seconds as "Not Responding", which is exactly the threshold a real match
+    /// crosses — the owner watched it happen.
+    ///
+    /// **The split is decode-then-show, and the line between them is "does this touch the form".**
+    /// <see cref="Decode"/> reads and decodes and is a static method with no access to any field, so
+    /// it cannot accidentally reach the UI; <see cref="Apply"/> assigns the fields, the transport, the
+    /// clock and the map, and must be on the UI thread because it ends in Direct3D. The `await`
+    /// returns to the UI thread on its own — WinForms installs a synchronisation context, so there
+    /// is no marshalling to write and none to get wrong.
+    ///
+    /// **A newer request wins.** Double-clicking two demos in a row starts two decodes, and the
+    /// slower one must not overwrite the faster: each takes a ticket and only the newest is shown.
+    /// Without that, opening a big demo and changing your mind leaves you looking at the big one.
+    ///
+    /// **The synchronous <see cref="LoadDemo"/> stays** for the command line, the `--shot` capture
+    /// path and the tests, where there is no window to freeze and a caller that returns before the
+    /// demo exists is simply wrong.
+    /// </remarks>
+    public async Task<DemoLoadResult> LoadDemoAsync(string path)
+    {
+        int ticket = ++_loadsRequested;
+
+        _status.Text = "Opening " + Path.GetFileName(path) + "...";
+
+        try
+        {
+            Decoded decoded = await Task.Run(() => Decode(path)).ConfigureAwait(false);
+
+            return OnUi(() => ticket == _loadsRequested
+                ? Apply(decoded)
+                : Superseded(path));
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            return OnUi(() => ticket == _loadsRequested
+                ? CouldNotOpen(path, failure)
+                : Superseded(path));
+        }
+    }
+
+    /// <summary>Says a load was overtaken, without touching anything.</summary>
+    private static DemoLoadResult Superseded(string path)
+    {
+        string message = $"discarding {Path.GetFileName(path)}: a newer demo was asked for";
+
+        ViewerLog.Write("demo", message);
+
+        return new DemoLoadResult(DemoLoadOutcome.Superseded, message);
+    }
+
+    /// <summary>Runs something on the UI thread and waits for its answer.</summary>
+    /// <remarks>
+    /// **Explicit rather than relying on `await` returning to a captured context, and that is not a
+    /// style preference — the context version deadlocked.** `ConfigureAwait(true)` posts the
+    /// continuation to whatever `SynchronizationContext` was current when the load started. Under
+    /// WinForms that is the message loop and it works; under NUnit it is a single-threaded test
+    /// context that stops pumping while the test itself is awaiting, so the continuation was never
+    /// run and the test hung until it was killed.
+    ///
+    /// **A form with no handle has no thread affinity**, which is why the fallback is simply to run
+    /// the work here. Setting `Text` on a control that was never shown is legal from any thread —
+    /// that is also why every existing test can drive `MainForm` without a message loop.
+    /// </remarks>
+    private T OnUi<T>(Func<T> work) =>
+        IsHandleCreated && InvokeRequired ? Invoke(work) : work();
+
+    /// <summary>How many loads have been asked for, so a stale one can tell.</summary>
+    private int _loadsRequested;
+
+    /// <summary>A demo read off disk and decoded, with nothing of the form touched.</summary>
+    /// <param name="Demo">The header and what it claims.</param>
+    /// <param name="Timeline">Player positions over time, or null when they could not be built.</param>
+    private sealed record Decoded(LoadedDemo Demo, DemoTimeline? Timeline);
+
+    /// <summary>Reads and decodes a demo. Safe to call off the UI thread; touches no field.</summary>
+    /// <remarks>
+    /// **Static deliberately.** The whole point of the split is that this half cannot reach the
+    /// form, and a static method makes that a compile error rather than a rule to remember — the
+    /// same argument as the project boundaries in D54.
+    ///
+    /// Logging is fine from here: <c>ViewerLog</c> takes a lock and never throws at its caller.
+    /// </remarks>
+    private static Decoded Decode(string path)
+    {
+        ViewerLog.Write("demo", $"opening {Path.GetFileName(path)}");
+
+        LoadedDemo demo = LoadedDemo.Load(path);
+
+        ViewerLog.Write(
+            "demo",
+            $"{demo.MapName}, {demo.LastTick} ticks, protocol {demo.NetworkProtocol}" +
+            (demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
+
+        DemoTimeline? timeline = null;
+
+        // **Its own guard, because a timeline is not worth the demo.** A file with no schema,
+        // or one truncated mid-packet, still has a header, a map name and a length worth
+        // showing - so a failure here costs the player positions and nothing else.
+        try
+        {
+            using (ViewerLog.Time("demo", "building the position timeline"))
+            {
+                timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            }
+
+            ViewerLog.Write(
+                "demo",
+                $"{timeline.Frames.Count} recorded moments, ticks {timeline.FirstTick} to " +
+                $"{timeline.LastTick}");
+
+            float interval = timeline.IntervalPerTick > 0f
+                ? timeline.IntervalPerTick
+                : PlaybackClock.DefaultIntervalPerTick;
+
+            string source = timeline.IntervalPerTick > 0f
+                ? "from svc_ServerInfo"
+                : "the engine default - the demo never said";
+
+            ViewerLog.Write(
+                "demo",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{interval:F6}s per tick ({1f / interval:F1} per second), {source}"));
+
+            // **What is actually going to be drawn, said once per demo.** Counts here are what
+            // a defect looks like from the outside: a team colour that never arrives shows up
+            // as "0 red, 0 blu" the moment the file opens, rather than as grey dots that have
+            // to be noticed and then chased through a seven-minute suite.
+            ScenePlayer[] roster =
+            [
+                .. timeline.Frames
+                    .SelectMany(frame => frame.Players)
+                    .GroupBy(player => player.EntityIndex)
+                    .Select(group => group.First()),
+            ];
+
+            ViewerLog.Write(
+                "demo",
+                $"roster: {roster.Count(p => p.Team == SceneTeams.Red)} red, " +
+                $"{roster.Count(p => p.Team == SceneTeams.Blu)} blu, " +
+                $"{roster.Count(p => p.Team is SceneTeams.Spectator or SceneTeams.Unassigned)} watching, " +
+                $"{roster.Count(p => p.Team is null)} unknown, " +
+                $"{roster.Count(p => p.PlayerClass is >= 1 and <= 9)} of {roster.Length} with a class");
+
+            int drawn = timeline.Frames.Count == 0
+                ? 0
+                : timeline.PlayersAt(timeline.Frames[timeline.Frames.Count / 2].Tick)
+                    .Count(player => player.IsPlaying);
+
+            ViewerLog.Write("demo", $"{drawn} players drawn at the midpoint of the demo");
+        }
+        catch (Exception failure) when (
+            failure is ArgumentException or InvalidDataException or IOException)
+        {
+            timeline = null;
+            ViewerLog.Warn("demo", "building the position timeline", failure);
+        }
+
+        return new Decoded(demo, timeline);
+    }
+
+    /// <summary>Puts a decoded demo on screen. UI thread only.</summary>
+    /// <param name="decoded">The demo and its timeline.</param>
+    /// <returns>What to tell the caller.</returns>
+    /// <remarks>
+    /// **Everything here touches the form, and the last thing it does is Direct3D**, which is why
+    /// the split is where it is rather than a few lines either side. `LoadMap` reads a BSP and
+    /// uploads textures to the device, and a device is owned by the thread that made it.
+    /// </remarks>
+    private DemoLoadResult Apply(Decoded decoded)
+    {
+        _demo = decoded.Demo;
+        _timeline = decoded.Timeline;
+
+        _transport.SetDemoLength(_demo.LastTick);
+
+        // The weapon roles are NOT built here, and the first attempt was. See EnsureWeaponRoles:
+        // the archives are opened later than this, so building here silently produced nothing.
+        _weaponRoles = null;
+
+        if (_timeline is { } timeline)
+        {
+            // **The rate the recording server ran, not a constant.** It is a server setting, so
+            // a box left at its default runs 33 where a configured one runs 66, and replaying
+            // at the wrong rate reads as a slow or fast server rather than as a defect.
+            _clock = new PlaybackClock(timeline.IntervalPerTick, _demo.LastTick);
+
+            // The presenter owns playback over this clock from here (D62).
+            _playback.Load(_clock);
+
+            // **Playback can be started by the environment, for measurement — and it has to
+            // happen HERE, after the clock exists.** A demo's first tick is before the match
+            // begins: no capture points, no holograms, nobody carrying anything. A
+            // launch-and-log run, which is the only way to ask the renderer a question with
+            // nobody driving it, therefore measures an almost empty scene and reports "never
+            // drawn" for models that simply had not appeared yet.
+            //
+            // Set before this line it does nothing but look right, which is exactly what it
+            // did: PlayingChanged starts the stopwatch only `if (playing && _clock is not
+            // null)`, so the button showed playing while no time was fed to a clock that did
+            // not exist, and the demo sat still until the user paused and played again.
+            if (Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 })
+            {
+                _transport.Playing = true;
+
+                ViewerLog.Write("demo", $"{AutoPlayVariable} is set; playback started at load");
+            }
+        }
+        else
+        {
+            _clock = null;
+        }
+
+        bool haveMap = LoadMap(_demo.MapName);
+        _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
+
+        // The first frame, so opening a demo shows the players standing where they started
+        // rather than an empty map waiting for someone to press play.
+        ShowPlayers(_timeline?.PlayersAt(_timeline.FirstTick) ?? []);
+
+        return new DemoLoadResult(DemoLoadOutcome.Loaded, _status.Text);
+    }
+
+    /// <summary>Puts the form back into a state with no demo, and says why. UI thread only.</summary>
+    private DemoLoadResult CouldNotOpen(string path, Exception failure)
+    {
+        _demo = null;
+        _timeline = null;
+        _clock = null;
+        _scene = [];
+        _transport.SetDemoLength(0);
+        _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
+
+        ViewerLog.Warn("demo", $"opening {System.IO.Path.GetFileName(path)}", failure);
+
+        return new DemoLoadResult(DemoLoadOutcome.Failed, _status.Text);
     }
 
     /// <summary>The playback controls, exposed for the tests that address them.</summary>

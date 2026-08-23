@@ -209,7 +209,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     101
 # which only became possible to get wrong once Shift went through the console) and RealTf2ConfigTests
 # gained two that execute the owner's own null-cancelling config rather than counting its binds.
 # Net +6 with the rest from the same change.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    602
+run Tf2DemoSalvage.Viewer3D.Tests viewer    606
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

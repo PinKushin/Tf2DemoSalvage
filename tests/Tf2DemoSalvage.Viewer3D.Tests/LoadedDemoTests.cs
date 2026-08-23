@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Viewer3D;
@@ -257,5 +258,97 @@ public sealed class LoadedDemoTests
     {
         Should.Throw<FileNotFoundException>(
             () => LoadedDemo.Load(Path.Combine(_folder, "absent.dem")));
+    }
+
+    [Test]
+    public async Task LoadDemoAsync_ADemo_LoadsItAndSaysSo()
+    {
+        // **The load moved off the UI thread (B146)**, because decoding a real match took 4.9
+        // seconds in the click handler and Windows marks a window that has not pumped for five
+        // seconds as not responding.
+        //
+        // The result is returned rather than discarded, which is the owner's standing rule: *"we
+        // dont async void, we do pass back, at least just pass a sucess or fail message"*. An
+        // `async void` load has nowhere to put a failure and nothing to await.
+        string path = WriteDemo("cp_gullywash_final1", ticks: 12345, seconds: 187f);
+
+        using MainForm form = new(path);
+
+        DemoLoadResult result = await form.LoadDemoAsync(path).ConfigureAwait(false);
+
+        result.Loaded.ShouldBeTrue(result.Message);
+        result.Outcome.ShouldBe(DemoLoadOutcome.Loaded);
+
+        form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_gullywash_final1");
+        form.Transport.LastTick.ShouldBe(12345);
+    }
+
+    [Test]
+    public async Task LoadDemoAsync_ADemoThatWillNotParse_ReportsFailedRatherThanThrowing()
+    {
+        // The same expectation the synchronous path already carries — opening files other software
+        // rejects is the point of this project — now stated about the returned value, which is the
+        // only thing an awaiting caller sees.
+        string path = Path.Combine(_folder, "unparseable.dem");
+        await File.WriteAllBytesAsync(path, new byte[64]).ConfigureAwait(false);
+
+        using MainForm form = new(path);
+
+        DemoLoadResult result = await form.LoadDemoAsync(path).ConfigureAwait(false);
+
+        result.Loaded.ShouldBeFalse();
+        result.Outcome.ShouldBe(DemoLoadOutcome.Failed);
+        result.Message.ShouldContain("Could not open");
+
+        form.Demo.ShouldBeNull();
+        form.Transport.LastTick.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task LoadDemoAsync_ASecondDemoAskedForFirst_DiscardsTheSlowerOne()
+    {
+        // **Double-clicking two demos in a row, which is ordinary and used to be safe only because
+        // the load blocked.** Now that decoding happens off the UI thread, two are in flight at
+        // once and the slower one must not overwrite the faster — otherwise opening a big demo and
+        // changing your mind leaves you looking at the big one.
+        //
+        // Both are started before either is awaited, which is what puts them in flight together.
+        string first = WriteDemo("cp_process_final", ticks: 100, seconds: 2f);
+        string second = WriteDemo("koth_product", ticks: 200, seconds: 4f);
+
+        using MainForm form = new(first, second);
+
+        Task<DemoLoadResult> slower = form.LoadDemoAsync(first);
+        Task<DemoLoadResult> newer = form.LoadDemoAsync(second);
+
+        DemoLoadResult[] results = await Task.WhenAll(slower, newer).ConfigureAwait(false);
+
+        results[0].Outcome.ShouldBe(
+            DemoLoadOutcome.Superseded, "the first request was overtaken and must stand aside");
+        results[1].Outcome.ShouldBe(DemoLoadOutcome.Loaded);
+
+        form.Demo.ShouldNotBeNull().MapName.ShouldBe(
+            "koth_product", "the demo asked for last is the one on screen");
+    }
+
+    [Test]
+    public async Task LoadDemoAsync_ASupersededLoad_IsNotAFailure()
+    {
+        // **Three outcomes rather than a bool, and this is why.** A demo abandoned because the user
+        // picked another did not fail — there is nothing wrong and nothing to tell them — but it did
+        // not load either. Collapsing the two would put "Could not open" in the status bar every
+        // time somebody changed their mind.
+        string first = WriteDemo("cp_badlands", ticks: 100, seconds: 2f);
+        string second = WriteDemo("cp_snakewater_final1", ticks: 200, seconds: 4f);
+
+        using MainForm form = new(first, second);
+
+        Task<DemoLoadResult> slower = form.LoadDemoAsync(first);
+        await form.LoadDemoAsync(second).ConfigureAwait(false);
+
+        DemoLoadResult superseded = await slower.ConfigureAwait(false);
+
+        superseded.Outcome.ShouldNotBe(DemoLoadOutcome.Failed);
+        form.StatusText.ShouldNotContain("Could not open");
     }
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -135,36 +137,95 @@ internal sealed partial class ViewerApplication : IDisposable
     /// </remarks>
     public int Count(string line)
     {
-        if (LogPath is not { } path)
+        if (LogPath is null)
         {
             return -1;
+        }
+
+        int seen = 0;
+
+        foreach (string entry in Lines())
+        {
+            if (entry.Contains(line, StringComparison.Ordinal))
+            {
+                seen++;
+            }
+        }
+
+        return seen;
+    }
+
+    /// <summary>The log so far, read once and then only appended to.</summary>
+    /// <remarks>
+    /// **This was re-reading the whole file on every call, and it became the slowest thing in the
+    /// suite.** A five-minute run writes 453,496 lines — about 45 MB, because every model logs its
+    /// sequences, skins and skinning budget as it loads — and every `Retry` polls a count several
+    /// times a second. One five-second wait was reading a couple of gigabytes off disk.
+    ///
+    /// Measured: the suite spent about three and a half minutes inside this method, against
+    /// seventy-four seconds actually loading the three demos it opens. The demo switches were
+    /// blamed first and were not the problem
+    /// (`docs/memory/measure-every-hop-before-blaming-one.md`).
+    ///
+    /// **Only whole lines are taken.** The viewer is appending while this reads, so the tail of the
+    /// file is routinely half a line; consuming it would cache a fragment for ever and the next
+    /// read would start mid-line. The offset advances to the last newline and no further.
+    /// </remarks>
+    private List<string> Lines()
+    {
+        if (LogPath is not { } path)
+        {
+            return [];
+        }
+
+        if (path != _readPath)
+        {
+            _read.Clear();
+            _readTo = 0;
+            _readPath = path;
         }
 
         try
         {
             using FileStream file = new(
                 path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using StreamReader reader = new(file);
 
-            int seen = 0;
+            long end = file.Length;
 
-            while (reader.ReadLine() is { } entry)
+            if (end <= _readTo)
             {
-                if (entry.Contains(line, StringComparison.Ordinal))
-                {
-                    seen++;
-                }
+                return _read;
             }
 
-            return seen;
+            file.Seek(_readTo, SeekOrigin.Begin);
+
+            byte[] buffer = new byte[(int)Math.Min(end - _readTo, 64 * 1024 * 1024)];
+            int got = file.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            int lastBreak = Array.LastIndexOf(buffer, (byte)'\n', got - 1);
+
+            if (lastBreak < 0)
+            {
+                return _read;
+            }
+
+            _read.AddRange(
+                Encoding.UTF8.GetString(buffer, 0, lastBreak + 1)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+            _readTo += lastBreak + 1;
         }
         catch (IOException)
         {
-            // The viewer was mid-write. Reporting nothing lets the retry loop ask again, which is
-            // the only correct answer available at this instant.
-            return -1;
+            // The viewer holds the file open and appends to it; a transient lock costs this poll
+            // and nothing else, exactly as it did when every call re-read the file.
         }
+
+        return _read;
     }
+
+    private readonly List<string> _read = [];
+    private string? _readPath;
+    private long _readTo;
 
     /// <summary>Launches the viewer, optionally opening paths at startup.</summary>
     /// <param name="arguments">Files or folders, as a file association would pass them.</param>
@@ -246,6 +307,79 @@ internal sealed partial class ViewerApplication : IDisposable
     /// coordinates, so if something is covering the viewer the click lands in that instead — the
     /// fallback would do the very thing the guard exists to prevent.
     /// </remarks>
+    /// <summary>Presses a button through UI Automation rather than with a synthesized click.</summary>
+    /// <param name="automationId">The button's automation id.</param>
+    /// <remarks>
+    /// **The invoke pattern needs neither the foreground nor the mouse**, so it cannot land in
+    /// somebody else's window and cannot be stolen mid-press. Everything reachable this way goes
+    /// this way; `Click` exists only for the viewport, which is a raw Direct3D surface with no
+    /// automation surface of its own to invoke.
+    /// </remarks>
+    public void ClickButton(string automationId) => Find(automationId).AsButton().Invoke();
+
+    /// <summary>The most recent log line containing some text, or null.</summary>
+    /// <param name="line">The text to look for, as the viewer writes it.</param>
+    /// <returns>The whole line, or null when none matched.</returns>
+    /// <remarks>
+    /// **<see cref="Count"/> answers "did it happen"; this answers "what did it say".** Counting is
+    /// the right instrument for most of this suite and the wrong one whenever the VALUE matters —
+    /// cycling to a different player raises the count exactly as much as cycling back to the same
+    /// one, so a count cannot tell those apart and would pass on a search that never moves.
+    /// </remarks>
+    public string? LastLine(string line)
+    {
+        List<string> lines = Lines();
+
+        for (int at = lines.Count - 1; at >= 0; at--)
+        {
+            if (lines[at].Contains(line, StringComparison.Ordinal))
+            {
+                return lines[at];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Opens a demo the way a person does: find it in the playlist and activate it.</summary>
+    /// <param name="demoName">Enough of the file name to single it out.</param>
+    /// <exception cref="InvalidOperationException">No row matched.</exception>
+    /// <remarks>
+    /// **This is the load path the application actually uses**, rather than a second one built for
+    /// tests. `MainForm` deliberately routes the command line through `AddToLibrary` and then the
+    /// same `LoadDemo` a double-click reaches, so that a file association and the playlist cannot
+    /// drift apart — driving it any other way here would reintroduce exactly the split that comment
+    /// exists to prevent.
+    ///
+    /// **Filtered first, so "the first row" is unambiguous.** The playlist is a virtual-mode
+    /// `ListView` holding whatever the session opened; narrowing it with the search box means this
+    /// does not depend on sort order, and it exercises the search as a side effect.
+    ///
+    /// **The text is set through the value pattern rather than typed.** Typing needs the foreground
+    /// and would be one more thing that can go wrong before the part under test; a WinForms
+    /// `TextBox` raises `TextChanged` for a value-pattern set, which is what drives the filter.
+    /// </remarks>
+    public void LoadFromPlaylist(string demoName)
+    {
+        Find(MainForm.SearchId).AsTextBox().Text = demoName;
+
+        ListBoxItem[] rows = Retry.WhileEmpty(
+            () => Find(MainForm.PlaylistId).AsListBox().Items,
+            TimeSpan.FromSeconds(10)).Result ?? [];
+
+        if (rows.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"No playlist row matched '{demoName}', so there is nothing to open.");
+        }
+
+        rows[0].Select();
+
+        // Enter activates, the same as a double-click — `_playlist.ItemActivate` is wired to both.
+        // Through the guarded press, because this is synthesized input like any other.
+        PressKey(VirtualKeyShort.RETURN);
+    }
+
     /// <summary>Clicks in the middle of an element, refusing to click anywhere else.</summary>
     /// <param name="automationId">The element to click in.</param>
     /// <param name="button">Which button.</param>

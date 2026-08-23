@@ -3825,3 +3825,75 @@ nothing: the committed era POVs are the owner's solo recordings, so a cycle find
 stops — indistinguishable from a broken search
 (`docs/memory/pov-demos-are-pvs-limited.md`). The UI session opens one of those, which is why the
 UI test asserts that the spectator code *ran* and leaves the claim about *which* player to z1800.
+
+## D73 — demos decode off the UI thread, and a load returns a result rather than nothing
+
+**Owner, 2026-08-23**, watching a UI run open a real match:
+
+> the program is stalling for a few seconds on every load, windows even thinks the program is hung
+
+and then:
+
+> yes demos should be loading somewhere that isnt the ui thread, thats just best practice
+
+`MainForm.LoadDemo` ran entirely in the click handler. Windows marks a window that has not pumped
+messages for five seconds as "Not Responding", and `z1800.dem` — a 24-minute nine-versus-nine match
+— spends 4.9 s in `DemoTimeline.Build` alone.
+
+**Split into `Decode` and `Apply`, and the line between them is "does this touch the form".**
+`Decode` is **static**, so it cannot reach a field even by accident — the same argument as the
+project boundaries in D54, where a rule that could be a compile error should be one. `Apply` assigns
+the fields, the transport, the clock and the map, and must stay on the UI thread because it ends in
+Direct3D.
+
+### Two corrections from the owner, both about naming and shape
+
+**`BeginLoadDemo` became `LoadDemoAsync`:**
+
+> if something is async naming conventions would suggest we make sure that is obvious in the naming,
+> so begin load demo might be better off as loaddemoasync or something
+
+`Begin*` is the legacy APM pairing (`BeginX`/`EndX`) and reads as that to anyone who knows it. .NET's
+current convention is the `Async` suffix.
+
+**And no `async void`:**
+
+> we dont async void, we do pass back, at least just pass a sucess or fail message
+
+> im pretty sure our analyzers would have kept you from doing async void without a suppression
+> anyway, and there was no argument for doing one here other than lazyness really
+
+**He is right on both, and the second is checkable: it would have been a build error.**
+`SonarAnalyzer.CSharp` is referenced with `AnalysisMode=All` and `TreatWarningsAsErrors=true`, and
+S3168 — *"async" methods should not return "void"* — is not suppressed in `.editorconfig`. The
+justification offered for it ("event handlers are the sanctioned exception") is a real convention,
+and here it was a real convention doing duty as an excuse: the handler had an obvious place to keep
+the task.
+
+So `LoadDemoAsync` returns `Task<DemoLoadResult>`, the handler stores it in `Loading`, and the
+outcome is one of three — `Loaded`, `Superseded`, `Failed`. **Three rather than a bool** because a
+load abandoned when the user picks a different demo did not fail (nothing is wrong, nothing to
+report) but did not load either, and collapsing them would put "Could not open" in the status bar
+every time somebody changed their mind.
+
+### A deadlock, found by a hanging test
+
+The first version awaited with `ConfigureAwait(true)` and let the synchronisation context return it
+to the UI thread. That works under WinForms and **hangs under NUnit**, whose single-threaded test
+context stops pumping while the test itself is awaiting — the run was killed at ten minutes.
+
+Replaced with an explicit `OnUi` helper: `IsHandleCreated && InvokeRequired ? Invoke(work) : work()`.
+A form with no handle has no thread affinity, which is why every existing test can drive `MainForm`
+without a message loop, and it is why the fallback is simply to run the work in place.
+
+### What this did NOT fix, measured afterwards
+
+**The decode was the smaller half.** Timing the phases either side of it showed ~20 s of a ~21 s
+demo switch is asset loading — `reading surfaces and textures` alone is 13–18 s — and all of it is
+still on the UI thread. B146 carries the table. The first diagnosis picked the one phase that
+happened to be wrapped in a timer already, which is
+`docs/memory/measure-every-hop-before-blaming-one.md` almost word for word.
+
+Two further defects fell out of chasing it, both filed rather than fixed: **B147**, the scrub bar
+cannot be set through automation and therefore not by anyone without a mouse; and **B148**, switching
+demos permanently costs 15x the frame time (300 fps to 19, paused, with posing and lighting at zero).
