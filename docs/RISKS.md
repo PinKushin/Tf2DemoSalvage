@@ -9121,18 +9121,44 @@ it takes 23–58 seconds. The tests are not slow; **the application is, and UI A
 as fast as the message loop it is querying.** The owner saw this directly and said so —
 *"every other test is seeming to take forever too"*.
 
-**Specific lead, not yet confirmed.** `MainForm._models` is a `readonly EntityModelSet` created once
-at construction and never cleared. `LoadMap` resets the map, the surfaces, the overlays, the terrain
-and the device's world — but nothing resets the model set, so each demo adds its models to the same
-collection and `UploadModels(_models)` uploads the accumulated total. That would grow the per-frame
-draw without touching posing or lighting, which matches the measurement. **Unverified**: the
-alternative is somewhere in the world or prop draw, and picking the wrong one here would be the
-third wrong guess in a row on this same slowdown.
-
-**How to act on it:** confirm the cause before changing anything — `_models.Count` and
-`_models.Vertices.Count` are already logged on upload, so comparing them across a switch answers it
-outright. If the set is the cause, the fix is to clear it with the rest of the per-map state in
-`LoadMap`; if it is not, the numbers will say so and the next candidate is the world batch list.
 
 **This is a user-facing defect, not a test problem.** Anyone who opens a second demo in one sitting
 gets a viewer running at 19 frames a second until they restart it.
+
+### Located: it is inside the device draw, and it is 91x — 2026-08-23
+
+The per-second render report already timed sampling, posing and lighting, and all three read zero —
+so a counter was added around `_device.DrawFrame` itself, and around the message that ends each
+render burst. Measured across one demo switch:
+
+| | Frames a second | Time in `DrawFrame` | Per frame | Burst ended by |
+|---|---|---|---|---|
+| before | 277.3 | 106.8 ms | **0.39 ms** | `WM_TIMER` |
+| after | 9.4 | 334.9 ms | **35.6 ms** | `WindowsForms12_ThreadCallbackMessage` |
+
+**91 times slower to draw geometry that is byte-for-byte the same** — the world reports identical
+counts on every load (11,645 brush faces, 836 terrain faces, 919,172 prop triangles for
+`cp_badlands`; 8,038 / 427 / 358,361 for `z1800`). So this is not more work; it is the same work
+becoming expensive.
+
+The message id came from `PeekMessage`, which the loop already retrieved and discarded, and was
+named by `GetClipboardFormatName` — registered window messages are atoms, so Windows will tell you
+what one is. `WindowsForms12_ThreadCallbackMessage` is what `Control.Invoke`/`BeginInvoke` posts.
+
+### Four hypotheses tested and disproved, recorded so they are not tried again
+
+1. **The model set accumulating.** `MainForm._models` really is never cleared, and that really would
+   explain a growing draw — but the log's `viewmodel models uploaded` line appears **once** in a run
+   with three demo loads, and the asset counts are identical per load. Not it.
+2. **Leaked GPU resources from the old map.** `Device3D.ClearWorld` disposes `_world`, and
+   `WorldRenderer.Dispose` calls `ReleaseMap` → `ReleaseTextures`, which walks every texture list
+   and clears them. The release path is complete by reading.
+3. **The device falling back to WARP, or being recreated.** The log has exactly one
+   `device created` and one `device released` per run.
+4. **A stray viewer from a killed run competing for the GPU.** `Get-Process tf2demoview` during the
+   degraded state: zero.
+
+**Still open, and the next thing to bisect:** what inside `DrawFrame` becomes expensive. A same-map
+second demo was tried to separate "reloading a demo" from "changing map" and the run was
+inconclusive — its first render report was already degraded, so there was no healthy baseline in it
+to compare against. That experiment is worth repeating with the report forced out early.

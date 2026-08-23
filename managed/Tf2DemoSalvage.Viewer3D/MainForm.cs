@@ -3772,19 +3772,60 @@ internal class MainForm : Form
     /// </remarks>
     private void OnIdle(object? sender, EventArgs e)
     {
+        uint waiting;
+
         do
         {
-            if (!FrameIsDue())
+            if (FrameIsDue())
+            {
+                RenderFrame();
+                CountFrame();
+            }
+            else
             {
                 WaitForTheNextFrame();
-                continue;
             }
 
-            RenderFrame();
-            CountFrame();
+            // The id of whatever ended this burst, kept for the per-second report. See B148: the
+            // viewer drops to twenty frames a second after a demo switch, and because this loop
+            // runs only while the queue is empty, that is a statement about who is posting messages
+            // rather than about how long a frame takes.
+            waiting = MessageQueue.Waiting();
         }
-        while (!MessageQueue.HasWork());
+        while (waiting == 0);
+
+        _idleEndedBy = waiting;
+        _idleBursts++;
     }
+
+    /// <summary>Names the Windows messages worth recognising in a render report.</summary>
+    /// <remarks>
+    /// Only the ones that plausibly arrive in a tight loop. Anything else is reported as its number,
+    /// which is enough to look up and better than a name this table guessed at.
+    /// </remarks>
+    private static string MessageName(uint message) => message switch
+    {
+        0x0000 => "nothing",
+        0x000F => "WM_PAINT",
+        0x0113 => "WM_TIMER",
+        0x0200 => "WM_MOUSEMOVE",
+        0x0007 => "WM_SETFOCUS",
+        0x0008 => "WM_KILLFOCUS",
+        0x0014 => "WM_ERASEBKGND",
+        0x0018 => "WM_SHOWWINDOW",
+        0x0046 => "WM_WINDOWPOSCHANGING",
+        0x0047 => "WM_WINDOWPOSCHANGED",
+        0x0084 => "WM_NCHITTEST",
+        0x0020 => "WM_SETCURSOR",
+        0x8000 => "WM_APP (a posted callback)",
+        _ => $"message 0x{message:X4}",
+    };
+
+    /// <summary>The message that last ended a render burst.</summary>
+    private uint _idleEndedBy;
+
+    /// <summary>How many times the render loop yielded since the last report.</summary>
+    private long _idleBursts;
 
     /// <summary>The user's controls, running as the engine would run them.</summary>
     /// <remarks>
@@ -3822,6 +3863,9 @@ internal class MainForm : Form
 
     /// <summary>Stopwatch ticks spent posing and lighting models since the last report.</summary>
     private long _posingTicks;
+
+    /// <summary>Time spent in the device draw since the last report (B148).</summary>
+    private long _drawTicks;
 
     // `IsShiftHeld` lived here, reading `Control.ModifierKeys` directly, on the grounds that a
     // modifier's state is something WinForms already knows. The console owns `+speed` now (D69), so
@@ -4016,6 +4060,8 @@ internal class MainForm : Form
             $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
             (_transport.Playing ? ", playing" : ", paused") +
             (_freeLook && _console.AnyHeld ? ", flying" : string.Empty) +
+            $"; drawing {_drawTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
+            $"; yielded {_idleBursts} times to {MessageName(_idleEndedBy)}" +
             $"; sampling {_samplingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
             $", posing {_posingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
             $" (lighting {_models.LightingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms)" +
@@ -4028,6 +4074,8 @@ internal class MainForm : Form
         _longestFrameSeconds = 0d;
         _samplingTicks = 0;
         _posingTicks = 0;
+        _idleBursts = 0;
+        _drawTicks = 0;
     }
 
     /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
@@ -4137,6 +4185,12 @@ internal class MainForm : Form
         AdvancePlayback();
         TakeAutomaticShot();
 
+        // **Timed because everything else in a frame already was, and none of it accounted for
+        // B148.** After a demo switch the viewer reports 20 frames a second with sampling, posing
+        // and lighting all at zero — so the hundred milliseconds are somewhere none of those three
+        // counters could see, and this is the only step left.
+        long drewAt = Stopwatch.GetTimestamp();
+
         _device?.DrawFrame(
             BackgroundRed,
             BackgroundGreen,
@@ -4147,6 +4201,8 @@ internal class MainForm : Form
             _instances,
             _viewmodelInstances,
             _viewmodelCamera?.ToMatrix());
+
+        _drawTicks += Stopwatch.GetTimestamp() - drewAt;
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the
