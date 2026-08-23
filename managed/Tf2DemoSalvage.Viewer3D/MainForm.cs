@@ -78,7 +78,10 @@ internal class MainForm : Form
     public const string SurfaceColoursItemId = "SurfaceColoursMenuItem";
 
     /// <summary>Automation id of the brush outline toggle.</summary>
-    public const string OutlineItemId = "OutlineMenuItem";
+    public const string WireframeItemId = "WireframeMenuItem";
+
+    /// <summary>Automation id of the reflections toggle — Valve's <c>mat_specular</c>.</summary>
+    public const string SpecularItemId = "SpecularMenuItem";
 
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
@@ -380,7 +383,8 @@ internal class MainForm : Form
     /// nothing else drew, and it stayed switched on out of habit - over a textured map it is
     /// clutter that hides the thing it was standing in for.
     /// </remarks>
-    private readonly ToolStripMenuItem _outline;
+    private readonly ToolStripMenuItem _wireframe;
+    private readonly ToolStripMenuItem _specular;
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
 
@@ -710,16 +714,66 @@ internal class MainForm : Form
             _worldIsStale = true;
         };
 
-        _outline = new ToolStripMenuItem("Brush &outline")
+        // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
+        // outline drew precomputed BSP edge segments as an overlay — 60,764 of them, built for the
+        // overhead view and, as the owner put it, "like an ortho overlay". It could not answer the
+        // question a wireframe is for, because it drew edges from the map file rather than the
+        // triangles actually submitted: no props, no models, nothing about what reached the GPU.
+        //
+        // This one is a rasteriser fill mode over every pass, so an edge on screen means that
+        // triangle was drawn. That is the difference between "not submitted" and "submitted and
+        // invisible", which nothing else in this viewer can distinguish.
+        _wireframe = new ToolStripMenuItem("&Wireframe")
         {
-            Name = OutlineItemId,
+            Name = WireframeItemId,
             CheckOnClick = true,
             Checked = false,
             ShortcutKeys = Keys.F10,
+            AccessibleName = "Wireframe",
+            AccessibleDescription =
+                "Draws every surface as edges only, so geometry that never reached the screen can " +
+                "be told apart from geometry that is drawn but invisible.",
         };
 
-        _outline.CheckedChanged += (_, _) => ViewerLog.Write(
-            "render", $"brush outline {(_outline.Checked ? "on" : "off")}");
+        _wireframe.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write("render", $"mat_wireframe {(_wireframe.Checked ? 1 : 0)}");
+
+            if (_device is { } device)
+            {
+                device.Wireframe = _wireframe.Checked;
+            }
+        };
+
+        // **`mat_specular`, and it is a diagnostic before it is a preference.** A cubemap
+        // reflection is ADDED to an opaque surface, so a prop whose envmap term dominates draws in
+        // the colour of whatever its cubemap holds — against a sky, that is the sky, and the prop
+        // reads as geometry that was never drawn. Surface colours returns from the shader before
+        // the reflection is added, which is why a surface can be invisible in the textured view
+        // and present in the category view: the same triangles, coloured differently.
+        _specular = new ToolStripMenuItem("&Reflections")
+        {
+            Name = SpecularItemId,
+            CheckOnClick = true,
+            Checked = true,
+            ShortcutKeys = Keys.F8,
+            AccessibleName = "Reflections",
+            AccessibleDescription =
+                "Adds cubemap reflections to surfaces that ask for them. Turn off to see whether " +
+                "a reflection is hiding a surface.",
+        };
+
+        _specular.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write("render", $"mat_specular {(_specular.Checked ? 1 : 0)}");
+
+            if (_device is { } device)
+            {
+                device.Specular = _specular.Checked;
+            }
+
+            _worldIsStale = true;
+        };
 
         ToolStripMenuItem screenshot = new("Save a &screenshot")
         {
@@ -732,7 +786,8 @@ internal class MainForm : Form
         screenshot.Click += (_, _) => CaptureViewportToFile();
 
         view.DropDownItems.Add(screenshot);
-        view.DropDownItems.Add(_outline);
+        view.DropDownItems.Add(_wireframe);
+        view.DropDownItems.Add(_specular);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
@@ -1430,7 +1485,26 @@ internal class MainForm : Form
                         assets.Lightmaps,
                         assets.Props,
                         camera,
-                        _map.MainBounds,
+
+                        // **No play-area cull, and the 3D skybox stays (owner's direction).** This
+                        // passed MainBounds, which discarded every surface and every prop whose
+                        // placement sat outside a box fitted to the map's main cluster — the
+                        // miniature scenery room a TF2 map keeps far outside the level.
+                        //
+                        // That was right for a camera framed to the play area and is wrong for one
+                        // that can go anywhere: "you cannot see it from here" stopped being true
+                        // when the free camera arrived, exactly as it did for the downward-normal
+                        // cull and the decal bias before it. The owner's reason is forward-looking
+                        // rather than corrective — "we are going to need it later to make the maps
+                        // look right in free cam and pov" — so the skybox is kept now rather than
+                        // deleted and rebuilt.
+                        //
+                        // Drawing it raw puts a miniature copy of the surroundings far outside the
+                        // level, at its own scale and position. That is what the file contains; the
+                        // sky_camera transform that makes it read correctly is a separate piece of
+                        // work, and a visible wrong-looking skybox is a better starting point than
+                        // an invisible one.
+                        area: null,
                         _surfaceColours.Checked,
                         _overlays,
                         _brushModels);
@@ -4438,7 +4512,12 @@ internal class MainForm : Form
             BackgroundGreen,
             BackgroundBlue,
             _mapFill,
-            _outline.Checked ? _mapLines : [],
+            // **No line overlay any more.** These are the BSP's own edge segments, drawn flat over
+            // the world for the overhead view; `mat_wireframe` replaces them with the real thing.
+            // `_mapLines` is still built and still exposed as `MapLines`, because MapOutline also
+            // computes the play-area bounds several things still read — splitting those two jobs
+            // apart is filed rather than done here (B151).
+            [],
             _scene,
             _instances,
             _viewmodelInstances,
@@ -5049,7 +5128,8 @@ internal class MainForm : Form
             _search.Dispose();
             _downloader?.Dispose();
             _overlay?.Dispose();
-            _outline.Dispose();
+            _wireframe.Dispose();
+            _specular.Dispose();
             _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }

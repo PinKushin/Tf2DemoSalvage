@@ -118,3 +118,5 @@
 - [Push when the gate is green](push-when-the-gate-is-green.md) — overrides the global push-sparingly default; but do not gate a docs-only change.
 - [Script only for batch edits](script-only-for-batch-edits.md) — Edit/Write for single sites; the batch exception is narrow, and no Python (nor perl) — single-file C# via `dotnet run` when a script is genuinely warranted.
 - [A constant carries no scope](a-constant-carries-no-scope.md) — Valve's decal bias was cited correctly and applied to the wrong surfaces three times; ask what a value is applied TO.
+- [A pass must establish its own state](a-pass-must-establish-its-own-state.md) — DrawDecals left blending on and every static prop inherited it; the symptom appeared in the code that moved.
+- [A ledger must cover every exit](a-ledger-must-cover-every-exit.md) — a counter wired into two of three skips reported a clean bill of health; count on the way out, never the way in.

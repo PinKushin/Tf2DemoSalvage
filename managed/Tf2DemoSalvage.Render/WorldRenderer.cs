@@ -928,7 +928,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
                 specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
 
-                lit += specular;
+                // **mat_specular, and Valve's own wording for it is "get rid of envmap".** The
+                // engine does it one level up, by undefining $envmap when the config says
+                // UseSpecular() is false (lightmappedgeneric_dx9_helper.cpp:166,
+                // BaseVSShader.cpp:2148) — which is why changing it reloads every material. Here
+                // the envmap is per-material constants rather than a compiled-in branch, so the
+                // same result comes from not adding the term. The observable output is identical;
+                // what differs is that ours costs nothing to toggle.
+                if (surfaceColours.z > 0.5f)
+                {
+                    lit += specular;
+                }
             }
 
             return float4(lit, albedo.a);
@@ -1423,6 +1433,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
 
+        // **A wireframe twin of every state, because `mat_wireframe` changes the FILL and nothing
+        // else.** Valve's is `MATERIAL_FILLMODE_WIREFRAME`, applied to whatever is being drawn, so
+        // each pass keeps its own culling and its own depth bias and differs only in fill. Building
+        // one shared wireframe state instead would quietly answer a different question — "what is
+        // in the vertex buffer" rather than "what is being drawn" — and the difference between
+        // those two is exactly what a missing-geometry hunt turns on.
+        //
+        // Created up front because a D3D11 rasteriser state is immutable; making one mid-frame is
+        // the expensive way to say the same thing.
+        Dictionary<nint, ComPtr<ID3D11RasterizerState>> wireframe = [];
+
+        void AddWire(ComPtr<ID3D11RasterizerState> solid, RasterizerDesc description)
+        {
+            description.FillMode = FillMode.Wireframe;
+
+            ComPtr<ID3D11RasterizerState> wire = default;
+            SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref wire));
+
+            wireframe[(nint)solid.Handle] = wire;
+        }
+
+        AddWire(bothSides, rasterizer);
+        AddWire(culled, modelRasterizer);
+        AddWire(mirrored, mirroredRasterizer);
+        AddWire(decalOffset, biased);
+
         return new WorldRenderer(
             vertexShader,
             pixelShader,
@@ -1434,8 +1470,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _modelCull = culled,
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
+            _wireframeFor = wireframe,
         };
     }
+
+    /// <summary>Whether every pass draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
+    /// <remarks>
+    /// **The instrument that separates "not drawn" from "drawn invisibly".** Those two produce the
+    /// identical picture — an absent surface — and every other diagnostic in this renderer answers
+    /// one of them at a time. A wireframe answers it directly: an edge on screen means the triangle
+    /// reached the rasteriser, whatever the material then did with it.
+    ///
+    /// `FCVAR_CHEAT` in the engine, gated behind `sv_cheats` by `WireFrameMode()`
+    /// (<c>game/client/view.h:68</c>). Not gated here: there is no server to protect and no player
+    /// to gain an advantage over, so the gate would be ceremony. That is a deliberate divergence
+    /// rather than an oversight.
+    /// </remarks>
+    public bool Wireframe { get; set; }
+
+    /// <summary>The wireframe twin of each solid rasteriser state, by handle.</summary>
+    private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _wireframeFor = [];
+
+    /// <summary>Picks the wireframe twin of a state when wireframe is on.</summary>
+    private ComPtr<ID3D11RasterizerState> Raster(ComPtr<ID3D11RasterizerState> solid) =>
+        Wireframe && _wireframeFor.TryGetValue((nint)solid.Handle, out ComPtr<ID3D11RasterizerState> wire)
+            ? wire
+            : solid;
 
     /// <summary>Uploads a map's geometry, textures and lighting.</summary>
     /// <param name="device">Device to create resources on.</param>
@@ -1693,6 +1753,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"textures: {assets.Textures.Count} materials, {chequered.Count} will draw as the missing-material chequer{chequeredAt}"));
+
+        // **By INDEX, because that is what the draw actually tests.** The material ledger in
+        // MapAssets names these by material NAME, which is the right form for reading and the
+        // wrong form for matching: the prop log identifies a model's material as `mat 340`, and a
+        // name cannot be joined to that. A surface drawn with the wrong blend state is invisible in
+        // exactly the way missing geometry is, so the two lists have to be comparable.
+        ViewerLog.Write(
+            "render",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"blend classes by material index — additive [{string.Join(" ", _additive.Order())}]" +
+                $" translucent [{string.Join(" ", _translucent.Order())}]" +
+                $" modulate [{string.Join(" ", _modulate.Keys.Order())}]" +
+                $" decal [{string.Join(" ", _decalMaterials.Order())}]"));
 
         // **Kept rather than baked into the constants, because a proxy is a function of time.**
         // Everything else in the material buffer is decided once at load; these are the values that
@@ -2121,7 +2195,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         BindPipeline(context);
 
-        context.RSSetState(_bothSides);
+        context.RSSetState(Raster(_bothSides));
         context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
 
         // The map's own geometry is already in world space, so it draws with an identity model
@@ -2165,6 +2239,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void DrawOpaqueBatches(
         ComPtr<ID3D11DeviceContext> context, IReadOnlyList<WorldBatch> batches)
     {
+        // **An opaque pass establishes that it is opaque. It does not inherit it.**
+        //
+        // This is the bug B135's reordering created and nobody connected to it. `DrawDecals` turns
+        // alpha blending ON and never turns it off; the next reset is inside `DrawTranslucent`,
+        // two passes later. The old order was world → props → decals, so nothing ran between the
+        // decals and the reset and the leak had nowhere to land. `e7b95cf` moved the props to
+        // AFTER the overlays — correctly, because that is `CBaseWorldView::DrawExecute`'s order —
+        // and every static prop in every map has been alpha-blended ever since.
+        //
+        // **What made it invisible rather than obviously wrong**: the alpha it blended against is
+        // the base texture's alpha channel, and in a TF2 model material that channel is usually an
+        // ENVMAP MASK rather than opacity ($basealphaenvmapmask). Shiny metal masks to near zero,
+        // so pipes ghosted, the observatory dome went glassy, a sign showed the wall through it and
+        // a silo's collar vanished outright — while props with an opaque alpha channel looked
+        // perfect. It reads as four unrelated art faults, and it is one line of state.
+        //
+        // The owner found it by looking: the same triangles were present in the category view and
+        // absent in the textured one, which is only possible after the fragment survives the clip.
+        //
+        // This project has already written down the rule this violates — "let a pass establish the
+        // state it needs rather than trusting the previous pass to have restored it" — after
+        // DrawTranslucent leaked a depth state onto models. Same failure, same file, other state.
+        float[] factor = [1f, 1f, 1f, 1f];
+
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
+
         foreach (WorldBatch batch in batches)
         {
             if (_additive.Contains(batch.MaterialIndex) || _translucent.Contains(batch.MaterialIndex))
@@ -2228,6 +2328,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
+    /// <param name="specular">
+    /// Whether cubemap reflections are added — Valve's <c>mat_specular</c>, whose own comment for
+    /// the same switch is "If mat_specular 0, then get rid of envmap".
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -2240,7 +2344,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
         bool surfaceColours = false,
-        float heightCut = 0f)
+        float heightCut = 0f,
+        bool specular = true)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -2280,7 +2385,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] contents =
         [
             .. matrix,
-            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), 0f, 0f,
+            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), specular ? 1f : 0f, 0f,
             eye.X, eye.Y, eye.Z, hasEye,
         ];
 
@@ -3000,7 +3105,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        context.RSSetState(_decalOffset);
+        context.RSSetState(Raster(_decalOffset));
 
         // **Tested, never written (B135).** Set here rather than left to the opaque pass's state,
         // which writes: an overlay that writes depth makes everything drawn afterwards test against
@@ -3082,7 +3187,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         // Back to the ordinary rasteriser, or everything after this is pulled forward too.
-        context.RSSetState(_bothSides);
+        context.RSSetState(Raster(_bothSides));
     }
 
     private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
@@ -3191,6 +3296,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
+
+        // The wireframe twins are states like any other and leak exactly as loudly if forgotten.
+        foreach (ComPtr<ID3D11RasterizerState> wire in _wireframeFor.Values)
+        {
+            wire.Dispose();
+        }
+
+        _wireframeFor.Clear();
         _viewmodelCull.Dispose();
         _clampSampler.Dispose();
         _wrapSampler.Dispose();
@@ -3444,12 +3557,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
             // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
             // batches of one model can disagree — a sign that culls and a flag that does not.
-            context.RSSetState(CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
+            context.RSSetState(Raster(CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
             {
                 ModelCull.None => _bothSides,
                 ModelCull.Front => _viewmodelCull,
                 _ => _modelCull,
-            });
+            }));
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture

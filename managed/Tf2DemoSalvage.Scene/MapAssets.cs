@@ -1329,6 +1329,36 @@ public sealed class MapAssets
             {
                 VtfTexture decoded = VtfTexture.Read(vtf, maximumTextureSize);
 
+                // **Names every material that will be BLENDED, and which key decided it.** A prop
+                // drawn with alpha blending when it should be opaque looks like a lighting fault,
+                // not like a classification fault — the pipes on cp_process read through to the
+                // wall behind them and nothing in any log said the word "translucent". Whether a
+                // surface blends is decided once, here, from three separate keys, so this is the
+                // one place that can answer "why is that see-through" without a debugger.
+                // **Alpha test is in here as well as blending, because it is the OTHER way a
+                // material's alpha decides whether a surface appears.** A blended surface at the
+                // wrong alpha looks faint; an alpha-tested one at the wrong alpha is `clip`ped away
+                // pixel by pixel and is simply gone — the same defect, at two severities, and no
+                // count anywhere distinguishes "invisible" from "never drawn".
+                if (material.IsTranslucent || additive || material.IsModulate || material.IsAlphaTested)
+                {
+                    string why = string.Concat(
+                        material.IsTranslucent ? " translucent" : string.Empty,
+                        additive ? " additive" : string.Empty,
+                        material.IsModulate ? " modulate" : string.Empty,
+                        material.IsAlphaTested ? " alphatest" : string.Empty);
+
+                    ViewerLog.Write(
+                        "assets",
+                        $"blended '{bare}' shader '{material.Shader}':{why}" +
+                        $" $translucent='{material.Value("$translucent") ?? "-"}'" +
+                        $" $vertexalpha='{material.Value("$vertexalpha") ?? "-"}'" +
+                        $" $alpha='{material.Value("$alpha") ?? "-"}'" +
+                        $" $alphatest='{material.Value("$alphatest") ?? "-"}'" +
+                        $" ref='{material.Value("$alphatestreference") ?? "-"}'" +
+                        $" fmt={decoded.Format}");
+                }
+
                 return new MapTexture(
                     decoded.Width,
                     decoded.Height,
