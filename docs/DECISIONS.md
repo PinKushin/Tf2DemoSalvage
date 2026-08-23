@@ -3160,3 +3160,65 @@ the renderer really uses, and named `DemoTimeline` — which the *form* consumes
 The claim was still true, so without the control the suite would have gone on asserting an
 unfalsifiable "not referenced" forever. `MapAssets` replaces it, since `WorldRenderer.UploadTextures`
 takes one. This is D45's rule earning its keep: a gap marker must be able to fail.
+
+## D62 — the first presenter: playback, lifted out of the form with its tests
+
+**The MVP work D54 and D55 describe, starting.** `Tf2DemoSalvage.Presentation` exists, on plain
+`net10.0`, referencing **Core alone** — not Render, not Scene, and above all not WinForms.
+
+**The absence of that reference is the design.** D54 records why MVP was chosen over MVVM and it was
+not familiarity: *"MVP's boundary can be made a compiler error, not just a convention someone (or
+something) has to remember to follow."* A presenter here that reaches for a `Button` does not
+compile, and nothing else is doing that work.
+
+### Why playback went first
+
+Four methods and three fields in `MainForm`, entangled with a WinForms control and a live
+`Stopwatch`. **Every rule in it was written from a bug, and not one had a test**, because reaching
+the logic needed a form, a message pump and the desktop lock. The behaviour is also genuinely subtle
+— three separate stopwatch rules that look arbitrary until each one's reason is stated:
+
+- **Starting play restarts the elapsed clock.** Real time passed while paused is not playback time;
+  without this the first frame after resuming jumps the demo forward by however long the user spent
+  reading the map.
+- **Pausing resets it**, so that gap cannot accumulate while stopped.
+- **Changing speed restarts it, but only while playing**, so the frame straddling the change is not
+  counted at the new rate.
+
+Plus the cap: a stall — loading a map, dragging the window by its title bar — is not elapsed
+playback time, and handing the whole gap to the clock teleports the demo. 100 ms turns a hitch into
+a brief slowdown.
+
+### `IElapsedTime` is what made any of it testable
+
+The presenter takes where time comes from. In production that is a `Stopwatch`; in a test it is a
+number the test sets. **Without it every rule above could only be observed by sleeping**, which this
+project bans outright — and which would have turned deterministic checks into probabilistic ones.
+
+That one interface is the difference between sixteen tests running in 24 ms and none existing at
+all.
+
+### What the suite covers that nothing covered before
+
+Sixteen tests, no window, no STA thread, no `run-exclusive.ps1`, and it runs on the Linux boxes.
+Two were verified by sabotage: removing the stall cap reddens the clamp test, and stopping only at
+`AtEnd` reddens the reverse-playback test — the latter being a case that forward-only testing cannot
+reach, since reverse playback spinning against tick zero still claims to be playing.
+
+The controls matter as much as the claims. *"Speed changed while paused does not restart"* exists so
+that *"speed change restarts"* and *"everything restarts"* are distinguishable, and the moment test
+asserts the FRACTION (0.5) as well as noting the whole tick is still 0 — because truncating there
+makes the interpolation layer a no-op that passes all of its own tests.
+
+### `EventArgs` types rather than `EventHandler<int>`
+
+CA1003 rejects the latter, and the named types read better at the call site anyway: `e.Tick` says
+what the number is where `(_, tick)` only reports what somebody named a parameter. Three tiny
+records — `TickEventArgs`, `PlayingEventArgs`, `SpeedEventArgs` — plus `MomentEventArgs` for the
+fractional position going the other way.
+
+### Not yet wired
+
+`MainForm` still owns its copy. The presenter is built beside it, per D59, and the form is switched
+over only when the replacement covers it — with the old code deleted in the commit that proves it,
+not left as a fossil.

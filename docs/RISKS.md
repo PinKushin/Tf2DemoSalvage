@@ -8897,3 +8897,53 @@ from "which of two opposite readings" to "confirm the mechanism".
 **What remains, and it is optional:** reading the engine's `SND_GetGain` path in the binary would
 settle *how* the special case is implemented rather than *that* it exists. Same work as B142, and
 worth doing at the same time rather than on its own.
+
+## B144 — demos recorded late June 2011 were born malformed and must not be debugged — OPEN
+
+**Reported 2026-08-22 by the `tf2-comp-archive` agent** in `PinKushin/TF2DEMOSALVAGE-LOG.md`, from
+GotFrag forum captures. *Evidence class: contemporaneous reports, not a specimen in hand.*
+
+A TF2 update in late June 2011 broke SourceTV recording. Demos written in the window fail in the
+game itself with:
+
+```
+Host_EndGame: CL_ParseClassInfo_EndClasses: class 253 not initialized.
+```
+
+Two threads three days apart confirm it — 27 June and 30 June 2011 — with *"an issue with very new
+demos, not older ones"* and *"Old demos work fine for me"*. So the window is **at least
+2011-06-27 to 2011-06-30**; the true bounds are unknown, being only the days somebody posted.
+
+**The fix was forward-only.** Per the owner, who was there: *"it was fixed, but it didnt fix the
+wrongly made demos [...] no update could ever save a wrongly encoded demo"*. The bytes were written
+wrong at record time, so no client update and no parser recovers them. These files are permanently
+lost as *content* while remaining perfectly good as *files*.
+
+### Why this is a parser risk and not a history note
+
+**It sits exactly at the start of the protocol 17–23 gap.** `docs/TIMELINE.md` dates protocol 16 to
+**15 June 2011** and protocol 24 to 25 March 2013, and D57 makes closing that gap the top corpus
+priority because it falls inside the era this project exists for. So the demos most worth hunting
+are from precisely the weeks when some of them were being written broken.
+
+**A file from that window will fail in a way that looks exactly like a reader defect.** A
+class-table error in the 253 region, on a 2011 SourceTV demo, is a file that was broken on creation
+— and treating it as our bug means chasing something that cannot be fixed. That is the specific
+trap this entry exists to prevent, and it is the same shape as
+`docs/memory/decode-must-be-total.md` read backwards: that memory says a file we cannot read is our
+defect *because the engine reads it fine*. Here the engine cannot read it either, which is the
+distinguishing test.
+
+**How to act on it:**
+
+1. **Do not widen the parser to accept it.** Whatever the malformation is, accepting it produces a
+   demo whose contents are wrong rather than a demo that works.
+2. **Name it in the diagnostic if it can be recognised** — "recorded during the June 2011 SourceTV
+   defect; written malformed and cannot be played" is an answer, where a generic parse failure is a
+   dead end.
+3. **A specimen would be a first-class hostile-input fixture**, better than anything synthetic
+   because it is real-world malformed in a documented way. `esea_match_2255944.dem` is the known
+   filename. Not in hand.
+
+**Unverified here.** No specimen has been read, and nothing in the corpus is from that window. The
+class-253 detail is quoted from a 2011 forum post, not measured.

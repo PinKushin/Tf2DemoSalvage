@@ -5,6 +5,8 @@
     <Project Path="managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Scene/Tf2DemoSalvage.Scene.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Render/Tf2DemoSalvage.Render.csproj" />
+    <Project Path="managed/Tf2DemoSalvage.Presentation/Tf2DemoSalvage.Presentation.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Presentation.Tests/Tf2DemoSalvage.Presentation.Tests.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Viewer3D/Tf2DemoSalvage.Viewer3D.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Viewer3D.Tests/Tf2DemoSalvage.Viewer3D.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Viewer3D.UiTests/Tf2DemoSalvage.Viewer3D.UiTests.csproj" />
