@@ -364,6 +364,112 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     [Test]
+    public void Applied_BindsLoadedBeforeTheirAliases_AreStillCounted()
+    {
+        // **This is the file order the engine actually uses**, and it is the reverse of the order
+        // that makes a naive counter work. `valve.rc` execs `config.cfg` and then `autoexec.cfg`, so
+        // the binds arrive before the aliases they name.
+        //
+        // Counting at bind time therefore reports the movement binds as unrecognised — measured at
+        // 5 against 13 on the owner's real config. The viewer would still fly correctly and its own
+        // diagnostic would say the config barely loaded, which is the worst kind of wrong: a number
+        // that misdirects rather than an error that stops you.
+        ConfigConsole engineOrder = new();
+        engineOrder.Load(["bind \"w\" \"+mfwd\"", "alias +mfwd \"+forward\""]);
+
+        ConfigConsole reversed = new();
+        reversed.Load(["alias +mfwd \"+forward\"", "bind \"w\" \"+mfwd\""]);
+
+        engineOrder.Applied.ShouldBe(1);
+        engineOrder.Applied.ShouldBe(reversed.Applied, "the order the files arrive in cannot matter");
+    }
+
+    [Test]
+    public void Applied_ABindNamingNothingWeImplement_IsNotCounted()
+    {
+        // The control for the test above: if `Applied` counted every bind, it would agree with the
+        // order-independence assertion while measuring nothing at all.
+        ConfigConsole console = new();
+        console.Load("bind \"w\" \"+forward\"\nbind \"c\" \"+duck\"\nbind \"`\" \"toggleconsole\"");
+
+        console.Bound.ShouldBe(3);
+        console.Applied.ShouldBe(1, "only +forward names an action this viewer has");
+    }
+
+    [Test]
+    public void KeyDown_AKeyTheConfigGivesToAnUnimplementedCommand_KeepsOurDefault()
+    {
+        // **Taken from the owner's real `config.cfg`, which does exactly this**: `bind "SHIFT"
+        // "+duck"`. There is no crouch in this viewer, so without a fallback Shift would run a
+        // command that does nothing and fly-fast would have no key at all.
+        //
+        // **The first version of this test asserted exactly that**, on the reasoning that the player
+        // said Shift is duck and overriding them would be the viewer claiming to know better. Then
+        // the real config was loaded and the diagnostic printed
+        //
+        //     no key reaches: ResetCamera, PlayPause, FlyFast
+        //
+        // — and `resetcamera` and `playpause` are *this project's own* command names. TF2 has no
+        // concept of either, so no config can ever bind them; it just uses `f` and `k` for its own
+        // purposes and three controls disappear. **A config cannot express a preference about a
+        // feature the game does not have**, so reading its silence as one was the error.
+        //
+        // Nothing is lost by falling back, which is what makes this safe rather than a guess: the
+        // config's command for that key does nothing here, so the key was inert either way.
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Bindings().KeyFor(ViewerAction.FlyFast).ShouldBe("SHIFT", "before the config runs");
+
+        console.Load("bind \"SHIFT\" \"+duck\"");
+
+        console.Unbound().ShouldNotContain(ViewerAction.FlyFast);
+
+        console.KeyDown("SHIFT");
+        console.IsHeld(ViewerAction.FlyFast).ShouldBeTrue("+duck does nothing here, so ours stands");
+    }
+
+    [Test]
+    public void KeyDown_AKeyTheConfigGivesToAnImplementedCommand_LosesOurDefault()
+    {
+        // **The control, and the line the fallback must not cross.** `+forward` is a command this
+        // viewer implements, so a config putting it on Shift is a statement it can act on — and
+        // Shift must stop being fly-fast rather than doing both.
+        //
+        // Without this case the rule above would be indistinguishable from "the defaults always
+        // win", which would make the whole feature a no-op.
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load("bind \"SHIFT\" \"+forward\"");
+
+        console.KeyDown("SHIFT");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue();
+        console.IsHeld(ViewerAction.FlyFast).ShouldBeFalse("the config spoke, and it wins");
+        console.Unbound().ShouldContain(ViewerAction.FlyFast, "and the loss is reported");
+    }
+
+    [Test]
+    public void Unbound_TheShippedDefaults_LeaveNothingUnreachable()
+    {
+        // The control for the test above. Without it, `Unbound` returning everything always would
+        // satisfy that assertion while measuring nothing.
+        ConfigConsole.WithDefaults().Unbound().ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Unbound_AnActionRehomedByTheConfig_IsNotReported()
+    {
+        // Rebinding is the normal case and must not look like a loss: moving fly-fast to CTRL
+        // leaves it reachable, just elsewhere.
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load("bind \"SHIFT\" \"+duck\"\nbind \"CTRL\" \"+speed\"");
+
+        console.Unbound().ShouldNotContain(ViewerAction.FlyFast);
+        console.Bindings().KeyFor(ViewerAction.FlyFast).ShouldBe("CTRL");
+    }
+
+    [Test]
     public void Intent_AKeyTappedBetweenFrames_StillMovesTheCamera()
     {
         // **The reason `Intent` reads `KeyState` rather than `IsHeld`.** A key pressed and released

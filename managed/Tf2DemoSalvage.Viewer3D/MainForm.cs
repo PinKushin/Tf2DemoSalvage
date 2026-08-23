@@ -335,7 +335,7 @@ internal class MainForm : Form
     /// the game hardcodes Space. Defaults follow TF2 where TF2 has an equivalent, and the table is
     /// meant to be loaded from settings so a user can rebind exactly as they would in the game.
     /// </remarks>
-    private readonly KeyBindings _bindings = new();
+    private KeyBindings _bindings = new();
 
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private Point? _dragFrom;
@@ -431,6 +431,13 @@ internal class MainForm : Form
         // Deliberately not a test harness: it drives the real viewer through the real renderer,
         // which is the whole reason the offscreen target was deleted. See CaptureViewport.
         initialPaths = ReadCaptureOptions(initialPaths);
+
+        // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** This
+        // is what makes the console a feature rather than a capability: without it the interpreter
+        // runs the shipped defaults for ever and every test of it exercises code the viewer never
+        // reaches. Done in the constructor because the alternative — loading with the map, where the
+        // archives are already opened — would leave the keys wrong until a demo was opened.
+        LoadUserConfig();
 
         Text = "TF2 Demo Salvage";
         Name = "MainWindow";
@@ -1117,6 +1124,72 @@ internal class MainForm : Form
 
     /// <summary>The map outline the viewport is drawing, in clip space.</summary>
     public IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> MapLines => _mapLines;
+
+    /// <summary>Runs the player's own TF2 configs over the shipped defaults.</summary>
+    /// <remarks>
+    /// **Their controls, not ours, and that is the requirement in one line (D69).** Someone running
+    /// mastercomfig has already decided every one of these once; being asked to decide again in a
+    /// second, different settings file is the friction this exists to remove.
+    ///
+    /// **Failure here costs the player's bindings and nothing else.** The defaults are a complete,
+    /// working set of controls, so a missing install, an unreadable VPK or a config full of things
+    /// this viewer has never heard of all end the same way: the viewer starts. That is why the catch
+    /// is broad rather than narrow — but it is logged with its message, because the alternative is a
+    /// player whose config silently does nothing and no way to find out why.
+    ///
+    /// **The two counts are logged together deliberately.** "13 of 78 binds" and "0 of 0" say
+    /// different things; "loaded" says neither.
+    /// </remarks>
+    private void LoadUserConfig()
+    {
+        try
+        {
+            string? game = FindGameFolder() ?? Tf2ConfigFiles.DefaultGameFolder;
+
+            if (game is null)
+            {
+                ViewerLog.Write("config", "no TF2 install found; using the built-in bindings");
+                return;
+            }
+
+            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, ViewerLog.Write);
+
+            if (configs.Count == 0)
+            {
+                ViewerLog.Write("config", $"no configs under {game}; using the built-in bindings");
+                return;
+            }
+
+            _console.Load(configs);
+            _bindings = _console.Bindings();
+
+            ViewerLog.Write(
+                "config",
+                $"{configs.Count} files, {_console.Applied} of {_console.Bound} binds applied");
+
+            foreach ((ViewerAction action, string key) in _bindings.All())
+            {
+                ViewerLog.Write("config", $"  {action,-20} {key}");
+            }
+
+            // **The controls their config left unreachable, named rather than left to be noticed.**
+            // A key bound to a TF2 command this viewer does not implement — `bind "SHIFT" "+duck"`
+            // is the real example — takes that key away from whatever used to answer to it, and the
+            // symptom is a control that silently does nothing.
+            if (_console.Unbound() is { Count: > 0 } unbound)
+            {
+                ViewerLog.Write(
+                    "config",
+                    $"no key reaches: {string.Join(", ", unbound)} " +
+                    "(their config bound those keys to commands this viewer has no equivalent for)");
+            }
+        }
+        catch (Exception failure) when (failure is IOException or ArgumentException
+                                            or UnauthorizedAccessException or NotSupportedException)
+        {
+            ViewerLog.Write("config", $"could not read the TF2 configs: {failure.Message}");
+        }
+    }
 
     /// <summary>Finds the game's <c>tf</c> folder, for its materials and textures.</summary>
     /// <remarks>
