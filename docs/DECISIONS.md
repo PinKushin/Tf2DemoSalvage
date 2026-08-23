@@ -3367,3 +3367,52 @@ Ten new tests over the geometry — the axis convention at two yaws, the pitch s
 normalisation, world-up regardless of pitch, and the cancellation case that found the bug. The
 existing eleven `FreeFlightTests` in the viewer suite still pass unchanged, which is the check that
 the key mapping was moved rather than altered.
+
+## D66 — the free camera's own state, and the overhead placement that replaces the ortho camera
+
+**Two pieces of the camera concern, both pure and both previously untestable.**
+
+### `FreeLookState` — where the camera is and which way it faces
+
+Three fields and two event handlers in `MainForm`. No viewport, no control, no logging, so nothing
+but the company it kept ever made it untestable.
+
+**Pitch is clamped and yaw is not, and the asymmetry is the engine's.** Looking exactly along the
+world's up axis makes the basis degenerate — forward parallel to up, no right vector — so the engine
+clamps a player to ±89 and this does too. Yaw wraps and every value is a legal heading; bounding it
+would introduce a discontinuity the geometry does not have, and a camera that stops turning after
+enough drags one way.
+
+`PlaceAt` clamps as well, which is the other half of D65: `TF2DEMOSALVAGE_CAMERA` exists so a
+viewpoint can be copied out of the game's own `ang` readout, 90 is an ordinary thing to copy, and the
+original path applied it raw.
+
+### `OverheadPlacement` — the ortho camera's replacement
+
+**Owner, 2026-08-22**, on the pending removal:
+
+> remember the ortho cam is going to be pulled out, so if you just want to pull that out now, and
+> set the free cam to have a start position thats not under the map, thats fine
+
+D49 committed to this: the overhead view becomes a *placement* of the free camera rather than a
+second projection. So this computes an origin and a pair of angles — not a projection, not a mode.
+The camera flies away from it normally afterwards, and there is nothing to switch between.
+
+- **Above the play area's centre**, not the world origin; plenty of Source maps are built well away
+  from it.
+- **Pitch 89, not 90**, for the degeneracy reason above.
+- **Framed on whichever axis is tighter.** A map is rarely square and a viewport never is, so fitting
+  the depth alone leaves a wide map cropped — the classic zoom-to-fit mistake, which looks like the
+  map being bigger than it is rather than like a framing bug.
+- **Height is the greater of the framing distance and the tallest geometry plus clearance.** That is
+  the owner's "not under the map" requirement made precise: framing alone can sit below a skybox
+  brush on a wide flat map, and clearance alone crops a large one.
+
+### Sequencing, which this changed
+
+**The ortho removal has to come before the camera presenter, not after.** A presenter modelling
+`Map`/`Free`/`FirstPerson` modes and owning `_zoom` and `_lookingAt` would be built for code that is
+about to be deleted. The placement above is the piece that makes the removal possible, so it comes
+first and the presenter is shaped by what survives.
+
+Presentation floor 26 → 46.
