@@ -114,3 +114,4 @@
 - [A config is a program](a-config-is-a-program.md) — Source .cfg files are executed and aliases redefine each other at runtime; static resolution is wrong by construction.
 - [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md) — an imported config cannot state an opinion about a feature the source program lacks; falling back is not overriding the user.
 - [Three test levels, and the third is missing](three-test-levels-and-the-third-is-missing.md) — conformance and real-data tests both pass on a feature nothing calls; only driving the real UI can fail when the wiring is absent.
+- [Slow UI tests measure the app](slow-ui-tests-measure-the-app.md) — UIA is served by the target message loop, so per-test durations are an application performance measurement; read them before blaming the tests.
