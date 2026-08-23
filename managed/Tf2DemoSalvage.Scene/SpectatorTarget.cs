@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -64,5 +65,70 @@ public static class SpectatorTarget
         }
 
         return playing.MinBy(player => player.EntityIndex);
+    }
+
+    /// <summary>The next player to spectate, cycling forward or back from the current one.</summary>
+    /// <param name="players">Everyone the timeline reports at a tick.</param>
+    /// <param name="current">The entity currently followed, or <c>null</c> for none.</param>
+    /// <param name="reverse">Whether to go backwards.</param>
+    /// <returns>The player to follow, or <c>null</c> when nobody is playing.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// **Modelled on `CTFPlayer::FindNextObserverTarget` in `src/game/server/tf/tf_player.cpp`**,
+    /// which TF2's own `spec_next` and `spec_prev` commands call. The parts that transfer:
+    ///
+    /// - **the search starts one step past the current target**, because
+    ///   `GetNextObserverSearchStartPoint` does `startIndex += iDir` before looking, so a cycle
+    ///   never returns the player already being watched;
+    /// - **both directions wrap**, and the SDK spells each arm out — `if (currentIndex > iMax)
+    ///   currentIndex = 0; else if (currentIndex &lt; 0) currentIndex = iMax;`. A one-armed wrap is
+    ///   the plausible bug and it works for exactly as long as nobody cycles backwards;
+    /// - **null when the search finds nothing**, which matters because of what the caller does with
+    ///   it: `if ( target ) SetObserverTarget( target );`. A failed cycle leaves the camera where it
+    ///   was rather than blanking the view — and the first seconds of a competitive match really
+    ///   are SourceTV alone.
+    ///
+    /// **What is deliberately not copied.** `IsValidObserverTarget` also admits buildings, observer
+    /// points and a coached student, and rejects `target == this`. Neither transfers: this viewer
+    /// follows players, and "this" is the recording client, who in a POV demo is precisely who you
+    /// want to watch. A rule copied without its context is the kind that gets confidently repeated.
+    ///
+    /// **Entity-index order, matching <see cref="Choose"/> rather than the SDK's list order.** TF2
+    /// walks `m_hObservableEntities`, rebuilt per search and holding more than players. Ours has to
+    /// agree with the default target or the first click would jump somewhere unrelated, and it has
+    /// to be stable from tick to tick for the same reason <see cref="Choose"/> is.
+    /// </remarks>
+    public static ScenePlayer? Next(
+        IReadOnlyList<ScenePlayer> players, int? current, bool reverse)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        ScenePlayer[] playing =
+        [
+            .. players
+                .Where(player => player.Team is >= FirstPlayingTeam and <= LastPlayingTeam)
+                .OrderBy(player => player.EntityIndex),
+        ];
+
+        if (playing.Length == 0)
+        {
+            return null;
+        }
+
+        int at = current is { } entity
+            ? Array.FindIndex(playing, player => player.EntityIndex == entity)
+            : -1;
+
+        if (at < 0)
+        {
+            // Either nothing was followed yet, or the followed player has left, died out of the
+            // list or gone to spectator. Resume from the default so a click always does something
+            // explicable — the SDK's equivalent guard resets the index rather than failing.
+            return reverse ? playing[^1] : playing[0];
+        }
+
+        int step = reverse ? -1 : 1;
+
+        return playing[((at + step) % playing.Length + playing.Length) % playing.Length];
     }
 }

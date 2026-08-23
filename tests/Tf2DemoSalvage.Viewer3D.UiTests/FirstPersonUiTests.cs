@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Input;
 using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 
@@ -291,4 +292,91 @@ public sealed class FirstPersonUiTests
         // the line above while undoing the design it depends on.
         Viewer.Count(ViewerSession.WorldBuildLine).ShouldBe(worlds);
     }
+
+    [Test]
+    public void Click_TheCycleTargetButton_ReachesTheSpectatorCode()
+    {
+        // **The assertion B145 existed for.** The cycling actions were declared, bound to the mouse,
+        // given Source command names and covered by three tests — and no production code read them,
+        // so clicking did nothing. **Nothing about a binding table can tell you whether anything
+        // consults it**, and no unit test of the search can either: the search was fine, it was
+        // simply never called.
+        //
+        // So this clicks the real button in the real window and asks whether the spectator code ran.
+        // It is the only test in the repository that can fail if the wiring is removed.
+        //
+        // **What it deliberately does not assert is which player is followed.** The UI session opens
+        // an era specimen, which is one of the owner's own solo recordings — one player, so a cycle
+        // lands back on them (`Next_TheOnlyPlayer_StaysOnThem`). Asserting a *change* of target here
+        // would be asserting something the demo cannot show. That claim is made against z1800 in
+        // `CorpusSpectatorCyclingTests`, on a nine-versus-nine match.
+        ViewerSession.RequireTheGame();
+
+        EnsureFirstPerson();
+
+        int before = Viewer.Count(Spectating);
+
+        Viewer.Click(MainForm.ViewportId, MouseButton.Left);
+
+        Retry.WhileFalse(
+            () => Viewer.Count(Spectating) > before,
+            TimeSpan.FromSeconds(5));
+
+        Viewer.Count(Spectating).ShouldBeGreaterThan(
+            before,
+            "clicking the button bound to +attack should have reached the spectator code");
+    }
+
+    [Test]
+    public void Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle()
+    {
+        // **The control, and it is the game's own rule rather than ours.** `spec_next` does nothing
+        // unless `GetObserverMode() > OBS_MODE_FIXED`, and in the free camera the left button is
+        // already the look-around drag — cycling on it would fight the gesture.
+        //
+        // Without this, "clicking cycles" and "clicking always cycles" are the same observation.
+        ViewerSession.RequireTheGame();
+
+        EnsureFreeCamera();
+
+        int before = Viewer.Count(Spectating);
+
+        Viewer.Click(MainForm.ViewportId, MouseButton.Left);
+
+        // No wait-for-change to do here: the claim is that nothing happens, so the only honest
+        // instrument is to give it the same window the positive test gets and then look.
+        Retry.WhileFalse(
+            () => Viewer.Count(Spectating) > before,
+            TimeSpan.FromSeconds(2));
+
+        Viewer.Count(Spectating).ShouldBe(before, "the free camera does not spectate anybody");
+    }
+
+    /// <summary>What the viewer logs when a cycle picks somebody.</summary>
+    private const string Spectating = "following entity ";
+
+    /// <summary>Enters the first-person view, failing here rather than in the caller.</summary>
+    private static void EnsureFirstPerson()
+    {
+        int before = Viewer.Count(FollowingRecorded);
+
+        PressSwitchCameraMode();
+
+        Retry.WhileFalse(
+            () => Viewer.Count(FollowingRecorded) > before,
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage: "The viewer did not enter the first-person view.");
+    }
+
+    /// <summary>Confirms the free camera is current rather than assuming the teardown left it.</summary>
+    /// <remarks>
+    /// **Checked rather than assumed, because the alternative fails in the wrong direction.** If a
+    /// previous test leaked the first-person mode, the negative test below would be run in the mode
+    /// where cycling is *supposed* to work — and would pass only if the feature were broken.
+    /// </remarks>
+    private static void EnsureFreeCamera() =>
+        Viewer.Count(FollowingRecorded).ShouldBe(
+            Viewer.Count(BackToMap),
+            "this test needs the free camera, and the teardown should have left it there");
 }

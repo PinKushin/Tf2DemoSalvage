@@ -3755,3 +3755,73 @@ controls — pointed at real data. `docs/memory/output-level-assertion-or-it-is-
 and the assertion now lives in `Tf2ConfigFilesTests`.
 
 **Measured after:** the same install goes from 9 of 95 binds applied to 12, and nothing unreachable.
+
+## D72 — spectator target cycling, and the test shape that was missing
+
+**B145: the feature existed as a binding and nothing else.** `CycleTargetForward` and
+`CycleTargetReverse` were declared, bound to `MOUSE1`/`MOUSE2`, given the Source command names
+`+attack`/`+attack2`, and asserted on by three tests. No production code read them, so clicking
+cycled nothing.
+
+**The tests were not wrong.** They checked that a binding table held what it should, and it did.
+**Nothing about a binding table can tell you whether anything consults it** — and no unit test of a
+search can either, because the search would have been fine. It was simply never called.
+
+### What the SDK settled, and what it did not
+
+`source-sdk-2013` ships TF2's own game code, so this needed no decompiler
+(`docs/memory/tf2-game-code-is-in-the-sdk.md`). From `CTFPlayer::FindNextObserverTarget` and
+`GetNextObserverSearchStartPoint`:
+
+- the search starts one step past the current target (`startIndex += iDir`), so a cycle never
+  returns the player already being watched;
+- **both directions wrap**, written as two explicit arms — a one-armed wrap works for exactly as
+  long as nobody cycles backwards;
+- **null when nothing is found**, and the caller's use of it is the point:
+  `if ( target ) SetObserverTarget( target );`. A failed cycle leaves the camera where it was, which
+  matters because the first seconds of a competitive match really are SourceTV alone.
+
+**And from `ClientModeShared::HandleSpectatorKeyInput`, the part that decided the design**: the
+engine dispatches on `pszCurrentBinding`, the bound command *string* — `Q_strcmp( pszCurrentBinding,
+"+attack" )` — not on a key code. So the viewer feeds mouse buttons into `ConfigConsole` under their
+Source names and acts on the action that comes back. Someone who has moved attack to a thumb button
+gets cycling on that thumb button, and no code in `MainForm` knows about it.
+
+**Not copied, deliberately.** `IsValidObserverTarget` also admits buildings, observer points and a
+coached student, and rejects `target == this`. Neither transfers: this viewer follows players, and
+"this" is the recording client — in a POV demo, precisely who you want to watch. A rule copied
+without its context is the kind that gets confidently repeated.
+
+**Ordering is ours and is stated as such.** TF2 walks `m_hObservableEntities`, rebuilt per search and
+holding more than players. This walks entity index ascending, matching `SpectatorTarget.Choose`, so
+the first click does not jump somewhere unrelated to the default target.
+
+### The stale mouse names
+
+`KeyNames.Resolve` still special-cased `MOUSELEFT`/`MOUSERIGHT`/`MOUSEMIDDLE`, .NET's vocabulary,
+which the D69 move to Source spellings had left behind. They were **dead as written and correct only
+by accident**: the live names `MOUSE1`/`MOUSE2` fell through to the `Enum.TryParse` fallback and also
+produced `Keys.None`. Two ways of being right for different reasons is how a rename goes unnoticed.
+
+### The test shape, which is the transferable part
+
+Three levels, and the middle one is the one this project keeps missing:
+
+1. **Conformance**, from the SDK with citations, written before the code — eleven tests.
+2. **Real data**, three tests walking z1800's actual player list: a full lap visits all 24 playing
+   players and returns to the start, forward-then-back is a no-op from every position including both
+   wrap points, and 222 cycles across the match never land on the SourceTV camera.
+3. **The wiring**, one UI test that clicks the real button in the real window and asks whether the
+   spectator code ran — plus its control, that clicking in the free camera does not cycle, since
+   `spec_next` is gated on being in an observer mode.
+
+**Only the third can fail if the wiring is removed, and it was verified that way**: deleting the
+`CycleTarget` call reddened it and nothing else. A feature that reached no code is exactly what
+happens when levels 1 and 2 are present and level 3 is not — which is the whole of B145 and of
+`docs/memory/output-level-assertion-or-it-is-not-done.md`.
+
+**A POV demo would have been the wrong specimen at level 2** and would have passed while measuring
+nothing: the committed era POVs are the owner's solo recordings, so a cycle finds one target and
+stops — indistinguishable from a broken search
+(`docs/memory/pov-demos-are-pvs-limited.md`). The UI session opens one of those, which is why the
+UI test asserts that the spectator code *ran* and leaves the claim about *which* player to z1800.

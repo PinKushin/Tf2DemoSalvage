@@ -45,6 +45,11 @@
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
+
+    <!-- Scene, for the parts of it that are decisions about real demo data rather than about
+         drawing: which player the camera follows, and cycling between them (B145). Plain net10.0,
+         so this does not tie the corpus suite to Windows or keep it off the measurement boxes. -->
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
   </ItemGroup>
 
 </Project>

@@ -228,9 +228,6 @@ internal sealed partial class ViewerApplication : IDisposable
         return new ViewerApplication(application, automation, window);
     }
 
-    /// <summary>Presses a key at the viewer, refusing to press it anywhere else.</summary>
-    /// <param name="key">The key to type.</param>
-    /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
     /// <remarks>
     /// **Synthesized input is the last resort, and full screen is where it is genuinely needed.**
     /// Everything reachable through UI Automation goes that way instead — no focus, no foreground,
@@ -249,6 +246,51 @@ internal sealed partial class ViewerApplication : IDisposable
     /// coordinates, so if something is covering the viewer the click lands in that instead — the
     /// fallback would do the very thing the guard exists to prevent.
     /// </remarks>
+    /// <summary>Clicks in the middle of an element, refusing to click anywhere else.</summary>
+    /// <param name="automationId">The element to click in.</param>
+    /// <param name="button">Which button.</param>
+    /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
+    /// <remarks>
+    /// **A click is synthesized at SCREEN coordinates**, so it lands in whatever window happens to
+    /// be at that point — the hazard `PressKey` documents and refuses to fall back to. It is needed
+    /// here because mouse buttons are bound actions in Source and the only way to prove the viewer
+    /// acts on one is to actually click it (B145).
+    ///
+    /// **So it carries the same guard, and for a stronger reason.** A misdirected keystroke types
+    /// into somebody's work; a misdirected click *presses a button* in it. The foreground is taken
+    /// and verified first, and this throws rather than clicking on a maybe.
+    ///
+    /// The point is computed from the element's own bounding rectangle rather than from a stored
+    /// position, because the window moves — full-screen tests in this same suite move it.
+    /// </remarks>
+    public void Click(string automationId, MouseButton button = MouseButton.Left)
+    {
+        Window.SetForeground();
+
+        if (!HasFocus())
+        {
+            TakeForeground();
+        }
+
+        if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
+        {
+            throw new InvalidOperationException(
+                $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
+                "the click would be delivered into whatever window is in front of it.");
+        }
+
+        System.Drawing.Rectangle bounds = Find(automationId).BoundingRectangle;
+
+        Mouse.Click(
+            new System.Drawing.Point(
+                bounds.Left + (bounds.Width / 2),
+                bounds.Top + (bounds.Height / 2)),
+            button);
+    }
+
+    /// <summary>Presses a key at the viewer, refusing to press it anywhere else.</summary>
+    /// <param name="key">The key to type.</param>
+    /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
     public void PressKey(VirtualKeyShort key)
     {
         Window.SetForeground();
