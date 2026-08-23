@@ -13,10 +13,10 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// state. It also means the automation ids sit next to the controls they name.
 ///
 /// The bar holds no timer and drives no playback. It reports what the user asked for through
-/// <see cref="TickChanged"/> and <see cref="PlayingChanged"/>, and shows whatever tick it is told
+/// <see cref="Scrubbed"/> and <see cref="PlayPauseToggled"/>, and shows whatever tick it is told
 /// about — so playback can be driven by the render loop later without this control changing.
 /// </remarks>
-internal sealed class TransportBar : UserControl
+internal sealed class TransportBar : UserControl, IPlaybackView
 {
     /// <summary>Automation id of the play/pause button.</summary>
     public const string PlayButtonId = "PlayPauseButton";
@@ -96,7 +96,7 @@ internal sealed class TransportBar : UserControl
             Top = 8,
             Enabled = false,
         };
-        _playPause.Click += (_, _) => Playing = !Playing;
+        _playPause.Click += (_, _) => TogglePlayingByUser();
 
         _faster = Shuttle(
             FasterButtonId, ">>", "Faster", "Steps the speed up, to a maximum of eight times.");
@@ -172,13 +172,13 @@ internal sealed class TransportBar : UserControl
     }
 
     /// <summary>Raised when the user moves the scrub bar.</summary>
-    public event EventHandler<int>? TickChanged;
+    public event EventHandler<TickEventArgs>? Scrubbed;
 
     /// <summary>Raised when playback is started or paused.</summary>
-    public event EventHandler<bool>? PlayingChanged;
+    public event EventHandler<PlayingEventArgs>? PlayPauseToggled;
 
     /// <summary>Raised when the speed changes; negative means reverse.</summary>
-    public event EventHandler<double>? SpeedChanged;
+    public event EventHandler<SpeedEventArgs>? SpeedChanged;
 
     /// <summary>Whether playback is running.</summary>
     /// <remarks>
@@ -204,8 +204,25 @@ internal sealed class TransportBar : UserControl
             // disagree about.
             _playPause.Text = _playing ? "Pause" : "Play";
             _playPause.AccessibleName = _playing ? "Pause" : "Play";
-            PlayingChanged?.Invoke(this, _playing);
         }
+    }
+
+    /// <summary>Toggles playback as the USER, raising <see cref="PlayPauseToggled"/>.</summary>
+    /// <remarks>
+    /// **The setter above deliberately does not raise, and this is why.** It used to, which
+    /// conflated two different things: the user pressing the button, and somebody assigning the
+    /// property. `SetDemoLength` assigns it, and the presenter assigns it when playback reaches an
+    /// end — so a raising setter meant the presenter re-entered its own handler through the control
+    /// it had just updated.
+    ///
+    /// The control already drew this distinction for ticks: `ShowTick` moves the readout "without
+    /// raising TickChanged". Playing simply never got the same treatment, and the gap only became
+    /// visible when `IPlaybackView` had to write the rule down (D62).
+    /// </remarks>
+    private void TogglePlayingByUser()
+    {
+        Playing = !Playing;
+        PlayPauseToggled?.Invoke(this, new PlayingEventArgs(_playing));
     }
 
     /// <summary>The tick currently shown.</summary>
@@ -241,7 +258,7 @@ internal sealed class TransportBar : UserControl
         UpdateTickLabel();
     }
 
-    /// <summary>Moves the readout and scrub bar without raising <see cref="TickChanged"/>.</summary>
+    /// <summary>Moves the readout and scrub bar without raising <see cref="Scrubbed"/>.</summary>
     /// <param name="tick">Tick to show; clamped to the demo's range.</param>
     /// <remarks>
     /// Used by playback to report where it has got to. Raising the event here would feed the
@@ -261,7 +278,7 @@ internal sealed class TransportBar : UserControl
 
         if (!_suppressScrubEvent)
         {
-            TickChanged?.Invoke(this, _scrub.Value);
+            Scrubbed?.Invoke(this, new TickEventArgs(_scrub.Value));
         }
     }
 
@@ -329,7 +346,7 @@ internal sealed class TransportBar : UserControl
         _speedIndex = Math.Clamp(_speedIndex + direction, 0, Speeds.Length - 1);
 
         UpdateSpeedLabel();
-        SpeedChanged?.Invoke(this, Speeds[_speedIndex]);
+        SpeedChanged?.Invoke(this, new SpeedEventArgs(Speeds[_speedIndex]));
     }
 
     private void Seek(int tick)

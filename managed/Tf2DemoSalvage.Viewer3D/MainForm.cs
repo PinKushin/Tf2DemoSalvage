@@ -235,7 +235,7 @@ internal class MainForm : Form
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
 
-    /// <summary>Real time since the last advance, which is what the clock consumes.</summary>
+    /// <summary>Owns playback: what the transport controls mean, and where the demo has got to.</summary>
     /// <remarks>
     /// **Playback rides the idle loop rather than a timer of its own.** A first version used a
     /// 15 ms timer that invalidated the viewport on every firing - and the viewer already redraws
@@ -244,9 +244,15 @@ internal class MainForm : Form
     /// this: a timer would keep presenting underneath it.
     ///
     /// Advancing in the idle loop is also closer to what an engine does: a frame takes however long
-    /// it takes, and the clock is told how long that was.
+    /// it takes, and the clock is told how long that was. That is why the presenter exposes
+    /// <see cref="PlaybackPresenter.Advance"/> for the host to call rather than running a clock of
+    /// its own — the host owns the frame, and the presenter owns what a frame MEANS.
+    ///
+    /// **The rules it carries used to be four methods and a stopwatch in this file (D62)** and could
+    /// not be tested here at all: reaching them needed a form and a message pump. They now have
+    /// sixteen tests that run in milliseconds with no window.
     /// </remarks>
-    private readonly Stopwatch _playWatch = new();
+    private readonly PlaybackPresenter _playback;
 
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
     private bool _texturesUploaded;
@@ -536,56 +542,26 @@ internal class MainForm : Form
 
         _transport = new TransportBar();
 
-        // **The tick drives the picture.** Scrubbing and playing both raise this, so the viewer
-        // has one path from "which moment" to "who is where" rather than two that can disagree.
-        _transport.TickChanged += (_, tick) =>
+        // **Playback belongs to a presenter now, not to this form (D62).** What used to be three
+        // event handlers and a stopwatch here — scrub, play/pause, speed, each with a rule about
+        // when to restart the watch — is `PlaybackPresenter`, which knows nothing about WinForms
+        // and has sixteen tests. None of that logic could be tested while it lived in this file.
+        //
+        // The form keeps exactly one job in this area: the moment changed, so redraw.
+        _playback = new PlaybackPresenter(_transport, new StopwatchTime());
+
+        _playback.MomentChanged += (_, moment) =>
         {
+            // **The tick drives the picture.** Scrubbing and playing both arrive here, so the
+            // viewer has one path from "which moment" to "who is where" rather than two that can
+            // disagree.
             if (_timeline is null)
             {
                 return;
             }
 
-            // A scrub is a seek: the clock takes the new position outright and drops whatever
-            // part-tick it had accumulated, or the next tick after a drag arrives early.
-            _clock?.Seek(tick);
-
-            ShowMoment(tick);
+            ShowMoment(moment.Position);
             _viewport.Invalidate();
-        };
-
-        _transport.PlayingChanged += (_, playing) =>
-        {
-            if (playing && _clock is not null)
-            {
-                // **Restart the watch, not just the timer.** Whatever real time passed while
-                // paused is not playback time, and feeding it to the clock on the first tick would
-                // jump the demo forward by however long the user was reading the map.
-                _playWatch.Restart();
-            }
-            else
-            {
-                _playWatch.Reset();
-            }
-        };
-
-        // **The scale is applied to elapsed time, not to the tick rate**, which is how Valve's own
-        // replay editor does it (replayperformanceeditor.cpp multiplies its elapsed by
-        // host_timescale). Scaling the rate instead would move the current position the instant
-        // the speed changed, because the position is measured in ticks.
-        _transport.SpeedChanged += (_, speed) =>
-        {
-            if (_clock is not { } clock)
-            {
-                return;
-            }
-
-            clock.TimeScale = speed;
-
-            // Restarted so the frame that straddles the change is not counted at the new speed.
-            if (_transport.Playing)
-            {
-                _playWatch.Restart();
-            }
         };
 
         _status = new ToolStripStatusLabel
@@ -3047,6 +3023,9 @@ internal class MainForm : Form
                 // at the wrong rate reads as a slow or fast server rather than as a defect.
                 _clock = new PlaybackClock(_timeline.IntervalPerTick, _demo.LastTick);
 
+                // The presenter owns playback over this clock from here (D62).
+                _playback.Load(_clock);
+
                 // **Playback can be started by the environment, for measurement — and it has to
                 // happen HERE, after the clock exists.** A demo's first tick is before the match
                 // begins: no capture points, no holograms, nobody carrying anything. A
@@ -3503,43 +3482,7 @@ internal class MainForm : Form
     /// and asking for a repaint as well is what made the mouse sluggish over the transport
     /// buttons - paint messages queued faster than the pump could drain them.
     /// </remarks>
-    private void AdvancePlayback()
-    {
-        if (!_transport.Playing || _clock is not { } clock || _timeline is null)
-        {
-            return;
-        }
-
-        double elapsed = _playWatch.Elapsed.TotalSeconds;
-
-        if (elapsed <= 0)
-        {
-            return;
-        }
-
-        _playWatch.Restart();
-
-        // **A stall is not elapsed playback time.** Loading a map, dragging the window by its title
-        // bar or a world rebuild all stop the loop for a while, and feeding that whole gap to the
-        // clock teleports the demo forward by however long the hitch was. Capping the step turns a
-        // hitch into a brief slowdown instead, which is what an engine does with its frame time.
-        elapsed = Math.Min(elapsed, MaximumFrameSeconds);
-        clock.Advance(elapsed);
-
-        _transport.ShowTick(clock.Tick);
-
-        // **The clock's fractional position, not its whole tick.** Truncating here would snap
-        // every pose to the last packet and make the interpolation layer a no-op that still
-        // passed every one of its own tests.
-        ShowMoment(clock.Position);
-
-        // Whichever end it is travelling towards: stopping only at the end would leave reverse
-        // playback spinning against tick zero, still claiming to play.
-        if ((clock.TimeScale > 0 && clock.AtEnd) || (clock.TimeScale < 0 && clock.AtStart))
-        {
-            _transport.Playing = false;
-        }
-    }
+    private void AdvancePlayback() => _playback.Advance();
 
     /// <summary>Renders continuously for as long as Windows has nothing else for this thread.</summary>
     /// <remarks>

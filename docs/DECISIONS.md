@@ -3222,3 +3222,53 @@ fractional position going the other way.
 `MainForm` still owns its copy. The presenter is built beside it, per D59, and the form is switched
 over only when the replacement covers it — with the old code deleted in the commit that proves it,
 not left as a fossil.
+
+## D63 — the playback presenter is wired, and writing its interface found a real bug
+
+**D62 built the presenter beside the form; this connects it and deletes what it replaced**, which is
+the order D59 requires — the old code goes in the commit that proves the replacement covers it,
+rather than being left as a fossil nobody dares remove.
+
+`TransportBar` now implements `IPlaybackView` directly. It *is* the view, so an adapter would have
+been a second object doing nothing but renaming events.
+
+| | before | after |
+|---|---|---|
+| `MainForm.cs` | 4,436 lines | **4,379** |
+| playback logic in the form | 3 event handlers, `AdvancePlayback`, a `Stopwatch` | `_playback.Advance()` and one redraw handler |
+| tests over that logic | **0** | **16** |
+
+### Writing the interface found a defect that had always been there
+
+`IPlaybackView` documents that setting `Playing` must **not** raise `PlayPauseToggled`, or the
+presenter re-enters its own handler. Writing that rule down forced a look at the real control, and
+**`TransportBar.Playing`'s setter raised the event** — so the contract was violated by the very
+control the interface was written for.
+
+That conflated two genuinely different things: *the user pressed the button*, and *somebody assigned
+the property*. `SetDemoLength` assigns it, and the presenter assigns it when playback reaches an end.
+
+**The control already knew this distinction and had simply never applied it here.** `ShowTick`'s own
+summary says it moves the readout "without raising `Scrubbed`" — ticks had the rule, playing did
+not. The fix is `TogglePlayingByUser()` for the button, leaving the setter to update state and
+labels only.
+
+**This is the argument for interfaces stated concretely.** The bug was invisible while the form and
+the control were one tangle, because the form never assigned `Playing` from a path that could
+re-enter. It became visible the moment the boundary had to be *written down* — which is the same
+mechanism as D54's compiler-enforced boundary, one level up: the compiler enforces what you write,
+and writing it is what makes you look.
+
+### Verification
+
+All seven suites green, and **the UI suite too — 12 tests under `run-exclusive.ps1`** — which is the
+one that actually drives the transport control whose event contract changed. Running it was not
+optional here: `docs/memory/ui-tests-run-every-time.md` says every change, and this change is
+precisely the kind the ordinary suites cannot see.
+
+### What is left
+
+Playback is one concern of roughly seven still in the form: camera, demo library and playlist, map
+loading, scene composition, render-loop hosting, settings and full screen, capture. The pattern is
+now proven end to end on the smallest of them, which was the point of doing it first — extracting
+six more on an unvalidated pattern is how a design flaw arrives six presenters late.
