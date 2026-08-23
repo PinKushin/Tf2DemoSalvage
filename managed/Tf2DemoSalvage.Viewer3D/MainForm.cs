@@ -3172,6 +3172,57 @@ internal class MainForm : Form
         _viewport.Invalidate();
     }
 
+    /// <summary>Environment variable naming where captures are written.</summary>
+    /// <remarks>
+    /// **This exists because the UI suite deleted the owner's screenshots.** Captures were written
+    /// beside the log and pruned to the newest twenty, and the capture tests press F12 — so every
+    /// run of the suite wrote captures and evicted older ones. A day of chasing B146 and B148 spent
+    /// the entire development history of hand-taken shots, and the loss was only noticed when a
+    /// "before" image was wanted and there was none.
+    ///
+    /// > *"the test runs and the manual SS's should not be on the same thing captures kept though,
+    /// > test SS's can literally be deleted immedietly, i dont look at them, they are worthless,
+    /// > because we are not comparing them to a golden image. i need the manual SS's"*
+    ///
+    /// **It solves a second problem at the same time.** Raising the limit was the obvious answer and
+    /// is the wrong one here: the owner's C: drive is nearly full, and captures were already found
+    /// occupying 203 MB once. Pointing this at another drive keeps as many as somebody wants without
+    /// spending the disk that is short.
+    /// </remarks>
+    public const string CaptureFolderVariable = "TF2VIEW_CAPTURE_FOLDER";
+
+    /// <summary>Where captures are written; beside the log unless told otherwise.</summary>
+    /// <remarks>
+    /// Falls back rather than failing when the named folder cannot be made: a screenshot is not
+    /// worth refusing to run over, and the log says where it actually went.
+    /// </remarks>
+    public static string CaptureFolder
+    {
+        get
+        {
+            string beside = Path.GetDirectoryName(ViewerLog.Path) ?? ".";
+            string? wanted = Environment.GetEnvironmentVariable(CaptureFolderVariable);
+
+            if (string.IsNullOrWhiteSpace(wanted))
+            {
+                return beside;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(wanted);
+                return wanted;
+            }
+            catch (Exception failure) when (
+                failure is IOException or UnauthorizedAccessException or ArgumentException
+                    or NotSupportedException)
+            {
+                ViewerLog.Warn("render", $"cannot write captures to {wanted}", failure);
+                return beside;
+            }
+        }
+    }
+
     /// <summary>Captures the viewport to a stamped file beside the log.</summary>
     /// <remarks>
     /// The one place that decides where a screenshot goes, so the menu item and F12 cannot
@@ -3180,7 +3231,7 @@ internal class MainForm : Form
     /// </remarks>
     public void CaptureViewportToFile()
     {
-        string folder = Path.GetDirectoryName(ViewerLog.Path) ?? ".";
+        string folder = CaptureFolder;
 
         CaptureViewport(Path.Combine(folder, CaptureName(DateTime.Now)));
 
@@ -3192,6 +3243,12 @@ internal class MainForm : Form
         // fifty logs is a few megabytes and fifty captures is most of a gigabyte. It is not zero,
         // because a capture is taken deliberately — somebody pressed a key — and the recent ones
         // are usually the comparison being made.
+        //
+        // **The limit was never the thing that lost the history, though.** Captures went beside the
+        // log and the UI suite presses F12, so a dozen test runs in a day evicted every hand-taken
+        // shot the project had. That is fixed by TF2VIEW_CAPTURE_FOLDER — the tests write somewhere
+        // else and can only delete each other — rather than by raising this, which would spend a
+        // disk that is already short.
         //
         // After the write, matching the log path, and for the same reason: pruning first lets
         // concurrent writers each trim to the limit and then each add one.

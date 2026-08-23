@@ -227,6 +227,34 @@ internal sealed partial class ViewerApplication : IDisposable
     private string? _readPath;
     private long _readTo;
 
+    /// <summary>Where viewers launched by tests write their captures.</summary>
+    /// <remarks>
+    /// **The UI suite deleted the owner's screenshots, and this is the fix.** Captures went beside
+    /// the log and are pruned to the newest twenty; the capture tests press F12, so every run wrote
+    /// captures and evicted older ones. A day of test runs spent the whole development history of
+    /// hand-taken shots, and it was noticed only when a "before" image was wanted and there was
+    /// none.
+    ///
+    /// > *"the test runs and the manual SS's should not be on the same thing captures kept though,
+    /// > test SS's can literally be deleted immedietly, i dont look at them, they are worthless,
+    /// > because we are not comparing them to a golden image. i need the manual SS's"*
+    ///
+    /// So a test's captures go to a temporary folder of their own, where they can evict nothing but
+    /// each other, and the folder is deleted when the viewer is. **They are not compared against a
+    /// golden image**, so nothing is lost by discarding them — the assertion is that a capture was
+    /// written at all, which the file's existence answers before it goes.
+    /// </remarks>
+    private static readonly string TestCaptureFolder = Path.Combine(
+        Path.GetTempPath(), "tf2ds-ui-captures", Guid.NewGuid().ToString("N"));
+
+    /// <summary>Where this run's captures land, for the tests that read them back.</summary>
+    /// <remarks>
+    /// **Asked for rather than recomputed.** Two fixtures each built this path from
+    /// `LocalApplicationData` themselves, so moving it broke both — one fact in two places, which is
+    /// what the single-seam rule at the top of this file exists to avoid.
+    /// </remarks>
+    public static string CaptureFolder => TestCaptureFolder;
+
     /// <summary>Launches the viewer, optionally opening paths at startup.</summary>
     /// <param name="arguments">Files or folders, as a file association would pass them.</param>
     /// <returns>The running application.</returns>
@@ -234,6 +262,10 @@ internal sealed partial class ViewerApplication : IDisposable
     public static ViewerApplication Launch(params string[] arguments)
     {
         string executable = LocateExecutable();
+
+        // Set on this process so every viewer it starts inherits it — the launch goes through
+        // FlaUI, which does not expose the child's environment.
+        Environment.SetEnvironmentVariable(MainForm.CaptureFolderVariable, TestCaptureFolder);
 
         // **Geometry is inherited, never forced.** The viewer honours TF2VIEW_WINDOW_SIZE and
         // TF2VIEW_WINDOW_POS if they are set, and these tests simply do not set them - so a local
@@ -761,6 +793,24 @@ internal sealed partial class ViewerApplication : IDisposable
         }
 
         _automation.Dispose();
+
+        // **The captures this run wrote, thrown away.** They are not compared against a golden
+        // image, so the only claim any test makes about them is that one was written — which the
+        // assertion has already checked by the time this runs. Keeping them would put test output
+        // back in competition with hand-taken screenshots, which is the thing this folder exists to
+        // prevent.
+        try
+        {
+            if (Directory.Exists(TestCaptureFolder))
+            {
+                Directory.Delete(TestCaptureFolder, recursive: true);
+            }
+        }
+        catch (Exception failure) when (
+            failure is IOException or UnauthorizedAccessException)
+        {
+            Log($"could not remove {TestCaptureFolder}: {failure.Message}");
+        }
         _application.Dispose();
     }
 

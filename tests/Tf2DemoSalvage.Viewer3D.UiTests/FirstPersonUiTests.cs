@@ -234,9 +234,9 @@ public sealed class FirstPersonUiTests
     /// <returns>How many distinct colours the newest capture holds.</returns>
     private static int ReportStructure()
     {
-        string folder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Tf2DemoSalvage");
+        // The suite's own capture folder, not the viewer's — test captures are kept away from
+        // hand-taken screenshots, which they used to evict.
+        string folder = ViewerApplication.CaptureFolder;
 
         string? newest = Directory.EnumerateFiles(folder, "shot-*.png")
             .OrderBy(name => name, StringComparer.Ordinal)

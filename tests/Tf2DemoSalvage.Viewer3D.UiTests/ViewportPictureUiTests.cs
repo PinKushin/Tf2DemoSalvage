@@ -27,10 +27,14 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class ViewportPictureUiTests
 {
-    /// <summary>Where the viewer writes its captures, beside its log.</summary>
-    private static string ViewerFolder => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Tf2DemoSalvage");
+    /// <summary>Where a viewer launched by this suite writes its captures.</summary>
+    /// <remarks>
+    /// **Not beside the log any more, and that is the point.** Captures are pruned to the newest
+    /// twenty and this suite presses F12, so writing them into the viewer's own folder meant a day
+    /// of test runs deleted every screenshot the owner had taken by hand. Tests now write to a
+    /// temporary folder of their own and delete it afterwards.
+    /// </remarks>
+    private static string ViewerFolder => ViewerApplication.CaptureFolder;
 
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
     private static ViewerApplication _viewer => ViewerSession.App;
