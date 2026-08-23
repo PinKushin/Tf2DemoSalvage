@@ -395,6 +395,14 @@ public sealed class MapAssets
     /// <summary>Valve's luxel grid, drawn at lightmap coordinates for <c>mat_luxels</c>, or null.</summary>
     public MapTexture? LuxelGrid { get; private init; }
 
+    /// <summary>What Valve draws in place of a model that will not load.</summary>
+    /// <remarks>
+    /// <c>game/server/props.cpp:245</c> — <c>SetModelName( AllocPooledString( "models/error.mdl" ) )</c>
+    /// — and <c>detailobjectsystem.cpp:1603</c> loads the same for a detail prop. A solid mesh
+    /// rather than a chequer, because a chequer needs a surface and a missing model has none.
+    /// </remarks>
+    public const string ErrorModel = "models/error.mdl";
+
     /// <summary>The specular highlight for each material, null for those without one.</summary>
     /// <remarks>
     /// **330 of cp_process's materials ask for this**, which made it the largest single unimplemented
@@ -694,6 +702,12 @@ public sealed class MapAssets
 
             int loaded = 0;
 
+            // **Loaded lazily, and only if something is actually missing.** A map where every model
+            // resolves should not pay for reading one it will never draw, and an install that lacks
+            // error.mdl should not have that reported until the moment it would have mattered.
+            PropModels.ModelFrames? error = null;
+            bool triedError = false;
+
             foreach (string path in entityModels)
             {
                 PropModels.ModelFrames? frames = PropModels.LoadFrames(
@@ -712,6 +726,43 @@ public sealed class MapAssets
                 {
                     models[path] = frames;
                     loaded++;
+                    continue;
+                }
+
+                // **Valve substitutes a model rather than drawing nothing, and so does this now.**
+                // `game/server/props.cpp:245` does `SetModelName( AllocPooledString(
+                // "models/error.mdl" ) )` when a prop's model is missing, and
+                // `detailobjectsystem.cpp:1603` loads the same. The asymmetry against a missing
+                // MATERIAL is deliberate on Valve's part: an unresolved material has a surface to
+                // put a chequer on, and a model that failed to load has no surface at all, so the
+                // only way to report it is to put something there.
+                //
+                // Drawing nothing is the failure mode this project already has a memory about — a
+                // hole reads as art direction and nobody investigates it, while something wrong and
+                // loud gets reported. Until now the count was logged and the screen said nothing.
+                if (!triedError)
+                {
+                    triedError = true;
+
+                    error = PropModels.LoadFrames(
+                        ErrorModel, pak, archives, table, ResolveProp, mustSkin: false);
+
+                    if (error is not { Geometry.Count: > 0 })
+                    {
+                        error = null;
+
+                        ViewerLog.Warn(
+                            "assets",
+                            $"{ErrorModel} did not load either, so a missing model draws nothing");
+                    }
+                }
+
+                if (error is { } stand)
+                {
+                    models[path] = stand;
+
+                    ViewerLog.Warn(
+                        "assets", $"{path} did not load; drawing Valve's error model in its place");
                 }
             }
 

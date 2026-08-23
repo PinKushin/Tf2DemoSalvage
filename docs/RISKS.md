@@ -9573,3 +9573,38 @@ has already been removed. This is the same removal, deferred with it because `Ma
 
 Worth doing at the same time, and worth knowing in the meantime: what appears during load is not the
 world failing to draw, it is a different and much older thing succeeding.
+
+## B158 — one VTX file is rejected by one load path and accepted by another — OPEN
+
+`models/props_ui/comp_stage_cam.mdl` is the only model cp_process_f12 fails to load, and it is not
+missing content: it ships in `tf2_misc_dir.vpk`, and its index file passes the checksum test — which
+is the engine's own check that the `.mdl`, `.vvd` and `.vtx` are one compiled set.
+
+```
+WARN [props] reading models/props_ui/comp_stage_cam.mdl:
+  InvalidDataException: An index file's strip groups do not fit either known layout.
+```
+
+**And then it loads anyway, seven seconds later**, through the other path:
+
+```
+[render] bodygroups models/props_ui/comp_stage_cam.mdl: 1 parts, 1 batches spanning 1 alternatives
+[props]  extents   models/props_ui/comp_stage_cam.mdl: x 17.2 y 82.6 z 66.3, 1 baked frames
+[render] drawing 276 posed models: ... 1xcomp_stage_cam ...
+```
+
+So the same file is rejected by the entity-model preload and accepted by whatever runs after it.
+**That disagreement is the finding**, and it is worth more than the missing model: one of the two is
+wrong about a file both can see, and until it is known which, neither result can be trusted for any
+other model.
+
+**Where to start.** `StudioTriangles.Read` enumerates two candidate layouts — the classic
+`StripGroupHeader_t` and the larger one CS:GO added with topology fields — and accepts whichever
+produces offsets that land inside the data. Its own remark calls that "enumeration of two known
+layouts settled by measurement, not a guess with a fallback". A file that fits neither says either
+there is a third layout, or the acceptance test is too strict and rejects a valid one. TF2's
+competitive assets date from 2016 and later, well after that struct grew, so a third variant is
+plausible rather than exotic.
+
+**Do not treat the error-model substitution as a fix for this.** B157 makes a failed load visible
+instead of invisible, which is why this was noticed at all; it does not make the load succeed.
