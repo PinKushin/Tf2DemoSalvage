@@ -9394,3 +9394,63 @@ Known members so far:
 If the sweep returns thirty entries the rewrite argument is evidence-backed and should win. If it
 returns these plus a few, it is an afternoon of fixes and everything else is kept. **Either way the
 decision stops being a feeling.**
+
+## B156 — Valve's entity colours ship in the FGDs and we do not use them — OPEN
+
+The owner asked the right question about the category view: "valve has to have a way to display this
+kinda information in hammer even if its not ingame, so can we look there and see if we are missing
+anything."
+
+**Hammer's source is not in `source-sdk-2013`.** `src/utils` carries vbsp, vrad, vvis, glview,
+vtf2tga and the rest, and no hammer. So its render modes cannot be read the way the shaders can.
+
+**Its colour data ships anyway**, in `bin/base.fgd`, `bin/halflife2.fgd` and `bin/tf.fgd`, as a
+per-class palette — `@SolidClass color(0 180 0) = func_detail`, `color(0 255 255)` for
+`func_areaportal` and `func_occluder`, `color(0 0 255)` for `sky_camera` and `env_cubemap`. `tf.fgd`
+also carries two `@AutoVisGroup` blocks, which are Valve's own grouping of entity classes by
+function.
+
+**What that does and does not give us.** Valve categorises ENTITIES; the category view categorises
+SURFACE KINDS. Hammer never needs brush-versus-terrain-versus-prop-versus-overlay because it edits
+the `.vmf`, where those are structural rather than derived from a compiled BSP — so there is nothing
+to copy for our five categories and that taxonomy stays ours.
+
+The gap is entities, which the view does not colour at all: a brush entity currently reads as
+brushwork and a prop as a prop, with nothing saying which is a door, an areaportal or the sky
+camera. Colouring those from the FGD would match Hammer exactly and costs only a parser for a file
+format we already have reason to read.
+
+**Worth doing when entity drawing next gets attention**, and worth doing with `@AutoVisGroup` at the
+same time, because the grouping is what makes a palette of two hundred classes legible.
+
+**Hammer is a reference, never a parity target — owner's direction, 2026-08-23.** Hammer is not
+open: `src/utils` in `source-sdk-2013` ships vbsp, vrad, vvis and glview and no hammer, and the
+only source that exists is in the 2003 and 2020 leaks, which this project has declined. Its
+binaries do ship (`hammer_dll.dll`, 5.8 MB, carrying its render-mode strings), so decompiling it
+is available under this project's ordinary rules.
+
+**The point is not that it is forbidden, and an earlier draft of this entry got that wrong.** The
+owner's correction:
+
+> "dont avoid doing it per se, but it really shouldnt ever need to be done since we are not
+> reversing or emulating hammer, we are emulating tf2"
+
+Which is the distinction that matters. Every other decompilation in this project targets something
+we are trying to REPRODUCE — the material system, the shaders, the engine's own behaviour — and is
+justified because matching it is the requirement. Hammer is a level editor. Nothing it does is
+behaviour this viewer has to match, so its internals can only ever suggest a presentation idea,
+never settle a question. That is a reason it should not come up, not a rule against it: if a
+specific question ever genuinely needs it, take it, and say what could not be answered any other
+way.
+
+**Where it HAS been relevant is worth naming, because it is a short list and it predicts the next
+time.** The owner: "hammer itself has been irrelevant, except for stuff like this specific question
+on colors and what valve ships in bsps." Both of those are Hammer as the thing that WROTE the file
+we are reading — its conventions for presenting map contents, and its account of what actually ends
+up in a compiled BSP. Neither is Hammer as a program to imitate. A future question of that shape is
+worth taking to Hammer's documentation and shipped data; a question about how something is DRAWN
+never is, because the answer is in the engine.
+
+The FGDs above are a different case entirely, and not an exception to this. They are shipped DATA
+read by the game's own tools, so they are the authoritative palette rather than a description of
+one — the same category as `items_game.txt` or `modevents.res`.

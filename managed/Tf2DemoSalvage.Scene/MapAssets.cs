@@ -389,6 +389,9 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<MapPlacedCubemap> PlacedCubemaps { get; private init; } = [];
 
+    /// <summary>Valve's measurement grid, drawn under the category colours, or null.</summary>
+    public MapTexture? DevGrid { get; private init; }
+
     /// <summary>The specular highlight for each material, null for those without one.</summary>
     /// <remarks>
     /// **330 of cp_process's materials ask for this**, which made it the largest single unimplemented
@@ -815,7 +818,73 @@ public sealed class MapAssets
             PlacedCubemaps = LoadPlacedCubemaps(map, pak, maximumTextureSize),
             Phong = table.Phong,
             LightWarps = table.LightWarps,
+            DevGrid = LoadDevGrid(archives, maximumTextureSize),
         };
+    }
+
+    /// <summary>Valve's measurement grid, for the category view, or null if the game lacks it.</summary>
+    /// <remarks>
+    /// **Valve's own texture rather than one generated here**, on the owner's direction: "if our
+    /// placeholders match valves, and our colors match valves then things become easily compared and
+    /// you only have one legend to remember". A capture from this viewer and a shot of the same
+    /// place in Hammer or in the game's dev mode then read the same way.
+    ///
+    /// **Candidates in order, and the order is deliberate.** `dev_measuregeneric01` is the classic
+    /// orange-and-grey grid and ships with Half-Life 2, whose archives TF2's own `gameinfo.txt`
+    /// mounts after its own — so it is reachable without TF2 shipping it. TF2 ships team-coloured
+    /// variants, which are the fallback: they carry the same printed dimensions and differ only in
+    /// hue, and the hue is overwritten by the category tint anyway.
+    ///
+    /// Null when none of them resolve, which the renderer treats as "flat colours, as before". A
+    /// missing debug texture must not stop a map drawing.
+    /// </remarks>
+    private static MapTexture? LoadDevGrid(GameArchives archives, int maximumTextureSize)
+    {
+        foreach (string name in new[]
+        {
+            "materials/dev/dev_measuregeneric01.vtf",
+            "materials/dev/dev_measuregeneric01blu.vtf",
+            "materials/dev/dev_measurewall01blu.vtf",
+        })
+        {
+            byte[]? file;
+
+            try
+            {
+                file = archives.Read(name);
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            {
+                ViewerLog.Warn("assets", $"reading {name}", failure);
+                continue;
+            }
+
+            if (file is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
+
+                ViewerLog.Write(
+                    "assets",
+                    $"category view uses {name} ({decoded.Width}x{decoded.Height} {decoded.Format})");
+
+                return new MapTexture(decoded.Width, decoded.Height, decoded.Image, false);
+            }
+            catch (InvalidDataException failure)
+            {
+                ViewerLog.Warn("assets", $"decoding {name}", failure);
+            }
+        }
+
+        ViewerLog.Warn(
+            "assets",
+            "no dev measurement texture found; the category view falls back to flat colours");
+
+        return null;
     }
 
     private static LightmapAtlas PackLighting(ReadOnlyMemory<byte> map)
