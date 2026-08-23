@@ -3416,3 +3416,54 @@ about to be deleted. The placement above is the piece that makes the removal pos
 first and the presenter is shaped by what survives.
 
 Presentation floor 26 → 46.
+
+## D67 — the free camera starts above the map, and why the skybox does not break that
+
+**Owner, 2026-08-22:** *"set the free cam to have a start position thats not under the map"* — and,
+on being shown the anchor: *"im not sure how well highest point is going to work because technically
+the skybox can be placed anywhere outside teh main map"*.
+
+### The bug that was there
+
+The entry placement orbited `FreeFocus()`, which anchored to **`_heightRange.Lowest` plus an eye
+height**. Its comment gives the reasoning, and the reasoning is sound as far as it goes: the middle
+of a map's vertical range is nowhere anybody stands, because that range includes the skybox and the
+basements.
+
+**The correction overshot.** The *lowest* drawn geometry is a basement floor or the underside of a
+displacement, so entering the free view started the camera below the map rather than above it.
+
+### The skybox objection, and why it is already handled
+
+It is a real hazard — a TF2 map carries its 3D skybox as ordinary world geometry at reduced scale,
+placed at an arbitrary offset — but this project solved it before, twice over, and the height range
+already inherits both fixes:
+
+- **`MapOutline.MainBounds` is the largest connected cluster of geometry.** Measured across nine
+  shipped maps, that cluster holds 91.1%–99.7% of all points, and the outliers are single digits.
+- **`_heightRange` is computed against those bounds**, not the whole file:
+  `MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds)`. So the skybox is excluded in Z as
+  well as in X and Y.
+
+**And `sky_camera` was tried as the marker and rejected**, which is worth repeating because it is the
+obvious thing to reach for: the entity is placed to *view* the skybox room rather than to sit in it,
+and on four of the nine maps it falls outside every cluster of geometry altogether.
+
+### Valve has nothing to copy here
+
+The nearest thing in the engine is `cl_leveloverview`, a developer cvar that renders a top-down view
+so someone can make a radar image — and even that leans on per-map numbers a mapper writes by hand
+into a `.txt`. No Valve game needs "frame this map from above" at runtime, so no engine algorithm
+exists for it. The connected-cluster heuristic is this project's own, and it is measured rather than
+assumed.
+
+### What went with it
+
+`FreeFocus` and `PlayerEyeHeight` are deleted. The constant was correct about Source — `VEC_VIEW` is
+64 for a standing player — but nothing reads it now: the first-person camera takes its eye position
+from the demo rather than from a constant.
+
+**Not yet verified by eye.** The arithmetic is tested and the camera is provably above the highest
+play-area geometry, but whether the framing *looks* right is a UI claim, and the owner has said
+matching the old ortho view exactly is not the concern yet — being above the map rather than under
+it is.

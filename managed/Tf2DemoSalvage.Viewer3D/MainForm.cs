@@ -2428,10 +2428,40 @@ internal class MainForm : Form
                 $"pitch {placed.Pitch:0.##} yaw {placed.Yaw:0.##}");
         }
 
-        // Placed the first time by orbiting what the map view was centred on, so entering the free
-        // view does not move the subject. After that it is a position and it flies.
-        _freeOrigin ??= FreeCamera.Orbiting(
-            FreeFocus(), _freeAngles.Pitch, _freeAngles.Yaw, FreeEntryDistance, aspect).Origin;
+        // **Placed above the map looking down, which is D49's replacement for the ortho camera.**
+        //
+        // It used to orbit `FreeFocus()`, and that put the camera UNDER the map on real maps: the
+        // focus was anchored to `_heightRange.Lowest` — the lowest drawn geometry anywhere in the
+        // file — which on anything with a basement or a deep skybox is far below where anybody
+        // stands. Orbiting a point down there starts the camera down there.
+        //
+        // `OverheadPlacement` anchors to the HIGHEST geometry instead, plus clearance, and takes
+        // whichever is greater of that and the distance needed to frame the play area — so the
+        // camera is above the map on a tall one and far enough back on a wide one (D66).
+        if (_freeOrigin is null && _map is not null)
+        {
+            ((float X, float Y, float Z) origin, float pitch, float yaw) = OverheadPlacement.For(
+                _map.MainBounds.MinX,
+                _map.MainBounds.MinY,
+                _map.MainBounds.MaxX,
+                _map.MainBounds.MaxY,
+                _heightRange is { } range ? range.Highest : 0f,
+                fieldOfView: 75f,
+                aspect: aspect);
+
+            _freeOrigin = origin;
+            _freeAngles = (pitch, yaw);
+
+            ViewerLog.Write(
+                "render",
+                $"free camera placed overhead at ({origin.X:0.##},{origin.Y:0.##},{origin.Z:0.##}) " +
+                $"pitch {pitch:0.##}, framing {_map.MainBounds.MaxX - _map.MainBounds.MinX:0.##} x " +
+                $"{_map.MainBounds.MaxY - _map.MainBounds.MinY:0.##}");
+        }
+
+        // No map yet — a demo whose map failed to load still has to draw something rather than
+        // dividing by a bounds that does not exist.
+        _freeOrigin ??= (0f, 0f, OverheadPlacement.ClearanceAboveGeometry);
 
         return new FreeCamera
         {
@@ -2492,19 +2522,14 @@ internal class MainForm : Form
             values[4]);
     }
 
-    /// <summary>What the free camera is aimed at when it is first entered.</summary>
-    private (float X, float Y, float Z) FreeFocus()
-    {
-        (float centreX, float centreY) = _lookingAt ?? MapCamera().Centre;
-
-        // **The players' height, not the middle of the map.** A map's vertical range includes its
-        // skybox and its basements, so its midpoint is nowhere anybody stands; entering the free
-        // view there put the camera above the rooftops. The lowest drawn geometry plus an eye
-        // height is where the action is.
-        float ground = _heightRange is { } range ? range.Lowest : 0f;
-
-        return (centreX, centreY, ground + PlayerEyeHeight);
-    }
+    // FreeFocus was deleted here on 2026-08-22 (D66). It anchored the free camera's entry placement
+    // to `_heightRange.Lowest` plus an eye height, on the reasoning that the middle of a map's
+    // vertical range is nowhere anybody stands — which is true, and the correction overshot: the
+    // LOWEST drawn geometry is a basement floor or the underside of a displacement, so entering the
+    // free view started the camera below the map rather than above it.
+    //
+    // `OverheadPlacement` replaces it, anchoring to the highest geometry within MainBounds and
+    // taking whichever is greater of that and the distance needed to frame the play area.
 
     /// <summary>World units the free camera moves per wheel notch.</summary>
     /// <remarks>
@@ -2515,12 +2540,11 @@ internal class MainForm : Form
     /// </remarks>
     private const float FlySpeed = 32f;
 
-    /// <summary>Roughly where a player's eyes are above the floor, in world units.</summary>
-    /// <remarks>
-    /// <c>VEC_VIEW</c> is 64 for a standing Source player, which is what a demo is usually watched
-    /// from and a sensible height to arrive at.
-    /// </remarks>
-    private const float PlayerEyeHeight = 64f;
+    // PlayerEyeHeight (VEC_VIEW, 64) went with FreeFocus on 2026-08-22 (D66): the free camera no
+    // longer arrives at a player's eye height above the lowest floor, it arrives above the map
+    // looking down. The constant is still correct about Source and is recorded here in case
+    // anything wants it again — the first-person camera takes its eye position from the demo
+    // rather than from a constant, so nothing does today.
 
     private TopDownCamera MapCamera()
     {
