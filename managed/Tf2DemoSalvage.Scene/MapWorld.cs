@@ -91,6 +91,28 @@ public static class MapWorldBuilder
         int missingMaterials = 0;
         int movingFaces = 0;
 
+        // **What was DROPPED, named by its material, because the totals cannot say.** The counts
+        // above answer "how many did we draw"; every defect where a piece of the map is simply
+        // absent needs the other question, and a face that is skipped leaves no trace at all. A
+        // skip whose material is `tools/`, `sky` or `nodraw` is the compiler's own scaffolding and
+        // is meant to go; a skip naming a real material is geometry the player should be seeing.
+        //
+        // Keyed by reason AND material so the two are never conflated — 815 faces dropped for
+        // being tool surfaces and 815 dropped for a bug in the visibility flags produce the same
+        // number and mean opposite things.
+        Dictionary<string, int> dropped = [];
+
+        void Drop(string reason, int materialIndex)
+        {
+            string material = materialIndex >= 0 && materialIndex < materials.Count
+                ? materials[materialIndex].Name
+                : "<no material>";
+
+            string key = reason + " " + material;
+
+            dropped[key] = dropped.TryGetValue(key, out int seen) ? seen + 1 : 1;
+        }
+
         // **Where the world model ends and the brush entities begin.** models[0] is the world by
         // definition, so every face at or beyond its count belongs to a door, a lift, a cart or
         // some other entity that has to be free to move.
@@ -124,6 +146,8 @@ public static class MapWorldBuilder
             // frame, which is where that decision belongs.
             if (!surface.IsVisible || surface.Vertices.Count < 3)
             {
+                Drop(surface.IsVisible ? "degenerate" : "not-drawn-flag", surface.MaterialIndex);
+
                 continue;
             }
 
@@ -156,6 +180,8 @@ public static class MapWorldBuilder
             // should be grass.
             if (IsToolMaterial(surface.MaterialIndex, materials))
             {
+                Drop("tool-material", surface.MaterialIndex);
+
                 continue;
             }
 
@@ -249,6 +275,14 @@ public static class MapWorldBuilder
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
             $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material; " +
             $"{movingFaces} faces held back for entity models rather than baked into the world");
+
+        // **Every dropped face, by reason and material, most numerous first.** Read this when a
+        // piece of the map is absent: a real material's name in this list is geometry the player
+        // should be seeing, and the reason beside it says which rule removed it.
+        foreach ((string what, int count) in dropped.OrderByDescending(entry => entry.Value))
+        {
+            ViewerLog.Write("render", $"  dropped {count} x {what}");
+        }
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];

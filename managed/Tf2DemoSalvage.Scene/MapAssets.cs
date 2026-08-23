@@ -1329,6 +1329,27 @@ public sealed class MapAssets
             {
                 VtfTexture decoded = VtfTexture.Read(vtf, maximumTextureSize);
 
+                // **Names every material that will be BLENDED, and which key decided it.** A prop
+                // drawn with alpha blending when it should be opaque looks like a lighting fault,
+                // not like a classification fault — the pipes on cp_process read through to the
+                // wall behind them and nothing in any log said the word "translucent". Whether a
+                // surface blends is decided once, here, from three separate keys, so this is the
+                // one place that can answer "why is that see-through" without a debugger.
+                if (material.IsTranslucent || additive || material.IsModulate)
+                {
+                    string why = string.Concat(
+                        material.IsTranslucent ? " translucent" : string.Empty,
+                        additive ? " additive" : string.Empty,
+                        material.IsModulate ? " modulate" : string.Empty);
+
+                    ViewerLog.Write(
+                        "assets",
+                        $"blended '{bare}' shader '{material.Shader}':{why}" +
+                        $" $translucent='{material.Value("$translucent") ?? "-"}'" +
+                        $" $vertexalpha='{material.Value("$vertexalpha") ?? "-"}'" +
+                        $" $alpha='{material.Value("$alpha") ?? "-"}'");
+                }
+
                 return new MapTexture(
                     decoded.Width,
                     decoded.Height,

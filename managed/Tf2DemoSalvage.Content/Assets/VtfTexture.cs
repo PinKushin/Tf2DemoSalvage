@@ -239,9 +239,23 @@ public sealed class VtfTexture
     ///
     /// The renderer switches on the format and never asks which of those it got.
     /// </remarks>
-    public TextureImage Image => IsBlockCompressed
-        ? new TextureImage(Format, Levels)
-        : TextureImage.Rgba(Pixels);
+    public TextureImage Image
+    {
+        get
+        {
+            if (IsBlockCompressed)
+            {
+                return new TextureImage(Format, Levels);
+            }
+
+            if (Pixels.Length > 0)
+            {
+                return TextureImage.Rgba(Pixels);
+            }
+
+            return TextureImage.Rgba(Expand(Levels[0].Span, Format, Width, Height));
+        }
+    }
 
     /// <summary>Reads a texture, keeping DXT blocks compressed for the GPU.</summary>
     /// <param name="file">The VTF's bytes.</param>
