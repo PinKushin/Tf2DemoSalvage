@@ -2477,7 +2477,19 @@ internal class MainForm : Form
             }
         }
 
-        return ((values[0], values[1], values[2]), values[3], values[4]);
+        // **Pitch is clamped to the same ±89 the mouse drag uses**, and this was missing. The drag
+        // clamps because the camera basis is degenerate looking exactly along the world's up axis;
+        // this path did not, so a placement of pitch 90 — which is a perfectly ordinary thing to
+        // copy out of the game's own `ang` readout — put the camera in that degenerate state.
+        //
+        // The visible consequence was in flight rather than here: forward and up cancel at pitch
+        // 90, and the residue left by `cos(90°)` was normalised up to full speed, sending the
+        // camera 300 units sideways. Fixed at both ends (D65) — the movement guards its own
+        // division, and this stops producing an angle the rest of the viewer treats as impossible.
+        return (
+            (values[0], values[1], values[2]),
+            Math.Clamp(values[3], -89f, 89f),
+            values[4]);
     }
 
     /// <summary>What the free camera is aimed at when it is first entered.</summary>

@@ -3305,3 +3305,65 @@ visible only when the rule had to be written into an interface.
 writing an interface is an *inspection*, not paperwork. The sentence you are forced to state — "this
 setter must not raise that event" — is the moment somebody checks whether the real implementation
 obeys it. Nobody had ever had to state it.
+
+## D65 — splitting the key mapping from the flight geometry, and the bug that fell out
+
+**The camera concern, started.** `FreeFlight.Movement` took an `IReadOnlySet<Keys>` and did two
+unrelated jobs: decide that W means forward and Ctrl means down, and then work out where that puts
+the camera given a pitch and a yaw.
+
+- The first is a **view** concern. It is about a keyboard, and rebinding it changes nothing about
+  the movement.
+- The second is trigonometry, and it is the half worth testing.
+
+Welded together, the geometry could only be exercised by constructing WinForms key sets — **which is
+why a function of sines and cosines had no direct tests for weeks.** `FlightInput` is the seam:
+`FreeFlight.Intent` maps keys to axes and stays in the viewer, `FreeFlightPath.Movement` does the
+geometry and lives in the presentation layer.
+
+### The defect this surfaced immediately, and it was reachable
+
+The first run of the new tests went red on the cancellation case, and the cause was inherited rather
+than introduced:
+
+```csharp
+if (length <= 0f)   // "Opposed keys cancelling exactly"
+```
+
+**Floating point almost never produces exactly zero.** Fly forward and up while looking straight
+down and the two cancel — but `cos(90°)` is **−4.4e-8**, not 0. So the length came out at 4.4e-8,
+passed the guard, and the normalisation `travel / length` scaled that residue up to the full travel
+distance: **the camera jumped 300 units sideways instead of standing still.**
+
+**Reachable, not theoretical.** The mouse drag clamps pitch to ±89, with a comment saying the basis
+is degenerate looking along the world's up axis — so the author knew. But `ParseCamera`, which reads
+`TF2DEMOSALVAGE_CAMERA` and exists specifically to reproduce an exact viewpoint copied out of the
+game's own `ang` readout, **did not clamp at all**. Pitch 90 is an ordinary thing to copy.
+
+Fixed at both ends, because either alone leaves a trap:
+
+- `FreeFlightPath.Movement` guards with an epsilon of `1e-4` — far below any genuine input, since
+  the axes are ±1 and the smallest real resultant is of order one, and far above the residue a
+  cancellation leaves. **A function should not depend on a clamp somewhere else to protect its own
+  division.**
+- `ParseCamera` clamps pitch to the same ±89 as the drag, so it stops producing an angle the rest of
+  the viewer treats as impossible.
+
+### This is D64's pattern again, and the fifth instance
+
+The bug had **no failing input** in the old shape: nothing constructed a key set at pitch 90, so no
+test over `FreeFlight.Movement` could have gone red. It became reachable only once the geometry took
+numbers instead of keys, and visible on the first run of the tests that became possible.
+
+### The constants are forwarded, not copied
+
+`FreeFlight.SpeedPerSecond` and `ShiftMultiplier` now forward to `FreeFlightPath`. Two copies of a
+speed is two speeds waiting to disagree, and the disagreement would show up as a camera that flies at
+one rate while its tests assert another.
+
+### Verification
+
+Ten new tests over the geometry — the axis convention at two yaws, the pitch sign, diagonal
+normalisation, world-up regardless of pitch, and the cancellation case that found the bug. The
+existing eleven `FreeFlightTests` in the viewer suite still pass unchanged, which is the check that
+the key mapping was moved rather than altered.

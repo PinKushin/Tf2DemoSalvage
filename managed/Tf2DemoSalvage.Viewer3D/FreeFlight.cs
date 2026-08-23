@@ -34,11 +34,17 @@ internal static class FreeFlight
     /// player runs at 300 — so matching the old feel exactly would be three times a scout's sprint.
     /// 600 is fast enough to cross cp_process without waiting and slow enough to line up a shot,
     /// and Shift still quadruples it.
+    ///
+    /// **Forwarded rather than declared**, since the geometry moved to the presentation layer (D65)
+    /// and the number belongs with the code that applies it. Two copies of a speed is two speeds
+    /// waiting to disagree, and the disagreement would show as a camera that flies at one rate and
+    /// reports another.
     /// </remarks>
-    public const float SpeedPerSecond = 600f;
+    public const float SpeedPerSecond = FreeFlightPath.SpeedPerSecond;
 
     /// <summary>How much faster Shift flies.</summary>
-    public const float ShiftMultiplier = 4f;
+    /// <inheritdoc cref="SpeedPerSecond" path="/remarks/para[last()]"/>
+    public const float ShiftMultiplier = FreeFlightPath.FastMultiplier;
 
     /// <summary>Whether a key contributes to flight, so the caller knows to track it.</summary>
     /// <param name="key">The key, without modifiers.</param>
@@ -64,50 +70,45 @@ internal static class FreeFlight
     /// mistake that makes diagonal movement quicker in a lot of homemade cameras.
     /// </remarks>
     public static (float X, float Y, float Z) Movement(
-        IReadOnlySet<Keys> held, double seconds, float pitch, float yaw, bool fast)
+        IReadOnlySet<Keys> held, double seconds, float pitch, float yaw, bool fast) =>
+        FreeFlightPath.Movement(Intent(held, fast), seconds, pitch, yaw);
+
+    /// <summary>Translates the keys currently down into an axis request.</summary>
+    /// <param name="held">Keys currently down.</param>
+    /// <param name="fast">Whether Shift is held.</param>
+    /// <returns>What the user is asking for, independent of the keyboard.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="held"/> is null.</exception>
+    /// <remarks>
+    /// **This is all that is left here, and it is the only part that is genuinely about a keyboard.**
+    /// The geometry moved to <see cref="FreeFlightPath"/> in the presentation layer (D65), because
+    /// it is trigonometry and had no business behind a WinForms type — while it took an
+    /// <c>IReadOnlySet&lt;Keys&gt;</c>, exercising it meant constructing key sets, which is why a
+    /// function of sines and cosines had no direct tests for weeks.
+    ///
+    /// Splitting them found a real defect immediately: forward and up cancel when looking straight
+    /// down, and the original guard tested the resulting length for exactly zero. Floating point
+    /// gives 4.4e-8 instead, which the normalisation scaled up to full speed.
+    ///
+    /// Rebinding these keys would change this method and nothing else, which is the test of whether
+    /// the seam is in the right place.
+    /// </remarks>
+    public static FlightInput Intent(IReadOnlySet<Keys> held, bool fast)
     {
         ArgumentNullException.ThrowIfNull(held);
 
-        if (held.Count == 0 || seconds <= 0)
+        if (held.Count == 0)
         {
-            return (0f, 0f, 0f);
+            return FlightInput.None;
         }
-
-        float forwardInput = (held.Contains(Keys.W) ? 1f : 0f) - (held.Contains(Keys.S) ? 1f : 0f);
-        float rightInput = (held.Contains(Keys.D) ? 1f : 0f) - (held.Contains(Keys.A) ? 1f : 0f);
 
         bool down = held.Contains(Keys.ControlKey) ||
                     held.Contains(Keys.LControlKey) ||
                     held.Contains(Keys.RControlKey);
 
-        float upInput = (held.Contains(Keys.Space) ? 1f : 0f) - (down ? 1f : 0f);
-
-        if (forwardInput == 0f && rightInput == 0f && upInput == 0f)
-        {
-            return (0f, 0f, 0f);
-        }
-
-        (float sinPitch, float cosPitch) = MathF.SinCos(pitch * (MathF.PI / 180f));
-        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * (MathF.PI / 180f));
-
-        (float X, float Y, float Z) forward = (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
-        (float X, float Y, float Z) right = (sinYaw, -cosYaw, 0f);
-
-        float x = (forward.X * forwardInput) + (right.X * rightInput);
-        float y = (forward.Y * forwardInput) + (right.Y * rightInput);
-        float z = (forward.Z * forwardInput) + (right.Z * rightInput) + upInput;
-
-        float length = MathF.Sqrt((x * x) + (y * y) + (z * z));
-
-        if (length <= 0f)
-        {
-            // Opposed keys cancelling exactly, which is a held W and S rather than an error.
-            return (0f, 0f, 0f);
-        }
-
-        float travel = (float)(SpeedPerSecond * (fast ? ShiftMultiplier : 1f) * seconds);
-        float scale = travel / length;
-
-        return (x * scale, y * scale, z * scale);
+        return new FlightInput(
+            Forward: (held.Contains(Keys.W) ? 1f : 0f) - (held.Contains(Keys.S) ? 1f : 0f),
+            Right: (held.Contains(Keys.D) ? 1f : 0f) - (held.Contains(Keys.A) ? 1f : 0f),
+            Up: (held.Contains(Keys.Space) ? 1f : 0f) - (down ? 1f : 0f),
+            Fast: fast);
     }
 }
