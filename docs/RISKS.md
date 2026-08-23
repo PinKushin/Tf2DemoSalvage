@@ -9608,3 +9608,69 @@ plausible rather than exotic.
 
 **Do not treat the error-model substitution as a fix for this.** B157 makes a failed load visible
 instead of invisible, which is why this was noticed at all; it does not make the load succeed.
+
+## B159 — world-to-clip projection is open-coded, and the second copy was wrong — OPEN
+
+There is exactly one correct way to project a point the way this renderer draws, and it is not
+written down anywhere a caller can reach. The shader does `mul(world, viewProjection)` with the
+matrix declared `row_major`, so a point multiplies from the LEFT: translation in elements 12–14, and
+`w` from element 11 — which is why `FreeCamera` sets `projection[11] = 1`.
+
+**`mat_leafvis` needed the same projection on the CPU and got it backwards**, indexing as
+column-vector and taking `w` from 12–15. It did not fail. It produced a projection, and the owner
+reported the leaf box as "a dot that gets kinda triangular when the cam is in a certain spot" — a
+room-sized box collapsed through the wrong transform, which reads as a feature nobody understands
+rather than as a defect.
+
+**The fix is a named helper, not more care.** `Project(point, matrix)` living in `Render` beside the
+camera, so the crossing is written once and every caller inherits it. Today it is open-coded in
+whichever file needs it, and each copy is an independent chance to get it wrong — the same argument
+as `SetMaterial` owning the per-material bind rather than three draw sites doing it.
+
+**This is NOT the same question as unifying the two matrix conventions**, and conflating them would
+lose the reason for both. `docs/memory/two-matrix-conventions-on-purpose.md` records that bones stay
+Valve column-vector because that is how they arrive in the `.mdl` and they reach the shader raw. The
+second convention is imposed by Valve's file format, not by the orthographic camera that was
+removed, so deleting the camera does not remove the need for it. Unifying would mean transposing
+every bone matrix at load — possible, and a real change to the animation path, whose test needs a
+ROTATION to mean anything: a symmetric matrix passes under both conventions, which is exactly how
+this class of bug survives a test suite.
+
+## B160 — viewmodel models are drawn in the WORLD pass, at the eye — OPEN
+
+Reported 2026-08-23, and pre-existing rather than a regression: in the first-person view a weapon
+fills the screen from the centre. It is not the viewmodel drawn badly. It is the viewmodel drawn in
+the wrong pass.
+
+Two log lines from the same frame say it:
+
+```
+[render] viewmodel pass skipped: world True, instances 0, camera False
+[render] drawing 276 posed models: ... 4xc_soldier_arms ... 2xc_demo_arms ... 1xc_pickaxe ...
+```
+
+The viewmodel pass has nothing to draw, while the WORLD list carries `c_*` models — which are
+Source's viewmodel models. They are therefore drawn at the followed player's world position, and in
+first person that position is the camera, so the weapon is at the eye at world scale.
+
+**Why the first-person filter does not catch them.** `FirstPersonVisibility` hides a prop when
+`EntityIndex == hidden || AttachedTo == hidden`, and `AttachedTo` is only ever set for an entity
+that sends NO origin (`DemoTimeline`: `if (state.Origin() is { } placed) … else if
+(state.Attachment() is { } owner) attachedTo = owner`). Anything carrying an origin has
+`AttachedTo == null` and cannot match, whoever owns it.
+
+So there are two candidate fixes and they are not the same:
+
+- **Route them to the viewmodel pass**, which is what the engine does and what the pass exists for.
+  `_viewmodelInstances` is already plumbed through `DrawFrame` and the pass already has its own
+  camera, near plane and field of view — it is being handed nothing.
+- **Or widen the hiding rule** to ownership rather than parenthood, so a followed player's held
+  items disappear regardless of whether they sent an origin.
+
+**The first is the real fix and the second is worth doing anyway**, because the hiding rule is
+wrong on its own terms: it claims to hide "anything attached to the hidden player" and silently
+means "anything with no origin of its own".
+
+Related: `docs/memory/a-player-has-two-viewmodels.md` (slot 1 is the off hand and is drawn
+alongside the weapon) and `docs/memory/the-client-builds-what-the-demo-omits.md` (the first-person
+weapon is a client-side entity no demo contains).

@@ -17,6 +17,11 @@ namespace Tf2DemoSalvage.Render;
 /// `MaterialSystem_Config_t::bShowNormalMap`. A correctly decoded tangent-space normal map reads
 /// lilac where the surface is flat, so a wrong decode is obvious rather than merely odd-looking.
 /// </param>
+/// <param name="LeafVis">
+/// <c>mat_leafvis</c> — the BSP leaf the camera stands in, drawn as a box. Unlike the others this
+/// is not a per-surface substitution: it is an annotation, so it is drawn as lines rather than in
+/// the pixel shader and takes no register.
+/// </param>
 /// <param name="BumpBasis">
 /// <c>mat_bumpbasis</c> — which of Valve's three lightmap basis vectors a surface leans on, as red,
 /// green and blue. Uses the weights the bumped lighting already computes (`bumpvects.h`), so it
@@ -38,11 +43,12 @@ public readonly record struct DebugModes(
     bool DrawFlat = false,
     bool Luxels = false,
     bool NormalMaps = false,
-    bool BumpBasis = false)
+    bool BumpBasis = false,
+    bool LeafVis = false)
 {
     /// <summary>Everything off, which is what the viewer draws normally.</summary>
     public static DebugModes None => default;
 
     /// <summary>Whether any mode is on, so callers can skip work the modes make pointless.</summary>
-    public bool Any => DrawFlat || Luxels || NormalMaps || BumpBasis;
+    public bool Any => DrawFlat || Luxels || NormalMaps || BumpBasis || LeafVis;
 }
