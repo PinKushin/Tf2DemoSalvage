@@ -138,11 +138,27 @@ public sealed class FirstPersonUiTests
         // install, presented as a rendering defect. That is what has kept CI red.
         ViewerSession.RequireTheGame();
 
-        // **This asserts almost nothing on purpose.** Whether the first-person view looks RIGHT is
-        // not answerable by an assertion: a camera at the correct coordinates pointing the correct
-        // way still draws a wrong picture if the projection, the basis or the eye height is wrong,
-        // and each of those produces a plausible image rather than an error. So this produces the
-        // artefact and a person decides.
+        // **This asserts almost nothing, and that is a gap rather than a principle.** The comment
+        // here used to say whether the view looks RIGHT is "not answerable by an assertion". That
+        // is too strong, and the owner corrected it: "we can use golden image comparison, or we can
+        // check pixels colors and or contrast, although that can be flakey".
+        //
+        // Three separate claims were being run together:
+        //
+        //   - A specific visual property IS assertable now, with no reference image. "The wall must
+        //     not show through an opaque prop" caught B154; "each pass draws something, and not the
+        //     same something" caught a mis-wired r_drawworld. Neither needed a person.
+        //   - Open-ended "does it look right" needs a person exactly ONCE, to bless a reference.
+        //     After that it is a golden comparison and every later change is assertable.
+        //   - Flake is a property of the SETUP, not of the technique. Fixed viewport, fixed tick,
+        //     fixed device and the render is deterministic — which is how the offscreen tests in
+        //     Viewer3D.Tests already work at 64x64 from a fixed matrix.
+        //
+        // **What this test's weakness actually cost.** The viewmodel pass draws nothing at all
+        // (B160) — c_* models go to the world pass and appear at the eye — and this test rendered
+        // that picture, wrote it out, and passed, because the only thing it checks is that a file
+        // appeared. One mechanical assertion would have caught it: the viewmodel pass draws more
+        // than zero instances when the first-person view is on. No judgement, no reference image.
         //
         // It does check ONE thing, which is why it is an ordinary test rather than explicit: that
         // the capture path works at all. A screenshot that silently fails to write is the same
