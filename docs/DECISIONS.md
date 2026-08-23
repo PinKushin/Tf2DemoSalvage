@@ -3272,3 +3272,36 @@ Playback is one concern of roughly seven still in the form: camera, demo library
 loading, scene composition, render-loop hosting, settings and full screen, capture. The pattern is
 now proven end to end on the smallest of them, which was the point of doing it first — extracting
 six more on an unvalidated pattern is how a design flaw arrives six presenters late.
+
+## D64 — MVP's payout, measured: three of four defects came from the boundary, not the tests
+
+**Owner, 2026-08-22, confirming the decision after watching it land:**
+
+> the bugs you found and extra things you have been able to test are one of the big upsides of MVP,
+> its separation of concerns, which enables testability
+
+Recorded because D54 was decided on an *argument* before the repository existed, and this is the
+first time it can be scored against evidence. It is also a sharper claim than "separation enables
+testing" — **most of the value arrived before any new test ran.**
+
+| Surfaced by | Defect |
+|---|---|
+| **Writing `IPlaybackView`** | `TransportBar.Playing`'s setter raised its own change event, so a presenter assigning it re-entered its own handler (D63). |
+| **Extracting `Scene`** | `WorldVertex`, `WorldBatch`, `SunLight` — pure data — declared inside the renderer; `MessageQueue` and `ForegroundProbe` P/Invoking `user32.dll` from a project meant to be portable (D60). |
+| **Extracting `Render`** | A gap marker's control named a type the renderer never consumed, leaving its claim unfalsifiable (D61). |
+| The new tests | 16 playback rules with no coverage at all (D62). |
+
+**Why three of four came from the boundary rather than the suite, and it is not luck.** A test asks
+whether code behaves correctly *inside the structure it has*. A boundary asks whether the structure
+is right, so it reaches defects that are invariant under every test you could write against the old
+shape.
+
+The re-entrancy bug is the clean example: **it had no failing input.** The form never assigned
+`Playing` from a path that could re-enter, so no test over the old code — however thorough — could
+have gone red. It became reachable only when a presenter started assigning that property, and
+visible only when the rule had to be written into an interface.
+
+**The practical form of this**, and it is the part worth carrying into the six remaining concerns:
+writing an interface is an *inspection*, not paperwork. The sentence you are forced to state — "this
+setter must not raise that event" — is the moment somebody checks whether the real implementation
+obeys it. Nobody had ever had to state it.

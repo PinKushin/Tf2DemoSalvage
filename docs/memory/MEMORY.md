@@ -110,3 +110,4 @@
 - [A skip is not a pass or a failure](a-skip-is-not-a-pass-or-a-failure.md) — a broken precondition disarms a test via Assert.Ignore; invisible in a summary line and it passes the count floor.
 - [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — the gate's floors are trx numbers and the console prints a smaller one; 623 vs 638 looked exactly like lost tests.
 - [A faithful fixture can be blind](a-faithful-fixture-can-be-blind.md) — a fixture in the shipped data's exact shape passed its own sabotage; the distinguishing input is one no real file contains.
+- [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md) — three of four defects in the MVP restructure were found by drawing the line, not by the new tests; a test checks behaviour within a structure, a boundary questions the structure.
