@@ -9529,3 +9529,32 @@ something loud gets reported.
 Ours currently logs `MISSING n models that would not load` and draws nothing, so the information
 exists and never reaches the screen. Substituting `models/error.mdl` would use Valve's own asset for
 Valve's own purpose, which is the same standard the chequer and the dev grid now meet.
+
+### The edge map belongs in this list twice (2026-08-23)
+
+The owner, on why the debug views should have existed long before they did:
+
+> "i had the demo decoding so the wireframe would have had the bsp to connect to, and all the
+> debug stuf could have been implemented while we do the initial stub rendering iomplementations,
+> thats kinda what they are for"
+
+> "thats why we had that edge map, the ai decided the debug stuff was the first step"
+
+**And that is what makes it the sharpest entry here: debug-first was not skipped. It was done.** The
+brush outline was built early, against the decoded BSP, for exactly this purpose. It then failed on
+the day it was needed — it drew BSP edge segments projected for a top-down orthographic view, so it
+could not survive the camera changing and could never see a prop at all.
+
+`mat_wireframe` cannot rot the same way, and the reason is structural rather than a matter of care:
+it is a rasteriser FILL MODE applied to whatever is being drawn, so it is camera-agnostic and
+prop-agnostic by construction. The edge map was built to this project's temporary architecture; the
+fill mode is built to the engine's.
+
+**So the entry counts twice.** Once as another ortho-era shortcut, and once for the compounding cost:
+it was the only diagnostic, and its silent uselessness is a large part of why B154 took two days of
+rebuild-and-look when one toggle would have narrowed it in minutes.
+
+The general form, and it is the argument for doing the rest of B153 now rather than later: **a
+diagnostic built against your own scaffolding expires with the scaffolding, and it expires
+silently — it keeps running and keeps answering, just not the question you are asking.** Built
+against the engine's own definition, it survives every refactor the engine survived.
