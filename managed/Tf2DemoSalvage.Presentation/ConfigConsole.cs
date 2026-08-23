@@ -57,6 +57,17 @@ public sealed class ConfigConsole
     private readonly Dictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ViewerAction, Button> _buttons = [];
 
+    /// <summary>What this viewer had on each key before any config ran.</summary>
+    /// <remarks>
+    /// **Kept separately so a config can override a key without destroying it**, which is the whole
+    /// of <see cref="CommandFor"/>. Empty for a console built with <c>new</c>, so the conformance
+    /// tests see the engine's behaviour with nothing underneath it.
+    /// </remarks>
+    private readonly Dictionary<string, string> _defaults = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Cached <see cref="Claimed"/>, invalidated whenever a bind changes.</summary>
+    private HashSet<ViewerAction>? _claimed;
+
     /// <summary>Raised when a command runs that is an instant action rather than a held button.</summary>
     /// <remarks>
     /// Switching camera or cycling the spectated player happens once per press. Flight is held.
@@ -65,8 +76,34 @@ public sealed class ConfigConsole
     /// </remarks>
     public event EventHandler<ViewerActionEventArgs>? Triggered;
 
-    /// <summary>How many binds named something this viewer implements.</summary>
-    public int Applied { get; private set; }
+    /// <summary>How many binds name something this viewer implements.</summary>
+    /// <remarks>
+    /// **Computed on demand rather than counted as binds arrive, because the count depends on
+    /// aliases that may not exist yet.** TF2 execs `config.cfg` before `autoexec.cfg`, and the binds
+    /// are in the first while the aliases they name are in the second — so a counter incremented at
+    /// bind time reports the movement binds as unrecognised and is wrong by exactly the amount that
+    /// matters. Measured: 5 counted in file order against 13 actually reachable.
+    ///
+    /// That failure is invisible, which is the argument for not having it: the viewer would work
+    /// correctly and its own diagnostic would say the config barely loaded.
+    /// </remarks>
+    public int Applied
+    {
+        get
+        {
+            int applied = 0;
+
+            foreach (string key in _binds.Keys)
+            {
+                if (Expand(CommandFor(key) ?? string.Empty, depth: 0).Count > 0)
+                {
+                    applied++;
+                }
+            }
+
+            return applied;
+        }
+    }
 
     /// <summary>How many <c>bind</c> lines were seen, whether or not they meant anything here.</summary>
     /// <remarks>
@@ -109,10 +146,106 @@ public sealed class ConfigConsole
             if (KeyBindings.Commands.TryGetValue(action, out string? command))
             {
                 console._binds[key] = command;
+                console._defaults[key] = command;
             }
         }
 
         return console;
+    }
+
+    /// <summary>What a key does, falling back to this viewer's default when the config's is a no-op.</summary>
+    /// <remarks>
+    /// **A key whose config binding means nothing here keeps whatever this viewer had on it**, and
+    /// that rule was written after watching a real config disable three controls at once. Loading
+    /// the owner's `config.cfg` logged:
+    ///
+    /// <code>
+    /// no key reaches: ResetCamera, PlayPause, FlyFast
+    /// </code>
+    ///
+    /// **`resetcamera` and `playpause` are this project's own command names.** TF2 has no concept of
+    /// either, so no TF2 config can ever bind them — it simply uses `f` and `k` for its own purposes
+    /// and the viewer's controls vanish. A config cannot express a preference about a feature the
+    /// game does not have, so treating its silence as one is reading intent that is not there.
+    ///
+    /// **`+speed` is the same in practice.** TF2 has no sprint, so the command appears in
+    /// essentially no config, while `bind "SHIFT" "+duck"` is ordinary — meaning fly-fast would lose
+    /// its key for most players who paste a config in.
+    ///
+    /// **No conflict is possible, which is what makes this safe rather than a guess.** The fallback
+    /// only applies when the config's command for that key does nothing in this viewer, so the key
+    /// was going to be inert either way. A config that binds the key to something we *do* implement
+    /// wins outright, and the action that used to live there is then genuinely unbound and reported
+    /// as such by <see cref="Unbound"/>.
+    /// </remarks>
+    /// <remarks>
+    /// **The fallback yields the moment the config gives the action a new home**, which is the
+    /// refinement the first version missed. Binding <c>CTRL</c> to <c>+speed</c> and <c>SHIFT</c> to
+    /// <c>+duck</c> is a player moving fly-fast, not losing it — so Shift must stop doing it, or the
+    /// rebind leaves two keys answering to one action and the settings screen has to pick one
+    /// arbitrarily. A conformance test caught that as a wrong key rather than as a crash.
+    /// </remarks>
+    private string? CommandFor(string key)
+    {
+        if (_binds.TryGetValue(key, out string? command) && Expand(command, depth: 0).Count > 0)
+        {
+            return command;
+        }
+
+        if (!_defaults.TryGetValue(key, out string? fallback))
+        {
+            return command;
+        }
+
+        foreach (ViewerAction action in Expand(fallback, depth: 0))
+        {
+            if (Claimed.Contains(action))
+            {
+                // The config gave this action a key of its own. Ours is not needed and would be a
+                // second answer to the same question.
+                return command;
+            }
+        }
+
+        return fallback;
+    }
+
+    /// <summary>Actions the loaded config binds a key to, ignoring this viewer's own defaults.</summary>
+    /// <remarks>
+    /// **Computed from the raw bind table on purpose**, because <see cref="CommandFor"/> consults it
+    /// and consulting itself would not terminate. It is the answer to "did the config speak about
+    /// this action at all", which is a question about the config alone.
+    ///
+    /// Rebuilt whenever a bind changes rather than on every keystroke: a config has a few hundred
+    /// binds and a keystroke arrives sixty times a second.
+    /// </remarks>
+    private HashSet<ViewerAction> Claimed
+    {
+        get
+        {
+            if (_claimed is not null)
+            {
+                return _claimed;
+            }
+
+            _claimed = [];
+
+            foreach ((string key, string command) in _binds)
+            {
+                if (_defaults.TryGetValue(key, out string? ours) && ours == command)
+                {
+                    // Untouched by the config; it says nothing about this action.
+                    continue;
+                }
+
+                foreach (ViewerAction action in Expand(command, depth: 0))
+                {
+                    _claimed.Add(action);
+                }
+            }
+
+            return _claimed;
+        }
     }
 
     /// <summary>Executes a config's text, top to bottom.</summary>
@@ -157,7 +290,7 @@ public sealed class ConfigConsole
     /// <param name="key">The key's Source name, such as <c>w</c> or <c>MOUSE1</c>.</param>
     public void KeyDown(string key)
     {
-        if (!_binds.TryGetValue(key ?? string.Empty, out string? command))
+        if (CommandFor(key ?? string.Empty) is not { } command)
         {
             return;
         }
@@ -195,7 +328,7 @@ public sealed class ConfigConsole
     /// </remarks>
     public void KeyUp(string key)
     {
-        if (!_binds.TryGetValue(key ?? string.Empty, out string? command) ||
+        if (CommandFor(key ?? string.Empty) is not { } command ||
             !command.StartsWith('+'))
         {
             return;
@@ -315,6 +448,54 @@ public sealed class ConfigConsole
     public string Resolve(string name) =>
         _aliases.TryGetValue(name ?? string.Empty, out string? body) ? body : name ?? string.Empty;
 
+    /// <summary>Actions no key reaches once the user's config has run.</summary>
+    /// <returns>The unreachable actions, in enum order.</returns>
+    /// <remarks>
+    /// **This exists because a real config produced one on the first try.** The owner's `config.cfg`
+    /// contains
+    ///
+    /// <code>
+    /// bind "SHIFT" "+duck"
+    /// </code>
+    ///
+    /// and this viewer has no crouch, so Shift now runs a command that does nothing — and
+    /// <see cref="ViewerAction.FlyFast"/>, whose default key was Shift, is left with nothing to
+    /// press. **That is the config being honoured correctly**, not a bug: the player said Shift is
+    /// duck, and quietly overriding them to mean "fly fast" would be this viewer deciding it knows
+    /// better than the file it was asked to obey.
+    ///
+    /// **But it must be said out loud.** A control that cannot be reached fails exactly the way
+    /// nothing else does — the key does something invisible and there is nothing to see. Reporting
+    /// it turns "the speed key is broken" into a line in the log naming the command that took it.
+    ///
+    /// **Not filled in from the defaults**, which is what <see cref="Bindings"/> does and why the
+    /// two are separate. A settings screen wants every row populated; a diagnostic wants the truth.
+    /// </remarks>
+    public IReadOnlyList<ViewerAction> Unbound()
+    {
+        HashSet<ViewerAction> reachable = [];
+
+        foreach (string key in _binds.Keys)
+        {
+            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
+            {
+                reachable.Add(action);
+            }
+        }
+
+        List<ViewerAction> unbound = [];
+
+        foreach (ViewerAction action in Enum.GetValues<ViewerAction>())
+        {
+            if (!reachable.Contains(action))
+            {
+                unbound.Add(action);
+            }
+        }
+
+        return unbound;
+    }
+
     /// <summary>The static view of the bindings, for a settings screen to display.</summary>
     /// <returns>Which key each action answers to.</returns>
     /// <remarks>
@@ -327,9 +508,9 @@ public sealed class ConfigConsole
     {
         Dictionary<ViewerAction, string> bound = [];
 
-        foreach ((string key, string command) in _binds)
+        foreach (string key in _binds.Keys)
         {
-            foreach (ViewerAction action in Expand(command, depth: 0))
+            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
             {
                 bound.TryAdd(action, key);
             }
@@ -352,13 +533,14 @@ public sealed class ConfigConsole
         {
             _binds.Clear();
             Bound = 0;
-            Applied = 0;
+            _claimed = null;
             return;
         }
 
         if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 2)
         {
             _binds.Remove(tokens[1]);
+            _claimed = null;
             return;
         }
 
@@ -374,11 +556,7 @@ public sealed class ConfigConsole
         {
             _binds[tokens[1]] = tokens[2];
             Bound++;
-
-            if (Expand(tokens[2], depth: 0).Count > 0)
-            {
-                Applied++;
-            }
+            _claimed = null;
         }
 
         // Everything else is a cvar, an exec, or a game command. Not ours, and not an error.

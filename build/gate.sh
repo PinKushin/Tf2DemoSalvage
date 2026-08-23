@@ -126,7 +126,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     102
 # engine does with a bound key, plus the alias and tokeniser cases underneath them. The floor had
 # been left well below the real count, which is the exact failure it exists to catch — a truncated
 # run passing the check as easily as it passes the eye.
-run Tf2DemoSalvage.Presentation.Tests presentation 95
+run Tf2DemoSalvage.Presentation.Tests presentation 101
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -205,7 +205,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     98
 # which only became possible to get wrong once Shift went through the console) and RealTf2ConfigTests
 # gained two that execute the owner's own null-cancelling config rather than counting its binds.
 # Net +6 with the rest from the same change.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    586
+run Tf2DemoSalvage.Viewer3D.Tests viewer    591
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

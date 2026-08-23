@@ -81,11 +81,18 @@ public sealed class RealTf2ConfigTests
 
         binds.ShouldBeGreaterThan(10, "a real config binds a lot of keys");
 
-        // Every action still has a key: a config that unbinds or omits something must leave this
-        // viewer's default standing rather than making a control unreachable.
+        // **Every action has a key to SHOW, which is a weaker claim than it looks and is the only
+        // one this projection can make.** `KeyBindings` fills anything the config did not mention
+        // from the defaults, so this passes even for an action the config left genuinely
+        // unreachable — it is a statement about the settings screen, not about the controls.
+        //
+        // The honest question is asked by `ConfigConsole.Unbound`, and on this machine the answer
+        // is not empty: `config.cfg` contains `bind "SHIFT" "+duck"`, so Shift belongs to a command
+        // this viewer has no equivalent for and fly-fast has nothing to press. That is the config
+        // being obeyed, and it is reported rather than overridden.
         foreach (ViewerAction action in Enum.GetValues<ViewerAction>())
         {
-            bindings.KeyFor(action).ShouldNotBeNullOrWhiteSpace($"{action} lost its binding");
+            bindings.KeyFor(action).ShouldNotBeNullOrWhiteSpace($"{action} has no key to display");
         }
     }
 

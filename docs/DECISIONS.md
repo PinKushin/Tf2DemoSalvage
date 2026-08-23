@@ -3699,3 +3699,59 @@ The owner's own `config.cfg` plus `autoexec.cfg`: 78 binds, **13 applied**, up f
 reading and 0 when either file was read alone. Pressing W flies forward; holding S overrides it;
 releasing S resumes forward with W never touched. That last sequence is asserted against the real
 files in `RealTf2ConfigTests`.
+
+## D71 — a config's silence about a feature the game lacks is not a preference
+
+**Found by the diagnostic written one hour earlier, on the owner's real install.** Loading his three
+configs logged:
+
+```
+[config] 3 files, 9 of 95 binds applied
+[config] no key reaches: ResetCamera, PlayPause, FlyFast
+```
+
+**Three viewer controls, disabled by loading a config.** The mechanism is plain once seen:
+`resetcamera` and `playpause` are *this project's own* command names, invented in D68 because TF2
+has no equivalent for either. A TF2 config therefore cannot bind them — it just uses `f` and `k` for
+its own purposes, and the keys those actions lived on are taken away with nothing put back.
+
+**`+speed` is the same case in practice.** TF2 has no sprint, so the command appears in essentially
+no config, while `bind "SHIFT" "+duck"` is completely ordinary — his config has exactly that. So
+fly-fast loses its key for most people who paste a config in.
+
+### The rule, and the reasoning that was wrong first
+
+**A key whose config binding does nothing in this viewer keeps whatever this viewer had on it.**
+
+The first implementation did the opposite and had an argument for it: the player said Shift is duck,
+and overriding them would be the viewer claiming to know better than the file it was told to obey.
+That argument is right about `+duck` and wrong about the general case, because **a config cannot
+express a preference about a feature the game does not have.** Reading its silence as one is
+inventing intent.
+
+**Nothing is lost by falling back, which is what makes this safe rather than a guess.** The fallback
+applies only when the config's command for that key does nothing here — the key was inert either
+way, so no conflict is possible.
+
+**The fallback yields the moment the config gives the action a new home.** Binding `CTRL` to
+`+speed` and `SHIFT` to `+duck` is a player *moving* fly-fast, not losing it, so Shift must stop
+doing it — otherwise two keys answer to one action and the settings screen picks one arbitrarily.
+A conformance test caught that as a wrong key rather than as a crash, which is why the rule is
+"unless the config claimed this action elsewhere" rather than the simpler "defaults always win".
+
+**An action the config genuinely takes over is still reported unbound**, by `ConfigConsole.Unbound`.
+Binding `SHIFT` to `+forward` is a statement this viewer can act on, so fly-fast really does lose
+its key and the log says so.
+
+### Why no test could have predicted this
+
+Every fixture in `SourceConfigTests` was written by the same person who wrote the parser, and none
+of them binds `f` or `k`, because there is no reason to unless you are looking at a file written by
+somebody who had never heard of this program. **The real config binds keys for reasons that have
+nothing to do with this viewer**, and that is the whole content of the finding.
+
+The instrument that caught it was a diagnostic added for a different purpose — reporting unreachable
+controls — pointed at real data. `docs/memory/output-level-assertion-or-it-is-not-done.md` again,
+and the assertion now lives in `Tf2ConfigFilesTests`.
+
+**Measured after:** the same install goes from 9 of 95 binds applied to 12, and nothing unreachable.
