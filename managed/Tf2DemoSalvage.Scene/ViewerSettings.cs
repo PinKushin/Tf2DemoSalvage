@@ -91,6 +91,22 @@ public sealed record ViewerSettings
     /// <summary>Command name for vertical sync.</summary>
     public const string VerticalSyncCommand = "vertical_sync";
 
+    /// <summary>Command name for where screenshots are written.</summary>
+    /// <remarks>
+    /// **A setting rather than an environment variable, on the owner's direction**: "env vars are a
+    /// pita because of the shell reboot, it should probably be a runtime/ startup setting". A
+    /// variable has to be set in the shell that launches the viewer, so it is lost every time the
+    /// terminal restarts and silently absent whenever the viewer is started any other way — by
+    /// double-clicking a demo, which is the ordinary route.
+    ///
+    /// **Valve has no cvar for this to copy**, so the name is ours; TF2 writes to a fixed
+    /// `tf/screenshots`. The reason it is settable at all is that the owner's C: drive is nearly
+    /// full and captures once occupied 203 MB of it.
+    ///
+    /// Empty means beside the log, which is where captures went before this existed.
+    /// </remarks>
+    public const string ScreenshotFolderCommand = "screenshot_folder";
+
     /// <summary>Command name for the viewmodel's field of view.</summary>
     /// <remarks>
     /// **TF2 lets a player change this, so this viewer does too** — the standing rule in
@@ -104,6 +120,14 @@ public sealed record ViewerSettings
 
     /// <summary>Source's own ceiling, and this viewer's default.</summary>
     public const int SourceFrameRateLimit = 300;
+
+    /// <summary>Where screenshots are written, or null for beside the log.</summary>
+    /// <remarks>
+    /// Not validated here. Whether the folder can be created is a question about the disk at the
+    /// moment a capture is taken, not about whether the config parsed, and answering it at load
+    /// would refuse a setting that becomes valid the moment a drive is plugged in.
+    /// </remarks>
+    public string? ScreenshotFolder { get; init; }
 
     /// <summary>How full screen is entered.</summary>
     /// <remarks>
@@ -223,12 +247,13 @@ public sealed record ViewerSettings
 
     /// <summary>Parses config text.</summary>
     /// <param name="text">The file's contents.</param>
+    /// <param name="onto">Settings to layer onto, or null to start from the defaults.</param>
     /// <returns>The settings, with defaults for anything absent or unreadable.</returns>
     /// <remarks>
     /// A value that is not a number keeps the default rather than failing the whole file, for the
     /// same reason an unknown command is ignored: one bad line must not cost every other setting.
     /// </remarks>
-    public static ViewerSettings Parse(string? text)
+    public static ViewerSettings Parse(string? text, ViewerSettings? onto = null)
     {
         Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
 
@@ -260,7 +285,10 @@ public sealed record ViewerSettings
             values[content[..space].ToString()] = content[(space + 1)..].Trim().Trim('"').ToString();
         }
 
-        ViewerSettings settings = new();
+        // **Defaults unless the caller supplies something to layer onto.** A config file starts from
+        // defaults; a `+command value` on the command line starts from whatever the config already
+        // said, so that passing one setting at startup does not silently reset every other.
+        ViewerSettings settings = onto ?? new ViewerSettings();
 
         if (Read(values, FullScreenModeCommand) is { } mode && Enum.IsDefined((FullScreenMode)mode))
         {
@@ -293,6 +321,15 @@ public sealed record ViewerSettings
                     ViewmodelPass.SmallestFieldOfView,
                     ViewmodelPass.LargestFieldOfView),
             };
+        }
+
+        // **A string, so it is read from the dictionary rather than through Read.** Every other
+        // setting here is a number and the helpers only parse numbers; a path is neither numeric
+        // nor bounded, and the only thing to do with it is take it as written.
+        if (values.TryGetValue(ScreenshotFolderCommand, out string? folder) &&
+            !string.IsNullOrWhiteSpace(folder))
+        {
+            settings = settings with { ScreenshotFolder = folder };
         }
 
         if (Read(values, VerticalSyncCommand) is { } sync)
@@ -371,6 +408,17 @@ public sealed record ViewerSettings
         text.AppendLine("// TF2 Demo Salvage settings");
         text.AppendLine("// Edit by hand if you like; unknown commands are ignored.");
         text.AppendLine("//");
+        text.AppendLine("// This is the viewer's OWN config, and it is not your TF2 config. Your");
+        text.AppendLine("// game config is read as it is, wholesale, and nothing here is written");
+        text.AppendLine("// back into it. Settings that TF2 already has a cvar for keep the game's");
+        text.AppendLine("// name and can be set from either file; settings TF2 has no equivalent");
+        text.AppendLine("// for -- screenshot_folder is one -- exist only here, so that this file");
+        text.AppendLine("// never invents a cvar the game does not have.");
+        text.AppendLine("//");
+        text.AppendLine("// Anything here can also be passed at startup as +command value, which is");
+        text.AppendLine("// how Source sets a cvar from a launch option. A value passed that way");
+        text.AppendLine("// applies to that run only and does not rewrite this file.");
+        text.AppendLine("//");
         text.AppendLine("// A line that is commented out is still at its default, and will follow");
         text.AppendLine("// that default if a later version changes it. Uncomment to pin a value.");
         text.AppendLine();
@@ -408,6 +456,15 @@ public sealed record ViewerSettings
             // Compared with a tolerance, because this one is a float and a config round-trips it
             // through two decimal places. An exact comparison would call 70 "chosen" after a save.
             Math.Abs(ViewmodelFieldOfView - Defaults.ViewmodelFieldOfView) < 0.005f);
+        text.AppendLine();
+        text.AppendLine("// Where screenshots go. Empty writes them beside this file's folder.");
+        text.AppendLine("// Point it at another drive to keep a long history without spending the");
+        text.AppendLine("// system disk; a run of the UI suite writes captures too.");
+        Setting(
+            text,
+            ScreenshotFolderCommand,
+            ScreenshotFolder is { Length: > 0 } where ? $"\"{where}\"" : string.Empty,
+            ScreenshotFolder is null);
         text.AppendLine();
         text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
         text.AppendLine("// and a driver that disables it globally ignores the request anyway.");

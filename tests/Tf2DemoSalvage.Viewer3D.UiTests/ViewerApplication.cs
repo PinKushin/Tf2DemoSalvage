@@ -13,6 +13,8 @@ using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 using FlaUI.UIA3;
 
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
 /// <summary>
@@ -263,9 +265,18 @@ internal sealed partial class ViewerApplication : IDisposable
     {
         string executable = LocateExecutable();
 
-        // Set on this process so every viewer it starts inherits it — the launch goes through
-        // FlaUI, which does not expose the child's environment.
-        Environment.SetEnvironmentVariable(MainForm.CaptureFolderVariable, TestCaptureFolder);
+        // **Passed as a launch option, not exported as an environment variable.** The viewer takes
+        // `+command value` the way Source does, so the suite redirects its captures without
+        // touching the settings file the owner actually uses — which matters because this suite
+        // once deleted every hand-taken screenshot the project had by writing into the same folder
+        // and pruning it. Editing a shared config to fix that would have been the same mistake in
+        // a different file.
+        arguments =
+        [
+            .. arguments,
+            "+" + ViewerSettings.ScreenshotFolderCommand,
+            TestCaptureFolder,
+        ];
 
         // **Geometry is inherited, never forced.** The viewer honours TF2VIEW_WINDOW_SIZE and
         // TF2VIEW_WINDOW_POS if they are set, and these tests simply do not set them - so a local
