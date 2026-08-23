@@ -443,14 +443,48 @@ public sealed unsafe class Device3D : IDisposable
         Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
         _context.RSSetViewports(1, in whole);
 
-        if (_worldCamera is { } restore)
-        {
-            _world.SetCamera(_device, _context, restore.Matrix, restore.Colours, restore.HeightCut);
-        }
+        ReapplyCamera();
     }
 
     /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>
     private (float[] Matrix, bool Colours, float HeightCut)? _worldCamera;
+
+    /// <summary>Re-sends the remembered world camera with the CURRENT debug modes.</summary>
+    /// <remarks>
+    /// **Two bugs lived in the three lines this replaces, and they had the same cause.**
+    ///
+    /// The restore after the viewmodel pass passed only the matrix, the category switch and the
+    /// height cut — so specular, fullbright and the debug views were reset to their defaults every
+    /// time a viewmodel drew. A restore that does not restore everything is the same failure as a
+    /// pass that does not establish its own state (B154), from the other end.
+    ///
+    /// And the mode setters cleared `_worldCamera` to force an update, which does the opposite:
+    /// forgetting the camera means the restore is skipped, so a mode change reached the GPU only
+    /// when something else happened to call SetCamera. The owner saw exactly that — a mode would
+    /// appear "if u move the camera or disable or enable reflections", and immediately when it did,
+    /// so it was never a loading delay. Reflections looked like an exception only because its
+    /// handler also rebuilt the world.
+    ///
+    /// The modes are read from the fields rather than captured, so there is one place they come
+    /// from and adding another cannot be forgotten here.
+    /// </remarks>
+    private void ReapplyCamera()
+    {
+        if (_world is null || _worldCamera is not { } restore)
+        {
+            return;
+        }
+
+        _world.SetCamera(
+            _device,
+            _context,
+            restore.Matrix,
+            restore.Colours,
+            restore.HeightCut,
+            _specular,
+            _fullbright,
+            _debug);
+    }
 
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
@@ -743,7 +777,7 @@ public sealed unsafe class Device3D : IDisposable
         _world.DrawEntities = _drawEntities;
 
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, heightCut, _specular, _fullbright);
+            _device, _context, matrix, surfaceColours, heightCut, _specular, _fullbright, _debug);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
@@ -790,10 +824,11 @@ public sealed unsafe class Device3D : IDisposable
         {
             _specular = value;
 
-            // The camera constant carries it, so it takes effect on the next SetCamera rather than
-            // immediately. Callers toggling it re-set the camera; that is the same path a viewport
-            // resize takes and needs no second mechanism.
-            _worldCamera = null;
+            // Re-sent immediately rather than left for the next SetCamera. Clearing the remembered
+            // camera was the previous approach and it did the opposite of what it read as: it
+            // forgot the camera, so nothing re-sent anything and the change waited for an unrelated
+            // event.
+            ReapplyCamera();
         }
     }
 
@@ -813,7 +848,7 @@ public sealed unsafe class Device3D : IDisposable
         set
         {
             _fullbright = value;
-            _worldCamera = null;
+            ReapplyCamera();
         }
     }
 
@@ -854,6 +889,20 @@ public sealed unsafe class Device3D : IDisposable
     }
 
     private bool _drawEntities = true;
+
+    /// <summary>Valve's per-surface debug visualisations — see <see cref="DebugModes"/>.</summary>
+    public DebugModes Debug
+    {
+        get => _debug;
+
+        set
+        {
+            _debug = value;
+            ReapplyCamera();
+        }
+    }
+
+    private DebugModes _debug = DebugModes.None;
 
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;
