@@ -9662,11 +9662,35 @@ tick, so the result was never really looked at.
 Now that the camera works, that holding position is what fills the screen: a world-scale weapon at
 the eye, with no forward offset, no hand attachment, and no viewmodel-space transform.
 
-**Read `CalcViewModelView` before trying a third offset.** Two guesses have already failed, which is
-the signature of a missing mechanism rather than a wrong constant — see
-`docs/memory/read-the-sdk-for-the-whole-mechanism.md`. A viewmodel is not the world weapon moved
-closer: it is drawn in its own space, from the model's own attachment, with its own field of view,
-which is why `ViewmodelPass` already carries a separate near plane and FOV.
+**`CalcViewModelView` was read, and it says the eye IS the answer.**
+`baseviewmodel_shared.cpp:385`:
+
+```cpp
+QAngle vmangles = eyeAngles;
+Vector vmorigin = eyePosition;
+...   // AddViewmodelBob, CalcViewModelLag, ApplyShake — and nothing else
+SetLocalOrigin( vmorigin );
+SetLocalAngles( vmangles );
+```
+
+There is no forward offset. So the two earlier guesses failed because there was nothing there to
+find, and the comment in `AddViewmodel` was right all along. **Do not try a third offset.**
+
+**And the scope is one weapon, not the feature.** The owner, who plays the game: "the only viewmodel
+im seeing an issue with is the quake launcher which actually comes out of the middle in real tf2
+too, but at the bottom of the screen."
+
+That reframes it twice over. Being centred is not the defect — the Original is deliberately centred,
+modelled on Quake's rocket launcher — so the difference is VERTICAL: TF2 puts it low in frame and
+ours fills the view. And every other weapon being correct rules out the systemic explanations,
+including a bone-merge fault: if the weapon were not merging onto the arms, all of them would be
+wrong rather than one.
+
+**Two entries of this risk have now been written from a single screenshot and both were too broad**
+— first "the pass is unwired", then "the placement is unimplemented". Both were general claims from
+one image, and the general claims were wrong. The specific question is why ONE model sits higher
+than the game puts it, which is a question about that model's own attachment or offset rather than
+about the viewmodel path.
 
 **One mechanical assertion belongs with the fix**, because the capture test rendered this picture
 and passed: the viewmodel pass draws more than zero instances when first person is on. That would
@@ -9713,6 +9737,23 @@ the game's own filesystem rather than taking an arbitrary path, so a tool has to
 `tf/` first and clean up after — that one is real and unavoidable. But seeking IS possible:
 `engine.dll` carries `demo_gototick`, alongside `demo_timescale`, `demo_pause`, `demoui`,
 `startmovie` and `host_framerate`. The doubt was reasonable and the strings are there.
+
+**And there is no way to open a demo except by issuing the command.** The owner: "even from that
+folder tf2 doesnt run a demo by double clicking the demo, you have to start the demo with the
+console or a ui if available but i dont think there is one available." Correct — there is no file
+association and no demo browser; `demoui` is the playback CONTROL panel for a demo already running,
+not a way to choose one.
+
+That is not an obstacle, because a launch option IS a console command run at startup — the same
+`+command value` convention this viewer adopted for its own settings (D75). So the shape is
+`hl2.exe -game tf +playdemo <name>`, with the rest supplied by `+exec` of a generated config rather
+than as a long argument list.
+
+**The timing is the part to get right, not the syntax.** Commands given at startup can run before
+the demo is actually playing, so `demo_gototick` issued in the same breath as `playdemo` may land
+on nothing. The robust form is an alias chain in the exec'd config that waits for playback to begin
+before seeking, and `host_framerate` set first so the wait is measured in deterministic frames
+rather than in wall-clock luck.
 
 **Other constraints this project already knows about.** It needs the game installed and NOT already
 running; it takes over the desktop, so it goes inside `run-exclusive.ps1` exactly as the UI suite
