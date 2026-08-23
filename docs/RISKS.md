@@ -9273,3 +9273,124 @@ against the wrong baseline.
 
 **What the benchmark has to report, both arms:** load wall clock, and frame time with a full scene
 posed. The FPS side is the half that was never taken, and it is the half the deviation exists for.
+
+## B151 — MapOutline does two jobs, and one of them is an ortho-era cull — OPEN
+
+`MapOutline` computes both the overhead edge segments and `MainBounds`, a box fitted to the map's
+main cluster. The segments were the "Brush outline" overlay, which is gone (B152). The bounds fed a
+build-time cull that discarded every surface and every prop standing outside the play area.
+
+**The owner's direction, given 2026-08-23 with the reason stated:** the play-area cull comes out and
+does not come back — "we dont need the camera framing... the cam framing was for the ortho cam, the
+free cam shouldnt need it and if it does it should be made a helper or something" — and one type
+computing two unrelated things "is a violation of solid too". The cull itself is already removed at
+the viewer's call site; what remains is the split.
+
+**What holds it up:** `MapBounds` still threads through `MapSurfaces.FromFaces`,
+`MapWorldBuilder.Build`, `MapWorldBuilder.HeightRange`, the camera framing in `MainForm`, and their
+tests. The owner deferred it in the same conversation — "it can wait if its a big thing" — so this
+is filed rather than half-done.
+
+**Do it before the skybox work, not after.** Same conversation: "i dont want it in the way when i go
+to implement skyboxes." A heuristic play-area box is exactly the thing that will fight a real
+`sky_camera` implementation, and fighting it from inside a class that also draws lines is worse.
+
+## B152 — the 3D skybox is drawn raw, with no `sky_camera` transform — OPEN
+
+The play-area cull used to delete the 3D skybox as a side effect, which is why nothing ever needed to
+transform it. It is now drawn, and drawn WRONG: a TF2 map keeps a miniature copy of the surrounding
+scenery far outside the level, and the engine renders it as a separate view scaled and offset by the
+map's `sky_camera` entity. We draw it at its literal size and position.
+
+**Visible and wrong is the deliberate intermediate state**, on the owner's direction: "we are going
+to need it later to make the maps look right in free cam and pov anyway."
+
+**It is a user setting, not a decision, and Valve's own declaration says so** —
+`game/client/viewrender.cpp:113`:
+
+```cpp
+static ConVar r_3dsky( "r_3dsky","1", 0, "Enable the rendering of 3d sky boxes" );
+static ConVar r_skybox( "r_skybox","1", FCVAR_CHEAT, "Enable the rendering of sky boxes" );
+```
+
+`r_3dsky` defaults to ON and carries no `FCVAR_CHEAT`; the 2D one is cheat-gated. That matches the
+owner exactly: "tf2 allows you to run skybox on or off, so we will too, video makers need the skybox
+on", and competitive players — the owner among them — run without it and expect to be able to.
+
+So: implement `sky_camera`, then expose `r_3dsky` and `r_skybox` as toggles with Valve's defaults.
+
+## B153 — Valve's debug draws, of which three exist — OPEN
+
+The owner's direction, 2026-08-23: "we need to do all of those debug draws, because they are very
+important for testing and debugging." The reason is not tidiness. Four separate hypotheses were
+cleared during one bug hunt by build-and-look cycles that a debug view would have answered in
+seconds, and the bug was finally found by two screenshots of one view under two different draws.
+
+Done: `mat_wireframe`, `mat_specular`, and the pre-existing category view.
+
+Not done, with Valve's names and where they are declared:
+
+| cvar | what it answers |
+|---|---|
+| `mat_fullbright` | is the lighting hiding it — `BaseVSShader.cpp:50`, `viewpostprocess.cpp:85` |
+| `mat_drawflat` | is it geometry or material — `MaterialSystem_Config_t::bDrawFlat` |
+| `mat_luxels` | lightmap density and atlas placement |
+| `mat_normalmaps` / `mat_bumpbasis` | is the bump basis right |
+| `mat_showlowresimage` | which mip is resident |
+| `r_drawworld` / `r_drawentities` | which pass owns a surface |
+| `mat_leafvis` | BSP leaves, once PVS work starts |
+
+**The category view has a gap to fix while doing this:** overlays are drawn white, which is not a
+category colour but the absence of one. That cost two turns of misreading during the B154 hunt —
+white was read as "an uncoloured surface" and then as "the sign", and it was neither. Give overlays
+their own colour and put the legend in the log.
+
+## B154 — CLOSED 2026-08-23. Every static prop was alpha-blended for two days
+
+`DrawDecals` turned alpha blending on and never turned it off, and `e7b95cf` moved static props to
+draw immediately afterwards. Full account in `docs/findings/32-the-opaque-pass-blend-leak.md`.
+
+Kept as an entry because of **how much it cost to find and why**. Four correct-looking hypotheses
+were tested and cleared first — DXT block upload, alpha-test classification, VTX strip winding,
+back-face culling — each a build-and-look cycle. All four were about the props, because the props
+were what had changed. The leak was in the pass before them.
+
+**Three of this project's own instruments were wrong during the hunt, and each one sent the search
+somewhere else:**
+
+1. The world-build drop ledger was added, and its counter was wired into the visibility and
+   tool-material skips but **not** the play-area skip. It reported "every dropped face is a tool
+   material", which reads as a clean bill of health, while being blind to the one rule that discards
+   geometry by position.
+2. The prop count logged `props.Count / 3` — the number handed to `AppendProps`, not the number it
+   appended. Removing a cull therefore could not move it, and did not, and neither number was wrong.
+3. The category view's white was read as "uncoloured", then as the sign. It is overlays.
+
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md` already says five measurements were wrong
+before any reader was. It is now eight.
+
+## B155 — the ortho-era audit, which is the alternative to a rewrite — OPEN
+
+The owner, 2026-08-23: "i almost think we need to restart the winforms project in full, since the
+mvp move probably helped make it so we dont have to replace everything, just whats wrong because of
+the early choices we made to display something at all."
+
+**The recommendation was against a rewrite, and the argument was that the damage is enumerable.**
+That claim needs to be checked rather than asserted, so: sweep `Render` and `Scene` for the tell
+`docs/memory/build-time-shortcuts-assume-the-camera.md` already names — a comment of the form "X is
+Y" where X and Y are different quantities that merely coincided under the overhead orthographic
+camera — and file each one.
+
+Known members so far:
+
+| shortcut | true under | status |
+|---|---|---|
+| decal constant bias | ortho depth linear in world height | fixed, B70 |
+| brush-outline overlay | an overhead radar view | removed, B152 |
+| `MainBounds` play-area cull | camera framed to the play area | removed, B151 |
+| `_bothSides` — culling off because normals already dropped back faces | that build-time cull existed | **live, premise deleted** |
+| `clip(SV_POSITION.z - cut)` — "the cut is on depth, which is height" | looking straight down | **live, inert at 0** |
+
+If the sweep returns thirty entries the rewrite argument is evidence-backed and should win. If it
+returns these plus a few, it is an afternoon of fixes and everything else is kept. **Either way the
+decision stops being a feeling.**

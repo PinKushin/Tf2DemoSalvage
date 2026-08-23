@@ -3985,3 +3985,68 @@ keeps the expander for callers that must read values, documented as never belong
 `PropModels.BakeSeconds` read **11.15 s** before this change and **2.44 s** after. Baking was not
 touched. The difference was CPU contention with 16.87 s of parallel texture decoding, so the earlier
 figure said more about the decode than about baking. B150's trade should be judged against 2.44 s.
+
+## D75 — debug draws carry Valve's names, and exist to be used during development
+
+**Owner's direction, 2026-08-23**, given while a rendering bug was being hunted by rebuild-and-look:
+
+> "we need to do all of those debug draws, because they are very important for testing and
+> debugging"
+
+and, on scope and order:
+
+> "if we just start with textures thats fine, but implemnt anything that could be causing this, fix
+> this, then we go into including the rest"
+
+**The reason is measured, not stylistic.** During the B154 hunt four hypotheses were cleared by
+building the viewer and looking at it — DXT upload, alpha-test classification, strip winding,
+back-face culling — at roughly two minutes each plus the owner's time flying to the same spot. The
+bug was then found in a single pair of screenshots of one view, drawn two ways. A debug view is not a
+convenience here; it is the difference between a measurement and a guess.
+
+**They take Valve's names and Valve's defaults**, for the same reason the config console does (D69):
+the viewer's vocabulary is Source's, so `mat_wireframe` and `mat_specular` are what they are called,
+and a pasted config that sets them works. Where the SDK declares a default, that is the default —
+`r_3dsky` is `"1"`, `mat_specular` is on.
+
+**One deliberate divergence, stated rather than absorbed:** Valve gates several of these behind
+`FCVAR_CHEAT` and `sv_cheats` (`WireFrameMode()` in `game/client/view.h:68` returns 0 unless cheats
+are on). There is no server here to protect and no opponent to gain an advantage over, so the gate is
+ceremony and is not implemented. `r_3dsky` is not cheat-gated by Valve either, which is the case that
+proves the distinction is real rather than convenient.
+
+**Implementation note that is part of the decision:** `mat_wireframe` builds a wireframe twin of
+every rasteriser state rather than one shared wireframe state. A single shared state would drop each
+pass's culling and depth bias, and would therefore answer "what is in the vertex buffer" instead of
+"what is being drawn". Those are different questions, and the difference is exactly what a
+missing-geometry hunt turns on.
+
+## D76 — the 3D skybox is drawn, and whether it is drawn is the user's setting
+
+**Owner's direction, 2026-08-23**, twice and with the reasoning both times. First that it stops being
+deleted:
+
+> "we dont need to drop the skybox anymore either, the free cam can be positioned and set properly
+> without having to drop it completely, we are going to need it later to make the maps look right in
+> free cam and pov anyway"
+
+then that it becomes a setting rather than a decision:
+
+> "yes having the skybox seeable is weird but people like me who played without the skybox are use to
+> it and expect it, tf2 allows you to run skybox on or off, so we will too, video makers need the
+> skybox on"
+
+**Valve agrees, and the SDK is explicit about which of the two is a cheat**
+(`game/client/viewrender.cpp:113`): `r_3dsky` defaults to `"1"` with no flags, `r_skybox` defaults to
+`"1"` with `FCVAR_CHEAT`. So the 3D skybox is an ordinary preference and the 2D one is not — which is
+precisely the split the owner described from playing the game.
+
+**What was actually removed** is the play-area cull that deleted the skybox as a side effect of
+framing the overhead camera. It was never a skybox feature; it was a camera shortcut that happened to
+hide the skybox, and it also discarded 133 real world faces. Removing it is the same correction as
+the downward-normal cull and the decal bias — see B155.
+
+**The intermediate state is deliberate and is not the feature.** Drawing the skybox room without the
+`sky_camera` transform puts a miniature copy of the surroundings far outside the level at its literal
+scale. That is what the file contains. Tracked as B152, and a visible wrong thing is a better base to
+build the transform on than an invisible one.

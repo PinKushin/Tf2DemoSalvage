@@ -169,6 +169,13 @@ public static class MapWorldBuilder
 
             if (area is { } bounds && !Touches(surface, bounds))
             {
+                // **This skip had no ledger entry, and its absence made the ledger lie.** The
+                // report read "every dropped face is a tool material", which is a clean bill of
+                // health, while the one rule that discards geometry by POSITION was not counted at
+                // all. An instrument that omits a category cannot distinguish "nothing was dropped
+                // here" from "I did not look here".
+                Drop("outside-play-area", surface.MaterialIndex);
+
                 continue;
             }
 
@@ -258,7 +265,8 @@ public static class MapWorldBuilder
         // symptom, and it was the ORDER rather than the bias all along.
         Dictionary<int, List<WorldVertex>> propsByMaterial = [];
 
-        AppendProps(props, propsByMaterial, area, categoryColours);
+        (int propTriangles, float furthestPropX, float furthestPropY) =
+            AppendProps(props, propsByMaterial, area, categoryColours);
 
         // **How many of those faces belong to a moving entity rather than to the world.** A door,
         // a lift and a payload cart are each their own BSP model, and their faces sit in the same
@@ -273,7 +281,9 @@ public static class MapWorldBuilder
         ViewerLog.Write(
             "render",
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
-            $"{props.Count / 3} prop triangles, {missingMaterials} faces with no material; " +
+            $"{propTriangles} of {props.Count / 3} prop triangles drawn, reaching " +
+            $"{furthestPropX:0} x {furthestPropY:0} from the origin, " +
+            $"{missingMaterials} faces with no material; " +
             $"{movingFaces} faces held back for entity models rather than baked into the world");
 
         // **Every dropped face, by reason and material, most numerous first.** Read this when a
@@ -572,12 +582,26 @@ public static class MapWorldBuilder
     /// near side under the depth buffer, so there is nothing to cull and a normal test would delete
     /// half of every rock.
     /// </remarks>
-    private static void AppendProps(
+    /// <returns>How many prop triangles were actually appended, and how far they reach.</returns>
+    private static (int Triangles, float FurthestX, float FurthestY) AppendProps(
         IReadOnlyList<PropVertex> props,
         Dictionary<int, List<WorldVertex>> byMaterial,
         MapBounds? area,
         bool categoryColours)
     {
+        // **Counted on the way OUT, because the count on the way in cannot see a cull.** The world
+        // log reported `props.Count / 3` for months, which is what this method was HANDED — so
+        // removing the play-area cull moved the brush count by exactly the 133 faces the ledger
+        // predicted and left the prop figure identical, and neither number was wrong. The prop one
+        // simply was not measuring the thing it was being read for.
+        //
+        // The furthest reach comes with it because that is the question the count cannot answer:
+        // a TF2 map keeps its 3D skybox as ordinary props far outside the level, so "are they in"
+        // is a question about DISTANCE, and a total says nothing about where anything is.
+        int appended = 0;
+        float furthestX = 0f;
+        float furthestY = 0f;
+
         for (int corner = 0; corner + 2 < props.Count; corner += 3)
         {
             PropVertex first = props[corner];
@@ -631,7 +655,14 @@ public static class MapWorldBuilder
                     green,
                     blue);
             }
+
+            appended++;
+
+            furthestX = Math.Max(furthestX, Math.Abs(first.OriginX));
+            furthestY = Math.Max(furthestY, Math.Abs(first.OriginY));
         }
+
+        return (appended, furthestX, furthestY);
     }
 
     private static bool Inside(PropVertex vertex, MapBounds bounds) =>

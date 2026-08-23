@@ -340,6 +340,47 @@ Nearest thing already done: anisotropic filtering, added 2026-08-16 — but that
 improvement**. The sampler had none while the reference config sets `mat_forceaniso 16`, so it was
 closing a gap in our own disfavour rather than exceeding the game.
 
+### The 3D skybox, and rendering settings as settings (owner-stated, 2026-08-23)
+
+**The 3D skybox gets implemented properly, with `sky_camera`.** A TF2 map keeps a miniature copy of
+its surroundings far outside the level; the engine draws it as a separate view, scaled and offset by
+the map's `sky_camera` entity. Until 2026-08-23 this project deleted it as a side effect of a
+play-area cull built for the overhead camera. The cull is gone (D76) and the skybox is now drawn
+raw — at its literal size and position, which is wrong and is deliberately visible. **Tracked as
+B152.** It matters because it is what makes a map look right from a free camera and from a
+point-of-view demo, which is most of what this viewer is for.
+
+**Whether it draws is the user's setting, not ours**, and Valve's own declaration settles the shape:
+`r_3dsky` defaults to `"1"` with no flags, `r_skybox` is `FCVAR_CHEAT`. Competitive players run
+without the skybox and expect to be able to; video makers need it on. Both audiences are served by
+the same cvar the game already uses.
+
+### Valve's debug draws (owner-stated, 2026-08-23)
+
+**Implement Valve's debug visualisations under Valve's names**, as development instruments rather
+than as features for the end user. `mat_wireframe`, `mat_specular` and the category view exist;
+`mat_fullbright`, `mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`,
+`mat_showlowresimage`, `r_drawworld`, `r_drawentities` and `mat_leafvis` do not. **Tracked as B153,
+decided as D75.**
+
+The justification is a measurement rather than a preference: the B154 blend-state leak took two days
+and four cleared hypotheses, each costing a rebuild and a manual flight to the same spot, and was
+then found immediately by drawing one view two different ways. See
+`findings/32-the-opaque-pass-blend-leak.md`.
+
+### Paying off the orthographic camera (2026-08-23)
+
+The viewer began with a top-down orthographic camera, and several decisions taken then were correct
+*for that camera* and are now wrong. Three were removed on 2026-08-23 — the decal depth bias, the
+brush-outline overlay, and the play-area cull — and at least two remain live. **Tracked as B155**,
+which proposes an audit against a specific tell rather than a rewrite: a comment asserting "X is Y"
+where X and Y are different quantities that merely coincided under an overhead projection.
+
+The owner raised restarting the WinForms project outright. The recommendation was against it, on the
+grounds that the MVP extraction (D60–D63) already confines this damage to `Render` and `Scene` and
+that the list is enumerable — but the audit is what converts that from an assertion into a number,
+and if the number is large the rewrite argument wins.
+
 ## 4. Repo scaffold (once we lock the plan)
 
 ```

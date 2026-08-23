@@ -735,13 +735,66 @@ public sealed unsafe class Device3D : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _world ??= WorldRenderer.Create(_device);
-        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut);
+
+        // Applied here rather than only in the setter, because the renderer is built lazily and a
+        // toggle flipped before the first map would otherwise be silently forgotten.
+        _world.Wireframe = _wireframe;
+
+        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut, _specular);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
         // map keeps the wrong projection until the user next moves.
         _worldCamera = (matrix, surfaceColours, heightCut);
     }
+
+    /// <summary>Whether the world draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
+    /// <remarks>
+    /// **Separates "never drawn" from "drawn and invisible", which nothing else here can.** Both
+    /// produce an absent surface, and every other instrument in this renderer answers only one of
+    /// them: a face count says what was submitted, a material ledger says what it was submitted
+    /// with, and neither says whether an edge reached the screen.
+    /// </remarks>
+    public bool Wireframe
+    {
+        get => _wireframe;
+
+        set
+        {
+            _wireframe = value;
+
+            if (_world is not null)
+            {
+                _world.Wireframe = value;
+            }
+        }
+    }
+
+    private bool _wireframe;
+
+    /// <summary>Whether cubemap reflections are added — Valve's <c>mat_specular</c>.</summary>
+    /// <remarks>
+    /// **A surface reflecting the sky at full strength IS the sky.** That is not a figure of
+    /// speech: an opaque prop whose envmap term dominates draws in the background's own colour and
+    /// reads as missing geometry, which is why this needs a switch rather than a code reading.
+    /// Valve's own note for the same switch is "If mat_specular 0, then get rid of envmap".
+    /// </remarks>
+    public bool Specular
+    {
+        get => _specular;
+
+        set
+        {
+            _specular = value;
+
+            // The camera constant carries it, so it takes effect on the next SetCamera rather than
+            // immediately. Callers toggling it re-set the camera; that is the same path a viewport
+            // resize takes and needs no second mechanism.
+            _worldCamera = null;
+        }
+    }
+
+    private bool _specular = true;
 
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;
