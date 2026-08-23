@@ -97,6 +97,9 @@ internal class MainForm : Form
     /// <summary>Automation id of the entity pass toggle — Valve's <c>r_drawentities</c>.</summary>
     public const string DrawEntitiesItemId = "DrawEntitiesMenuItem";
 
+    /// <summary>Automation id prefix of the debug views submenu; each item appends its mode.</summary>
+    public const string DebugMenuItemId = "DebugMenuItem";
+
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
 
@@ -402,9 +405,13 @@ internal class MainForm : Form
     private readonly ToolStripMenuItem _fullbrightMenu;
     private readonly ToolStripMenuItem _drawWorld;
     private readonly ToolStripMenuItem _drawEntities;
+    private readonly ToolStripMenuItem _debugMenu;
 
     /// <summary>Which <c>mat_fullbright</c> substitution is showing.</summary>
     public Fullbright Fullbright { get; private set; } = Fullbright.Off;
+
+    /// <summary>Which of Valve's per-surface debug views are showing.</summary>
+    private DebugModes _debug = DebugModes.None;
 
     /// <summary>Valve's entity palette, read from the FGDs the game ships, or null.</summary>
     private FgdClasses? _entityClasses;
@@ -529,6 +536,8 @@ internal class MainForm : Form
         {
             device.Fullbright = mode;
         }
+
+        _viewport.Invalidate();
     }
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
@@ -897,6 +906,8 @@ internal class MainForm : Form
             {
                 device.Wireframe = _wireframe.Checked;
             }
+
+            _viewport.Invalidate();
         };
 
         // **`mat_specular`, and it is a diagnostic before it is a preference.** A cubemap
@@ -971,6 +982,8 @@ internal class MainForm : Form
             {
                 world.DrawWorld = _drawWorld.Checked;
             }
+
+            _viewport.Invalidate();
         };
 
         _drawEntities = new ToolStripMenuItem("Draw &entities")
@@ -990,7 +1003,70 @@ internal class MainForm : Form
             {
                 entities.DrawEntities = _drawEntities.Checked;
             }
+
+            _viewport.Invalidate();
         };
+
+        // **A submenu of independent switches, because Valve's are independent cvars.** Grouping
+        // them as radio items would be tidier and would misrepresent the engine: mat_drawflat and
+        // mat_luxels compose, and seeing a luxel grid on flat-shaded geometry is a legitimate thing
+        // to want when a shadow looks wrong and you cannot tell whether the texture is confusing
+        // you.
+        _debugMenu = new ToolStripMenuItem("&Debug views")
+        {
+            Name = DebugMenuItemId,
+            AccessibleName = "Debug views",
+            AccessibleDescription =
+                "Valve's per-surface debug visualisations: flat shading, the luxel grid, and " +
+                "normal maps shown as colour.",
+        };
+
+        foreach ((string label, string cvar, Keys key) in new[]
+        {
+            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1),
+            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
+            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
+        })
+        {
+            string which = cvar;
+
+            ToolStripMenuItem item = new(label)
+            {
+                Name = DebugMenuItemId + which,
+                CheckOnClick = true,
+                ShortcutKeys = key,
+            };
+
+            item.CheckedChanged += (sender, _) =>
+            {
+                if (sender is not ToolStripMenuItem toggled)
+                {
+                    return;
+                }
+
+                _debug = which switch
+                {
+                    nameof(DebugModes.DrawFlat) => _debug with { DrawFlat = toggled.Checked },
+                    nameof(DebugModes.Luxels) => _debug with { Luxels = toggled.Checked },
+                    _ => _debug with { NormalMaps = toggled.Checked },
+                };
+
+                ViewerLog.Write("render", $"debug views: {_debug}");
+
+                if (_device is { } device)
+                {
+                    device.Debug = _debug;
+                }
+
+                // **Ask for a repaint.** The viewport draws on demand rather than continuously,
+                // so updating a shader constant is not enough on its own — the change reaches the
+                // GPU and then waits for an unrelated event to show it. That is what made these
+                // appear only when the camera moved.
+                _viewport.Invalidate();
+            };
+
+            _debugMenu.DropDownItems.Add(item);
+        }
 
         _specular.CheckedChanged += (_, _) =>
         {
@@ -1001,7 +1077,10 @@ internal class MainForm : Form
                 device.Specular = _specular.Checked;
             }
 
-            _worldIsStale = true;
+            // A repaint, not a world rebuild: this is a shader constant and the geometry is
+            // untouched. The rebuild was why reflections appeared instantly while every other
+            // debug view waited — it was doing far more work to get the same repaint.
+            _viewport.Invalidate();
         };
 
         ToolStripMenuItem screenshot = new("Save a &screenshot")
@@ -1020,6 +1099,7 @@ internal class MainForm : Form
         view.DropDownItems.Add(_fullbrightMenu);
         view.DropDownItems.Add(_drawWorld);
         view.DropDownItems.Add(_drawEntities);
+        view.DropDownItems.Add(_debugMenu);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
@@ -5437,6 +5517,7 @@ internal class MainForm : Form
             _fullbrightMenu.Dispose();
             _drawWorld.Dispose();
             _drawEntities.Dispose();
+            _debugMenu.Dispose();
             _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }

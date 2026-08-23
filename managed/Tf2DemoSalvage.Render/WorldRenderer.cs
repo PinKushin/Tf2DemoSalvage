@@ -140,6 +140,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // Not plumbed from the cameras: it is recovered from the matrix above, which already
             // determines it. See EyePosition.
             float4 eyePosition;
+
+            // **Every debug mode packed into one register, which is Valve's own discipline.**
+            // `common_vs_fxc.h` gives a shader twelve float4s for everything it needs, so a
+            // register per debug feature would run out long before the features do.
+            //
+            // x: mat_drawflat — the material's texture is replaced by flat white, leaving the
+            //    lighting and the geometry. Answers "is that shape in the model or in the texture".
+            // y: mat_luxels — Valve's luxel grid drawn at the LIGHTMAP coordinate, so one square is
+            //    one baked lighting sample. Answers "how coarse is the light here", which is what
+            //    a soft-edged shadow that should be sharp actually is.
+            // z: mat_normalmaps — the surface normal drawn as colour, the standard tangent-space
+            //    encoding, so a flat surface reads lilac and a wrongly-decoded one does not.
+            // w: unused.
+            float4 debugModes;
         };
 
         // **The model transform, which is Valve's own shape.** IMaterialSystem::LoadBoneMatrix
@@ -333,6 +347,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // rather than per material: it replaces the material's texture instead of joining it, so
         // there is nothing per-batch to say about it.
         Texture2D    devMap      : register(t7);
+
+        // **Valve's own luxel grid**, `debug/debugluxels`, which ships in the Half-Life 2 archives
+        // TF2 mounts. Separate from devMap because they are sampled with different coordinates —
+        // this one at the LIGHTMAP coordinate, so a cell is a baked sample rather than a texture
+        // tile — and one texture cannot be both.
+        Texture2D    luxelMap    : register(t8);
 
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
@@ -781,6 +801,52 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // rather than binding replacement textures reaches the same place without shipping two
             // more textures to look up per draw.
             //
+            // **mat_drawflat: the texture goes, the lighting and the geometry stay.** Applied
+            // before the fullbright substitutions below because it is the same KIND of thing — a
+            // replacement of the albedo — and two of them fighting over the same channel would be a
+            // silent precedence bug. Flat white rather than grey, which is what distinguishes it
+            // from mat_fullbright 2: this one keeps the surface at full brightness so the shape
+            // reads, that one dims it so the lighting reads.
+            if (debugModes.x > 0.5f)
+            {
+                albedo.rgb = float3(1.0f, 1.0f, 1.0f);
+            }
+
+            // **mat_normalmaps: the normal drawn as colour instead of lit with.** The standard
+            // tangent-space encoding, so a flat surface is lilac (0.5, 0.5, 1) and a wrongly
+            // decoded one is not — which is the whole value of it, because a wrong decode produces
+            // plausible shading rather than an error.
+            if (debugModes.z > 0.5f)
+            {
+                // **Shown as STORED, for both kinds, and the ternary that was here was a no-op** —
+                // both of its branches returned the same expression. Raw is right either way, and
+                // for opposite reasons: a normal map read raw is the lilac that says "flat", and an
+                // ssbump holds three light weights rather than a direction, so decoding it would
+                // send a flat 128 to zero and read as black. Neither wants the signed decode the
+                // lighting path applies, which is the point of looking at it.
+                return float4(bumpMap.Sample(wrapSampler, input.uv).rgb, 1.0f);
+            }
+
+            // **mat_luxels: Valve's grid at the LIGHTMAP coordinate, so a square is a sample.**
+            // Sampled with input.luv rather than input.uv — that is the entire difference between
+            // this and the category view's grid, and it is what makes it report lightmap density
+            // instead of texture scale.
+            if (debugModes.y > 0.5f)
+            {
+                // **Scaled by the ATLAS's own size, so one grid cell is exactly one luxel.** The
+                // first version multiplied by a flat 64, which draws a grid of no particular
+                // meaning — and a debug view whose squares do not correspond to the thing being
+                // measured is worse than none, because it looks like a measurement.
+                //
+                // The size is asked of the texture rather than passed in a constant: the shader
+                // already has the lightmap bound, and a second source of truth for the atlas
+                // dimensions is one that can disagree with the first.
+                float2 atlas;
+                lightMap.GetDimensions(atlas.x, atlas.y);
+
+                albedo.rgb = luxelMap.Sample(wrapSampler, input.luv * atlas).rgb;
+            }
+
             // Grey is 128/255, which is what TEXTURE_GREY holds.
             if (surfaceColours.w > 1.5f)
             {
@@ -1222,6 +1288,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// suppose to be checkered then we need to do that".
     /// </remarks>
     private readonly HashSet<int> _chequered = [];
+
+    /// <summary>Valve's luxel grid, sampled at lightmap coordinates for mat_luxels.</summary>
+    private ComPtr<ID3D11ShaderResourceView> _luxelGrid;
 
     /// <summary>The detail pattern for each material, empty where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
@@ -1761,6 +1830,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         if (assets.DevGrid is { } grid)
         {
             _devGrid = CreateTexture(device, context, grid.Width, grid.Height, grid.Image);
+        }
+
+        if (assets.LuxelGrid is { } luxels)
+        {
+            _luxelGrid = CreateTexture(device, context, luxels.Width, luxels.Height, luxels.Image);
         }
 
         // **Which materials will draw as the chequer, said once, by index.** A batch whose texture
@@ -2458,6 +2532,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Which of Valve's <c>mat_fullbright</c> substitutions to apply; see <see cref="Fullbright"/>
     /// for why there are three of them rather than two.
     /// </param>
+    /// <param name="debug">
+    /// Valve's per-surface debug visualisations — <c>mat_drawflat</c>, <c>mat_luxels</c> and
+    /// <c>mat_normalmaps</c>. Packed into one shader register, as Valve packs its own.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -2472,7 +2550,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         bool surfaceColours = false,
         float heightCut = 0f,
         bool specular = true,
-        Fullbright fullbright = Fullbright.Off)
+        Fullbright fullbright = Fullbright.Off,
+        DebugModes debug = default)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -2517,6 +2596,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             specular ? 1f : 0f,
             (float)fullbright,
             eye.X, eye.Y, eye.Z, hasEye,
+            debug.DrawFlat ? 1f : 0f,
+            debug.Luxels ? 1f : 0f,
+            debug.NormalMaps ? 1f : 0f,
+            0f,
         ];
 
         MappedSubresource mapped = default;
@@ -2733,7 +2816,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// hit: a short copy leaves the tail holding whatever was there before, which reads as one
     /// frame borrowing the previous one's state rather than as an error.
     /// </remarks>
-    private const int CameraConstants = 16 + 4 + 4;
+    /// <summary>Floats in the camera buffer: the matrix, the view switches, the eye, the debug modes.</summary>
+    /// <remarks>
+    /// **Kept as arithmetic rather than a literal**, because the shader's struct and this number
+    /// have to agree and a mismatch is not an error — D3D hands the shader zeros past the end of a
+    /// short buffer, so a mode simply never turns on. That has happened here once already: the
+    /// buffer was two float4s shorter than the shader (d561b14) and the constants it should have
+    /// carried read as off.
+    ///
+    /// **Seven float4s, against Valve's budget of twelve for an entire shader.** `common_vs_fxc.h`
+    /// reserves c0–c37 for the engine — fog, the view and model matrices, the ambient cube at
+    /// c21–c26, four lights at c27–c36, the modulation colour at c37 — and gives the shader
+    /// `SHADER_SPECIFIC_CONST_0..9` at c38–c47, with c14 and c15 borrowed for two more.
+    ///
+    /// That is the ceiling to design against, and it implies the shape as well as the size: Valve
+    /// fits a whole shader's parameters into twelve registers by PACKING several values into the
+    /// components of one, which is what `bump` and `envmapControl` below already do. So a new debug
+    /// mode takes a component of the existing word rather than a register of its own — a register
+    /// per feature would run out at a dozen features, and Valve never needed to.
+    /// </remarks>
+    private const int CameraConstants = 16 + 4 + 4 + 4;
 
     /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
     private const int BoneConstants = MaxBones * 3 * 4;
@@ -3064,6 +3166,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _chequered.Contains(materialIndex) || _devGrid.Handle is null ? _white : _devGrid;
 
         context.PSSetShaderResources(7, 1, ref underlay);
+
+        // The luxel grid rides along on the same per-material bind: it is frame-constant, but it
+        // costs nothing here and one binding site is easier to keep correct than two.
+        ComPtr<ID3D11ShaderResourceView> luxels =
+            _luxelGrid.Handle is not null ? _luxelGrid : _white;
+
+        context.PSSetShaderResources(8, 1, ref luxels);
 
         // **The material carries its own depth state, which is the engine's arrangement (B135).**
         // A shader in Source declares its render state in a SHADOW_STATE block and the material
@@ -3493,6 +3602,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             _white.Dispose();
             _devGrid.Dispose();
+            _luxelGrid.Dispose();
             _white = default;
         }
     }

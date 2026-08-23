@@ -392,6 +392,9 @@ public sealed class MapAssets
     /// <summary>Valve's measurement grid, drawn under the category colours, or null.</summary>
     public MapTexture? DevGrid { get; private init; }
 
+    /// <summary>Valve's luxel grid, drawn at lightmap coordinates for <c>mat_luxels</c>, or null.</summary>
+    public MapTexture? LuxelGrid { get; private init; }
+
     /// <summary>The specular highlight for each material, null for those without one.</summary>
     /// <remarks>
     /// **330 of cp_process's materials ask for this**, which made it the largest single unimplemented
@@ -819,6 +822,11 @@ public sealed class MapAssets
             Phong = table.Phong,
             LightWarps = table.LightWarps,
             DevGrid = LoadDevGrid(archives, maximumTextureSize),
+
+            // Valve's own luxel grid, for mat_luxels. Same loader, different candidates — it ships
+            // only in the Half-Life 2 archives, which TF2's gameinfo.txt mounts after its own.
+            LuxelGrid = LoadDebugTexture(
+                archives, maximumTextureSize, "materials/debug/debugluxels.vtf"),
         };
     }
 
@@ -838,14 +846,25 @@ public sealed class MapAssets
     /// Null when none of them resolve, which the renderer treats as "flat colours, as before". A
     /// missing debug texture must not stop a map drawing.
     /// </remarks>
-    private static MapTexture? LoadDevGrid(GameArchives archives, int maximumTextureSize)
-    {
-        foreach (string name in new[]
-        {
+    private static MapTexture? LoadDevGrid(GameArchives archives, int maximumTextureSize) =>
+        LoadDebugTexture(
+            archives,
+            maximumTextureSize,
             "materials/dev/dev_measuregeneric01.vtf",
             "materials/dev/dev_measuregeneric01blu.vtf",
-            "materials/dev/dev_measurewall01blu.vtf",
-        })
+            "materials/dev/dev_measurewall01blu.vtf");
+
+    /// <summary>Loads the first of Valve's debug textures that resolves, or null.</summary>
+    /// <remarks>
+    /// **Absent is not a failure.** These are editor and developer assets: a game install has them,
+    /// a content-only or dedicated-server copy may not. Losing one costs a diagnostic view, so it
+    /// must not interrupt opening a demo — but a file that exists and will not decode is a different
+    /// thing and says so.
+    /// </remarks>
+    private static MapTexture? LoadDebugTexture(
+        GameArchives archives, int maximumTextureSize, params string[] candidates)
+    {
+        foreach (string name in candidates)
         {
             byte[]? file;
 
@@ -870,7 +889,7 @@ public sealed class MapAssets
 
                 ViewerLog.Write(
                     "assets",
-                    $"category view uses {name} ({decoded.Width}x{decoded.Height} {decoded.Format})");
+                    $"debug texture {name} ({decoded.Width}x{decoded.Height} {decoded.Format})");
 
                 return new MapTexture(decoded.Width, decoded.Height, decoded.Image, false);
             }
@@ -882,7 +901,8 @@ public sealed class MapAssets
 
         ViewerLog.Warn(
             "assets",
-            "no dev measurement texture found; the category view falls back to flat colours");
+            $"none of {candidates.Length} debug textures resolved ({string.Join(", ", candidates)}); " +
+            "the view that uses it falls back");
 
         return null;
     }
