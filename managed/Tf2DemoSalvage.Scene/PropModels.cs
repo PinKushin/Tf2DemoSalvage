@@ -538,6 +538,17 @@ public static class PropModels
     /// once, in model space, to be posed per instance. A static prop is posed by the map and an
     /// entity is posed by the demo, and only the transform differs.
     /// </remarks>
+    private static long BakeTicks;
+
+    /// <summary>How long posing and baking model frames has taken this run.</summary>
+    /// <remarks>
+    /// **Baking is this project's one deliberate deviation from Valve**: small props and model
+    /// animations are posed once at load rather than driven per frame. That trade is paid here, so
+    /// this is where it can be judged — and the owner is weighing it against a target of a five to
+    /// ten second map load.
+    /// </remarks>
+    public static double BakeSeconds => BakeTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+
     internal static LoadedModel? Read(
         string path,
         PakFile pak,
@@ -734,6 +745,8 @@ public static class PropModels
             // as broken.
             bool skin = (mustSkin || wantedFrames > affordable) && bones.Count > 1;
 
+            long bakingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+
             foreach (int index in wanted)
             {
                 int frames = Math.Clamp(
@@ -904,6 +917,9 @@ public static class PropModels
 
                 baked.Add(frame);
             }
+
+            System.Threading.Interlocked.Add(
+                ref BakeTicks, System.Diagnostics.Stopwatch.GetTimestamp() - bakingFrom);
 
             // **Is the last frame really a duplicate of the first?** STUDIO_LOOPING says it
             // "should be", and dropping it is what removes a one frame stall at the loop seam.

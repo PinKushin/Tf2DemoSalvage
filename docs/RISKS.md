@@ -9162,3 +9162,95 @@ what one is. `WindowsForms12_ThreadCallbackMessage` is what `Control.Invoke`/`Be
 second demo was tried to separate "reloading a demo" from "changing map" and the run was
 inconclusive — its first render report was already degraded, so there was no healthy baseline in it
 to compare against. That experiment is worth repeating with the report forced out early.
+
+## B149 — every texture is DXT-decoded on the CPU, and it is the entire load time — OPEN
+
+**Measured 2026-08-23**, opening `cp_badlands` in the viewer:
+
+```
+[assets] reading surfaces and textures took 18.04s
+[assets] VTF decode so far: 20.12s over 3208 textures
+```
+
+The two overlap — decoding also runs inside prop and entity-model loading, which are nested in that
+phase — but the shape is not in doubt. **Decoding textures is what makes opening a demo take twenty
+seconds.** Everything else measured beside it is small: lightmaps 1.18 s, materials 1.17 s, texture
+upload 0.94 s, world build 0.61 s.
+
+**And it is avoidable, because DXT is not an archive format.** `VtfTexture` expands DXT1/3/5 into
+RGBA:
+
+```csharp
+case VtfFormat.Dxt1:
+case VtfFormat.Dxt1OneBitAlpha:
+    DecodeDxt(source, pixels, width, height, blockBytes: 8, hasAlphaBlock: false, dxt5: false);
+```
+
+Those formats **are** `BC1`, `BC2` and `BC3` — Direct3D samples them natively. The blocks can go
+to the GPU exactly as they sit in the file. Expanding them first spends twenty seconds to produce
+something four to eight times larger to upload (DXT1 is 0.5 bytes per pixel against RGBA's 4).
+
+**This was asked for and not done**, which is the part worth recording:
+
+> *"i told the AI that was doing the decompressing to unload everything it could on the gpu and it
+> must have ignored me or not realized it had already put one on the CPU. thats fning source SDK and
+> video game dev 101 though, you offload everything you can to the gpu"*
+
+**What the work involves**, from reading the path:
+
+1. `VtfTexture` keeps the raw blocks and the format instead of only decoded pixels.
+2. `MapTexture` carries the format through.
+3. `WorldRenderer.CreateTexture` selects `DXGI_FORMAT_BC1_UNORM` / `BC2` / `BC3` and supplies a row
+   pitch of *blocks* per row rather than pixels, per mip level.
+4. Non-block formats (`BGR888`, `RGBA8888` and friends) keep the existing path — this is a branch on
+   format, not a replacement.
+5. Anything that reads pixels on the CPU has to be found first. The chequer for a missing material
+   is generated rather than decoded, so it is unaffected; the lightmap atlas is built on the CPU and
+   genuinely needs pixels.
+
+**Textures are uploaded one at a time**, not packed into an atlas, so block alignment imposes no
+new constraint — which is the thing that usually makes this change awkward and here does not.
+
+**Not to be confused with the animation baking**, which is a deliberate deviation from Valve: small
+props and model animations are baked at load so they are not driven per frame. That cost is chosen
+and bought back every frame afterwards. This one buys nothing.
+
+## B150 — baking is a deliberate trade that was never benchmarked — OPEN
+
+**The deviation**: small props and model animations are posed once at load rather than driven per
+frame, so the viewer does no skinning work for them at draw time. Deliberate, owner-approved, and
+the one place this project knowingly departs from how the engine does it.
+
+**What it costs, measured 2026-08-23 on `cp_badlands`**: `PropModels.BakeSeconds` reports **11.15 s**
+of CPU, inside an asset phase whose wall clock is 17.85 s. Accumulated across threads, so the
+elapsed share is smaller — but it is a large share of a load the owner wants under ten seconds and
+would prefer at five.
+
+**What it buys has no measurement at all**, which is the finding. Searched: the benchmarks project
+holds `Mp3DecodeBenchmarks` and `ParseBenchmarks` and nothing else; `docs/DECISIONS.md` records no
+entry for it; the only `docs/RISKS.md` mention is the bone-merge defect baking *caused*, not a
+comparison. The owner remembers it differently and doubts his own memory:
+
+> *"i think we did test baking when i decided to go with it, so im pretty sure it did get us some
+> FPS, but i cant remember the actual tests or outcomes, so its also possible the ai was reasoning
+> and didnt actually test, because idk if i remember seeing a test, per se, just seeing you/the ai,
+> running something it said was the test."*
+
+**The seam to measure it already exists**, which is the good news — this needs no new architecture.
+`PropModels.Read` chooses per model:
+
+```csharp
+bool skin = (mustSkin || wantedFrames > affordable) && bones.Count > 1;
+```
+
+and the renderer logs the decision per model — `skinning c_knife.mdl: 5,808 corners against a budget
+of 371,712, so it is posed on the GPU instead`. Forcing `affordable` to zero puts every model on the
+GPU path, which is the "no baking" arm of the experiment.
+
+**Order of work, agreed with the owner:** take the free win first (B149 — uploading DXT blocks to
+the GPU instead of expanding them, which trades nothing), re-measure, and only then benchmark baking
+against a load that is already much shorter. A trade judged against a twenty-second load is judged
+against the wrong baseline.
+
+**What the benchmark has to report, both arms:** load wall clock, and frame time with a full scene
+posed. The FPS side is the half that was never taken, and it is the half the deviation exists for.

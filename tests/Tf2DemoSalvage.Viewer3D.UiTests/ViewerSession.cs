@@ -99,31 +99,6 @@ internal sealed partial class ViewerSession
     /// <summary>The file name of the demo the session opens with.</summary>
     public const string DemoName = "tf2-2013-build1729296-pov-cp_badlands.dem";
 
-    /// <summary>A second demo, on a different map, so switching between them is testable.</summary>
-    /// <remarks>
-    /// **With one demo on the command line the playlist was built, displayed, and never used** — on
-    /// an application whose entire purpose is opening demos. Two makes loading itself testable.
-    ///
-    /// **A different map is the point, and it is also the whole cost.** Switching re-reads a BSP,
-    /// re-uploads its textures and rebuilds every player model, so the demo to pick is the smallest
-    /// one that still changes maps: 642 KB of `cp_granary` against the session's `cp_badlands`.
-    ///
-    /// **This was `z1800.dem` for one afternoon and the numbers argue against it.** That is a 9 MB
-    /// nine-versus-nine match, chosen so the spectator-cycling tests could show the camera moving
-    /// between real players — and it took the suite from twelve seconds to six minutes. Those tests
-    /// were then blocked anyway by B147: a match demo has to be positioned mid-match before there is
-    /// anybody to spectate, and the scrub bar cannot be set through automation. So the cost bought
-    /// nothing, and the claim it was for lives in `CorpusSpectatorCyclingTests` instead, where
-    /// walking a real 24-player list costs no UI at all.
-    /// </remarks>
-    public static string SecondDemoPath => Corpus("tf2-2008-build3420-stv-cp_granary.dem");
-
-    /// <summary>The file name of the second demo.</summary>
-    public const string SecondDemoName = "tf2-2008-build3420-stv-cp_granary.dem";
-
-    /// <summary>What the viewer logs as it opens a file.</summary>
-    public const string OpeningLine = "opening ";
-
     private static string Corpus(string file) => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
         "..", "..", "..", "..", "..",
@@ -175,12 +150,6 @@ internal sealed partial class ViewerSession
             return;
         }
 
-        if (!File.Exists(SecondDemoPath))
-        {
-            Assert.Ignore($"The corpus match demo is not present at {SecondDemoPath}.");
-            return;
-        }
-
         // **Leftovers first.** A run that crashed, or was stopped mid-test, leaves a viewer holding
         // the executable — and the next build then fails on a locked file rather than on anything
         // to do with the code. Killed rather than closed, because these are already known to be
@@ -191,27 +160,43 @@ internal sealed partial class ViewerSession
         // command line because the scrub bar does not support the RangeValue pattern and so cannot
         // be set through automation — `TransportUiTests` records that, and reads the tick label
         // instead.
-        // **Two demos, and therefore neither is loaded by the command line.** `MainForm` opens a
-        // single named file — that is the file-association case, where listing it in a playlist and
-        // waiting is not what "open this" means anywhere else — but treats several as a playlist to
-        // choose from, because picking one of them to start would be guessing which.
+        // **One demo, named on the command line, and it opens because of that.**
         //
-        // So the session opens the first through the playlist, which means **every run of this
-        // suite now exercises the load path a person uses**. It had none before.
+        // **This was briefly two, and the owner had it removed.** The idea was to test demo
+        // switching through the UI. `MainForm` deliberately does not auto-open when handed several
+        // files — they are a playlist to choose from — so the session had to open one itself through
+        // the playlist, and `--tick` applies to the demo the *command line* loads. The seek stopped
+        // happening, the viewer sat at tick zero where nobody holds anything, and the capture tests
+        // failed with "the viewmodel never reached the screen". **Every test in the assembly paid
+        // for a fixture that two needed.**
+        //
+        // > *"adding 2 or 3 tests shouldnt be causing a doubling of test time … the real underlying
+        // > problem, is you didnt design the tests well."*
+        //
+        // The second attempt gave the switching tests their own viewer instead, which was worse
+        // again — two copies of the application alive at once, which is exactly what the remarks at
+        // the top of this file exist to prevent.
+        //
+        // > *"just forget the load tests as ui tests, it cant be tested without agrivating the hell
+        // > out of me, 20 fucking seconds, no."*
+        //
+        // **A map switch costs about twenty seconds and no test design makes it cheaper**, because
+        // the twenty seconds are the work itself (B146). Loading is covered where it costs nothing:
+        // `LoadedDemoTests` drives `LoadDemo` and `LoadDemoAsync` with no window at all.
         _viewer = ViewerApplication.Launch(
-            DemoPath,
-            SecondDemoPath,
-            "--tick",
-            OpeningTick.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            DemoPath, "--tick", OpeningTick.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-        LoadFromPlaylist(DemoName);
-
-        // Checked once, here, rather than inside the shared helper. Textures are the expensive half
-        // of a load and the first one must do it — but a later switch may not, if the map's textures
-        // are already in hand, and a helper that demanded them every time would wait out its full
-        // budget and then report that the viewer never built a world.
-        App.Count(TextureUploadLine).ShouldBeGreaterThan(
-            0, "the first load has to decode and upload the map's textures");
+        // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
+        // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
+        // property of the machine, not of the program.
+        Retry.WhileFalse(
+            () => App.Count(WorldBuildLine) > 0 && App.Count(TextureUploadLine) > 0,
+            TimeSpan.FromSeconds(120),
+            throwOnTimeout: true,
+            timeoutMessage:
+                $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
+                $"in {ViewerApplication.Folder} (−1 below means no log was read); " +
+                $"worlds {_viewer.Count(WorldBuildLine)}, textures {_viewer.Count(TextureUploadLine)}.");
     }
 
     /// <summary>What the viewer logs when the first-person view is entered, either way.</summary>
@@ -248,32 +233,6 @@ internal sealed partial class ViewerSession
         App.PressKey(VirtualKeyShort.SPACE);
     }
 
-    /// <summary>Opens one of the session's demos and waits for its world.</summary>
-    /// <param name="demoName">The demo's file name.</param>
-    /// <remarks>
-    /// **Shared with the tests that switch demos**, so the wait is written once. A switch that
-    /// returned before the new world existed would hand the next assertion a half-loaded viewer,
-    /// and the failure would look like whatever that test was about.
-    /// </remarks>
-    public static void LoadFromPlaylist(string demoName)
-    {
-        int worlds = App.Count(WorldBuildLine);
-
-        App.LoadFromPlaylist(demoName);
-
-        // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
-        // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
-        // property of the machine, not of the program.
-        Retry.WhileFalse(
-            () => App.Count(WorldBuildLine) > worlds,
-            TimeSpan.FromSeconds(120),
-            throwOnTimeout: true,
-            timeoutMessage:
-                $"The viewer never reported building a world for {demoName}. " +
-                $"Log: {_viewer?.LogPath ?? "NONE FOUND"} in {ViewerApplication.Folder} " +
-                $"(−1 below means no log was read); worlds {App.Count(WorldBuildLine)}, " +
-                $"textures {App.Count(TextureUploadLine)}, opens {App.Count(OpeningLine)}.");
-    }
 
     [OneTimeTearDown]
     public void CloseTheViewer()

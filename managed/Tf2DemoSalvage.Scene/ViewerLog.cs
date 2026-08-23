@@ -94,6 +94,11 @@ public static class ViewerLog
         {
             _failed = false;
 
+            // **The previous run's file, closed before a new one is named.** Each run writes its own
+            // stamped log, so a handle held across `Begin` would keep appending to the old one.
+            _writer?.Dispose();
+            _writer = null;
+
             try
             {
                 Directory.CreateDirectory(Folder);
@@ -174,17 +179,55 @@ public static class ViewerLog
         {
             try
             {
-                File.AppendAllText(Path, line + Environment.NewLine, Encoding.UTF8);
+                Writer().WriteLine(line);
             }
             catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException or ArgumentException)
+                failure is IOException or UnauthorizedAccessException or ArgumentException
+                    or ObjectDisposedException)
             {
                 // Stop trying rather than throwing on every line afterwards. See the type remarks:
                 // a viewer that cannot write a log still has a demo to show.
                 _failed = true;
+                _writer = null;
             }
         }
     }
+
+    /// <summary>The open log file, created on first use.</summary>
+    /// <remarks>
+    /// **This was `File.AppendAllText` per line, which opens, writes, flushes and closes the file
+    /// every time.** The owner spotted it while B148 was being chased and was blunt about it —
+    /// *"THATS A BAD AI CHOICE, that should be using the async version, non blocking"*.
+    ///
+    /// **A held handle beats an async open-and-close**, which is why this keeps the stream rather
+    /// than switching to `AppendAllTextAsync`: the expensive part is the open and the close, and an
+    /// asynchronous open is still an open. What is left is a buffered write into a handle that is
+    /// already there.
+    ///
+    /// **`AutoFlush` stays on**, because this project debugs by log — `docs/memory/logs-are-the-debugger.md`
+    /// — and a buffered tail lost in a crash is exactly the part worth having. Flushing an open
+    /// handle is cheap; opening a file is not.
+    ///
+    /// **What it cost, measured**: one five-minute run wrote 450,157 lines, 440,412 of them the same
+    /// per-frame warning, into a file that reached 37 MB. Every one of those was a separate open and
+    /// close. The warning itself was a real defect and is fixed (B148), but a logger this expensive
+    /// turns any future chatty line into the same kind of collapse.
+    ///
+    /// **Shared for reading**, because the UI suite reads this file while the viewer appends to it.
+    /// </remarks>
+    private static StreamWriter Writer() =>
+        _writer ??= new StreamWriter(
+            new FileStream(
+                Path,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.ReadWrite | FileShare.Delete),
+            Encoding.UTF8)
+        {
+            AutoFlush = true,
+        };
+
+    private static StreamWriter? _writer;
 
     private sealed class Timing(string area, string what) : IDisposable
     {

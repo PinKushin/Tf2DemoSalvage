@@ -916,6 +916,41 @@ internal class MainForm : Form
     /// </remarks>
     public bool LoadMap(string mapName)
     {
+        ClearMap();
+        return ReadMapNamed(mapName);
+    }
+
+    /// <summary>Whether the packed model geometry is on the device right now.</summary>
+    /// <remarks>
+    /// **Not the same question as "has the set grown", and conflating them was B148.** The packed
+    /// set outlives a map; the buffer it was uploaded into does not.
+    /// </remarks>
+    private bool _modelsUploaded;
+
+    /// <summary>Whether a map is being read on another thread right now.</summary>
+    /// <remarks>
+    /// **Volatile because two threads share it and one of them is a tight loop.** The reader writes
+    /// a dozen fields and the render loop reads them; this is what keeps the loop out from between.
+    /// </remarks>
+    private volatile bool _readingMap;
+
+    /// <summary>What went wrong reading the map, for the UI thread to show.</summary>
+    /// <remarks>
+    /// **A field rather than a direct `_status.Text`, because the read runs off the UI thread now.**
+    /// Setting a control property from a worker is the kind of thing that works until the day a
+    /// handle exists.
+    /// </remarks>
+    private string? _mapProblem;
+
+    /// <summary>Drops the current map and its GPU resources. UI thread only.</summary>
+    /// <remarks>
+    /// **Separated from the reading because only this half belongs to the device (B146).**
+    /// `ClearWorld` disposes Direct3D resources and an immediate context is owned by the thread that
+    /// made it; everything after this point is file reading and arithmetic, which is where the
+    /// thirteen to eighteen seconds go.
+    /// </remarks>
+    private void ClearMap()
+    {
         _map = null;
         _surfaces = null;
         _mapLines = [];
@@ -925,8 +960,25 @@ internal class MainForm : Form
         _terrain = null;
         _overlays = null;
         _texturesUploaded = false;
-        _device?.ClearWorld();
+        _mapProblem = null;
 
+        // **The models go with the world, because the world owned their buffer.** `ClearWorld`
+        // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
+        // set that is still in memory has nowhere on the device to live until it is uploaded again
+        // (B148).
+        _modelsUploaded = false;
+
+        _device?.ClearWorld();
+    }
+
+    /// <summary>Finds and reads a map. Safe off the UI thread once <see cref="ClearMap"/> has run.</summary>
+    /// <remarks>
+    /// **Verified by reading rather than assumed**: across its hundred and forty lines this path
+    /// touches no control, no demo, no timeline and no device — the one exception was a `_status.Text`
+    /// assignment in a catch, which now records <see cref="_mapProblem"/> for the UI thread to show.
+    /// </remarks>
+    private bool ReadMapNamed(string mapName)
+    {
         string? path = FindMap(mapName);
 
         if (path is null)
@@ -1120,12 +1172,22 @@ internal class MainForm : Form
                     $"{_assets.Resolved} materials resolved, {_assets.Missing} missing, " +
                     $"lightmap atlas {_assets.Lightmaps.Width}x{_assets.Lightmaps.Height}, " +
                     $"texture quality {_settings.TextureQuality}");
+
+                (double seconds, long count) = Tf2DemoSalvage.Content.Assets.VtfTexture.DecodeCost;
+
+                ViewerLog.Write(
+                    "assets",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"VTF decode so far: {seconds:F2}s CPU over {count} textures " +
+                        $"(decoded in parallel, so wall clock is less); " +
+                        $"baking {Tf2DemoSalvage.Scene.PropModels.BakeSeconds:F2}s"));
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
                 _surfaceList = [];
                 _assets = null;
-                _status.Text = "Map content unavailable: " + failure.Message;
+                _mapProblem = "Map content unavailable: " + failure.Message;
                 ViewerLog.Warn("assets", "reading the map's content", failure);
             }
 
@@ -1729,7 +1791,15 @@ internal class MainForm : Form
     private bool _shotSurfaceColours;
 
     /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
-    private int _shotDelay = 45;
+    /// <summary>Frames to let the world settle before the opening state is applied.</summary>
+    /// <remarks>
+    /// **Counted in frames, not seconds**, so it measures settled frames rather than guessing at a
+    /// machine. Restarted when a demo loads, because a demo opened from the playlist arrives after
+    /// the window did — see the note in `Apply`.
+    /// </remarks>
+    private const int OpeningFrames = 45;
+
+    private int _shotDelay = OpeningFrames;
 
     /// <summary>Pulls the capture options out of the paths, returning what is left.</summary>
     private string[] ReadCaptureOptions(string[] arguments)
@@ -1859,39 +1929,9 @@ internal class MainForm : Form
 
         if (_shotDelay-- > 0)
         {
-            if (_shotDelay == 40 && _timeline is not null)
+            if (_shotDelay == 40)
             {
-                _openingDone = true;
-
-                // **The clock too, not just the transport.** Moving the camera marks the world
-                // stale, and the reprojection that follows re-reads the moment from the clock - so
-                // a capture that only told the transport photographed tick zero while every log
-                // line said otherwise.
-                _clock?.Seek(_shotTick);
-                _transport.ShowTick(_shotTick);
-                ShowMoment(_shotTick);
-
-                if (_shotSurfaceColours)
-                {
-                    _surfaceColours.Checked = true;
-                }
-
-                // **After the seek, because entering the first-person view reads the moment.**
-                // The camera is placed from the recorded view or from the followed player at the
-                // CURRENT tick, so switching before the clock moves photographs the right mode at
-                // the wrong instant — and the picture looks like a camera bug rather than an
-                // ordering one.
-                if (_shotFirstPerson)
-                {
-                    _ = ToggleFirstPerson();
-                }
-
-                if (_shotLookAt is { } centre)
-                {
-                    _zoom = _shotZoom;
-                    _lookingAt = centre;
-                    _worldIsStale = true;
-                }
+                ApplyOpeningState();
             }
 
             return;
@@ -1906,6 +1946,68 @@ internal class MainForm : Form
 
         CaptureViewport(path);
         BeginInvoke(Close);
+    }
+
+    /// <summary>Puts the viewer where the command line said to start, once there is a demo.</summary>
+    /// <remarks>
+    /// **`--tick`, `--first-person`, `--spectate` and `--colours` say where to START**, and this is
+    /// the one place that obeys them.
+    ///
+    /// **It used to be reachable only at one frame, and that stopped working the day a demo could
+    /// arrive late.** The block sat inside the capture countdown, guarded by
+    /// `_shotDelay == 40 &amp;&amp; _timeline is not null` — a single frame, about forty frames after the
+    /// window opened. That was safe while a demo named on the command line was loaded inside the
+    /// constructor, so the timeline always existed by the first frame. It is not safe now: opening
+    /// several files lists them without loading any, so the playlist supplies the demo *after* that
+    /// frame has gone, the guard fails once, and the opening state is lost for the rest of the run.
+    ///
+    /// The symptom was a viewer sitting at tick zero with `--tick 2500` on its command line, and a
+    /// capture test that failed with "the viewmodel never reached the screen" — true, because at
+    /// tick zero nobody is holding anything. It passed intermittently beforehand only when some
+    /// earlier test happened to move the transport first.
+    ///
+    /// So it is called from both ends now: from the countdown, as before, and from
+    /// <see cref="Apply"/> when a demo finishes loading. <see cref="_openingDone"/> makes the second
+    /// of those a no-op.
+    /// </remarks>
+    private void ApplyOpeningState()
+    {
+        if (_openingDone || _timeline is null)
+        {
+            return;
+        }
+
+        _openingDone = true;
+
+        // **The clock too, not just the transport.** Moving the camera marks the world stale, and
+        // the reprojection that follows re-reads the moment from the clock - so a capture that only
+        // told the transport photographed tick zero while every log line said otherwise.
+        _clock?.Seek(_shotTick);
+        _transport.ShowTick(_shotTick);
+        ShowMoment(_shotTick);
+
+        ViewerLog.Write("viewer", $"opening state applied at tick {_shotTick}");
+
+        if (_shotSurfaceColours)
+        {
+            _surfaceColours.Checked = true;
+        }
+
+        // **After the seek, because entering the first-person view reads the moment.** The camera
+        // is placed from the recorded view or from the followed player at the CURRENT tick, so
+        // switching before the clock moves photographs the right mode at the wrong instant — and
+        // the picture looks like a camera bug rather than an ordering one.
+        if (_shotFirstPerson)
+        {
+            _ = ToggleFirstPerson();
+        }
+
+        if (_shotLookAt is { } centre)
+        {
+            _zoom = _shotZoom;
+            _lookingAt = centre;
+            _worldIsStale = true;
+        }
     }
 
     /// <summary>Whether the opening tick, view and target have been applied.</summary>
@@ -2900,8 +3002,22 @@ internal class MainForm : Form
             }
         }
 
-        if (grew && _device is { } device)
+        // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
+        // for the life of the form, so after a switch it already holds what the new demo needs and
+        // does not grow — but the GPU buffer it was uploaded into is gone, because `ClearWorld`
+        // disposed the whole `WorldRenderer` and a new one was built for the new map.
+        //
+        // The result was every posed model failing `_modelVertices.Handle is null` and taking the
+        // "a model was posed before any model geometry was uploaded" branch — **440,412 times in one
+        // five-minute run**, each an open, append and close of a log file that reached 37 MB. That
+        // is the whole of B148: the viewer fell from 290 frames a second to 20, and the cost sat
+        // inside the draw where the timers could see it but no counter named it.
+        //
+        // The warning was right and doing its job — "a wiring fault … looks exactly like a model
+        // that is correctly invisible". Nothing was listening.
+        if ((grew || !_modelsUploaded) && _device is { } device)
         {
+            _modelsUploaded = true;
             device.UploadModels(_models);
 
             // **Logged because a model that draws nothing looks exactly like one that was never
@@ -3174,8 +3290,44 @@ internal class MainForm : Form
         {
             Decoded decoded = await Task.Run(() => Decode(path)).ConfigureAwait(false);
 
+            if (ticket != _loadsRequested)
+            {
+                return OnUi(() => Superseded(path));
+            }
+
+            // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
+            // old map touches the device and stays here; finding and reading the new one touches
+            // nothing but files and arithmetic, and goes to a worker.
+            //
+            // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
+            // goes, and the render loop reads them, so between the two the world is half replaced.
+            // The flag holds the loop off until the marshal back, which is also the barrier that
+            // publishes the writes.
+            OnUi(() =>
+            {
+                _readingMap = true;
+                ClearMap();
+                return 0;
+            });
+
+            bool read;
+
+            try
+            {
+                read = await Task.Run(() => ReadMapNamed(decoded.Demo.MapName))
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                OnUi(() =>
+                {
+                    _readingMap = false;
+                    return 0;
+                });
+            }
+
             return OnUi(() => ticket == _loadsRequested
-                ? Apply(decoded)
+                ? Apply(decoded, read)
                 : Superseded(path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
@@ -3309,13 +3461,14 @@ internal class MainForm : Form
 
     /// <summary>Puts a decoded demo on screen. UI thread only.</summary>
     /// <param name="decoded">The demo and its timeline.</param>
+    /// <param name="read">Whether the map was already read off-thread, or null to read it here.</param>
     /// <returns>What to tell the caller.</returns>
     /// <remarks>
     /// **Everything here touches the form, and the last thing it does is Direct3D**, which is why
     /// the split is where it is rather than a few lines either side. `LoadMap` reads a BSP and
     /// uploads textures to the device, and a device is owned by the thread that made it.
     /// </remarks>
-    private DemoLoadResult Apply(Decoded decoded)
+    private DemoLoadResult Apply(Decoded decoded, bool? read = null)
     {
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
@@ -3359,12 +3512,31 @@ internal class MainForm : Form
             _clock = null;
         }
 
-        bool haveMap = LoadMap(_demo.MapName);
-        _status.Text = _demo.Describe() + (haveMap ? string.Empty : "  (map not found)");
+        // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
+        // that and passes what it found; the synchronous path passes null and reads it here, which
+        // is what the command line, `--shot` and the tests want.
+        bool haveMap = read ?? LoadMap(_demo.MapName);
+
+        _status.Text = _mapProblem
+            ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
 
         // The first frame, so opening a demo shows the players standing where they started
         // rather than an empty map waiting for someone to press play.
         ShowPlayers(_timeline?.PlayersAt(_timeline.FirstTick) ?? []);
+
+        // **Restart the settling countdown, rather than applying the opening state here.** A demo
+        // opened from the playlist arrives long after the frame the countdown used to fire on, so
+        // the state was being lost — but applying it at this instant is worse than useless: the
+        // world has not settled, the textures are uploaded on a later frame, and the seek lands in a
+        // scene that is not ready and then latches itself done.
+        //
+        // Restarting keeps the original reasoning intact — the countdown exists so the map, its
+        // textures and the entity models are all in place first — and simply measures it from the
+        // demo rather than from the window.
+        if (!_openingDone)
+        {
+            _shotDelay = OpeningFrames;
+        }
 
         return new DemoLoadResult(DemoLoadOutcome.Loaded, _status.Text);
     }
@@ -4160,6 +4332,19 @@ internal class MainForm : Form
 
     private void RenderFrame()
     {
+        // **Nothing is drawn while a map is being read on another thread (B146).** That read
+        // replaces a dozen fields one at a time — the outline, the surfaces, the assets, the
+        // terrain, the overlays — and drawing halfway through it would be drawing a world that does
+        // not exist yet.
+        //
+        // The window keeps pumping, which is the whole point: it stays responsive, the menus work,
+        // and Windows stops calling it hung. What it shows meanwhile is the last frame drawn, which
+        // is what a frozen window showed anyway.
+        if (_readingMap)
+        {
+            return;
+        }
+
         FlyCamera();
 
         // **Reprojected here rather than in the resize handler**, which is what coalesces a burst

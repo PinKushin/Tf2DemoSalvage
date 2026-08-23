@@ -204,6 +204,47 @@ public sealed class VtfTexture
     /// </remarks>
     public static VtfTexture Decode(ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0)
     {
+        long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        try
+        {
+            return DecodeCore(file, maximumSize, face);
+        }
+        finally
+        {
+            System.Threading.Interlocked.Add(
+                ref DecodeTicks, System.Diagnostics.Stopwatch.GetTimestamp() - startedAt);
+            System.Threading.Interlocked.Increment(ref DecodeCount);
+        }
+    }
+
+    private static long DecodeTicks;
+
+    private static long DecodeCount;
+
+    /// <summary>How long VTF decoding has taken this run, and over how many textures.</summary>
+    /// <remarks>
+    /// **Measured because it turned out to be the whole load.** One `cp_badlands` open:
+    /// **20.12 s over 3,208 textures**, against a total asset phase of 18.04 s — the two overlap
+    /// because decoding also happens inside prop and entity-model loading, but the shape is not in
+    /// doubt. Decoding textures is what makes opening a demo slow.
+    ///
+    /// **And almost all of it is avoidable.** DXT1/3/5 are not an archive format to be unpacked —
+    /// they are `BC1`/`BC2`/`BC3`, which Direct3D samples natively. Expanding them to RGBA on the
+    /// CPU spends this time to produce something four to eight times larger to upload. The owner
+    /// had asked for exactly this to be on the GPU and it was not done:
+    ///
+    /// > *"i told the AI that was doing the decompressing to unload everything it could on the gpu
+    /// > and it must have ignored me … thats fning source SDK and video game dev 101 though"*
+    ///
+    /// Kept as a permanent counter rather than removed after the measurement, because this is the
+    /// number any future change to the texture path has to move.
+    /// </remarks>
+    public static (double Seconds, long Count) DecodeCost =>
+        (DecodeTicks / (double)System.Diagnostics.Stopwatch.Frequency, DecodeCount);
+
+    private static VtfTexture DecodeCore(ReadOnlyMemory<byte> file, int maximumSize, int face)
+    {
         ReadOnlySpan<byte> span = file.Span;
 
         if (span.Length < 64 || !span[..4].SequenceEqual(Magic))
