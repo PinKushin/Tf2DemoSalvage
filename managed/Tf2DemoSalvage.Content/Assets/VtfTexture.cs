@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
@@ -57,7 +58,7 @@ public enum VtfFormat
 }
 
 /// <summary>
-/// Reads a Valve Texture File down to RGBA pixels.
+/// Reads a Valve Texture File, compressed for the GPU or expanded to RGBA.
 /// </summary>
 /// <remarks>
 /// **The game's own textures, at the game's own resolution.** A VTF holds a mip chain, smallest
@@ -76,9 +77,17 @@ public enum VtfFormat
 /// data at the start of the image section gives a 1x1 texture that decodes perfectly and looks
 /// like a solid colour — an error that produces a picture rather than an exception.
 ///
-/// **DXT is decoded here rather than uploaded compressed**, because the caller wants pixels it can
-/// also sample on the CPU. D3D11 could take the blocks directly and that is a later optimisation;
-/// the decode is a few lines per block and runs once per texture.
+/// **There are two ways in, and the difference is who is going to look at the pixels.**
+/// <see cref="VtfTexture.Read"/> keeps DXT compressed and hands the blocks over;
+/// <see cref="VtfTexture.Decode(System.ReadOnlyMemory{byte},int,int)"/> expands them to RGBA for a
+/// caller that needs texels.
+///
+/// **This file used to say the compressed path was "a later optimisation" and that the decode "runs
+/// once per texture", and both parts of that were wrong (B149).** It runs once per texture per
+/// *load*, and a map load is 3,208 of them — 16.87 s of CPU measured on one `cp_badlands` open,
+/// which was essentially the whole load time. DXT1/3/5 are BC1/2/3, a format Direct3D sample
+/// natively, so the expansion produced something four to eight times larger to upload and bought
+/// nothing on the way.
 /// </remarks>
 public sealed class VtfTexture
 {
@@ -116,7 +125,14 @@ public sealed class VtfTexture
     public const int CubeFaceCount = 7;
 
     private VtfTexture(
-        int width, int height, VtfFormat format, int mipCount, byte[] pixels, int level, uint flags)
+        int width,
+        int height,
+        VtfFormat format,
+        int mipCount,
+        byte[] pixels,
+        int level,
+        uint flags,
+        IReadOnlyList<ReadOnlyMemory<byte>> levels)
     {
         Width = width;
         Height = height;
@@ -125,6 +141,7 @@ public sealed class VtfTexture
         Pixels = pixels;
         Level = level;
         Flags = flags;
+        Levels = levels;
     }
 
     /// <summary>Width of the decoded image.</summary>
@@ -185,22 +202,87 @@ public sealed class VtfTexture
         Justification = "The pixel buffer is uploaded to the GPU; a defensive copy would double the cost.")]
     public byte[] Pixels { get; }
 
-    /// <summary>Decodes a texture.</summary>
+    /// <summary>Whether this texture is DXT, and therefore already in a format the GPU samples.</summary>
+    /// <remarks>
+    /// DXT1, DXT3 and DXT5 are BC1, BC2 and BC3. Everything else here — `BGR888`, `RGBA8888` and
+    /// friends — has no block form and takes the decoding path.
+    /// </remarks>
+    public bool IsBlockCompressed => Format is
+        VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha or VtfFormat.Dxt3 or VtfFormat.Dxt5;
+
+    /// <summary>The compressed mip chain for this face, largest level first.</summary>
+    /// <remarks>
+    /// **Empty unless <see cref="IsBlockCompressed"/>**, because there is nothing to hand over
+    /// otherwise.
+    ///
+    /// **Largest first, which is the opposite of the file (B149).** A VTF stores the smallest mip
+    /// first — level `MipCount - 1` is 1x1 — and Direct3D numbers subresource zero as the top level.
+    /// Uploading in file order puts a 1x1 image in as the full-size mip, which draws as a flat
+    /// colour over everything and reads like a missing texture rather than a reversed list.
+    ///
+    /// **The whole chain rather than one level**, because block-compressed textures cannot have
+    /// their mips generated on the GPU — `GenerateMips` needs a render target, and BC formats are
+    /// not one. Valve's chain is already in the file and already properly filtered, so this is both
+    /// the cheap answer and the better-looking one.
+    ///
+    /// Slices of the caller's file rather than copies: nothing here is mutated, and the point of
+    /// the exercise is to stop moving texture bytes around.
+    /// </remarks>
+    public IReadOnlyList<ReadOnlyMemory<byte>> Levels { get; }
+
+    /// <summary>Reads a texture, keeping DXT blocks compressed for the GPU.</summary>
+    /// <param name="file">The VTF's bytes.</param>
+    /// <param name="maximumSize">
+    /// Largest edge to read; the smallest mip at least this size is chosen. Zero means full size.
+    /// </param>
+    /// <param name="face">
+    /// Which cube face to read, 0 to 6. Ignored for a flat texture, which has only face 0. Face 6
+    /// is the fallback spheremap rather than a cube face; see <see cref="CubeFaceCount"/>.
+    /// </param>
+    /// <returns>
+    /// The texture: <see cref="Levels"/> for a block format, <see cref="Pixels"/> for anything else.
+    /// </returns>
+    /// <exception cref="InvalidDataException">The file is not a VTF, or uses a format not read here.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The face is not one this texture has.</exception>
+    /// <remarks>
+    /// **What everything bound for the GPU should call (B149).** DXT1/3/5 are BC1/2/3, which Direct3D
+    /// samples natively, so expanding them to RGBA first spends time to produce something four to
+    /// eight times larger to upload. Measured before this existed: 16.87 s of CPU across 3,208
+    /// textures on one `cp_badlands` open.
+    ///
+    /// **The size limit picks a mip rather than resampling.** Valve already generated the chain, so
+    /// asking for a 256-pixel version of a 2048-pixel texture is a smaller read and a smaller
+    /// upload, not a downscale of something already paid for.
+    ///
+    /// Use <see cref="Decode(System.ReadOnlyMemory{byte},int,int)"/> when the caller actually needs texels.
+    /// </remarks>
+    public static VtfTexture Read(ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0)
+    {
+        long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        try
+        {
+            return DecodeCore(file, maximumSize, face, expand: false);
+        }
+        finally
+        {
+            System.Threading.Interlocked.Add(
+                ref DecodeTicks, System.Diagnostics.Stopwatch.GetTimestamp() - startedAt);
+            System.Threading.Interlocked.Increment(ref DecodeCount);
+        }
+    }
+
+    /// <summary>Reads a texture, expanding it to RGBA even when it is block compressed.</summary>
     /// <param name="file">The VTF's bytes.</param>
     /// <param name="maximumSize">
     /// Largest edge to decode; the smallest mip at least this size is chosen. Zero means full size.
     /// </param>
-    /// <param name="face">
-    /// Which cube face to decode, 0 to 6. Ignored for a flat texture, which has only face 0. Face 6
-    /// is the fallback spheremap rather than a cube face; see <see cref="CubeFaceCount"/>.
-    /// </param>
-    /// <returns>The decoded image.</returns>
-    /// <exception cref="InvalidDataException">The file is not a VTF, or uses a format not read here.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The face is not one this texture has.</exception>
+    /// <param name="face">Which cube face, as <see cref="Read"/>.</param>
+    /// <returns>The decoded image, always with <see cref="Pixels"/> filled.</returns>
     /// <remarks>
-    /// **The size limit picks a mip rather than resampling.** Valve already generated the chain, so
-    /// asking for a 256-pixel version of a 2048-pixel texture is a smaller read and a smaller
-    /// upload, not a downscale of something already paid for.
+    /// **For callers that genuinely need pixels on the CPU** — measuring a texture's average colour
+    /// against a map's stated reflectivity, or anything that inspects texels. Everything bound for
+    /// the GPU should use <see cref="Read"/> instead and hand the blocks over untouched (B149).
     /// </remarks>
     public static VtfTexture Decode(ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0)
     {
@@ -208,7 +290,7 @@ public sealed class VtfTexture
 
         try
         {
-            return DecodeCore(file, maximumSize, face);
+            return DecodeCore(file, maximumSize, face, expand: true);
         }
         finally
         {
@@ -243,7 +325,8 @@ public sealed class VtfTexture
     public static (double Seconds, long Count) DecodeCost =>
         (DecodeTicks / (double)System.Diagnostics.Stopwatch.Frequency, DecodeCount);
 
-    private static VtfTexture DecodeCore(ReadOnlyMemory<byte> file, int maximumSize, int face)
+    private static VtfTexture DecodeCore(
+        ReadOnlyMemory<byte> file, int maximumSize, int face, bool expand)
     {
         ReadOnlySpan<byte> span = file.Span;
 
@@ -304,9 +387,27 @@ public sealed class VtfTexture
 
         // **Smallest mip first.** Level mipCount-1 is 1x1, level 0 is full size, so the wanted
         // level's data sits after every level below it — all of its frames and all of their faces.
+        //
+        // **The skipped levels are recorded rather than merely counted (B149).** They are this
+        // face's smaller mips, and a block-compressed texture needs them: `GenerateMips` cannot
+        // build a chain for a BC format, and Valve's chain is already here and already filtered.
+        List<ReadOnlyMemory<byte>> smallerLevels = [];
+
         for (int smaller = mipCount - 1; smaller > level; smaller--)
         {
-            at += SizeOf(format, MipSize(width, smaller), MipSize(height, smaller)) * frames * faces;
+            int smallerBytes = SizeOf(format, MipSize(width, smaller), MipSize(height, smaller));
+
+            // Within a mip: frame, then face. Frame zero is the only one read, so the frame term is
+            // zero and the face is the whole of the offset — the same arithmetic the chosen level
+            // uses below.
+            int faceAt = at + (face * smallerBytes);
+
+            if (faceAt >= 0 && (long)faceAt + smallerBytes <= span.Length)
+            {
+                smallerLevels.Add(file.Slice(faceAt, smallerBytes));
+            }
+
+            at += smallerBytes * frames * faces;
         }
 
         int levelWidth = MipSize(width, level);
@@ -324,9 +425,29 @@ public sealed class VtfTexture
                 $"Mip {level} of a VTF needs {bytes} bytes at {at} in a {span.Length}-byte file."));
         }
 
+        bool blocks = !expand && format is
+            VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha or VtfFormat.Dxt3 or VtfFormat.Dxt5;
+
+        if (blocks)
+        {
+            // **Nothing is expanded, which is the entire point (B149).** The chosen level goes
+            // first because Direct3D numbers subresource zero as the top, and the smaller ones
+            // follow in the order they were skipped, reversed out of the file's smallest-first
+            // layout.
+            List<ReadOnlyMemory<byte>> chain = new(smallerLevels.Count + 1) { file.Slice(at, bytes) };
+
+            for (int smaller = smallerLevels.Count - 1; smaller >= 0; smaller--)
+            {
+                chain.Add(smallerLevels[smaller]);
+            }
+
+            return new VtfTexture(
+                levelWidth, levelHeight, format, mipCount, [], level, flags, chain);
+        }
+
         byte[] pixels = Decode(span.Slice(at, bytes), format, levelWidth, levelHeight);
 
-        return new VtfTexture(levelWidth, levelHeight, format, mipCount, pixels, level, flags);
+        return new VtfTexture(levelWidth, levelHeight, format, mipCount, pixels, level, flags, []);
     }
 
     /// <summary>Picks the smallest mip whose longest edge still reaches a size.</summary>

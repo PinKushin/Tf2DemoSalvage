@@ -141,7 +141,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # SoundScriptConformance (9), SoundScriptCatalogConformance (10) and SoundScriptProbe (1) moved to
 # Audio.Tests along with the readers they cover (D53). 33 here plus 7 from core is exactly the 40 the
 # audio floor gained, so nothing was deleted.
-run Tf2DemoSalvage.Content.Tests  content   615
+run Tf2DemoSalvage.Content.Tests  content   621
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
