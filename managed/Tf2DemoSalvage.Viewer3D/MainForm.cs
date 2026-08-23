@@ -398,6 +398,83 @@ internal class MainForm : Form
     /// <summary>Which <c>mat_fullbright</c> substitution is showing.</summary>
     public Fullbright Fullbright { get; private set; } = Fullbright.Off;
 
+    /// <summary>Valve's entity palette, read from the FGDs the game ships, or null.</summary>
+    private FgdClasses? _entityClasses;
+
+    /// <summary>Which brush model belongs to which entity class, from the map's entity lump.</summary>
+    private readonly Dictionary<int, string> _brushModelClasses = [];
+
+    /// <summary>Valve's colour for the class a brush model belongs to, 0..1, or null.</summary>
+    /// <remarks>
+    /// **Null rather than a default at every step**, and each null means something different: the
+    /// map may not name this model, the class may state no colour and inherit none, or the FGDs may
+    /// not be readable at all. A fallback colour at any of those points would report "Valve says
+    /// grey" where the truth is "nobody said", which is the sentinel-shaped mistake this project has
+    /// made before. The caller draws such an entity as ordinary brushwork.
+    /// </remarks>
+    /// <summary>Reads Valve's entity palette out of the FGDs beside the game.</summary>
+    /// <param name="game">The <c>tf</c> folder, whose sibling <c>bin</c> holds the FGDs.</param>
+    /// <remarks>
+    /// **Best effort, and silent about being absent rather than about failing.** The FGDs are
+    /// editor data: a game install has them, and a dedicated-server or content-only copy may not.
+    /// Losing them costs one colour in one diagnostic view, so it must not interrupt opening a
+    /// demo — but a file that exists and will not parse is a different thing and says so.
+    /// </remarks>
+    private void LoadEntityPalette(string? game)
+    {
+        if (game is null || Path.GetDirectoryName(game) is not { } install)
+        {
+            return;
+        }
+
+        string bin = Path.Combine(install, "bin");
+        List<string> read = [];
+
+        // In mount order, so a later file's redefinition wins — which is what tf.fgd's own
+        // `@include "base.fgd"` amounts to without needing to resolve includes.
+        foreach (string name in new[] { "base.fgd", "halflife2.fgd", "tf.fgd" })
+        {
+            string path = Path.Combine(bin, name);
+
+            try
+            {
+                if (File.Exists(path))
+                {
+                    read.Add(File.ReadAllText(path));
+                }
+            }
+            catch (Exception failure) when (
+                failure is IOException or UnauthorizedAccessException)
+            {
+                ViewerLog.Warn("assets", $"reading {path}", failure);
+            }
+        }
+
+        if (read.Count == 0)
+        {
+            ViewerLog.Write("assets", $"no FGD files in {bin}; entities draw as brushwork");
+            return;
+        }
+
+        _entityClasses = FgdClasses.Parse([.. read]);
+
+        ViewerLog.Write(
+            "assets",
+            $"entity palette: {_entityClasses.Count} classes from {read.Count} FGD files");
+    }
+
+    private (float Red, float Green, float Blue)? EntityTint(int model)
+    {
+        if (_entityClasses is not { } classes ||
+            !_brushModelClasses.TryGetValue(model, out string? classname) ||
+            classes.Colour(classname) is not { } colour)
+        {
+            return null;
+        }
+
+        return (colour.Red / 255f, colour.Green / 255f, colour.Blue / 255f);
+    }
+
     /// <summary>Chooses a lighting substitution and ticks the matching menu item.</summary>
     /// <param name="mode">Which substitution to show.</param>
     /// <remarks>
@@ -1196,6 +1273,8 @@ internal class MainForm : Form
                     string? game = FindGameFolder();
                     ViewerLog.Write("assets", $"game folder: {game ?? "not found"}");
                     _archives = GameArchives.Open(game);
+
+                    LoadEntityPalette(game);
                     ViewerLog.Write(
                         "assets",
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
@@ -1230,6 +1309,32 @@ internal class MainForm : Form
                 {
                     _overlays = BspOverlays.Read(bytes);
                     _brushModels = BspModels.Read(bytes);
+
+                    // **Which submodel belongs to which class, from the entity lump.** A brush
+                    // entity names its geometry as `*N`, so this is the join between the models
+                    // lump — which carries the faces and nothing else — and the classname, which is
+                    // the only place the map says what a piece of geometry IS.
+                    _brushModelClasses.Clear();
+
+                    foreach (BspEntity entity in BspEntities.ReadFrom(bytes))
+                    {
+                        if (entity.TryGetValue("model", out string name) &&
+                            entity.TryGetValue("classname", out string classname) &&
+                            name.Length > 1 &&
+                            name[0] == BrushModels.SubmodelPrefix &&
+                            int.TryParse(
+                                name[1..],
+                                NumberStyles.Integer,
+                                CultureInfo.InvariantCulture,
+                                out int model))
+                        {
+                            _brushModelClasses[model] = classname;
+                        }
+                    }
+
+                    ViewerLog.Write(
+                        "assets",
+                        $"{_brushModelClasses.Count} brush entities named a class");
                 }
                 catch (InvalidDataException failure)
                 {
@@ -1284,7 +1389,19 @@ internal class MainForm : Form
                         // inside Load.** A door's faces carry baked lightmap samples in the same
                         // atlas as the wall's, so the geometry cannot be built before it exists
                         // (B131).
-                        atlas => BrushModels.Build(_brushModels ?? [], _surfaceList, atlas),
+                        atlas => BrushModels.Build(
+                            _brushModels ?? [],
+                            _surfaceList,
+                            atlas,
+
+                            // **Valve's colour for the entity's class, and only in the category
+                            // view.** A brush entity is a door, a lift, an areaportal or a
+                            // trigger, and drawn as plain brushwork none of that is visible — the
+                            // one view whose whole job is "what is this" was the one view that
+                            // could not say. The numbers are Valve's, out of the FGDs the game
+                            // ships, so a capture reads the same way as Hammer's own colouring
+                            // rather than needing a second legend (B156).
+                            _surfaceColours.Checked ? EntityTint : null),
 
                         // **The light cache, for props whose baked lighting is absent or refused**
                         // (B123). Usable here because the leaves and the ambient samples were read
