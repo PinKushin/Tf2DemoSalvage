@@ -121,7 +121,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     102
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
 # despite every rule in it having been written from a bug, none of them had a test.
-run Tf2DemoSalvage.Presentation.Tests presentation 46
+run Tf2DemoSalvage.Presentation.Tests presentation 58
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -195,7 +195,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     98
 # our file with System.Drawing, and swapping ZLibStream for DeflateStream (raw deflate, which PNG
 # forbids) was sabotaged deliberately and ALL EIGHT round-trip tests still passed, because that
 # decoder is more lenient than the spec. The zlib-header assertion is what actually catches it.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    579
+run Tf2DemoSalvage.Viewer3D.Tests viewer    580
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -105,7 +106,7 @@ public sealed class FreeFlightTests
         // up axis drifts sideways as soon as the view is pitched, which reads as broken; every
         // editor lifts along the world instead.
         (float X, float Y, float Z) lifted =
-            FreeFlight.Movement(Held(Keys.Space), 0.1, pitch: 60f, yaw: 45f, fast: false);
+            FreeFlight.Movement(Held(Keys.OemQuotes), 0.1, pitch: 60f, yaw: 45f, fast: false);
 
         lifted.Z.ShouldBeGreaterThan(0f);
         lifted.X.ShouldBe(0f, 0.001f);
@@ -113,18 +114,38 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void FreeFlight_Control_DropsStraightDown()
+    public void FreeFlight_TheDescendKey_DropsStraightDown()
     {
-        // Either Control reports, because Windows sends the left and right keys as distinct codes
-        // and a set built from raw key data can hold either.
-        FreeFlight.Movement(Held(Keys.LControlKey), 0.1, Pitch, Yaw, fast: false)
+        // **`/` rather than Control, because that is what TF2 binds** — `config_default.cfg` has
+        // `bind "/" "+movedown"`, and the owner chose to keep the game's defaults so a player's own
+        // config translates (D68). WinForms calls it `OemQuestion`, after the scan code rather than
+        // the character printed on the key.
+        //
+        // This test used to check that all three of Control's key codes worked, because Windows
+        // reports left and right Control distinctly. That concern did not disappear — it moved to
+        // `FreeFlight.IsDown`, which still folds the sided variants for anyone who rebinds descend
+        // onto a modifier.
+        FreeFlight.Movement(Held(Keys.OemQuestion), 0.1, Pitch, Yaw, fast: false)
             .Z.ShouldBeLessThan(0f);
+    }
 
-        FreeFlight.Movement(Held(Keys.RControlKey), 0.1, Pitch, Yaw, fast: false)
-            .Z.ShouldBeLessThan(0f);
+    [Test]
+    public void FreeFlight_ARebindOntoAModifier_AnswersToBothSides()
+    {
+        // The sided-key concern the test above used to carry, kept where it now belongs. Windows
+        // reports left and right Control as distinct codes, so a binding of "Control" that only
+        // matched `Keys.ControlKey` would work on one side of the keyboard and not the other —
+        // which reads as a sticky key rather than as a binding bug.
+        KeyBindings rebound = new(new Dictionary<ViewerAction, string>
+        {
+            [ViewerAction.FlyDown] = "Control",
+        });
 
-        FreeFlight.Movement(Held(Keys.ControlKey), 0.1, Pitch, Yaw, fast: false)
-            .Z.ShouldBeLessThan(0f);
+        foreach (Keys side in new[] { Keys.ControlKey, Keys.LControlKey, Keys.RControlKey })
+        {
+            FreeFlight.Movement(Held(side), 0.1, Pitch, Yaw, fast: false, rebound)
+                .Z.ShouldBeLessThan(0f, $"{side} should descend");
+        }
     }
 
     [Test]
@@ -153,8 +174,8 @@ public sealed class FreeFlightTests
         // The caller keeps a set of held keys; letting every key into it would mean a held F or a
         // held Escape sat in there for ever and Escape is handled elsewhere.
         FreeFlight.IsFlightKey(Keys.W).ShouldBeTrue();
-        FreeFlight.IsFlightKey(Keys.Space).ShouldBeTrue();
-        FreeFlight.IsFlightKey(Keys.LControlKey).ShouldBeTrue();
+        FreeFlight.IsFlightKey(Keys.OemQuotes).ShouldBeTrue();
+        FreeFlight.IsFlightKey(Keys.OemQuestion).ShouldBeTrue();
 
         FreeFlight.IsFlightKey(Keys.F).ShouldBeFalse();
         FreeFlight.IsFlightKey(Keys.Escape).ShouldBeFalse();

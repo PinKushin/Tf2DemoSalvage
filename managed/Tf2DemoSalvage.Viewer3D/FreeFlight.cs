@@ -48,10 +48,38 @@ internal static class FreeFlight
 
     /// <summary>Whether a key contributes to flight, so the caller knows to track it.</summary>
     /// <param name="key">The key, without modifiers.</param>
+    /// <param name="bindings">Which key performs which action, or null for the defaults.</param>
     /// <returns>Whether it is a flight key.</returns>
-    public static bool IsFlightKey(Keys key) =>
-        key is Keys.W or Keys.S or Keys.A or Keys.D or Keys.Space or
-            Keys.ControlKey or Keys.LControlKey or Keys.RControlKey;
+    public static bool IsFlightKey(Keys key, KeyBindings? bindings = null)
+    {
+        KeyBindings bound = bindings ?? Default;
+
+        foreach (ViewerAction action in FlightActions)
+        {
+            if (IsDown(new HashSet<Keys> { key }, KeyNames.Resolve(bound.KeyFor(action))))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The actions that move the free camera.</summary>
+    /// <remarks>
+    /// Listed once so <see cref="IsFlightKey"/> and <see cref="Intent"/> cannot disagree about what
+    /// counts as flight — a key tracked as held but not read, or read but never tracked, produces a
+    /// camera that moves once and stops.
+    /// </remarks>
+    private static readonly ViewerAction[] FlightActions =
+    [
+        ViewerAction.FlyForward,
+        ViewerAction.FlyBack,
+        ViewerAction.FlyLeft,
+        ViewerAction.FlyRight,
+        ViewerAction.FlyUp,
+        ViewerAction.FlyDown,
+    ];
 
     /// <summary>The camera's movement for one frame.</summary>
     /// <param name="held">Keys currently down.</param>
@@ -59,6 +87,7 @@ internal static class FreeFlight
     /// <param name="pitch">Camera pitch in degrees.</param>
     /// <param name="yaw">Camera yaw in degrees.</param>
     /// <param name="fast">Whether Shift is held.</param>
+    /// <param name="bindings">Which key performs which action, or null for the defaults.</param>
     /// <returns>The world-space movement, zero when nothing is held.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="held"/> is null.</exception>
     /// <remarks>
@@ -70,12 +99,18 @@ internal static class FreeFlight
     /// mistake that makes diagonal movement quicker in a lot of homemade cameras.
     /// </remarks>
     public static (float X, float Y, float Z) Movement(
-        IReadOnlySet<Keys> held, double seconds, float pitch, float yaw, bool fast) =>
-        FreeFlightPath.Movement(Intent(held, fast), seconds, pitch, yaw);
+        IReadOnlySet<Keys> held,
+        double seconds,
+        float pitch,
+        float yaw,
+        bool fast,
+        KeyBindings? bindings = null) =>
+        FreeFlightPath.Movement(Intent(held, fast, bindings), seconds, pitch, yaw);
 
     /// <summary>Translates the keys currently down into an axis request.</summary>
     /// <param name="held">Keys currently down.</param>
     /// <param name="fast">Whether Shift is held.</param>
+    /// <param name="bindings">Which key performs which action, or null for the defaults.</param>
     /// <returns>What the user is asking for, independent of the keyboard.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="held"/> is null.</exception>
     /// <remarks>
@@ -92,7 +127,8 @@ internal static class FreeFlight
     /// Rebinding these keys would change this method and nothing else, which is the test of whether
     /// the seam is in the right place.
     /// </remarks>
-    public static FlightInput Intent(IReadOnlySet<Keys> held, bool fast)
+    public static FlightInput Intent(
+        IReadOnlySet<Keys> held, bool fast, KeyBindings? bindings = null)
     {
         ArgumentNullException.ThrowIfNull(held);
 
@@ -101,14 +137,51 @@ internal static class FreeFlight
             return FlightInput.None;
         }
 
-        bool down = held.Contains(Keys.ControlKey) ||
-                    held.Contains(Keys.LControlKey) ||
-                    held.Contains(Keys.RControlKey);
+        KeyBindings bound = bindings ?? Default;
 
         return new FlightInput(
-            Forward: (held.Contains(Keys.W) ? 1f : 0f) - (held.Contains(Keys.S) ? 1f : 0f),
-            Right: (held.Contains(Keys.D) ? 1f : 0f) - (held.Contains(Keys.A) ? 1f : 0f),
-            Up: (held.Contains(Keys.Space) ? 1f : 0f) - (down ? 1f : 0f),
+            Forward: Axis(held, bound, ViewerAction.FlyForward, ViewerAction.FlyBack),
+            Right: Axis(held, bound, ViewerAction.FlyRight, ViewerAction.FlyLeft),
+            Up: Axis(held, bound, ViewerAction.FlyUp, ViewerAction.FlyDown),
             Fast: fast);
     }
+
+    /// <summary>Whether the key bound to an action is currently down.</summary>
+    /// <remarks>
+    /// **Control has three key codes and only one of them is what Windows reports.** A held Ctrl
+    /// arrives as `ControlKey`, `LControlKey` or `RControlKey` depending on how it was read, so a
+    /// binding of "Control" has to answer to all three or the camera never descends. The same is
+    /// true of Shift and Alt, which is why this checks the sided variants rather than the bound key
+    /// alone.
+    /// </remarks>
+    private static bool IsDown(IReadOnlySet<Keys> held, Keys key) => key switch
+    {
+        Keys.ControlKey => held.Contains(Keys.ControlKey) ||
+                           held.Contains(Keys.LControlKey) ||
+                           held.Contains(Keys.RControlKey),
+
+        Keys.ShiftKey => held.Contains(Keys.ShiftKey) ||
+                         held.Contains(Keys.LShiftKey) ||
+                         held.Contains(Keys.RShiftKey),
+
+        Keys.Menu => held.Contains(Keys.Menu) ||
+                     held.Contains(Keys.LMenu) ||
+                     held.Contains(Keys.RMenu),
+
+        Keys.None => false,
+        _ => held.Contains(key),
+    };
+
+    /// <summary>One axis: the positive action's key minus the negative one's.</summary>
+    private static float Axis(
+        IReadOnlySet<Keys> held, KeyBindings bindings, ViewerAction positive, ViewerAction negative)
+    {
+        float forward = IsDown(held, KeyNames.Resolve(bindings.KeyFor(positive))) ? 1f : 0f;
+        float back = IsDown(held, KeyNames.Resolve(bindings.KeyFor(negative))) ? 1f : 0f;
+
+        return forward - back;
+    }
+
+    /// <summary>The default bindings, so a caller with none still flies.</summary>
+    private static readonly KeyBindings Default = new();
 }

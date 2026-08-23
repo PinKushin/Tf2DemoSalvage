@@ -12,16 +12,17 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public enum CameraMode
 {
-    /// <summary>
-    /// Looking down at the map, which is how a demo is normally watched here.
-    /// </summary>
+    /// <summary>Flying anywhere, looking anywhere. The view a demo is normally watched from.</summary>
     /// <remarks>
-    /// First rather than merely default: this is the view that works on every demo, including the
-    /// ones with no recorded camera and no players worth following.
+    /// **There used to be a third member, `Map`, and removing it is D49.** The requirement was "a
+    /// top down map view"; an orthographic projection was one reading of it and a perspective
+    /// camera placed high and pointed down is the other. The second needs no mode of its own — it
+    /// is a *placement* of this camera, computed by `OverheadPlacement` — so what was a mode is now
+    /// a starting position that the camera flies away from.
+    ///
+    /// First rather than merely default, for the reason `Map` was: this is the view that works on
+    /// every demo, including the ones with no recorded camera and no players worth following.
     /// </remarks>
-    Map,
-
-    /// <summary>Flying anywhere, looking anywhere.</summary>
     Free,
 
     /// <summary>
