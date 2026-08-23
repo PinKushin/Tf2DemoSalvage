@@ -91,6 +91,12 @@ internal class MainForm : Form
     /// </remarks>
     public const string FullbrightItemId = "FullbrightMenuItem";
 
+    /// <summary>Automation id of the world pass toggle — Valve's <c>r_drawworld</c>.</summary>
+    public const string DrawWorldItemId = "DrawWorldMenuItem";
+
+    /// <summary>Automation id of the entity pass toggle — Valve's <c>r_drawentities</c>.</summary>
+    public const string DrawEntitiesItemId = "DrawEntitiesMenuItem";
+
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
 
@@ -394,6 +400,8 @@ internal class MainForm : Form
     private readonly ToolStripMenuItem _wireframe;
     private readonly ToolStripMenuItem _specular;
     private readonly ToolStripMenuItem _fullbrightMenu;
+    private readonly ToolStripMenuItem _drawWorld;
+    private readonly ToolStripMenuItem _drawEntities;
 
     /// <summary>Which <c>mat_fullbright</c> substitution is showing.</summary>
     public Fullbright Fullbright { get; private set; } = Fullbright.Off;
@@ -942,6 +950,48 @@ internal class MainForm : Form
             _fullbrightMenu.DropDownItems.Add(item);
         }
 
+        // **`r_drawworld` and `r_drawentities`, which answer "which pass owns this".** The question
+        // comes up the moment something is drawn twice, in the wrong order, or by code nobody
+        // expected — and it took a day to answer by hand when static props turned out to be
+        // inheriting the overlay pass's blend state (B154).
+        _drawWorld = new ToolStripMenuItem("Draw &world")
+        {
+            Name = DrawWorldItemId,
+            CheckOnClick = true,
+            Checked = true,
+            AccessibleName = "Draw world",
+            AccessibleDescription = "Draws map brushwork and its overlays. Turn off to see only entities.",
+        };
+
+        _drawWorld.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write("render", $"r_drawworld {(_drawWorld.Checked ? 1 : 0)}");
+
+            if (_device is { } world)
+            {
+                world.DrawWorld = _drawWorld.Checked;
+            }
+        };
+
+        _drawEntities = new ToolStripMenuItem("Draw &entities")
+        {
+            Name = DrawEntitiesItemId,
+            CheckOnClick = true,
+            Checked = true,
+            AccessibleName = "Draw entities",
+            AccessibleDescription = "Draws static props and models. Turn off to see only the map.",
+        };
+
+        _drawEntities.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write("render", $"r_drawentities {(_drawEntities.Checked ? 1 : 0)}");
+
+            if (_device is { } entities)
+            {
+                entities.DrawEntities = _drawEntities.Checked;
+            }
+        };
+
         _specular.CheckedChanged += (_, _) =>
         {
             ViewerLog.Write("render", $"mat_specular {(_specular.Checked ? 1 : 0)}");
@@ -968,6 +1018,8 @@ internal class MainForm : Form
         view.DropDownItems.Add(_wireframe);
         view.DropDownItems.Add(_specular);
         view.DropDownItems.Add(_fullbrightMenu);
+        view.DropDownItems.Add(_drawWorld);
+        view.DropDownItems.Add(_drawEntities);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
@@ -5383,6 +5435,8 @@ internal class MainForm : Form
 
             // Disposing the submenu disposes the three items it owns.
             _fullbrightMenu.Dispose();
+            _drawWorld.Dispose();
+            _drawEntities.Dispose();
             _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }

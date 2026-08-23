@@ -216,7 +216,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     101
 # makes it — the mechanism B70 was missing for three attempts (2026-08-23).
 # 615: OpaquePassBlendStateRenderTests, which draws a decal pass and then an opaque prop and asserts
 # the prop ignores its texture's alpha — the leak that made every static prop translucent (B154).
-run Tf2DemoSalvage.Viewer3D.Tests viewer    623
+run Tf2DemoSalvage.Viewer3D.Tests viewer    624
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

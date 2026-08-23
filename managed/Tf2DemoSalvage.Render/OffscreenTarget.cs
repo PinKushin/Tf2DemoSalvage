@@ -132,6 +132,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
     /// <param name="props">Static prop runs, drawn after the overlays as the engine does.</param>
     /// <param name="fullbright">Which <c>mat_fullbright</c> substitution to draw with.</param>
+    /// <param name="drawWorld">Whether world surfaces and overlays draw — <c>r_drawworld</c>.</param>
+    /// <param name="drawEntities">Whether props and models draw — <c>r_drawentities</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -154,7 +156,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool bumped = true,
         IReadOnlyList<WorldBatch>? decals = null,
         IReadOnlyList<WorldBatch>? props = null,
-        Fullbright fullbright = Fullbright.Off)
+        Fullbright fullbright = Fullbright.Off,
+        bool drawWorld = true,
+        bool drawEntities = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -164,6 +168,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world ??= WorldRenderer.Create(_device);
         _world.DrawDetail = detail;
         _world.DrawBumped = bumped;
+        _world.DrawWorld = drawWorld;
+        _world.DrawEntities = drawEntities;
         _world.Seconds = Seconds;
 
         // **Textures first, because the shader clips on their alpha.** With none bound the sample

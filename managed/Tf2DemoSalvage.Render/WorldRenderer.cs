@@ -1565,6 +1565,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     public bool Wireframe { get; set; }
 
+    /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
+    /// <remarks>
+    /// Overlays are governed by this rather than by <see cref="DrawEntities"/>, because the engine
+    /// draws them inside `DrawWorld` alongside the surfaces they mark, before any renderable.
+    /// </remarks>
+    public bool DrawWorld { get; set; } = true;
+
+    /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
+    public bool DrawEntities { get; set; } = true;
+
     /// <summary>The wireframe twin of each solid rasteriser state, by handle.</summary>
     private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _wireframeFor = [];
 
@@ -2317,9 +2327,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // engine's arrangement and the reason this ordering is safe to change at all — see the
         // remarks there. A first fix established the writing state at the top of the props pass,
         // which worked and left the next reordering to break the same way again.
-        DrawOpaqueBatches(context, _batches);
-        DrawDecals(context);
-        DrawOpaqueBatches(context, _props);
+        // **`r_drawworld` and `r_drawentities`, which are pass switches rather than shader ones.**
+        // Both are engine cvars defaulting to 1 (`view.cpp:296` looks up `r_drawentities`), and what
+        // they answer is "which pass owns this surface" — the question that comes up the moment
+        // something is drawn twice, drawn in the wrong order, or drawn by code nobody expected.
+        //
+        // Overlays go with the world rather than with entities, because that is where the engine
+        // draws them: `DrawWorld` renders world surfaces AND their overlay fragments before
+        // `DrawOpaqueRenderables` runs at all.
+        if (DrawWorld)
+        {
+            DrawOpaqueBatches(context, _batches);
+            DrawDecals(context);
+        }
+
+        if (DrawEntities)
+        {
+            DrawOpaqueBatches(context, _props);
+        }
+
         DrawTranslucent(context);
         DrawAdditive(context);
     }

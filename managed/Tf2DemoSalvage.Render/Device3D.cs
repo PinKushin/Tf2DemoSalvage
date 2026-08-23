@@ -739,6 +739,8 @@ public sealed unsafe class Device3D : IDisposable
         // Applied here rather than only in the setter, because the renderer is built lazily and a
         // toggle flipped before the first map would otherwise be silently forgotten.
         _world.Wireframe = _wireframe;
+        _world.DrawWorld = _drawWorld;
+        _world.DrawEntities = _drawEntities;
 
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, heightCut, _specular, _fullbright);
@@ -816,6 +818,42 @@ public sealed unsafe class Device3D : IDisposable
     }
 
     private Fullbright _fullbright = Fullbright.Off;
+
+    /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
+    public bool DrawWorld
+    {
+        get => _drawWorld;
+
+        set
+        {
+            _drawWorld = value;
+
+            if (_world is not null)
+            {
+                _world.DrawWorld = value;
+            }
+        }
+    }
+
+    private bool _drawWorld = true;
+
+    /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
+    public bool DrawEntities
+    {
+        get => _drawEntities;
+
+        set
+        {
+            _drawEntities = value;
+
+            if (_world is not null)
+            {
+                _world.DrawEntities = value;
+            }
+        }
+    }
+
+    private bool _drawEntities = true;
 
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;
