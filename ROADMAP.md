@@ -191,12 +191,40 @@ rather than a mode, which is why the split is being avoided now rather than undo
 Settings live in a Source-style `.cfg`, not JSON: one command per line, value after a space, `//`
 for comments, unknown commands ignored. Anyone who has edited `config.cfg` can edit ours.
 
-Reading the user's **actual TF2 cfg** for camera controls is wanted eventually, but the return is
-small: apart from sensitivity, little transfers — a personal cfg is mostly movement scripts, which
-a viewer has no use for. Copying TF2's default camera bindings gets almost all of the benefit.
+**A user's real TF2 config must be usable wholesale, and the earlier assessment of this was wrong**
+(owner-restated 2026-08-22, correcting the paragraph that stood here):
 
-**Done:** full screen mode (borderless/exclusive), texture detail.
-**Wanted:** viewer resolution, export format, camera bindings and sensitivity.
+> i want someone like myself to be able to just copy and paste there tf2 configs over wholesale, in
+> .cfg or vpk form like comfig's configs
+
+The text this replaces said the return was "small" because "a personal cfg is mostly movement
+scripts, which a viewer has no use for", and concluded that copying TF2's *default* bindings gets
+almost all of the benefit. **That reasoning governed the work and produced exactly that** — a
+defaults table, built on 2026-08-22 and mistaken for the finished feature.
+
+Why it is wrong: the value is not in which commands transfer, it is in the user not having to set
+anything up. Someone who runs mastercomfig has already made every one of these decisions once, and
+being asked to make them again in a second, different settings file is the friction the requirement
+exists to remove. "Mostly movement scripts" is also true of the lines and false of the *file* — the
+binds are what matter and they are all there.
+
+**What it requires**, and none of it is exotic:
+
+- **Source `.cfg` syntax**, quoted or bare, `//` comments, `unbindall`, later-wins ordering.
+- **Ignoring almost everything.** A real config is hundreds of `mat_*`, `cl_*`, `alias` and `exec`
+  lines this viewer does not implement; a parser that objected to unknown commands would reject
+  every real file. Ignoring is the primary feature.
+- **Our vocabulary must BE Source's** — keys named `SPACE`, `CTRL`, `MOUSE1`, `'`, `/`, and actions
+  named `+forward`, `+jump`, `+moveup`. A translation layer would mean the paste does not work,
+  which is the whole requirement.
+- **VPK form**, since mastercomfig ships as `.vpk` under `tf/custom/`. This project already reads
+  one: `docs/findings/24-reference-capture.md` pins the reference capture state against
+  `mastercomfig-base.vpk`, and `VpkArchive` is the tool.
+
+**Done:** full screen mode (borderless/exclusive), texture detail, rebindable actions with TF2's
+default bindings (D68).
+**Wanted:** reading a real `.cfg`, reading a config VPK, viewer resolution, export format, mouse
+sensitivity.
 
 ### Options, eventually
 

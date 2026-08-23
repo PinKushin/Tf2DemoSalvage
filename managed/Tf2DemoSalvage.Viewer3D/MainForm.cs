@@ -3480,7 +3480,7 @@ internal class MainForm : Form
 
             // Registered beside the idle loop because they are the two halves of the same thing:
             // the filter records what is held, the loop moves the camera by it.
-            _keyReleases = new KeyReleaseFilter(_heldKeys);
+            _keyReleases = new KeyReleaseFilter(_console);
             Application.AddMessageFilter(_keyReleases);
 
             _rendering = true;
@@ -3558,13 +3558,21 @@ internal class MainForm : Form
         while (!MessageQueue.HasWork());
     }
 
-    /// <summary>Flight keys currently held down.</summary>
+    /// <summary>The user's controls, running as the engine would run them.</summary>
     /// <remarks>
-    /// **Held state, because a keystroke is not a duration** (B97). Added on the key down message
-    /// and removed on the key up, so the frame loop can ask what is down right now instead of
+    /// **Held state, because a keystroke is not a duration** (B97). Keys are pushed in on the key
+    /// down and key up messages, so the frame loop can ask what is down right now instead of
     /// inferring it from how fast Windows repeats.
+    ///
+    /// **A console rather than a `HashSet&lt;Keys&gt;` (D69).** A TF2 config is a program: it binds
+    /// keys to aliases, and those aliases redefine each other as they run. A set of held keys can
+    /// answer "is W down" but not "what does W currently mean", and in a null-cancelling movement
+    /// script — which is what most competitive configs are — those are different questions.
+    ///
+    /// **This is the single source of truth for the controls**; <see cref="_bindings"/> is a
+    /// projection of it for the settings screen to display.
     /// </remarks>
-    private readonly HashSet<Keys> _heldKeys = [];
+    private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
     /// <summary>Times the camera's frames, which run whether or not the demo is playing.</summary>
     private readonly Stopwatch _flyWatch = Stopwatch.StartNew();
@@ -3587,13 +3595,10 @@ internal class MainForm : Form
     /// <summary>Stopwatch ticks spent posing and lighting models since the last report.</summary>
     private long _posingTicks;
 
-    /// <summary>Whether either Shift key is down, for the speed multiplier.</summary>
-    /// <remarks>
-    /// Read from <see cref="Control.ModifierKeys"/> rather than tracked, because Shift alone is not
-    /// a flight key and never enters the held set — and a modifier's state is exactly what WinForms
-    /// already exposes.
-    /// </remarks>
-    private static bool IsShiftHeld() => (ModifierKeys & Keys.Shift) != 0;
+    // `IsShiftHeld` lived here, reading `Control.ModifierKeys` directly, on the grounds that a
+    // modifier's state is something WinForms already knows. The console owns `+speed` now (D69), so
+    // Shift is pressed into it like any other bound key and asking WinForms separately would be a
+    // second source of truth for the same fact.
 
     /// <inheritdoc />
     protected override void OnDeactivate(EventArgs e)
@@ -3611,7 +3616,14 @@ internal class MainForm : Form
     /// this the camera would fly on for ever after an alt-tab — the classic held-key leak. Called on
     /// deactivation and on leaving the free view.
     /// </remarks>
-    private void ReleaseHeldKeys() => _heldKeys.Clear();
+    /// <remarks>
+    /// **Rebuilt rather than cleared**, because a console holds more than held keys: it holds the
+    /// alias table a config defined, and clearing that would silently unbind the user's controls on
+    /// the first alt-tab. Reloading is not an option either — the configs may have come from
+    /// anywhere. So the buttons are released one by one, which is what the engine's own
+    /// empty-argument `KeyUp` path does.
+    /// </remarks>
+    private void ReleaseHeldKeys() => _console.ReleaseEverything();
 
     /// <summary>
     /// Sees key releases wherever focus is, so a held key can be known to have stopped.
@@ -3627,7 +3639,7 @@ internal class MainForm : Form
     /// A message filter runs before dispatch for every message on the thread, so focus stops
     /// mattering. It never consumes anything: returning false leaves the key to its normal handling.
     /// </remarks>
-    private sealed class KeyReleaseFilter(HashSet<Keys> held) : IMessageFilter
+    private sealed class KeyReleaseFilter(ConfigConsole console) : IMessageFilter
     {
         /// <summary>WM_KEYUP.</summary>
         private const int WmKeyUp = 0x0101;
@@ -3640,7 +3652,9 @@ internal class MainForm : Form
         {
             if (m.Msg is WmKeyUp or WmSysKeyUp)
             {
-                held.Remove((Keys)(int)m.WParam & Keys.KeyCode);
+                // The console decides what a release MEANS — for a scripted bind that is a whole
+                // command line, not the removal of one key from a set.
+                console.KeyUp(KeyNames.NameOf((Keys)(int)m.WParam));
             }
 
             return false;
@@ -3773,7 +3787,7 @@ internal class MainForm : Form
             $"{_framesDrawn / elapsed:0.#} frames a second, " +
             $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
             (_transport.Playing ? ", playing" : ", paused") +
-            (_freeLook && _heldKeys.Count > 0 ? ", flying" : string.Empty) +
+            (_freeLook && _console.AnyHeld ? ", flying" : string.Empty) +
             $"; sampling {_samplingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
             $", posing {_posingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
             $" (lighting {_models.LightingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms)" +
@@ -3834,7 +3848,7 @@ internal class MainForm : Form
         // Every frame's duration passes through here, so this is where the worst one is noticed.
         _longestFrameSeconds = Math.Max(_longestFrameSeconds, Math.Min(seconds, MaximumFrameSeconds));
 
-        if (!_freeLook || _heldKeys.Count == 0)
+        if (!_freeLook)
         {
             return;
         }
@@ -3843,8 +3857,16 @@ internal class MainForm : Form
         // window drag would otherwise fling the camera across the map when the loop resumes.
         seconds = Math.Min(seconds, MaximumFrameSeconds);
 
-        (float X, float Y, float Z) moved = FreeFlight.Movement(
-            _heldKeys, seconds, _freeAngles.Pitch, _freeAngles.Yaw, IsShiftHeld(), _bindings);
+        // **`Intent` is read exactly once per frame, and that is a requirement rather than a
+        // convenience.** Reading a button consumes its impulse bits — Valve's `CInput::KeyState`
+        // ends with `key->state &= 1` — so a second read in the same frame reports a plain held
+        // button and loses the partial credit a tapped key earns. This is the only call site.
+        //
+        // **The old "nothing is held, so skip" guard is gone with it.** A key pressed and released
+        // between two frames is up by the time anyone looks, so that guard would have thrown the
+        // tap away; the zero check below still costs nothing when genuinely idle.
+        (float X, float Y, float Z) moved =
+            FreeFlightPath.Movement(_console.Intent(), seconds, _freeAngles.Pitch, _freeAngles.Yaw);
 
         if (moved == (0f, 0f, 0f))
         {
@@ -4134,7 +4156,7 @@ internal class MainForm : Form
         // only the last key held. See FreeFlight.
         if (_freeLook && FreeFlight.IsFlightKey(keyData & Keys.KeyCode, _bindings))
         {
-            _heldKeys.Add(keyData & Keys.KeyCode);
+            _console.KeyDown(KeyNames.NameOf(keyData));
             return true;
         }
 

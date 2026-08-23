@@ -23,7 +23,12 @@ public sealed class KeyBindingsTests
         // TF2 prints [%jump%] for "Switch Camera Mode", and jump is Space unless rebound. Anyone
         // who has spectated in TF2 will press it without being told, which is the argument for
         // matching a convention rather than inventing one.
-        new KeyBindings().KeyFor(ViewerAction.SwitchCameraMode).ShouldBe("Space");
+        //
+        // **`SPACE`, in Source's spelling, not .NET's `Space` (D69).** A key name here is the name a
+        // config uses, so that `bind "SPACE" "+jump"` out of somebody's `config.cfg` lands without a
+        // translation table sitting in between. The view converts to `System.Windows.Forms.Keys` at
+        // its own edge, which is the only place that knows about a toolkit.
+        new KeyBindings().KeyFor(ViewerAction.SwitchCameraMode).ShouldBe("SPACE");
     }
 
     [Test]
@@ -31,8 +36,8 @@ public sealed class KeyBindingsTests
     {
         KeyBindings bindings = new();
 
-        bindings.KeyFor(ViewerAction.CycleTargetForward).ShouldBe("MouseLeft");
-        bindings.KeyFor(ViewerAction.CycleTargetReverse).ShouldBe("MouseRight");
+        bindings.KeyFor(ViewerAction.CycleTargetForward).ShouldBe("MOUSE1");
+        bindings.KeyFor(ViewerAction.CycleTargetReverse).ShouldBe("MOUSE2");
     }
 
     [Test]
@@ -54,10 +59,16 @@ public sealed class KeyBindingsTests
     {
         KeyBindings bindings = new();
 
-        bindings.Bind(ViewerAction.SwitchCameraMode, "Tab");
+        // **The control matters more than the assertion here.** Checking only that the new key took
+        // would pass against an implementation that added a binding without removing the old one,
+        // so the vacated key is checked too — and it has to be spelled the way the default is
+        // (`SPACE`, not `Space`), or the second assertion holds no matter what the code does.
+        bindings.ActionsFor("SPACE").ShouldContain(ViewerAction.SwitchCameraMode, "before");
 
-        bindings.KeyFor(ViewerAction.SwitchCameraMode).ShouldBe("Tab");
-        bindings.ActionsFor("Space").ShouldNotContain(ViewerAction.SwitchCameraMode);
+        bindings.Bind(ViewerAction.SwitchCameraMode, "TAB");
+
+        bindings.KeyFor(ViewerAction.SwitchCameraMode).ShouldBe("TAB");
+        bindings.ActionsFor("SPACE").ShouldNotContain(ViewerAction.SwitchCameraMode);
     }
 
     [Test]
@@ -67,11 +78,11 @@ public sealed class KeyBindingsTests
         // the failure where a user rebinds one key and loses the rest of the controls.
         KeyBindings bindings = new(new Dictionary<ViewerAction, string>
         {
-            [ViewerAction.PlayPause] = "P",
+            [ViewerAction.PlayPause] = "p",
         });
 
-        bindings.KeyFor(ViewerAction.PlayPause).ShouldBe("P");
-        bindings.KeyFor(ViewerAction.FlyForward).ShouldBe("W", "untouched actions keep their default");
+        bindings.KeyFor(ViewerAction.PlayPause).ShouldBe("p");
+        bindings.KeyFor(ViewerAction.FlyForward).ShouldBe("w", "untouched actions keep their default");
     }
 
     [Test]

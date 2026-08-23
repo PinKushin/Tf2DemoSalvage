@@ -3535,3 +3535,167 @@ which is what `config.cfg` does.
 Note `'` and `/` are `Keys.OemQuotes` and `Keys.OemQuestion` — named after scan codes rather than
 the characters printed on them, so neither resolves by `Enum.TryParse` and both would otherwise
 become `Keys.None`: a binding that reads correctly in a file and does nothing.
+
+## D69 — a real TF2 config must work wholesale, and the earlier "small return" assessment is reversed
+
+**Owner, 2026-08-22:**
+
+> i want someone like myself to be able to just copy and paste there tf2 configs over wholesale, in
+> .cfg or vpk form like comfig's configs
+
+### This is a REVERSAL, and the original is the instructive part
+
+`ROADMAP.md` already carried the requirement, filed like this:
+
+> Reading the user's **actual TF2 cfg** for camera controls is wanted eventually, but the return is
+> small: apart from sensitivity, little transfers — a personal cfg is mostly movement scripts, which
+> a viewer has no use for. Copying TF2's default camera bindings gets almost all of the benefit.
+
+**So it was not lost. It was recorded with a dismissive assessment, and the assessment governed the
+work.** D68 built precisely "copy TF2's default bindings" earlier the same day and treated it as the
+finished feature — because the roadmap said that was almost all of the benefit.
+
+**That is a worse failure mode than the MVP one (D54).** A lost decision leaves a gap somebody may
+notice. A decision recorded with a wrong judgement attached looks like due diligence, so nobody
+re-opens it — the reasoning is right there, apparently considered.
+
+### Why the assessment was wrong
+
+**The value is not in which commands transfer; it is in the user not having to set anything up.**
+Someone running mastercomfig has already made every one of these decisions once, and being asked to
+make them again in a second, different settings file is exactly the friction the requirement exists
+to remove.
+
+"Mostly movement scripts" is also true of the *lines* and false of the *file*: the binds are what
+matter here and they are all present. Counting lines measured the wrong thing.
+
+### What follows, including one thing already built wrong
+
+- **Our vocabulary must BE Source's.** Keys named `SPACE`, `CTRL`, `MOUSE1`, `'`, `/`; actions named
+  `+forward`, `+jump`, `+moveup`, `+speed`. D68 used its own names (`"MouseLeft"`,
+  `SwitchCameraMode`) which would need a translation layer — and a translation layer means the paste
+  does not work, which is the requirement.
+- **Ignoring is the primary feature.** A real config is hundreds of `mat_*`, `cl_*`, `alias` and
+  `exec` lines this viewer does not implement. A parser that objected to unknown commands would
+  reject every real file it was pointed at.
+- **`unbindall` and later-wins ordering are honoured**, because `config_default.cfg` opens with the
+  first and `exec` layering depends on the second.
+- **VPK form is in scope.** mastercomfig ships as `.vpk` under `tf/custom/`, this project has already
+  read one (`docs/findings/24-reference-capture.md`, against `mastercomfig-base.vpk`), and
+  `VpkArchive` is the tool.
+
+### The cost of the wrong reading, stated
+
+A typo in a binding and a command this viewer does not implement are indistinguishable — both do
+nothing. So the reader returns **every** bind it saw rather than only the ones that mapped, leaving a
+caller able to report the difference rather than swallowing it.
+
+## D70 — a config is a program, so the viewer runs one rather than reading one
+
+**Owner, 2026-08-22, while D69's static reader was being finished:**
+
+> yea since we are going to take valve cfgs, we have to allow scripting or it wont work. valve
+> configs are little state machines themselves
+
+**He is right, and D69's first implementation was wrong because of it.** That version resolved a
+bind statically: follow `+mfwd` to its alias body, take the first command it recognised, record
+`w -> FlyForward`. It reads a script as though it were a table.
+
+### Why static resolution cannot work, stated precisely
+
+`alias` is a **runtime** command, and null-cancelling movement scripts — which is what most
+competitive configs are — use it to redefine *other* aliases as they run:
+
+```
+alias +mfwd   "-back;      +forward;   alias checkfwd   +forward"
+alias -mfwd   "-forward;   checkback;  alias checkfwd   none"
+```
+
+`checkfwd` means `none` before W is pressed and `+forward` afterwards. **The same name has two
+meanings and which one is current depends on what has been pressed.** A static reader must pick one,
+and whichever it picks is wrong half the time. This is not an exotic case; it is the owner's own
+`config.cfg`.
+
+### What was built
+
+`Tf2DemoSalvage.Presentation/ConfigConsole.cs` — an interpreter with a mutable alias table, a bind
+table, and one `kbutton_t` per action. It is the single source of truth for the controls;
+`KeyBindings` became a projection of it for the settings screen to display.
+
+Everything in it is read from `src/game/client/in_main.cpp` and `kbutton.h`, both published in
+`source-sdk-2013`, and pinned by nineteen conformance tests written **before** the implementation:
+
+| Behaviour | Where it comes from |
+|---|---|
+| `+foo` presses, `-foo` releases | `IN_ForwardDown`/`IN_ForwardUp` both take `args[1]` |
+| a button holds **two** keys | `int down[ 2 ]` in `kbutton_t`; `KeyUp` returns early while either is set |
+| a third key on one button is dropped | `DevMsg( 1,"Three keys down for a button ..." ); return;` |
+| a repeat is ignored | `if (k == b->down[0] \|\| k == b->down[1]) return; // repeating key` |
+| a key-up with no key-down is ignored | `return; // key up without coresponding down (menu pass through)` — typo Valve's |
+| partial-frame credit of 0.25/0.5/0.75/1 | `CInput::KeyState`'s four impulse cases |
+| reading the state consumes it | `key->state &= 1;` as the last statement of `KeyState` |
+
+### Two findings that only a failing test produced
+
+**1. The key number does not survive into an alias body, and the whole pattern depends on it.** The
+engine appends the key to the command a key is *bound* to (`+mfwd 32`), and Source aliases take no
+parameters — so `+forward` inside that body runs with nothing. `KeyUp` treats an empty argument as a
+reset:
+
+```c
+if ( !c || !c[0] )
+{
+    b->down[0] = b->down[1] = 0;
+    b->state = 4;   // impulse up
+    return;
+}
+```
+
+So `-forward` issued from inside `+mback` releases forward **no matter which key holds it**. Had the
+key propagated, that release would have been discarded as unmatched and null-cancelling would do
+nothing. The first implementation propagated it, and exactly one conformance test caught it.
+
+**2. The release line flips ONE character, not every `+`.** Two independent binding layers in the
+SDK build it identically — `in_sixense_gesture_bindings.cpp` writes
+`m_pDeactivateCommand[0] = '-'` and `in_steamcontroller.cpp` writes `cmdbuf[0] = '-'`, both after
+testing only `[0]`. Consequences, both reproduced deliberately:
+
+- a bind not starting with `+` runs **nothing** on release;
+- `"+forward; +moveright"` releases as `"-forward; +moveright"`, so the second button sticks down
+  for ever.
+
+**The second is a real Source footgun and it is why competitive configs wrap compound binds in
+aliases.** A viewer that quietly improved on it would behave differently from the game the config
+was written for, which is worse than reproducing the flaw. **A conformance test here asserted the
+opposite before the SDK was read** — it was written from an assumption about what the engine
+"obviously" does, and the citation corrected it. That is the case for writing these first and
+citing them: the wrong answer was plausible enough to have shipped.
+
+### What this cost elsewhere
+
+- **`FreeFlight.Movement`, `Intent`, `Axis` and `IsDown` were deleted.** Once `MainForm` drove the
+  console, nothing called them — and **eleven tests went on passing against dead code**, which reads
+  as coverage. Those tests were repointed at the live path rather than removed; the assertions were
+  fine, only their subject was wrong. This is
+  `docs/memory/output-level-assertion-or-it-is-not-done.md` arriving from the other direction.
+- **Shift moved from `Control.ModifierKeys` into the console**, because `+speed` is a bound command
+  like any other. Reading it separately would have been a second source of truth for one fact, and
+  the failure would have been silent: a camera that simply never goes fast.
+- **The sided-modifier special case moved to `KeyNames.NameOf`**, so `ShiftKey`/`LShiftKey`/
+  `RShiftKey` collapse onto the one name a config binds. It used to live in `FreeFlight.IsDown`, and
+  having it in two places is how one side gains a key the other does not know about.
+
+### Deliberately not implemented
+
+Cvars, `exec`, `wait`, `toggle`, `incrementvar`, and the several hundred game commands this viewer
+has no concept of are skipped in silence. A real config is mostly commands we ignore, and objecting
+to them would reject every file it was pointed at. `Bound` and `Applied` are reported as a pair so a
+caller can distinguish "your config loaded and bound nothing" from "your config did not load", which
+otherwise look identical.
+
+### Measured
+
+The owner's own `config.cfg` plus `autoexec.cfg`: 78 binds, **13 applied**, up from 5 under static
+reading and 0 when either file was read alone. Pressing W flies forward; holding S overrides it;
+releasing S resumes forward with W never touched. That last sequence is asserted against the real
+files in `RealTf2ConfigTests`.
