@@ -51,8 +51,11 @@ public sealed class FirstPersonUiTests
     /// </remarks>
     private static void PressSwitchCameraMode()
     {
+        // **`SPACE`, in Source's spelling.** The names became config names in D69 so that a pasted
+        // `bind "SPACE" "+jump"` lands without translation. This guard caught the change the moment
+        // it happened, which is the second time it has earned its place.
         KeyBindings.Defaults[ViewerAction.SwitchCameraMode].ShouldBe(
-            "Space", "this test presses SPACE below — rebind both together");
+            "SPACE", "this test presses SPACE below — rebind both together");
 
         Viewer.PressKey(VirtualKeyShort.SPACE);
     }

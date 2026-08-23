@@ -64,4 +64,41 @@ internal static class KeyNames
             _ => Enum.TryParse(name.Trim(), ignoreCase: true, out Keys parsed) ? parsed : Keys.None,
         };
     }
+
+    /// <summary>What a config would call this key.</summary>
+    /// <param name="key">The key the toolkit reported.</param>
+    /// <returns>The Source name, or an empty string when there is no sensible one.</returns>
+    /// <remarks>
+    /// **The direction this file's summary always claimed and did not have.** It is needed now that
+    /// keys are fed to <c>ConfigConsole</c>, which deals only in names: a binding table can be
+    /// consulted key-first, but a console has to be *told* that `w` went down.
+    ///
+    /// **The sided modifiers collapse onto one name, and that is the whole reason this is not
+    /// <c>Enum.GetName</c>.** A held Control arrives as `ControlKey`, `LControlKey` or
+    /// `RControlKey` depending on how it was read, so all three have to answer to the `CTRL` a
+    /// config binds — otherwise the camera never descends and nothing reports why. The same trap
+    /// exists for Shift and Alt. This replaced the equivalent special-casing that used to live in
+    /// `FreeFlight.IsDown`, so there is one place that knows it rather than two.
+    ///
+    /// **Letters are lower case and digits drop their `D`**, because that is how a config spells
+    /// them: `bind "w" "+forward"`, not `bind "W"`. Lookups are case-insensitive either way, but the
+    /// name is also what a settings file ends up containing and what a user reads back.
+    /// </remarks>
+    public static string NameOf(Keys key) => (key & Keys.KeyCode) switch
+    {
+        Keys.Space => "SPACE",
+        Keys.ControlKey or Keys.LControlKey or Keys.RControlKey => "CTRL",
+        Keys.ShiftKey or Keys.LShiftKey or Keys.RShiftKey => "SHIFT",
+        Keys.Menu or Keys.LMenu or Keys.RMenu => "ALT",
+        Keys.Enter => "ENTER",
+        Keys.Escape => "ESCAPE",
+        Keys.OemQuotes => "'",
+        Keys.OemQuestion => "/",
+
+        >= Keys.A and <= Keys.Z => ((char)('a' + (key & Keys.KeyCode) - Keys.A)).ToString(),
+        >= Keys.D0 and <= Keys.D9 => ((char)('0' + (key & Keys.KeyCode) - Keys.D0)).ToString(),
+
+        Keys.None => string.Empty,
+        _ => Enum.GetName(key & Keys.KeyCode) ?? string.Empty,
+    };
 }

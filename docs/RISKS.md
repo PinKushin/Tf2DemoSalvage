@@ -8947,3 +8947,33 @@ distinguishing test.
 
 **Unverified here.** No specimen has been read, and nothing in the corpus is from that window. The
 class-253 detail is quoted from a 2011 forum post, not measured.
+
+## B145 — spectator target cycling is bound, tested, and reaches no code — OPEN
+
+`ViewerAction.CycleTargetForward` and `CycleTargetReverse` are declared, given default bindings
+(`MOUSE1`/`MOUSE2`), given Source command names (`+attack`/`+attack2`), and asserted on by three
+tests. Grepping the repository for either name returns the enum declaration, the two binding
+tables, and the tests. **No production code reads them**, so clicking cycles nothing.
+
+**Evidence class: measured** — an exhaustive grep across `managed/` and `tests/`, 2026-08-22.
+
+This is the exact shape `docs/memory/output-level-assertion-or-it-is-not-done.md` was written
+about, and it is worth noting that the tests are not at fault: they assert the binding table
+contains what it should, and it does. Nothing about a binding table can tell you whether anything
+consults it. The instrument that would have caught this is an assertion on behaviour — "after a
+click, the followed player changed" — and there is no such test because there is no such feature.
+
+**A second defect sits alongside it, and it would bite whoever implements this.** `KeyNames.Resolve`
+still special-cases the names `MOUSELEFT`, `MOUSERIGHT` and `MOUSEMIDDLE`, which is what the
+defaults used to be. The defaults moved to Source's spelling — `MOUSE1`, `MOUSE2` — when D69 made
+configs land without translation, and those three entries were not updated. They are dead as
+written, and the live names resolve to `Keys.None` through the fallback. That is correct by
+accident: mouse buttons are not `System.Windows.Forms.Keys` at all and must be handled by the mouse
+handlers, which is what the comment there already says.
+
+**How to act on it:** implement the feature rather than deleting the actions — a spectator viewer
+that cannot change who it is watching is missing something obvious, and the binding work is already
+done. Conformance first, per `CLAUDE.md`: TF2's own spectator HUD strings in `tf_english.txt` name
+the actions (`TF_Spectator_CycleTargetFwdKey`, `[%attack%]`) and the observer-mode code in the SDK
+carries the cycling behaviour. Then the tests, then the code. Update the stale `KeyNames` mouse
+entries in the same change.
