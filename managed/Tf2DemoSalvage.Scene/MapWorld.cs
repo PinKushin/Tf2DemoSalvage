@@ -831,7 +831,16 @@ public static class MapWorldBuilder
             // overlay lies ON brushwork and next to props, so it has to be told from grey-blue and
             // orange at a glance and at a distance.
             SurfaceCategory.Overlay => (0.62f, 0.4f, 0.92f),
-            SurfaceCategory.Missing => (1f, 0f, 1f),
+            // **White, so Valve's chequer shows in its own colours.** The renderer binds the
+            // magenta-and-black missing-material chequer under this category instead of the
+            // measurement grid, and a tint would only muddy a pattern that is already the most
+            // recognisable "this is broken" signal in Source. White multiplies to no change.
+            //
+            // This is what the collision with Hammer's default resolved to. Magenta belongs to
+            // Hammer's uncoloured entity; an unresolved material is a CHEQUER rather than a colour,
+            // so the two never needed the same hue — they are told apart by pattern, and both are
+            // Valve's rather than one being ours.
+            SurfaceCategory.Missing => (1f, 1f, 1f),
             _ => (0.55f, 0.6f, 0.72f),
         };
 

@@ -143,7 +143,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # audio floor gained, so nothing was deleted.
 # 623: VtfBlockAgreementTests (1) and its sibling, which read 400 of the game's own textures out of
 # tf2_textures_dir.vpk and assert the block path and the expanded path produce identical bytes.
-run Tf2DemoSalvage.Content.Tests  content   623
+run Tf2DemoSalvage.Content.Tests  content   628
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -216,7 +216,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     101
 # makes it — the mechanism B70 was missing for three attempts (2026-08-23).
 # 615: OpaquePassBlendStateRenderTests, which draws a decal pass and then an opaque prop and asserts
 # the prop ignores its texture's alpha — the leak that made every static prop translucent (B154).
-run Tf2DemoSalvage.Viewer3D.Tests viewer    618
+run Tf2DemoSalvage.Viewer3D.Tests viewer    624
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

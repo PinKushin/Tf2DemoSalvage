@@ -83,6 +83,20 @@ internal class MainForm : Form
     /// <summary>Automation id of the reflections toggle — Valve's <c>mat_specular</c>.</summary>
     public const string SpecularItemId = "SpecularMenuItem";
 
+    /// <summary>Automation id prefix of the lighting submenu — Valve's <c>mat_fullbright</c>.</summary>
+    /// <remarks>
+    /// Each item's id is this plus its <see cref="Fullbright"/> value, so automation can name a
+    /// state rather than an index — an index would silently point at a different mode the moment
+    /// the order changed.
+    /// </remarks>
+    public const string FullbrightItemId = "FullbrightMenuItem";
+
+    /// <summary>Automation id of the world pass toggle — Valve's <c>r_drawworld</c>.</summary>
+    public const string DrawWorldItemId = "DrawWorldMenuItem";
+
+    /// <summary>Automation id of the entity pass toggle — Valve's <c>r_drawentities</c>.</summary>
+    public const string DrawEntitiesItemId = "DrawEntitiesMenuItem";
+
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
 
@@ -385,6 +399,137 @@ internal class MainForm : Form
     /// </remarks>
     private readonly ToolStripMenuItem _wireframe;
     private readonly ToolStripMenuItem _specular;
+    private readonly ToolStripMenuItem _fullbrightMenu;
+    private readonly ToolStripMenuItem _drawWorld;
+    private readonly ToolStripMenuItem _drawEntities;
+
+    /// <summary>Which <c>mat_fullbright</c> substitution is showing.</summary>
+    public Fullbright Fullbright { get; private set; } = Fullbright.Off;
+
+    /// <summary>Valve's entity palette, read from the FGDs the game ships, or null.</summary>
+    private FgdClasses? _entityClasses;
+
+    /// <summary>Which brush model belongs to which entity class, from the map's entity lump.</summary>
+    private readonly Dictionary<int, string> _brushModelClasses = [];
+
+    /// <summary>Valve's colour for the class a brush model belongs to, 0..1, or null.</summary>
+    /// <remarks>
+    /// **Null rather than a default at every step**, and each null means something different: the
+    /// map may not name this model, the class may state no colour and inherit none, or the FGDs may
+    /// not be readable at all. A fallback colour at any of those points would report "Valve says
+    /// grey" where the truth is "nobody said", which is the sentinel-shaped mistake this project has
+    /// made before. The caller draws such an entity as ordinary brushwork.
+    /// </remarks>
+    /// <summary>Reads Valve's entity palette out of the FGDs beside the game.</summary>
+    /// <param name="game">The <c>tf</c> folder, whose sibling <c>bin</c> holds the FGDs.</param>
+    /// <remarks>
+    /// **Best effort, and silent about being absent rather than about failing.** The FGDs are
+    /// editor data: a game install has them, and a dedicated-server or content-only copy may not.
+    /// Losing them costs one colour in one diagnostic view, so it must not interrupt opening a
+    /// demo — but a file that exists and will not parse is a different thing and says so.
+    /// </remarks>
+    private void LoadEntityPalette(string? game)
+    {
+        if (game is null || Path.GetDirectoryName(game) is not { } install)
+        {
+            return;
+        }
+
+        string bin = Path.Combine(install, "bin");
+        List<string> read = [];
+
+        // In mount order, so a later file's redefinition wins — which is what tf.fgd's own
+        // `@include "base.fgd"` amounts to without needing to resolve includes.
+        foreach (string name in new[] { "base.fgd", "halflife2.fgd", "tf.fgd" })
+        {
+            string path = Path.Combine(bin, name);
+
+            try
+            {
+                if (File.Exists(path))
+                {
+                    read.Add(File.ReadAllText(path));
+                }
+            }
+            catch (Exception failure) when (
+                failure is IOException or UnauthorizedAccessException)
+            {
+                ViewerLog.Warn("assets", $"reading {path}", failure);
+            }
+        }
+
+        if (read.Count == 0)
+        {
+            ViewerLog.Write("assets", $"no FGD files in {bin}; entities draw as brushwork");
+            return;
+        }
+
+        _entityClasses = FgdClasses.Parse([.. read]);
+
+        ViewerLog.Write(
+            "assets",
+            $"entity palette: {_entityClasses.Count} classes from {read.Count} FGD files");
+    }
+
+    private (float Red, float Green, float Blue)? EntityTint(int model)
+    {
+        if (_entityClasses is not { } classes ||
+            !_brushModelClasses.TryGetValue(model, out string? classname))
+        {
+            // Not an entity at all, or the map named no class for it. Ordinary brushwork.
+            return null;
+        }
+
+        if (classes.Colour(classname) is not { } colour)
+        {
+            // **Hammer's default, which is magenta.** 58 of the 598 classes in the shipped FGDs
+            // state a colour, so this is the common case rather than the exceptional one, and
+            // leaving it uncoloured would mean most entities never showed as entities at all.
+            //
+            // The hue is documented — TWHL's FGD reference: "Otherwise it will use the default
+            // magenta" — and the exact RGB is published nowhere reachable, so this is full magenta
+            // as the plainest reading of the word. Labelled rather than smuggled in: it is the one
+            // number here that is not lifted from a Valve file.
+            return HammerDefaultEntityColour;
+        }
+
+        return (colour.Red / 255f, colour.Green / 255f, colour.Blue / 255f);
+    }
+
+    /// <summary>What Hammer draws an entity class that states no colour of its own.</summary>
+    /// <remarks>
+    /// **This collided with the missing-material colour, and the missing-material colour moved.**
+    /// The owner's rule when a real Valve behaviour meets one of our inventions: "if the default
+    /// would colide with our imp, then we need to change our imp to not block". Magenta belongs to
+    /// Hammer here; the category view's "no material" signal is ours and had no claim on it.
+    /// </remarks>
+    private static (float Red, float Green, float Blue) HammerDefaultEntityColour => (1f, 0f, 1f);
+
+    /// <summary>Chooses a lighting substitution and ticks the matching menu item.</summary>
+    /// <param name="mode">Which substitution to show.</param>
+    /// <remarks>
+    /// Public so a test can drive it without synthesising a menu click. The menu items call this
+    /// too, so there is one path rather than a UI path and a test path that can disagree.
+    /// </remarks>
+    public void SetFullbright(Fullbright mode)
+    {
+        Fullbright = mode;
+
+        foreach (ToolStripItem entry in _fullbrightMenu.DropDownItems)
+        {
+            if (entry is ToolStripMenuItem item)
+            {
+                item.Checked = item.Name == FullbrightItemId + mode;
+            }
+        }
+
+        ViewerLog.Write("render", $"mat_fullbright {(int)mode}");
+
+        if (_device is { } device)
+        {
+            device.Fullbright = mode;
+        }
+    }
     private readonly ToolStripMenuItem _borderlessMode;
     private readonly ToolStripMenuItem _exclusiveMode;
 
@@ -714,7 +859,9 @@ internal class MainForm : Form
                 "render",
                 _surfaceColours.Checked
                     ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
-                      "violet overlays, magenta missing material"
+                      "violet overlays, Valve's magenta chequer where a material resolved to " +
+                      "nothing; brush entities take their own FGD colour, magenta where the class " +
+                      "states none, as Hammer draws them"
                     : "surface colours off");
 
             _device?.ClearWorld();
@@ -770,6 +917,81 @@ internal class MainForm : Form
                 "a reflection is hiding a surface.",
         };
 
+        // **A submenu of three, because `mat_fullbright` has three states.** Offering it as a
+        // checkbox would be the same mistake as reading the cvar's name and assuming a boolean —
+        // and it is the more useful state, lighting-only, that a checkbox would drop.
+        _fullbrightMenu = new ToolStripMenuItem("&Lighting")
+        {
+            Name = FullbrightItemId,
+            AccessibleName = "Lighting",
+            AccessibleDescription =
+                "Substitutes the lighting or the texture, to tell a shadow apart from a dark " +
+                "texture and a painted shape apart from a lit one.",
+        };
+
+        foreach ((Fullbright mode, string label, Keys key) in new[]
+        {
+            (Fullbright.Off, "&Normal", Keys.F5),
+            (Fullbright.NoLighting, "&No lighting (mat_fullbright 1)", Keys.F6),
+            (Fullbright.LightingOnly, "Lighting &only (mat_fullbright 2)", Keys.F7),
+        })
+        {
+            Fullbright chosen = mode;
+
+            ToolStripMenuItem item = new(label)
+            {
+                Name = FullbrightItemId + chosen,
+                ShortcutKeys = key,
+                Checked = chosen == Fullbright.Off,
+            };
+
+            item.Click += (_, _) => SetFullbright(chosen);
+
+            _fullbrightMenu.DropDownItems.Add(item);
+        }
+
+        // **`r_drawworld` and `r_drawentities`, which answer "which pass owns this".** The question
+        // comes up the moment something is drawn twice, in the wrong order, or by code nobody
+        // expected — and it took a day to answer by hand when static props turned out to be
+        // inheriting the overlay pass's blend state (B154).
+        _drawWorld = new ToolStripMenuItem("Draw &world")
+        {
+            Name = DrawWorldItemId,
+            CheckOnClick = true,
+            Checked = true,
+            AccessibleName = "Draw world",
+            AccessibleDescription = "Draws map brushwork and its overlays. Turn off to see only entities.",
+        };
+
+        _drawWorld.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write("render", $"r_drawworld {(_drawWorld.Checked ? 1 : 0)}");
+
+            if (_device is { } world)
+            {
+                world.DrawWorld = _drawWorld.Checked;
+            }
+        };
+
+        _drawEntities = new ToolStripMenuItem("Draw &entities")
+        {
+            Name = DrawEntitiesItemId,
+            CheckOnClick = true,
+            Checked = true,
+            AccessibleName = "Draw entities",
+            AccessibleDescription = "Draws static props and models. Turn off to see only the map.",
+        };
+
+        _drawEntities.CheckedChanged += (_, _) =>
+        {
+            ViewerLog.Write("render", $"r_drawentities {(_drawEntities.Checked ? 1 : 0)}");
+
+            if (_device is { } entities)
+            {
+                entities.DrawEntities = _drawEntities.Checked;
+            }
+        };
+
         _specular.CheckedChanged += (_, _) =>
         {
             ViewerLog.Write("render", $"mat_specular {(_specular.Checked ? 1 : 0)}");
@@ -795,6 +1017,9 @@ internal class MainForm : Form
         view.DropDownItems.Add(screenshot);
         view.DropDownItems.Add(_wireframe);
         view.DropDownItems.Add(_specular);
+        view.DropDownItems.Add(_fullbrightMenu);
+        view.DropDownItems.Add(_drawWorld);
+        view.DropDownItems.Add(_drawEntities);
         view.DropDownItems.Add(_surfaceColours);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
@@ -1124,6 +1349,8 @@ internal class MainForm : Form
                     string? game = FindGameFolder();
                     ViewerLog.Write("assets", $"game folder: {game ?? "not found"}");
                     _archives = GameArchives.Open(game);
+
+                    LoadEntityPalette(game);
                     ViewerLog.Write(
                         "assets",
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
@@ -1158,6 +1385,32 @@ internal class MainForm : Form
                 {
                     _overlays = BspOverlays.Read(bytes);
                     _brushModels = BspModels.Read(bytes);
+
+                    // **Which submodel belongs to which class, from the entity lump.** A brush
+                    // entity names its geometry as `*N`, so this is the join between the models
+                    // lump — which carries the faces and nothing else — and the classname, which is
+                    // the only place the map says what a piece of geometry IS.
+                    _brushModelClasses.Clear();
+
+                    foreach (BspEntity entity in BspEntities.ReadFrom(bytes))
+                    {
+                        if (entity.TryGetValue("model", out string name) &&
+                            entity.TryGetValue("classname", out string classname) &&
+                            name.Length > 1 &&
+                            name[0] == BrushModels.SubmodelPrefix &&
+                            int.TryParse(
+                                name[1..],
+                                NumberStyles.Integer,
+                                CultureInfo.InvariantCulture,
+                                out int model))
+                        {
+                            _brushModelClasses[model] = classname;
+                        }
+                    }
+
+                    ViewerLog.Write(
+                        "assets",
+                        $"{_brushModelClasses.Count} brush entities named a class");
                 }
                 catch (InvalidDataException failure)
                 {
@@ -1212,7 +1465,19 @@ internal class MainForm : Form
                         // inside Load.** A door's faces carry baked lightmap samples in the same
                         // atlas as the wall's, so the geometry cannot be built before it exists
                         // (B131).
-                        atlas => BrushModels.Build(_brushModels ?? [], _surfaceList, atlas),
+                        atlas => BrushModels.Build(
+                            _brushModels ?? [],
+                            _surfaceList,
+                            atlas,
+
+                            // **Valve's colour for the entity's class, and only in the category
+                            // view.** A brush entity is a door, a lift, an areaportal or a
+                            // trigger, and drawn as plain brushwork none of that is visible — the
+                            // one view whose whole job is "what is this" was the one view that
+                            // could not say. The numbers are Valve's, out of the FGDs the game
+                            // ships, so a capture reads the same way as Hammer's own colouring
+                            // rather than needing a second legend (B156).
+                            _surfaceColours.Checked ? EntityTint : null),
 
                         // **The light cache, for props whose baked lighting is absent or refused**
                         // (B123). Usable here because the leaves and the ambient samples were read
@@ -5167,6 +5432,11 @@ internal class MainForm : Form
             _overlay?.Dispose();
             _wireframe.Dispose();
             _specular.Dispose();
+
+            // Disposing the submenu disposes the three items it owns.
+            _fullbrightMenu.Dispose();
+            _drawWorld.Dispose();
+            _drawEntities.Dispose();
             _surfaceColours.Dispose();
             _fullScreen.Dispose();
         }

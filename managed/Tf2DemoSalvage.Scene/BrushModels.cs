@@ -63,6 +63,11 @@ public static class BrushModels
     /// Required rather than optional: omitting it produces a door lit like a model, which is a
     /// plausible picture and was B131.
     /// </param>
+    /// <param name="tintFor">
+    /// A per-model vertex tint by model index, or null for none. The category view supplies Valve's
+    /// own colour for the entity's class here; everything else leaves it white, which multiplies to
+    /// no change.
+    /// </param>
     /// <returns>Geometry keyed by <c>*N</c>, ready to be looked up by an entity's model name.</returns>
     /// <remarks>
     /// Index 0 is skipped rather than included, because the world is drawn by the static path and
@@ -71,7 +76,8 @@ public static class BrushModels
     public static IReadOnlyDictionary<string, PropModels.ModelFrames> Build(
         IReadOnlyList<BspModel> models,
         IReadOnlyList<BspSurface> surfaces,
-        LightmapAtlas atlas)
+        LightmapAtlas atlas,
+        Func<int, (float Red, float Green, float Blue)?>? tintFor = null)
     {
         ArgumentNullException.ThrowIfNull(models);
         ArgumentNullException.ThrowIfNull(surfaces);
@@ -93,6 +99,10 @@ public static class BrushModels
         {
             BspModel model = models[index];
             List<PropVertex> corners = [];
+
+            // Looked up once per model rather than per vertex: every face of a brush entity belongs
+            // to the same entity and therefore to the same class.
+            (float Red, float Green, float Blue)? tint = tintFor?.Invoke(index);
 
             for (int face = model.FirstFace; face < model.FirstFace + model.FaceCount; face++)
             {
@@ -121,9 +131,9 @@ public static class BrushModels
                 // convex by construction.
                 for (int corner = 1; corner + 1 < surface.Vertices.Count; corner++)
                 {
-                    Append(corners, surface, 0, rectangle, lightStep);
-                    Append(corners, surface, corner, rectangle, lightStep);
-                    Append(corners, surface, corner + 1, rectangle, lightStep);
+                    Append(corners, surface, 0, rectangle, lightStep, tint);
+                    Append(corners, surface, corner, rectangle, lightStep, tint);
+                    Append(corners, surface, corner + 1, rectangle, lightStep, tint);
                 }
             }
 
@@ -146,7 +156,8 @@ public static class BrushModels
         BspSurface surface,
         int index,
         AtlasRect rectangle,
-        float lightStep)
+        float lightStep,
+        (float Red, float Green, float Blue)? tint)
     {
         SurfaceVertex vertex = surface.Vertices[index];
 
@@ -165,6 +176,14 @@ public static class BrushModels
             NormalZ: surface.Normal.Z,
             LightU: lightU,
             LightV: lightV,
-            LightStep: lightStep));
+            LightStep: lightStep,
+
+            // **Valve's own colour for this entity's class, in the category view only.** White
+            // otherwise, which multiplies to no change and is what a brush entity has always
+            // carried. See FgdClasses for where the number comes from and why it is Valve's rather
+            // than ours.
+            Red: tint?.Red ?? 1f,
+            Green: tint?.Green ?? 1f,
+            Blue: tint?.Blue ?? 1f));
     }
 }

@@ -739,8 +739,11 @@ public sealed unsafe class Device3D : IDisposable
         // Applied here rather than only in the setter, because the renderer is built lazily and a
         // toggle flipped before the first map would otherwise be silently forgotten.
         _world.Wireframe = _wireframe;
+        _world.DrawWorld = _drawWorld;
+        _world.DrawEntities = _drawEntities;
 
-        _world.SetCamera(_device, _context, matrix, surfaceColours, heightCut, _specular);
+        _world.SetCamera(
+            _device, _context, matrix, surfaceColours, heightCut, _specular, _fullbright);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
@@ -795,6 +798,62 @@ public sealed unsafe class Device3D : IDisposable
     }
 
     private bool _specular = true;
+
+    /// <summary>Which <c>mat_fullbright</c> substitution the world draws with.</summary>
+    /// <remarks>
+    /// **The two non-zero states answer opposite questions**, which is why Valve has both and why
+    /// this is not a boolean: 1 removes the lighting and asks "is that dark patch a shadow or a
+    /// missing texture", 2 removes the albedo and asks "is that shape in the lighting or painted
+    /// into the texture". See <see cref="Fullbright"/>.
+    /// </remarks>
+    public Fullbright Fullbright
+    {
+        get => _fullbright;
+
+        set
+        {
+            _fullbright = value;
+            _worldCamera = null;
+        }
+    }
+
+    private Fullbright _fullbright = Fullbright.Off;
+
+    /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
+    public bool DrawWorld
+    {
+        get => _drawWorld;
+
+        set
+        {
+            _drawWorld = value;
+
+            if (_world is not null)
+            {
+                _world.DrawWorld = value;
+            }
+        }
+    }
+
+    private bool _drawWorld = true;
+
+    /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
+    public bool DrawEntities
+    {
+        get => _drawEntities;
+
+        set
+        {
+            _drawEntities = value;
+
+            if (_world is not null)
+            {
+                _world.DrawEntities = value;
+            }
+        }
+    }
+
+    private bool _drawEntities = true;
 
     /// <summary>Whether a map's textures are resident.</summary>
     public bool HasWorldTextures => _world?.HasTextures ?? false;

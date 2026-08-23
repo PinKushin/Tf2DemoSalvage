@@ -773,6 +773,33 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 }
             }
 
+            // **mat_fullbright, and it is a texture SUBSTITUTION in the engine rather than a
+            // branch.** Valve replaces the lightmap with TEXTURE_LIGHTMAP_FULLBRIGHT for 1 and the
+            // albedo with TEXTURE_GREY for 2 (BaseVSShader.cpp:1094, ishaderdynamic.h:60), which is
+            // why both compose with everything else a material does — a substituted albedo still
+            // gets its detail texture, its envmap and its alpha test. Substituting the VALUES here
+            // rather than binding replacement textures reaches the same place without shipping two
+            // more textures to look up per draw.
+            //
+            // Grey is 128/255, which is what TEXTURE_GREY holds.
+            if (surfaceColours.w > 1.5f)
+            {
+                albedo.rgb = float3(0.5019608f, 0.5019608f, 0.5019608f);
+            }
+            else if (surfaceColours.w > 0.5f)
+            {
+                // **OverbrightScale, not one, and the measurement is what said so.** Substituting
+                // the RESULT with 1 made a lit wall DARKER — (255,180,4) against (255,255,8) —
+                // because a Source lightmap texel is scaled by 2 after sampling, so a fully lit
+                // surface already sits above unity. Valve replaces the TEXTURE
+                // (TEXTURE_LIGHTMAP_FULLBRIGHT) and the shader's own arithmetic still runs over it,
+                // so the equivalent here is a white sample carried through the same scale.
+                //
+                // The general form: when copying a substitution, substitute at the point Valve does.
+                // One step later is a different quantity that happens to have the same name.
+                light = float3(OverbrightScale, OverbrightScale, OverbrightScale);
+            }
+
             float3 lit = albedo.rgb * light * input.vc;
 
             if (mode >= 0)
@@ -1186,6 +1213,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Valve's measurement grid, drawn under the category tint.</summary>
     private ComPtr<ID3D11ShaderResourceView> _devGrid;
 
+    /// <summary>Materials that resolved to nothing and draw as the missing-material chequer.</summary>
+    /// <remarks>
+    /// **Kept so the category view can show Valve's chequer rather than a colour standing in for
+    /// it.** An unresolved material is magenta-and-black chequered in the engine and in every Source
+    /// tool, and that pattern is the signal — a flat colour saying "missing" is a translation of it,
+    /// and the owner's rule is that where Valve has a real appearance we use it: "if valves stuff is
+    /// suppose to be checkered then we need to do that".
+    /// </remarks>
+    private readonly HashSet<int> _chequered = [];
+
     /// <summary>The detail pattern for each material, empty where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
 
@@ -1528,6 +1565,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     public bool Wireframe { get; set; }
 
+    /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
+    /// <remarks>
+    /// Overlays are governed by this rather than by <see cref="DrawEntities"/>, because the engine
+    /// draws them inside `DrawWorld` alongside the surfaces they mark, before any renderable.
+    /// </remarks>
+    public bool DrawWorld { get; set; } = true;
+
+    /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
+    public bool DrawEntities { get; set; } = true;
+
     /// <summary>The wireframe twin of each solid rasteriser state, by handle.</summary>
     private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _wireframeFor = [];
 
@@ -1752,6 +1799,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (uploaded.Handle is null)
             {
                 chequered.Add(index);
+                _chequered.Add(index);
             }
 
             _textures.Add(uploaded);
@@ -2279,9 +2327,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // engine's arrangement and the reason this ordering is safe to change at all — see the
         // remarks there. A first fix established the writing state at the top of the props pass,
         // which worked and left the next reordering to break the same way again.
-        DrawOpaqueBatches(context, _batches);
-        DrawDecals(context);
-        DrawOpaqueBatches(context, _props);
+        // **`r_drawworld` and `r_drawentities`, which are pass switches rather than shader ones.**
+        // Both are engine cvars defaulting to 1 (`view.cpp:296` looks up `r_drawentities`), and what
+        // they answer is "which pass owns this surface" — the question that comes up the moment
+        // something is drawn twice, drawn in the wrong order, or drawn by code nobody expected.
+        //
+        // Overlays go with the world rather than with entities, because that is where the engine
+        // draws them: `DrawWorld` renders world surfaces AND their overlay fragments before
+        // `DrawOpaqueRenderables` runs at all.
+        if (DrawWorld)
+        {
+            DrawOpaqueBatches(context, _batches);
+            DrawDecals(context);
+        }
+
+        if (DrawEntities)
+        {
+            DrawOpaqueBatches(context, _props);
+        }
+
         DrawTranslucent(context);
         DrawAdditive(context);
     }
@@ -2390,6 +2454,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Whether cubemap reflections are added — Valve's <c>mat_specular</c>, whose own comment for
     /// the same switch is "If mat_specular 0, then get rid of envmap".
     /// </param>
+    /// <param name="fullbright">
+    /// Which of Valve's <c>mat_fullbright</c> substitutions to apply; see <see cref="Fullbright"/>
+    /// for why there are three of them rather than two.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -2403,7 +2471,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] matrix,
         bool surfaceColours = false,
         float heightCut = 0f,
-        bool specular = true)
+        bool specular = true,
+        Fullbright fullbright = Fullbright.Off)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -2443,7 +2512,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] contents =
         [
             .. matrix,
-            surfaceColours ? 1f : 0f, Math.Clamp(heightCut, 0f, 1f), specular ? 1f : 0f, 0f,
+            surfaceColours ? 1f : 0f,
+            Math.Clamp(heightCut, 0f, 1f),
+            specular ? 1f : 0f,
+            (float)fullbright,
             eye.X, eye.Y, eye.Z, hasEye,
         ];
 
@@ -2983,6 +3055,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private void SetMaterial(ComPtr<ID3D11DeviceContext> context, int materialIndex)
     {
+        // **The category view's underlay, chosen per material because that is what decides it.**
+        // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
+        // else draws Valve's measurement grid. Bound to one slot either way, so the shader has no
+        // branch to keep in step, and set HERE rather than at the three call sites for the reason
+        // the depth state below is — three copies of one decision is how they drift apart.
+        ComPtr<ID3D11ShaderResourceView> underlay =
+            _chequered.Contains(materialIndex) || _devGrid.Handle is null ? _white : _devGrid;
+
+        context.PSSetShaderResources(7, 1, ref underlay);
+
         // **The material carries its own depth state, which is the engine's arrangement (B135).**
         // A shader in Source declares its render state in a SHADOW_STATE block and the material
         // system applies it when the material is bound — `EnableDepthWrites( false )` in
