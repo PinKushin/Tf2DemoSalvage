@@ -41,6 +41,36 @@ dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
 dotnet_naming_style.i_prefixed.required_prefix = I
 dotnet_naming_style.i_prefixed.capitalization = pascal_case
 
+# **Constants and static readonly fields come FIRST, and the order is the mechanism.** Roslyn
+# applies the first naming rule whose symbol specification matches, so these two have to precede the
+# private-field rule below or that rule claims them.
+#
+# Without them, `applicable_kinds = field` matched every private const and static readonly in the
+# repository — 733 and 104 of them — and demanded `_camelCase`. The codebase writes those
+# PascalCase, which is the prevailing .NET convention and what the runtime itself does: `_camelCase`
+# for instance state, PascalCase for things that are effectively named values.
+#
+# **It never showed up in a build, which is why it survived.** IDE naming diagnostics only run at
+# build time with `EnforceCodeStyleInBuild`, which is not set — so `dotnet build` reported zero
+# warnings while Visual Studio reported hundreds of errors on the same code. The owner hit that
+# opening the solution in VS2026 and reasonably assumed VS's defaults disagreed with the project.
+# They did not; our rule was written too broadly.
+dotnet_naming_rule.constants_are_pascal.severity = error
+dotnet_naming_rule.constants_are_pascal.symbols = constant_symbols
+dotnet_naming_rule.constants_are_pascal.style = pascal
+dotnet_naming_symbols.constant_symbols.applicable_kinds = field
+dotnet_naming_symbols.constant_symbols.applicable_accessibilities = *
+dotnet_naming_symbols.constant_symbols.required_modifiers = const
+
+dotnet_naming_rule.static_readonly_are_pascal.severity = error
+dotnet_naming_rule.static_readonly_are_pascal.symbols = static_readonly_symbols
+dotnet_naming_rule.static_readonly_are_pascal.style = pascal
+dotnet_naming_symbols.static_readonly_symbols.applicable_kinds = field
+dotnet_naming_symbols.static_readonly_symbols.applicable_accessibilities = *
+dotnet_naming_symbols.static_readonly_symbols.required_modifiers = static, readonly
+
+dotnet_naming_style.pascal.capitalization = pascal_case
+
 dotnet_naming_rule.private_fields_underscored.severity = error
 dotnet_naming_rule.private_fields_underscored.symbols = private_field_symbols
 dotnet_naming_rule.private_fields_underscored.style = underscore_camel
