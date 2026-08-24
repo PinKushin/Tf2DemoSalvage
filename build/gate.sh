@@ -129,7 +129,10 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # 121: SoundscapeCatalogConformanceTests (5). The soundscape list rebuilt from the shipped manifest
 # and diffed entry-by-entry against one a running TF2 client printed — 153 for 153. The index is a
 # position in that list, so a mis-order plays the wrong ambience rather than none (B173).
-run Tf2DemoSalvage.Audio.Tests    audio     121
+# 129: SoundscapeSelectionConformanceTests (8). Choosing a soundscape from the BSP, checked against
+# seven positions where the owner ran soundscape_dumpclient in the live game. A differential: the
+# engine's answer is the expectation, so this can disagree with it (B173).
+run Tf2DemoSalvage.Audio.Tests    audio     129
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so

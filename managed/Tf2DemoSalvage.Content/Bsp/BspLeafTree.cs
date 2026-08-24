@@ -165,6 +165,102 @@ public sealed class BspLeafTree
         return true;
     }
 
+    /// <summary>Whether nothing solid stands between two points.</summary>
+    /// <param name="fromX">Where the segment starts, in world units.</param>
+    /// <param name="fromY">Where the segment starts.</param>
+    /// <param name="fromZ">Where the segment starts.</param>
+    /// <param name="toX">Where it ends.</param>
+    /// <param name="toY">Where it ends.</param>
+    /// <param name="toZ">Where it ends.</param>
+    /// <returns><c>true</c> when the segment is unobstructed.</returns>
+    /// <remarks>
+    /// **Valve's own test for which soundscape a listener is in.**
+    /// <c>CEnvSoundscape::UpdateForPlayer</c> (<c>soundscape.cpp:271</c>) traces from the entity to
+    /// the player and accepts it only when <c>tr.fraction == 1 &amp;&amp; !tr.startsolid</c>. The
+    /// mask is <c>MASK_SOLID_BRUSHONLY|MASK_WATER</c> — **brushes only, no props** — which is why a
+    /// leaf test suffices here and a prop-aware trace is not needed.
+    ///
+    /// **Sampled rather than clipped, and that is an approximation with a known failure.** A real
+    /// trace splits the segment against each BSP plane; this walks it and asks which leaf each step
+    /// lands in, exactly as <see cref="SeesSky"/> does. A wall thinner than the step can be tunnelled
+    /// through, reporting clear when the engine would report blocked — which for a soundscape means
+    /// hearing the room next door.
+    ///
+    /// **The step is therefore finer than the sky trace's**, 4 units against 16: Source walls are
+    /// commonly 8 units and occasionally less, and the sky trace can afford to be coarse because
+    /// ceilings are thick. The cost is bounded by the caller rather than here — soundscape selection
+    /// runs a few times a second and stops at the first entity that qualifies, not once per frame
+    /// per entity.
+    ///
+    /// **True when the map has no leaves**, matching <see cref="SeesSky"/>: a viewer that decided
+    /// everything was blocked would report silence everywhere, which is a worse failure than
+    /// occasionally hearing through a wall.
+    /// </remarks>
+    public bool IsClear(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ)
+    {
+        if (_leaves.IsEmpty || IsEmpty)
+        {
+            return true;
+        }
+
+        float dx = toX - fromX;
+        float dy = toY - fromY;
+        float dz = toZ - fromZ;
+
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+        if (!float.IsFinite(length) || length <= SegmentStep)
+        {
+            return true;
+        }
+
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+
+        float stepX = dx / length;
+        float stepY = dy / length;
+        float stepZ = dz / length;
+
+        // **Both ends are skipped, and each for its own reason.** The far end is the listener, who
+        // is never inside solid; the near end is the entity, which map authors routinely place
+        // flush against a surface — starting on it would report every soundscape blocked, which is
+        // what `!tr.startsolid` exists to distinguish in the engine.
+        for (float distance = SegmentStep; distance < length; distance += SegmentStep)
+        {
+            int leaf = LeafAt(
+                fromX + (stepX * distance),
+                fromY + (stepY * distance),
+                fromZ + (stepZ * distance));
+
+            if (leaf < 0)
+            {
+                continue;
+            }
+
+            int at = leaf * _leafStride;
+
+            if (at + 4 > leaves.Length)
+            {
+                continue;
+            }
+
+            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>How finely a line-of-sight segment is sampled, in world units.</summary>
+    /// <remarks>
+    /// Four rather than the sky trace's sixteen, because this one has to notice walls rather than
+    /// ceilings. See <see cref="IsClear"/> for what a step too coarse costs.
+    /// </remarks>
+    private const float SegmentStep = 4f;
+
     /// <summary>The world-space box a leaf occupies, or null when there is no such leaf.</summary>
     /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
     /// <returns>Its minimum and maximum corner, in world units.</returns>
