@@ -10022,8 +10022,20 @@ listener's current position and the source's own. `AudioOutput` needs a way to s
 voice already playing, and the caller needs to remember where each looping sound is. The one-shot
 path stays exactly as it is.
 
-**Also worth recording for whoever checks it:** the owner notes the hum "is just not very loud at
-all" even when correct, so a faint result is the expected one and is not evidence of a second fault.
+**Also worth recording for whoever checks it**, because it sets the expectation for what "fixed"
+sounds like. The owner: *"theres ambient sounds all over the place not just in spawn, spawn is an ac
+hum, the computer tube hum comes from the tf2 computer prop things, but ya they do all fall off
+pretty quickly"*, and separately that the hum "is just not very loud at all".
+
+So the correct result is **many quiet, short-range sources scattered over the map**, not one loud
+room tone — which agrees with the measurement: the six `)ambient/machine_hum` entities on
+cp_process carry distinct origins spread right across it (`-3944, -1248, 656`; `3936, 1320, 648`;
+`3456, 584, 640`; `3456, 1960, 648`). A faint, quickly-fading result is the target and is not
+evidence of a second fault.
+
+It also raises the stakes on the per-frame work above rather than lowering them: with many sources
+that fall off quickly, almost every one of them is inaudible from wherever the camera happened to be
+when it started, and a gain computed once is wrong for nearly all of them nearly all the time.
 
 ### B171 — following some players does not enter first person — OPEN
 
