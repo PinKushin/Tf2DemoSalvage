@@ -4206,3 +4206,36 @@ Valve's**.
 reverb, HRTF — is off limits on the same reasoning unless Valve's own behaviour is implemented first
 and the library is merely being asked to reproduce it. A feature that sounds good and is not what
 the demo recorded is not a feature of this project.
+
+## D81 — The corpus lives on archive.org and is fetched, not committed
+
+**The owner, 2026-08-24:** *"they are backed up on archive, which is where im going to put all the
+corpus files and we will start pulling from there when we want to test against a demo"*.
+
+This replaces Git LFS as the corpus's home, and it dissolves the constraint that has shaped the
+corpus rules from the beginning. **gcor grows "only for a new generation" because GitHub's free LFS
+tier is 1 GiB/month and every CI job pays it** — that is the entire reason era specimens are trimmed
+to 2–4 minutes and the reason protocols 21 and 22 are currently local-only while filling a measured
+gap. Fetching removes the bill, so the question stops being "can we afford to commit this" and
+becomes "which demos does a run need".
+
+**Two things this must not become, both of which fail quietly.**
+
+- **A test that skips when a fetch fails.** A skip is not a pass
+  (`docs/memory/a-skip-is-not-a-pass-or-a-failure.md`) and it is invisible in a summary line, so a
+  corpus that cannot be reached would report a green suite that measured nothing. Whatever the
+  fetch layer is, an unavailable demo has to be a failure or a loudly-reported absence — never a
+  silent one.
+- **A demo identified only by URL.** A fetched file that differs from the one a result was recorded
+  against turns every historical measurement into a claim about something else. Each entry needs a
+  checksum in `manifest.json`, verified after fetch. That is also what makes archive.org's own
+  durability guarantees usable rather than trusted.
+
+A local cache follows from both: the measurement boxes should not re-download on every run, and
+`TF2DEMOSALVAGE_GCOR_ONLY` exists precisely because run time is the thing being managed. The natural
+shape is the cache being what tests read, and the fetch being what fills it.
+
+Related and still to decide: whether anything stays committed at all. A handful of tiny specimens in
+the repository means `git clone && dotnet test` works with no network, which has real value for a
+contributor and for CI. That is a smaller question than it was, and worth answering deliberately
+rather than by attrition.
