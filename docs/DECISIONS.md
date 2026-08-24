@@ -4799,6 +4799,23 @@ is not observable: Valve computes a parent's bones even when the parent will not
 declines to draw the child, while we drop the child when the parent is not in the drawn set. A child
 of an undrawn parent is not drawn either way.
 
+**CORRECTION, 2026-08-24 — the paragraph above is wrong on both counts, and it is left standing
+because the wrong reasoning is the point of keeping this.** The audit is
+`docs/findings/35-the-bone-pipeline-audit.md`.
+
+- **"The outputs are identical" is false.** A chain three deep gets different bones, because we
+  record the parent's UNMERGED skeleton where the engine has one bone array with the merge written
+  into it (B180). It was written as a settled fact and was never measured.
+- **"What Valve does" named the wrong mechanism.** `DrawModel`'s recursion is real but is not where
+  ordering is solved; `CBoneMergeCache::MergeMatchingBones` calls `m_pFollow->SetupBones(...)`
+  directly (`bone_merge_cache.cpp:130`). The engine has **no ordering code at all**. So this was
+  never a trade-off between two orderings — it was ~40 lines against zero, and the declaration
+  presented it as a considered equivalence.
+
+That is a sharper reason to remove it than the one recorded above, and a sharper warning: a
+departure declared under D86 is only as good as the reading behind it, and this one cited the second
+mechanism it found rather than the one that mattered.
+
 Against it, honestly: it is a different structure from the engine, and this project's bugs are
 overwhelmingly where it differs. That is the whole reason D86 exists, and it is why this is written
 down instead of left to be discovered.

@@ -10052,22 +10052,30 @@ UnragdollBlend( hdr, pos, q, currentTime );
 and `SetupBones` then runs `BuildTransformations` (the parent-chain concatenation),
 `CalculateIKLocks` and `SetupBones_AttachmentHelper`.
 
-#### What we appear to have, and the honest confidence on each
+#### The audit was done 2026-08-24 — `docs/findings/35-the-bone-pipeline-audit.md`
 
-Counted by searching for any equivalent, so this is a **starting inventory and not a verdict** —
-several of these need reading before the column is trustworthy.
+The starting inventory that used to sit here was a guess with a confidence column. It has been
+replaced by a read of the SDK against a search of `managed/` with a control, and **the headline is
+not on this list at all**: the engine has no ordering step to compare ours against.
 
-| stage | ours | confidence |
-|---|---|---|
-| `InitPose` / `AccumulatePose` | sequence + frame + pose parameters | named only in comments; no stage boundary exists |
-| `MaintainSequenceTransitions` | none found | high — a sequence change appears to snap |
-| `AccumulateLayers` | `StudioGestureWeights` exists | low — TF2 leans on layers for aiming and reloading |
-| `CalcAutoplaySequences` | none found | medium |
-| `CalcBoneAdj` (bone controllers) | **nothing** | high |
-| `UnragdollBlend` | not applicable — no ragdolls yet | high |
-| `BuildTransformations` | parent concatenation exists | medium |
-| `CalculateIKLocks` | **nothing** | high — feet do not plant |
-| attachments | `StudioAttachment`, used for worn items | medium |
+`CBoneMergeCache::MergeMatchingBones` asks its parent for bones on the spot
+(`bone_merge_cache.cpp:130`), and `SetupBones` is idempotent per frame
+(`c_baseanimating.cpp:2874` and `:2911`). So `_ordered`, `_worn`, `_parents`, `Depth`, `_wanted`,
+`_wearerBones` and the sort — six fields and ~40 lines — exist to guarantee an ordering the engine
+gets by asking. See finding 35 §1.
+
+Confirmed absent from the pose path, each by a search with a control: bone controllers
+(`CalcBoneAdj`), IK (`m_pIk`, `CalculateIKLocks`), procedural and jiggle bones
+(`CalcProceduralBone`, `c_baseanimating.cpp:1527` and `:1546`), sequence transitions, autoplay
+sequences, `ApplyBoneMatrixTransform`, and model scale in the bone path. The `.mdl` parser never
+reads `bonecontrollerindex` or `ikchainindex`, so these are not merely unwired — the data is not
+loaded.
+
+**The jiggle gap is already written down here under another name.** `StudioBones.cs:352` records a
+`ghostly_gibus` matching 1 bone of 8 with *"the other seven stayed at the model origin"*. Those seven
+are jiggle bones, which Valve simulates (`m_pJiggleBones->BuildJiggleTransformations`,
+`c_baseanimating.cpp:1586`) rather than merging. A comment describing a symptom without naming the
+missing feature is exactly what a denominator prevents.
 
 #### What to do
 
@@ -10106,6 +10114,12 @@ justification is recorded rather than quietly dropped.
 
 #### What to change, in order
 
+**Measured 2026-08-24, because "150 lines" was an understatement.** The loop body is **401 lines, 200
+of them code**; the whole method is 513 lines, 260 code. By line count, **~177 of those 200 code
+lines are not pose work at all** — ~60 lighting, ~79 logging, ~38 rejection accounting. It is not a
+long loop, it is five subsystems sharing an iteration variable, which is why the engine's stage
+boundaries are invisible in it. Finding 35 §0 has the table.
+
 **1. Split `EntityModelSet.Instances`** (`managed/Tf2DemoSalvage.Scene/EntityModels.cs`). One loop
 body currently does six jobs, each already its own commented paragraph:
 
@@ -10121,7 +10135,9 @@ body currently does six jobs, each already its own commented paragraph:
 The block is long enough that bugs lived in it unseen: the record step was an `else if` on the merge
 branch, so nothing could hang off an attached prop, and it read as deliberate for weeks.
 
-**2. Then replace the ordering with recursion**, matching `C_BaseAnimating::DrawModel`:
+**2. Then DELETE the ordering. There is nothing to replace it with.** This wording is corrected from
+the original filing, which said "replace the depth sort with recursion" — that is where the
+recursion lives in `C_BaseAnimating::DrawModel`:
 
 ```cpp
 C_BaseAnimating *follow = FindFollowedEntity();
@@ -10133,10 +10149,22 @@ if ( follow )
 }
 ```
 
-Pose-with-parent becomes a function that calls itself for the parent first. Valve pairs this with
-`m_iMostRecentModelBoneCounter`, a per-frame cache so a parent shared by several children is built
-once — **that cache is required**, or a player wearing six items poses six times. The depth sort got
-that free, which is the one thing the recursion must not lose.
+but it is **not where the ordering problem is solved**. That is `bone_merge_cache.cpp:130`, inside
+the merge itself:
+
+```cpp
+// Have the entity we're following setup its bones.
+bool bWorked = m_pFollow->SetupBones( NULL, -1, m_nFollowBoneSetupMask, gpGlobals->curtime );
+```
+
+The merge demands its parent's bones where it stands. There is no list, no pass, no sort, no depth
+computation anywhere in the engine's version. So the depth sort is not a worse implementation of
+Valve's recursion — it is ~40 lines solving a problem the engine's structure never creates.
+
+Valve pairs the demand-driven call with two per-frame guards — `m_iMostRecentModelBoneCounter !=
+g_iModelBoneCounter` (`c_baseanimating.cpp:2874`, bumped at `:3153`) and the readable-bones early-out
+at `:2911`. **Those are required**, or a player worn by six items poses six times. The depth sort got
+that guarantee free, and it is the one thing the rewrite must not lose.
 
 #### Traps, all paid for once already
 
@@ -10156,20 +10184,64 @@ that free, which is the one thing the recursion must not lose.
 the pose path. And the observable check the owner already made by eye: weapons in other players'
 hands, holstered ones absent, wearables (Mantreads, demo shields, Razorback) present.
 
-### B180 — a weapon attachment's chained bones may be the parent's own, not its merged ones — OPEN
+### B180 — a chained child merges onto its parent's UNMERGED bones — OPEN, CONFIRMED STRUCTURALLY
 
-**Filed 2026-08-24, unverified and stated as such.** With the depth sort in place, a prop hanging off
-another prop now finds its parent recorded. What is recorded is `boneToWorld`, which is assigned from
-`posed.BoneToWorld` — the prop's OWN posed skeleton — while `bones` is what the merge rewrites. So a
-chained child may be merging onto its parent's unmerged bone positions placed at the parent's
-transform.
+**Filed 2026-08-24 as unverified; upgraded the same day by reading both sides.** With the depth sort
+in place, a prop hanging off another prop now finds its parent recorded. What is recorded is
+`boneToWorld`, assigned from `posed.BoneToWorld` — the prop's OWN posed skeleton — while `bones` is
+what the merge rewrites.
 
-That is right or nearly right for a weapon, whose bones are in its own model space and whose
-transform is the player's, and it may be visibly wrong for anything whose parent is itself deformed.
+**The engine's arrangement makes it clear this is a defect rather than a stylistic difference.**
+`MergeMatchingBones` writes with `m_pOwner->GetBoneForWrite( iOwnerBone )`
+(`bone_merge_cache.cpp:167`), `BuildTransformations` runs the merge FIRST
+(`c_baseanimating.cpp:1496`), skips merged bones in its per-bone loop (`:1519`), and builds every
+unmerged one from `GetBone( parent )` (`:1595`) — **the same array**. A bone whose parent was merged
+therefore rides the merged position automatically. There is one bone array per entity and the merge
+is in it.
 
-**No measurement either way yet**, which is why this is filed rather than fixed: the observable test
-is whether a weapon attachment sits correctly on a weapon, and the attachment that prompted it is
-currently drawing as the missing-material chequer, so it cannot be judged by looking.
+Ours keeps two, and records the wrong one. For an attachment on a weapon on a player the recorded
+pair is bones in **weapon** model space with a transform in **player** model space
+(`EntityModels.cs:1077` overwrites `transform`, `:1154` records the unmerged `boneToWorld`). Those
+are different spaces.
+
+**Still unmeasured on screen**, and it may stay that way until the chequer is fixed: the only
+chained case in the corpus is the weapon attachment currently drawing as the missing-material
+chequer, so where it sits cannot be judged by looking.
+
+**The fix is not a one-liner.** `StudioBones.MergeOnto` returns *skinning* matrices, and what the
+next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
+`new StudioSkeleton(skinning, boneToWorld)`.
+
+### B183 — a merged item's own animation is computed and thrown away — OPEN
+
+**Filed 2026-08-24, from finding 35 §2.** Two defects with one cause.
+
+`Merge` (`EntityModels.cs:1236`) takes the item's own posed matrices as `own` and **uses them only on
+the early return** for a wearer with no skeleton. Every other path returns
+`StudioBones.MergeOnto(skinned.Bones, wearer.Bones, map)`, which never receives `own`. Inside
+`MergeOnto` (`StudioBones.cs:376`), an unmatched bone is rebuilt from `bone.Rotation` /
+`bone.Position` — **the rest pose local**.
+
+Valve builds an unmatched bone from the ANIMATED local. `c_baseanimating.cpp:1595`:
+
+```cpp
+ConcatTransforms( GetBone( hdr->boneParent(i) ), bonematrix, GetBoneForWrite( i ) );
+```
+
+with `bonematrix` from `QuaternionMatrix( q[i], pos[i], bonematrix )` — `q` and `pos` being what
+`StandardBlendingRules` just produced.
+
+So:
+
+1. **A merged item's own moving parts are frozen at rest.** Invisible on a hat; not on a weapon
+   merged into a hand, whose animated bones are unmatched by definition because no player has them.
+2. **`Skeleton()` runs per merged prop per frame and is discarded.** `EntityModels.cs:1007` builds
+   the skeleton with its sequence, frame and pose parameters; `:1076` replaces it wholesale. The
+   posing cost is real — the blend grid and the frame decode — and the result is dropped.
+
+The second is the no-op shape `CLAUDE.md` warns about: unit-tested, wired up, and never reaching
+output. **Unmeasured in milliseconds**; the structural claim is from reading, and posing is ~420 ms
+of every second overall (B99), so it is worth measuring while this code is open.
 
 ### B179 — the UI suite runs in CI, where the game it needs cannot exist
 

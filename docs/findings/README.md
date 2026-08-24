@@ -50,6 +50,13 @@ it, because a second copy is a copy that goes stale.
 | [26-material-modulation.md](26-material-modulation.md) | `$color` and `$alpha`: a correct citation that produced a wrong implementation, and a coverage instrument that accused the code twice in the same shape |
 | [27-cubemap-placement.md](27-cubemap-placement.md) | A struct three bytes bigger than its declaration, and ten synthetic tests that could not catch it because the fixture was built from the same belief |
 | [28-vertex-colour.md](28-vertex-colour.md) | A census's largest remaining entry that turned into an open question when measured, and the half of it that was already implemented |
+| [29-full-screen-focus.md](29-full-screen-focus.md) | Full screen took the foreground and lost the focus, and why a rectangle assertion cannot see it |
+| [30-viewmodel-drawing.md](30-viewmodel-drawing.md) | The viewmodel packs, poses, draws, and is not on screen |
+| [31-game-audio.md](31-game-audio.md) | What a demo asks the sound system for, and what the game actually ships |
+| [32-the-opaque-pass-blend-leak.md](32-the-opaque-pass-blend-leak.md) | Every static prop was alpha-blended for two days, and it read as four separate art faults |
+| [33-the-rocket-lives-in-the-arms.md](33-the-rocket-lives-in-the-arms.md) | The rocket lives in the arms, and nothing can hide it |
+| [34-a-carried-weapon-is-two-models.md](34-a-carried-weapon-is-two-models.md) | A carried weapon is two models, and `m_nModelIndex` is the wrong one |
+| [35-the-bone-pipeline-audit.md](35-the-bone-pipeline-audit.md) | How far the pose loop diverged: the engine has no ordering step, and 177 of 200 lines are not pose work |
 
 ## Which of this is original
 
