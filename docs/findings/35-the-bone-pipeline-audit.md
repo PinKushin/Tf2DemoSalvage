@@ -273,7 +273,50 @@ The shape to land on, from the engine:
    This is `BuildTransformations` running the merge before its loop.
 4. Lighting, logging and accounting move out of the pose path entirely — they are not in it in the
    engine, and they are 177 of the 200 lines.
+5. The threaded pre-pass, §8. Owner direction under D88: *"go for the threading too, full parity."*
 
 The recursion needs a depth bound. Valve does not have one because the engine's parent links are
 built by the engine; a demo this project exists to open may carry a cycle, and the current `Depth`
 already guards against it by stopping at the prop count.
+
+---
+
+## 8. The threading is a speculative prefetch, not a parallel draw loop
+
+Worth writing down separately, because the name misleads and the assistant initially proposed
+skipping it as "merely an optimisation". `c_baseanimating.cpp:2749`–`:2793` and its call site at
+`cdll_client_int.cpp:2210`.
+
+**Nothing is threaded at the moment bones are needed.** During the draw, `SetupBones` merely
+*enrols* an entity that is expensive and independent:
+
+```cpp
+if ( g_bDoThreadedBoneSetup && !g_bInThreadedBoneSetup && ( nBoneCount >= 16 ) &&
+     !GetMoveParent() && m_iMostRecentBoneSetupRequest != g_iPreviousBoneCounter )
+{
+    m_iMostRecentBoneSetupRequest = g_iPreviousBoneCounter;
+    g_PreviousBoneSetups.AddToTail( this );
+}
+```
+
+Then at the **start of the next frame** — after `SimulateEntities()` and `PhysicsSimulate()`, before
+rendering — `ThreadedBoneSetup()` parallel-processes that list, posing each with `boneMask = -1`,
+which `SetupBones` resolves to `m_iPrevBoneMask`: *whatever was asked for last frame*. The draw pass
+then hits the readable-bones early-out at `:2911` and pays nothing.
+
+So the parallelism is over **last frame's expensive roots, prefetched speculatively**. Three
+properties make it safe, and a port that drops any of them is not the same thing:
+
+| property | line | why it matters |
+|---|---|---|
+| only roots enrolled (`!GetMoveParent()`) | `:2897` | the merge recursion and the parallelism never overlap |
+| threaded mode `TryLock`s and **bails** rather than blocking | `:2845` | a contested entity falls back to the draw pass instead of stalling it |
+| model cache held across the whole region | `:2756`, `:2761` | `mdlcache->BeginLock()` / `EndLock()` |
+
+`InitBoneSetupThreadPool` and `ShutdownBoneSetupThreadPool` are **empty** in this SDK —
+`ParallelProcess` uses the engine's global pool. The .NET thread pool is the faithful equivalent.
+
+**The expectation this sets:** the win is not that posing becomes parallel, it is that posing for
+heavy roots leaves the critical path, and it only pays when the same entities are expensive frame to
+frame. A demo viewer is the good case — players persist. Measured against B99's ~420 ms of posing per
+second, that is where the headroom is.

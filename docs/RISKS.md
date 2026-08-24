@@ -10212,6 +10212,84 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B184 — 115 of 119 test files are pinned to Windows for no reason — OPEN
+
+**Filed 2026-08-24**, prompted by the owner:
+
+> *"make new projects if you need too, iff things can come out of a windows only project expecially"*
+
+*Measured.* `tests/Tf2DemoSalvage.Viewer3D.Tests` targets `net10.0-windows` and holds **119 test
+files**. Only **four** reference anything Windows-only — `FreeFlightTests`, `FullScreenTests`,
+`MainFormTests`, `PngWriterTests`. The other 115 are pinned to a Windows TFM by their project file
+alone.
+
+Two projects legitimately need `net10.0-windows`: `Fonts` (GDI, for the pixel parity D84 requires)
+and `Viewer3D` (WinForms). Nothing else does, and `Render` is deliberately plain `net10.0` (D60/D61)
+precisely so the renderer is not trapped.
+
+**Why this is a defect and not tidiness.** A Windows-pinned test project cannot host a test for
+anything cross-platform, so the pin propagates: the next piece of pure logic that wants a home gets
+written where its neighbours are, and the boundary moves outward. It has already happened once —
+`SdkInventory.cs` is pure text extraction from the SDK with no platform surface at all, and it sits
+in the Windows-only project while `tests/Tf2DemoSalvage.SdkReference` (`net10.0`) exists for exactly
+this and is already referenced by four other test projects.
+
+#### How it got this way, since the obvious explanation is wrong
+
+The owner's guess:
+
+> *"the MVP refactor was suppose to take care of most of those tests that didnt need windows, idk
+> what happened, maybe that project went from not being windows only to being windows only"*
+
+**It never flipped.** *Measured* across every commit that touched the project file — `c0765d1`,
+`ed146fc`, `63eb9fa`, `85338f1` — the TFM reads `net10.0-windows` at all four. `c0765d1` ("Host the
+viewport in a WinForms shell", 2026-08-12) **created** the project, and it created it with exactly
+one test file: `MainFormTests.cs`, which is one of the four that genuinely needs Windows.
+
+So the project was correct on the day it was born, and the drift ran the other way: it is the
+viewer's test project, so for the next twelve days anything viewer-adjacent was written there by
+proximity — 118 more files, 114 of which have no platform surface.
+
+#### Measured against MVP's actual goal, this is a failure and not a partial success
+
+The assistant first wrote that the MVP refactor "did work" and merely had not emptied the old
+project. The owner corrected the premise:
+
+> *"no you are thinking the opposite of what the MVP refactor was for, it wass to be able to test
+> more on linux, and have compile time safety"*
+
+**And D62 says so in its own words**, which makes this checkable rather than a matter of
+recollection: *"Sixteen tests, no window, no STA thread, no `run-exclusive.ps1`, and it runs on the
+Linux boxes."* D54's reason for MVP over MVVM is the other half — *"MVP's boundary can be made a
+compiler error, not just a convention someone (or something) has to remember to follow."*
+
+So the goal was **more tests running on Linux**, and a boundary the compiler enforces. Against that
+goal, 115 Linux-capable test files pinned to a Windows TFM is not a leftover. It is the goal, 96%
+unmet in the project that holds most of the tests — however well the presenter layer itself was done.
+
+#### The cost, and it lands directly on the D88 work
+
+*Measured.* **Eighteen test files covering the pose path** — `EntityModelSet`, `StudioBones`,
+`PropModels` — live in `Viewer3D.Tests`, while `Tf2DemoSalvage.Scene` itself is plain `net10.0`. So
+the tests for a cross-platform project are pinned to Windows by their host.
+
+Two consequences follow, and the second is the serious one:
+
+- They cannot run on the ARM64 measurement boxes, which is exactly what D62 set out to fix.
+- **`Tf2DemoSalvage.Scene` has no Stryker config at all.** Six configs exist — Audio, Cli, Content,
+  Core, Corpus, Viewer3D — and `Viewer3D.Tests`' mutates `Tf2DemoSalvage.Viewer3D.csproj`, the
+  WinForms shell, not Scene. So the project holding the 200-line pose loop, the densest behaviour in
+  the renderer, **has never been mutation tested**, against a standing project rule that says to run
+  Stryker on every C# test project. Nor could it easily be, since mutation runs happen on Linux.
+
+That is why `Tf2DemoSalvage.Animation` and its tests are both plain `net10.0` from the first commit,
+with a Stryker config of their own: the new pipeline must not inherit this.
+
+**Being done incrementally rather than as a 115-file churn.** `SdkInventory` moves to
+`SdkReference` as part of the D88 bone work, because the new `Tf2DemoSalvage.Animation.Tests`
+(`net10.0`) needs it for the pose-pipeline denominator and cannot reference a Windows-only assembly.
+The remaining ~114 are a separate job; the count is recorded here so it is not rediscovered.
+
 ### B183 — a merged item's own animation is computed and thrown away — OPEN
 
 **Filed 2026-08-24, from finding 35 §2.** Two defects with one cause.

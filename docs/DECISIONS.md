@@ -4893,3 +4893,78 @@ second"* — while the frame rate never dropped, because a stall is not a slow f
 - **The map itself**, deliberately: 33.5 seconds, already off the UI thread, and a viewer that
   waited for every map on disk would never start.
 
+## D88 — The bone pipeline matches Valve's ARCHITECTURE, threading included, with no departures
+
+**Owner direction, 2026-08-24**, after the audit in `docs/findings/35-the-bone-pipeline-audit.md`
+found the pose loop had diverged structurally rather than just cosmetically:
+
+> *"all of the architecture needs to match valves"*
+
+and, when offered a menu of options with the maximal one marked:
+
+> *"give me trhe options you do not choose and i can almost guarantee im going for the option that is
+> 100% parity"*
+
+So the target is not "behaves the same". It is the engine's object model: a per-entity animating
+object owning its own bone array, a bone accessor with readable/writable masks, per-bone flags read
+from the `.mdl`, one idempotent `SetupBones` as the single entry point, and the merge pulling its
+parent through it rather than any ordering pass of ours.
+
+### The one departure that was proposed, and overruled
+
+The assistant proposed keeping the entry point and lock seam but **not** building Valve's threaded
+bone setup, on the grounds that it is an optimisation rather than semantics, and declaring that
+under D86. The owner rejected it outright and gave the reason:
+
+> *"go for the threading too, full parity thats an optimization valve did for vary good reason, the
+> bones are heavy, they need speed."*
+
+That is right, and the measurement here already agreed with it before it was said: posing is about
+**420 ms of every second** in this viewer (B99), and the heavy entities are exactly the ones Valve's
+pre-pass targets. Proposing to skip it was a case of classifying something as "merely an
+optimisation" without checking the number that was already in the risk register.
+
+**Recorded because the reasoning generalises:** an optimisation in Valve's code is not decoration. It
+was written against a shipping frame budget by people measuring it, and the default assumption should
+be that it earns its place. A departure from one needs the same evidence as a departure from a
+behaviour.
+
+### What Valve's threading actually is, since it is not what the name suggests
+
+Read from `c_baseanimating.cpp:2749-2793` and `cdll_client_int.cpp:2210`. **It is a speculative
+prefetch of last frame's expensive roots, not a parallel-for over the draw loop:**
+
+1. During the draw, `SetupBones` **enrols** an entity that is expensive and independent —
+   `nBoneCount >= 16 && !GetMoveParent() && m_iMostRecentBoneSetupRequest != g_iPreviousBoneCounter`
+   (`:2897`) — into `g_PreviousBoneSetups`. Nothing threaded happens then.
+2. At the **start of the next frame**, after `SimulateEntities()` and `PhysicsSimulate()` and before
+   rendering, `ThreadedBoneSetup()` runs `ParallelProcess` over that list (`:2787`), posing each with
+   `boneMask = -1` — which `SetupBones` resolves to `m_iPrevBoneMask`, "whatever was asked for last
+   frame" (`:2827`). Then `g_iPreviousBoneCounter++` and the list clears.
+3. When the draw pass later asks for those bones, the readable-bones early-out at `:2911` returns
+   them immediately.
+
+Three things make it safe, and all three must be carried over:
+
+- **Only roots are enrolled** (`!GetMoveParent()`), so no parent/child chain is being walked
+  concurrently. The recursion and the parallelism never overlap.
+- **Per-entity lock, and inside threaded mode it BAILS rather than blocks** — `TryLock` then
+  `return false` (`:2845`). A contested entity is simply left for the draw pass.
+- **The model cache is held for the whole parallel region**, `PreThreadedBoneSetup` /
+  `PostThreadedBoneSetup` wrapping `mdlcache->BeginLock()` / `EndLock()`.
+
+`InitBoneSetupThreadPool` and `ShutdownBoneSetupThreadPool` are empty in this SDK — `ParallelProcess`
+uses the engine's global pool, so the .NET thread pool is the faithful equivalent and no pool of our
+own is needed.
+
+### The consequence for the viewer's frame
+
+Valve's phase order is **simulate → threaded bone setup → render**, and ours poses inside the render
+loop. Adopting this means the viewer grows that phase split. That is a real structural change and it
+is the reason this is a decision rather than an implementation note.
+
+**And set the expectation correctly: the win is not "posing goes parallel".** It is that posing for
+heavy roots moves off the critical path, and it only pays when the same entities are expensive frame
+to frame. In a demo viewer they are — the players persist — which is why this should pay here and
+why it is worth measuring against the 420 ms rather than assuming.
+
