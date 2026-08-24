@@ -106,6 +106,14 @@ run Tf2DemoSalvage.Core.Tests     core     1497
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
 run Tf2DemoSalvage.Cli.Tests      cli        74
+
+# 16: the file logging provider (9) plus FileRetention (7), which moved here with the type it covers.
+# Every case is a regression test before it is a unit test — each guarantee in the sink was paid for
+# by a defect in the static logger it replaces (D83): a per-line open-and-close that wrote 450,157
+# lines into 37 MB, retention that raced its siblings into 207 files against a limit of 50, and an
+# IO failure that must cost its lines and nothing else. Device-free and net10.0, so it runs on the
+# Linux measurement boxes — which is half the reason the sink left the viewer at all.
+run Tf2DemoSalvage.Logging.Tests  logging    16
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -291,7 +299,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # 634: SpectatorTargetConformanceTests (6). CBasePlayer::IsValidObserverTarget has four clauses and
 # only the team one was implemented, so cycling landed on corpses (B171). Includes the control that
 # a living player is still chosen — a filter refusing everyone would satisfy the exclusions alone.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    634
+# **Lowered 634 -> 627 on 2026-08-24, and the arithmetic is the justification.** FileRetentionTests
+# (7) moved to Logging.Tests with FileRetention itself (D83), which is where it belongs now that the
+# type lives beside the log writer rather than in Scene. Nothing was deleted: viewer -7 is exactly
+# the 7 the new logging floor gained, on top of its own 9.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    627
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

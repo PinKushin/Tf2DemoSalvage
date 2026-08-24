@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A file sink for Microsoft.Extensions.Logging, and nothing else.
+
+    **This project exists because .NET does not ship one.** The built-in providers are Console,
+    Debug, EventSource and EventLog - there is no file provider, which is why the viewer grew its
+    own static logger instead of using ILogger at all (D83). Writing the missing provider is what
+    lets both halves of this solution log the same way without taking Serilog or NLog for a sink
+    the viewer's whole purpose depends on.
+
+    **It depends on Abstractions only, deliberately.** ILoggerProvider and ILogger live there, so
+    anything in this solution can reference this project without dragging in configuration, DI
+    hosting, or a provider it does not want. That includes Core and Content, which log nothing today
+    and are not obliged to start.
+
+    net10.0 rather than net10.0-windows, for the same reason Scene is: the measurement boxes are
+    Linux, and a logger locked to Windows would lock every consumer with it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Logging</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Logging.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

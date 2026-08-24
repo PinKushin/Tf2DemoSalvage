@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The file logging provider.
+
+    Every behaviour under test here was paid for by a defect in the static logger this replaced
+    (D83): a per-line open-and-close that wrote 450,157 lines into a 37 MB file, retention that
+    pruned before writing and converged on 207 files against a limit of 50, and an IO failure that
+    must cost its lines and nothing else.
+
+    Plain net10.0 and no device of any kind, so it runs on CI and on the Linux measurement boxes -
+    which is the point of splitting the sink out of the viewer at all.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Logging.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Logging\Tf2DemoSalvage.Logging.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Viewer3D;
 

@@ -5,6 +5,8 @@ using System.IO;
 using System.Text;
 using System.Threading;
 
+using Tf2DemoSalvage.Logging;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>
