@@ -115,6 +115,22 @@ public sealed record ViewerSettings
     /// <remarks>Valve's name; ships in `engine.dll` and `materialsystem.dll`.</remarks>
     public const string VerticalSyncCommand = "mat_vsync";
 
+    /// <summary>Command name for how much the viewer says about itself.</summary>
+    /// <remarks>
+    /// **Valve's name, and it ships** — `engine.dll` and `client.dll` both carry the string, and the
+    /// engine's own help text elsewhere speaks of being "in developer mode". So this is D79 rule 1:
+    /// the game already named this knob and we use its name.
+    ///
+    /// **It exists because the log had no second level at all, which made Debug meaningless.** The
+    /// sink has always filtered on a settable <c>Minimum</c>, but nothing could change it, so a line
+    /// written at Debug could never be read and demoting a noisy line to Debug was deletion wearing
+    /// a comment. The owner: *"the sink shouldnt be refusing debug i dont think, idk why we are not
+    /// already starting to build a, at least 2 level, logging form"*.
+    ///
+    /// 0 is the ordinary log, 1 adds the per-frame detail, 2 adds everything.
+    /// </remarks>
+    public const string DeveloperCommand = "developer";
+
     /// <summary>Command name for the frame rate meter.</summary>
     /// <remarks>
     /// Valve's name, declared in `src/game/client/vgui_fpspanel.cpp:27` and shipping in retail
@@ -245,6 +261,14 @@ public sealed record ViewerSettings
     /// a real question — it is how the 600 was found.
     /// </remarks>
     public int FrameRateLimit { get; init; } = DefaultFrameRateLimit;
+
+    /// <summary>How much the viewer says: 0 ordinary, 1 per-frame detail, 2 everything.</summary>
+    /// <remarks>
+    /// Maps onto the sink's minimum level — 0 is Information, 1 is Debug, 2 is Trace — so a line
+    /// written at Debug is genuinely off by default and genuinely reachable, which it was not
+    /// before.
+    /// </remarks>
+    public int Developer { get; init; }
 
     /// <summary>Which frame rate meter to draw: 0 none, 1 instantaneous, 2 smoothed.</summary>
     /// <remarks>
@@ -420,6 +444,13 @@ public sealed record ViewerSettings
         // unsmoothed meter. Reproduced rather than tightened: rejecting `cl_showfps 3` would be
         // this viewer disagreeing with a config the game accepts, and the whole point of taking
         // Valve's name is that the same line means the same thing (D79).
+        // Clamped rather than refused, as a ConVar with bounds is: `developer 9` in a config from
+        // somewhere else should turn the detail up, not be ignored.
+        if (Read(values, DeveloperCommand) is { } developer)
+        {
+            settings = settings with { Developer = Math.Clamp(developer, 0, 2) };
+        }
+
         if (Read(values, ShowFrameRateCommand) is { } meter)
         {
             settings = settings with
@@ -571,6 +602,15 @@ public sealed record ViewerSettings
             VerticalSyncCommand,
             (VerticalSync ? 1 : 0).ToString(CultureInfo.InvariantCulture),
             VerticalSync == Defaults.VerticalSync);
+        text.AppendLine();
+        text.AppendLine("// How much the viewer writes to its log. 0 is the ordinary account of what");
+        text.AppendLine("// it loaded and decided; 1 adds the per-frame detail, which is thousands of");
+        text.AppendLine("// lines a second and is for chasing a specific fault; 2 adds everything.");
+        Setting(
+            text,
+            DeveloperCommand,
+            Developer.ToString(CultureInfo.InvariantCulture),
+            Developer == Defaults.Developer);
         text.AppendLine();
         text.AppendLine("// Frame rate meter, exactly as TF2 draws it: 1 is the raw rate, 2 is a");
         text.AppendLine("// moving average with the worst and best single frame in brackets beside");

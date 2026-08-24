@@ -176,11 +176,9 @@ internal class MainForm : Form
     /// </remarks>
     private IReadOnlyList<ScenePoint> _scene = [];
 
-    /// <summary>The loaded map's outline, already projected to clip space.</summary>
-    private IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> _mapLines = [];
-
-    /// <summary>The loaded map's filled surfaces, already projected to clip space.</summary>
-    private IReadOnlyList<(float X, float Y, float Shade)> _mapFill = [];
+    // `_mapFill` was here: the map's surfaces projected to clip space for the overhead fallback.
+    // Dead by construction — drawn only when there was no textured map, and built from the map — so
+    // it could never produce a visible triangle. Deleted with the projection that built it.
 
     /// <summary>The loaded map in world units, kept so it can be re-projected on resize.</summary>
     private MapOutline? _map;
@@ -436,8 +434,9 @@ internal class MainForm : Form
     /// </remarks>
     private Stopwatch? _fullScreenClock;
 
-    /// <summary>The loaded map's filled faces in world units, for the same reason.</summary>
-    private MapSurfaces? _surfaces;
+    // `_surfaces` was here: the map's faces in world units, kept so the overhead fill could be
+    // re-projected on resize. The fill is gone, so the only thing that ever read this is gone with
+    // it — the cascade the owner predicted when the projection came out.
 
     private readonly ToolStripMenuItem _fullScreen;
 
@@ -454,6 +453,58 @@ internal class MainForm : Form
 
     /// <summary>TF2's <c>cl_showfps</c>, on F8 (B174).</summary>
     private readonly ToolStripMenuItem _frameRate;
+
+    /// <summary>Raises or lowers what the log accepts, wired by the composition root.</summary>
+    /// <remarks>
+    /// **A delegate rather than the provider itself**, because the form has no business holding a
+    /// sink: it knows the setting, `Program` knows the provider, and this is the seam between them.
+    /// Null in every test, where there is no file to write to and nothing to turn down.
+    ///
+    /// Hidden from the designer (WFO1000): a public property on a Form is otherwise assumed to be
+    /// something the designer should serialise, and a delegate is not.
+    /// </remarks>
+    [System.ComponentModel.DesignerSerializationVisibility(
+        System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Action<LogLevel>? SetLogVerbosity { get; set; }
+
+    /// <summary>Applies <c>developer</c> to the log, if anything is listening.</summary>
+    /// <remarks>
+    /// Called at startup and whenever the setting changes. 0 is the ordinary log, 1 admits the
+    /// per-frame detail, 2 admits everything.
+    /// </remarks>
+    public void ApplyLogVerbosity()
+    {
+        if (SetLogVerbosity is not { } set)
+        {
+            return;
+        }
+
+        LogLevel level = _settings.Developer switch
+        {
+            >= 2 => LogLevel.Trace,
+            1 => LogLevel.Debug,
+            _ => LogLevel.Information,
+        };
+
+        set(level);
+
+        _log.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"developer {_settings.Developer}; the log accepts {level} and above"));
+    }
+
+    /// <summary>The viewmodel last reported, so the lines print on a weapon switch.</summary>
+    private (string Model, int Sequence, int Playing) _reportedViewmodel = (string.Empty, -1, -1);
+
+    /// <summary>Whether this frame's viewmodel differs from the one last reported.</summary>
+    /// <remarks>
+    /// Shared by the four lines that describe a viewmodel, so they stay together: reporting the
+    /// scheme without the props it produced is half an answer, and the question they answer is about
+    /// a weapon rather than about a frame.
+    /// </remarks>
+    private bool _viewmodelChanged;
 
     private readonly ToolStripMenuItem _specular;
     private readonly ToolStripMenuItem _fullbrightMenu;
@@ -1481,9 +1532,6 @@ internal class MainForm : Form
     private void ClearMap()
     {
         _map = null;
-        _surfaces = null;
-        _mapLines = [];
-        _mapFill = [];
         _surfaceList = [];
         _assets = null;
         _terrain = null;
@@ -1531,8 +1579,27 @@ internal class MainForm : Form
     /// viewer is already usable - players draw without a world behind them - so the map arriving
     /// is an improvement to a working view rather than something to block on.
     ///
-    /// Failures are reported and nothing else happens. Most maps in a real archive are community
-    /// maps no mirror carries, so "not found" is the ordinary answer.
+    /// Failures are reported and nothing else happens.
+    ///
+    /// **This used to say "not found" was the ordinary answer, because most maps in a real archive
+    /// are community maps no mirror carries. That is wrong.** The owner: *"no its not normal not to
+    /// find a map on fast dl, even old community ones"*. A failure here is the exception, not the
+    /// rule — which matters, because the belief that it was routine is what justified keeping a
+    /// no-map fallback that turned out to be dead by construction anyway (see ProjectMap).
+    ///
+    /// **And the version does not have to match the demo, which forecloses a whole line of work.**
+    /// The hard case is not community maps but Valve's own: they revise a map in place, so the
+    /// `cp_badlands` a 2013 demo was recorded on is gone, while a community map keeps its versioned
+    /// filename for ever. That sounds like a reason to hunt period maps. It is not — the owner:
+    ///
+    /// > *"valve has never really blocked off a map as an update, so new demos will go through walls
+    /// > on old maps, but old demos will play fine on new maps, just look like the people are
+    /// > completely oblivious to a huge choke point and no one is using a part of the map."*
+    ///
+    /// Map updates ADD geometry rather than removing it, and the asymmetry runs the way this project
+    /// needs: an old demo on a current map is correct everywhere the players actually went, and the
+    /// only artefact is unused space. Fetching whatever the mirror has today is therefore right, and
+    /// a period-map archive would be effort spent on the direction nobody plays.
     /// </remarks>
     private async Task DownloadMapAsync(string mapName)
     {
@@ -1811,10 +1878,6 @@ internal class MainForm : Form
                 _assetLog.LogWarning(failure, "{Message}", "reading the map's content");
             }
 
-            // Filled from the main cluster only. Outside it is the 3D skybox room, which is
-            // already outside the view - but leaving it in the height range flattens the shading
-            // of everything that is inside.
-            _surfaces = MapSurfaces.FromFaces(geometry.OverheadFaces, _map.MainBounds);
             ProjectMap();
             return !_map.IsEmpty;
         }
@@ -1825,8 +1888,10 @@ internal class MainForm : Form
         }
     }
 
-    /// <summary>The map outline the viewport is drawing, in clip space.</summary>
-    public IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> MapLines => _mapLines;
+    // `MapLines` was here: the map outline projected into clip space for the overhead view. It had
+    // no consumer in production or in a test, and the view it served was removed. Deleted with the
+    // projection that built it (B98's ghost); `MapOutline` still computes the play-area BOUNDS,
+    // which is a different object and is still read.
 
     /// <summary>Runs the player's own TF2 configs over the shipped defaults.</summary>
     /// <remarks>
@@ -1949,38 +2014,39 @@ internal class MainForm : Form
     {
         if (_map is null || _map.IsEmpty)
         {
-            _mapLines = [];
-            _mapFill = [];
             return;
         }
 
+        // **The segment projection is gone, not skipped.** It projected all 60,764 of the BSP's edge
+        // segments into screen space for the overhead view, and that view was removed — *"there is
+        // no overhead map view now its free cam or POV, the ortho cam was ripped out"*. Nothing in
+        // the solution read the result: `MapLines` had no consumer, in production or in a test, and
+        // the lines channel of the draw carries `mat_leafvis` now.
+        //
+        // Removed rather than left behind a condition, on the owner's direction: *"If something did
+        // depend on it it needs ripped out too more than likely, or it needs to be massively changed
+        // so wed be better off starting from scratch anyway."*
         TopDownCamera camera = MapCamera();
-        List<((float X, float Y) From, (float X, float Y) To)> lines = new(_map.Segments.Count);
 
-        foreach (((float X, float Y) from, (float X, float Y) to) in _map.Segments)
-        {
-            lines.Add((camera.Project(from.X, from.Y), camera.Project(to.X, to.Y)));
-        }
-
-        _mapLines = lines;
-
-        if (_surfaces is null || _surfaces.IsEmpty)
-        {
-            _mapFill = [];
-            return;
-        }
-
-        // Through the SAME camera as the outlines. Two cameras fitted separately would drift apart
-        // by a pixel and leave every edge sitting beside its own surface rather than on it.
-        List<(float X, float Y, float Shade)> fill = new(_surfaces.Triangles.Count);
-
-        foreach (MapTriangle corner in _surfaces.Triangles)
-        {
-            (float x, float y) = camera.Project(corner.X, corner.Y);
-            fill.Add((x, y, corner.Shade));
-        }
-
-        _mapFill = fill;
+        // **The flat fill is gone too, and it was dead by construction rather than merely unused.**
+        // `DrawFrame` drew it in the `else` of `if (_world is { HasMap: true })` — the fallback for
+        // having no textured map — and it was built from `_surfaces`, which comes FROM the map. So:
+        //
+        //   map present  -> the world is drawn and the fill is not
+        //   map absent   -> `_surfaces` is null and the fill is empty
+        //
+        // A fallback for "no map" that is built from the map cannot produce a visible triangle in
+        // either branch. It could only ever cost: the ledger measured `project 615.8 ms` in a 679 ms
+        // frame, re-run on every camera change, projecting triangles nothing would draw.
+        //
+        // It had stopped making sense as a picture too. Projected through a TOP-DOWN camera and
+        // drawn full screen in clip space, with the ortho view removed the best it could have
+        // managed was an overhead fill painted across a first-person view.
+        //
+        // **The early return this replaces was a real bug, caught before it shipped.** Returning
+        // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD — rebuilt
+        // on resize because the projection is baked into its vertices. Dropping the fill must not
+        // drop the world.
 
         // The textured world is projected through the SAME camera, then uploaded. It is rebuilt on
         // a resize because the projection is baked into the vertices - which is what keeps the
@@ -2939,13 +3005,33 @@ internal class MainForm : Form
         // merged from two models and 98 sequences deep, so the two might disagree silently. They do
         // not: 34 plays a correct spy knife pose on z1800. Worth re-checking on any model whose
         // merge is a different shape, since the failure would be a plausible wrong animation.
-        _renderLog.LogInformation(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"viewmodel sequence: demo says {weapon.Sequence}, " +
-                $"VM_IDLE would be {_models.SequenceByActivity(weapon.ModelPath, "VM_IDLE")}, " +
-                $"playing {prop.Pose.Sequence}"));
+        // **Once per weapon and sequence, not once per frame.** Measured 2026-08-24: the four
+        // viewmodel lines printed 6,588 times each in two minutes — one set per frame — and the
+        // whole log reached 64,425 lines and 8.2 MB, at roughly 1,280 writes a second with AutoFlush
+        // on each. That is B148's defect in a new place, and it makes the log unreadable as well as
+        // slow.
+        //
+        // What these answer is "which model, playing what" — a question about a WEAPON, which
+        // changes when the player switches. So the key is the weapon and its sequence, and holding
+        // one weapon for a minute is one line rather than nine thousand.
+        if (_reportedViewmodel != (weapon.ModelPath, weapon.Sequence, prop.Pose.Sequence))
+        {
+            _reportedViewmodel = (weapon.ModelPath, weapon.Sequence, prop.Pose.Sequence);
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"viewmodel sequence: demo says {weapon.Sequence}, " +
+                    $"VM_IDLE would be {_models.SequenceByActivity(weapon.ModelPath, "VM_IDLE")}, " +
+                    $"playing {prop.Pose.Sequence}"));
+
+            _viewmodelChanged = true;
+        }
+        else
+        {
+            _viewmodelChanged = false;
+        }
 
         List<SceneProp> viewmodelProps = [prop];
 
@@ -2995,12 +3081,15 @@ internal class MainForm : Form
                 hands.Replace('\\', '/'),
                 StringComparison.OrdinalIgnoreCase);
 
-        _renderLog.LogInformation(
-            "{Message}",
-            $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
-            (attachesToHands
-                ? "attaches to hands, so the weapon is a second model"
-                : "the viewmodel is the weapon's own model, so no attachment is drawn"));
+        if (_viewmodelChanged)
+        {
+            _renderLog.LogInformation(
+                "{Message}",
+                $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
+                (attachesToHands
+                    ? "attaches to hands, so the weapon is a second model"
+                    : "the viewmodel is the weapon's own model, so no attachment is drawn"));
+        }
 
         if (attachesToHands && WeaponModelFor(follower) is { Length: > 0 } held)
         {
@@ -3089,9 +3178,14 @@ internal class MainForm : Form
         // The merged arms model already carries a weapon part — c_soldier_arms pairs as hands,
         // sleeves and w_rocketlauncher — so a second prop naming the same geometry draws the gun
         // twice, which is what "2 sticky launchers overlapping" looks like.
-        foreach (SceneProp shown in viewmodelProps)
+        if (_viewmodelChanged)
         {
-            _renderLog.LogInformation("{Message}", $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
+            foreach (SceneProp shown in viewmodelProps)
+            {
+                _renderLog.LogInformation(
+                    "{Message}",
+                    $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
+            }
         }
 
         _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
@@ -3099,11 +3193,14 @@ internal class MainForm : Form
         // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
         // and then yields no instance is indistinguishable on screen from one that was never
         // looked up — and that distinction is exactly what went wrong the first time this ran.
-        _renderLog.LogInformation(
-            "{Message}",
-            $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
-            $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
-            $"{_viewmodelInstances.Count} instances");
+        if (_viewmodelChanged)
+        {
+            _renderLog.LogInformation(
+                "{Message}",
+                $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
+                $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
+                $"{_viewmodelInstances.Count} instances");
+        }
 
         // **Kept OUT of the world list, because they are drawn in their own pass.** The engine
         // draws viewmodels after the world with a different projection and a compressed depth
@@ -4265,8 +4362,23 @@ internal class MainForm : Form
 
             try
             {
-                read = await Task.Run(() => ReadMapNamed(decoded.Demo.MapName))
-                    .ConfigureAwait(false);
+                read = await Task.Run(() =>
+                {
+                    bool found = ReadMapNamed(decoded.Demo.MapName);
+
+                    // **Packed here rather than when a prop first appears, which is what Valve
+                    // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
+                    // and warns on an out-of-order precache: the engine loads models at level load,
+                    // deliberately, so nothing is decoded mid-game.
+                    //
+                    // Ours was packing on sight, and it cost 385 ms in a single frame the first time
+                    // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
+                    // and before `_readingMap` is cleared, so it runs on the worker behind the
+                    // barrier that already holds the render loop off during a map read (B146).
+                    PrecacheModels(decoded.Timeline);
+
+                    return found;
+                }).ConfigureAwait(false);
             }
             finally
             {
@@ -4482,6 +4594,21 @@ internal class MainForm : Form
         // that and passes what it found; the synchronous path passes null and reads it here, which
         // is what the command line, `--shot` and the tests want.
         bool haveMap = read ?? LoadMap(_demo.MapName);
+
+        // **Here as well as on the load worker, because there are TWO load paths and only one of
+        // them went through the worker.** `LoadDemoAsync` is the playlist's route; `LoadDemo` is the
+        // command line's, `--shot`'s and the tests', and it calls Apply directly. The first attempt
+        // put the precache only in the async path, so launching with a demo on the command line
+        // precached nothing at all and the 425 ms stall was still in the log — which is
+        // `docs/memory/one-place-or-it-drifts.md`, and the log is what caught it.
+        //
+        // Cheap to call twice: `EntityModelSet.Add` skips a model it already holds, so on the async
+        // path this finds the work already done and returns.
+        //
+        // After `haveMap` rather than before, because packing reads the geometry the MAP read
+        // decoded into `_assets.EntityModels`. Called earlier it would find nothing, mark every path
+        // as seen, and models would never load at all.
+        PrecacheModels(_timeline);
 
         _status.Text = _mapProblem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -5369,6 +5496,145 @@ internal class MainForm : Form
             _heightCut);
     }
 
+    /// <summary>Names where a slow frame's time went, phase by phase.</summary>
+    /// <param name="frameAt">When the frame began.</param>
+    /// <param name="soundedAt">After <c>PlaySounds</c>.</param>
+    /// <param name="flownAt">After the camera flew and uploaded.</param>
+    /// <param name="projectedAt">After any map or scene reprojection.</param>
+    /// <param name="advancedAt">After playback advanced.</param>
+    /// <param name="shotAt">After any automatic capture.</param>
+    /// <param name="hudAt">After the HUD was built.</param>
+    /// <param name="finishedAt">After the draw returned.</param>
+    /// <remarks>
+    /// **Built after four rounds of one-suspect-at-a-time, three of which were right and one of
+    /// which was not.** The model upload, the model packing and the per-frame logging were each
+    /// found by instrumenting a hypothesis; the sound decode was instrumented on the same reasoning
+    /// and recorded nothing. Proposing suspects does not converge — a ledger over the whole frame
+    /// does, because the residual column is the part nobody has thought to measure.
+    ///
+    /// **The residual is the point.** Every named phase subtracted from the frame leaves whatever
+    /// happens between them, so a frame that is slow with every column small says the cost is
+    /// somewhere this list does not mention — which is exactly the state the whole hunt began in,
+    /// with `posing`, `sampling` and `drawing` all looking reasonable.
+    ///
+    /// Only slow frames print, so this is silent in ordinary running.
+    /// </remarks>
+    private void ReportSlowFrame(
+        long frameAt,
+        long soundedAt,
+        long flownAt,
+        long projectedAt,
+        long advancedAt,
+        long shotAt,
+        long hudAt,
+        long finishedAt)
+    {
+        double total = (finishedAt - frameAt) / (double)Stopwatch.Frequency;
+
+        if (total <= StallSeconds)
+        {
+            return;
+        }
+
+        static double Ms(long from, long to) =>
+            (to - from) / (double)Stopwatch.Frequency * 1000d;
+
+        double named =
+            Ms(frameAt, soundedAt) + Ms(soundedAt, flownAt) + Ms(flownAt, projectedAt) +
+            Ms(projectedAt, advancedAt) + Ms(advancedAt, shotAt) + Ms(shotAt, hudAt) +
+            Ms(hudAt, finishedAt);
+
+        _renderLog.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW FRAME {total * 1000d:0} ms: sound {Ms(frameAt, soundedAt):0.#}" +
+                $", camera {Ms(soundedAt, flownAt):0.#}" +
+                $", project {Ms(flownAt, projectedAt):0.#}" +
+                $", advance {Ms(projectedAt, advancedAt):0.#}" +
+                $", capture {Ms(advancedAt, shotAt):0.#}" +
+                $", hud {Ms(shotAt, hudAt):0.#}" +
+                $", draw {Ms(hudAt, finishedAt):0.#}" +
+                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
+    }
+
+    /// <summary>Packs every model the demo will ever show, before playback starts.</summary>
+    /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
+    /// <remarks>
+    /// **The engine's own timing** (D86). `CBaseEntity::PrecacheModel` is guarded by
+    /// `IsPrecacheAllowed()` and warns on an out-of-order precache, because Source loads models at
+    /// level load and not on sight. Packing when a prop first becomes visible is what cost 385 ms in
+    /// one frame, and an asynchronous load would only move the hitch rather than remove it — the
+    /// first appearance would still wait.
+    ///
+    /// **The timeline is a better list than `modelprecache`**, which is what the engine uses. The
+    /// table names what the server precached, including models this recording never shows; the
+    /// tracks name what actually appears. Both are known before the first frame, which is the part
+    /// that matters.
+    ///
+    /// **Runs on the map-read worker**, so it costs nothing on the UI thread — the packing is CPU
+    /// work over geometry the map read has already decoded into <c>_assets.EntityModels</c>, so by
+    /// here it touches no files.
+    ///
+    /// A failure costs the precache and nothing else: anything missed is packed on sight exactly as
+    /// before, which is slower rather than broken.
+    /// </remarks>
+    private void PrecacheModels(DemoTimeline? timeline)
+    {
+        if (timeline is null)
+        {
+            return;
+        }
+
+        try
+        {
+            long packedAt = Stopwatch.GetTimestamp();
+
+            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+            // Props, players and — the one a caller would miss — the viewmodels, which change on
+            // every weapon switch and are private to the timeline.
+            foreach (string path in timeline.ModelPaths())
+            {
+                paths.Add(path);
+            }
+
+            // **The class models too, because a player's model is chosen at runtime.** Nothing on
+            // the wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class
+            // script — so a player track's own path may not name every model that player will wear.
+            foreach (string model in ClassModelPaths())
+            {
+                paths.Add(model);
+            }
+
+            List<SceneProp> synthetic = [];
+
+            foreach (string path in paths)
+            {
+                // Only the path and the kind are read by the packer; the rest of a SceneProp
+                // describes where an entity stands, which is not a question about geometry.
+                synthetic.Add(new SceneProp(0, path, ScenePropTrack.Classify(path), default));
+            }
+
+            _models.Add(synthetic, ModelGeometry);
+
+            double packedSeconds =
+                (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"precached {paths.Count} models in {packedSeconds * 1000d:0} ms " +
+                    $"({_models.Count} packed, {_models.Vertices.Count} vertices)"));
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
+        {
+            _renderLog.LogWarning(failure, "precaching models");
+        }
+    }
+
     /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
     /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
     /// <remarks>
@@ -6096,7 +6362,20 @@ internal class MainForm : Form
             return false;
         }
 
+        // **A ledger over the whole frame, because four rounds of guessing found three causes and
+        // missed the fourth.** Each hypothesis so far — the model upload, the model read, the sound
+        // decode — was instrumented one at a time, and the sound one recorded nothing. Timing every
+        // phase and printing the breakdown whenever the frame is slow answers the question once
+        // instead of proposing a suspect at a time.
+        //
+        // The residual is the important column: it is everything between these timers, so a large
+        // one says the cost is somewhere nobody has thought to measure yet, which is precisely the
+        // state this whole hunt started in.
+        long frameAt = Stopwatch.GetTimestamp();
+
         PlaySounds();
+
+        long soundedAt = Stopwatch.GetTimestamp();
 
         FlyCamera();
 
@@ -6113,6 +6392,8 @@ internal class MainForm : Form
         // whole class — a spectator switch, a scrub, a demo change and playback itself all move the
         // view without touching FlyCamera.
         UploadCamera();
+
+        long flownAt = Stopwatch.GetTimestamp();
 
         // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
         // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
@@ -6134,8 +6415,15 @@ internal class MainForm : Form
             ReprojectScene();
         }
 
+        long projectedAt = Stopwatch.GetTimestamp();
+
         AdvancePlayback();
+
+        long advancedAt = Stopwatch.GetTimestamp();
+
         TakeAutomaticShot();
+
+        long shotAt = Stopwatch.GetTimestamp();
 
         // **Timed because everything else in a frame already was, and none of it accounted for
         // B148.** After a demo switch the viewer reports 20 frames a second with sampling, posing
@@ -6143,21 +6431,28 @@ internal class MainForm : Form
         // counters could see, and this is the only step left.
         IReadOnlyList<HudQuad> hud = BuildHud();
 
+        long hudAt = Stopwatch.GetTimestamp();
+
         long drewAt = Stopwatch.GetTimestamp();
 
         _device?.DrawFrame(
             BackgroundRed,
             BackgroundGreen,
             BackgroundBlue,
-            _mapFill,
+            // Empty, always. The flat fill was drawn only when there was no textured map and was
+            // built from the map, so it was dead in both branches (see ProjectMap). The parameter
+            // stays until Device3D's signature is revised, which is a change to the render seam and
+            // not to this frame.
+            [],
             // **The line channel now carries mat_leafvis instead of the brush outline.** Those were
             // the BSP's own edge segments projected for the overhead view, and `mat_wireframe`
             // replaced them; the channel itself is exactly what a leaf box wants — clip-space
             // segments drawn over the world without depth, which is what an annotation should be.
             //
-            // `_mapLines` is still built and still exposed as `MapLines`, because MapOutline also
-            // computes the play-area bounds several things read — splitting those two jobs apart is
-            // filed rather than done here (B151).
+            // The projected outline is gone entirely now (B151 closed by deletion rather than by
+            // the split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent
+            // building it. `MapOutline` still supplies the play-area bounds, which is the half that
+            // was actually wanted.
             LeafBoxLines(ViewMatrix(MapCamera())),
             _scene,
             _instances,
@@ -6165,7 +6460,12 @@ internal class MainForm : Form
             _viewmodelCamera?.ToMatrix(),
             hud);
 
-        _drawTicks += Stopwatch.GetTimestamp() - drewAt;
+        long finishedAt = Stopwatch.GetTimestamp();
+
+        _drawTicks += finishedAt - drewAt;
+
+        ReportSlowFrame(
+            frameAt, soundedAt, flownAt, projectedAt, advancedAt, shotAt, hudAt, finishedAt);
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the

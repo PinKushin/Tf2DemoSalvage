@@ -1113,11 +1113,25 @@ public sealed class EntityModelSet
         //
         // Keyed on the whole tuple rather than on the drawn count alone: thirteen props failing for
         // a new reason while the drawn count holds steady is exactly the change worth seeing.
+        // **"Only when they change" was not enough, and the log proved it.** Measured 2026-08-24:
+        // this line printed 13,566 times in two minutes of playback, because the counts ALTERNATE
+        // between two shapes as props enter and leave view — 280/272 one frame, 272/272 the next —
+        // so every frame is a change and the guard never fires.
+        //
+        // A change guard against a value that oscillates is not a guard. Paired with a rate limit,
+        // which is the part that bounds it: at most one line a second, and still only on a change,
+        // so a steady state stays silent and a genuine shift is reported within a second of
+        // happening.
         (int, int, int, int) state = (askedFor, drawnCount, notStudio, noBatches);
 
-        if (state != _lastDrawState)
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool overdue =
+            now - _lastDrawReportAt >= System.Diagnostics.Stopwatch.Frequency;
+
+        if (state != _lastDrawState && overdue)
         {
             _lastDrawState = state;
+            _lastDrawReportAt = now;
 
             string missing = noBatchesBy.Count == 0
                 ? "none"
@@ -1133,6 +1147,9 @@ public sealed class EntityModelSet
 
     /// <summary>The last reported draw tally, so the line prints on change rather than per frame.</summary>
     private (int AskedFor, int Drawn, int NotStudio, int NoBatches) _lastDrawState = (-1, -1, -1, -1);
+
+    /// <summary>When that tally was last reported, so an oscillating count cannot print per frame.</summary>
+    private long _lastDrawReportAt;
 
     /// <summary>Replaces a model's bone matrices with its wearer's, matched by bone name.</summary>
     /// <param name="modelPath">The worn model, whose skeleton decides which bones are wanted.</param>

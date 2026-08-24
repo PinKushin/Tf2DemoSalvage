@@ -337,6 +337,56 @@ public sealed class DemoTimeline
     /// </remarks>
     public IReadOnlyList<ScenePropTrack> PlayerTracks => _playerTracks;
 
+    /// <summary>Every distinct model this recording will ever ask for.</summary>
+    /// <returns>Model paths, without duplicates and in no particular order.</returns>
+    /// <remarks>
+    /// **For precaching, which is when the engine loads models too.**
+    /// <c>CBaseEntity::PrecacheModel</c> sits behind <c>IsPrecacheAllowed()</c> and warns on an
+    /// out-of-order precache, because Source loads models at level load rather than on sight.
+    /// Packing on sight cost 385 ms in one frame when a crowd of props came into view (B163, D86).
+    ///
+    /// **Answered here rather than assembled by the caller**, because the three collections it has
+    /// to reach into are not all public and one of them never was: <see cref="Props"/> and
+    /// <see cref="PlayerTracks"/> are, and the viewmodels are private. A caller that knew about two
+    /// of the three would precache most models and leave weapon switches to hitch — which is
+    /// precisely the case a first-person viewer meets most often.
+    ///
+    /// **Player tracks are included even though they carry no model of their own.** Their path is
+    /// empty or a placeholder, and an empty entry costs a packer nothing to reject; the class models
+    /// a player actually wears come from the installed game and are the caller's to add.
+    /// </remarks>
+    public IEnumerable<string> ModelPaths()
+    {
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ScenePropTrack track in _props)
+        {
+            if (track.ModelPath is { Length: > 0 } && seen.Add(track.ModelPath))
+            {
+                yield return track.ModelPath;
+            }
+        }
+
+        foreach (ScenePropTrack track in _playerTracks)
+        {
+            if (track.ModelPath is { Length: > 0 } && seen.Add(track.ModelPath))
+            {
+                yield return track.ModelPath;
+            }
+        }
+
+        // The weapons a first-person view puts in the player's hands. A weapon switch changes this
+        // model, which is why leaving them out would leave a hitch every few seconds in exactly the
+        // view the owner reported it from.
+        foreach ((int _, SceneViewmodel weapon) in _viewmodels)
+        {
+            if (weapon.ModelPath is { Length: > 0 } && seen.Add(weapon.ModelPath))
+            {
+                yield return weapon.ModelPath;
+            }
+        }
+    }
+
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
 

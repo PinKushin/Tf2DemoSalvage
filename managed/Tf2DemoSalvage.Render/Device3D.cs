@@ -477,11 +477,17 @@ public sealed unsafe class Device3D : IDisposable
             // **Which of the three, because they are different faults.** No renderer, nothing to
             // draw, or no camera — and a pass that silently does nothing looks exactly like a pass
             // that drew something invisible, which is the confusion this whole feature has lived in.
-            _render.LogInformation(
-                "viewmodel pass skipped: world {World}, instances {Instances}, camera {Camera}",
-                _world is not null,
-                viewmodels?.Count ?? -1,
-                camera is not null);
+            // Rate limited for the same reason as the line below: a first-person view with nothing
+            // to draw reports this EVERY frame otherwise, and a fault that persists does not become
+            // more true for being said a hundred times a second.
+            if (ViewmodelReportIsDue())
+            {
+                _render.LogInformation(
+                    "viewmodel pass skipped: world {World}, instances {Instances}, camera {Camera}",
+                    _world is not null,
+                    viewmodels?.Count ?? -1,
+                    camera is not null);
+            }
 
             return;
         }
@@ -491,7 +497,13 @@ public sealed unsafe class Device3D : IDisposable
         // somewhere off screen" and "drawn nowhere" look identical from every one of them.
         // Guarded: the join below walks every viewmodel and formats nine numbers each, which is
         // exactly the work CA1873 keeps out of a disabled log.
-        if (_render.IsEnabled(LogLevel.Information))
+        //
+        // **And rate limited, because the guard above only asks whether anyone is listening.**
+        // Measured 2026-08-24: this printed 6,534 times in two minutes — once per frame — as part of
+        // a log reaching 64,425 lines and 8.2 MB at roughly 1,280 writes a second. What it answers
+        // is "where did the viewmodel end up", which is a question about a PLACE and does not need
+        // a fresh answer sixty times a second.
+        if (_render.IsEnabled(LogLevel.Information) && ViewmodelReportIsDue())
         {
             _render.LogInformation(
                 "viewmodel pass: drawing {Count} at {Where}",
@@ -557,6 +569,32 @@ public sealed unsafe class Device3D : IDisposable
         _context.RSSetViewports(1, in whole);
 
         ReapplyCamera();
+    }
+
+    /// <summary>When the viewmodel pass last reported, so it cannot report per frame.</summary>
+    private long _viewmodelReportedAt;
+
+    /// <summary>Whether a second has passed since the viewmodel pass last said anything.</summary>
+    /// <remarks>
+    /// **A rate limit rather than a level, because these lines are wanted by DEFAULT.** They answer
+    /// "did the viewmodel draw, and where" — the questions this feature has spent its whole life
+    /// failing to answer — so hiding them behind `developer 1` would take away the thing that made
+    /// them worth writing. What was wrong was the frequency, not the level: 6,534 identical lines in
+    /// two minutes, one per frame, in a log that reached 64,425 lines and 8.2 MB.
+    ///
+    /// One a second keeps the answer available and costs nothing measurable.
+    /// </remarks>
+    private bool ViewmodelReportIsDue()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        if (now - _viewmodelReportedAt < System.Diagnostics.Stopwatch.Frequency)
+        {
+            return false;
+        }
+
+        _viewmodelReportedAt = now;
+        return true;
     }
 
     /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>

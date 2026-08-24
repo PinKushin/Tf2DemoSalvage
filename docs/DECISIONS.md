@@ -4758,3 +4758,60 @@ worked example: it suggested keeping the packed buffer and appending to it, whic
 while preserving the undeclared departure that caused it. Overruled — *"so we switch to valves,
 which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
 
+
+## D87 — PROJECT RULE: load at load time, not on sight
+
+**The owner, after three stalls in one session all turned out to be the same shape:**
+
+> *"yea i think most things in this project should probably not lazy load, i dont think video games
+> use lazy loading too often, because they need execution speed over size"*
+
+Right, and the engine says so in its own API. `CBaseEntity::PrecacheModel` is guarded by
+`IsPrecacheAllowed()` and carries the comment *"Warn on out of order precache"* — Source does not
+merely prefer loading at level load, it **complains when you do it later**. Sounds, models and
+materials all go through a precache pass before play begins.
+
+### Why a game does this and a general-purpose program does not
+
+Lazy loading trades a bounded, one-off cost at start-up for an unbounded cost at an unpredictable
+moment. That is a good trade when the deadline is a human's patience and a bad one when the deadline
+is 6.9 ms. **A frame has a deadline; RAM does not.**
+
+It is also the worse trade in the other direction here: a demo viewer is going to show what the demo
+contains, so almost nothing loaded eagerly is wasted. The set is known before the first frame,
+because the recording already happened.
+
+### What this cost, measured on 2026-08-24
+
+Every stall found in one session was the same mistake wearing different clothes:
+
+| what was lazy | cost | fixed by |
+|---|---|---|
+| the packed vertex buffer, rebuilt on every addition | 193-231 ms, 25 times in 1m43s | per-model static meshes (D86) |
+| model geometry PACKED when a prop first appears | 385 ms in one frame | precache from the timeline |
+| slices and rebased batches, rebuilt per call | 40-53 ms | cached per path |
+
+And the owner's report was the same each time — *"everything freezes for a half a second to maybe a
+second"* — while the frame rate never dropped, because a stall is not a slow frame rate.
+
+### The rule
+
+1. **Anything the demo will need, load before playback starts.** The timeline knows every model
+   before the first frame; the string tables know every sound and material. There is no reason to
+   discover them by being surprised.
+2. **Do it on the worker that already reads the map**, behind the `_readingMap` barrier, so it costs
+   nothing on the UI thread and shows up as load time rather than as a hitch.
+3. **Asynchronous loading is NOT the fix and must not be mistaken for it.** Loading a model off-
+   thread when a prop appears still leaves the first appearance wrong — either it hitches waiting or
+   it pops in late. Precaching removes the event; async only moves it.
+4. **A cache keyed on something that changes every frame is not a cache.** The lighting cache keys
+   on exact position, so static props hit it and players — who move every tick — never do.
+
+### Still lazy, and known
+
+- **Sound decode.** `Sample()` reads from the VPK and decodes on first play. Instrumented on
+  suspicion during this session and it recorded nothing, so it is not a current stall — but it is
+  the same shape, and the demo carries a `soundprecache` table naming every sound. Filed.
+- **The map itself**, deliberately: 33.5 seconds, already off the UI thread, and a viewer that
+  waited for every map on disk would never start.
+
