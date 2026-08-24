@@ -121,6 +121,26 @@ public sealed class SoundPopulationProbe
                 $"{sound.OriginZ.ToString("0.#", CultureInfo.InvariantCulture)}) " +
                 $"IsAmbient {sound.IsAmbient}");
         }
+
+        // **Every machine_hum event, because the owner reports hearing it in game and not here.**
+        // cp_process places six `ambient_generic` entities all naming `Ambient.MachineHum`, and the
+        // server emits those at spawn with `SND_SPAWNING` — which puts them in the SIGNON buffer.
+        // So the question is precisely whether the starts are present and merely early, or whether
+        // the demo carries only the stops. Those two need opposite fixes and sound identical.
+        foreach (SceneSound sound in timeline.Sounds
+            .Where(sound => sound.Name.Contains("machine_hum", StringComparison.OrdinalIgnoreCase)))
+        {
+            TestContext.Out.WriteLine(
+                $"    hum tick {sound.Tick.ToString(CultureInfo.InvariantCulture)} " +
+                $"stop {sound.IsStop} signon {sound.FromSignon} " +
+                $"entity {sound.EntityIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"chan {sound.Channel.ToString(CultureInfo.InvariantCulture)} " +
+                $"vol {sound.Volume.ToString("0.##", CultureInfo.InvariantCulture)} " +
+                $"sndlvl {sound.SoundLevel.ToString(CultureInfo.InvariantCulture)} " +
+                $"at ({sound.OriginX.ToString("0.#", CultureInfo.InvariantCulture)}, " +
+                $"{sound.OriginY.ToString("0.#", CultureInfo.InvariantCulture)}, " +
+                $"{sound.OriginZ.ToString("0.#", CultureInfo.InvariantCulture)})");
+        }
     }
 
     /// <summary>A sound's name with any trailing variation digits removed.</summary>

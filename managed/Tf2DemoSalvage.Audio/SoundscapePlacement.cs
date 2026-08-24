@@ -21,7 +21,14 @@ namespace Tf2DemoSalvage.Audio;
 /// Where its numbered position targets are, for a script's <c>"position" "3"</c>. Empty where the
 /// map sets none.
 /// </param>
+/// <param name="Id">
+/// Which placement this is, by position in the map's own entity order. **The engine's analogue is
+/// `entIndex`** — `UpdateAudioParams` restarts a soundscape when either the index or the entity
+/// changes, because the positions its loops play at come from that entity and differ between two
+/// entities naming the same soundscape. cp_process has 21 entities all naming `Gorge.Inside`.
+/// </param>
 public readonly record struct SoundscapePlacement(
+    int Id,
     string Name,
     int Index,
     float X,
@@ -123,6 +130,7 @@ public sealed class SoundscapePlacements
             }
 
             placements.Add(new SoundscapePlacement(
+                placements.Count,
                 name,
 
                 // **-1 for a name the catalog does not hold, rather than dropping the entity.** A
@@ -180,10 +188,39 @@ public sealed class SoundscapePlacements
         ArgumentNullException.ThrowIfNull(clear);
 
         SoundscapePlacement? chosen = current;
-        float currentDistance = float.MaxValue;
+
+        // **Zero, and the current entity is measured FIRST — both are the engine's, and getting
+        // either wrong destroys the hysteresis.** `CSoundscapeSystem::Update` seeds
+        // `currentDistance = 0`, `bInRange = false`, then calls `UpdateForPlayer` on the CURRENT
+        // soundscape before looping over the contenders and skipping it
+        // (`soundscape_system.cpp:339-362`).
+        //
+        // Walking the list in order instead lets every placement before the current one compete
+        // against `bInRange == false`, which nothing can lose to — so the current is displaced
+        // before its own range is ever established, and the choice flips between co-named entities
+        // on almost every update. cp_process has 21 entities named `Gorge.Outside`, and the fade
+        // restarting on each flip is why the outdoor ambience never became audible.
+        float currentDistance = 0f;
         bool inRange = false;
 
+        if (current is { } held)
+        {
+            Consider(held);
+        }
+
         foreach (SoundscapePlacement placement in _placements)
+        {
+            if (current is { } already && already.Id == placement.Id)
+            {
+                continue;
+            }
+
+            Consider(placement);
+        }
+
+        return chosen;
+
+        void Consider(SoundscapePlacement placement)
         {
             float dx = placement.X - x;
             float dy = placement.Y - y;
@@ -194,31 +231,34 @@ public sealed class SoundscapePlacements
             // `m_flRadius > range || m_flRadius == -1` — unlimited when negative.
             bool withinRadius = placement.Radius < 0f || placement.Radius > range;
 
-            if (chosen is { } held && held == placement)
+            // **Against the placement passed in, not against whatever has been taken since.** The
+            // engine tests `update.pCurrentSoundscape == this`, and it reaches the current one
+            // before anything can have replaced it — so this branch is the current's own
+            // measurement, and it must not fire for a contender that happens to be sitting in
+            // `chosen`.
+            if (current is { } held && held.Id == placement.Id)
             {
                 currentDistance = range;
                 inRange = withinRadius &&
                     clear((placement.X, placement.Y, placement.Z), (x, y, z));
 
-                continue;
+                return;
             }
 
             if ((inRange && range >= currentDistance) || !withinRadius)
             {
-                continue;
+                return;
             }
 
             if (!clear((placement.X, placement.Y, placement.Z), (x, y, z)))
             {
-                continue;
+                return;
             }
 
             chosen = placement;
             inRange = true;
             currentDistance = range;
         }
-
-        return chosen;
     }
 
     /// <summary>An entity's origin, or null when it declares none.</summary>

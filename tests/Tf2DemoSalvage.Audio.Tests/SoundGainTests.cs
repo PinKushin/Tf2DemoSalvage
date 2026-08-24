@@ -21,19 +21,29 @@ namespace Tf2DemoSalvage.Audio.Tests;
 public sealed class SoundGainTests
 {
     [Test]
-    public void AtDistance_BeyondTheAudibleRadius_IsSilentAsTheEngineDefinesIt()
+    public void AtDistance_WhereGainFallsBelowSndGainMin_IsSilentAsTheEngineIs()
     {
-        // **Valve's, and the strongest claim here.** recipientfilter.cpp computes
-        // (2 * SOUND_NORMAL_CLIP_DIST) / attenuation as the distance past which the server does not
-        // send the event at all — so it is a fact about audibility, not a mixing preference.
+        // **The engine's own silence point, and it is NOT the recipient radius.** `SND_GetGain`
+        // (decompiled from `engine.dll`, B142) compares the computed gain against `snd_gain_min`
+        // and tapers to zero below it; it never mentions `(2 * SOUND_NORMAL_CLIP_DIST) /
+        // attenuation`. That expression is in `recipientfilter.cpp` and governs whether the SERVER
+        // SENDS the event — a different question, and using it as a gain cutoff put a hard edge
+        // 2,000 units closer than the engine's.
         float attenuation = SoundAttenuation.FromSoundLevel(SoundAttenuation.Normal);
-        float radius = SoundAttenuation.AudibleRadius(attenuation);
 
-        radius.ShouldBe(2500f, 0.01, "2 * 1000 / 0.8");
+        // gain = refdist / (distance * attenuation), so silence begins where that reaches 0.01:
+        // distance = 36 / (0.01 * 0.8) = 4,500 units.
+        float silent = SoundGain.ReferenceDistance / (SoundGain.MinimumGain * attenuation);
 
-        SoundGain.AtDistance(SoundAttenuation.Normal, radius).ShouldBe(0f);
-        SoundGain.AtDistance(SoundAttenuation.Normal, radius + 1f).ShouldBe(0f);
-        SoundGain.AtDistance(SoundAttenuation.Normal, radius - 1f).ShouldBeGreaterThan(0f);
+        silent.ShouldBe(4500f, 0.01, "36 / (0.01 * 0.8)");
+
+        SoundGain.AtDistance(SoundAttenuation.Normal, silent + 1f).ShouldBe(0f);
+        SoundGain.AtDistance(SoundAttenuation.Normal, silent - 1f).ShouldBeGreaterThan(0f);
+
+        // And the send radius is well inside it, which is the point: a sound the server bothered to
+        // send is still meaningfully audible when it arrives.
+        SoundGain.AtDistance(SoundAttenuation.Normal, SoundAttenuation.AudibleRadius(attenuation))
+            .ShouldBe(0.018f, 0.001, "36 / (2500 * 0.8)");
     }
 
     [Test]
@@ -65,13 +75,13 @@ public sealed class SoundGainTests
     [Test]
     public void AtDistance_AcrossItsRange_FallsMonotonicallyAndStaysBounded()
     {
-        // **A property, not a curve.** The shape is this project's interpolation (B142), so pinning
-        // values would make replacing it look like a regression. What any acceptable curve must do
-        // is never rise with distance and never leave 0..1 — and a wrong implementation breaks one
-        // of those long before it gets the shape wrong.
+        // **A property alongside the pinned values, not instead of them.** The shape is now the
+        // engine's (B142), and it is pinned in the tests above; this asks the weaker question that
+        // any implementation must also satisfy — never rising with distance, never leaving 0..1.
+        // A transcription error breaks one of those long before it gets a value wrong.
         float previous = float.MaxValue;
 
-        for (float distance = 0f; distance <= 3000f; distance += 25f)
+        for (float distance = 0f; distance <= 5000f; distance += 25f)
         {
             float gain = SoundGain.AtDistance(SoundAttenuation.Normal, distance);
 
@@ -92,16 +102,15 @@ public sealed class SoundGainTests
         // being consulted at all.
         //
         // **The cutoffs differ by 9x, which is what makes this decisive.** SNDLVL 60 gives
-        // attenuation 2.0 and a 1,000-unit radius; SNDLVL 140 gives 0.22 and a 9,000-unit one. So a
-        // distance beyond the idle's radius but inside the gunfire's separates them completely,
-        // where a distance inside both would only compare two curve values.
-        SoundAttenuation.AudibleRadius(SoundAttenuation.FromSoundLevel(60))
-            .ShouldBe(1000f, 0.01);
+        // attenuation 2.0 and falls under `snd_gain_min` at 1,800 units; SNDLVL 140 gives 0.222 and
+        // does not until 16,200. So a distance beyond the idle's cutoff but inside the gunfire's
+        // separates them completely, where a distance inside both would only compare two values.
+        SoundAttenuation.FromSoundLevel(60).ShouldBe(2f, 0.01, "20 / (60 - 50)");
 
         SoundGain.AtDistance(140, 900f).ShouldBeGreaterThan(SoundGain.AtDistance(60, 900f));
 
-        SoundGain.AtDistance(60, 1200f).ShouldBe(0f, "past the idle sound's own cutoff");
-        SoundGain.AtDistance(140, 1200f).ShouldBeGreaterThan(0f, "but well inside gunfire's");
+        SoundGain.AtDistance(60, 2000f).ShouldBe(0f, "past the idle sound's own cutoff");
+        SoundGain.AtDistance(140, 2000f).ShouldBeGreaterThan(0f, "but well inside gunfire's");
     }
 
     [Test]

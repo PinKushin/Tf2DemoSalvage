@@ -129,3 +129,4 @@
 - [Do not rerun a green gate](do-not-rerun-a-green-gate.md) — floors and docs cannot change a test result; take the counts from the run in hand.
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps and landings are client-predicted and in no demo; reproducing them is authoring, not replay.
 - [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — a demo's protocol bounds its date not at all; this corpus is the counterexample, and protocol windows are estimates from changelogs.
+- [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — twice in one feature; when the engine refuses a case, refuse it too.

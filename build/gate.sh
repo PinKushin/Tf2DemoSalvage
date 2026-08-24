@@ -132,7 +132,10 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # 129: SoundscapeSelectionConformanceTests (8). Choosing a soundscape from the BSP, checked against
 # seven positions where the owner ran soundscape_dumpclient in the live game. A differential: the
 # engine's answer is the expectation, so this can disagree with it (B173).
-run Tf2DemoSalvage.Audio.Tests    audio     129
+# Raised 129 -> 139 on 2026-08-24: SoundscapeMixerTests gained the suppression case (1), and
+# SoundScriptProbe gained the loop-marker report (1) that settled whether TF2's ambient waves carry
+# a `cue ` chunk at all — they do, which ruled out the reader and pointed at the schedule instead.
+run Tf2DemoSalvage.Audio.Tests    audio     137
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -145,7 +148,12 @@ run Tf2DemoSalvage.Audio.Tests    audio     129
 # 108: SoundScheduleTests (7). Which sounds start as playback moves — the seek that must not replay
 # what it skipped, the paused frame that must not repeat its tick, and the dropped frame that must
 # not be mistaken for a seek. All three are silent failures that sound like a working viewer.
-run Tf2DemoSalvage.Presentation.Tests presentation 108
+# Raised 108 -> 116 on 2026-08-24 by SoundSchedule.LiveAt (8). A looping ambient is STATE, not an
+# event: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and next mentions them at a round
+# restart minutes later, so a cursor over events leaves the map silent from the first reposition on.
+# The map load alone is enough to cause it — seven seconds of loading is 466 ticks, and the first
+# Advance lands past both the tick-4 start and the tick-334 restart.
+run Tf2DemoSalvage.Presentation.Tests presentation 116
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

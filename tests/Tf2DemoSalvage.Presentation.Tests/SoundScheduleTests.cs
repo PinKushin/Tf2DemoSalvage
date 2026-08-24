@@ -136,4 +136,105 @@ public sealed class SoundScheduleTests
         schedule.Advance(0).ShouldBeEmpty();
         schedule.Advance(1000).ShouldBeEmpty();
     }
+
+    /// <summary>A sound on a named channel, which is what can be started and stopped.</summary>
+    private static SceneSound On(
+        int tick, int entity, int channel, bool stop = false, string name = "ambient/machine_hum") =>
+        new(tick, name, 1, entity, channel, 1f, 75, 100, 0f, 0f, 0f, 0f, IsStop: stop);
+
+    [Test]
+    public void LiveAt_ALoopStartedEarlier_IsStillLive()
+    {
+        // **The defect this exists for.** cp_process starts six `)ambient/machine_hum.wav` at tick
+        // 4 and restarts them only at round boundaries. `Advance` is a cursor over EVENTS, so after
+        // a seek past tick 4 nothing ever starts them again and the map's machinery is silent for
+        // the rest of the demo — which the owner heard as "the pc hum isnt playing at all".
+        //
+        // A looping ambient is STATE, not an event: it holds until something stops it.
+        SoundSchedule schedule = new([On(4, 104, 6)]);
+
+        schedule.LiveAt(50000).Select(sound => sound.EntityIndex).ShouldBe(new[] { 104 });
+    }
+
+    [Test]
+    public void LiveAt_ALoopStoppedBeforeTheTick_IsNotLive()
+    {
+        SoundSchedule schedule = new([On(4, 104, 6), On(334, 104, 6, stop: true)]);
+
+        schedule.LiveAt(50000).ShouldBeEmpty("a stopped loop must not be resurrected by a seek");
+    }
+
+    [Test]
+    public void LiveAt_ALoopRestartedAfterAStop_IsLive()
+    {
+        // cp_process's exact sequence at tick 334: the round restart stops all six and starts them
+        // again in the same tick. Reading only the last event per key gets this right; reading the
+        // first would leave the map permanently silent after every round.
+        SoundSchedule schedule = new(
+            [On(4, 104, 6), On(334, 104, 6, stop: true), On(334, 104, 6)]);
+
+        schedule.LiveAt(50000).Count.ShouldBe(1, "the restart is the later event and wins");
+    }
+
+    [Test]
+    public void LiveAt_TheSameChannelOnDifferentEntities_KeepsEveryOne()
+    {
+        // **The control, and the one that catches a key of channel alone.** All six of cp_process's
+        // machine hums are CHAN_STATIC — six entities, one channel — so a schedule that tracked
+        // channels rather than (entity, channel) pairs would report exactly one hum and sound like
+        // a working viewer with five sixths of the map's machinery missing.
+        SoundSchedule schedule = new(
+            [On(4, 104, 6), On(4, 105, 6), On(4, 106, 6), On(4, 107, 6)]);
+
+        schedule.LiveAt(50000).Count.ShouldBe(4, "each entity holds its own channel");
+    }
+
+    [Test]
+    public void LiveAt_ALoopStartedAfterTheTick_IsNotLive()
+    {
+        SoundSchedule schedule = new([On(4, 104, 6), On(18022, 105, 6)]);
+
+        schedule.LiveAt(1000).Select(sound => sound.EntityIndex)
+            .ShouldBe(new[] { 104 }, "a seek must not start what has not happened yet");
+    }
+
+    [Test]
+    public void LiveAt_TheAutoChannel_IsNotTracked()
+    {
+        // **`CHAN_AUTO` is 0 and means "the engine picks", so such a sound cannot be stopped and is
+        // meant to overlap.** Re-establishing every auto-channel sound ever started would replay a
+        // match's worth of gunfire into one frame — the exact failure `Advance` avoids by not
+        // playing across a seek.
+        SoundSchedule schedule = new([On(4, 104, 0)]);
+
+        schedule.LiveAt(50000).ShouldBeEmpty("an auto-channel sound is a one-shot by construction");
+    }
+
+    [Test]
+    public void LiveAt_AReplacementOnOneChannel_KeepsOnlyTheLater()
+    {
+        SoundSchedule schedule = new(
+            [On(4, 104, 6, name: "first"), On(900, 104, 6, name: "second")]);
+
+        schedule.LiveAt(50000).Single().Name
+            .ShouldBe("second", "a channel plays one sound at a time");
+    }
+
+    [Test]
+    public void Repositioned_TheFirstCallAndASeek_BothAskForTheLoopsBack()
+    {
+        SoundSchedule schedule = Of(10, 20, 30);
+
+        // **The first call counts.** `Jumped` is deliberately false there — there is nothing in
+        // flight to silence — but the loops still have to be established, and using `Jumped` for
+        // both is why opening a demo mid-way started none of its ambience.
+        schedule.Advance(10);
+        schedule.Repositioned.ShouldBeTrue("opening a demo positions the cursor and must re-establish");
+
+        schedule.Advance(11);
+        schedule.Repositioned.ShouldBeFalse("ordinary playback establishes nothing");
+
+        schedule.Advance(5000);
+        schedule.Repositioned.ShouldBeTrue("a seek must re-establish the loops at its destination");
+    }
 }

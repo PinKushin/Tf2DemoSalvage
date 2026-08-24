@@ -74,5 +74,45 @@ public sealed class EnvSoundscapeProbe
                 $"    {entity.ClassName}: " +
                 string.Join(", ", entity.Values.Select(pair => $"{pair.Key}={pair.Value}")));
         }
+
+        // **Does anything carry a position target at all?** A soundscape's `"position" "3"` names
+        // one of these, and the engine SUPPRESSES a loop whose position the map does not supply
+        // (`c_soundscape.cpp:797`). So this count decides whether the positioned hums on this map
+        // are heard or silent, and it is the claim the owner's ears just contradicted.
+        int positioned = soundscapes.Count(entity =>
+            Enumerable.Range(0, 8).Any(slot =>
+                entity.TryGetValue(
+                    $"position{slot.ToString(CultureInfo.InvariantCulture)}", out string named) &&
+                named.Length > 0));
+
+        TestContext.Out.WriteLine(
+            $"  with position targets: {positioned.ToString(CultureInfo.InvariantCulture)}");
+
+        // **The other candidate for a hum tied to a prop.** `ambient_generic` plays one wave at one
+        // place with its own radius and is entirely independent of soundscapes — if the computer
+        // hum is one of these, no soundscape work can ever produce it.
+        List<BspEntity> ambient =
+        [
+            .. entities.Where(entity =>
+                entity.ClassName.Equals("ambient_generic", StringComparison.OrdinalIgnoreCase)),
+        ];
+
+        TestContext.Out.WriteLine(
+            $"  ambient_generic: {ambient.Count.ToString(CultureInfo.InvariantCulture)}");
+
+        foreach (IGrouping<string, BspEntity> wave in ambient
+            .GroupBy(entity => entity.TryGetValue("message", out string message) ? message : "?")
+            .OrderByDescending(group => group.Count()))
+        {
+            TestContext.Out.WriteLine(
+                $"    {wave.Key}: {wave.Count().ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (ambient.Count > 0)
+        {
+            TestContext.Out.WriteLine(
+                "    keys: " +
+                string.Join(", ", ambient[0].Values.Select(pair => $"{pair.Key}={pair.Value}")));
+        }
     }
 }

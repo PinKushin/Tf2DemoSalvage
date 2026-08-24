@@ -115,6 +115,35 @@ public sealed class SoundscapeManifestProbe
             TestContext.Out.WriteLine(Encoding.UTF8.GetString(baseFile));
         }
 
+        // **`Gorge.Inside` verbatim, because it is what cp_process actually plays and every claim
+        // about it so far has been recollection rather than reading.** How many loops it declares,
+        // which of them carry a `position`, and what soundlevel or attenuation each names decides
+        // where they belong and how loud they are — and the owner has now heard both failure modes
+        // of guessing at it.
+        foreach (string file in files)
+        {
+            if (archives.Read(file) is not { } body)
+            {
+                continue;
+            }
+
+            string script = Encoding.UTF8.GetString(body);
+
+            if (!script.Contains("Gorge.Inside", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // **The whole file, not the one entry.** Reading only `Gorge.Inside` answered why the
+            // machine hums are suppressed and said nothing about `Gorge.Outside`, which is what
+            // plays over most of the map — and the owner then reported the outdoor wind and birds
+            // missing. Two entries with the same failure mode, found one at a time because the
+            // probe was scoped to the question already asked.
+            TestContext.Out.WriteLine($"\n=== {file}, verbatim ===");
+            TestContext.Out.WriteLine(script);
+            break;
+        }
+
         // The map's own file is appended LAST when the manifest did not already list it, so a
         // per-map soundscape's index depends on everything above it.
         foreach (string map in new[] { "cp_process_f12", "cp_process", "koth_viaduct", "cp_badlands" })

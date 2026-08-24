@@ -106,4 +106,54 @@ public sealed class SoundScriptProbe
 
         scripts.Count.ShouldBeGreaterThan(0, "no soundscript was found, so nothing was measured");
     }
+
+    [Test]
+    public void Waves_TheOnesAMapLoopsForever_AreCheckedForALoopMarker()
+    {
+        // **Whether a wave loops is a property of the FILE, not of how it was started.** Source
+        // reads a `cue ` chunk and the engine repeats from that marker; nothing on the wire says
+        // "loop". So a viewer that fails to find the marker turns every piece of map ambience into
+        // a one-shot that plays once at the demo's first tick and is never heard again — which is
+        // indistinguishable from never starting it, and is what the owner reports as "the pc hum
+        // isnt playing at all".
+        //
+        // cp_process's six `ambient_generic` entities all play `Ambient.MachineHum`, started once
+        // at tick 4 and again at each round restart. If this reports `loops False`, that is the
+        // whole defect.
+        if (GameInstall.Vpk("tf2_sound_misc") is not { } directory)
+        {
+            Assert.Ignore(GameInstall.Missing);
+            return;
+        }
+
+        VpkArchive archive = VpkArchive.Open(directory);
+
+        foreach (string wave in new[]
+        {
+            "sound/ambient/machine_hum.wav",
+            "sound/ambient/machine_hum2.wav",
+            "sound/ambient/indoors.wav",
+            "sound/ambient/atmosphere/hole_hit1.wav",
+        })
+        {
+            byte[]? bytes = archive.ReadFile(wave.ToUpperInvariant());
+
+            if (bytes is null)
+            {
+                TestContext.Out.WriteLine($"  {wave}: NOT FOUND");
+                continue;
+            }
+
+            if (RiffWave.Read(bytes) is not { } parsed)
+            {
+                TestContext.Out.WriteLine($"  {wave}: {bytes.Length} bytes, DID NOT PARSE");
+                continue;
+            }
+
+            TestContext.Out.WriteLine(
+                $"  {wave}: {bytes.Length} bytes, format {parsed.Format}, " +
+                $"{parsed.Channels}ch {parsed.SampleRate}Hz, " +
+                $"loops {parsed.Loops} at {parsed.LoopStart}");
+        }
+    }
 }

@@ -4259,3 +4259,74 @@ Related and still to decide: whether anything stays committed at all. A handful 
 the repository means `git clone && dotnet test` works with no network, which has real value for a
 contributor and for CI. That is a smaller question than it was, and worth answering deliberately
 rather than by attrition.
+
+## D82 — Ambience follows the transport, even if TF2 does not, because TF2 is wrong here
+
+**The owner, 2026-08-24**, on being told that pausing leaves the ambient loops running and that the
+engine might well do the same:
+
+> *"i will still want to fix it even if tf2 does the same thing, that is a bug with tf2 imo, and it
+> would open up video makers a bit, allowing them to include audio they wouldnt before because of
+> the obvious desync. like if tf2 does it itself im pretty sure they sv_cheats 1 and turn anbience
+> off for videos, its not like they dont put music over it anyway, sooo"*
+
+**This is the SECOND deliberate departure from "match Valve", not the first** — the owner named the
+other one immediately, and the correction is worth keeping because the two are instructive against
+each other. Prop and animation baking (B150) poses small props once at load instead of skinning them
+per frame, and B150 describes itself as *"Deliberate, owner-approved, and the one place this project
+knowingly departs from how the engine does it"* — a sentence that was true when written and is not
+any more.
+
+Every audio decision before this one was settled by finding what the engine does and doing that: the
+gain curve out of `engine.dll`, `AddLoopingSound`'s slot reuse, the soundscape index order,
+`SND_STOP`, the suppression of positioned loops the map cannot place. B173 and B142 are both closed
+on that principle.
+
+**The two departures are not the same kind of thing, and the difference is the lesson.** Baking
+departs for PERFORMANCE, and B150's finding is that what it buys was never measured — no benchmark
+exists, no decision entry was written at the time, and the owner's own recollection of having tested
+it is one he doubts in writing. It slid in. This one departs for CAPABILITY, with a stated
+user-facing reason, recorded as it was made. A performance departure needs a number or it is a
+guess; a capability departure needs an argument, and has one here.
+
+The principle has a limit, and this is where it falls: **fidelity is the default because the engine
+is usually right, not because matching it is the goal.** Where the engine's behaviour is a defect,
+reproducing it reproduces the defect. A viewer whose ambience runs against a stopped clock is not
+faithful to anything a viewer is for.
+
+**The argument is about what the tool is FOR, and the evidence is the workaround.** If frag video
+makers already turn ambience off with `sv_cheats 1` and lay music over the result, then TF2's
+behaviour has not been tolerated — it has been routed around, at the cost of everything the map
+sounds like. Fixing it does not merely tidy a transport edge; it makes an entire category of audio
+usable that is currently discarded before anyone hears it. That is a capability, not a polish item.
+
+**What this does NOT license, in the owner's own words, given immediately after the decision:**
+
+> *"i will depart from valve in small ways if we have very good reason to, we just cant make massive
+> changes, and shouldnt, because valves code is really good already, all our changes will do is slow
+> it down and make it worse"*
+
+So the licence is bounded on two axes at once, and both bounds are load-bearing:
+
+- **SIZE.** Small departures, not massive ones. Not because large changes are forbidden in
+  principle, but because a large one stops being a departure and becomes a reimplementation — at
+  which point the thing being matched is gone and there is nothing left to check our behaviour
+  against.
+- **JUSTIFICATION.** "Very good reason", which the argument above supplies and a preference does
+  not.
+
+**And the reason for the bound is an assessment of the code, not deference.** Valve's is good; ours
+will usually be slower and worse. That is a claim about relative quality, and this project has
+evidence for it in both directions — every audio bug closed today was ours and not theirs, and the
+one thing found in their code (the alternating-crossfade comment at `c_soundscape.cpp:1136`) is a
+bug they had already noticed and fixed.
+
+The practical test, then: the reasoning here was specific and each part had to hold — the behaviour
+is a defect on its own terms rather than a taste, the divergence is observable and explicable to a
+user, and there is a concrete thing it enables that is otherwise impossible. Absent all three, D80's
+rule stands and the engine's behaviour wins, including where it looks like a bug.
+
+**Consequence for B176:** measuring what the engine does when paused stops being a gate on the work
+and becomes a footnote. It is still worth knowing — it belongs in `docs/findings/` either way, and
+"Valve does the same" is precisely the kind of thing that gets confidently misremembered — but the
+implementation proceeds regardless of the answer.
