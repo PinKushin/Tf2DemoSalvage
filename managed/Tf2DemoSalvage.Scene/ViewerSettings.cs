@@ -61,8 +61,9 @@ public enum TextureQuality
 ///
 /// <code>
 ///   // TF2 Demo Salvage settings
-///   fullscreen_mode 1
-///   texture_quality 512
+///   mat_fullscreen_mode 1
+///   fps_max 0
+///   cl_showfps 2
 /// </code>
 ///
 /// Under LocalApplicationData rather than beside the executable: the program may sit in a
@@ -80,16 +81,46 @@ public enum TextureQuality
 public sealed record ViewerSettings
 {
     /// <summary>Command name for the full-screen mode.</summary>
-    public const string FullScreenModeCommand = "fullscreen_mode";
+    /// <remarks>
+    /// **Ours, because Valve has none to copy** — `mat_fullscreen` is in neither `engine.dll` nor
+    /// `materialsystem.dll`, checked by scanning both. The game changes mode through
+    /// `mat_setvideomode &lt;w&gt; &lt;h&gt; &lt;windowed&gt;`, which answers a different question:
+    /// this setting picks borderless versus exclusive, and borderless is not a thing the SDK-era
+    /// engine offers at all.
+    ///
+    /// So D79 rule 2 applies rather than rule 1 — invent it in Valve's style, with a subsystem
+    /// prefix. `mat_` because video mode is the material system's business in Source.
+    /// </remarks>
+    public const string FullScreenModeCommand = "mat_fullscreen_mode";
 
     /// <summary>Command name for the texture detail.</summary>
     public const string TextureQualityCommand = "texture_quality";
 
     /// <summary>Command name for the frame rate cap.</summary>
-    public const string FrameRateLimitCommand = "frame_rate_limit";
+    /// <remarks>
+    /// **Valve's name, and this was `frame_rate_limit` until the owner caught it**: *"our fps cap
+    /// should be transfered to actual valve vocab, because peoples configs will have that"*. He is
+    /// right and D79 already said so — rule 3, *never invent a name for something Valve already
+    /// named*. His own `autoexec.cfg` carries `fps_max 0`, which is precisely the paste that has to
+    /// work.
+    ///
+    /// It ships in `engine.dll`, whose help string is *"Frame rate limiter, cannot be set while
+    /// connected to a server."*
+    ///
+    /// **Zero means uncapped in both**, so the semantics needed no adjustment to match.
+    /// </remarks>
+    public const string FrameRateLimitCommand = "fps_max";
 
     /// <summary>Command name for vertical sync.</summary>
-    public const string VerticalSyncCommand = "vertical_sync";
+    /// <remarks>Valve's name; ships in `engine.dll` and `materialsystem.dll`.</remarks>
+    public const string VerticalSyncCommand = "mat_vsync";
+
+    /// <summary>Command name for the frame rate meter.</summary>
+    /// <remarks>
+    /// Valve's name, declared in `src/game/client/vgui_fpspanel.cpp:27` and shipping in retail
+    /// `client.dll`. <c>FpsMeter</c> reproduces what it draws.
+    /// </remarks>
+    public const string ShowFrameRateCommand = "cl_showfps";
 
     /// <summary>Command name for where screenshots are written.</summary>
     /// <remarks>
@@ -104,8 +135,13 @@ public sealed record ViewerSettings
     /// full and captures once occupied 203 MB of it.
     ///
     /// Empty means beside the log, which is where captures went before this existed.
+    ///
+    /// **Prefixed `cl_` under D79 rule 2**, which asks for Valve's style where Valve has no name:
+    /// lower case, subsystem prefix, underscores. It was bare `screenshot_folder`, which is the
+    /// same miss as `frame_rate_limit` in a milder form — a name that looks like a cvar without
+    /// belonging to any subsystem.
     /// </remarks>
-    public const string ScreenshotFolderCommand = "screenshot_folder";
+    public const string ScreenshotFolderCommand = "cl_screenshot_folder";
 
     /// <summary>Command name for the viewmodel's field of view.</summary>
     /// <remarks>
@@ -118,8 +154,31 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ViewmodelFieldOfViewCommand = "viewmodel_fov";
 
-    /// <summary>Source's own ceiling, and this viewer's default.</summary>
-    public const int SourceFrameRateLimit = 300;
+    /// <summary>This viewer's frame cap, in frames a second.</summary>
+    /// <remarks>
+    /// **This was called `SourceFrameRateLimit` and documented as "Source's own <c>fps_max</c>
+    /// ceiling". There is no such ceiling.** The owner, asked directly: *"there is no actual
+    /// ceiling, nocap will run 1000 fps in the real game at certain places in certain maps"*. So
+    /// the constant was not merely uncited, it asserted something false — and it asserted it in the
+    /// one place a reader would take as authoritative, next to the number.
+    ///
+    /// The engine has a floor and no ceiling. `engine.dll` carries *"sv_cheats is 0 and fps_max is
+    /// being limited to a minimum of 30 (or set to 0)"*, and nothing about a maximum; Valve's
+    /// shipped configs never set `fps_max`, and its default could not be recovered from the binary,
+    /// because the string pool pairs a cvar's name with its help text and not with its default.
+    ///
+    /// **300 is OURS**, and it stands on its own measurement rather than on Valve: the swap chain
+    /// presents asking for vertical sync and the viewer was still measured at about 600 frames a
+    /// second, which is ten times any display and allocates every one of them.
+    ///
+    /// Kept as a worked example of `docs/memory/a-default-is-not-a-constant.md`. The invented
+    /// citation survived weeks precisely because it was plausible and specific.
+    /// </remarks>
+    public const int DefaultFrameRateLimit = 300;
+
+    /// <summary>The meter is off.</summary>
+    /// <remarks>`cl_showfps`'s own default, from its declaration in `vgui_fpspanel.cpp`.</remarks>
+    public const int FrameRateMeterOff = 0;
 
     /// <summary>Where screenshots are written, or null for beside the log.</summary>
     /// <remarks>
@@ -169,17 +228,35 @@ public sealed record ViewerSettings
     /// itself. Six hundred frames a second is ten times what any display shows, and every one of
     /// them allocates.
     ///
-    /// **300 is Source's own <c>fps_max</c> ceiling**, which is the number to match when the point
-    /// of the project is to behave the way the game does.
+    /// See <see cref="DefaultFrameRateLimit"/> for why 300 is ours rather than Valve's.
     ///
     /// Lower values are for recording rather than for weak hardware: 24 gives film cadence, 30 and
     /// 60 are the ordinary video rates. A viewer that can only run flat out forces a capture tool
     /// to resample, which is where judder comes from.
     ///
-    /// Zero is uncapped, kept expressible because measuring how fast the renderer can go is a real
-    /// question — it is how the 600 was found.
+    /// **TF2 would refuse most of those, and this viewer deliberately does not.** `engine.dll`
+    /// carries the string *"sv_cheats is 0 and fps_max is being limited to a minimum of 30 (or set
+    /// to 0)"*, so the game clamps anything between 1 and 29 up to 30. That floor is there because
+    /// a very low cap is an advantage in a live match — it is an anti-cheat measure, and there is
+    /// no match here. A film cadence of 24 is exactly what a demo viewer should allow, so the clamp
+    /// is not reproduced. A small, justified departure under D82.
+    ///
+    /// Zero is uncapped in both, kept expressible because measuring how fast the renderer can go is
+    /// a real question — it is how the 600 was found.
     /// </remarks>
-    public int FrameRateLimit { get; init; } = SourceFrameRateLimit;
+    public int FrameRateLimit { get; init; } = DefaultFrameRateLimit;
+
+    /// <summary>Which frame rate meter to draw: 0 none, 1 instantaneous, 2 smoothed.</summary>
+    /// <remarks>
+    /// **An int rather than a bool, because `cl_showfps` is an int and its two modes differ.** One
+    /// shows the raw rate; two shows a moving average with the worst and best single frame beside
+    /// it. The second is the one worth having for B163 — the owner cannot currently tell demo
+    /// stutter from decode stutter from frame stutter, and a low watermark is what distinguishes an
+    /// occasional long frame from a low average.
+    ///
+    /// Off by default, as the game has it.
+    /// </remarks>
+    public int ShowFrameRate { get; init; } = FrameRateMeterOff;
 
     /// <summary>The field of view the first-person weapon is drawn with, in degrees.</summary>
     /// <remarks>
@@ -337,6 +414,25 @@ public sealed record ViewerSettings
             settings = settings with { VerticalSync = sync != 0 };
         }
 
+        // **Normalised the way the panel reads it, which is not the way a range check would.**
+        // `ShouldDraw` tests `cl_showfps.GetInt()` for TRUTH and `Paint` then asks `== 2`, so in
+        // the game every non-zero value that is not 2 — including a negative one — draws the
+        // unsmoothed meter. Reproduced rather than tightened: rejecting `cl_showfps 3` would be
+        // this viewer disagreeing with a config the game accepts, and the whole point of taking
+        // Valve's name is that the same line means the same thing (D79).
+        if (Read(values, ShowFrameRateCommand) is { } meter)
+        {
+            settings = settings with
+            {
+                ShowFrameRate = meter switch
+                {
+                    0 => FrameRateMeterOff,
+                    2 => 2,
+                    _ => 1,
+                },
+            };
+        }
+
         return settings;
     }
 
@@ -408,12 +504,12 @@ public sealed record ViewerSettings
         text.AppendLine("// TF2 Demo Salvage settings");
         text.AppendLine("// Edit by hand if you like; unknown commands are ignored.");
         text.AppendLine("//");
-        text.AppendLine("// This is the viewer's OWN config, and it is not your TF2 config. Your");
-        text.AppendLine("// game config is read as it is, wholesale, and nothing here is written");
-        text.AppendLine("// back into it. Settings that TF2 already has a cvar for keep the game's");
-        text.AppendLine("// name and can be set from either file; settings TF2 has no equivalent");
-        text.AppendLine("// for -- screenshot_folder is one -- exist only here, so that this file");
-        text.AppendLine("// never invents a cvar the game does not have.");
+        text.AppendLine("// This is the viewer's OWN config, and it is not your TF2 config. Nothing");
+        text.AppendLine("// here is ever written back into the game's files. Settings TF2 already");
+        text.AppendLine("// has a cvar for keep the game's name, so a line copied from your config");
+        text.AppendLine("// means the same thing here; settings TF2 has no equivalent for -- ");
+        text.AppendLine("// cl_screenshot_folder is one -- are named in the same style but exist");
+        text.AppendLine("// only here, so this file never invents a cvar the game does have.");
         text.AppendLine("//");
         text.AppendLine("// Anything here can also be passed at startup as +command value, which is");
         text.AppendLine("// how Source sets a cvar from a launch option. A value passed that way");
@@ -436,8 +532,10 @@ public sealed record ViewerSettings
             ((int)TextureQuality).ToString(CultureInfo.InvariantCulture),
             TextureQuality == Defaults.TextureQuality);
         text.AppendLine();
-        text.AppendLine("// Most frames a second to draw. 0 is uncapped; 300 is Source's ceiling.");
-        text.AppendLine("// 24 gives film cadence and 30 or 60 the ordinary video rates.");
+        text.AppendLine("// Most frames a second to draw, as in TF2. 0 is uncapped, and uncapped");
+        text.AppendLine("// really is uncapped -- there is no engine ceiling. 300 is this viewer's");
+        text.AppendLine("// own default. 24 gives film cadence and 30 or 60 the ordinary video");
+        text.AppendLine("// rates; TF2 would clamp anything under 30 up to it, and this does not.");
         Setting(
             text,
             FrameRateLimitCommand,
@@ -473,6 +571,16 @@ public sealed record ViewerSettings
             VerticalSyncCommand,
             (VerticalSync ? 1 : 0).ToString(CultureInfo.InvariantCulture),
             VerticalSync == Defaults.VerticalSync);
+        text.AppendLine();
+        text.AppendLine("// Frame rate meter, exactly as TF2 draws it: 1 is the raw rate, 2 is a");
+        text.AppendLine("// moving average with the worst and best single frame in brackets beside");
+        text.AppendLine("// it. 2 is the one worth having when something is stuttering -- a low");
+        text.AppendLine("// watermark tells an occasional long frame from a low average.");
+        Setting(
+            text,
+            ShowFrameRateCommand,
+            ShowFrameRate.ToString(CultureInfo.InvariantCulture),
+            ShowFrameRate == Defaults.ShowFrameRate);
 
         return text.ToString();
     }

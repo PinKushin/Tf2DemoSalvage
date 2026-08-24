@@ -4501,3 +4501,204 @@ and comparing category counts against a pre-conversion log: `assets` 215, `map` 
 **The CLI needed no work.** It already used `ILoggerFactory` with a console provider, so the
 divergence is resolved by both halves speaking `ILogger` with different providers — which is what
 the abstraction is for, and what the facade would not have achieved.
+
+## D84 — The HUD is drawn in Direct3D as VGUI draws it, and rasterised with GDI for pixel parity
+
+**The owner, on seeing a WinForms overlay being built for the frame rate meter:** *"how does valve
+display it? i dont mind this stuff being dx, since its stuff tf2 has too, i dont expect it to be in
+winforms"*. And immediately after, on scope: *"yea we are going to implement huds, so we should
+setup this backbone now"*.
+
+So this is a backbone decision rather than a detail of B174. The frame rate meter is the first
+consumer; the scoreboard (B175) is the second.
+
+### What Valve does
+
+`CFPSPanel` is a `vgui::Panel` whose `Paint` calls
+`g_pMatSystemSurface->DrawColoredText( m_hFont, x, y, r, g, b, a, ... )` — the material system's 2D
+surface, composited into the same frame as the world. Not an OS window. The font is the scheme's
+`DefaultFixedOutline`, and finding that took one wrong turn worth recording: it is in neither
+`tf/resource/ClientScheme.res` nor `hl2/resource/ClientScheme.res` but in
+`platform/Resource/SourceScheme.res`, which is why every Source game's meter looks alike.
+
+```
+"DefaultFixedOutline" { "1" { "name" "Lucida Console"  "tall" "10"  "weight" "0"  "outline" "1" } }
+```
+
+### What was nearly built instead, and why it was wrong
+
+An owned borderless `Form` hosting a `Label`, following the transport bar's `OverlayWindow`. That
+pattern exists for a real reason — a child HWND over a `FLIP_DISCARD` swap chain does not composite
+reliably — and the reason it was reached for is a real constraint too: text drawn inside Direct3D is
+invisible to UIA and therefore to any UI test.
+
+It was still wrong. The viewer is imitating a game HUD, and a HUD that is an operating-system window
+cannot be captured in a screenshot of the viewport, cannot be positioned in viewport coordinates,
+and would not survive into any later video capture. The UIA objection is real and the answer is that
+HUD content gets asserted by picture rather than by tree — `docs/memory/a-picture-is-assertable.md`.
+
+### REVERSAL — the rasteriser, from SkiaSharp to GDI
+
+**The assistant recommended SkiaSharp and was overruled.** Both positions, because the losing one
+was argued at length and is the kind that gets repeated:
+
+- **Assistant:** one rasteriser on both platforms, because the point of the Linux box is testing, and
+  a test result only transfers if the box runs the same program. Valve's own answer is platform-split
+  — GDI on Windows, FreeType on Linux — so copying Valve would mean the Linux box exercised a
+  rasteriser the Windows build never runs. Also argued that pixel parity was unreachable anyway.
+- **Owner:** *"we will go for windows pixel parity, and just know we cant really test it on linux,
+  which is fine because the viewer cant go opn linux either, but it means another project that cant
+  if its a new project, which idk if this should be or if its a part of the viewer.3d project anyway
+  so going skia actually doesnt get us anything anyway"*.
+
+**What kills the assistant's argument is the consumer, and it is not a close call.** `Render` is
+Direct3D 11 and the host is WinForms — this code cannot run on Linux under any rasteriser. So Skia's
+cross-platform property was buying protection against a divergence that cannot occur, at the cost of
+the one thing that was actually achievable. The Linux box was never going to run the HUD; it was only
+ever going to run a rasteriser in isolation, which measures nothing anyone cares about.
+
+Generalised, because it is a trap worth naming: **a portability argument is about the CONSUMER, not
+about the library.** Choosing a cross-platform dependency for a component that only a Windows-only
+consumer can call buys nothing and costs the platform-specific capability.
+
+### What pixel parity actually costs, stated so it is not discovered later
+
+Reachable on Windows, and not free:
+
+1. **`vguimatsurface` is closed.** It is not in `source-sdk-2013` — only `fontabc.h` and
+   `BitmapFontFile.h` are. The DLL ships, so it is decompilable under the usual rule (output outside
+   every git tree), but it is a decompile rather than a read.
+2. **`outline` is not a font feature.** It is Valve's own post-process over the GDI glyph bitmap, as
+   are `blur`, `dropshadow` and `scanlines`. Matching them means recovering that code.
+3. **TF2 is not pixel-identical to itself across platforms**, since its Linux build uses FreeType.
+   "Pixel-identical to TF2" is therefore a per-platform target by construction.
+
+Parity with the Windows build is the target. The decompile is not done, so anything below is an
+approximation until it is, and the approximation must be labelled as one rather than claimed.
+
+### Layering, which the reversal constrains
+
+**Scheme parsing stays in `Tf2DemoSalvage.Content`.** Not tidiness: Content's suites run on the
+Linux measurement boxes for mutation testing, so putting `System.Drawing` in Content would break
+those runs — and it would break them as a build failure that Stryker scores as a surviving mutant
+rather than reports as an error.
+
+**The rasteriser gets its OWN project, `Tf2DemoSalvage.Fonts`, on `net10.0-windows`.** It went
+through two wrong homes first and both are worth recording, because each was wrong for a different
+reason.
+
+*Wrong home one, `Render`.* The assistant wrote "Render is already Windows-only through Direct3D, so
+it costs nothing there" — plausible, and false. `Render` targets plain `net10.0` deliberately
+(D60/D61), and
+`PngWriter` exists *only* because `System.Drawing.Common` was the last thing keeping it on
+`net10.0-windows`. Its own project file states the rule: *"Anything doing DllImport on user32 or
+kernel32 belongs in Viewer3D however portable its project file looks."* Putting GDI back in `Render`
+would have quietly undone a decision taken two days earlier and thrown away a hand-written PNG
+encoder's whole reason for existing.
+
+Worth keeping as an example of the shape: **"it's already platform-specific" is a claim about a
+project that has to be CHECKED, not inferred from what it happens to call.** Direct3D 11 is
+Windows-only at runtime; the project referencing it is not Windows-only at compile time, and the
+difference is the entire point of the split.
+
+*Wrong home two, `Viewer3D`.* Corrected by the owner: *"it might not becuase of MVP, it might need
+its own project"*. `Viewer3D` is the **View**. A glyph rasteriser is not view logic — it is
+infrastructure that happens to need a Windows API, the same category as `Render` and `Logging`, both
+of which were split out for exactly this reason. Folding it into the shell would put a testable
+service inside a WinForms application project and blur the one boundary this architecture is built
+on.
+
+**And the enforcement is the point, not the tidiness.** The owner: *"we want the compile time safety
+from MVP"*. A layering rule written in a document is a rule someone breaks by accident; a layering
+rule expressed as a project reference is a rule the compiler refuses. This is the argument `Render`
+already makes about itself — *"nothing in this project can quietly reach for a Form"* — applied
+once more. With `Fonts` separate, no amount of carelessness can put GDI in the decode path, the
+render path or the presenter, because none of them reference it.
+
+**Rasterisation sits behind an interface, on the owner's direction:** *"we want to be able to test
+this so a interface is probably not a bad idea, its SOLID if nothing else"*. The assistant had
+talked itself out of one a minute earlier as speculative generality — one implementation, extract
+when a second appears — and that reasoning was wrong here, because the second consumer is a test.
+
+It also decides the split cleanly, and the split is better than any of the three suggestions:
+
+| lives in | framework | what |
+|---|---|---|
+| `Content` | `net10.0` | `SchemeFont`, the scheme reader, `IGlyphRasteriser`, glyph metrics, atlas packing, text layout |
+| `Fonts` | `net10.0-windows` | `GdiGlyphRasteriser` and nothing else — the only project in the tree allowed to know what a font file is |
+| `Render` | `net10.0` | the atlas texture and the HUD draw call, in terms of pixels and quads |
+| `Viewer3D` | `net10.0-windows` | composition: builds the atlas, hands it to the renderer |
+
+So the ARITHMETIC of a HUD — where each glyph lands, how wide a string is, how the atlas packs — is
+deterministic, Linux-testable and needs no font installed, while only the glyph bitmaps themselves
+are Windows-bound. That is the part worth testing anyway: a wrong advance width is a bug, and a
+one-pixel difference in antialiasing is not.
+
+The abstraction lives in `Content` and the implementation in `Fonts`, which is the direction
+dependency inversion asks for: the low, stable, portable project owns the interface, and the
+high, volatile, platform-bound one implements it. Nothing references `Fonts` except the composition
+root.
+
+## D85 — User content is IMPORTED into our folder, never read live out of TF2
+
+**This corrects how D69 was built, not what D69 said.** The owner, on finding the viewer reading
+`tf/cfg` directly at startup:
+
+> *"btw when i talked about using a players config, i wasnt talking about using it directly from the
+> tf2 cfg folder, because movie makers probably play with a different config than they make videos
+> with, i want to enable us to import the players config, and match everything we need from it
+> basically. i figure the player can either copy paste their tf2 config into our config folder or we
+> have a ui import path or option to auto import from the tf2 folder"*
+
+and then: *"yea i think i should have made that more obvious from the get go because we kinda
+implemented to config too strongly"*.
+
+**The requirement was always "a real config works wholesale". The implementation read that as "read
+the real config, in place", which is a different and worse thing.** A person who plays with a
+competitive config and records with a movie config has two, and the viewer silently picking whichever
+one `tf/cfg` holds is not a feature. Worse, live reading makes the game's folder an input the viewer
+depends on: reinstall TF2, or verify files, and the viewer's controls change under it.
+
+So: **TF2's folder is an import SOURCE, and our own folder is the truth.** Three routes, all landing
+in the same place:
+
+1. copy a file in by hand,
+2. import from the TF2 install on request,
+3. import from a zip.
+
+**And the same rule covers HUDs**, on the owner's direction: *"the hud is another one of those places
+where we should allow the user to add it manually to our files, or import from there tf2, or import
+from a zip"*. That is exactly how TF2's own HUD community works — a custom HUD ships as a zip that
+gets dropped into `tf/custom/`, so "import from a zip" is not an extra convenience, it is the native
+distribution format.
+
+### The general rule, and where the line falls
+
+The owner generalised it past configs and HUDs:
+
+> *"yea bascially everything we inport from tf2 which can be user changed should be handeled like
+> that, i know the models and stuff cant be, because they are vpks and change when valve updates,
+> but configs, huds, basically everything in the custom folder now lol"*
+
+**So the boundary is `tf/custom/`, and it is a good boundary because Valve drew it.** That folder
+exists precisely to hold what a player added; everything else in `tf/` is what Valve shipped.
+
+| kind | example | how we read it | why |
+|---|---|---|---|
+| **user content** | configs, HUDs, anything under `tf/custom/` | **imported** into our folder | it is the player's, it varies per purpose, and it must not change under us when they reinstall |
+| **game content** | models, materials, sounds in the VPKs | **read live** | Valve rewrites it on every update, so a copy is a copy that goes stale — and it is gigabytes |
+
+The asymmetry is not inconsistency. A stale config is *wrong* — the viewer would silently use
+controls the player has abandoned. A stale model is *wrong in the other direction* — a demo from
+today wants today's assets, and a snapshot taken at import would drift from the game the demo was
+recorded against.
+
+**Nothing in the reading layer has to change for any of this, which is worth stating because it is
+the test of whether the layering was right.** `SchemeFonts.Find` takes a `ReadOnlySpan<byte>` and
+`ConfigConsole.Load` takes strings; neither knows what a folder is. The work is entirely in
+acquisition — where bytes come from — and none of it reaches the parsers.
+
+**Not built yet.** What exists today is the live read this entry says is wrong. Filed rather than
+fixed in passing, because it is a UI feature (an import path, a picker, a zip reader) rather than a
+one-line change, and the frame rate meter was the task in hand.
+

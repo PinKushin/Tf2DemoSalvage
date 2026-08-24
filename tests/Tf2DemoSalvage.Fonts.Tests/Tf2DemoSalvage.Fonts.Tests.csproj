@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The GDI glyph rasteriser.
+
+    **net10.0-windows because the thing under test is**, and that is the point of the project
+    existing (D84): System.Drawing.Common is Windows-only by design, so keeping it in one leaf
+    project is what stops it reaching Render or Content - whose suites run on the Linux measurement
+    boxes, where a Windows dependency fails the BUILD and Stryker scores a failed build as a
+    surviving mutant rather than reporting it as an error.
+
+    Everything about a HUD that is arithmetic - atlas packing, advances, layout - is tested in
+    Content.Tests against a fake rasteriser and needs no font at all. What is tested HERE is only
+    what genuinely requires GDI: that a real face produces ink, and that the scheme's `outline`
+    reaches the pixels.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Fonts.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Fonts\Tf2DemoSalvage.Fonts.csproj" />
+  </ItemGroup>
+
+</Project>

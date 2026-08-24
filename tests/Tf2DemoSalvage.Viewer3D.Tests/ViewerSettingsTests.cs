@@ -202,7 +202,7 @@ public sealed class ViewerSettingsTests
             TextureQuality = TextureQuality.Low,
         }.Write();
 
-        text.ShouldContain("fullscreen_mode 1");
+        text.ShouldContain("mat_fullscreen_mode 1");
         text.ShouldContain("texture_quality 256");
         text.ShouldContain("//", Case.Sensitive);
     }
@@ -214,7 +214,7 @@ public sealed class ViewerSettingsTests
         ViewerSettings settings = ViewerSettings.Parse(
             """
             // my settings
-            fullscreen_mode 1   // exclusive, I have one monitor
+            mat_fullscreen_mode 1   // exclusive, I have one monitor
 
             texture_quality "1024"
             """);
@@ -244,7 +244,7 @@ public sealed class ViewerSettingsTests
         // One bad line must not cost every other setting in the file.
         ViewerSettings settings = ViewerSettings.Parse(
             """
-            fullscreen_mode banana
+            mat_fullscreen_mode banana
             texture_quality 256
             """);
 
@@ -309,13 +309,13 @@ public sealed class ViewerSettingsTests
         // Quoted, because a Windows path has spaces in it more often than not and Source's own
         // config syntax accepts quotes around a value.
         ViewerSettings settings = ViewerSettings.Parse(
-            "screenshot_folder \"D:\\Tf2DemoSalvage\\my shots\"");
+            "cl_screenshot_folder \"D:\\Tf2DemoSalvage\\my shots\"");
 
         settings.ScreenshotFolder.ShouldBe("D:\\Tf2DemoSalvage\\my shots");
 
         // The control: absent means null, which is "beside the log", not an empty path that would
         // be created as a folder called "" somewhere unpredictable.
-        ViewerSettings.Parse("frame_rate_limit 60").ScreenshotFolder.ShouldBeNull();
+        ViewerSettings.Parse("fps_max 60").ScreenshotFolder.ShouldBeNull();
     }
 
     [Test]
@@ -326,12 +326,12 @@ public sealed class ViewerSettingsTests
         // `onto` argument it would start from the defaults, and passing one setting at startup
         // would silently reset every other one the user had chosen.
         ViewerSettings configured = ViewerSettings.Parse(
-            "frame_rate_limit 60\nviewmodel_fov 54\ntexture_quality 256");
+            "fps_max 60\nviewmodel_fov 54\ntexture_quality 256");
 
         configured.FrameRateLimit.ShouldBe(60);
 
         ViewerSettings overridden = ViewerSettings.Parse(
-            "screenshot_folder \"D:\\shots\"", onto: configured);
+            "cl_screenshot_folder \"D:\\shots\"", onto: configured);
 
         overridden.ScreenshotFolder.ShouldBe("D:\\shots");
 

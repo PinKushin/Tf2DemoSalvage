@@ -114,6 +114,24 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # IO failure that must cost its lines and nothing else. Device-free and net10.0, so it runs on the
 # Linux measurement boxes — which is half the reason the sink left the viewer at all.
 run Tf2DemoSalvage.Logging.Tests  logging    17
+
+# 7: the GDI glyph rasteriser (D84). Only what genuinely needs a real font — that a face produces
+# ink, that a space has none and still advances, and that the scheme's `outline` reaches the pixels.
+# Everything about a HUD that is arithmetic is tested in Content.Tests against a fake rasteriser.
+#
+# The space test earned its place immediately: StringFormat.GenericTypographic does not measure
+# trailing spaces and a lone space is entirely trailing, so every space in every HUD string had a
+# zero advance. Invisible to every other test here, because they all measure glyphs with ink.
+#
+# Skips rather than measuring a fallback when Lucida Console is absent. GDI substitutes a default
+# face for a missing family instead of failing, so without the skip these would pass having measured
+# a font nobody asked for.
+#
+# **The floor cannot see that**, and it is worth knowing rather than assuming otherwise: this script
+# reads `total` from the .trx, which counts skipped tests. Seven skips satisfy a floor of seven. That
+# is the standing hazard in docs/memory/a-skip-is-not-a-pass-or-a-failure.md, not a new one — the
+# skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
+run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -171,7 +189,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     142
 # restart minutes later, so a cursor over events leaves the map silent from the first reposition on.
 # The map load alone is enough to cause it — seven seconds of loading is 466 ticks, and the first
 # Advance lands past both the tick-4 start and the tick-334 restart.
-run Tf2DemoSalvage.Presentation.Tests presentation 116
+# Raised 116 -> 133 on 2026-08-24 by FpsMeterConformanceTests (17), which pins TF2's own
+# `cl_showfps` panel — the smoothing weight, the watermark pair, the colour thresholds and both
+# format strings — against `vgui_fpspanel.cpp`. Copied rather than invented because the meter exists
+# to tell three stutters apart, and an instrument nobody already trusts cannot settle that.
+run Tf2DemoSalvage.Presentation.Tests presentation 133
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -206,7 +228,16 @@ run Tf2DemoSalvage.Presentation.Tests presentation 116
 # 649: BspVisibilityConformanceTests (7). The visibility lump's run-length encoding, checked against
 # Valve's own CompressVis by round-tripping through a transcription of it — plus the two malformed
 # cases DecompressVis guards, a run that overruns the row and a zero repeat count.
-run Tf2DemoSalvage.Content.Tests  content   649
+# 666: SchemeFontConformanceTests (6) and GlyphAtlasTests (11), the portable half of the HUD (D84).
+# The scheme reader takes VGUI's font declaration from the shipped
+# platform/Resource/SourceScheme.res, because vguimatsurface is not in the SDK — the numbered
+# candidates, their yres ranges, and the same font declared twice as a #base override produces.
+# The atlas tests are the arithmetic of a HUD — packing, bearings, advances — measured against a
+# fake rasteriser, so they need no font and run on the Linux measurement boxes.
+#
+# Read from the .trx, which said 666 while the console said 650:
+# docs/memory/read-the-trx-total-not-the-console.md, hit again today.
+run Tf2DemoSalvage.Content.Tests  content   666
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -303,7 +334,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # (7) moved to Logging.Tests with FileRetention itself (D83), which is where it belongs now that the
 # type lives beside the log writer rather than in Scene. Nothing was deleted: viewer -7 is exactly
 # the 7 the new logging floor gained, on top of its own 9.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    627
+# 641, measured: 627 -> 634 by the Valve cvar vocabulary (cl_showfps parsing and the fps_max floor
+# departure), then -> 641 by HudRendererTests, which check the screen-to-clip arithmetic without a
+# device. The floor had also drifted below CI's 634 for the same suite, which is the failure
+# docs/memory/a-floor-must-track-the-number-it-guards.md describes: two copies of one number.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    641
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
