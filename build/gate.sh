@@ -133,7 +133,14 @@ run Tf2DemoSalvage.Logging.Tests  logging    17
 # skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
 run Tf2DemoSalvage.Fonts.Tests    fonts       7
 
-# 10: the bone pipeline's denominator (B182) and the tests for the instrument that produces it.
+# 15: the bone pipeline's denominator (B182) and the tests for the instrument that produces it.
+#
+# The denominator now covers BOTH halves — SetupBones itself (10 stages) and StandardBlendingRules
+# inside it (12). Extending it caught a second instrument bug, and a worse one than the first:
+# asking for "bool C_BaseAnimating::SetupBones" matched SetupBones_AttachmentHelper, declared 700
+# lines earlier, so the denominator for the most important function in the pipeline came back as
+# eleven attachment calls — every one of which looks like a plausible stage. A match is now refused
+# when the next character can continue an identifier.
 #
 # Two tests read the engine — that StandardBlendingRules' body is found and plausible, and that
 # every call it makes is classified as a stage or as noise with a stated reason. The other eight
@@ -149,7 +156,7 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # Plain net10.0 with its own Stryker config, deliberately (B184): Tf2DemoSalvage.Scene is net10.0
 # and has NO Stryker config at all, because its pose-path tests live in the Windows-pinned
 # Viewer3D.Tests and mutation runs happen on Linux. The replacement must not inherit that.
-run Tf2DemoSalvage.Animation.Tests animation 10
+run Tf2DemoSalvage.Animation.Tests animation 15
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

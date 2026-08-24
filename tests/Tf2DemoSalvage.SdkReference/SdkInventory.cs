@@ -298,8 +298,26 @@ public static class SdkInventory
             return string.Empty;
         }
 
-        string source = File.ReadAllText(path);
-        int at = source.IndexOf(signature, StringComparison.Ordinal);
+        return BodyIn(File.ReadAllText(path), signature);
+    }
+
+    /// <summary>The body of one function, given the source text rather than a path.</summary>
+    /// <param name="source">C++ source.</param>
+    /// <param name="signature">Text that starts the definition.</param>
+    /// <returns>Everything between the outermost braces, or empty when it is not found.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Split out so the matcher can be tested without a file.** The alternative was writing a
+    /// fixture into the SDK checkout, which is a tree this project reads and does not own — and the
+    /// cases worth testing are shapes nobody ships, so asserting against a real SDK function would
+    /// make the test a statement about Valve's code rather than about the matcher.
+    /// </remarks>
+    public static string BodyIn(string source, string signature)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(signature);
+
+        int at = Definition(source, signature);
 
         if (at < 0)
         {
@@ -377,6 +395,44 @@ public static class SdkInventory
         }
 
         return string.Empty;
+    }
+
+    /// <summary>Where a definition starts, refusing a match that is only a name PREFIX.</summary>
+    /// <param name="source">The file's text.</param>
+    /// <param name="signature">The definition's opening text.</param>
+    /// <returns>The index of the match, or −1.</returns>
+    /// <remarks>
+    /// **Written after a plain <c>IndexOf</c> returned the wrong function, silently.** Asking for
+    /// <c>bool C_BaseAnimating::SetupBones</c> matched
+    /// <c>bool C_BaseAnimating::SetupBones_AttachmentHelper</c>, which is declared 700 lines
+    /// EARLIER — so the denominator for the single most important function in the bone pipeline was
+    /// eleven attachment calls, and every one of them looked like a plausible stage.
+    ///
+    /// Nothing about that reads as an error. It is the same failure this whole reference exists to
+    /// remove: a wrong answer shaped exactly like a right one.
+    ///
+    /// So a match is accepted only when the next character cannot continue an identifier. That
+    /// rules out <c>_AttachmentHelper</c> while still allowing the whitespace or <c>(</c> a real
+    /// definition has.
+    /// </remarks>
+    private static int Definition(string source, string signature)
+    {
+        int at = source.IndexOf(signature, StringComparison.Ordinal);
+
+        while (at >= 0)
+        {
+            int after = at + signature.Length;
+
+            if (after >= source.Length ||
+                !(char.IsLetterOrDigit(source[after]) || source[after] == '_'))
+            {
+                return at;
+            }
+
+            at = source.IndexOf(signature, after, StringComparison.Ordinal);
+        }
+
+        return -1;
     }
 
     /// <summary>The same text with comments and string literals blanked out.</summary>

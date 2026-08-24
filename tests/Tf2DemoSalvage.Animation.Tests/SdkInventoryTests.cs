@@ -89,4 +89,51 @@ public sealed class SdkInventoryTests
         SdkInventory.CallsIn("Twice( 1 ); Other( 2 ); Twice( 3 );")
             .ShouldBe(["Twice", "Other"]);
     }
+
+    [Test]
+    public void FunctionBody_ASignatureThatIsAPrefixOfAnEarlierFunction_FindsTheRealOne()
+    {
+        // **A plain IndexOf got this wrong and said nothing.** Asking the SDK for
+        // `bool C_BaseAnimating::SetupBones` matched `SetupBones_AttachmentHelper`, declared 700
+        // lines earlier — so the denominator for the most important function in the bone pipeline
+        // came back as eleven attachment calls, every one of which looks like a plausible stage.
+        //
+        // The shape is the one this project keeps meeting: a wrong answer indistinguishable from a
+        // right one. Reproduced here in eight lines rather than left to the SDK to demonstrate.
+        string source =
+            """
+            void Thing::DoWork_Helper( int a )
+            {
+                Helper( a );
+            }
+
+            void Thing::DoWork( int a )
+            {
+                Real( a );
+            }
+            """;
+
+        SdkInventory.CallsIn(SdkInventory.BodyIn(source, "void Thing::DoWork"))
+            .ShouldBe(["Real"]);
+    }
+
+    [Test]
+    public void BodyIn_ASignatureNothingDefines_ReturnsNothing()
+    {
+        // The control for the search above: a matcher loosened to fix the prefix bug could start
+        // matching anything, and every other test here would still pass.
+        SdkInventory.BodyIn("void Thing::DoWork() { Real(); }", "void Thing::Absent")
+            .ShouldBeEmpty();
+    }
+
+    [Test]
+    public void BodyIn_ANestedBlock_StopsAtTheFunctionsOwnClosingBrace()
+    {
+        // Brace matching rather than "find the next }", which would end the body at the if.
+        SdkInventory.CallsIn(
+            SdkInventory.BodyIn(
+                "void Thing::DoWork() { if ( x ) { Inner(); } Outer(); } void Thing::After() { Later(); }",
+                "void Thing::DoWork"))
+            .ShouldBe(["Inner", "Outer"]);
+    }
 }

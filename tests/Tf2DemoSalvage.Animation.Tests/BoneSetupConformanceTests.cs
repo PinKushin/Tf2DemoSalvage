@@ -195,6 +195,130 @@ public sealed class BoneSetupConformanceTests
             "is no state to blend from — this becomes applicable when death is drawn, not before."),
     ];
 
+    /// <summary>The entry point every consumer of a bone goes through.</summary>
+    private const string SetupBones = "bool C_BaseAnimating::SetupBones";
+
+    [Test]
+    public void Pipeline_EveryCallSetupBonesMakes_IsClassified()
+    {
+        if (SdkInventory.Root is null)
+        {
+            Assert.Ignore("source-sdk-2013 is not available; set SOURCE_SDK to run this.");
+            return;
+        }
+
+        IReadOnlyList<string> calls =
+            SdkInventory.CallsIn(SdkInventory.FunctionBody(ClientAnimating, SetupBones));
+
+        HashSet<string> known = new(SetupStages.Select(stage => stage.Call), StringComparer.Ordinal);
+
+        List<string> unclassified =
+            calls.Where(call => !known.Contains(call) && !NotSetupStages.ContainsKey(call)).ToList();
+
+        unclassified.ShouldBeEmpty(
+            $"SetupBones makes calls nothing here has classified.{Environment.NewLine}" +
+            $"unclassified, in engine order: {string.Join(", ", unclassified)}{Environment.NewLine}" +
+            $"every call, in engine order: {string.Join(", ", calls)}");
+    }
+
+    [Test]
+    public void Extraction_SetupBonesBody_IsFoundAndPlausible()
+    {
+        if (SdkInventory.Root is null)
+        {
+            Assert.Ignore("source-sdk-2013 is not available; set SOURCE_SDK to run this.");
+            return;
+        }
+
+        string body = SdkInventory.FunctionBody(ClientAnimating, SetupBones);
+
+        // The control for the classification test above, on the same reasoning: an extraction that
+        // returned nothing would report the whole entry point as covered.
+        body.Length.ShouldBeGreaterThan(2000, "the brace matcher returned a body too short to be the real one");
+        body.ShouldContain("StandardBlendingRules", Case.Sensitive);
+        body.ShouldContain("BuildTransformations", Case.Sensitive);
+    }
+
+    /// <summary>The stages <c>SetupBones</c> itself performs, around the blend.</summary>
+    /// <remarks>
+    /// **Seeded with one entry and no more in this commit**, for the same reason the blend table
+    /// was: the red run prints the engine's own call list, and the rest is transcribed from that.
+    /// CA1812 rejects a record nothing constructs, so it cannot start empty.
+    /// </remarks>
+    private static readonly IReadOnlyList<BoneStage> SetupStages =
+    [
+        new BoneStage(
+            "GetMoveParent",
+            StageState.Absent,
+            "Read twice and both uses are stages. It gates enrolment into the threaded pre-pass — " +
+            "only ROOTS are enrolled, which is what keeps the merge recursion and the parallelism " +
+            "from ever overlapping (c_baseanimating.cpp:2897) — and it is the parent link the " +
+            "merge follows. Nothing here has an equivalent; the ordering is a depth sort (B181)."),
+
+        new BoneStage(
+            "StandardBlendingRules",
+            StageState.Partial,
+            "The blend itself. Its own twelve stages are the table above: one implemented, three " +
+            "partial, six absent, two not applicable."),
+
+        new BoneStage(
+            "Init",
+            StageState.Absent,
+            "m_pIk->Init( hdr, angles, origin, time, framecount, mask ) — the entity's real IK " +
+            "context, distinct from the throwaway one CalcAutoplaySequences uses. Preceded by a " +
+            "teleport guard that clears targets, which is the engine's own answer to the question " +
+            "a scrubbing viewer raises: what happens to a stateful simulation across a seek."),
+
+        new BoneStage(
+            "UpdateIKLocks",
+            StageState.Absent,
+            "Applies the locks the game code asked for this frame, before the targets are solved."),
+
+        new BoneStage(
+            "UpdateTargets",
+            StageState.Absent,
+            "Resolves each chain's goal into world space — for a foot, where the ground is."),
+
+        new BoneStage(
+            "CalculateIKLocks",
+            StageState.Absent,
+            "Traces against the world to decide where a locked foot actually rests. This is the " +
+            "one that makes feet plant, and heavy.mdl declares chains for HANDS as well, which is " +
+            "how an off-hand grip is pinned to a weapon."),
+
+        new BoneStage(
+            "SolveDependencies",
+            StageState.Absent,
+            "The two-bone solve itself, writing the result into the bone array and marking each " +
+            "bone it computed so BuildTransformations skips it."),
+
+        new BoneStage(
+            "BuildTransformations",
+            StageState.Partial,
+            "Turns local pos/q into bone-to-world down the hierarchy. Ours concatenates parents, " +
+            "but the merge runs AFTER rather than first, the bone mask is not consulted, and " +
+            "procedural and jiggle bones are not computed at all (B180, B182)."),
+
+        new BoneStage(
+            "ControlMouth",
+            StageState.NotApplicable,
+            "Drives the mouth flex from a playing voice line. TF2 demos carry voice as a separate " +
+            "stream this project does not decode, and no lip-sync data reaches us — so there is " +
+            "nothing to drive it with rather than a stage being skipped."),
+
+        new BoneStage(
+            "SetupBones_AttachmentHelper",
+            StageState.Partial,
+
+            // The arithmetic matches and the OWNER does not, which is the distinction worth
+            // keeping: ours resolves one attachment inside the consumer's loop iteration, where
+            // the engine runs one pass over the whole table per entity and caches it, gated on
+            // BONE_USED_BY_ATTACHMENT never having been requested before.
+            "Resolves the attachment table against the finished bones. The arithmetic matches " +
+            "Valve's, including the one-based index; what differs is that ours recomputes per " +
+            "child instead of once per entity (finding 35 section 4)."),
+    ];
+
     [Test]
     public void Extraction_StandardBlendingRulesBody_IsFoundAndPlausible()
     {
@@ -217,6 +341,67 @@ public sealed class BoneSetupConformanceTests
 
         SdkInventory.CallsIn(body).Count.ShouldBeGreaterThan(15, "too few calls to be the real body");
     }
+
+    /// <summary>Calls in <c>SetupBones</c> that are not stages, each with its reason.</summary>
+    private static readonly Dictionary<string, string> NotSetupStages =
+        new(StringComparer.Ordinal)
+        {
+            // Not a call at all: `#if defined( ... )` survives into the body, because the
+            // extraction blanks comments and literals but does not resolve the preprocessor.
+            // Listed rather than filtered by pattern, so the exclusion stays visible.
+            ["defined"] = "a preprocessor operator, not a function",
+
+            ["VPROF_BUDGET"] = "profiler scope",
+            ["DevMsgRT"] = "rate-limited developer warning about bone access",
+            ["DevWarning"] = "the attachment helper's failure message",
+            ["Warning"] = "the bone-array-too-small message",
+            ["Msg"] = "the threading contention message, behind a debug define",
+            ["ExecuteNTimes"] = "rate limiter around that Warning",
+            ["Assert"] = "debug assertion",
+            ["AUTO_LOCK"] = "scoped lock macro; the lock itself IS a stage and is listed",
+            ["MDLCACHE_CRITICAL_SECTION"] = "model cache lock macro",
+            ["GetClassname"] = "text for the bone-access warning",
+            ["GetInt"] = "ConVar reads: cl_SetupAllBones and the debug toggles",
+            ["GetBool"] = "ConVar read for the threading debug check",
+            ["IsToolRecording"] = "widens the mask when the engine is recording, which we never are",
+            ["IsBoneAccessAllowed"] = "debug guard around the warning above",
+            ["Find"] = "the duplicate-enrolment assertion on g_PreviousBoneSetups",
+            ["Count"] = "sizes: the cached bone count, and the enrolment list's",
+            ["Base"] = "raw pointer for the memcpy out",
+            ["memcpy"] = "copying the finished bones to the caller's array",
+            ["sizeof"] = "the size of that copy",
+            ["ClearPerfCounters"] = "performance counters behind STUDIO_ENABLE_PERF_COUNTERS",
+            ["GetModelPtr"] = "the studio header",
+            ["SequencesAvailable"] = "guard: the model has no sequence data",
+            ["GetSequence"] = "guard: an entity with no sequence has no bones to build",
+            ["flags"] = "reads STUDIOHDR_FLAGS_STATIC_PROP, which selects the one-matrix path",
+            ["numikchains"] = "guard: only allocate an IK context if the model has chains",
+            ["AddFlag"] = "EFL_SETTING_UP_BONES, so move children keep their transform invalid",
+            ["RemoveFlag"] = "clearing it",
+            ["IsRagdoll"] = "guard: IK is not run on ragdolls",
+            ["IsModelScaled"] = "guard: model scaling opts out of IK",
+            ["Teleported"] = "guard: a teleport clears IK targets",
+            ["IsNoInterpolationFrame"] = "the same guard's other half",
+            ["ClearTargets"] = "part of that teleport handling",
+            ["StartBlending"] = "the pose debugger, which has no counterpart here",
+            ["memset"] = "filling pos/q with 0xFF so uninitialised bones produce NaNs in debug",
+            ["MatrixCopy"] = "the static-prop path: one matrix, no blending",
+            ["AngleMatrix"] = "building the entity transform from render angles and origin",
+            ["GetRenderAngles"] = "part of that",
+            ["GetRenderOrigin"] = "part of that",
+            ["GetBoneForWrite"] = "the static-prop path's destination",
+            ["GetBoneArrayForWrite"] = "the array handed to the IK solver",
+            ["GetReadableBones"] = "accessor state, read as part of the cache check",
+            ["GetWritableBones"] = "accessor state",
+            ["SetReadableBones"] = "accessor state",
+            ["SetWritableBones"] = "accessor state",
+            ["LastBoneChangedTime"] = "part of the per-frame reset condition",
+            ["TrackBoneSetupEnt"] = "profiling hook",
+            ["CIKContext"] = "allocating the IK context; the stages that USE it are listed",
+            ["AddToTail"] = "enrolling into g_PreviousBoneSetups, part of the threaded pre-pass",
+            ["TryLock"] = "the threaded path's non-blocking acquire, part of the lock stage",
+            ["Unlock"] = "its release",
+        };
 
     [Test]
     public void Pipeline_EveryCallStandardBlendingRulesMakes_IsClassified()
