@@ -9910,11 +9910,28 @@ a finding in their own right, so they are filed rather than mentioned.
     VoiceInit_EraSpecimens2007To2013_DeclareSpeex
     WearableTracks_Cosmetics_NameTheirWearer
 
-**At least one is not a defect but an unfiled specimen.** The container test asserts the protocol is
-one of `[11, 14, 15, 16, 24]` and `20120707-0042-koth_idioteque_a3.dem` reports **22** — an era the
-timeline lists as an unmeasured gap (17–23). lcor therefore already contains at least one protocol
-the era table says nobody has, which is worth more than the test failure is worth fixing. Date it
-from the client that wrote it and extend `docs/TIMELINE.md` before touching the assertion.
+**Four of the fifteen are not defects at all. They are the recovered gap-filling specimens, and the
+assertion guarding them is stale.** The container test allows `[11, 14, 15, 16, 24]`, a list written
+before the corpus had anything else. The four failures are exactly the demos the `tf2-comp-archive`
+agent recovered from GotFrag MediaFire links (`TF2DEMOSALVAGE-LOG.md`, 2026-08-22 18:42):
+
+    leeko_badlands_4_63800.dem                    proto 21
+    20120707-0042-koth_idioteque_a3.dem           proto 22
+    20120909_1804_cp_gullywash_final1_red_fags    proto 22
+    hackermgereddit.dem                           proto 22
+
+That agent checked this corpus before claiming a gap and found 53 demos covering 11, 14, 15, 16 and
+24 — **with nothing at 21 or 22**, the middle of the range where TF2 changed fastest. So the worst
+part of the 17–23 gap is now covered and the test is reporting it as breakage.
+
+**Extend the list only after dating them**, not to stop a red run. Protocol numbers date nothing on
+their own (`docs/memory/z1800-is-modern-not-2015.md`); the era table's dates come from running
+period clients, so 21 and 22 need real build dates in `docs/TIMELINE.md` beside them. Then the
+assertion becomes a description of measured reality rather than a loosened bound.
+
+**Still genuinely open at 12–13 and 17–20, 23.** And one more thing that entry offers which nothing
+here exercises: fourteen PACKED demos (twelve `.7z`, a `.zip`, a `.rar`). Every file in this corpus
+is a bare `.dem`, so no decompression path is tested at all.
 
 Others carry real numbers worth reading rather than clearing: the voice test finds `steam` where it
 predicted `vaudio_speex`; `NetTick` measures a spread of 790 against a bound of 64; `RunningForward`
