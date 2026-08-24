@@ -94,6 +94,15 @@ jobs:
           dotnet test tests/Tf2DemoSalvage.Logging.Tests -c Release
           --logger 'trx;LogFileName=logging.trx'
 
+      # The bone pipeline's denominator (B182). It reads source-sdk-2013, which a hosted runner does
+      # not have, so the two conformance tests Assert.Ignore here and the eight instrument tests run
+      # for real. That split is deliberate: the instrument is what was wrong first, and it is the
+      # half that needs no checkout.
+      - name: Animation
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Animation.Tests -c Release
+          --logger 'trx;LogFileName=animation.trx'
+
       - name: Check the counts
         # "Passed!" is not the result, the count is. A crashed test host prints a pass line with
         # a truncated total, and a --filter matching nothing exits 0 with no summary at all.
@@ -133,6 +142,11 @@ jobs:
           ./build/assert-test-count.sh '**/content.trx' 645 Content
           ./build/assert-test-count.sh '**/presentation.trx' 135 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
+          # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
+          # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
+          # and still appear in the total. That is the same reason Content's 645 holds while it
+          # executes a fraction of its cases here.
+          ./build/assert-test-count.sh '**/animation.trx' 10 Animation
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

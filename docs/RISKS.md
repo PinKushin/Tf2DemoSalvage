@@ -10077,6 +10077,31 @@ are jiggle bones, which Valve simulates (`m_pJiggleBones->BuildJiggleTransformat
 `c_baseanimating.cpp:1586`) rather than merging. A comment describing a symptom without naming the
 missing feature is exactly what a denominator prevents.
 
+#### The denominator now exists — `BoneSetupConformanceTests`, 2026-08-24
+
+`tests/Tf2DemoSalvage.Animation.Tests`, plain `net10.0`, in `build/gate.sh` at a floor of 10 and in
+CI. `SdkInventory.FunctionBody` brace-matches `StandardBlendingRules` out of the SDK and
+`SdkInventory.CallsIn` lists what it calls, in engine order; the test fails on a call nobody has
+classified, never on a gap.
+
+**It corrected the list above on its first green run, twice over, which is the argument for it:**
+
+- **Twelve stages, not seven.** The missing five were `GetPoseParameters`, the `IBoneSetup`
+  construction that carries the **bone mask**, `Init` (the autoplay IK context), `GetBoneControllers`
+  and `ChildLayerBlend`.
+- **`ChildLayerBlend` is DEAD CODE in the shipped engine.** Its body's first statement is `return;`,
+  and what follows is four `FIXME`s including *"needs a new type of EF_BONEMERGE (EF_CHILDMERGE?)"*
+  and *"probably needs an IK merge system of some sort =("*. **Matching Valve here means doing
+  nothing.** Had the hand-written list happened to include it, it would have been filed as a gap and
+  cost ~40 lines of work reproducing something that never runs — a departure wearing the costume of
+  parity.
+
+**And the instrument was wrong before the denominator was.** Its first run reported `AddTextOverlay`,
+`GetAbsOrigin` and `Vector` as engine stages, all three from one commented-out line. Comments and
+string literals are now blanked before the scan (`SdkInventory.Live`), with eight tests covering it
+— including the control that ordinary code still yields every call, without which a blanking that
+ate everything would satisfy all the others.
+
 #### What to do
 
 Follow the pattern that already works here rather than inventing one: **generate the denominator
@@ -10084,6 +10109,9 @@ from the SDK and let a test carry it**, the way `SdkCoverageTests` does for lump
 parameters. Then each stage is either implemented, deliberately skipped with a reason, or a filed
 gap — and the list cannot go stale, because it is read from `c_baseanimating.cpp` rather than typed
 here.
+
+Still to extend the same way, since `StandardBlendingRules` is only the blend half:
+`SetupBones` itself, `BuildTransformations`, `CalculateIKLocks` and `SetupBones_AttachmentHelper`.
 
 **Do this before or alongside B181, not after.** B181 splits the loop into stages; knowing the
 engine's stage list first means splitting along the engine's seams rather than along whatever the
@@ -10284,6 +10312,50 @@ Two consequences follow, and the second is the serious one:
 
 That is why `Tf2DemoSalvage.Animation` and its tests are both plain `net10.0` from the first commit,
 with a Stryker config of their own: the new pipeline must not inherit this.
+
+#### Already known and deferred with a note, which is worth crediting
+
+`Viewer3D.Tests/GlobalUsings.cs` says it outright: *"of its 570 tests, 506 never touch Direct3D. The
+split on 2026-08-22 (D59) moved their subjects into their own assembly without moving the tests, so
+this keeps every existing file compiling while the suite follows its subjects across in its own
+change."* So this was a conscious deferral with a plan attached, not an oversight. What B184 adds is
+the **cost** — the Linux and Stryker consequences above — which that note does not state and which
+is what turns "follow later" into a thing worth scheduling.
+
+#### Scope when it is done — owner's direction, 2026-08-24
+
+> *"yea that can wait, although when we fix that we also should move the tests projects that are not
+> in the test folder into the test folder its weird we have like 2 test projects outside the tests
+> folder"*
+
+**Deferred, and only `SdkInventory` moves now** because the D88 denominator cannot reach it
+otherwise.
+
+*Measured*, and the recollection is right about the symptom while the cause is in the **solution
+file rather than on disk** — which is why it reads as odd without being findable.
+
+On disk the layout is clean: exactly one project sits outside `tests/`,
+`benchmarks/Tf2DemoSalvage.Benchmarks`, and that looks deliberate — benchmarks are a separate
+workload that must not run on the shared cloud boxes.
+
+In `Tf2DemoSalvage.slnx`, **three test projects were filed under the `/managed/` solution folder**:
+`Presentation.Tests`, `Viewer3D.Tests` and `Viewer3D.UiTests`, with `Benchmarks` there too. So a
+solution view showed test projects sitting among the libraries, on paths that say `tests/`. The
+owner, confirming after the first guess in this entry was too clever:
+
+> *"no im talking about if i open the project in vs2026 the solution has 2 folders, managed and
+> tests, but the viewer3d, ui, and presenter tests projects are in the managed folder not the tests
+> folder"*
+
+**Fixed 2026-08-24, not deferred** — it is four lines in the `.slnx` and nothing on disk moves.
+`Benchmarks` got a `/benchmarks/` folder of its own to match its directory, since a benchmark is
+neither a library nor a test and putting it in either misfiles it again. The two entries below
+outrank the alphabetical urge to tidy them away.
+
+Two things inside `tests/` are also **not** test projects, which is fine and worth not
+"correcting": `Tf2DemoSalvage.SdkReference` sets `IsTestProject=false` and is a library four suites
+reference, and `Tf2DemoSalvage.Fuzz` is a SharpFuzz harness. Neither is discovered by the runner,
+which is deliberate — an assembly with no tests reports as a suite whose total silently changed.
 
 **Being done incrementally rather than as a 115-file churn.** `SdkInventory` moves to
 `SdkReference` as part of the D88 bone work, because the new `Tf2DemoSalvage.Animation.Tests`

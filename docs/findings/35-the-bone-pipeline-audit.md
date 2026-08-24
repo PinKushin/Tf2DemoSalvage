@@ -229,6 +229,34 @@ returning empty because the pattern is wrong.
 | model scale in the bone path | `:1653` | **absent** in the bone path |
 | `SetupBones_AttachmentHelper` | `:2055` | present, different owner — §4 |
 | per-frame bone cache | `:2874`, `:2911` | **absent** — replaced by the depth sort, §1 |
+| `ChildLayerBlend` | `:1907` | **nothing, correctly** — the engine's own copy is dead, §5a |
+
+### 5a. `ChildLayerBlend` is dead in the shipped engine, and that is a finding
+
+**This table was hand-written and it omitted `ChildLayerBlend` entirely.** The extraction added it,
+which is the whole case for extracting. Then reading it turned a would-be gap into a would-be
+*defect*: the function's first statement is `return;`.
+
+```cpp
+void C_BaseAnimating::ChildLayerBlend( Vector pos[], Quaternion q[], float currentTime, int boneMask )
+{
+	return;
+	…
+```
+
+What follows is unreachable and full of Valve's own doubts — `// FIXME: needs a new type of
+EF_BONEMERGE (EF_CHILDMERGE?)`, `// FIXME: these should Inherit from the parent`, `// FIXME: needs
+some kind of sequence`, and `// probably needs an IK merge system of some sort =(`. The intent is
+legible: let a bone-merged child's own sequence write back into its parent's pose. It was never
+finished, so a merged child cannot animate anything on its wearer.
+
+**Matching the engine here means implementing nothing.** Had the typed list happened to include this
+stage, it would have been filed as a gap and cost around forty lines reproducing behaviour that
+never runs — work that would have read as parity while being a departure from it. That is the
+failure mode a denominator is supposed to prevent, and it nearly happened in the direction nobody
+watches for.
+
+*Evidence class: read from published source.*
 
 **The jiggle-bone gap is already documented here under a different name.** `StudioBones.cs:352`
 records that a `ghostly_gibus` matched 1 bone of 8 and *"the other seven stayed at the model

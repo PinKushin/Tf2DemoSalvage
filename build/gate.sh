@@ -132,6 +132,24 @@ run Tf2DemoSalvage.Logging.Tests  logging    17
 # is the standing hazard in docs/memory/a-skip-is-not-a-pass-or-a-failure.md, not a new one — the
 # skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
 run Tf2DemoSalvage.Fonts.Tests    fonts       7
+
+# 10: the bone pipeline's denominator (B182) and the tests for the instrument that produces it.
+#
+# Two tests read the engine — that StandardBlendingRules' body is found and plausible, and that
+# every call it makes is classified as a stage or as noise with a stated reason. The other eight
+# cover SdkInventory.Live/CallsIn, which earned them: its first run reported AddTextOverlay,
+# GetAbsOrigin and Vector as engine stages, all three from a COMMENTED-OUT line. A denominator that
+# reports deleted code asks somebody to implement what Valve removed, and the resulting work looks
+# like parity while being its opposite.
+#
+# The classification test fails on an UNCLASSIFIED call, never on a gap — same contract as
+# SdkCoverageTests. An unimplemented stage is a fact to report; an unrecognised one means the engine
+# grew something nobody here has looked at.
+#
+# Plain net10.0 with its own Stryker config, deliberately (B184): Tf2DemoSalvage.Scene is net10.0
+# and has NO Stryker config at all, because its pose-path tests live in the Windows-pinned
+# Viewer3D.Tests and mutation runs happen on Linux. The replacement must not inherit that.
+run Tf2DemoSalvage.Animation.Tests animation 10
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
