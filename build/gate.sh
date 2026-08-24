@@ -269,7 +269,19 @@ run Tf2DemoSalvage.Presentation.Tests presentation 135
 # number you get from reading the declaration's comment groups instead of its members. A stride of
 # 140 and a member count are now asserted against each other, which is why that disagreed rather
 # than passing.
-run Tf2DemoSalvage.Content.Tests  content   677
+# 694: the bone fields are now READ, not just laid out. BoneFlagReaderTests (6) against hand-built
+# bytes, BoneFlagContentTests (10) against models TF2 ships, BoneFlagContentProbe (1, [Explicit]).
+#
+# The two halves answer different questions and the second is the one that matters: the fixture
+# tests can only prove the reader agrees with bytes written by the same hand on the same day. The
+# content tests read Valve's files, and their strongest assertion is the NEGATIVE one — no bone in
+# any shipped model sets a bit studio.h does not declare. A field read four bytes early still
+# yields a number, so "every bit is one the engine names" is what separates a correct offset from a
+# wrong one that looks sane.
+#
+# Verified by sabotage rather than by reading: BoneFlagsOffset - 4 reddens 9 of the 18, and the
+# precise inverse edit restores them.
+run Tf2DemoSalvage.Content.Tests  content   694
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
