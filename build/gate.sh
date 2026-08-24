@@ -170,7 +170,9 @@ run Tf2DemoSalvage.Content.Tests  content   640
 # the "did the data arrive" check that was skipped while four fixes were aimed at the rule using it.
 # The other pins that no first-person arms model is tracked as a world prop, which is what caught a
 # carried weapon's m_nModelIndex being its VIEW model (B160).
-run Tf2DemoSalvage.Corpus.Tests   corpus     103
+# 104: CorpusTimelineSoundTests. svc_Sounds now reaches the timeline with names and ticks, which is
+# the first of B168's three pieces and the only one testable without an audio device.
+run Tf2DemoSalvage.Corpus.Tests   corpus     104
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
