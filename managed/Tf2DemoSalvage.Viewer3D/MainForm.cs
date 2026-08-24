@@ -3808,7 +3808,26 @@ internal class MainForm : Form
             }
         }
 
+        // **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an
+        // MDL the first time a model path appears, and the upload below rebuilds the whole packed
+        // vertex buffer — both on the UI thread, both in one frame, and both OUTSIDE `_posingTicks`
+        // and `_drawTicks`. So a frame that spent a second here reported no time anywhere and only
+        // ever showed as the owner's "everything freezes for a half a second to maybe a second".
+        long addedAt = Stopwatch.GetTimestamp();
+
         bool grew = _models.Add(_drawn, ModelGeometry);
+
+        double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
+
+        if (addSeconds > StallSeconds)
+        {
+            _renderLog.LogWarning(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"STALL reading models took {addSeconds * 1000d:0} ms for {_drawn.Count} props " +
+                    $"({_models.Count} packed); this frame is a freeze"));
+        }
 
         // **Now the models are loaded, so a player's sequence can be chosen.** Nothing on the wire
         // carries one, and picking it needs the model's own merged sequence table - which only
@@ -3867,7 +3886,26 @@ internal class MainForm : Form
         if ((grew || !_modelsUploaded) && _device is { } device)
         {
             _modelsUploaded = true;
+
+            long uploadedAt = Stopwatch.GetTimestamp();
+
             device.UploadModels(_models);
+
+            double uploadSeconds =
+                (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
+
+            if (uploadSeconds > StallSeconds)
+            {
+                // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off
+                // cost at load: it is paid again every time a model nobody has seen yet comes into
+                // view, and it gets more expensive as the set gets bigger.
+                _renderLog.LogWarning(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"STALL uploading {_models.Vertices.Count} vertices took " +
+                        $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
+            }
 
             // **Logged because a model that draws nothing looks exactly like one that was never
             // uploaded.** The counts separate the two: no vertices means the packing failed, and
@@ -4830,6 +4868,15 @@ internal class MainForm : Form
     /// <summary>Longest frame playback will believe in, in seconds.</summary>
     private const double MaximumFrameSeconds = 0.1;
 
+    /// <summary>How long a single step must take before it counts as a visible freeze.</summary>
+    /// <remarks>
+    /// **Thirty milliseconds is two frames at the rate this viewer actually runs**, which is the
+    /// point at which a person sees a hitch rather than a slightly late frame. Deliberately far
+    /// below the half-second the owner reports, so the log catches the smaller ones too and can show
+    /// whether they share a cause with the big ones.
+    /// </remarks>
+    private const double StallSeconds = 0.03;
+
     /// <summary>The colour behind everything: a dark blue, and deliberately not black.</summary>
     /// <remarks>
     /// **A diagnostic choice more than a cosmetic one.** This started at 0.06/0.07/0.09, which is
@@ -4882,8 +4929,13 @@ internal class MainForm : Form
         {
             if (FrameIsDue())
             {
-                RenderFrame();
-                CountFrame();
+                // **Counted only when something was drawn.** RenderFrame declines during a map
+                // read, and counting those turned the per-second report into a measurement of how
+                // fast an empty loop spins — 186 "frames a second" with every duration at zero.
+                if (RenderFrame())
+                {
+                    CountFrame();
+                }
             }
             else
             {
@@ -5193,6 +5245,51 @@ internal class MainForm : Form
     ///
     /// Once a second, so a log covering a whole session stays readable.
     /// </remarks>
+    /// <summary>Collections and pause time since the last report, or empty when there were none.</summary>
+    /// <remarks>
+    /// **The instrument for a stall that is not a frame rate drop**, which is the owner's exact
+    /// description of B163: *"the stutter isnt in engine fps, its stutter across the whole app, the
+    /// fps doesnt drop, everything freezes for a half a second to maybe a second sometimes"*.
+    ///
+    /// A blocking gen2 collection does precisely that. It suspends every managed thread, so the
+    /// window stops pumping and nothing is drawn — and because the frames on either side are as fast
+    /// as ever, the AVERAGE rate barely moves. That is why an fps counter alone cannot see it and
+    /// why the pair of numbers matters more than either alone.
+    ///
+    /// <c>GC.GetTotalPauseDuration()</c> is the runtime's own accounting of time spent with threads
+    /// suspended, so this is not an inference from a gap in the log — it is the pause, reported by
+    /// the thing that caused it.
+    ///
+    /// Printed only when something happened, so a quiet second stays one line.
+    /// </remarks>
+    private string GarbageThisSecond()
+    {
+        int gen0 = GC.CollectionCount(0);
+        int gen1 = GC.CollectionCount(1);
+        int gen2 = GC.CollectionCount(2);
+        TimeSpan paused = GC.GetTotalPauseDuration();
+
+        (int Gen0, int Gen1, int Gen2, TimeSpan Paused) since = (
+            gen0 - _collections.Gen0,
+            gen1 - _collections.Gen1,
+            gen2 - _collections.Gen2,
+            paused - _collections.Paused);
+
+        _collections = (gen0, gen1, gen2, paused);
+
+        if (since is { Gen0: 0, Gen1: 0, Gen2: 0 } && since.Paused < TimeSpan.FromMilliseconds(1))
+        {
+            return string.Empty;
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"; gc {since.Gen0}/{since.Gen1}/{since.Gen2} paused {since.Paused.TotalMilliseconds:0.#} ms");
+    }
+
+    /// <summary>Collection counts and pause time as of the last report.</summary>
+    private (int Gen0, int Gen1, int Gen2, TimeSpan Paused) _collections;
+
     private void CountFrame()
     {
         _framesDrawn++;
@@ -5227,7 +5324,8 @@ internal class MainForm : Form
             $"; sampling {_samplingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
             $", posing {_posingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
             $" (lighting {_models.LightingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms)" +
-            " of the second");
+            " of the second" +
+            GarbageThisSecond());
 
         _models.LightingTicks = 0;
 
@@ -5375,7 +5473,18 @@ internal class MainForm : Form
 
         // Every frame's duration passes through here, so this is where the worst one is noticed —
         // and where the meter takes its reading, rather than starting a second clock (B174).
-        _longestFrameSeconds = Math.Max(_longestFrameSeconds, Math.Min(seconds, MaximumFrameSeconds));
+        //
+        // **Recorded UNCLAMPED, and the clamp being here was hiding the defect it was meant to help
+        // find.** This read `Math.Min(seconds, MaximumFrameSeconds)`, so the worst frame could never
+        // be reported as worse than 100 ms — the ceiling. The owner's report was "everything freezes
+        // for a half a second to maybe a second", and the log for those exact seconds said
+        // `longest 100 ms`: not a coincidence, not a measurement, just the clamp showing through.
+        //
+        // A saturating instrument is worse than a missing one, because 100 looks like a number
+        // somebody measured. The clamp still applies to FLIGHT below — a stall must not fling the
+        // camera across the map — which is what it was always for; applying it to the record of what
+        // happened was the mistake.
+        _longestFrameSeconds = Math.Max(_longestFrameSeconds, seconds);
         _lastFrameSeconds = seconds;
 
         if (!_freeLook)
@@ -5899,6 +6008,13 @@ internal class MainForm : Form
 
         SoundSample? sample = null;
 
+        // **Timed because this is a file read and a decode INSIDE the frame.** A sound reaches here
+        // once, the first time it plays — so every new sound in a match pays a VPK read plus a full
+        // decode on the UI thread, and a voice line is an MP3. That is a "once per sound" cost
+        // wearing the clothes of a cache, and it lands wherever in playback the sound happens to
+        // first occur.
+        long readAt = Stopwatch.GetTimestamp();
+
         if (_archives is { } archives)
         {
             // **The soundchars come off first.** A precached name carries Valve's prefixes — ')'
@@ -5936,10 +6052,36 @@ internal class MainForm : Form
 
         _soundCache[name] = sample;
 
+        double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
+
+        if (readSeconds > StallSeconds)
+        {
+            _audioLog.LogWarning(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"STALL decoding '{name}' took {readSeconds * 1000d:0} ms " +
+                    $"({sample?.FrameCount ?? 0} frames); this frame is a freeze"));
+        }
+
         return sample;
     }
 
-    private void RenderFrame()
+    /// <returns>Whether a frame was actually drawn.</returns>
+    /// <remarks>
+    /// **The return value exists because <see cref="CountFrame"/> was counting frames this method
+    /// declined to draw.** The idle loop ran `RenderFrame(); CountFrame();` unconditionally, so
+    /// during a map read — when this returns immediately — the loop still counted a frame per
+    /// iteration. The per-second report then read
+    ///
+    /// <code>186.5 frames a second, longest 0 ms, drawing 0 ms</code>
+    ///
+    /// which is not a frame rate at all: it is how fast an empty loop spins. Every number in that
+    /// line was consistent with itself and none of it measured rendering, which is the failure
+    /// `docs/memory/a-log-must-name-what-it-measured.md` is about. It survived because a high frame
+    /// rate is the answer nobody investigates.
+    /// </remarks>
+    private bool RenderFrame()
     {
         // **Nothing is drawn while a map is being read on another thread (B146).** That read
         // replaces a dozen fields one at a time — the outline, the surfaces, the assets, the
@@ -5951,7 +6093,7 @@ internal class MainForm : Form
         // is what a frozen window showed anyway.
         if (_readingMap)
         {
-            return;
+            return false;
         }
 
         PlaySounds();
@@ -6045,6 +6187,8 @@ internal class MainForm : Form
                     $"{clock.Elapsed.TotalMilliseconds:F0} ms to the first frame at " +
                     $"{_viewport.ClientSize.Width}x{_viewport.ClientSize.Height}"));
         }
+
+        return true;
     }
 
     /// <summary>

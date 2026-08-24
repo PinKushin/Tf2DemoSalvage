@@ -4702,3 +4702,59 @@ acquisition — where bytes come from — and none of it reaches the parsers.
 fixed in passing, because it is a UI feature (an import path, a picker, a zip reader) rather than a
 one-line change, and the frame rate meter was the task in hand.
 
+
+## D86 — PROJECT RULE: a departure from Valve must be DECLARED where it is made
+
+**The owner, on discovering that the model upload had never matched the engine:**
+
+> *"when that commit was made it was not explained that it was a departure or i would have never
+> approved it, it might have been something you said was closed off, but its obviously not"*
+
+D82 already says departures are bounded by size and justification. It assumed they would be
+**visible**. This one was not, and an undeclared departure cannot be bounded, argued with, or
+rejected — it is simply absorbed as though it were the design.
+
+### The case that produced the rule
+
+`a54e61e` (2026-08-13) introduced one packed vertex buffer holding every entity model, rebuilt
+whenever the set grew. Its commit message reasons entirely from first principles:
+
+> *"Two buffers rather than one because the lifetimes differ: the map's geometry is rebuilt when the
+> world is, while this grows only when the demo shows a model it has not shown before."*
+
+**Valve is not mentioned anywhere in it.** Not as a comparison, not as a rejected option, not as
+something unknowable. So there was nothing for the owner to approve or refuse — the choice never
+appeared as a choice.
+
+And the engine's answer was two greps away in *published* headers.
+`public/materialsystem/imaterialsystem.h` declares `CreateStaticMesh` / `DestroyStaticMesh`: one
+mesh per model, created once, destroyed once. `CBaseEntity::PrecacheModel` behind
+`IsPrecacheAllowed()` says when. Nothing here was closed; nobody checked. That is the failure
+`docs/memory/nothing-is-closed.md` exists for, and the reason
+`docs/memory/conformance-test-before-implementation.md` asks for the parity question to be answered
+*before* the code that would bias the answer.
+
+**What it cost:** roughly 200 ms of frozen application every time a model came into view, 25 times
+in 1 minute 43 seconds of one match, for eleven days — invisible to every counter, because the cost
+sat outside both the posing and drawing timers.
+
+### The rule
+
+1. **Before implementing anything the engine also does, find out how the engine does it.** The menu
+   in `CLAUDE.md` is a menu: go to the source that holds the answer. For rendering structure that is
+   the material system headers, which are published even though the implementation is not.
+2. **If the design differs, say so IN THE COMMIT MESSAGE**, in the form: what the engine does, what
+   we are doing, and why. Not in a code comment alone — a commit message is what gets reviewed.
+3. **"I could not find out what Valve does" is a claim that must be shown**, not assumed. It is
+   almost always false; when it is true the binaries are decompilable.
+4. **A comment asserting our arrangement is cheap is not evidence and must not be written as
+   though it were.** The one here — *"rare and bounded … known within a few seconds of playback"* —
+   was measured at 25 rebuilds over 1m43s. Confident, specific and unchecked is the worst
+   combination, because it reads as though somebody verified it and stops the question being asked
+   again.
+
+**The assistant's first proposal for the FIX repeated the original mistake** and is kept here as the
+worked example: it suggested keeping the packed buffer and appending to it, which addresses the cost
+while preserving the undeclared departure that caused it. Overruled — *"so we switch to valves,
+which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
+

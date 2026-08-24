@@ -1188,9 +1188,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The bone matrices skinning the current draw.</summary>
     private ComPtr<ID3D11Buffer> _bones;
 
-    /// <summary>Entity model geometry, in model space, uploaded once.</summary>
-    private ComPtr<ID3D11Buffer> _modelVertices;
-
     private Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> _modelBatches =
         new(StringComparer.OrdinalIgnoreCase);
     private ComPtr<ID3D11SamplerState> _wrapSampler;
@@ -3725,7 +3722,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _material.Dispose();
         _camera.Dispose();
         _model.Dispose();
-        _modelVertices.Dispose();
+        ReleaseModelBuffers();
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
@@ -3803,54 +3800,135 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _batches = [];
     }
 
-    /// <summary>Uploads every entity model's triangles, in model space.</summary>
-    /// <param name="device">The device.</param>
-    /// <param name="vertices">Packed model geometry; may be empty.</param>
-    /// <param name="batches">Each model's runs, keyed by its path.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="vertices"/> is null.</exception>
+    /// <summary>One static vertex buffer per model, as the engine keeps one mesh per model.</summary>
     /// <remarks>
-    /// **A second buffer rather than a bigger one**, because the two have entirely different
-    /// lifetimes: the map's geometry is rebuilt when the world is, and this grows only when a
-    /// model the demo has not shown before appears. Merging them would rebuild the map every time
-    /// a new rocket type turned up.
+    /// **Never rebuilt once created.** That is the whole fix, and the reason the buffers are
+    /// `Immutable`: a model's geometry in model space genuinely does not change after it is packed,
+    /// so the strongest usage flag is also the correct one.
+    /// </remarks>
+    private readonly Dictionary<string, ComPtr<ID3D11Buffer>> _modelBuffers =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Uploads any entity model that has not been uploaded yet, in model space.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="models">Each model's own vertices and its runs, keyed by path.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="models"/> is null.</exception>
+    /// <remarks>
+    /// **This used to pack and upload EVERY model on every addition, and the comment here said that
+    /// was "rare and bounded — every one of them is known within a few seconds of playback". Both
+    /// halves were false, and the log said so the first time anyone looked.** Instrumented
+    /// 2026-08-24 against a real match: 25 full rebuilds spread over 1 minute 43 seconds, five of
+    /// them inside two seconds, each 193 to 231 ms. At 27 floats a vertex, 2,067,354 vertices is
+    /// 223 MB — packed into a fresh array and pushed to the GPU to add ONE model.
     ///
-    /// Uploaded whole each time a model is added, which is rare and bounded — a match uses a few
-    /// hundred distinct models and every one of them is known within a few seconds of playback.
+    /// The owner saw it as *"everything freezes for a half a second to maybe a second"* while the
+    /// frame rate never dropped, and no counter named it: this sits outside both `_posingTicks` and
+    /// `_drawTicks`, so every performance investigation was reading numbers structurally incapable
+    /// of seeing it.
+    ///
+    /// **It was not wrong when it was written.** The commit that introduced it (`a54e61e`,
+    /// 2026-08-13) says "uploaded once", and one buffer uploaded once is a good design. Lazy
+    /// on-sight model loading grew in around it afterwards, turning "once" into "on every addition",
+    /// and the buffer was never revisited to match — instead a comment was written asserting the new
+    /// behaviour was cheap. Nobody measured it, and because the assertion was confident and specific
+    /// it read as though somebody had, which is what stopped the question being asked again. Same
+    /// family as `docs/memory/per-item-apis-hide-quadratic-reads.md`, and the same shape as any
+    /// unfalsifiable comment: it outlives the bug it excuses.
+    ///
+    /// **Now done the way the engine does it**, on the owner's direction — *"so we switch to valves,
+    /// which is what we should have been using in the first place, becasue valves imp is blazingly
+    /// fast"*. `IMaterialSystem` publishes the shape: `CreateStaticMesh` / `DestroyStaticMesh` give
+    /// every model its own mesh, with a separate shared `GetDynamicMesh` for transient geometry. So
+    /// adding a model allocates one small buffer and touches no other model's, and the cost is
+    /// O(the model added) rather than O(the entire set).
+    ///
+    /// **An assistant proposal to keep the single packed buffer and only append to it was
+    /// overruled, and rightly.** It would have fixed the cost while preserving the architecture that
+    /// produced it — and would have left behind a second confident comment explaining why the
+    /// arrangement was fine.
+    ///
+    /// Valve also loads models at level load rather than on sight: `CBaseEntity::PrecacheModel` sits
+    /// behind `IsPrecacheAllowed()` and warns on an out-of-order precache. Matching that timing —
+    /// packing from the demo's own `modelprecache` table before playback starts — is the remaining
+    /// half and is filed rather than done here.
     /// </remarks>
     public void UploadModels(
         ComPtr<ID3D11Device> device,
-        IReadOnlyList<WorldVertex> vertices,
-        Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches)
+        IReadOnlyDictionary<string, PackedModel> models)
     {
-        ArgumentNullException.ThrowIfNull(vertices);
-        ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(models);
+
+        Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((string path, PackedModel model) in models)
+        {
+            batches[path] = model.Frames;
+
+            // **Already uploaded means already correct**, because a model's geometry in model space
+            // never changes. This one line is the difference between O(added) and O(total).
+            if (_modelBuffers.ContainsKey(path))
+            {
+                continue;
+            }
+
+            if (model.Vertices.Count == 0)
+            {
+                continue;
+            }
+
+            float[] data = Pack(model.Vertices);
+
+            BufferDesc description = new()
+            {
+                ByteWidth = (uint)((long)data.Length * sizeof(float)),
+
+                // Immutable is now the ACCURATE flag rather than an obstacle. It promises the
+                // contents never change after creation, which is true of one model's geometry and
+                // was never true of a buffer holding every model.
+                Usage = Usage.Immutable,
+                BindFlags = (uint)BindFlag.VertexBuffer,
+            };
+
+            ComPtr<ID3D11Buffer> buffer = default;
+
+            fixed (float* first = data)
+            {
+                SubresourceData initial = new() { PSysMem = first };
+
+                SilkMarshal.ThrowHResult(
+                    device.CreateBuffer(in description, in initial, ref buffer));
+            }
+
+            _modelBuffers[path] = buffer;
+        }
 
         _modelBatches = batches;
+    }
 
-        _modelVertices.Dispose();
-        _modelVertices = default;
+    /// <summary>Forgets every uploaded model, so the next upload rebuilds them.</summary>
+    /// <remarks>
+    /// **For a caller that reuses a model NAME for different geometry**, which the production path
+    /// never does — a model path maps to fixed vertices for the life of a map, and that is exactly
+    /// what lets <see cref="UploadModels"/> skip anything it already holds.
+    ///
+    /// The offscreen target is the exception and needs this: it renders one posed model at a time
+    /// under a fixed name, with different geometry each call. Three rendering tests failed the
+    /// moment per-model buffers arrived, because the second render drew the first one's model —
+    /// which is the assumption failing loudly rather than silently, and worth keeping as the reason
+    /// this method exists.
+    /// </remarks>
+    public void ClearModels() => ReleaseModelBuffers();
 
-        if (vertices.Count == 0)
+    /// <summary>Drops every model buffer. Called when the world goes.</summary>
+    private void ReleaseModelBuffers()
+    {
+        foreach (ComPtr<ID3D11Buffer> buffer in _modelBuffers.Values)
         {
-            return;
+            buffer.Dispose();
         }
 
-        float[] data = Pack(vertices);
-
-        BufferDesc description = new()
-        {
-            ByteWidth = (uint)(data.Length * sizeof(float)),
-            Usage = Usage.Immutable,
-            BindFlags = (uint)BindFlag.VertexBuffer,
-        };
-
-        fixed (float* first = data)
-        {
-            SubresourceData initial = new() { PSysMem = first };
-
-            SilkMarshal.ThrowHResult(
-                device.CreateBuffer(in description, in initial, ref _modelVertices));
-        }
+        _modelBuffers.Clear();
     }
 
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
@@ -3881,8 +3959,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Draws one posed model.</summary>
     /// <param name="context">The device context.</param>
+    /// <param name="modelPath">Which model, so its own static mesh can be bound (D86).</param>
     /// <param name="matrix">Where it stands: sixteen floats, row major.</param>
-    /// <param name="batches">Its runs, indexing into the model buffer.</param>
+    /// <param name="batches">Its runs, indexing into that model's own vertices.</param>
     /// <param name="light">The ambient cube of the leaf it stands in, or null.</param>
     /// <param name="sun">The sun reaching it, or null when it traced to solid rather than sky.</param>
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
@@ -3909,6 +3988,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     public void DrawModel(
         ComPtr<ID3D11DeviceContext> context,
+        string modelPath,
         float[] matrix,
         IReadOnlyList<WorldBatch> batches,
         AmbientCube? light = null,
@@ -3925,11 +4005,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
 
-        if (_modelVertices.Handle is null)
+        ArgumentNullException.ThrowIfNull(modelPath);
+
+        // **Named now that each model owns its buffer.** "Nothing was uploaded" used to be one
+        // question about one shared buffer; it is now a question about THIS model, and saying which
+        // one is the difference between a lead and a shrug.
+        if (!_modelBuffers.TryGetValue(modelPath, out ComPtr<ID3D11Buffer> vertexBuffer) ||
+            vertexBuffer.Handle is null)
         {
             // Not silent: a caller asking to draw a model when nothing was uploaded is a wiring
             // fault, and it looks exactly like a model that is correctly invisible.
-            DecodeLog.Lost("render", "a model was posed before any model geometry was uploaded");
+            DecodeLog.Lost(
+                "render", $"{modelPath} was posed before its geometry was uploaded");
             return;
         }
 
@@ -3953,7 +4040,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // not when the map is absent or when a test poses a model on its own.
         BindPipeline(context);
 
-        context.IASetVertexBuffers(0, 1, ref _modelVertices, in stride, in offset);
+        // One bind per model instance, which is what per-model meshes cost and what the engine pays
+        // too. It buys the buffer never being rebuilt, which was 200 ms a time.
+        context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
 
         SetModel(context, matrix, light, sun, blend, bones);
 
