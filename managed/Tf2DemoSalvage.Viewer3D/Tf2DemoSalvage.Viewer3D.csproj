@@ -38,6 +38,11 @@
     <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Render\Tf2DemoSalvage.Render.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Presentation\Tf2DemoSalvage.Presentation.csproj" />
+
+    <!-- B168. This reference is the whole of what was missing: the audio project was finished,
+         tested and unreachable — nothing outside it named its namespace, so 102 passing tests
+         covered a subsystem that had never made a sound. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
   </ItemGroup>
 
 </Project>

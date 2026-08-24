@@ -33,7 +33,23 @@ public sealed unsafe class AudioOutput : IDisposable
     private readonly Context* _context;
 
     /// <summary>Sources that have been handed a buffer, with the buffer to free after them.</summary>
-    private readonly List<(uint Source, uint Buffer)> _playing = [];
+    /// <remarks>
+    /// **Keyed by entity and channel as well, because Source's channels are exclusive.** A named
+    /// channel plays one sound at a time per entity: a new one replaces what is there, and
+    /// <c>SND_STOP</c> silences it. Without that a looping door plays its whole file instead of
+    /// being cut when the door arrives — the owner heard exactly that: "gate sounds are either
+    /// playing too slow or just playing too long".
+    /// </remarks>
+    private readonly List<Voice> _playing = [];
+
+    /// <summary>One sound in flight.</summary>
+    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel);
+
+    /// <summary>
+    /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
+    /// named one, so these overlap instead of replacing each other.
+    /// </summary>
+    private const int AutoChannel = 0;
 
     private bool _disposed;
 
@@ -98,6 +114,11 @@ public sealed unsafe class AudioOutput : IDisposable
     /// <param name="leftGain">Gain for the left ear, from <see cref="SoundGain.Pan"/>.</param>
     /// <param name="rightGain">Gain for the right ear.</param>
     /// <param name="pitch">Playback rate, 1 being unshifted.</param>
+    /// <param name="entity">Which entity is making it, which with the channel forms the key.</param>
+    /// <param name="channel">
+    /// The channel from <c>soundflags.h</c>. A named one holds a single sound per entity, so
+    /// starting on a busy one replaces what is there; <c>CHAN_AUTO</c> overlaps by design.
+    /// </param>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
     /// **The gains arrive already computed and are applied to the SAMPLES**, not handed to OpenAL
@@ -108,7 +129,13 @@ public sealed unsafe class AudioOutput : IDisposable
     /// sound in Source is already a finished mix — music, and some ambience — and re-panning it
     /// would be inventing a position it does not have.
     /// </remarks>
-    public void Play(SoundSample sample, float leftGain, float rightGain, float pitch = 1f)
+    public void Play(
+        SoundSample sample,
+        float leftGain,
+        float rightGain,
+        float pitch = 1f,
+        int entity = 0,
+        int channel = AutoChannel)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -116,6 +143,12 @@ public sealed unsafe class AudioOutput : IDisposable
         {
             return;
         }
+
+        // **A named channel holds one sound per entity, so starting on a busy one replaces it.**
+        // That is how the engine cuts a player's previous voice line off with their next, and how a
+        // door's looping move sound is replaced rather than layered. CHAN_AUTO is exempt by
+        // definition: the engine allocates a free channel for those, so they are meant to overlap.
+        Stop(entity, channel);
 
         short[] stereo = ToStereo16(sample, leftGain, rightGain);
 
@@ -154,7 +187,49 @@ public sealed unsafe class AudioOutput : IDisposable
 
         _al.SourcePlay(source);
 
-        _playing.Add((source, buffer));
+        _playing.Add(new Voice(source, buffer, entity, channel));
+    }
+
+    /// <summary>Silences whatever an entity is playing on a channel.</summary>
+    /// <param name="entity">The entity the sound belongs to.</param>
+    /// <param name="channel">The channel, from <c>soundflags.h</c>.</param>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    /// <remarks>
+    /// **This is <c>SND_STOP</c>, and dropping it is audible.** Measured on
+    /// <c>movement-test-pov-cp_process</c>: 15 of its 89 sounds are stops, and they name exactly
+    /// the looping ones — <c>doors/door_metal_rusty_move</c> five times against eight starts,
+    /// <c>metal_box_scrape_rough_loop</c> four, <c>)ambient/machine_hum</c> six. Those loops are
+    /// meant to end when the door stops moving; unstopped they run the length of their file.
+    ///
+    /// **CHAN_AUTO cannot be stopped this way and that is Valve's design, not a gap here.** The
+    /// engine picked the channel, so nothing names it afterwards; sounds sent on it are the
+    /// fire-and-forget ones that end on their own.
+    /// </remarks>
+    public void Stop(int entity, int channel)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (channel == AutoChannel)
+        {
+            return;
+        }
+
+        for (int index = _playing.Count - 1; index >= 0; index--)
+        {
+            Voice voice = _playing[index];
+
+            if (voice.Entity != entity || voice.Channel != channel)
+            {
+                continue;
+            }
+
+            _al.SourceStop(voice.Source);
+            _al.SetSourceProperty(voice.Source, SourceInteger.Buffer, 0);
+            _al.DeleteSource(voice.Source);
+            _al.DeleteBuffer(voice.Buffer);
+
+            _playing.RemoveAt(index);
+        }
     }
 
     /// <summary>Frees anything that has finished playing.</summary>
@@ -173,7 +248,7 @@ public sealed unsafe class AudioOutput : IDisposable
 
         for (int index = _playing.Count - 1; index >= 0; index--)
         {
-            (uint source, uint buffer) = _playing[index];
+            (uint source, uint buffer, _, _) = _playing[index];
 
             _al.GetSourceProperty(source, GetSourceInteger.SourceState, out int state);
 
@@ -207,7 +282,7 @@ public sealed unsafe class AudioOutput : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer) in _playing)
+        foreach ((uint source, uint buffer, _, _) in _playing)
         {
             _al.SourceStop(source);
             _al.SetSourceProperty(source, SourceInteger.Buffer, 0);

@@ -130,7 +130,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     107
 # engine does with a bound key, plus the alias and tokeniser cases underneath them. The floor had
 # been left well below the real count, which is the exact failure it exists to catch — a truncated
 # run passing the check as easily as it passes the eye.
-run Tf2DemoSalvage.Presentation.Tests presentation 101
+# 108: SoundScheduleTests (7). Which sounds start as playback moves — the seek that must not replay
+# what it skipped, the paused frame that must not repeat its tick, and the dropped frame that must
+# not be mistaken for a seek. All three are silent failures that sound like a working viewer.
+run Tf2DemoSalvage.Presentation.Tests presentation 108
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
