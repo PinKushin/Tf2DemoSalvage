@@ -35,7 +35,13 @@ Four separate questions, and only the first is answered by the file:
 forum posts, not from measurement, and they are narrow rather than exact. Related:
 [[a-changelog-dates-the-complaint]], which is about the same evidence class.
 
+**Dating serves the write-up, not the parser, and it is never going to be precise.** The decoder is
+schema-driven and blocks on none of this. And TF2 shipped weekly builds while protocols changed
+rarely, so a protocol spans many builds and its edges cannot be pinned to a week — the owner:
+*"trying to date it to the week is going to be practically impossible"*. The target is a narrow
+window with its evidence attached. A gap that stays a window is the honest answer, not a failure.
+
 **How to apply:** never infer a recording date from a protocol number, in either direction. It is
 already how `z1800.dem` was mis-dated to 2015 ([[z1800-is-modern-not-2015]]) — date a demo by what
-is inside it. And do not let "we have a protocol 21 specimen now" become "we know when protocol 21
-was"; those are different gaps and the demos close only the first.
+is inside it. Do not let "we have a protocol 21 specimen now" become "we know when protocol 21 was".
+And do not treat an open dating gap as blocked work; it is a note on the write-up.

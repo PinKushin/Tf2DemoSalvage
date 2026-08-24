@@ -7,6 +7,25 @@ difference between a working parser and a plausible wrong one.
 This is a working document. It grows as demos and sources arrive, and rows move up the evidence
 scale as they are confirmed — a row never silently improves.
 
+## What the dates are FOR, and the precision that is actually achievable
+
+**Dating serves the write-up, not the parser.** The decoder is schema-driven: it reads whatever
+`SendTables` each file carries, so it never needs to know what year a demo is from. Nothing in the
+codebase blocks on a row here. The value of this document is that Valve publishes *what* changed
+between protocols and never *when*, so the era axis is original research worth having — and it is
+research, not a dependency.
+
+**Week-level precision is not achievable and is not being attempted.** The owner, 2026-08-24: *"we
+will always only be estimating the time periods any given protocol was actually used, because tf2
+has weekly updates, trying to date it to the week is going to be practically impossible."* Builds
+ship weekly; protocols change rarely. One protocol therefore spans many builds, and pinning its
+edges to a week would need a dated build stamp either side of the change — which is exactly what
+does not survive for the ranges still open.
+
+So the target is a **narrow window with its evidence attached**, not a date. A gap that stays a
+window is not a failure of this document; it is the honest answer. Treat "we have no client for
+17–23" as a note on the write-up rather than as blocked work.
+
 ## Evidence grades
 
 | Grade | Meaning |
