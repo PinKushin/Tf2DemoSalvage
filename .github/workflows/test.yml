@@ -97,8 +97,13 @@ jobs:
         #
         # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md:
         # adding tests keeps passing, removing them fails until the number is lowered on purpose.
+        # **These duplicate build/gate.sh's floors and have drifted from them before.** Core was
+        # lowered 1504 -> 1497 there on 2026-08-22, when SoundAttenuationConformanceTests (7) moved
+        # to Audio.Tests; this copy was not, so every push failed on a floor that no longer
+        # described the suite. Nothing connects the two files, so a change to one has to be made in
+        # both by hand — check here whenever a floor moves in gate.sh.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1504 Core
+          ./build/assert-test-count.sh '**/core.trx' 1497 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           ./build/assert-test-count.sh '**/content.trx' 628 Content
 
@@ -268,14 +273,42 @@ jobs:
         #
         # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md. The
         # old values had 200 tests of slack on Viewer and 12 on Audio, which is not a guard.
+        # **Raised 2026-08-24 to the counts CI actually produces, read from the .trx of a failed
+        # run rather than guessed.** They had drifted far below the suites they guard — Audio sat at
+        # 28 against 116, so 88 tests could have vanished without the check noticing, which is
+        # exactly the B104 failure the comment above describes. Sound moved into Audio.Tests over
+        # several commits (D53) and this number never followed.
+        #
+        # Audio is the one still slightly slack: 116 was measured before that day's soundscape and
+        # gain work added more, and the exact post-merge figure needs a green run to read. Tighten it
+        # once there is one.
         run: |
-          ./build/assert-test-count.sh '**/audio.trx' 28 Audio
-          ./build/assert-test-count.sh '**/viewer.trx' 570 Viewer
-          ./build/assert-test-count.sh '**/viewer-ui.trx' 12 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 96 Corpus
+          ./build/assert-test-count.sh '**/audio.trx' 116 Audio
+          ./build/assert-test-count.sh '**/viewer.trx' 634 Viewer
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
+          ./build/assert-test-count.sh '**/corpus.trx' 106 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: corpus-trx
           path: '**/*.trx'
+
+      # **The viewer's own log, because without it a UI failure is undiagnosable.** The UI session's
+      # timeout message names this file — "The viewer never reported building a world. Log:
+      # C:\Users\runneradmin\AppData\Local\Tf2DemoSalvage\viewer-*.log" — and then the runner is
+      # destroyed with it. Two CI failures were investigated locally on 2026-08-24 and neither could
+      # be resolved, because the one artefact that says whether the map downloaded, whether assets
+      # resolved, and what the viewer thought it was doing was never collected.
+      #
+      # `if: failure()` and `if-no-files-found: ignore` deliberately: a green run needs no forensics,
+      # and a job that fails BEFORE the viewer ever launches has no log to gather — which must not
+      # turn into a second, misleading failure on top of the first.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: viewer-logs
+          path: |
+            ~/AppData/Local/Tf2DemoSalvage/viewer-*.log
+            ~/AppData/Local/Tf2DemoSalvage/*.png
+          if-no-files-found: ignore

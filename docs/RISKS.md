@@ -10023,6 +10023,42 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
+### B179 — the UI suite runs in CI, where the game it needs cannot exist
+
+**Filed 2026-08-24.** `Tf2DemoSalvage.Viewer3D.UiTests` runs on GitHub's `windows-latest`, and
+`ViewerSession`'s `OneTimeSetUp` waits for the viewer to report building a world. It never does:
+*"The viewer never reported building a world... worlds 0, textures 0"*, after a two-minute timeout
+charged to **every test in the fixture**.
+
+**The map is not the problem; the rest of the game is.** Maps come from fastdl
+(`MapDownloader.DefaultMirror`, D-entry at `docs/DECISIONS.md:1404`), so a runner can fetch a BSP.
+Materials, models and textures come from a TF2 install, which a hosted runner does not have and
+cannot reasonably be given. The owner put it plainly: *"the maps should auto dl from fastdl"* — and
+then, immediately, *"but the rest might be a real issue if we need real tf2 files"*.
+
+`ViewerSession.RequireTheGame()` exists for exactly this and is called by the individual tests. It
+cannot help here, because fixture setup runs before any test body.
+
+**Whether the map download even succeeded is unknown**, and that is its own finding. The timeout
+message names a viewer log on the runner and CI never collected it, so two failures were
+investigated locally and neither could be resolved. Fixed in the same commit as this filing: the
+Windows job now uploads `viewer-*.log` on failure. The next red run should be diagnosable.
+
+Options, in rough order of preference, none chosen yet:
+
+1. **Detect the absent game in `OneTimeSetUp` and ignore the fixture.** Turns 2 minutes × 14 into an
+   honest, instant skip. A skip is not a pass
+   (`docs/memory/a-skip-is-not-a-pass-or-a-failure.md`), so the count floor must stay exact — 14
+   entries still appear in the trx either way.
+2. **Drop the UI job from CI.** Defensible while the suite does not gate anything (see
+   `docs/memory/ui-suite-optional-until-ui-grows.md`), and it stops paying for a job that cannot
+   pass. Loses the "does it launch at all" signal.
+3. **Make the session tolerate a world built with no game assets**, drawing Valve's error material
+   throughout. Most work, and the only option that keeps real CI coverage of the viewer launching.
+
+Not urgent, because the UI suite does not gate a merge. It is, however, the reason the Windows job
+has been red, which trains people to ignore a red CI — the more expensive problem.
+
 ### B178 — CLOSED 2026-08-24. Windows Forms were being built off the STA, in parallel
 
 **The cause: `[assembly: Parallelizable(ParallelScope.All)]` with no `[Apartment]` anywhere.** Six
