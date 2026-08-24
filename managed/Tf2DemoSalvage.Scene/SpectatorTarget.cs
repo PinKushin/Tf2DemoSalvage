@@ -38,6 +38,38 @@ public static class SpectatorTarget
     /// <summary><c>TF_TEAM_BLUE</c>, the highest team that plays.</summary>
     private const int LastPlayingTeam = 3;
 
+    /// <summary>Whether the engine would let you observe this player.</summary>
+    /// <param name="player">A player the timeline reports.</param>
+    /// <returns>Whether they are a valid observer target.</returns>
+    /// <remarks>
+    /// **`CBasePlayer::IsValidObserverTarget`, and the team check was only its first clause.**
+    ///
+    /// <code>
+    /// if ( player->IsEffectActive( EF_NODRAW ) )     return false;  // don't watch invisible players
+    /// if ( player->m_lifeState == LIFE_RESPAWNABLE ) return false;  // dead, waiting for respawn
+    /// if ( player->m_lifeState == LIFE_DEAD || player->m_lifeState == LIFE_DYING ) { ... }
+    /// </code>
+    ///
+    /// **A dead player is still on RED or BLU**, so filtering by team alone left corpses in the
+    /// cycle — and landing on one produced every symptom of B171 at once: the camera at a stale
+    /// position, no viewmodel because a dead player has no active weapon, and a view that reads as
+    /// a bad third-person camera because that is exactly what it is.
+    ///
+    /// TF2 makes the invisible check do most of the work — death here is `EF_NODRAW` plus a
+    /// separate `CTFRagdoll` rather than an animation — but both are tested, because
+    /// <see cref="ScenePlayer.Drawn"/> and <see cref="ScenePlayer.IsAlive"/> are decoded from
+    /// different properties and either can be absent from a given demo.
+    ///
+    /// **The three-second death-cam window is not implemented.** The engine keeps a target valid
+    /// until `m_flDeathTime + DEATH_ANIMATION_TIME`, which nothing here decodes; the effect is that
+    /// a target is dropped at the instant of death rather than after the death animation. A smaller
+    /// wrongness than following a corpse for the rest of the round, and stated rather than hidden.
+    /// </remarks>
+    public static bool CanObserve(ScenePlayer player) =>
+        player.Team is >= FirstPlayingTeam and <= LastPlayingTeam &&
+        player.Drawn &&
+        player.IsAlive;
+
     /// <summary>The player to spectate, or <c>null</c> when nobody is playing.</summary>
     /// <param name="players">Everyone the timeline reports at a tick.</param>
     /// <returns>A playing player, or <c>null</c>.</returns>
@@ -55,8 +87,7 @@ public static class SpectatorTarget
     {
         ScenePlayer[] playing =
         [
-            .. players.Where(player =>
-                player.Team is >= FirstPlayingTeam and <= LastPlayingTeam),
+            .. players.Where(CanObserve),
         ];
 
         if (playing.Length == 0)
@@ -106,7 +137,7 @@ public static class SpectatorTarget
         ScenePlayer[] playing =
         [
             .. players
-                .Where(player => player.Team is >= FirstPlayingTeam and <= LastPlayingTeam)
+                .Where(CanObserve)
                 .OrderBy(player => player.EntityIndex),
         ];
 

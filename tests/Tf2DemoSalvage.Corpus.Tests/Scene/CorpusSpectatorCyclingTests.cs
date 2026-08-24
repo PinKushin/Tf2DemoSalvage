@@ -40,9 +40,21 @@ public sealed class CorpusSpectatorCyclingTests
         int tick = timeline.FirstTick + ((timeline.LastTick - timeline.FirstTick) / 2);
         IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
 
-        int playing = players.Count(player => player.Team is 2 or 3);
+        // **The denominator asks production for the rule rather than restating it.** This counted
+        // `Team is 2 or 3`, which was the whole filter until the engine's other clauses were
+        // implemented — `IsValidObserverTarget` also refuses a player who is dead or EF_NODRAW, and
+        // a dead player is still on RED or BLU. At this tick that is 4 of 24, so a team-only count
+        // demanded the cycle visit four corpses and failed when it correctly would not.
+        //
+        // Restating the predicate here would work today and drift the next time the engine's rule
+        // is understood better. Asking `CanObserve` means the cycle and its denominator cannot
+        // disagree — the same argument the renderer's body-selection log makes for using the
+        // renderer's own predicate rather than recomputing it.
+        int playing = players.Count(SpectatorTarget.CanObserve);
 
-        TestContext.Out.WriteLine($"tick {tick}: {players.Count} entities, {playing} playing");
+        TestContext.Out.WriteLine(
+            $"tick {tick}: {players.Count} entities, " +
+            $"{players.Count(player => player.Team is 2 or 3)} on a team, {playing} observable");
 
         playing.ShouldBeGreaterThan(2, "z1800 is a nine-versus-nine match");
 
@@ -83,10 +95,13 @@ public sealed class CorpusSpectatorCyclingTests
         int tick = timeline.FirstTick + ((timeline.LastTick - timeline.FirstTick) / 2);
         IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
 
+        // Observable rather than merely on a team, for the reason the forward test records: a dead
+        // player is on RED or BLU and is not a valid observer target, so stepping FROM one asks the
+        // cycle about somebody outside it and forward-then-back cannot return there.
         int[] playing =
         [
             .. players
-                .Where(player => player.Team is 2 or 3)
+                .Where(SpectatorTarget.CanObserve)
                 .Select(player => player.EntityIndex)
                 .OrderBy(entity => entity),
         ];
