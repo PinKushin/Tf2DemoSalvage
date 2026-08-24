@@ -171,7 +171,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     142
 # restart minutes later, so a cursor over events leaves the map silent from the first reposition on.
 # The map load alone is enough to cause it — seven seconds of loading is 466 ticks, and the first
 # Advance lands past both the tick-4 start and the tick-334 restart.
-run Tf2DemoSalvage.Presentation.Tests presentation 116
+# Raised 116 -> 133 on 2026-08-24 by FpsMeterConformanceTests (17), which pins TF2's own
+# `cl_showfps` panel — the smoothing weight, the watermark pair, the colour thresholds and both
+# format strings — against `vgui_fpspanel.cpp`. Copied rather than invented because the meter exists
+# to tell three stutters apart, and an instrument nobody already trusts cannot settle that.
+run Tf2DemoSalvage.Presentation.Tests presentation 133
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
