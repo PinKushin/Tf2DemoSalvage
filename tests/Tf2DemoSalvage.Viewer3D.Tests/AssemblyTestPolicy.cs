@@ -18,6 +18,25 @@
 // UI-assembly reasoning was right when it was written and had no way to announce that it no longer
 // was. Anything reserved for "what comes next" needs re-reading when next arrives.
 //
+// **And it happened again, to this comment, within days (B178).** The paragraph above says "none of
+// them constructs a form at all". Six fixtures do — FullScreenTests, LoadedDemoTests,
+// MainFormTests, MainFormDisposeTests, ShowPositionsTests and ViewerSettingsTests — and they
+// arrived without anything objecting, because a stale comment cannot fail.
+//
+// The cost was not cosmetic. `ParallelScope.All` on an MTA worker pool means Windows Forms being
+// constructed concurrently off the STA, each owning a D3D swap chain and an OpenAL context whose
+// current-context is process-wide. The test host crashed in roughly half of all runs, at three
+// unrelated native sites, and the standing explanation in build/gate.sh blamed the desktop.
+//
+// The policy below was never wrong and did not need changing. Its escape hatch — a fixture that
+// needs serial execution carries [NonParallelizable] itself — is exactly the fix, and those six
+// now carry it along with [Apartment(ApartmentState.STA)]. What failed was nobody checking whether
+// the comment still described the assembly.
+//
+// **So: adding a test here that constructs a form means marking that fixture.** There is no
+// assembly-wide setting that would catch it for you, deliberately — the rest of this suite is
+// hundreds of fast parallel tests and serialising all of them to protect six would cost minutes.
+//
 // The two settings belong together. NUnit shares one fixture instance across a fixture's tests by
 // default, so a field one test mutates leaks into its siblings: harmless while the suite is serial,
 // a race the moment it is not.

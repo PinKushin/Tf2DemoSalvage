@@ -213,6 +213,73 @@ public sealed class EntityState
     /// </remarks>
     private const string BasePlayerTable = "DT_BasePlayer";
 
+    /// <summary>Which soundscape this player is standing in, or <c>null</c> when unsent.</summary>
+    /// <returns>The index into the client's soundscape list, or <c>null</c>.</returns>
+    /// <remarks>
+    /// **`m_audio.soundscapeIndex`, and it is deliberately player-exclusive on the wire.** The recv
+    /// table is `RecvPropInt( RECVINFO( m_audio.soundscapeIndex ) )`
+    /// (<c>c_baseplayer.cpp:212</c>), inside `DT_Local`, which reaches the wire through
+    /// `SendPropDataTable( "localdata", 0, DT_LocalPlayerExclusive, SendProxy_SendLocalDataTable )`
+    /// — and that proxy is one line, `pRecipients->SetOnly( objectID - 1 )`.
+    ///
+    /// So only the client who OWNS the entity is sent it. A point-of-view recording therefore
+    /// carries the recorder's soundscape; a SourceTV recording owns no player and should carry
+    /// nobody's. Null is the ordinary answer rather than a fault, and which demos actually carry it
+    /// is measured by `SoundscapeWireProbe` rather than assumed from this reasoning (B173).
+    ///
+    /// **-1 is the engine's "no soundscape" and is passed through as a value.** `CEnvSoundscape`
+    /// initialises `m_soundscapeIndex` to -1 (<c>soundscape.cpp:105</c>), so a player who has not
+    /// entered one carries it — which is a different fact from the property never arriving, and
+    /// collapsing the two would hide exactly the question this is being asked to answer.
+    /// </remarks>
+    public int? SoundscapeIndex() => Integer($"{LocalDataTable}.m_audio.soundscapeIndex");
+
+    /// <summary>Where the current soundscape's positioned sounds are, one per slot.</summary>
+    /// <param name="slot">0 to 7, the <c>position</c> a soundscape script names.</param>
+    /// <returns>The position, or <c>null</c> when that slot was not sent.</returns>
+    /// <remarks>
+    /// **`NUM_AUDIO_LOCAL_SOUNDS` is 8** (<c>playernet_vars.h:16</c>), and each slot is sent as its
+    /// own vector rather than as an array — eight separate `RecvPropVector` entries. A soundscape's
+    /// `"position" "3"` means slot three of these, which is how one soundscape scatters its loops
+    /// across a whole map: `Gorge.Inside` places seven copies of two machine hums at slots 0 to 6.
+    ///
+    /// `m_audio.localBits` says which slots are valid; a caller wanting that should read it rather
+    /// than inferring from null, since an unsent slot and a slot deliberately at the origin are
+    /// different things.
+    /// </remarks>
+    public (float X, float Y, float Z)? SoundscapePosition(int slot)
+    {
+        if (slot is < 0 or >= AudioLocalSounds)
+        {
+            return null;
+        }
+
+        return _properties.TryGetValue(
+                $"{LocalDataTable}.m_audio.localSound[{slot}]", out PropertyValue position) &&
+            position.Kind == PropertyValueKind.Vector
+            ? position.AsVector
+            : null;
+    }
+
+    /// <summary><c>NUM_AUDIO_LOCAL_SOUNDS</c>, <c>playernet_vars.h:16</c>.</summary>
+    private const int AudioLocalSounds = 8;
+
+    /// <summary>Which of the eight position slots carry a real value.</summary>
+    /// <remarks><c>m_audio.localBits</c> — "if bits 0,1,2,3 are set then position 0,1,2,3 are valid/used".</remarks>
+    public int? SoundscapePositionBits() => Integer($"{LocalDataTable}.m_audio.localBits");
+
+    /// <summary>The <c>env_soundscape</c> that set this player's soundscape.</summary>
+    /// <remarks><c>m_audio.entIndex</c> — "the entity setting the soundscape".</remarks>
+    public int? SoundscapeEntity() => Integer($"{LocalDataTable}.m_audio.entIndex");
+
+    /// <summary>The table a player's own private state arrives under.</summary>
+    /// <remarks>
+    /// Sent only to the client that IS this player, by `SendProxy_SendLocalDataTable`'s
+    /// `SetOnly( objectID - 1 )`. Everything read through it is therefore present in a POV recording
+    /// and absent from a SourceTV one.
+    /// </remarks>
+    private const string LocalDataTable = "DT_Local";
+
     /// <summary>The engine flag word, carrying the crouch and ground bits.</summary>
     private const string FlagsProperty = "m_fFlags";
 

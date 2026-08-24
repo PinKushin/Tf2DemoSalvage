@@ -1513,7 +1513,35 @@ internal class MainForm : Form
                     // the only place the map says what a piece of geometry IS.
                     _brushModelClasses.Clear();
 
-                    foreach (BspEntity entity in BspEntities.ReadFrom(bytes))
+                    // **The map's soundscapes, built once per map (B173).** A SourceTV recording
+                    // carries the SourceTV camera's soundscape rather than the spectated player's,
+                    // so the map is the source — and it works for every map without anyone having
+                    // to run `soundscape_dumpclient` in the game first.
+                    IReadOnlyList<BspEntity> mapEntities = BspEntities.ReadFrom(bytes);
+
+                    _soundscapeCatalog = _archives is { } soundArchives
+                        ? SoundscapeCatalog.Load(soundArchives.Read)
+                        : null;
+
+                    _soundscapes = _soundscapeCatalog is { } loaded
+                        ? SoundscapePlacements.From(mapEntities, loaded)
+                        : null;
+
+                    _soundscapeMixer.Clear();
+                    _soundscapeVoices.Clear();
+
+                    ViewerLog.Write(
+                        "audio",
+                        _soundscapes is { } placed
+                            ? $"{placed.Placements.Count} soundscape placements, " +
+                              string.Join(
+                                  ", ",
+                                  placed.Placements
+                                      .GroupBy(placement => placement.Name)
+                                      .Select(group => $"{group.Count()}x {group.Key}"))
+                            : "no archives, so no soundscapes");
+
+                    foreach (BspEntity entity in mapEntities)
                     {
                         if (entity.TryGetValue("model", out string name) &&
                             entity.TryGetValue("classname", out string classname) &&
@@ -5066,6 +5094,51 @@ internal class MainForm : Form
     /// <summary>The looping sounds in flight, re-attenuated each frame as the listener moves.</summary>
     private readonly ActiveLoops _loops = new();
 
+    /// <summary>Below this a loop is treated as silent, for the crossing log only.</summary>
+    /// <remarks>
+    /// Valve's own <c>MIN_AUDIBLE_VOLUME</c> is <c>1.01e-3</c> (<c>sound.cpp:314</c>), which is the
+    /// threshold the engine uses when it computes how far an <c>ambient_generic</c> carries. Reused
+    /// here so "audible" means the same thing in the log as it does to the engine.
+    /// </remarks>
+    private const float InaudibleGain = 1.01e-3f;
+
+    /// <summary>Whether each tracked loop was audible last frame, so only crossings are logged.</summary>
+    private readonly Dictionary<(int Entity, int Channel), bool> _loopAudible = [];
+
+    /// <summary>Where the map puts its soundscapes, or null before a map is read.</summary>
+    private SoundscapePlacements? _soundscapes;
+
+    /// <summary>Crossfades between them as the listener moves from room to room.</summary>
+    private readonly SoundscapeMixer _soundscapeMixer = new();
+
+    /// <summary>Which soundscape voices the sink is currently holding.</summary>
+    /// <remarks>
+    /// Kept so a voice that stops being reported can be silenced: the sink plays a loop until told
+    /// otherwise, so a fade that finished and was dropped would otherwise play for ever at whatever
+    /// volume it last had.
+    /// </remarks>
+    private readonly HashSet<int> _soundscapeVoices = [];
+
+    /// <summary>When the soundscape was last chosen, so the choice runs on a timer.</summary>
+    /// <remarks>
+    /// **Not per frame.** Choosing walks 44 entities and traces line of sight to each candidate,
+    /// which is far too much sixty times a second and pointless besides — a listener does not cross
+    /// a soundscape boundary between frames. The engine runs its own update on a timer for the same
+    /// reason.
+    /// </remarks>
+    private double _soundscapeChosenAt = double.NegativeInfinity;
+
+    /// <summary>How often the soundscape is re-chosen, in seconds.</summary>
+    private const double SoundscapeInterval = 0.25;
+
+    /// <summary>The entity soundscape voices are attributed to in the sink.</summary>
+    /// <remarks>
+    /// A soundscape's loops belong to no entity, but the sink keys voices by entity and channel so
+    /// that a stop can name one. They are given a reserved index well outside any real entity slot,
+    /// and the mixer's own key as the channel.
+    /// </remarks>
+    private const int SoundscapeEntity = -1000;
+
     /// <summary>Decoded sounds, kept because a demo plays the same footstep hundreds of times.</summary>
     /// <remarks>
     /// **A null value is a remembered failure, not an absent one.** A sound the install cannot open
@@ -5101,6 +5174,14 @@ internal class MainForm : Form
         {
             output.StopAll();
             _loops.Clear();
+
+            // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
+            // `StopAll` deletes every OpenAL source, including the soundscape's — but
+            // `_soundscapeVoices` still held their keys, so `PlaySoundscape` saw them as already
+            // playing and only ever called `SetGain` on sources that no longer existed. The map's
+            // room tone died at the first seek and never came back, with nothing reported anywhere.
+            _soundscapeVoices.Clear();
+            _soundscapeMixer.Clear();
         }
 
         output.Reclaim();
@@ -5128,6 +5209,41 @@ internal class MainForm : Form
             _loops.GainsAt(listener.X, listener.Y, listener.Z))
         {
             output.SetGain(entity, channel, loopGain);
+
+            // **Logged only when a loop crosses between silent and audible**, which is the question
+            // a listener actually has: "I walked up to the machine and heard nothing". Per-frame
+            // logging would be sixty lines a second per loop and unreadable; the crossing is a
+            // handful of lines for a whole match and says whether the gain ever came up at all.
+            bool audible = loopGain > InaudibleGain;
+
+            if (_loopAudible.TryGetValue((entity, channel), out bool was) && was == audible)
+            {
+                continue;
+            }
+
+            _loopAudible[(entity, channel)] = audible;
+
+            ViewerLog.Write(
+                "audio",
+                $"loop entity {entity.ToString(CultureInfo.InvariantCulture)} chan " +
+                $"{channel.ToString(CultureInfo.InvariantCulture)} is now " +
+                $"{(audible ? "audible" : "silent")} at gain " +
+                $"{loopGain.ToString("0.####", CultureInfo.InvariantCulture)}");
+        }
+
+        PlaySoundscape(output, listener, right);
+
+        // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
+        // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
+        // them again until a round restart minutes later. Opening the demo, or seeking anywhere
+        // past tick 4, therefore left the map's machinery silent for the rest of the recording with
+        // nothing to explain it — the engine never has this problem because a live client starts
+        // the loop once and the source simply keeps running.
+        bool reestablishing = schedule.Repositioned;
+
+        if (reestablishing)
+        {
+            starting = schedule.LiveAt(_transport.CurrentTick);
         }
 
         if (starting.Count == 0)
@@ -5156,6 +5272,15 @@ internal class MainForm : Form
             }
 
             if (Sample(sound.Name) is not { } sample)
+            {
+                continue;
+            }
+
+            // **Only loops are re-established.** `LiveAt` answers which sounds still hold a named
+            // channel, and a one-shot that was never explicitly stopped still holds one — a voice
+            // line from four minutes ago is "live" by that rule and finished long ago in fact.
+            // Starting those on arrival would be the seek-replay stutter `Advance` refuses to make.
+            if (reestablishing && !sample.Loops)
             {
                 continue;
             }
@@ -5219,6 +5344,26 @@ internal class MainForm : Form
                 sound.EntityIndex,
                 sound.Channel);
 
+            // **Every looping sound is logged as it starts, because a loop is the only kind whose
+            // silence can be a defect rather than an event.** A one-shot that never plays is gone
+            // in a second; a loop that never plays is a piece of the map missing for the whole
+            // recording, and from the speakers "never started", "started at gain zero and never
+            // came up" and "started and was stopped again" are the same silence. This says which,
+            // and it costs a line per loop rather than per sound.
+            if (sample.Loops)
+            {
+                ViewerLog.Write(
+                    "audio",
+                    $"loop '{sound.Name}' entity " +
+                    $"{sound.EntityIndex.ToString(CultureInfo.InvariantCulture)} chan " +
+                    $"{sound.Channel.ToString(CultureInfo.InvariantCulture)} at tick " +
+                    $"{sound.Tick.ToString(CultureInfo.InvariantCulture)}: " +
+                    $"{distance.ToString("0", CultureInfo.InvariantCulture)} units away, " +
+                    $"sndlvl {sound.SoundLevel.ToString(CultureInfo.InvariantCulture)}, " +
+                    $"gain {gain.ToString("0.###", CultureInfo.InvariantCulture)}" +
+                    (reestablishing ? " (re-established)" : string.Empty));
+            }
+
             // **Followed from here so it can be re-attenuated as the listener moves.** Only loops:
             // a one-shot is over before the listener has travelled far enough for its gain to be
             // wrong, and tracking hundreds of them would be a per-frame walk for nothing.
@@ -5232,6 +5377,182 @@ internal class MainForm : Form
             }
         }
     }
+
+    /// <summary>Keeps the map's ambience playing as the listener moves through it.</summary>
+    /// <param name="output">The sink.</param>
+    /// <param name="listener">Where the ears are.</param>
+    /// <param name="right">The listener's right vector, for panning.</param>
+    /// <remarks>
+    /// **Ambience is most of what a map sounds like, and none of it is in the demo (B173).** A
+    /// soundscape is chosen by the SERVER from the map's `env_soundscape` entities and reaches the
+    /// client as an index in private per-player data — which a SourceTV recording does not carry for
+    /// any player. So the map is read directly and the engine's own choice reproduced.
+    ///
+    /// The owner's report is what this answers: the computer hum plays because it is an
+    /// `ambient_generic` on the wire, and the spawn-room hum did not because it is a soundscape.
+    /// </remarks>
+    private void PlaySoundscape(
+        AudioOutput output,
+        (float X, float Y, float Z) listener,
+        (float X, float Y, float Z) right)
+    {
+        if (_soundscapes is not { } placements)
+        {
+            return;
+        }
+
+        // **Chosen on a timer, advanced every frame.** The choice is expensive and slow-moving; the
+        // fade is cheap and has to be smooth, so they run at different rates.
+        double now = _audioClock.Elapsed.TotalSeconds;
+
+        if (now - _soundscapeChosenAt >= SoundscapeInterval)
+        {
+            _soundscapeChosenAt = now;
+
+            SoundscapePlacement? chosen = placements.Choose(
+                listener.X,
+                listener.Y,
+                listener.Z,
+                (from, to) => _leaves is not { } leaves ||
+                    leaves.IsClear(from.X, from.Y, from.Z, to.X, to.Y, to.Z),
+                _soundscapeMixer.Current);
+
+            Soundscape? definition = chosen is { } placed && _soundscapeCatalog is { } catalog
+                ? catalog.At(placed.Index)
+                : null;
+
+            // **Logged on every change, because a soundscape that is never CHOSEN and one that is
+            // chosen and never heard are the same silence.** The loop logging below answers the
+            // second; nothing answered the first, so "the outdoor ambience is missing" could not be
+            // narrowed without a relaunch. Changes only — this is asked four times a second.
+            if (chosen?.Id != _soundscapeMixer.Current?.Id ||
+                chosen?.Index != _soundscapeMixer.Current?.Index)
+            {
+                string loops = definition is { } script
+                    ? $"{script.Looping.Count.ToString(CultureInfo.InvariantCulture)} loops (" +
+                        string.Join(
+                            ", ",
+                            script.Looping.Select(sound =>
+                                sound.Position is { } slot
+                                    ? $"{sound.Wave}@{slot.ToString(CultureInfo.InvariantCulture)}"
+                                    : sound.Wave)) + ")"
+                    : "NO DEFINITION in the catalog";
+
+                ViewerLog.Write(
+                    "audio",
+                    chosen is { } next
+                        ? $"soundscape {next.Index.ToString(CultureInfo.InvariantCulture)} " +
+                          $"'{next.Name}' from placement " +
+                          $"{next.Id.ToString(CultureInfo.InvariantCulture)}: {loops}"
+                        : "no soundscape reaches the listener");
+            }
+
+            _soundscapeMixer.MoveTo(chosen, definition);
+        }
+
+        IReadOnlyList<SoundscapeVoice> voices =
+            _soundscapeMixer.Advance((float)(now - _soundscapeAdvancedAt));
+
+        _soundscapeAdvancedAt = now;
+
+        // Anything that finished fading is stopped, or the sink holds it for ever at its last
+        // volume — a loop only ends when its channel is told to.
+        foreach (int ended in SoundscapeMixer.Ended(voices, _soundscapeVoices))
+        {
+            output.Stop(SoundscapeEntity, ended);
+            _loops.Forget(SoundscapeEntity, ended);
+            _soundscapeVoices.Remove(ended);
+        }
+
+        foreach (SoundscapeVoice voice in voices)
+        {
+            if (_soundscapeVoices.Contains(voice.Key))
+            {
+                // Already playing: the fade is a gain change, not a restart.
+                output.SetGain(SoundscapeEntity, voice.Key, Gain(voice, listener));
+                continue;
+            }
+
+            if (Sample(voice.Wave) is not { } sample)
+            {
+                // Remembered as started even when it could not be opened, so a missing file is
+                // looked up once rather than every frame of a three-second fade.
+                ViewerLog.Warn("audio", $"soundscape loop '{voice.Wave}' would not open");
+                _soundscapeVoices.Add(voice.Key);
+                continue;
+            }
+
+            ViewerLog.Write(
+                "audio",
+                $"soundscape loop '{voice.Wave}' starting at gain " +
+                $"{Gain(voice, listener).ToString("0.###", CultureInfo.InvariantCulture)}" +
+                (voice.Position is null ? " (at the listener)" : " (positioned)"));
+
+            (float left, float rightGain) = voice.Position is { } at
+                ? SoundGain.Pan(SoundGain.Rightward(listener, right, at))
+                : (1f, 1f);
+
+            output.Play(
+                sample,
+                left,
+                rightGain,
+                Gain(voice, listener),
+                pitch: 1f,
+                SoundscapeEntity,
+                voice.Key);
+
+            _soundscapeVoices.Add(voice.Key);
+        }
+    }
+
+    /// <summary>A soundscape voice's gain, which is its fade times its distance falloff.</summary>
+    /// <remarks>
+    /// **A positioned loop attenuates and an unpositioned one does not.** A soundscape sound with no
+    /// position plays at the listener — it is room tone rather than a thing in the room — so
+    /// distance would be zero and the falloff meaningless. One placed at a target is a source in the
+    /// world and falls off from it.
+    ///
+    /// The script's own `attenuation` is Valve's attenuation unit rather than a soundlevel, so it is
+    /// converted through <see cref="SoundAttenuation.ToSoundLevel"/> to reach the same curve
+    /// everything else here uses.
+    /// </remarks>
+    private static float Gain(SoundscapeVoice voice, (float X, float Y, float Z) listener)
+    {
+        if (voice.Position is not { } at)
+        {
+            return voice.Volume;
+        }
+
+        float dx = at.X - listener.X;
+        float dy = at.Y - listener.Y;
+        float dz = at.Z - listener.Z;
+
+        float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+        int level = voice.Attenuation is { } attenuation
+            ? SoundAttenuation.ToSoundLevel(attenuation)
+            : 0;
+
+        return voice.Volume * SoundGain.AtDistance(level, distance);
+    }
+
+    /// <summary>When the fade was last advanced, so it moves in real time.</summary>
+    private double _soundscapeAdvancedAt;
+
+    /// <summary>A clock that runs for the life of the window.</summary>
+    /// <remarks>
+    /// **Its own, because the flight clock is restarted every frame** and so can only report a
+    /// frame's duration, never a running time. A crossfade needs both: when the choice was last made
+    /// and how long since the last advance.
+    ///
+    /// Real time rather than demo time, deliberately. `soundscape_fadetime` is three seconds of
+    /// wall clock in the engine, so a fade tied to demo ticks would stretch when playback slows and
+    /// vanish when it is scrubbed.
+    /// </remarks>
+    private readonly System.Diagnostics.Stopwatch _audioClock = System.Diagnostics.Stopwatch.StartNew();
+
+    /// <summary>The soundscape definitions, read once with the map.</summary>
+    private SoundscapeCatalog? _soundscapeCatalog;
 
     /// <summary>Decodes a named sound, once.</summary>
     private SoundSample? Sample(string name)

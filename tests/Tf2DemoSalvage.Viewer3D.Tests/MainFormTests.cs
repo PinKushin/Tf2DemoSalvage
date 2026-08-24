@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Viewer3D;
@@ -21,6 +22,10 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// a missing element, which reads like an application bug rather than a rename.
 /// </remarks>
 [TestFixture]
+
+// STA and serial, because this constructs a Windows Form — see B178.
+[NonParallelizable]
+[Apartment(ApartmentState.STA)]
 public sealed class MainFormTests
 {
     [Test]

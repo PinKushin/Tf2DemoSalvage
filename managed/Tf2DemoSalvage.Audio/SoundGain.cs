@@ -52,6 +52,15 @@ public static class SoundGain
     /// </remarks>
     public const float ReferenceDecibels = 60f;
 
+    /// <summary>Below this gain the engine stops, rather than continuing the curve down.</summary>
+    /// <remarks>
+    /// `snd_gain_min`, default 0.01, read from `engine.dll` beside its name. The decompiled
+    /// `SND_GetGain` tests the computed gain against it and, when it falls below, replaces it with
+    /// a taper that reaches zero — so this is a real floor and not a clamp invented to stop a
+    /// division running away.
+    /// </remarks>
+    public const float MinimumGain = 0.01f;
+
     /// <summary>Gain for a sound at a distance, 0 to 1.</summary>
     /// <param name="soundLevel">The <c>soundlevel_t</c> from the sound event or its script.</param>
     /// <param name="distance">Units from the listener to the source.</param>
@@ -97,26 +106,35 @@ public static class SoundGain
             return 1f;
         }
 
-        if (!float.IsFinite(distance) || distance <= ReferenceDistance)
+        if (!float.IsFinite(distance))
         {
-            // Inside the reference distance, and for a nonsensical distance, the sound is at full
-            // volume. Clamping here rather than letting the division run keeps the gain bounded
-            // without a separate clamp that could disagree with this one.
+            // A nonsensical distance is full volume rather than NaN. Letting it through would put
+            // NaN into the sink's gain, which silences a voice permanently and reports nothing.
             return 1f;
         }
 
-        if (distance >= SoundAttenuation.AudibleRadius(attenuation))
+        // **`relative_dist = distance * attenuation / snd_refdist`, and the attenuation belongs
+        // INSIDE it.** This is the engine's own expression, read out of `engine.dll` (B142) — see
+        // the remarks above. Leaving attenuation out, as this did, made every sound fall off at the
+        // same rate regardless of its soundlevel, which is the one thing a soundlevel is for.
+        float relative = distance * attenuation / ReferenceDistance;
+
+        if (relative <= 1f)
         {
-            return 0f;
+            // `if (relative_dist > 1.0)` is the engine's guard, so at or inside the reference the
+            // gain is `snd_gain` — 1 by default — rather than the division's result, which would
+            // exceed 1 and clip.
+            return 1f;
         }
 
-        // Inverse distance, scaled so it reaches zero at the published cutoff rather than
-        // asymptotically approaching it. Without the second term a sound would still be audible at
-        // the radius the engine says it is not.
-        float inverse = ReferenceDistance / distance;
-        float fade = 1f - (distance / SoundAttenuation.AudibleRadius(attenuation));
+        float gain = 1f / relative;
 
-        return Math.Clamp(inverse * fade, 0f, 1f);
+        // **Below `snd_gain_min` the engine tapers to zero rather than continuing the curve.** The
+        // exact knee is one branch of the decompiled function this project has not resolved — it
+        // multiplies by a constant that is not yet identified — so what is implemented is the floor
+        // itself and not the shape of the taper. Flagged rather than invented: the alternative is a
+        // number that looks authoritative, which is what the previous curve was.
+        return gain < MinimumGain ? 0f : gain;
     }
 
     /// <summary>How a sound at a bearing splits across a stereo pair.</summary>

@@ -8838,7 +8838,29 @@ neither "we follow the rule" nor "we violate it" is a supportable claim.
 Related: D56 for the rule and its reasoning, D2 for the native-C deferral the performance bet rests
 on.
 
-## B142 — the distance falloff curve is this project's, not Valve's — OPEN, LOW PRIORITY
+## B142 — the distance falloff curve is this project's, not Valve's — CLOSED 2026-08-24
+
+**Closed by reading `engine.dll`.** `SND_GetGain` is at `101cbb00` in the live x86 build:
+
+```c
+relative = distance * attenuation / snd_refdist;   // 36
+gain = relative <= 1 ? snd_gain : snd_gain / relative;
+if ( gain < snd_gain_min ) { taper to zero }       // 0.01
+```
+
+Inverse distance past the reference, as the guess below supposed — but the guess was wrong in two
+ways that mattered more than the shape. **The attenuation was missing from the distance term**, so
+every sound fell off identically regardless of soundlevel, which is the one thing a soundlevel does.
+And the `1 − distance / AudibleRadius` fade was invented on a radius that answers a different
+question: `recipientfilter.cpp` governs whether the server SENDS an event, and `SND_GetGain` never
+mentions it. The engine's silence point is `snd_gain_min`, 4,500 units for ATTN_NORM against the
+2,500 we cut at. Measured at 873 units, SNDLVL 75: **0.027 against 0.0515.**
+
+The full account, including why three earlier searches of the binary reported "not found", is in
+`docs/findings/31-game-audio.md`. Short version: an empty result from a decompiler's database is a
+fact about the analysis, not about the binary.
+
+**The reasoning kept below is the pre-decompilation state, not the current one.**
 
 `SoundGain.AtDistance` implements an inverse-distance law anchored on `snd_refdist` (36, recovered
 from `engine.dll`) and faded to zero at the audible radius Valve publishes in `recipientfilter.cpp`.
@@ -9237,8 +9259,12 @@ and bought back every frame afterwards. This one buys nothing.
 ## B150 — baking is a deliberate trade that was never benchmarked — OPEN
 
 **The deviation**: small props and model animations are posed once at load rather than driven per
-frame, so the viewer does no skinning work for them at draw time. Deliberate, owner-approved, and
-the one place this project knowingly departs from how the engine does it.
+frame, so the viewer does no skinning work for them at draw time. Deliberate and owner-approved.
+
+**No longer the only such place, as of 2026-08-24** — D82 has the ambience follow the transport
+across a pause even if the engine does not. The comparison is unflattering to this one and is drawn
+there: D82 departs for a stated capability and was recorded as it was decided; this departs for
+performance and has no measurement behind it, which is the whole of the entry below.
 
 **What it costs, measured 2026-08-23 on `cp_badlands`**: `PropModels.BakeSeconds` reports **11.15 s**
 of CPU, inside an asset phase whose wall clock is 17.85 s. Accumulated across threads, so the
@@ -9997,7 +10023,283 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
-### B173 — soundscapes are not implemented at all — OPEN
+### B178 — CLOSED 2026-08-24. Windows Forms were being built off the STA, in parallel
+
+**The cause: `[assembly: Parallelizable(ParallelScope.All)]` with no `[Apartment]` anywhere.** Six
+fixtures construct a `MainForm` — each owning a D3D swap chain, an overlay window, and an OpenAL
+context whose current-context is process-wide — and they were being constructed and disposed
+concurrently on MTA worker threads. Windows Forms requires STA. That is undefined behaviour, and it
+explains what nothing else could: crashes at three *unrelated* native sites, because the victim was
+whichever native call happened to be running.
+
+Fixed by marking those six `[NonParallelizable]` and `[Apartment(ApartmentState.STA)]` — which is
+what the assembly policy already prescribed for a fixture needing serial execution. **The policy was
+never wrong and did not change.**
+
+| | aborts | complete runs |
+|---|---|---|
+| before | 3 of 5 (at 198, 207, 208 of 634) | 2 |
+| after | **0 of 3** | 3, all 634, 0 failed |
+
+**What let it happen was a comment that stopped being true.** `AssemblyTestPolicy.cs` justified
+parallelism with *"There are now 278 tests here and none of them constructs a form at all"* — and
+then six form fixtures arrived, because nothing fails when a comment goes stale. The same file, one
+paragraph later, states that exact lesson about the comment it replaced. It has now happened twice
+to the same file, which is worth more than the fix.
+
+**A hypothesis that was wrong, kept because it was expensive and plausible.** The first read was
+that `AudioOutput` calls `AL.GetApi()` per instance and `_al.Dispose()` on teardown, unloading the
+native library while another instance still held pointers into it. A test was written for it —
+two overlapping outputs, dispose one, require the other to still work — and it **passed with the bug
+present**. That test is kept (`Dispose_OneOutputWhileAnotherIsOpen_LeavesTheOtherWorking`): it rules
+the explanation out, and the property it asserts is one worth holding anyway.
+
+**And the standing excuse in `build/gate.sh` was wrong.** That note blamed "another application in
+exclusive full screen", written after a single August abort while a video player was running. It was
+never tested, it excused a crash, and it was comfortable — the third abort today happened with
+nothing else holding the GPU at all.
+
+### The original filing, kept for the reasoning
+
+**Filed 2026-08-24, attributed but not diagnosed.** `Tf2DemoSalvage.Viewer3D.Tests` aborts partway
+through with `Test host process crashed : Fatal error`, roughly one run in three. Measured today:
+
+| run | executed of 634 | crash site |
+|---|---|---|
+| gate | 198 | `Device3D.CreateBackBufferView()` ← `MainForm.OnViewportHandleCreated` |
+| re-run | 634 | completed, 1 failed: `ReflectionRender_AModelWithNoCubemap_DoesNotChangeWithItsPlacement` drew `(0,0,0)` |
+| re-run | 208 | `AudioOutput.Dispose()` ← `MainForm.Dispose(Boolean)` |
+
+Every abort is inside `FullScreenTests`, which creates and disposes real windows and D3D devices in
+a tight loop.
+
+**It is not this session's audio work, and that was established by experiment rather than argued.**
+Checked out at `36c916b`, before any of it, `FullScreenTests` aborted once in four runs — the same
+rate as at HEAD. The audio changes make the viewer start many more voices, so the suspicion was
+reasonable; it is simply wrong.
+
+**It is also not the "another app holds the GPU" explanation `build/gate.sh` records.** That note
+was written after a single abort in August while a video player was in exclusive full screen, and it
+has been the standing explanation since. The first abort today fit it — TF2 was running. The third
+did not: nothing else held the GPU, no viewer was open, and no `testhost` or `vstest.console` was
+left over. **That explanation should be treated as unproven** rather than as the known cause; it is
+comfortable, it excuses a crash, and it has never been tested.
+
+**Two different crash sites after the same operation is the shape of native heap damage**, not of an
+ordinary bug — a device teardown or an OpenAL teardown corrupting state that the next allocation
+trips over. `AudioOutput.Dispose` sets `_disposed = true` LAST, after `DestroyContext` and
+`CloseDevice`, so a Dispose that throws part way leaves an object that will happily destroy an
+already-destroyed context on the next call. That is a hypothesis and it is written down as one.
+
+**This is a defect, not flake, and it must not be retried into a green run.** The count floor is the
+only thing catching it — a 208-of-634 abort still prints `Passed!` on the line above `Test Run
+Aborted`, which is precisely why the floors exist (B104).
+
+### B177 — soundscape selection ignores PVS, so every entity on the map contends
+
+**Filed 2026-08-24, not started.** `CSoundscapeSystem::Update` only lets soundscapes in the
+listener's own visibility cluster contend — `m_soundscapesInCluster[clusterIndex]`, built from the
+BSP's visibility data (`soundscape_system.cpp:352-362`). `SoundscapePlacements.Choose` walks all of
+them: 44 on cp_process.
+
+The consequence is a placement on the far side of the map winning on a long clear traceline, and the
+choice changing far more often than the engine's would. Measured on the running viewer before the
+hysteresis fix: **90 soundscape changes in 3m49s**, pairs alternating at the 250 ms selection
+interval. The hysteresis fix removed the `Gorge.Inside` ↔ `Gorge.Outside` oscillation and the loop
+reuse (see `docs/findings/31-game-audio.md`) made the remaining crossings inaudible, so this is no
+longer *audible* — but the selection is still wrong, and a map whose soundscapes differ more sharply
+than cp_process's two would expose it again.
+
+**Blocked on a reader that does not exist.** `BspLumpIndex.Visibility` is defined and nothing uses
+it; there is no PVS decompression anywhere in `Tf2DemoSalvage.Content`. That reader is worth having
+for its own sake — the same data answers "which leaves can this leaf see", which is the standard
+input to occlusion culling, and B163's rendering cost is unmeasured.
+
+Note what it is NOT: a fix for the fade restarting. That was `AddLoopingSound`'s slot reuse, and it
+is already implemented.
+
+### B176 — a pause does not stop the ambient loops, so they drift out of sync — DEFERRED BEHIND PARITY
+
+**Filed 2026-08-24, not started, and deliberately not next.** The owner, once it was measured that
+the engine behaves the same way: *"that means the fix comes after parity though, not before"*. The
+reasoning is in D82 — a deliberate departure built on a baseline that does not yet match makes every
+remaining difference ambiguous, because the engine stops being usable as the control. Do the
+outstanding parity work first; this is a known, reasoned, waiting item rather than a queue jumper.
+
+ Pausing stops the transport, so no new sound starts — but every
+looping voice already in the sink keeps running, soundscape loops included. The soundscape fade
+keeps advancing too, since `_audioClock` is a wall-clock `Stopwatch` and deliberately so
+(`soundscape_fadetime` is three seconds of real time in the engine).
+
+**Why it matters beyond tidiness, in the owner's words:** *"so frag video makers dont have to worry
+about the ambient sounds being unsynced"*. A demo scrubbed and paused while composing a cut has its
+ambience running against a stopped clock, so the audio bed no longer lines up with the frame it was
+heard on. Everything else in the viewer is tied to the tick; this is the one thing that is not.
+
+**Fix it regardless of what TF2 does — see D82.** The owner considered the possibility that the
+game behaves identically and rejected it as a reason to leave this alone: *"that is a bug with tf2
+imo, and it would open up video makers a bit, allowing them to include audio they wouldnt before
+because of the obvious desync"*. The workaround is the evidence — if makers already `sv_cheats 1`
+the ambience off and lay music over the result, the behaviour was never tolerated, it was routed
+around at the cost of everything the map sounds like.
+
+**Measured 2026-08-24, by the owner pausing a demo in TF2 and listening:** *"nope tf2 plays the
+ambience and lets all the active sounds play out"*. So the engine behaves exactly as this viewer
+does, and there was no decode or wiring fault here at all — this viewer reproduced the engine
+faithfully and the engine is what is wrong.
+
+That was worth measuring even though D82 had already removed it as a gate. It converts the entry
+from "we may differ from the game" into "we match the game and are choosing not to", which is a
+different claim to defend and the only one that is true. It also means the fix has no reference
+implementation to copy: **whatever is built here is ours**, and nothing in the SDK or the binary can
+adjudicate it.
+
+No decompiler work is needed. `snd_dma.cpp` is closed, but the question it would have answered is
+now answered by ear.
+
+The shape of the work, then: the transport already knows whether it is paused, and the audio pass
+already runs every frame. What is missing is that looping voices are not tied to it — and
+`SoundSchedule.LiveAt` exists precisely so that resuming can re-establish whatever should be
+sounding at the destination tick.
+
+Note the interaction with B163: if pausing silences loops, resuming has to re-establish them, which
+is exactly what `SoundSchedule.LiveAt` was built for.
+
+### B175 — no scoreboard, and every field it needs is already decoded
+
+**Filed 2026-08-24, not started.** The owner: *"we need the scoreboard too, that can be pulled up in
+any stv demo at any time"* — which is the point. A scoreboard is not a per-player privilege like
+`m_audio` (B173); it is built from `CTFPlayerResource`, one server-wide entity whose arrays are
+indexed by entity index and sent to everybody, SourceTV included.
+
+**This is unusually cheap because the hard part is done.** `DemoTimeline` already finds that entity
+and reads `m_iTeam` and `m_iPlayerClass` off it (`DemoTimeline.cs:216`). The remaining fields are
+siblings in the same table, read from the SDK rather than guessed:
+
+| Property | Table | Width | Holds |
+|---|---|---|---|
+| `m_iScore` | `DT_PlayerResource` | 12, signed | kills |
+| `m_iDeaths` | `DT_PlayerResource` | 12, signed | deaths |
+| `m_iPing` | `DT_PlayerResource` | 10, unsigned | ping |
+| `m_bAlive` / `m_bConnected` | `DT_PlayerResource` | 1 | state |
+| `m_iTotalScore` | `DT_TFPlayerResource` | varint | the "Score" column |
+| `m_iDamage`, `m_iHealing` | `DT_TFPlayerResource` | varint | the columns comp players read |
+| `m_iConnectionState` | `DT_TFPlayerResource` | 3 | connecting vs playing |
+
+Citations: `server/player_resource.cpp:18-28` and `server/tf/tf_player_resource.cpp:24-49`.
+
+**One trap, and it is stated in Valve's own source by omission.** `m_szName` is present in
+`DT_PlayerResource` **commented out** (`player_resource.cpp:17`) — names are NOT on this entity.
+They come from the `userinfo` string table, which this project already reads: the viewer's roster
+line ("6 red, 6 blu, 1 watching") is built from it. A scoreboard that looked for names on the
+resource entity would find nothing and report a table of blanks with correct numbers.
+
+Team scores are a separate entity again (`CTFTeam` / `DT_Team`, `m_iScore`), and the round timer a
+third (`CTeamRoundTimer`) — neither is needed for a first version.
+
+Depends on nothing. Wants a binding like everything else (D69) — TF2's own key is `TAB`, bound to
+`+showscores`.
+
+**A POV demo carries when the recording player held it open, and the owner's hunch about that is
+right — checked, since they flagged it as a hunch.** `+showscores` runs `IN_ScoreDown`
+(`client/in_main.cpp:1619`), which sets the `in_score` key state; `CalcButtonBits` then folds it
+into the usercmd as `IN_SCORE`, `(1 << 16)` (`shared/in_buttons.h:30`, whose own comment reads
+"Used by client.dll for when scoreboard is held down"). Usercmds are recorded in a POV demo as
+`dem_usercmd`, so the bit is on the wire and the scoreboard the viewer saw come up is the recorded
+player's own TAB.
+
+That makes the two demo kinds differ in an interesting way rather than in capability:
+
+- **STV** — the DATA is there for everyone, so the viewer can open a scoreboard whenever it likes.
+  There is no recorded intent to reproduce, because the SourceTV camera never pressed anything.
+- **POV** — the same data, plus a record of when that one player held it open. Worth honouring as a
+  playback overlay eventually, and it is the same class of finding as B173's `m_audio`: what a demo
+  carries depends on who recorded it.
+
+Neither is a prerequisite for the other. Build the on-demand scoreboard first; `IN_SCORE` is a
+later refinement and needs `dem_usercmd` button decoding, which nothing currently reads.
+
+### B174 — no FPS readout, so three different stutters are indistinguishable
+
+**Filed 2026-08-24, not started.** The viewer has a frame rate *limit* setting
+(`MainForm.cs:4882`) and nothing that reports the rate achieved. There is no overlay to turn on —
+the owner asked whether one existed and it does not.
+
+The cost is diagnostic rather than cosmetic, and the owner named it exactly: *"i have no idea what
+fps we are rendering at and cant tell stutter in the demo from stutter in the decode, from stutter
+in fps"*. Those are three separate faults with one symptom:
+
+- **the recording** stutters, because the server dropped or the player lagged;
+- **the timeline** stutters, because interpolation between recorded moments is missing (B163);
+- **the renderer** stutters, because a frame took too long.
+
+Without a rate to look at, every report of "it looks choppy" starts by guessing which. B163 is
+already filed against the second on the owner's hypothesis, and that hypothesis cannot currently be
+checked.
+
+What it needs: frames per second and frame time, drawn in the corner, off by default and bound like
+everything else (D69). Worth adding the demo's own tick rate beside it, since the interesting
+comparison is between the two.
+
+### B173 — CLOSED 2026-08-24. Soundscapes, read from the map and chosen the way the engine chooses
+
+The owner's original report — the computer hum played and the spawn AC hum did not — was two
+different mechanisms, and only the first was implemented. A soundscape never appears in
+`svc_Sounds`: the server picks one from the map's `env_soundscape` entities and sends an INDEX in
+private per-player data.
+
+**Every link verified against the engine rather than against this project's reading of it:**
+
+| link | verified by |
+|---|---|
+| manifest → ordered list | `cl_soundscape_printdebuginfo`, **153 for 153** |
+| index → soundscape | `soundscape_dumpclient` in spawn reporting index 0 |
+| BSP entities → placements | 44 of 44 resolved, all 40 proxies following their masters |
+| position → soundscape | **seven captured positions, all seven reproduced** |
+| crossfade | transcribed from `UpdateLoopingSounds`, sabotage-checked |
+
+**The wire is not enough, and the measurement is why.** `m_audio` reaches the client through
+`SendProxy_SendLocalDataTable` — `pRecipients->SetOnly( objectID - 1 )` — so only the owning client
+gets it. Measured across the corpus: the POV recording of cp_process carries 64 samples across
+indices 0, 41 and 42; the STV recording of the same session carries 2 samples and one index, because
+it holds the SourceTV CAMERA's soundscape rather than any player's. A viewer following a player in an
+STV demo would be given the wrong listener entirely, so the map is read directly.
+
+That also met the owner's constraint, which was about scale rather than correctness: *"i really dont
+want to have to make manual dumps like that for every map... that means following valve as close as
+possible"*. Their captures verified the mechanism and are committed as fixtures; no map needs one.
+
+**The defect worth remembering is the one their ears caught, and it was a fallback.** A positioned
+loop whose position the map does not supply is SUPPRESSED by the engine —
+`if ( positionIndex > 31 || !(m_params.localBits & (1<<positionIndex)) ) return;`
+(`c_soundscape.cpp:797`). This first played it at the listener instead, unattenuated. On cp_process
+that meant **seven copies of `machine_hum` stacked in the ear**, because `Gorge.Inside` places seven
+and that map's entities carry no position keys at all. The owner: *"the ambient is still too loud
+actually"*, then *"its specifically the cpu sound it seems like"* — which named the file.
+
+A fallback that produces sound is indistinguishable from a working feature until somebody listens,
+which is the same lesson as the `bIsAmbient` special case in B168. Both were invented; neither
+looked like an error.
+
+**A real consequence, not a bug:** `Gorge.Inside` was authored for Gorge, whose entities do supply
+position targets. cp_process reuses it by name and does not, so those seven hums are silent in the
+real game too — the map-wide computer hum there comes from `ambient_generic` props on the wire,
+which this viewer already played from the start.
+
+**Not implemented, and stated rather than left to be found:**
+
+- **`playrandom`** — soundscapes also fire occasional one-shots. The rules are parsed and their
+  names recorded on `Soundscape.OtherRules` so a partly-reproduced soundscape can say so, but
+  nothing plays them. `Gorge.Inside` and `tf2.respawn_room` have none.
+- **`playsoundscape`**, which nests one soundscape inside another. Same treatment.
+- **DSP.** The room effect is recorded per soundscape (`tf2.respawn_room` asks for 1, "Generic") and
+  never applied. Reproducing Valve's DSP is a separate problem from playing the loops.
+- **Line of sight is sampled, not clipped.** `BspLeafTree.IsClear` walks the segment in 4-unit steps
+  rather than splitting it against BSP planes, so a wall thinner than the step reports clear —
+  hearing the room next door. All seven captured positions came out right, but those are mid-room
+  rather than on thresholds.
+
+### B173 — the original filing, kept for the reasoning — CLOSED, see above
 
 The owner, after B169 was fixed: *"computer hum is right, i have no ac hum from the spawn though."*
 

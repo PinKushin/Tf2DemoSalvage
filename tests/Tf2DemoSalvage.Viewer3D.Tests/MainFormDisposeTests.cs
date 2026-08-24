@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 using Tf2DemoSalvage.Viewer3D;
 
@@ -27,6 +28,10 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// and the ambiguity went with it.
 /// </remarks>
 [TestFixture]
+
+// STA and serial, because this constructs a Windows Form — see B178.
+[NonParallelizable]
+[Apartment(ApartmentState.STA)]
 public sealed class MainFormDisposeTests
 {
     [Test]

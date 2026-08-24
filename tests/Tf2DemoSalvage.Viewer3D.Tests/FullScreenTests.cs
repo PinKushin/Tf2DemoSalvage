@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Viewer3D;
@@ -24,6 +25,19 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// duplicated**. A second copy in the overlay would be a second piece of state to keep in step
 /// with playback, and the two would drift apart the moment anything updated only one of them.
 /// </remarks>
+/// <remarks>
+/// **STA and serial, because this constructs a Windows Form (B178).** The assembly opts into
+/// `Parallelizable(ParallelScope.All)` on the stated grounds that "nothing left in this project
+/// constructs a form" — which stopped being true, in six files, without anything failing. A form
+/// built on an MTA worker thread, concurrently with other forms each holding a D3D swap chain and
+/// an OpenAL context whose current-context is process-wide, is undefined behaviour.
+///
+/// The symptom was a test host that crashed in about half of all runs, at three unrelated native
+/// sites — D3D device creation, overlay positioning, and audio teardown. Nothing pointed at a
+/// culprit because there was not one: it was whichever native call happened to be executing.
+/// </remarks>
+[NonParallelizable]
+[Apartment(ApartmentState.STA)]
 public sealed class FullScreenTests
 {
     [Test]

@@ -81,4 +81,45 @@ public sealed class AudioOutputMixTests
     {
         AudioOutput.ToStereo16(Mono(), leftGain: 1f, rightGain: 1f).ShouldBeEmpty();
     }
+
+    [Test]
+    public void Dispose_OneOutputWhileAnotherIsOpen_LeavesTheOtherWorking()
+    {
+        // **The one test here that needs a real device, and B178 is why.** Everything above is
+        // deliberately device-free so it runs on CI and the measurement boxes, which have no sound
+        // card. This defect lives entirely in the device path: the viewer test suite builds and
+        // disposes a `MainForm` per test, each opening its own `AudioOutput`, and the host crashed
+        // roughly one run in three — twice inside `AudioOutput.Dispose` and once in D3D device
+        // creation afterwards, which is the shape of native teardown damaging something else.
+        //
+        // Two overlapping lifetimes is the smallest arrangement that reproduces it, and it asserts
+        // rather than merely surviving: a process-wide teardown taken by the FIRST output is
+        // observable as the SECOND one no longer working.
+        if (AudioOutput.TryCreate() is not { } first)
+        {
+            Assert.Ignore("no audio device on this machine, so the device path cannot be exercised");
+            return;
+        }
+
+        AudioOutput? second = AudioOutput.TryCreate();
+
+        second.ShouldNotBeNull("a second output must open while the first is still alive");
+
+        first.Dispose();
+
+        // **The survivor has to still function.** `Reclaim` and `StopAll` both call into AL, so if
+        // disposing the first unloaded the shared library or cleared the process-wide current
+        // context, this is where it shows — as a failure if we are lucky, and as a host crash if we
+        // are not.
+        second.Reclaim();
+        second.StopAll();
+        second.Dispose();
+
+        // And a third must still open afterwards: if the library were unloaded, `TryCreate` would
+        // catch `DllNotFoundException` and hand back null, which is silence with no explanation.
+        AudioOutput? third = AudioOutput.TryCreate();
+
+        third.ShouldNotBeNull("the device must still open after every earlier output was disposed");
+        third.Dispose();
+    }
 }

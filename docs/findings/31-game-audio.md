@@ -827,3 +827,108 @@ lost between finding a file and turning it into samples.
 **NLayer needed no fallback.** The benchmark that chose it measured 0.4 ms for a voice line against
 a 100 ms `snd_mixahead` budget; against the corpus it also decoded every MP3 without one malformed-
 input refusal. The C and COM options costed in `docs/findings/31-game-audio.md` stay unbuilt.
+
+## The gain curve, recovered from the binary — and both errors in ours
+
+**B142 is closed, 2026-08-24.** The section above concluded the curve was ours, flagged it, and
+recorded that fetching a leaked-source mirror returned HTTP 451 and was not routed around. None of
+that was necessary: the curve is in `engine.dll`, and reading a shipped binary is not that.
+
+`SND_GetGain`, at `101cbb00` in the live x86 `engine.dll`:
+
+```c
+relative = distance * attenuation / snd_refdist;   // snd_refdist = 36
+gain = relative <= 1 ? snd_gain : snd_gain / relative;
+if ( gain < snd_gain_min ) { taper to zero }       // snd_gain_min = 0.01
+```
+
+Pure inverse distance past the reference, exactly as the *reference distance* name implied — the
+earlier reasoning about that was right. What it got wrong is everything around it.
+
+### Two errors, and the first is the one that mattered
+
+**The attenuation was not in the distance term.** Ours computed `refdist / distance` and left
+attenuation out entirely, so every sound in the game fell off at the same rate regardless of its
+soundlevel — which is the only thing a soundlevel does. A gunshot at SNDLVL 140 and an idle hum at
+60 attenuated identically over distance; only their cutoffs differed.
+
+**The `1 − distance / AudibleRadius` fade was invented, and its radius answers a different
+question.** `(2 * SOUND_NORMAL_CLIP_DIST) / attenuation` is from `recipientfilter.cpp` and governs
+whether the SERVER SENDS the event. `SND_GetGain` never mentions it; the engine's own silence point
+is `snd_gain_min`. For ATTN_NORM that put a hard edge at 2,500 units where the engine's is at 4,500,
+and dragged everything inside it down as well.
+
+Measured against a listener 873 units from a machine hum at SNDLVL 75: **0.027 against the engine's
+0.0515**, and a different shape everywhere past ~50 units.
+
+### Finding it took three hops, and each dead end reported success
+
+`FindSoundMixer.java` had already located the cvar name strings and printed
+`0 functions with callers` — four separate runs, across two sessions. That reads as "not in this
+binary" and means nothing of the kind:
+
+1. **A cvar name is a constructor argument.** The only code mentioning `"snd_refdb"` is the static
+   initialiser. The code that READS the value never touches the string.
+2. **Those initialisers were never disassembled.** Ghidra's reference database has no entry for
+   undisassembled bytes, and `getReferencesTo` returns an empty list rather than an error — so the
+   query and the answer both looked fine.
+3. **A reader loads a FIELD, not the object.** `mov eax, [base + 0x2c]` embeds `base + 0x2c` as its
+   constant. Scanning for the object base found exactly two hits in four megabytes — the initialiser
+   and one accessor — and none of the readers. Scanning `base + 0..0x60` found twenty-five, of which
+   five read all five gain cvars.
+
+The general lesson is `docs/memory/binaries-answer-what-the-sdk-cannot.md` stated from the other
+side: **an empty result from a decompiler's database is a fact about the analysis, not about the
+binary.** Scan the bytes.
+
+## A soundscape restart reuses the loops that did not change
+
+Reading `UpdateAudioParams` alone gives the wrong answer here, and it is worth recording because the
+wrong answer was implemented and shipped an inaudible map.
+
+`UpdateAudioParams` restarts whenever `soundscapeIndex` or `entIndex` changes
+(`c_soundscape.cpp`), and `StartNewSoundscape` sets every playing loop's `volumeTarget` to zero. Read
+that far and the conclusion is that crossing between two `env_soundscape` entities naming the SAME
+soundscape fades the ambience out and back in.
+
+It does not. `AddLoopingSound` reclaims the slot first (`c_soundscape.cpp:1100-1133`):
+
+```c
+// NOTE: will reuse existing entry (fade from current volume) if possible
+//		this prevents pops
+...
+// NOTE: Will always restart/crossfade positional sounds
+if ( sound.id != m_loopingSoundId && sound.pitch == pitch && !Q_strcasecmp( pSoundName, sound.pWaveName ) )
+{
+    if ( isAmbient == true && sound.isAmbient == true )   { /* reuse this sound */ }
+    else if ( isAmbient == sound.isAmbient )
+        if ( VectorsAreEqual( position, sound.position, 0.1f ) ) { /* reuse this sound */ }
+}
+```
+
+So an **unpositioned** loop survives an entity change unconditionally, keeping its current volume; a
+**positioned** one survives only where its target agrees within 0.1 units. Matched on wave and
+pitch — never on volume, which is written to `volumeTarget` and faded to.
+
+**The symptom of getting this wrong was silence, not a pop.** cp_process has 21 entities naming
+`Gorge.Outside`, and the viewer's selection crossed between them every few hundred milliseconds
+against a three-second fade, so the outdoor wind and birds never rose above about a fifth of their
+volume — while the log showed the correct soundscape being chosen the entire time. Measured on the
+running viewer: 90 changes in 3m49s, with pairs alternating at the 250 ms selection interval.
+
+Two faults fed it, and only one is fixed:
+
+- **The hysteresis was dead.** `Choose` reassigned its running `chosen` during the walk, so the
+  branch testing "is this the current one" compared against a contender instead, and the current
+  placement's own range was never established. Selection degenerated to bare nearest-visible with
+  nothing resisting a flip. The engine measures the current FIRST and then skips it in the loop
+  (`soundscape_system.cpp:339-362`), seeding `currentDistance = 0` and `bInRange = false`.
+- **The PVS restriction is still missing.** Only soundscapes in the listener's own visibility
+  cluster contend in the engine (`m_soundscapesInCluster`). This project reads no visibility lump —
+  `BspLumpIndex.Visibility` is defined and unused — so all 44 contend and a placement across the map
+  can win on a long clear traceline.
+
+**Valve hit the same wall in the same order**, and left the evidence in a comment four lines below
+the reuse check: fading one positional sound out while fading another in sends alternating commands
+naming the same sound, *"this will occasionally cause the sound to vanish entirely"*, so they stop
+the old one immediately. Pops, then a crossfade, then the crossfade interfering with itself.

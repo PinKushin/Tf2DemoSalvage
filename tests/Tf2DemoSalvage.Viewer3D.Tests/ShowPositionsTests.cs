@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 using Tf2DemoSalvage.Viewer3D;
 
@@ -15,6 +16,9 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// as. What is left is the join: that the form actually pushes one into the other, and does not
 /// quietly hand the renderer world coordinates in the thousands.
 /// </remarks>
+/// <remarks>STA and serial, because this constructs a Windows Form — see B178.</remarks>
+[NonParallelizable]
+[Apartment(ApartmentState.STA)]
 public sealed class ShowPositionsTests
 {
     [Test]

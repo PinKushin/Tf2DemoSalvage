@@ -24,15 +24,22 @@
 # Ratcheted rather than exact: adding a test must not redden the build, but removing three hundred
 # must. Raise them when the suite grows; lowering one is a decision to state out loud.
 #
-# **"Test Run Aborted" in the viewer suite is probably the desktop, not the code.** Seen once on
-# 2026-08-20: the run died at 192 of 512 and the floor caught it. Viewer3D.Tests creates real D3D
-# devices, and at the time another application was in exclusive full screen — the owner's video
-# player — which is a known way for device creation to fail. Unproven: it did not reproduce in four
-# clean runs afterwards, and nothing was captured from the crash itself.
+# **"Test Run Aborted" in the viewer suite WAS the code, and this note used to say otherwise.**
+# It read: "probably the desktop, not the code... another application was in exclusive full screen".
+# That was written after a single abort on 2026-08-20, was never tested, and stood as the standing
+# explanation until 2026-08-24 — when the suite aborted three times in five runs with nothing else
+# holding the GPU.
 #
-# Worth knowing before chasing it as a defect, and worth noting that this suite is NOT run under
-# run-exclusive.ps1 the way the UI suite is, because it takes no desktop of its own — it just wants
-# a GPU that nobody else has taken exclusively.
+# The cause was B178: six fixtures construct a Windows Form, and the assembly runs
+# ParallelScope.All with no [Apartment], so forms owning D3D swap chains and OpenAL contexts were
+# built concurrently off the STA. Fixed by marking those fixtures; 0 aborts in 3 runs afterwards.
+#
+# **Kept as a warning about this kind of note.** An explanation that blames the environment,
+# excuses a crash, and is never tested will survive indefinitely, because nothing about it can
+# fail. If a run aborts here again, suspect the code first.
+#
+# Still true: this suite is NOT run under run-exclusive.ps1 the way the UI suite is, because it
+# takes no desktop of its own — it just wants a GPU that nobody else has taken exclusively.
 #
 # **No --filter here, and that is deliberate.** Passing one changes which tests EXIST, not merely
 # which of them run: NUnit's adapter includes [Explicit] tests when no filter is given and drops
@@ -126,7 +133,16 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # 116: ActiveLoopsTests (7). A loop has to be re-attenuated as the listener moves, or it keeps the
 # gain implied by wherever the camera stood when it started (B169). Device-free, so it runs where
 # there is no sound card — which is everywhere the gate runs.
-run Tf2DemoSalvage.Audio.Tests    audio     116
+# 121: SoundscapeCatalogConformanceTests (5). The soundscape list rebuilt from the shipped manifest
+# and diffed entry-by-entry against one a running TF2 client printed — 153 for 153. The index is a
+# position in that list, so a mis-order plays the wrong ambience rather than none (B173).
+# 129: SoundscapeSelectionConformanceTests (8). Choosing a soundscape from the BSP, checked against
+# seven positions where the owner ran soundscape_dumpclient in the live game. A differential: the
+# engine's answer is the expectation, so this can disagree with it (B173).
+# Raised 129 -> 139 on 2026-08-24: SoundscapeMixerTests gained the suppression case (1), and
+# SoundScriptProbe gained the loop-marker report (1) that settled whether TF2's ambient waves carry
+# a `cue ` chunk at all — they do, which ruled out the reader and pointed at the schedule instead.
+run Tf2DemoSalvage.Audio.Tests    audio     141
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -139,7 +155,12 @@ run Tf2DemoSalvage.Audio.Tests    audio     116
 # 108: SoundScheduleTests (7). Which sounds start as playback moves — the seek that must not replay
 # what it skipped, the paused frame that must not repeat its tick, and the dropped frame that must
 # not be mistaken for a seek. All three are silent failures that sound like a working viewer.
-run Tf2DemoSalvage.Presentation.Tests presentation 108
+# Raised 108 -> 116 on 2026-08-24 by SoundSchedule.LiveAt (8). A looping ambient is STATE, not an
+# event: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and next mentions them at a round
+# restart minutes later, so a cursor over events leaves the map silent from the first reposition on.
+# The map load alone is enough to cause it — seven seconds of loading is 466 ticks, and the first
+# Advance lands past both the tick-4 start and the tick-334 restart.
+run Tf2DemoSalvage.Presentation.Tests presentation 116
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -168,7 +189,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 108
 # 640: VtfLowResolutionConformanceTests (2). The thumbnail every VTF carries, which
 # mat_showlowresimage draws — and the claim the reader's skip has always encoded without checking:
 # it is always DXT1, whatever the texture's own format is.
-run Tf2DemoSalvage.Content.Tests  content   640
+# 642: the two soundscape probes, both [Explicit] — SoundscapeManifestProbe reports the shipped
+# manifest and its load order, EnvSoundscapeProbe reports a map's env_soundscape entities. They are
+# what turned B173 from a guess into a mechanism.
+run Tf2DemoSalvage.Content.Tests  content   642
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -188,7 +212,10 @@ run Tf2DemoSalvage.Content.Tests  content   640
 # 106: SoundPopulationProbe (2 cases, [Explicit]). It reports what a demo actually plays, by name,
 # soundlevel, pitch, stop and origin — and answered three questions in one run that were
 # indistinguishable from the speakers.
-run Tf2DemoSalvage.Corpus.Tests   corpus     106
+# 109: SoundscapeWireProbe (3 cases, [Explicit]). Which demo kinds carry m_audio at all — the
+# measurement that showed an STV recording carries the SourceTV CAMERA's soundscape rather than any
+# player's, which is why the map's own entities are needed rather than the wire (B173).
+run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

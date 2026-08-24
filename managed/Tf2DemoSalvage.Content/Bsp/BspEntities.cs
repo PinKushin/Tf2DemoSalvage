@@ -39,6 +39,22 @@ public sealed class BspEntity
     /// <param name="value">The value, when the key exists.</param>
     /// <returns>Whether the key exists.</returns>
     public bool TryGetValue(string key, out string value) => _values.TryGetValue(key, out value!);
+
+    /// <summary>Every key this entity carries, with its value.</summary>
+    /// <remarks>
+    /// **For readers that must not guess which keys matter.** An <c>env_soundscape</c> carries a
+    /// name, a radius and up to eight position targets, and which of those a map actually sets
+    /// varies — so a reader written against a guessed key list silently ignores whatever it did not
+    /// think of. Enumerating is also how a probe reports a class nobody has read before.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string> Values => _values;
+
+    /// <summary>The entity's <c>classname</c>, or empty when it declares none.</summary>
+    /// <remarks>
+    /// Every entity in a compiled map has one; empty means the lump held a block that did not, which
+    /// is worth reading as "not the class you are looking for" rather than throwing.
+    /// </remarks>
+    public string ClassName => _values.TryGetValue("classname", out string? name) ? name : string.Empty;
 }
 
 /// <summary>
