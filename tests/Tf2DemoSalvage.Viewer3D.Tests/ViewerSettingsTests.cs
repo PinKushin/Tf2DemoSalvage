@@ -1,5 +1,4 @@
 using System.IO;
-using System.Threading;
 
 using Tf2DemoSalvage.Viewer3D;
 
@@ -13,9 +12,8 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// missing or corrupt one must not stop the viewer opening a demo — but a preference that silently
 /// fails to stick is worse than one that says so, because the user repeats the change forever.
 /// </remarks>
-/// <remarks>STA and serial, because this constructs a Windows Form — see B178.</remarks>
+/// <remarks>Serial, because this constructs a Windows Form — see B178. NOT `[Apartment(STA)]`: that was tried and broke CI, and the fix is serialisation.</remarks>
 [NonParallelizable]
-[Apartment(ApartmentState.STA)]
 public sealed class ViewerSettingsTests
 {
     private string _folder = string.Empty;

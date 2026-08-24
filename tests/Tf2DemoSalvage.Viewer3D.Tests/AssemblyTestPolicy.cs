@@ -29,9 +29,24 @@
 // unrelated native sites, and the standing explanation in build/gate.sh blamed the desktop.
 //
 // The policy below was never wrong and did not need changing. Its escape hatch — a fixture that
-// needs serial execution carries [NonParallelizable] itself — is exactly the fix, and those six
-// now carry it along with [Apartment(ApartmentState.STA)]. What failed was nobody checking whether
-// the comment still described the assembly.
+// needs serial execution carries [NonParallelizable] itself — is exactly the fix, and those six now
+// carry it. What failed was nobody checking whether the comment still described the assembly.
+//
+// **[Apartment(ApartmentState.STA)] was added with it and then removed. Do not put it back without
+// reading this.** "WinForms needs STA" is the textbook answer and it looked obviously right beside
+// the real fix. It also broke CI, in a way that could not happen locally: NUnit's STA support
+// installs a SingleThreadedTestSynchronizationContext, MainForm decodes demos off the UI thread and
+// posts back to it (D73), and a load still in flight when the fixture's context shuts down throws
+//
+//     System.InvalidOperationException: This SingleThreadedTestSynchronizationContext has been shut down.
+//
+// on a thread-pool thread. Unhandled there, so the host dies -- the same "Test Run Aborted" symptom
+// as the bug being fixed, now with a different cause. The hosted runner is slower than this machine,
+// so the load outlived the fixture there and never did here.
+//
+// Serialisation alone fixes the original crash: three clean runs of 633 with no apartment attribute.
+// The lesson is about method rather than about NUnit -- two plausible remedies were applied at once,
+// only one was needed, and the unnecessary one caused a new fault that wore the old fault's symptom.
 //
 // **So: adding a test here that constructs a form means marking that fixture.** There is no
 // assembly-wide setting that would catch it for you, deliberately — the rest of this suite is

@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Threading;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Viewer3D;
@@ -26,18 +25,27 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// with playback, and the two would drift apart the moment anything updated only one of them.
 /// </remarks>
 /// <remarks>
-/// **STA and serial, because this constructs a Windows Form (B178).** The assembly opts into
+/// **Serial, because this constructs a Windows Form (B178).** The assembly opts into
 /// `Parallelizable(ParallelScope.All)` on the stated grounds that "nothing left in this project
-/// constructs a form" — which stopped being true, in six files, without anything failing. A form
-/// built on an MTA worker thread, concurrently with other forms each holding a D3D swap chain and
-/// an OpenAL context whose current-context is process-wide, is undefined behaviour.
+/// constructs a form" — which stopped being true, in six files, without anything failing. Forms
+/// built concurrently, each holding a D3D swap chain and an OpenAL context whose current-context is
+/// process-wide, crashed the test host in about half of all runs, at three unrelated native sites.
+/// Nothing pointed at a culprit because there was not one: it was whichever native call happened to
+/// be executing.
 ///
-/// The symptom was a test host that crashed in about half of all runs, at three unrelated native
-/// sites — D3D device creation, overlay positioning, and audio teardown. Nothing pointed at a
-/// culprit because there was not one: it was whichever native call happened to be executing.
+/// **`[Apartment(ApartmentState.STA)]` was added alongside this and then removed, which is the part
+/// worth keeping.** WinForms wanting STA is the textbook answer and looked obviously right. It also
+/// broke CI: NUnit's STA support installs a `SingleThreadedTestSynchronizationContext`, `MainForm`
+/// decodes demos off the UI thread and posts back to it (D73), and a load still in flight when the
+/// fixture's context shuts down throws *"This SingleThreadedTestSynchronizationContext has been shut
+/// down"* on a pool thread — unhandled, so the host dies. It never fired locally; the hosted runner
+/// is slower, and there the load outlived the fixture.
+///
+/// Serialisation alone fixes the original crash — measured, three clean runs of 633 with no
+/// apartment attribute at all. The defect was CONCURRENCY, not apartment state, and shipping a
+/// second plausible remedy beside the real one nearly hid which was which.
 /// </remarks>
 [NonParallelizable]
-[Apartment(ApartmentState.STA)]
 public sealed class FullScreenTests
 {
     [Test]
