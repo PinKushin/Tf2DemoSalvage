@@ -9913,6 +9913,40 @@ Worth separating before any work: frame pacing (are we presenting at a steady ra
 interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
 cycle advance smoothly). Three different causes, one appearance.
 
+### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
+
+The Original ("the quake launcher") drew far too high and filled the screen, on every demo since
+that weapon shipped in June 2012. Owner confirmed fixed by looking: *"SS it looks right now"*.
+
+One conjunction in `PropModels`:
+
+```csharp
+bool skin = (mustSkin || wantedFrames > affordable) && bones.Count > 1;
+```
+
+`bones.Count > 1` is a **budget** rule and `mustSkin` is a **correctness** rule, and written this way
+the budget rule overrode the correctness one. The paragraph immediately above it already stated the
+intent — "A worn model is skinned however cheap it is, and this is not an optimisation choice" — so
+the comment and the line under it disagreed, and the comment was right.
+
+Baking pre-transforms vertices by one pose and discards the bone indices. A bone-merged model has no
+position of its own, so with nothing to merge onto, `EntityModels.Merge` returns early and it draws
+at the wearer's origin. On a player that is their feet; **on a viewmodel it is the camera**, which is
+why this one symptom was "filling the screen" rather than "slightly out of place".
+
+**One bone is the normal shape for a carried weapon, not a degenerate case.** Measured:
+`c_bet_rocketlauncher.mdl` declares exactly one bone, `weapon_bone`, and the soldier's arms provide
+it. So it could merge perfectly and never merged at all.
+
+**Why it hid for over a year of demos:** the stock rocket launcher has four bones, clears the guard,
+skins, merges and sits in the hand. The mechanism looked like it worked, and exactly one weapon was
+wrong for a reason that had nothing to do with that weapon. The control is now a test
+(`WornModelSkinningTests`), so a change that stops the stock launcher skinning reddens too.
+
+Two instruments were written before the fix and one of them killed the first theory outright:
+`ViewmodelBoneMergeTests` showed the Original's single bone IS supplied by the arms, which ruled out
+"its bones do not match" before any code was touched.
+
 ### B166 — the viewmodel cvars are unimplemented, and 54 is right by coincidence — OPEN
 
 The owner, watching the viewer draw a viewmodel: *"im actually a little surprised the viewmodels are

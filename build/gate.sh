@@ -229,7 +229,9 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     103
 # makes it — the mechanism B70 was missing for three attempts (2026-08-23).
 # 615: OpaquePassBlendStateRenderTests, which draws a decal pass and then an opaque prop and asserts
 # the prop ignores its texture's alpha — the leak that made every static prop translucent (B154).
-run Tf2DemoSalvage.Viewer3D.Tests viewer    625
+# 627: WornModelSkinningTests (2). A model flagged as worn must skin however few bones it has, and
+# the stock rocket launcher is the control that says the change stayed narrow (B167).
+run Tf2DemoSalvage.Viewer3D.Tests viewer    627
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

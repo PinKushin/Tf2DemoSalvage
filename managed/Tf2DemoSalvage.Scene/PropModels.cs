@@ -743,7 +743,25 @@ public static class PropModels
             // so all of them were baked, and the log said "1 baked frames" for each while the
             // merge quietly did nothing. The hats sat at ankle height and the whole mechanism read
             // as broken.
-            bool skin = (mustSkin || wantedFrames > affordable) && bones.Count > 1;
+            // **`bones.Count > 1` is a budget rule and must not reach `mustSkin`, which is a
+            // correctness one.** Written as one conjunction it did, and then a worn model with a
+            // single bone could never be skinned however loudly the caller asked — which is the
+            // paragraph above being contradicted by the line that implements it.
+            //
+            // One bone is not a degenerate case here, it is the NORMAL shape for a weapon that
+            // hangs off its wearer: the Original declares exactly one, `weapon_bone`, and the
+            // soldier's arms provide it (ViewmodelBoneMergeTests). So it could merge perfectly and
+            // never merged at all, and was drawn at the wearer's origin — for a viewmodel, the
+            // camera. That is the owner's "the original being way too high and taking up all the
+            // screen", on every demo since that weapon shipped in June 2012.
+            //
+            // It hid because the stock launcher has four bones, clears the guard, and works. One
+            // weapon in the game was wrong, for a reason that had nothing to do with that weapon.
+            //
+            // The guard is still right for the budget path: skinning a single-bone model to save
+            // frames buys nothing, because one bone cannot deform anything.
+            bool skin = bones.Count > 0 &&
+                (mustSkin || (wantedFrames > affordable && bones.Count > 1));
 
             long bakingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
 

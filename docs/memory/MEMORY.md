@@ -125,3 +125,4 @@
 - [No scripted edits means docs too](no-scripted-edits-means-docs-too.md) — Edit/Write for every file change, docs included.
 - [A viewmodel is one model or two](a-viewmodel-is-one-model-or-two.md) — decide from what the demo networked, not today's schema.
 - [Check backwards compatibility on old demos](check-backwards-compat-on-old-demos.md) — an era demo is the first place to look.
+- [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — `&& bones.Count > 1` vetoed mustSkin, so a one-bone worn model never merged.
