@@ -322,21 +322,34 @@ public sealed class FirstPersonUiTests
         // lands back on them (`Next_TheOnlyPlayer_StaysOnThem`). Asserting a *change* of target here
         // would be asserting something the demo cannot show. That claim is made against z1800 in
         // `CorpusSpectatorCyclingTests`, on a nine-versus-nine match.
+        //
+        // **It counts EITHER outcome, and counting only the successful one was a real defect.**
+        // `CycleTarget` logs "following entity N" when the search finds a target and "nobody else to
+        // follow at this tick" when it does not. Both prove the click reached the handler, which is
+        // the only claim this test makes. Requiring the first made the test depend on whether a
+        // solo recording's single player was observable at whatever tick playback happened to be
+        // sitting on — a fact about the demo, not about the wiring.
+        //
+        // It failed for exactly that reason once B171 required a target to be alive and drawn: the
+        // viewer was behaving correctly and the owner watched it do so. The owner's verdict on the
+        // old form was that it "doesnt actually check anything", and on a one-player demo the part
+        // it added beyond the wiring check really did not.
         ViewerSession.RequireTheGame();
 
         EnsureFirstPerson();
 
-        int before = Viewer.Count(Spectating);
+        int before = Viewer.Count(Spectated);
 
         Viewer.Click(MainForm.ViewportId, MouseButton.Left);
 
         Retry.WhileFalse(
-            () => Viewer.Count(Spectating) > before,
+            () => Viewer.Count(Spectated) > before,
             TimeSpan.FromSeconds(5));
 
-        Viewer.Count(Spectating).ShouldBeGreaterThan(
+        Viewer.Count(Spectated).ShouldBeGreaterThan(
             before,
-            "clicking the button bound to +attack should have reached the spectator code");
+            "clicking the button bound to +attack should have reached the spectator code, " +
+            "whether or not it found anyone to follow");
     }
 
     [Test]
@@ -351,21 +364,32 @@ public sealed class FirstPersonUiTests
 
         EnsureFreeCamera();
 
-        int before = Viewer.Count(Spectating);
+        int before = Viewer.Count(Spectated);
 
         Viewer.Click(MainForm.ViewportId, MouseButton.Left);
 
         // No wait-for-change to do here: the claim is that nothing happens, so the only honest
         // instrument is to give it the same window the positive test gets and then look.
         Retry.WhileFalse(
-            () => Viewer.Count(Spectating) > before,
+            () => Viewer.Count(Spectated) > before,
             TimeSpan.FromSeconds(2));
 
-        Viewer.Count(Spectating).ShouldBe(before, "the free camera does not spectate anybody");
+        Viewer.Count(Spectated).ShouldBe(before, "the free camera does not spectate anybody");
     }
 
-    /// <summary>What the viewer logs when a cycle picks somebody.</summary>
-    private const string Spectating = "following entity ";
+    /// <summary>What the viewer logs when a cycle RUNS, whichever way it turns out.</summary>
+    /// <remarks>
+    /// **The area tag rather than either message**, because both of `CycleTarget`'s outcomes prove
+    /// the same thing and it is the only thing these tests claim: the click reached the handler.
+    /// "following entity N" additionally requires the search to have found somebody, which on a
+    /// one-player POV recording depends on whether that player is observable at the current tick —
+    /// a property of the demo that B171 legitimately changed.
+    ///
+    /// It also sharpens the negative control. In the free camera `CycleTarget` returns before
+    /// logging anything at all, so counting the area proves the handler did not RUN, where counting
+    /// the success message could not distinguish that from it running and finding nobody.
+    /// </remarks>
+    private const string Spectated = "[spectate]";
 
     /// <summary>Enters the first-person view, failing here rather than in the caller.</summary>
     private static void EnsureFirstPerson()
