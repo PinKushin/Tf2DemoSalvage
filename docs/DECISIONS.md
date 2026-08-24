@@ -4132,3 +4132,43 @@ a fix's commit.
 
 **As a rule it applies from now on, so the test for a new control is "can the user rebind it in a
 config file, and does a script that does so work" — asked before the control ships, not after.**
+
+## D79 — PROJECT RULE: every setting is a cvar, and it is Valve's name wherever one exists
+
+**The owner, 2026-08-23:** *"the debug modes might exist in real tf2 btw, they are valves debug
+modes, idk if they only exist in hammer though. so they need to be cvars too, make a note about the
+cvars, and maybe a rule that all our systems should use cvars matching valves if possible, or ones
+just styled like valves if they dont have an equivalent."*
+
+The companion to D78. That one says every control is bindable; this one says every **setting** is a
+cvar, and names it:
+
+1. **Where Valve has one, use Valve's name exactly** — `mat_fullbright`, `mat_wireframe`,
+   `mat_leafvis`, `r_drawviewmodel`, `viewmodel_fov_demo`. Not a similar name, not a wrapper.
+2. **Where Valve has none, invent one in Valve's style** — lower case, subsystem prefix, underscores
+   (`r_`, `mat_`, `cl_`, `snd_`), a value rather than a flag word. It lives in our own config beside
+   TF2's, per the owner's earlier rule that the game's files must not carry settings the game has no
+   equivalent for.
+3. **Never invent a name for something Valve already named.** That is the translation layer D69
+   exists to prevent, and it breaks the requirement that a real config works by being pasted in.
+
+**The uncertainty in the direction was worth resolving, and it resolved in favour of the rule.** The
+owner did not know whether these were retail cvars or Hammer-only. Measured by scanning the shipped
+binaries for each string:
+
+| cvar | ships in |
+|---|---|
+| `mat_drawflat`, `mat_normalmaps` | `materialsystem.dll` |
+| `mat_leafvis`, `mat_luxels`, `mat_bumpbasis` | `engine.dll` |
+| `mat_fullbright` | `engine.dll`, `materialsystem.dll`, `client.dll` |
+
+**All of them ship in retail Team Fortress 2.** So they are not a Hammer facility this project is
+imitating — they are cvars a player can type today, and the viewer offering the same name is parity
+rather than homage. `docs/memory/binaries-answer-what-the-sdk-cannot.md` is the technique: the SDK
+publishes some of these and the shipped binary settles which are actually present.
+
+**Why it matters beyond consistency:** a name is an interface. Somebody who knows TF2 already knows
+this viewer's settings, a real config keeps working, and a launch option keeps working — the owner's
+earlier observation that "a lot of valves launch options are real config options". A viewer with its
+own vocabulary would have to document and teach all of it, and would still fail the one requirement
+that a paste of a real config works.
