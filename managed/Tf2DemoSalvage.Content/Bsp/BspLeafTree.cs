@@ -261,6 +261,44 @@ public sealed class BspLeafTree
     /// </remarks>
     private const float SegmentStep = 4f;
 
+    /// <summary>Which visibility cluster a leaf belongs to, or −1 when it belongs to none.</summary>
+    /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
+    /// <returns>The cluster, or −1.</returns>
+    /// <remarks>
+    /// **`dleaf_t.cluster`, a `short` at offset 4** — after the four-byte `contents` and before the
+    /// packed `area:9, flags:7`. The mins this type already reads sit at offset 8, which is the
+    /// same layout confirming itself.
+    ///
+    /// **−1 is an ordinary answer, not an error.** `vvis` gives solid leaves no cluster, and a point
+    /// inside the world's shell or outside the map lands in one — which the viewer's free camera
+    /// does constantly. A caller filtering by visibility has to treat that as "no filter available
+    /// here" rather than as "nothing is visible".
+    /// </remarks>
+    public int Cluster(int leaf)
+    {
+        if (leaf < 0)
+        {
+            return -1;
+        }
+
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        if (at < 0 || at + _leafStride > leaves.Length)
+        {
+            return -1;
+        }
+
+        return BinaryPrimitives.ReadInt16LittleEndian(leaves[(at + 4)..]);
+    }
+
+    /// <summary>Which visibility cluster contains a point, or −1.</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <returns>The cluster, or −1 when the point is in solid space or the map has no tree.</returns>
+    public int ClusterAt(float x, float y, float z) => Cluster(LeafAt(x, y, z));
+
     /// <summary>The world-space box a leaf occupies, or null when there is no such leaf.</summary>
     /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
     /// <returns>Its minimum and maximum corner, in world units.</returns>

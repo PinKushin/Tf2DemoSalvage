@@ -55,7 +55,7 @@ public sealed class SoundscapeSelectionConformanceTests
             .SetName("Captured_FarSide_IsInside");
     }
 
-    private static (SoundscapePlacements Placements, BspLeafTree Leaves)? Map()
+    private static (SoundscapePlacements Placements, BspLeafTree Leaves, BspVisibility Pvs)? Map()
     {
         string bsp = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -68,12 +68,15 @@ public sealed class SoundscapeSelectionConformanceTests
         }
 
         byte[] file = File.ReadAllBytes(bsp);
+        BspLeafTree leaves = BspLeafTree.Read(file);
 
         return (
             SoundscapePlacements.From(
                 BspEntities.ReadFrom(file),
-                SoundscapeCatalog.Load(GameArchives.Open(Game).Read)),
-            BspLeafTree.Read(file));
+                SoundscapeCatalog.Load(GameArchives.Open(Game).Read),
+                leaves),
+            leaves,
+            BspVisibility.Read(file));
     }
 
     [TestCaseSource(nameof(Captures))]
@@ -85,9 +88,17 @@ public sealed class SoundscapeSelectionConformanceTests
             return;
         }
 
+        // **With the PVS filter on (B177), because these captures are what proves it safe.** The
+        // client agreed with all seven of these positions before the filter existed; if narrowing
+        // the candidate set to the listener's visibility cluster changed any of them, the filter
+        // would be wrong. That makes the owner's own `soundscape_dumpclient` output a regression
+        // test for a change made months after he ran it.
         SoundscapePlacement? chosen = map.Placements.Choose(
             x, y, z,
-            (from, to) => map.Leaves.IsClear(from.X, from.Y, from.Z, to.X, to.Y, to.Z));
+            (from, to) => map.Leaves.IsClear(from.X, from.Y, from.Z, to.X, to.Y, to.Z),
+            current: null,
+            listenerCluster: map.Leaves.ClusterAt(x, y, z),
+            visibility: map.Pvs);
 
         TestContext.Out.WriteLine(
             $"({x.ToString("0.#", CultureInfo.InvariantCulture)}, " +
@@ -127,5 +138,77 @@ public sealed class SoundscapeSelectionConformanceTests
         placements.ShouldAllBe(
             placement => placement.Index >= 0,
             "a placement with no index names a soundscape the catalog could not find");
+
+        // **And every one resolved to a real cluster (B177).** A placement with cluster −1 would be
+        // exempt from visibility filtering, so a resolver that quietly failed would look exactly
+        // like the filter being off.
+        placements.ShouldAllBe(
+            placement => placement.Cluster >= 0,
+            "an env_soundscape sits in world space, so it must land in a visibility cluster");
+    }
+
+    [Test]
+    public void Choose_WithThePvs_ConsidersFarFewerPlacementsThanTheMapHas()
+    {
+        // **The sensitivity test, and without it B177 could be a no-op.** Every capture above still
+        // resolves to what the client said WITH the filter on — which is exactly what would happen
+        // if `Reachable` always returned true. Those tests prove the filter is SAFE; only this one
+        // proves it does anything.
+        //
+        // Measured rather than asserted loosely: from a spot deep in one team's side, the listener's
+        // cluster can see a fraction of the map's 44 soundscape entities, and the engine would only
+        // ever offer that fraction to `UpdateForPlayer`.
+        if (Map() is not { } map)
+        {
+            return;
+        }
+
+        // **The owner's capture inside the far spawn, raised to the EAR.** The engine's own
+        // selection runs at `update.playerPosition = pPlayer->EarPosition()`
+        // (`soundscape_system.cpp:342`), not at the player's origin — and the difference is not
+        // cosmetic here: measured, `(-4816, -1280, 576)` lands in leaf 3991 with cluster −1,
+        // because a player's origin is at their feet and a point exactly on the floor resolves into
+        // the solid leaf beneath it.
+        //
+        // A cluster of −1 makes the filter fall through to considering everything, so this would
+        // have reported "the PVS does nothing" while the PVS was fine. The viewer never hits it —
+        // its listener is the camera, already at eye height — so it is the capture coordinates that
+        // need raising, not the code.
+        //
+        // `VEC_VIEW` is 64 units for a standing player (`shareddefs.h`).
+        (float X, float Y, float Z) listener = (-4816f, -1280f, 576f + 64f);
+
+        int cluster = map.Leaves.ClusterAt(listener.X, listener.Y, listener.Z);
+
+        TestContext.Out.WriteLine(
+            $"listener leaf {map.Leaves.LeafAt(listener.X, listener.Y, listener.Z)}, " +
+            $"cluster {cluster}, map has {map.Pvs.ClusterCount} clusters");
+
+        foreach (SoundscapePlacement placement in map.Placements.Placements.Take(6))
+        {
+            TestContext.Out.WriteLine(
+                $"  placement {placement.Id} '{placement.Name}' at " +
+                $"({placement.X:0}, {placement.Y:0}, {placement.Z:0}) " +
+                $"leaf {map.Leaves.LeafAt(placement.X, placement.Y, placement.Z)} " +
+                $"cluster {placement.Cluster}");
+        }
+
+        cluster.ShouldBeGreaterThanOrEqualTo(0, "a standable spot belongs to a cluster");
+        map.Pvs.HasData.ShouldBeTrue("cp_process is compiled with vis");
+
+        int reachable = map.Placements.Placements
+            .Count(placement => map.Pvs.Visible(cluster, placement.Cluster));
+
+        TestContext.Out.WriteLine(
+            $"cluster {cluster.ToString(CultureInfo.InvariantCulture)} sees " +
+            $"{reachable.ToString(CultureInfo.InvariantCulture)} of " +
+            $"{map.Placements.Placements.Count.ToString(CultureInfo.InvariantCulture)} placements " +
+            $"({map.Pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} clusters on the map)");
+
+        reachable.ShouldBeGreaterThan(0, "the soundscape the client chose here has to be reachable");
+
+        reachable.ShouldBeLessThan(
+            map.Placements.Placements.Count,
+            "if every placement is reachable from a spawn, the PVS filter is doing nothing");
     }
 }

@@ -225,6 +225,15 @@ internal class MainForm : Form
     /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
     private BspLeafTree? _leaves;
 
+    /// <summary>The map's potentially visible set, for soundscape selection (B177).</summary>
+    /// <remarks>
+    /// **Only the soundscapes in the listener's own cluster contend**, which is what
+    /// `CSoundscapeSystem` precomputes at map load. Without it a placement on the far side of the
+    /// map can win on a long clear traceline, and on cp_process the choice changed far more often
+    /// than the engine's would.
+    /// </remarks>
+    private BspVisibility? _visibility;
+
     /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
     private int? _lastFirstPersonReport;
 
@@ -1519,16 +1528,30 @@ internal class MainForm : Form
                     // to run `soundscape_dumpclient` in the game first.
                     IReadOnlyList<BspEntity> mapEntities = BspEntities.ReadFrom(bytes);
 
+                    // **The tree and the PVS are read here rather than further down, because the
+                    // soundscapes need them.** Each placement resolves its visibility cluster once,
+                    // the way `LevelInitPostEntity` does — asking per frame would walk the BSP tree
+                    // forty-four times for values that cannot change.
+                    _leaves = BspLeafTree.Read(bytes);
+                    _visibility = BspVisibility.Read(bytes);
+
                     _soundscapeCatalog = _archives is { } soundArchives
                         ? SoundscapeCatalog.Load(soundArchives.Read)
                         : null;
 
                     _soundscapes = _soundscapeCatalog is { } loaded
-                        ? SoundscapePlacements.From(mapEntities, loaded)
+                        ? SoundscapePlacements.From(mapEntities, loaded, _leaves)
                         : null;
 
                     _soundscapeMixer.Clear();
                     _soundscapeVoices.Clear();
+
+                    ViewerLog.Write(
+                        "audio",
+                        _visibility is { HasData: true } pvs
+                            ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
+                              "clusters, so soundscape selection is restricted to what the listener can see"
+                            : "no visibility data, so every soundscape on the map contends");
 
                     ViewerLog.Write(
                         "audio",
@@ -1577,7 +1600,9 @@ internal class MainForm : Form
                     // the ambient cube of the leaf it stands in - which needs the tree to find the
                     // leaf and the samples to light it. Read with the map, since both come from
                     // the same file and neither changes afterwards.
-                    _leaves = BspLeafTree.Read(bytes);
+                    //
+                    // `_leaves` itself is read further up now, because the soundscapes need it to
+                    // resolve their clusters before this point (B177).
                     _ambient = BspAmbientLight.Read(bytes);
 
                     // The direct term. The ambient cube is the shade; this is what makes daylight
@@ -3408,12 +3433,34 @@ internal class MainForm : Form
     // anything wants it again — the first-person camera takes its eye position from the demo
     // rather than from a constant, so nothing does today.
 
+    /// <summary>How wide the empty view is when no map is loaded, in world units.</summary>
+    /// <remarks>
+    /// Arbitrary and only ever seen as an empty viewport — nothing is drawn without a map. It
+    /// exists so the camera is a real camera rather than a special case every caller has to know
+    /// about.
+    /// </remarks>
+    private const float EmptyMapExtent = 1024f;
+
     private TopDownCamera MapCamera()
     {
+        // **`_map` is genuinely null before a demo is opened, and this used to write `_map!`.**
+        // Starting the viewer with no map crashed on the first layout with a NullReferenceException
+        // out of here — the owner hit it running Viewer3D straight from the IDE, which is the
+        // ordinary way to start it with no arguments.
+        //
+        // That `!` is the pattern this project's standards call a smell: it asserted a fact the
+        // code could not support, and the assertion was simply false. Eleven call sites reach this,
+        // several from layout and paint handlers that run before anything is loaded, so the answer
+        // is a camera over nothing rather than a null every caller has to test.
+        (float MinX, float MinY, float MaxX, float MaxY) bounds = _map is { } loaded
+            ? (loaded.MainBounds.MinX, loaded.MainBounds.MinY,
+               loaded.MainBounds.MaxX, loaded.MainBounds.MaxY)
+            : (-EmptyMapExtent, -EmptyMapExtent, EmptyMapExtent, EmptyMapExtent);
+
         TopDownCamera fitted = TopDownCamera.Fit(
             [
-                (_map!.MainBounds.MinX, _map.MainBounds.MinY),
-                (_map.MainBounds.MaxX, _map.MainBounds.MaxY),
+                (bounds.MinX, bounds.MinY),
+                (bounds.MaxX, bounds.MaxY),
             ],
             Math.Max(1, _viewport.ClientSize.Width),
             Math.Max(1, _viewport.ClientSize.Height));
@@ -5415,7 +5462,15 @@ internal class MainForm : Form
                 listener.Z,
                 (from, to) => _leaves is not { } leaves ||
                     leaves.IsClear(from.X, from.Y, from.Z, to.X, to.Y, to.Z),
-                _soundscapeMixer.Current);
+                _soundscapeMixer.Current,
+
+                // **The listener is the camera, which is already at eye height** — the engine tests
+                // at `EarPosition()` rather than at a player's origin, and a floor-level point
+                // resolves into the solid leaf beneath it and reports no cluster at all. Measured
+                // while writing the test for this: a captured player origin gave cluster −1, which
+                // silently disables the filter rather than failing.
+                _leaves?.ClusterAt(listener.X, listener.Y, listener.Z) ?? -1,
+                _visibility);
 
             Soundscape? definition = chosen is { } placed && _soundscapeCatalog is { } catalog
                 ? catalog.At(placed.Index)

@@ -142,7 +142,10 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # Raised 129 -> 139 on 2026-08-24: SoundscapeMixerTests gained the suppression case (1), and
 # SoundScriptProbe gained the loop-marker report (1) that settled whether TF2's ambient waves carry
 # a `cue ` chunk at all — they do, which ruled out the reader and pointed at the schedule instead.
-run Tf2DemoSalvage.Audio.Tests    audio     141
+# 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
+# resolves to what the client said with the filter ON, which is exactly what would happen if the
+# filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
+run Tf2DemoSalvage.Audio.Tests    audio     142
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -192,7 +195,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 116
 # 642: the two soundscape probes, both [Explicit] — SoundscapeManifestProbe reports the shipped
 # manifest and its load order, EnvSoundscapeProbe reports a map's env_soundscape entities. They are
 # what turned B173 from a guess into a mechanism.
-run Tf2DemoSalvage.Content.Tests  content   642
+# 649: BspVisibilityConformanceTests (7). The visibility lump's run-length encoding, checked against
+# Valve's own CompressVis by round-tripping through a transcription of it — plus the two malformed
+# cases DecompressVis guards, a run that overruns the row and a zero repeat count.
+run Tf2DemoSalvage.Content.Tests  content   649
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

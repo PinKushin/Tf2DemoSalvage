@@ -27,6 +27,12 @@ namespace Tf2DemoSalvage.Audio;
 /// changes, because the positions its loops play at come from that entity and differ between two
 /// entities naming the same soundscape. cp_process has 21 entities all naming `Gorge.Inside`.
 /// </param>
+/// <param name="Cluster">
+/// The visibility cluster its origin sits in, or −1 when the map has no vis data or the entity is
+/// in solid space. **Precomputed because the engine precomputes it** —
+/// `CSoundscapeSystem::LevelInitPostEntity` builds a per-cluster list once at map load rather than
+/// asking per frame.
+/// </param>
 public readonly record struct SoundscapePlacement(
     int Id,
     string Name,
@@ -35,7 +41,8 @@ public readonly record struct SoundscapePlacement(
     float Y,
     float Z,
     float Radius,
-    IReadOnlyList<(float X, float Y, float Z)> Positions);
+    IReadOnlyList<(float X, float Y, float Z)> Positions,
+    int Cluster = -1);
 
 /// <summary>
 /// Which soundscape a listener is standing in, decided the way the engine decides it.
@@ -75,8 +82,13 @@ public sealed class SoundscapePlacements
     /// <param name="catalog">The client's soundscape list, for name to index.</param>
     /// <returns>The placements.</returns>
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
+    /// <param name="leaves">
+    /// The map's BSP tree, used to resolve each entity's visibility cluster. Optional: without it
+    /// every placement carries cluster −1 and <see cref="Choose"/> does no visibility filtering,
+    /// which is the behaviour this had before B177.
+    /// </param>
     public static SoundscapePlacements From(
-        IReadOnlyList<BspEntity> entities, SoundscapeCatalog catalog)
+        IReadOnlyList<BspEntity> entities, SoundscapeCatalog catalog, BspLeafTree? leaves = null)
     {
         ArgumentNullException.ThrowIfNull(entities);
         ArgumentNullException.ThrowIfNull(catalog);
@@ -141,7 +153,12 @@ public sealed class SoundscapePlacements
                 origin.Y,
                 origin.Z,
                 Radius(entity),
-                Targets(entity, entities)));
+                Targets(entity, entities),
+
+                // **The entity's own cluster, resolved once here.** The engine does the same at map
+                // load rather than per frame (`LevelInitPostEntity`), and there is no reason to
+                // walk the BSP tree forty-four times a second for a value that cannot change.
+                leaves?.ClusterAt(origin.X, origin.Y, origin.Z) ?? -1));
         }
 
         return new SoundscapePlacements(placements);
@@ -178,14 +195,42 @@ public sealed class SoundscapePlacements
     /// a map: the rule and the geometry are separate questions, and the rule is the one with the
     /// hysteresis bug in it if there is one.
     /// </remarks>
+    /// <param name="listenerCluster">
+    /// The visibility cluster the listener stands in, or −1 when it is unknown.
+    /// </param>
+    /// <param name="visibility">
+    /// The map's PVS, or <c>null</c> to consider every placement. **Both this and
+    /// <paramref name="listenerCluster"/> are needed for filtering to happen at all**, and any of
+    /// the three ways of not knowing — no vis data, a listener in solid space, a placement with no
+    /// cluster — falls back to considering the placement rather than dropping it. Dropping on
+    /// missing information would make a map without vis silent, which is far worse than the
+    /// over-wide selection this exists to narrow.
+    /// </param>
     public SoundscapePlacement? Choose(
         float x,
         float y,
         float z,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> clear,
-        SoundscapePlacement? current = null)
+        SoundscapePlacement? current = null,
+        int listenerCluster = -1,
+        BspVisibility? visibility = null)
     {
         ArgumentNullException.ThrowIfNull(clear);
+
+        // **The engine considers only the soundscapes in the listener's cluster** —
+        // `m_soundscapesInCluster[clusterIndex]`, built at map load from each soundscape's PVS
+        // (`soundscape_system.cpp:352-362`). Without this every entity on the map contends, so one
+        // across the map can win on a long clear traceline, and the choice changes far more often
+        // than the engine's would (B177).
+        //
+        // **Valve tests "is cluster j visible FROM the soundscape"; this asks the transpose.** The
+        // PVS is symmetric — `vvis` computes mutual visibility — so the two agree, and asking it
+        // this way round needs one decompressed row per listener rather than one per soundscape.
+        bool Reachable(SoundscapePlacement placement) =>
+            visibility is not { HasData: true } pvs ||
+            listenerCluster < 0 ||
+            placement.Cluster < 0 ||
+            pvs.Visible(listenerCluster, placement.Cluster);
 
         SoundscapePlacement? chosen = current;
 
@@ -246,6 +291,14 @@ public sealed class SoundscapePlacements
             }
 
             if ((inRange && range >= currentDistance) || !withinRadius)
+            {
+                return;
+            }
+
+            // **Before the traceline, because that is the expensive one.** The engine never even
+            // offers a soundscape outside the cluster list to `UpdateForPlayer`, so it never traces
+            // to one either.
+            if (!Reachable(placement))
             {
                 return;
             }
