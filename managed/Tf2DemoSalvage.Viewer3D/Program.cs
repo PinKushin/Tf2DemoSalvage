@@ -1,7 +1,10 @@
 using System;
 using System.Windows.Forms;
 
+using Microsoft.Extensions.Logging;
+
 using Tf2DemoSalvage.Core.Diagnostics;
+using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -35,23 +38,39 @@ internal static class Program
     {
         // STAThread and this initialisation order are both required by WinForms itself: COM
         // apartment first, then visual styles, before any control exists.
-        ViewerLog.Begin("viewer");
+        //
+        // **This is the composition root, and it is the only place that builds a logger (D83).**
+        // Everything below takes an ILoggerFactory or an ILogger it was handed; nothing reaches for
+        // a static. That is the whole of the conversion off ViewerLog, and it is what lets the same
+        // code log to a file here, to nothing in a test, and to a console in the CLI.
+        using FileLoggerProvider logs = new(
+            FileLogWriter.DefaultFolder,
+            "viewer",
+            $"TF2 Demo Salvage viewer, started {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+
+        // Concrete type on purpose: CA1859 prefers it where the local never needs the interface,
+        // and this is the composition root — nothing here substitutes a different factory.
+        using LoggerFactory loggers = new([logs]);
 
         // **Core and Content can now say what they lost.** Both are libraries and neither can see
         // this log, so until they had a sink their only honest options were to throw or return
         // nothing - and the second is the silent fallback this project bans everywhere it can
         // reach. Attaching it here is the whole wiring.
-        DecodeLog.Sink = ViewerLog.Warn;
+        //
+        // Both take an area and a finished message, so they need no change for this conversion —
+        // they were already inverted, and better than they looked.
+        DecodeLog.Sink = (area, message) =>
+            loggers.CreateLogger(area).LogWarning("{Message}", message);
 
         // Ordinary observations go to the ordinary channel. A count arriving as a warning teaches
         // the reader to skip warnings, which is the opposite of what the log is for.
-        DecodeLog.Notes = ViewerLog.Write;
+        DecodeLog.Notes = loggers.LogTo();
 
         ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the
         // same library code the Open buttons use.
-        using MainForm shell = new(args);
+        using MainForm shell = new(loggers, args);
         Application.Run(shell);
     }
 }

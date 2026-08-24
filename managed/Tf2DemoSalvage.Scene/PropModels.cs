@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -123,6 +126,11 @@ public static class PropModels
     /// <param name="lightAt">
     /// The light reaching a point, used for props whose baked vertex lighting is absent or refused.
     /// </param>
+    /// <param name="props">
+    /// Where loading reports what it refused, or <c>null</c> for nowhere. Optional with a
+    /// null-object default (D83), because most callers here are tests that want geometry rather
+    /// than commentary.
+    /// </param>
     /// <remarks>
     /// **A prop without baked lighting is lit from the light cache, not left white** (B123). The
     /// engine carries both in one structure and chooses between them —
@@ -144,12 +152,16 @@ public static class PropModels
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         ICollection<string>? refusedLighting = null,
-        Func<float, float, float, AmbientCube>? lightAt = null)
+        Func<float, float, float, AmbientCube>? lightAt = null,
+        ILogger? props = null)
     {
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(materialTable);
         ArgumentNullException.ThrowIfNull(load);
+
+        // Null-object default: most callers of this are tests that want geometry, not commentary.
+        props ??= NullLogger.Instance;
 
         IReadOnlyList<BspStaticProp> placements;
 
@@ -159,7 +171,7 @@ public static class PropModels
         }
         catch (InvalidDataException failure)
         {
-            ViewerLog.Warn("props", "reading the map's static props", failure);
+            props.LogWarning(failure, "reading the map's static props");
             return [];
         }
 
@@ -197,14 +209,15 @@ public static class PropModels
 
             if (placed >= MaximumPlacements)
             {
-                ViewerLog.Warn(
-                    "props", $"stopping at {MaximumPlacements} placements; the map declares more");
+                props.LogWarning(
+                    "stopping at {Maximum} placements; the map declares more", MaximumPlacements);
                 break;
             }
 
             if (!loaded.TryGetValue(placement.Model, out LoadedModel? model))
             {
                 model = Read(
+                    props,
                     placement.Model, pak, archives, materialTable, materialIndices, load);
                 loaded[placement.Model] = model;
             }
@@ -217,7 +230,7 @@ public static class PropModels
 
             PropTransform transform = new(placement);
 
-            PropLighting lighting = Lighting(pak, placed: index, model.Checksum);
+            PropLighting lighting = Lighting(props, pak, placed: index, model.Checksum);
 
             if (lighting.Colours is null)
             {
@@ -319,8 +332,8 @@ public static class PropModels
         // everything quietly falls back, which is how four refused lighting files sat inside an
         // ordinary-looking total. What is asked for, what was found, what was produced and what is
         // still missing are different questions, and only the last of them used to be written down.
-        ViewerLog.Write(
-            "props",
+        props.LogInformation(
+            "{Message}",
             $"ASKED FOR {placed} placements across {loaded.Count} models; " +
             $"HAVE baked lighting for {placed - unlit}; " +
             $"PRODUCED {world.Count / 3} triangles, {transparent} of " +
@@ -332,7 +345,7 @@ public static class PropModels
         {
             // Named individually, because a count tells you something is wrong and a name tells you
             // which prop to go and look at. Four of these hid inside an aggregate for weeks.
-            ViewerLog.Write("props", $"refused baked lighting: {rejection}");
+            props.LogInformation("refused baked lighting: {Rejection}", rejection);
         }
 
         return world;
@@ -373,7 +386,8 @@ public static class PropModels
     /// prop lighting has none for any of them - so this reports absence quietly and the caller
     /// counts it.
     /// </remarks>
-    private static PropLighting Lighting(PakFile pak, int placed, int checksum)
+    // The logger is a parameter because this is static (D83).
+    private static PropLighting Lighting(ILogger props, PakFile pak, int placed, int checksum)
     {
         foreach (string path in StudioVertexLighting.PathsFor(placed))
         {
@@ -405,7 +419,7 @@ public static class PropModels
                 // model would light the wrong parts of it, so refusing to apply it is right.
                 // Refusing SILENTLY was not - the prop then draws with white vertex colours and
                 // nothing distinguishes it from one the compiler never lit.
-                ViewerLog.Warn("props", $"reading {path}", failure);
+                props.LogWarning(failure, "reading {Path}", path);
                 return PropLighting.Refused($"{path}: {failure.Message}");
             }
         }
@@ -495,13 +509,15 @@ public static class PropModels
     /// static props use — and sharing one across calls would keep a dictionary alive for the life
     /// of the map to save a lookup per model.
     /// </remarks>
+    /// <param name="props">Where a refusal is reported; a parameter because this is static (D83).</param>
     internal static IReadOnlyList<PropVertex>? LoadOne(
+        ILogger props,
         string path,
         PakFile pak,
         GameArchives archives,
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load) =>
-        Read(path, pak, archives, materialTable, [], load)?.Corners;
+        Read(props, path, pak, archives, materialTable, [], load)?.Corners;
 
     /// <summary>Reads one model once per frame of its animation.</summary>
     /// <param name="path">The model path, as modelprecache named it.</param>
@@ -523,14 +539,16 @@ public static class PropModels
     /// differ by two orders of magnitude, not because one is a stopgap.
     /// </remarks>
     /// <param name="mustSkin">Whether the model is bone-merged and so cannot be baked.</param>
+    /// <param name="props">Where a refusal is reported; a parameter because this is static (D83).</param>
     internal static ModelFrames? LoadFrames(
+        ILogger props,
         string path,
         PakFile pak,
         GameArchives archives,
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         bool mustSkin = false) =>
-        Read(path, pak, archives, materialTable, [], load, mustSkin)?.Frames;
+        Read(props, path, pak, archives, materialTable, [], load, mustSkin)?.Frames;
 
     /// <summary>Reads one model's geometry, in the model's own coordinates.</summary>
     /// <remarks>
@@ -550,6 +568,7 @@ public static class PropModels
     public static double BakeSeconds => BakeTicks / (double)System.Diagnostics.Stopwatch.Frequency;
 
     internal static LoadedModel? Read(
+        ILogger props,
         string path,
         PakFile pak,
         GameArchives archives,
@@ -580,7 +599,7 @@ public static class PropModels
             Find(stem + ".vvd") is not { } vertexFile ||
             Find(stem + ".dx90.vtx") is not { } indexFile)
         {
-            ViewerLog.Warn("props", $"{path}: one of its three files is missing");
+            props.LogWarning("{Path}: one of its three files is missing", path);
             return null;
         }
 
@@ -618,7 +637,8 @@ public static class PropModels
                 {
                     // Reported rather than skipped: a missing animation model is why a class would
                     // stand still, and it looks exactly like an animation state that never ran.
-                    ViewerLog.Warn("props", $"{path} includes {included}, which was not found");
+                    props.LogWarning(
+                        "{Path} includes {Included}, which was not found", path, included);
                     continue;
                 }
 
@@ -637,8 +657,8 @@ public static class PropModels
             // where a merge order that disagrees with the engine's shows up first.
             if (table.Count > 0)
             {
-                ViewerLog.Write(
-                    "props",
+                props.LogInformation(
+                    "{Message}",
                     $"sequences {path}: {table.Count} merged, " +
                     string.Join(
                         ", ",
@@ -793,6 +813,7 @@ public static class PropModels
             for (int index = 0; index < materialByMesh.Length; index++)
             {
                 materialByMesh[index] = Register(
+                    props,
                     model,
                     model.Meshes[index].MaterialIndex,
                     materialTable,
@@ -830,6 +851,7 @@ public static class PropModels
                     }
 
                     int swapped = Register(
+                        props,
                         model, skinTable[at], materialTable, materialIndices, load);
 
                     if (swapped >= 0 && materialByMesh[index] >= 0)
@@ -843,8 +865,8 @@ public static class PropModels
 
             if (families > 1)
             {
-                ViewerLog.Write(
-                    "props",
+                props.LogInformation(
+                    "{Message}",
                     $"skins {path}: {families} families over {references} references, " +
                     $"{string.Join(", ", byFamily.Select(swap => swap.Count + " materials swapped"))}");
             }
@@ -869,8 +891,8 @@ public static class PropModels
                 // can show it.
                 if (slot == 0)
                 {
-                    ViewerLog.Write(
-                        "props",
+                    props.LogInformation(
+                        "{Message}",
                         $"pairing {path}: " + string.Join(
                             ", ",
                             model.Meshes.Select((mesh, at) =>
@@ -969,16 +991,16 @@ public static class PropModels
                         MathF.Abs(opening[corner].Z - closing[corner].Z));
                 }
 
-                ViewerLog.Write(
-                    "props",
+                props.LogInformation(
+                    "{Message}",
                     $"seam {path} anim {animation}: first and last frame differ by {apart:0.####} " +
                     $"units at most ({(apart < 0.01f ? "DUPLICATE, drop it" : "DISTINCT, keep it")})");
             }
 
             if (baked.Count > 1)
             {
-                ViewerLog.Write(
-                    "props",
+                props.LogInformation(
+                    "{Message}",
                     $"baked {path}: {baked.Count} frames across {wanted.Count} animations, " +
                     $"sequences [{string.Join(", ", sequences.Select(q => $"anim {q.Animation} flags 0x{q.Flags:X}{(q.Loops ? " LOOP" : string.Empty)}"))}], " +
                     $"{baked[0].Count} vertices each, " +
@@ -992,8 +1014,8 @@ public static class PropModels
 
             if (skin)
             {
-                ViewerLog.Write(
-                    "props",
+                props.LogInformation(
+                    "{Message}",
                     $"skinning {path}: {wantedFrames} frames over {table.Count} merged sequences " +
                     $"from {groupModels.Count} models would " +
                     $"cost {wantedFrames * cornersPerFrame:N0} corners against a budget of " +
@@ -1018,6 +1040,9 @@ public static class PropModels
                             groups,
                             sharedPose,
                             masterPose)
+                        {
+                            Props = props,
+                        }
                         : null,
                     IlluminationOf(modelFile),
                     byFamily,
@@ -1032,7 +1057,7 @@ public static class PropModels
         {
             // Includes the checksum mismatch, which is the engine's own guard against a model
             // whose three files do not belong together.
-            ViewerLog.Warn("props", $"reading {path}", failure);
+            props.LogWarning(failure, "reading {Path}", path);
             return null;
         }
     }
@@ -1074,7 +1099,9 @@ public static class PropModels
     /// Keyed by the resolved path rather than by the model, because props share materials heavily —
     /// a dozen rocks off one texture — and a per-model entry would decode it a dozen times.
     /// </remarks>
+    // The logger is a parameter because this is static (D83).
     private static int Register(
+        ILogger props,
         StudioModelInfo model,
         int materialIndex,
         MaterialTable materialTable,
@@ -1135,8 +1162,8 @@ public static class PropModels
         // The distinction is already in the log a few lines above, from Resolve: one message for a
         // VMT that is missing and another for a texture that is. This points at them rather than
         // overwriting them with a guess.
-        ViewerLog.Warn(
-            "props",
+        props.LogWarning(
+            "{Message}",
             $"{model.Name}: material \"{model.Materials[materialIndex]}\" produced no texture; " +
             $"tried {string.Join(", ", tried)}. The lines above say whether the VMT was missing or " +
             $"whether it resolved and its texture was.");
@@ -1205,6 +1232,17 @@ public static class PropModels
         IReadOnlyList<StudioPoseParameter> PoseParameters,
         IReadOnlyList<IReadOnlyList<int>> MasterPose)
     {
+        /// <summary>Where bone remapping reports how well two skeletons matched.</summary>
+        /// <remarks>
+        /// **An init property rather than a positional parameter (D83)**, so adding it did not
+        /// change this record's public shape or its construction sites. It is set where the model
+        /// is read, which is the only place that has a logger to give it.
+        ///
+        /// Defaults to the null logger, so a record built in a test says nothing rather than
+        /// needing one.
+        /// </remarks>
+        public ILogger Props { get; init; } = NullLogger.Instance;
+
         /// <summary>The bone matrices for one sequence at one frame.</summary>
         /// <param name="sequence">The merged sequence number, as a demo would network it.</param>
         /// <param name="frame">Which frame of the animation it names.</param>
@@ -1447,10 +1485,12 @@ public static class PropModels
                 matched += bone >= 0 ? 1 : 0;
             }
 
-            ViewerLog.Write(
-                "props",
-                $"remap group {group}: {matched} of {built.Length} bones matched the base " +
-                $"skeleton's {Bones.Count}");
+            Props.LogInformation(
+                "remap group {Group}: {Matched} of {Built} bones matched the base skeleton's {Bones}",
+                group,
+                matched,
+                built.Length,
+                Bones.Count);
 
             _remapByGroup[group] = built;
             return built;

@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Linq;
 using System.IO;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
+
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
@@ -71,12 +73,23 @@ public sealed unsafe class Device3D : IDisposable
     private ComPtr<ID3D11DepthStencilState> _depthReadOnly;
     private bool _disposed;
 
+    /// <summary>Where this reports what it drew and what it silently did not (D83).</summary>
+    private readonly ILogger _render;
+
+    /// <summary>Kept so <see cref="WorldRenderer"/> can be given its own categories.</summary>
+    private readonly ILoggerFactory _loggers;
+
     private Device3D(
+        ILoggerFactory loggers,
         D3D11 d3d,
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         ComPtr<IDXGISwapChain> swapChain)
     {
+        ArgumentNullException.ThrowIfNull(loggers);
+
+        _loggers = loggers;
+        _render = loggers.CreateLogger("render");
         _d3d = d3d;
         _device = device;
         _context = context;
@@ -96,7 +109,8 @@ public sealed unsafe class Device3D : IDisposable
     /// <c>Native.DXHandle</c> off it. Hosting the viewport in a WinForms control then meant
     /// changing the renderer, which is the wrong direction for that change to travel.
     /// </remarks>
-    public static Device3D Create(nint handle, int width, int height)
+    /// <param name="loggers">Where the renderer reports what it drew (D83).</param>
+    public static Device3D Create(nint handle, int width, int height, ILoggerFactory loggers)
     {
         if (handle == 0)
         {
@@ -162,7 +176,7 @@ public sealed unsafe class Device3D : IDisposable
             pFeatureLevel: null,
             ppImmediateContext: ref context));
 
-        Device3D created = new(d3d, device, context, swapChain)
+        Device3D created = new(loggers, d3d, device, context, swapChain)
         {
             _width = width,
             _height = height,
@@ -196,7 +210,7 @@ public sealed unsafe class Device3D : IDisposable
         // packs the first models before anything has drawn, so the renderer did not exist yet, the
         // upload was skipped, and nothing ever asked again: 47 instances drawn per frame out of an
         // empty buffer, with every count in the log looking correct.
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
 
         Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches =
             new(StringComparer.OrdinalIgnoreCase);
@@ -262,18 +276,24 @@ public sealed unsafe class Device3D : IDisposable
 
                 try
                 {
-                    WritePng(path, (int)description.Width, (int)description.Height, mapped);
+                    WritePng(_render, path, (int)description.Width, (int)description.Height, mapped);
 
                     // **A capture said nothing at all until 2026-08-20.** Pressing F12 and getting
                     // no file is indistinguishable from pressing it and missing the key, which is
                     // the silent fallback this project bans everywhere else — and it cost a
                     // capture run that reported success and produced nothing. The size is here
                     // because a zero-byte PNG is the other way this fails quietly.
-                    ViewerLog.Write(
-                        "render",
-                        $"wrote {Path.GetFileName(path)}, " +
-                        $"{description.Width}x{description.Height}, " +
-                        $"{new FileInfo(path).Length / 1024} KB");
+                    // Guarded: `new FileInfo(path).Length` is a filesystem call, which is exactly
+                    // the kind of argument CA1873 exists to keep out of a disabled log.
+                    if (_render.IsEnabled(LogLevel.Information))
+                    {
+                        _render.LogInformation(
+                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB",
+                            Path.GetFileName(path),
+                            description.Width,
+                            description.Height,
+                            new FileInfo(path).Length / 1024);
+                    }
                 }
                 finally
                 {
@@ -288,7 +308,7 @@ public sealed unsafe class Device3D : IDisposable
         catch (Exception failure) when (failure is InvalidOperationException or System.IO.IOException)
         {
             // A capture that fails costs a picture, not the frame the user is watching.
-            ViewerLog.Warn("render", $"capturing the viewport to {path}", failure);
+            _render.LogWarning(failure, "capturing the viewport to {Path}", path);
         }
         finally
         {
@@ -296,7 +316,8 @@ public sealed unsafe class Device3D : IDisposable
         }
     }
 
-    private static void WritePng(string path, int width, int height, MappedSubresource mapped)
+    private static void WritePng(
+        ILogger render, string path, int width, int height, MappedSubresource mapped)
     {
         // Packed tightly into RGBA for PngWriter, which is this project's own encoder. It replaced
         // System.Drawing here because that assembly is Windows-only by design in modern .NET and
@@ -323,7 +344,7 @@ public sealed unsafe class Device3D : IDisposable
 
         PngWriter.Write(path, width, height, rgba);
 
-        ViewerLog.Write("render", $"captured the viewport to {path}");
+        render.LogInformation("captured the viewport to {Path}", path);
     }
 
     /// <summary>Clears, draws a set of points, and presents.</summary>
@@ -371,10 +392,11 @@ public sealed unsafe class Device3D : IDisposable
             // **Which of the three, because they are different faults.** No renderer, nothing to
             // draw, or no camera — and a pass that silently does nothing looks exactly like a pass
             // that drew something invisible, which is the confusion this whole feature has lived in.
-            ViewerLog.Write(
-                "render",
-                $"viewmodel pass skipped: world {_world is not null}, " +
-                $"instances {viewmodels?.Count ?? -1}, camera {camera is not null}");
+            _render.LogInformation(
+                "viewmodel pass skipped: world {World}, instances {Instances}, camera {Camera}",
+                _world is not null,
+                viewmodels?.Count ?? -1,
+                camera is not null);
 
             return;
         }
@@ -382,23 +404,28 @@ public sealed unsafe class Device3D : IDisposable
         // **Where they actually are, in world units.** Every earlier check confirmed the model was
         // packed, posed, instanced and listed — none of them said where it ended up, and "drawn
         // somewhere off screen" and "drawn nowhere" look identical from every one of them.
-        ViewerLog.Write(
-            "render",
-            $"viewmodel pass: drawing {viewmodels.Count} at " +
-            string.Join(
-                ", ",
-                viewmodels.Select(instance =>
-                    $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} " +
-                    $"at ({instance.Matrix[12]:0.#}, {instance.Matrix[13]:0.#}, {instance.Matrix[14]:0.#}) " +
+        // Guarded: the join below walks every viewmodel and formats nine numbers each, which is
+        // exactly the work CA1873 keeps out of a disabled log.
+        if (_render.IsEnabled(LogLevel.Information))
+        {
+            _render.LogInformation(
+                "viewmodel pass: drawing {Count} at {Where}",
+                viewmodels.Count,
+                string.Join(
+                    ", ",
+                    viewmodels.Select(instance =>
+                        $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} " +
+                        $"at ({instance.Matrix[12]:0.#}, {instance.Matrix[13]:0.#}, {instance.Matrix[14]:0.#}) " +
 
-                    // **Where the model's own forward tip lands in the world.** Row-major, so a
-                    // model-space point times the matrix is p.x*row0 + p.y*row1 + p.z*row2 + row3.
-                    // The posed arms reach about 36 units along model +X, so this is the far end of
-                    // them — and comparing it against the eye says whether the model is pointing
-                    // where the camera is looking or somewhere else entirely.
-                    $"tip36 ({(36f * instance.Matrix[0]) + instance.Matrix[12]:0.#}, " +
-                    $"{(36f * instance.Matrix[1]) + instance.Matrix[13]:0.#}, " +
-                    $"{(36f * instance.Matrix[2]) + instance.Matrix[14]:0.#})")));
+                        // **Where the model's own forward tip lands in the world.** Row-major, so a
+                        // model-space point times the matrix is p.x*row0 + p.y*row1 + p.z*row2 +
+                        // row3. The posed arms reach about 36 units along model +X, so this is the
+                        // far end of them — and comparing it against the eye says whether the model
+                        // is pointing where the camera is looking or somewhere else entirely.
+                        $"tip36 ({(36f * instance.Matrix[0]) + instance.Matrix[12]:0.#}, " +
+                        $"{(36f * instance.Matrix[1]) + instance.Matrix[13]:0.#}, " +
+                        $"{(36f * instance.Matrix[2]) + instance.Matrix[14]:0.#})")));
+        }
 
         Viewport near = new(
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
@@ -723,7 +750,7 @@ public sealed unsafe class Device3D : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(assets);
 
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadMap(_device, _context, world.Vertices, world.Batches, assets);
     }
 
@@ -734,7 +761,7 @@ public sealed unsafe class Device3D : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadTextures(_device, _context, assets);
     }
 
@@ -750,7 +777,7 @@ public sealed unsafe class Device3D : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadGeometry(
             _device, world.Vertices, world.Batches, world.Decals, world.Props);
     }
@@ -768,7 +795,7 @@ public sealed unsafe class Device3D : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
 
         // Applied here rather than only in the setter, because the renderer is built lazily and a
         // toggle flipped before the first map would otherwise be silently forgotten.
@@ -1028,12 +1055,16 @@ public sealed unsafe class Device3D : IDisposable
                         $"{batch.MaterialIndex}:{_world.DescribeMaterial(batch.MaterialIndex)}" +
                         $"@{batch.FirstVertex}+{batch.VertexCount}"));
 
-        ViewerLog.Write(
-            "render",
-            $"drawing {instance.ModelPath}: body {instance.Body}, " +
-            $"{instance.BodyParts?.Count.ToString(CultureInfo.InvariantCulture) ?? "NO"} parts, " +
-            $"drawing {kept} of {batches.Count} batches spanning {alternatives} alternatives" +
-            $" — kept [{drawn}]");
+        _render.LogInformation(
+            "drawing {Model}: body {Body}, {Parts} parts, drawing {Kept} of {Batches} batches " +
+            "spanning {Alternatives} alternatives — kept [{Drawn}]",
+            instance.ModelPath,
+            instance.Body,
+            instance.BodyParts?.Count.ToString(CultureInfo.InvariantCulture) ?? "NO",
+            kept,
+            batches.Count,
+            alternatives,
+            drawn);
     }
 
     /// <summary>Models already reported on, so the log carries one line each.</summary>
@@ -1068,12 +1099,11 @@ public sealed unsafe class Device3D : IDisposable
             .GroupBy(instance => instance.ModelPath)
             .Where(group => group.Count() > 1))
         {
-            ViewerLog.Write(
-                "render",
-                $"census {group.Key}: {group.Count()} instances, bodies " +
-                string.Join(
-                    ", ",
-                    group.Select(instance => instance.Body).Order()));
+            _render.LogInformation(
+                "census {Model}: {Instances} instances, bodies {Bodies}",
+                group.Key,
+                group.Count(),
+                string.Join(", ", group.Select(instance => instance.Body).Order()));
         }
     }
 

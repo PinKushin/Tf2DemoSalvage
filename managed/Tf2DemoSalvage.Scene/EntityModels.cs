@@ -4,6 +4,9 @@ using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -62,6 +65,30 @@ public readonly record struct ModelInstance(
 /// </remarks>
 public sealed class EntityModelSet
 {
+    /// <summary>What was posed and how, reported under `props` as the prop loader does.</summary>
+    private readonly ILogger _props;
+
+    /// <summary>What could not be drawn, reported under `render` (D83).</summary>
+    /// <remarks>
+    /// **Two categories because this writes to two areas**, and folding them would reclassify
+    /// lines somebody greps for. A model lit by nothing is a `render` fact; the pose it was given
+    /// is a `props` one.
+    /// </remarks>
+    private readonly ILogger _render;
+
+    /// <summary>Creates an empty set.</summary>
+    /// <param name="loggers">
+    /// Where it reports, or <c>null</c> for nowhere. Optional with a null-object default because
+    /// every test that builds one of these wants geometry rather than commentary.
+    /// </param>
+    public EntityModelSet(ILoggerFactory? loggers = null)
+    {
+        ILoggerFactory factory = loggers ?? NullLoggerFactory.Instance;
+
+        _props = factory.CreateLogger("props");
+        _render = factory.CreateLogger("render");
+    }
+
     private readonly List<WorldVertex> _vertices = [];
 
     /// <summary>Every packed model's batches, one list per baked animation frame.</summary>
@@ -262,8 +289,8 @@ public sealed class EntityModelSet
               $"at ({first[3]:0.#}, {first[7]:0.#}, {first[11]:0.#})"
             : "root none";
 
-        ViewerLog.Write(
-            "props",
+        _props.LogInformation(
+            "{Message}",
             $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
             $"{bones.Count} bones, x {minimumX:0.#}..{maximumX:0.#} " +
             $"y {minimumY:0.#}..{maximumY:0.#} z {minimumZ:0.#}..{maximumZ:0.#}, {root}");
@@ -326,13 +353,15 @@ public sealed class EntityModelSet
             // a skeleton, or the skeleton simply has no such activity. A single −1 sent this
             // investigation at a sequence list that turned out to contain exactly what was being
             // looked for.
-            ViewerLog.Warn("render", $"no packed frames for {modelPath}, so no activity lookup");
+            _render.LogWarning(
+                "no packed frames for {Model}, so no activity lookup", modelPath);
             return -1;
         }
 
         if (frames.Skinned is not { } skinned)
         {
-            ViewerLog.Warn("render", $"{modelPath} was baked rather than skinned, so it has no sequence table");
+            _render.LogWarning(
+                "{Model} was baked rather than skinned, so it has no sequence table", modelPath);
             return -1;
         }
 
@@ -575,8 +604,8 @@ public sealed class EntityModelSet
                         alternatives = Math.Max(alternatives, alternative + 1);
                     }
 
-                    ViewerLog.Write(
-                        "render",
+                    _render.LogInformation(
+                        "{Message}",
                         $"bodygroups {prop.ModelPath}: {model.BodyParts.Count} parts, " +
                         $"{batches.Count} batches spanning {alternatives} alternatives");
                 }
@@ -616,8 +645,8 @@ public sealed class EntityModelSet
             //
             // This is the overlogging failure in miniature: a line that measured the right thing
             // for one kind of model and kept its wording when a second kind arrived.
-            ViewerLog.Write(
-                "props",
+            _props.LogInformation(
+                "{Message}",
                 model.IsSkinned
                     ? $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
                       $"UNPOSED, skinned on the GPU - the shader poses it, so these are the " +
@@ -832,8 +861,8 @@ public sealed class EntityModelSet
             if (lightAt is not null && light is { } sampledCube && IsUnlit(sampledCube) &&
                 _reportedDark.Add(prop.ModelPath))
             {
-                ViewerLog.Warn(
-                    "render",
+                _render.LogWarning(
+                    "{Message}",
                     $"{prop.ModelPath} is lit by nothing at ({pose.X:0},{pose.Y:0},{pose.Z:0}); " +
                     $"its leaf carries no ambient light, so it draws black");
             }
@@ -864,16 +893,16 @@ public sealed class EntityModelSet
             {
                 _brushHeight[prop.EntityIndex] = pose.Z;
 
-                ViewerLog.Write(
-                    "render",
+                _render.LogInformation(
+                    "{Message}",
                     $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
                     $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
             }
 
             if (lightAt is not null && _reportedLight.Add(prop.EntityIndex))
             {
-                ViewerLog.Write(
-                    "render",
+                _render.LogInformation(
+                    "{Message}",
                     $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
                     $"at ({pose.X:0},{pose.Y:0},{pose.Z:0}) sampled ({lightX:0},{lightY:0},{lightZ:0}) " +
                     $"skin {skin} " +
@@ -890,8 +919,8 @@ public sealed class EntityModelSet
             {
                 _reportedFrames.Add(prop.ModelPath);
 
-                ViewerLog.Write(
-                    "render",
+                _render.LogInformation(
+                    "{Message}",
                     $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
                     $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count} " +
                     $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
@@ -933,8 +962,8 @@ public sealed class EntityModelSet
                 // player however they are moving - true, and about the wrong quantity.
                 if (_reportedFrames.Add(prop.ModelPath + "#skin"))
                 {
-                    ViewerLog.Write(
-                        "render",
+                    _render.LogInformation(
+                        "{Message}",
                         $"skinned {prop.ModelPath}: sequence {sequence}" +
                         $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
                         $"{skinned.UnimplementedFor(sequence)}, " +
@@ -1016,8 +1045,8 @@ public sealed class EntityModelSet
 
                         if (_reportedPoses.Add(prop.ModelPath + "#attached"))
                         {
-                            ViewerLog.Write(
-                                "props",
+                            _props.LogInformation(
+                                "{Message}",
                                 $"attached {prop.ModelPath} to {attachment.Name} " +
                                 $"(point {point}, bone {attachment.Bone}) on {worn.ModelPath}");
                         }
@@ -1094,8 +1123,8 @@ public sealed class EntityModelSet
                 ? "none"
                 : string.Join(", ", noBatchesBy.Select(entry => $"{entry.Value}x{entry.Key}"));
 
-            ViewerLog.Write(
-                "props",
+            _props.LogInformation(
+                "{Message}",
                 $"asked for {askedFor}, produced {drawnCount}; " +
                 $"skipped {notStudio} not-studio [{(notStudioBy.Count == 0 ? "none" : string.Join(", ", notStudioBy.Select(e => $"{e.Value}x{e.Key}")))}], " +
                 $"{noBatches} no-batches [{missing}]");
@@ -1154,8 +1183,8 @@ public sealed class EntityModelSet
 
             // **Counted, because a merge that matches nothing looks identical to one that works.**
             // Both draw the item; only one puts it on the head. A zero here is the whole defect.
-            ViewerLog.Write(
-                "render",
+            _render.LogInformation(
+                "{Message}",
                 $"bone merge {System.IO.Path.GetFileName(modelPath)} onto " +
                 $"{System.IO.Path.GetFileName(wearer.ModelPath)}: " +
                 $"{matched} of {map.Length} bones matched" +

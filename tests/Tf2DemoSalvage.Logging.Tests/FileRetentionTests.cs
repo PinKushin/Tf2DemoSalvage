@@ -5,9 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-using Tf2DemoSalvage.Viewer3D;
+using Tf2DemoSalvage.Logging;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Logging.Tests;
 
 /// <summary>
 /// Keeping the newest N files of a kind, and leaving every other kind alone.

@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/managed/">
     <Project Path="managed/Tf2DemoSalvage.Cli/Tf2DemoSalvage.Cli.csproj" />
+    <Project Path="managed/Tf2DemoSalvage.Logging/Tf2DemoSalvage.Logging.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Scene/Tf2DemoSalvage.Scene.csproj" />
@@ -14,6 +15,7 @@
     <Project Path="benchmarks/Tf2DemoSalvage.Benchmarks/Tf2DemoSalvage.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Tf2DemoSalvage.Logging.Tests/Tf2DemoSalvage.Logging.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Corpus.Tests/Tf2DemoSalvage.Corpus.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Core.Tests/Tf2DemoSalvage.Core.Tests.csproj" />

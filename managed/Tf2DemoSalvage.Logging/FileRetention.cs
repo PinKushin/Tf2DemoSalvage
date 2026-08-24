@@ -1,12 +1,17 @@
 using System;
 using System.IO;
 
-namespace Tf2DemoSalvage.Scene;
+namespace Tf2DemoSalvage.Logging;
 
 /// <summary>
 /// Keeps the newest few files of one kind in a folder, and deletes the rest.
 /// </summary>
 /// <remarks>
+/// **It lives in the logging project rather than in `Scene`, and that is placement rather than
+/// meaning (D83).** Its two consumers are the log writer and the viewer's screenshots, and this is
+/// the leaf project both can reference — `Scene` cannot hold it once `Scene` depends on the logger.
+/// Nothing about it is logging-specific.
+///
 /// **One function rather than one per writer, because the viewer had two writers and only one of
 /// them pruned.** Measured 2026-08-19 on the owner's machine: 233 screenshots at 203 MB with no
 /// retention code at all, and 207 run logs against a stated limit of 50. Nothing reported either;

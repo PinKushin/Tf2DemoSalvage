@@ -4,8 +4,12 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -509,6 +513,7 @@ public sealed class MapAssets
     /// engine lights those from the light cache rather than leaving them unlit (B123); passed in
     /// because the caller reads the leaves and ambient samples before any asset is loaded.
     /// </param>
+    /// <param name="loggers">Where loading reports what it could not use, or null for nowhere.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -519,15 +524,22 @@ public sealed class MapAssets
         IReadOnlyCollection<string>? entityModels = null,
         IReadOnlyCollection<string>? wornModels = null,
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
-        Func<float, float, float, AmbientCube>? lightAt = null)
+        Func<float, float, float, AmbientCube>? lightAt = null,
+        ILoggerFactory? loggers = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
+
+        // **A factory rather than a logger, because this reaches into PropModels and EntityModels**
+        // and both report under their own areas (D83). Optional with a null-object default: most
+        // callers of this are tests that want the assets and not the commentary.
+        ILoggerFactory factory = loggers ?? NullLoggerFactory.Instance;
+        ILogger assets = factory.CreateLogger("assets");
 
         // **Packed here rather than at the constructor call, because the brush entities need it.**
         // A door's faces are lit by vrad exactly as the world's are (vrad.cpp:703) and their samples
         // sit in this same atlas, so the geometry cannot be built until the atlas exists — which is
         // why `brushModels` is a factory taking one rather than a finished dictionary (B131).
-        LightmapAtlas lightmaps = PackLighting(map);
+        LightmapAtlas lightmaps = PackLighting(assets, map);
 
         PakFile pak = PakFile.ReadFrom(map);
         List<BspMaterial> materials = [.. BspMaterials.Read(map)];
@@ -540,7 +552,7 @@ public sealed class MapAssets
         int resolved = 0;
         int missing = 0;
 
-        IDisposable materialTiming = ViewerLog.Time("assets", "resolving materials");
+        IDisposable materialTiming = assets.Time("resolving materials");
 
         // What the map asked for that this project does not implement, accumulated across both
         // sources so a test can assert the whole picture rather than reading two log lines.
@@ -558,7 +570,7 @@ public sealed class MapAssets
         ResolvedMaterial[] found = new ResolvedMaterial[materials.Count];
 
         Parallel.For(0, materials.Count, index =>
-            found[index] = Resolve(materials[index].Name, pak, archives, maximumTextureSize));
+            found[index] = Resolve(assets, materials[index].Name, pak, archives, maximumTextureSize));
 
         for (int index = 0; index < found.Length; index++)
         {
@@ -612,8 +624,8 @@ public sealed class MapAssets
                 shaderCensus.Add(shader);
             }
 
-            ViewerLog.Write(
-                "assets",
+            assets.LogInformation(
+                "{Message}",
                 parameters.Count == 0
                     ? $"every parameter the {source} materials declare is implemented"
                     : $"{parameters.Count} unimplemented parameters across {resolved.Count} " +
@@ -623,8 +635,8 @@ public sealed class MapAssets
             IReadOnlyList<(string Shader, int Materials)> shaders = MaterialCensus.UnimplementedShaders(
                 resolved.Select(material => material.Shader));
 
-            ViewerLog.Write(
-                "assets",
+            assets.LogInformation(
+                "{Message}",
                 shaders.Count == 0
                     ? $"every shader the {source} materials name is implemented"
                     : $"{shaders.Count} unimplemented shaders across {resolved.Count} " +
@@ -654,7 +666,7 @@ public sealed class MapAssets
 
         ResolvedMaterial? ResolveProp(string path)
         {
-            ResolvedMaterial? resolved = Resolve(path, pak, archives, maximumTextureSize, report: false);
+            ResolvedMaterial? resolved = Resolve(assets, path, pak, archives, maximumTextureSize, report: false);
 
             if (resolved is { } material)
             {
@@ -664,7 +676,7 @@ public sealed class MapAssets
             return resolved;
         }
 
-        IDisposable propTiming = ViewerLog.Time("assets", "loading props");
+        IDisposable propTiming = assets.Time("loading props");
 
         // **Carried on the result rather than in a static**, which is the second time that
         // distinction has bitten in this file. A static written by every map load is meaningless
@@ -712,14 +724,14 @@ public sealed class MapAssets
                 models[name] = geometry;
             }
 
-            ViewerLog.Write(
-                "assets",
+            assets.LogInformation(
+                "{Message}",
                 $"{brushes.Count} brush entities built from the map's models lump");
         }
 
         if (entityModels is { Count: > 0 })
         {
-            using IDisposable modelTiming = ViewerLog.Time("assets", "loading entity models");
+            using IDisposable modelTiming = assets.Time("loading entity models");
 
             int loaded = 0;
 
@@ -732,6 +744,7 @@ public sealed class MapAssets
             foreach (string path in entityModels)
             {
                 PropModels.ModelFrames? frames = PropModels.LoadFrames(
+                    factory.CreateLogger("props"),
                     path,
                     pak,
                     archives,
@@ -766,14 +779,15 @@ public sealed class MapAssets
                     triedError = true;
 
                     error = PropModels.LoadFrames(
+                        factory.CreateLogger("props"),
                         ErrorModel, pak, archives, table, ResolveProp, mustSkin: false);
 
                     if (error is not { Geometry.Count: > 0 })
                     {
                         error = null;
 
-                        ViewerLog.Warn(
-                            "assets",
+                        assets.LogWarning(
+                            "{Message}",
                             $"{ErrorModel} did not load either, so a missing model draws nothing");
                     }
                 }
@@ -782,22 +796,22 @@ public sealed class MapAssets
                 {
                     models[path] = stand;
 
-                    ViewerLog.Warn(
-                        "assets", $"{path} did not load; drawing Valve's error model in its place");
+                    assets.LogWarning(
+                        "{Model} did not load; drawing Valve's error model in its place", path);
                 }
             }
 
             // Four categories again. "N of M loaded" answers HAVE and nothing else — it does not
             // name which of the M are missing, and an entity model that fails to load is a player
             // or a weapon that simply is not drawn, which looks like the demo not containing one.
-            ViewerLog.Write(
-                "assets",
+            assets.LogInformation(
+                "{Message}",
                 $"ASKED FOR {entityModels.Count} entity models; HAVE {loaded}; " +
                 $"MISSING {entityModels.Count - loaded}");
 
             foreach (string absent in entityModels.Where(path => !models.ContainsKey(path)))
             {
-                ViewerLog.Write("assets", $"entity model not loaded: {absent}");
+                assets.LogInformation("entity model not loaded: {Model}", absent);
             }
         }
 
@@ -825,8 +839,8 @@ public sealed class MapAssets
         // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
         int textured = table.Textures.Count(texture => texture is not null);
 
-        ViewerLog.Write(
-            "assets",
+        assets.LogInformation(
+            "{Message}",
             $"ASKED FOR {table.Count} materials ({brushMaterials} the map's own, " +
             $"{table.Count - brushMaterials} from props); " +
             $"HAVE {textured} with a base texture; " +
@@ -836,40 +850,40 @@ public sealed class MapAssets
 
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
-        ViewerLog.Write(
-            "assets",
-            $"{table.Details.Count(detail => detail is not null)} materials carry a detail texture");
+        assets.LogInformation(
+            "{Count} materials carry a detail texture",
+            table.Details.Count(detail => detail is not null));
 
         // **Measured, not assumed.** A bump chain that resolves nothing still draws a perfectly
         // reasonable map, because every bumped face already has a correct flat lightmap.
-        ViewerLog.Write(
-            "assets",
+        assets.LogInformation(
+            "{Message}",
             $"{table.Bumps.Count(bump => bump is not null)} materials carry a bump map, " +
             $"{table.Bumps.Count(bump => bump is { IsSelfShadowing: true })} of them self-shadowing");
 
         // **Measured, not assumed**, for the same reason as the detail and bump lines above: a
         // cubemap chain that resolves nothing still draws a perfectly reasonable map, just a matte
         // one — which is the state this has been in since the project started (B55).
-        ViewerLog.Write(
-            "assets",
-            $"{table.Cubemaps.Count(cubemap => cubemap is not null)} materials carry a baked cubemap");
+        assets.LogInformation(
+            "{Count} materials carry a baked cubemap",
+            table.Cubemaps.Count(cubemap => cubemap is not null));
 
         // **The model half, reported separately because it fails separately.** A material asking for
         // the literal `env_cubemap` has no cubemap of its own and takes one of the map's placements
         // by where it stands, so it is absent from the count above however well it is working. The
         // line above read 123 on cp_badlands while every reflective PROP on the map — the capture
         // points included — silently reflected nothing, and no number said so.
-        ViewerLog.Write(
-            "assets",
+        assets.LogInformation(
+            "{Message}",
             $"{table.LocalReflections.Count(shading => shading is not null)} materials reflect the " +
             "map's own cubemap, chosen per draw by position");
 
         // **Measured for the same reason, and this is the number that says the entity path works.**
         // Model materials used to arrive with none, because they were appended to three lists and
         // padded into the rest.
-        ViewerLog.Write(
-            "assets",
-            $"{table.Proxies.Count(list => list.Count > 0)} materials run a proxy");
+        assets.LogInformation(
+            "{Count} materials run a proxy",
+            table.Proxies.Count(list => list.Count > 0));
 
         return new MapAssets(
             table.Textures,
@@ -890,14 +904,15 @@ public sealed class MapAssets
             BrushMaterialCount = brushMaterials,
             RefusedPropLighting = refusedLighting,
             LocalReflections = table.LocalReflections,
-            PlacedCubemaps = LoadPlacedCubemaps(map, pak, maximumTextureSize),
+            PlacedCubemaps = LoadPlacedCubemaps(assets, map, pak, maximumTextureSize),
             Phong = table.Phong,
             LightWarps = table.LightWarps,
-            DevGrid = LoadDevGrid(archives, maximumTextureSize),
+            DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
             // Valve's own luxel grid, for mat_luxels. Same loader, different candidates — it ships
             // only in the Half-Life 2 archives, which TF2's gameinfo.txt mounts after its own.
             LuxelGrid = LoadDebugTexture(
+                assets,
                 archives, maximumTextureSize, "materials/debug/debugluxels.vtf"),
         };
     }
@@ -918,8 +933,10 @@ public sealed class MapAssets
     /// Null when none of them resolve, which the renderer treats as "flat colours, as before". A
     /// missing debug texture must not stop a map drawing.
     /// </remarks>
-    private static MapTexture? LoadDevGrid(GameArchives archives, int maximumTextureSize) =>
+    private static MapTexture? LoadDevGrid(
+        ILogger assets, GameArchives archives, int maximumTextureSize) =>
         LoadDebugTexture(
+            assets,
             archives,
             maximumTextureSize,
             "materials/dev/dev_measuregeneric01.vtf",
@@ -934,7 +951,7 @@ public sealed class MapAssets
     /// thing and says so.
     /// </remarks>
     private static MapTexture? LoadDebugTexture(
-        GameArchives archives, int maximumTextureSize, params string[] candidates)
+        ILogger assets, GameArchives archives, int maximumTextureSize, params string[] candidates)
     {
         foreach (string name in candidates)
         {
@@ -946,7 +963,7 @@ public sealed class MapAssets
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
-                ViewerLog.Warn("assets", $"reading {name}", failure);
+                assets.LogWarning(failure, "reading {Name}", name);
                 continue;
             }
 
@@ -959,29 +976,29 @@ public sealed class MapAssets
             {
                 VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
 
-                ViewerLog.Write(
-                    "assets",
+                assets.LogInformation(
+                    "{Message}",
                     $"debug texture {name} ({decoded.Width}x{decoded.Height} {decoded.Format})");
 
                 return new MapTexture(decoded.Width, decoded.Height, decoded.Image, false);
             }
             catch (InvalidDataException failure)
             {
-                ViewerLog.Warn("assets", $"decoding {name}", failure);
+                assets.LogWarning(failure, "decoding {Name}", name);
             }
         }
 
-        ViewerLog.Warn(
-            "assets",
+        assets.LogWarning(
+            "{Message}",
             $"none of {candidates.Length} debug textures resolved ({string.Join(", ", candidates)}); " +
             "the view that uses it falls back");
 
         return null;
     }
 
-    private static LightmapAtlas PackLighting(ReadOnlyMemory<byte> map)
+    private static LightmapAtlas PackLighting(ILogger assets, ReadOnlyMemory<byte> map)
     {
-        using (ViewerLog.Time("assets", "reading and packing lightmaps"))
+        using (assets.Time("reading and packing lightmaps"))
         {
             return LightmapAtlas.PackAll(BspLightmaps.ReadAll(map));
         }
@@ -1022,6 +1039,7 @@ public sealed class MapAssets
     }
 
     /// <summary>Every cubemap the map baked, decoded and placed.</summary>
+    /// <param name="assets">Where a refusal is reported; a parameter because this is static (D83).</param>
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own archive, where vbsp wrote the bakes.</param>
     /// <param name="maximumTextureSize">Largest edge to decode; zero for full size.</param>
@@ -1039,7 +1057,9 @@ public sealed class MapAssets
     /// cp_process_final: 43 placements at 32 pixels a face is about a megabyte, against a lightmap
     /// atlas of 2048×3485.
     /// </remarks>
+    // The logger is a parameter because this is static (D83).
     private static List<MapPlacedCubemap> LoadPlacedCubemaps(
+        ILogger assets,
         ReadOnlyMemory<byte> map,
         PakFile pak,
         int maximumTextureSize)
@@ -1057,8 +1077,8 @@ public sealed class MapAssets
         // download, a rename — need not match it. Reading it back from a packed path cannot drift.
         if (MapNameIn(pak) is not { } mapName)
         {
-            ViewerLog.Warn(
-                "assets",
+            assets.LogWarning(
+                "{Message}",
                 $"the map bakes {placements.Count} cubemaps but packs no maps/<name>/ path to " +
                 "name them from, so no model will reflect");
 
@@ -1095,8 +1115,8 @@ public sealed class MapAssets
             }
         }
 
-        ViewerLog.Write(
-            "assets",
+        assets.LogInformation(
+            "{Message}",
             $"ASKED FOR {placements.Count} baked cubemaps of {mapName}; " +
             $"HAVE {loaded.Count} decoded; " +
             $"MISSING {absent} unpacked, {refused} that would not decode");
@@ -1133,6 +1153,7 @@ public sealed class MapAssets
     }
 
     private static ResolvedMaterial Resolve(
+        ILogger assets,
         string materialName,
         PakFile pak,
         GameArchives archives,
@@ -1149,7 +1170,7 @@ public sealed class MapAssets
             {
                 // **Reported rather than swallowed.** An unreadable archive entry is a defect in
                 // this reader until shown otherwise; the engine opens all of these.
-                ViewerLog.Warn("assets", $"reading {path}", failure);
+                assets.LogWarning(failure, "reading {Path}", path);
 
                 return null;
             }
@@ -1162,7 +1183,7 @@ public sealed class MapAssets
             // bury the real failures, which the caller logs once it has run out of candidates.
             if (report)
             {
-                ViewerLog.Warn("assets", $"material materials/{materialName}.vmt was not found");
+                assets.LogWarning("material materials/{Material}.vmt was not found", materialName);
             }
 
             return default;
@@ -1181,7 +1202,7 @@ public sealed class MapAssets
         }
         catch (InvalidDataException failure)
         {
-            ViewerLog.Warn("assets", $"parsing materials/{materialName}.vmt", failure);
+            assets.LogWarning(failure, "parsing materials/{Material}.vmt", materialName);
 
             return default;
         }
@@ -1310,8 +1331,8 @@ public sealed class MapAssets
 
             if (Find("materials/" + bare + ".vtf") is not { } file)
             {
-                ViewerLog.Warn(
-                    "assets",
+                assets.LogWarning(
+                    "{Message}",
                     $"cubemap materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
 
                 return null;
@@ -1325,7 +1346,7 @@ public sealed class MapAssets
             {
                 // **The surface survives this.** A cubemap that will not decode costs the material
                 // its shine and nothing else; it must never take the base texture with it.
-                ViewerLog.Warn("assets", $"cubemap for materials/{materialName}.vmt", failure);
+                assets.LogWarning(failure, "cubemap for materials/{Material}.vmt", materialName);
 
                 return null;
             }
@@ -1334,7 +1355,7 @@ public sealed class MapAssets
                 // A VTF that declares the envmap flag and holds fewer than seven faces. Reported
                 // rather than swallowed: it means either a malformed file or a wrong face count,
                 // and both are worth seeing.
-                ViewerLog.Warn("assets", $"cubemap for materials/{materialName}.vmt", failure);
+                assets.LogWarning(failure, "cubemap for materials/{Material}.vmt", materialName);
 
                 return null;
             }
@@ -1352,8 +1373,8 @@ public sealed class MapAssets
 
             if (Load(name) is not { } decoded)
             {
-                ViewerLog.Warn(
-                    "assets",
+                assets.LogWarning(
+                    "{Message}",
                     $"light warp {name}, named by materials/{materialName}.vmt, could not be read");
 
                 return null;
@@ -1372,8 +1393,8 @@ public sealed class MapAssets
 
             if (Load(name) is not { } decoded)
             {
-                ViewerLog.Warn(
-                    "assets",
+                assets.LogWarning(
+                    "{Message}",
                     $"bump map {name}, named by materials/{materialName}.vmt, could not be read");
 
                 return null;
@@ -1407,7 +1428,7 @@ public sealed class MapAssets
             {
                 // Reported, never silent: the engine reads every one of these, so anything that
                 // will not decode is a defect here until shown otherwise.
-                ViewerLog.Warn("assets", $"decoding materials/{bare}.vtf", failure);
+                assets.LogWarning(failure, "decoding materials/{Texture}.vtf", bare);
 
                 return null;
             }
@@ -1426,8 +1447,8 @@ public sealed class MapAssets
 
             if (Find("materials/" + bare + ".vtf") is not { } file)
             {
-                ViewerLog.Warn(
-                    "assets",
+                assets.LogWarning(
+                    "{Message}",
                     $"detail texture materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
 
                 return null;
@@ -1457,7 +1478,7 @@ public sealed class MapAssets
                 // **The base texture survives this.** A detail texture that will not decode, or a
                 // $detailscale that is not a number, costs the surface its grain and nothing else
                 // - it must never take the base texture with it and turn the surface purple.
-                ViewerLog.Warn("assets", $"detail for materials/{materialName}.vmt", failure);
+                assets.LogWarning(failure, "detail for materials/{Material}.vmt", materialName);
 
                 return null;
             }
@@ -1481,7 +1502,7 @@ public sealed class MapAssets
 
             if (Find("materials/" + bare + ".vtf") is not { } vtf)
             {
-                ViewerLog.Warn("assets", $"texture materials/{bare}.vtf was not found");
+                assets.LogWarning("texture materials/{Texture}.vtf was not found", bare);
 
                 return null;
             }
@@ -1509,8 +1530,8 @@ public sealed class MapAssets
                         material.IsModulate ? " modulate" : string.Empty,
                         material.IsAlphaTested ? " alphatest" : string.Empty);
 
-                    ViewerLog.Write(
-                        "assets",
+                    assets.LogInformation(
+                        "{Message}",
                         $"blended '{bare}' shader '{material.Shader}':{why}" +
                         $" $translucent='{material.Value("$translucent") ?? "-"}'" +
                         $" $vertexalpha='{material.Value("$vertexalpha") ?? "-"}'" +
@@ -1556,7 +1577,7 @@ public sealed class MapAssets
                 // **Reported, never silent.** A texture that cannot be decoded is a defect in this
                 // reader until shown otherwise - the engine reads every one of these - and a face
                 // quietly falling back to a reflectivity colour is how that goes unnoticed.
-                ViewerLog.Warn("assets", $"decoding materials/{bare}.vtf", failure);
+                assets.LogWarning(failure, "decoding materials/{Texture}.vtf", bare);
 
                 return null;
             }

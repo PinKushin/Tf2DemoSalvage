@@ -62,6 +62,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+
+    <!-- The file logging provider and the retention helper it carries (D83). Referenced rather than
+         reimplemented: this is where ILogger comes from once the conversion off the static
+         ViewerLog reaches this project. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Logging\Tf2DemoSalvage.Logging.csproj" />
   </ItemGroup>
 
 </Project>

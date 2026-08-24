@@ -17,6 +17,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The full logging package rather than Abstractions, because this is the composition root:
+         it is the one project that BUILDS an ILoggerFactory and attaches providers. Everything
+         else takes an ILogger it was handed (D83). -->
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+
     <PackageReference Include="Silk.NET.Direct3D11" />
     <PackageReference Include="Silk.NET.Direct3D.Compilers" />
     <PackageReference Include="Silk.NET.DXGI" />

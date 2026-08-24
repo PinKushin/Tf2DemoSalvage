@@ -4,6 +4,8 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+using Microsoft.Extensions.Logging;
+
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
@@ -1473,13 +1475,29 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private IReadOnlyList<WorldBatch> _batches = [];
 
+    /// <summary>Where this reports what it drew, and what it silently could not.</summary>
+    /// <remarks>
+    /// **Two categories rather than one, because this writes to two areas (D83).** Most of what it
+    /// says is `render`; the cubemap refusal is an `assets` fact and was written as one. A logger's
+    /// category is the old area string, so keeping both preserves the file exactly — and merging
+    /// them would quietly reclassify a line that somebody may be grepping for.
+    /// </remarks>
+    private readonly ILogger _render;
+
+    private readonly ILogger _assets;
+
     private WorldRenderer(
+        ILoggerFactory loggers,
         ComPtr<ID3D11VertexShader> vertexShader,
         ComPtr<ID3D11PixelShader> pixelShader,
         ComPtr<ID3D11InputLayout> layout,
         ComPtr<ID3D11SamplerState> wrapSampler,
         ComPtr<ID3D11SamplerState> clampSampler)
     {
+        ArgumentNullException.ThrowIfNull(loggers);
+
+        _render = loggers.CreateLogger("render");
+        _assets = loggers.CreateLogger("assets");
         _vertexShader = vertexShader;
         _pixelShader = pixelShader;
         _layout = layout;
@@ -1492,8 +1510,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Compiles the shaders and creates the samplers.</summary>
     /// <param name="device">Device to create resources on.</param>
+    /// <param name="loggers">Where to report what was drawn, and what silently was not.</param>
     /// <returns>The renderer.</returns>
-    public static WorldRenderer Create(ComPtr<ID3D11Device> device)
+    public static WorldRenderer Create(ComPtr<ID3D11Device> device, ILoggerFactory loggers)
     {
         using D3DCompiler compiler = D3DCompiler.GetApi();
 
@@ -1715,6 +1734,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         AddWire(decalOffset, biased);
 
         return new WorldRenderer(
+            loggers,
             vertexShader,
             pixelShader,
             layout,
@@ -1959,7 +1979,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // resolved per draw from where the model stands, so no material can own one.
         foreach (MapPlacedCubemap placed in assets.PlacedCubemaps)
         {
-            ComPtr<ID3D11ShaderResourceView> uploadedCube = UploadCube(device, placed.Faces);
+            ComPtr<ID3D11ShaderResourceView> uploadedCube = UploadCube(_assets, device, placed.Faces);
 
             if (uploadedCube.Handle is null)
             {
@@ -2038,25 +2058,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
             ? " at " + string.Join(", ", chequered.Take(40))
             : string.Empty;
 
-        ViewerLog.Write(
-            "render",
-            string.Create(
-                System.Globalization.CultureInfo.InvariantCulture,
-                $"textures: {assets.Textures.Count} materials, {chequered.Count} will draw as the missing-material chequer{chequeredAt}"));
+        _render.LogInformation(
+            "textures: {Materials} materials, {Chequered} will draw as the missing-material chequer{At}",
+            assets.Textures.Count,
+            chequered.Count,
+            chequeredAt);
 
         // **By INDEX, because that is what the draw actually tests.** The material ledger in
         // MapAssets names these by material NAME, which is the right form for reading and the
         // wrong form for matching: the prop log identifies a model's material as `mat 340`, and a
         // name cannot be joined to that. A surface drawn with the wrong blend state is invisible in
         // exactly the way missing geometry is, so the two lists have to be comparable.
-        ViewerLog.Write(
-            "render",
-            string.Create(
-                System.Globalization.CultureInfo.InvariantCulture,
-                $"blend classes by material index — additive [{string.Join(" ", _additive.Order())}]" +
-                $" translucent [{string.Join(" ", _translucent.Order())}]" +
-                $" modulate [{string.Join(" ", _modulate.Keys.Order())}]" +
-                $" decal [{string.Join(" ", _decalMaterials.Order())}]"));
+        // **Guarded, because every one of these joins allocates.** Four `string.Join` calls over
+        // material sets are real work, and CA1873 is right that doing it before the level is
+        // consulted is work for nothing. The old static logger had no level to consult.
+        if (_render.IsEnabled(LogLevel.Information))
+        {
+            _render.LogInformation(
+                "blend classes by material index — additive [{Additive}] translucent [{Translucent}]" +
+                " modulate [{Modulate}] decal [{Decal}]",
+                string.Join(" ", _additive.Order()),
+                string.Join(" ", _translucent.Order()),
+                string.Join(" ", _modulate.Keys.Order()),
+                string.Join(" ", _decalMaterials.Order()));
+        }
 
         // **Kept rather than baked into the constants, because a proxy is a function of time.**
         // Everything else in the material buffer is decided once at load; these are the values that
@@ -2227,7 +2252,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // every reflective surface on the map, which is the state this replaced.
             float envmapFresnel = shading?.Fresnel ?? 1f;
 
-            _cubemaps.Add(reflection is { } cube ? UploadCube(device, cube.Faces) : default);
+            _cubemaps.Add(reflection is { } cube ? UploadCube(_assets, device, cube.Faces) : default);
 
             _detailParameters.Add(detail is { } values
                 ?
@@ -2331,28 +2356,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
             srgb: false);
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
-        ViewerLog.Write(
-            "render",
-            $"{_additive.Count} of {assets.Textures.Count} materials are additive, drawn in a second pass");
+        _render.LogInformation(
+            "{Additive} of {Materials} materials are additive, drawn in a second pass",
+            _additive.Count,
+            assets.Textures.Count);
 
-        ViewerLog.Write(
-            "render",
-            $"{_translucent.Count} of {assets.Textures.Count} materials are translucent, blended and sorted");
+        _render.LogInformation(
+            "{Translucent} of {Materials} materials are translucent, blended and sorted",
+            _translucent.Count,
+            assets.Textures.Count);
 
         // **The output, not the capability.** A detail chain that resolves nothing draws a map that
         // looks entirely reasonable, so the count of textures actually bound is the only thing that
         // distinguishes "implemented" from "working".
-        ViewerLog.Write(
-            "render",
-            $"{_details.Count(detail => detail.Handle is not null)} materials draw with a detail texture");
+        //
+        // Guarded because each of these counts walks a collection — cheap individually, and exactly
+        // the kind of work CA1873 exists to keep out of a disabled log.
+        if (_render.IsEnabled(LogLevel.Information))
+        {
+            _render.LogInformation(
+                "{Details} materials draw with a detail texture",
+                _details.Count(detail => detail.Handle is not null));
 
-        ViewerLog.Write(
-            "render",
-            $"{_bumps.Count(bump => bump.Handle is not null)} materials draw with a bump map");
+            _render.LogInformation(
+                "{Bumps} materials draw with a bump map",
+                _bumps.Count(bump => bump.Handle is not null));
 
-        ViewerLog.Write(
-            "render",
-            $"{assets.Textures.Count(texture => texture is { SelfIllum: not null })} materials light themselves");
+            _render.LogInformation(
+                "{SelfIllum} materials light themselves",
+                assets.Textures.Count(texture => texture is { SelfIllum: not null }));
+        }
     }
 
     /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
@@ -4503,17 +4536,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// uploaded linear. Treating it as sRGB darkens every reflection by the gamma curve — a
     /// plausible-looking result rather than an obviously wrong one.
     /// </remarks>
+    // The `assets` logger is threaded in because this is STATIC (D83): a static method has no
+    // injected logger, and the alternatives were making it an instance method for the sake of one
+    // warning, or reaching for a static logger — which is the thing being removed.
     private static ComPtr<ID3D11ShaderResourceView> UploadCube(
-        ComPtr<ID3D11Device> device, IReadOnlyList<MapTexture> cubeFaces)
+        ILogger assets, ComPtr<ID3D11Device> device, IReadOnlyList<MapTexture> cubeFaces)
     {
         if (cubeFaces.Count != 6)
         {
             // A cube has six faces and nothing else can be uploaded as one. Reported rather than
             // padded: a short list means the decode changed shape, and inventing a face would draw
             // a seam that looks like a texture bug.
-            ViewerLog.Warn(
-                "assets",
-                $"a cubemap carries {cubeFaces.Count} faces rather than six and was not uploaded");
+            assets.LogWarning(
+                "a cubemap carries {Faces} faces rather than six and was not uploaded",
+                cubeFaces.Count);
 
             return default;
         }
