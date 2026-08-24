@@ -2751,7 +2751,51 @@ internal class MainForm : Form
         // Drawn at the viewmodel's own transform because that is where the engine puts it: the
         // attachment is parented with SetLocalOrigin( vec3_origin ) and bone-merged, so its bones
         // take the arms' outright. Mirrored with them for the same reason they are.
-        if (WeaponModelFor(follower) is { Length: > 0 } held)
+        // **Two schemes, and they are exclusive — this is the whole of the doubled weapon.**
+        // `CTFWeaponBase::GetViewModel` (tf_weaponbase.cpp:651):
+        //
+        //     if ( pPlayer && pItem->IsValid() && pItem->GetStaticData()->ShouldAttachToHands() )
+        //     {
+        //         const char *pszHandModel = pPlayer->GetPlayerClass()->GetHandModelName( ... );
+        //         return pszHandModel;
+        //     }
+        //     return GetTFWpnData().szViewModel;
+        //
+        // When the item attaches to hands the viewmodel IS the hands and the gun is a separate
+        // attachment — two models. When it does not, the viewmodel is the weapon's own `v_` model,
+        // which has the hands modelled into it — ONE model, and adding an attachment draws the gun
+        // twice. Measured on a 2011 recording of koth_viaduct: `v_stickybomb_launcher_demo` and
+        // `c_stickybomb_launcher` at one point in space, which is the owner's "2 sticky launchers
+        // overlapping each other".
+        //
+        // **Decided from the DEMO, not from the installed item schema.** `attach_to_hands` is a
+        // property of the item as it is TODAY: the stickybomb launcher attaches to hands now and did
+        // not in 2011, so asking items_game.txt about a 2011 demo returns a confident wrong answer
+        // and keeps the bug on exactly the files this project exists for. What the recording itself
+        // says is which model was networked as the viewmodel, and that is the branch the engine
+        // took at the time. See docs/memory/the-demo-dates-its-own-fields.md.
+        //
+        // The hands come from shipped class data — `model_hands` in scripts/playerclasses/<class>,
+        // which tf_classdata.cpp:149 reads into the m_szHandModelName that GetHandModelName returns.
+        string? hands = PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
+            ? _classModels?.Hands(playerClass)
+            : null;
+
+        bool attachesToHands =
+            hands is { Length: > 0 } &&
+            string.Equals(
+                weapon.ModelPath.Replace('\\', '/'),
+                hands.Replace('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+
+        ViewerLog.Write(
+            "render",
+            $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
+            (attachesToHands
+                ? "attaches to hands, so the weapon is a second model"
+                : "the viewmodel is the weapon's own model, so no attachment is drawn"));
+
+        if (attachesToHands && WeaponModelFor(follower) is { Length: > 0 } held)
         {
             // **Bone-merged onto the arms, not posed beside them.** The engine parents the
             // attachment with `SetLocalOrigin( vec3_origin )` and blends it through

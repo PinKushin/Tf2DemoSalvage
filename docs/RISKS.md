@@ -9896,3 +9896,36 @@ they can fail at all — and `decode-must-be-total` says anything not reading at
 The gcor default is right for the merge gate (28 seconds against 30 minutes); what is wrong is that
 nothing runs the superset on any schedule, so the split hides work rather than deferring it. The
 measurement boxes exist for exactly this shape of job.
+
+### B163 — the first-person view stutters
+
+Owner, on the 2011 viaduct POV once the doubled weapon was fixed: *"the rendering is very stuttery
+right now, but i think thats the lack of interp"*.
+
+Unmeasured, and the attribution is the owner's hypothesis rather than a finding — recorded as one so
+it is not later quoted as a diagnosis. What is known: the demo declares 8,288 ticks and the timeline
+holds **2,429 recorded moments**, so roughly one moment per 3.4 ticks. Positions between moments are
+interpolated for players; whether the FIRST-PERSON camera and the viewmodel pose take that same path
+has never been checked, and a camera that snaps between recorded moments while the world interpolates
+would look exactly like this.
+
+Worth separating before any work: frame pacing (are we presenting at a steady rate at all), camera
+interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
+cycle advance smoothly). Three different causes, one appearance.
+
+### B164 — the era verification so far covers one class
+
+The 2007 specimen was checked by eye after the viewmodel-scheme fix and looks right, but the owner
+noted the limit immediately: *"i only played scout in it though"*. So protocol 11 is confirmed for
+**one class and its weapons**, not for the era.
+
+That matters more than it sounds, because the bug this checked for is per-item: whether a weapon is
+one model or two is decided per weapon, and a class whose weapons all took the same branch cannot
+show a branch that is wrong for another. The demoman is the class the original report came from and
+is not in that recording.
+
+The recordings are the owner's own solo sessions, so extending this means recording more, not finding
+more — and that is the same constraint `docs/DECISIONS.md` D5 describes. **A related limit worth
+stating with it:** the period clients have no internet connection, so a modern item cannot be loaded
+into an era client to compare against. Where an era question cannot be answered by playing one, it
+has to be answered from the shipped data and the SDK.

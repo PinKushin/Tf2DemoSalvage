@@ -147,7 +147,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # read out of tf2_misc_dir.vpk rather than from a fixture. Two TestCases cover the demoman's weapons,
 # and the suite is what killed the "the arms carry the second weapon" theory for him while confirming
 # it for the soldier (finding 33).
-run Tf2DemoSalvage.Content.Tests  content   635
+# 637: ViewmodelSchemeConformanceTests (2) — model_hands for all nine classes, and the demoman's
+# pinned exactly. It is what decides whether a first-person weapon is one model or two.
+run Tf2DemoSalvage.Content.Tests  content   637
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

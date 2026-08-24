@@ -70,6 +70,8 @@ public sealed class PlayerClassModels
 
     private readonly Dictionary<int, string> _models = [];
 
+    private readonly Dictionary<int, string> _hands = [];
+
     /// <summary>Which classes refuse the air-walk animation.</summary>
     private readonly HashSet<int> _noAirwalk = [];
 
@@ -124,6 +126,13 @@ public sealed class PlayerClassModels
                 models._models[playerClass] = model;
             }
 
+            // Same pass again: the hands decide whether a first-person weapon is drawn as one model
+            // or two, and re-reading the script to ask would be a second decrypt of the same bytes.
+            if (ClassScript.Hands(script) is { } hands)
+            {
+                models._hands[playerClass] = hands;
+            }
+
             // Read in the same pass, because the script is already decrypted and in hand — this
             // decides whether a rising player air-walks or plays the jump.
             if (ClassScript.DontDoAirwalk(script))
@@ -158,4 +167,29 @@ public sealed class PlayerClassModels
     /// matches what the engine would draw if it somehow loaded one.
     /// </remarks>
     public bool Airwalks(int playerClass) => !_noAirwalk.Contains(playerClass);
+
+    /// <summary>The class number of the demoman, from <c>tf_shareddefs.h</c>'s order.</summary>
+    /// <remarks>
+    /// Named because the enum's order is not the menu's — Scout, Sniper, Soldier, Demoman — so a
+    /// literal 4 in a caller reads as the wrong class to anyone who knows the menu.
+    /// </remarks>
+    public const int Demoman = 4;
+
+    /// <summary>The first-person hands this class holds its weapons with.</summary>
+    /// <param name="playerClass">The class number, as the demo reports it.</param>
+    /// <returns>The model path, or <c>null</c> when the class declares none.</returns>
+    /// <remarks>
+    /// **This is what tells the two viewmodel schemes apart.**
+    /// <c>CTFWeaponBase::GetViewModel</c> (<c>tf_weaponbase.cpp:651</c>) returns the hands when the
+    /// item attaches to them and the weapon's own <c>v_</c> model when it does not, and only the
+    /// first case has a second model to draw. A viewer that always draws two puts the gun on screen
+    /// twice for every weapon of the second kind — measured on a 2011 recording as
+    /// <c>v_stickybomb_launcher_demo</c> and <c>c_stickybomb_launcher</c> at one point in space.
+    ///
+    /// Null for a class with no script, deliberately: a caller comparing a networked viewmodel
+    /// against null gets "not the hands", which takes the single-model branch and draws one weapon.
+    /// That is the safe direction — the failure is a missing gun rather than a doubled one.
+    /// </remarks>
+    public string? Hands(int playerClass) =>
+        _hands.TryGetValue(playerClass, out string? hands) ? hands : null;
 }

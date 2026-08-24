@@ -57,4 +57,19 @@ internal static class ClassScript
         ScriptKeyValue.First(script, "DontDoAirwalk") is { } value &&
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int set) &&
         set > 0;
+
+    /// <summary>The first-person hands this class holds its weapons with.</summary>
+    /// <param name="script">The decrypted class script.</param>
+    /// <returns>The model path, forward-slashed, or <c>null</c> when the script omits the key.</returns>
+    /// <remarks>
+    /// <c>model_hands</c>, which <c>tf_classdata.cpp:149</c> reads into
+    /// <c>m_szHandModelName</c> and <c>CTFPlayerClassShared::GetHandModelName</c> returns.
+    ///
+    /// **It decides whether a first-person weapon is one model or two.**
+    /// <c>CTFWeaponBase::GetViewModel</c> returns THIS instead of the weapon's own viewmodel when
+    /// the item attaches to hands, and the weapon then arrives as a separate attachment. When it
+    /// does not, the weapon's <c>v_</c> model is the whole viewmodel and already contains hands.
+    /// </remarks>
+    public static string? Hands(ReadOnlySpan<byte> script) =>
+        ScriptKeyValue.First(script, "model_hands")?.Replace('\\', '/');
 }
