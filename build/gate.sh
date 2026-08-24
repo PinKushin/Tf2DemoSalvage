@@ -24,15 +24,22 @@
 # Ratcheted rather than exact: adding a test must not redden the build, but removing three hundred
 # must. Raise them when the suite grows; lowering one is a decision to state out loud.
 #
-# **"Test Run Aborted" in the viewer suite is probably the desktop, not the code.** Seen once on
-# 2026-08-20: the run died at 192 of 512 and the floor caught it. Viewer3D.Tests creates real D3D
-# devices, and at the time another application was in exclusive full screen — the owner's video
-# player — which is a known way for device creation to fail. Unproven: it did not reproduce in four
-# clean runs afterwards, and nothing was captured from the crash itself.
+# **"Test Run Aborted" in the viewer suite WAS the code, and this note used to say otherwise.**
+# It read: "probably the desktop, not the code... another application was in exclusive full screen".
+# That was written after a single abort on 2026-08-20, was never tested, and stood as the standing
+# explanation until 2026-08-24 — when the suite aborted three times in five runs with nothing else
+# holding the GPU.
 #
-# Worth knowing before chasing it as a defect, and worth noting that this suite is NOT run under
-# run-exclusive.ps1 the way the UI suite is, because it takes no desktop of its own — it just wants
-# a GPU that nobody else has taken exclusively.
+# The cause was B178: six fixtures construct a Windows Form, and the assembly runs
+# ParallelScope.All with no [Apartment], so forms owning D3D swap chains and OpenAL contexts were
+# built concurrently off the STA. Fixed by marking those fixtures; 0 aborts in 3 runs afterwards.
+#
+# **Kept as a warning about this kind of note.** An explanation that blames the environment,
+# excuses a crash, and is never tested will survive indefinitely, because nothing about it can
+# fail. If a run aborts here again, suspect the code first.
+#
+# Still true: this suite is NOT run under run-exclusive.ps1 the way the UI suite is, because it
+# takes no desktop of its own — it just wants a GPU that nobody else has taken exclusively.
 #
 # **No --filter here, and that is deliberate.** Passing one changes which tests EXIST, not merely
 # which of them run: NUnit's adapter includes [Explicit] tests when no filter is given and drops
@@ -135,7 +142,7 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # Raised 129 -> 139 on 2026-08-24: SoundscapeMixerTests gained the suppression case (1), and
 # SoundScriptProbe gained the loop-marker report (1) that settled whether TF2's ambient waves carry
 # a `cue ` chunk at all — they do, which ruled out the reader and pointed at the schedule instead.
-run Tf2DemoSalvage.Audio.Tests    audio     137
+run Tf2DemoSalvage.Audio.Tests    audio     141
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so

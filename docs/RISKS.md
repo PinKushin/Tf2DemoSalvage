@@ -10023,7 +10023,43 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
-### B178 — the viewer test host crashes intermittently, and it is NOT the desktop
+### B178 — CLOSED 2026-08-24. Windows Forms were being built off the STA, in parallel
+
+**The cause: `[assembly: Parallelizable(ParallelScope.All)]` with no `[Apartment]` anywhere.** Six
+fixtures construct a `MainForm` — each owning a D3D swap chain, an overlay window, and an OpenAL
+context whose current-context is process-wide — and they were being constructed and disposed
+concurrently on MTA worker threads. Windows Forms requires STA. That is undefined behaviour, and it
+explains what nothing else could: crashes at three *unrelated* native sites, because the victim was
+whichever native call happened to be running.
+
+Fixed by marking those six `[NonParallelizable]` and `[Apartment(ApartmentState.STA)]` — which is
+what the assembly policy already prescribed for a fixture needing serial execution. **The policy was
+never wrong and did not change.**
+
+| | aborts | complete runs |
+|---|---|---|
+| before | 3 of 5 (at 198, 207, 208 of 634) | 2 |
+| after | **0 of 3** | 3, all 634, 0 failed |
+
+**What let it happen was a comment that stopped being true.** `AssemblyTestPolicy.cs` justified
+parallelism with *"There are now 278 tests here and none of them constructs a form at all"* — and
+then six form fixtures arrived, because nothing fails when a comment goes stale. The same file, one
+paragraph later, states that exact lesson about the comment it replaced. It has now happened twice
+to the same file, which is worth more than the fix.
+
+**A hypothesis that was wrong, kept because it was expensive and plausible.** The first read was
+that `AudioOutput` calls `AL.GetApi()` per instance and `_al.Dispose()` on teardown, unloading the
+native library while another instance still held pointers into it. A test was written for it —
+two overlapping outputs, dispose one, require the other to still work — and it **passed with the bug
+present**. That test is kept (`Dispose_OneOutputWhileAnotherIsOpen_LeavesTheOtherWorking`): it rules
+the explanation out, and the property it asserts is one worth holding anyway.
+
+**And the standing excuse in `build/gate.sh` was wrong.** That note blamed "another application in
+exclusive full screen", written after a single August abort while a video player was running. It was
+never tested, it excused a crash, and it was comfortable — the third abort today happened with
+nothing else holding the GPU at all.
+
+### The original filing, kept for the reasoning
 
 **Filed 2026-08-24, attributed but not diagnosed.** `Tf2DemoSalvage.Viewer3D.Tests` aborts partway
 through with `Test host process crashed : Fatal error`, roughly one run in three. Measured today:
