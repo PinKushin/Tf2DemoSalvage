@@ -4193,6 +4193,7 @@ internal class MainForm : Form
         // across a load would index the previous demo's sounds.
         _soundSchedule = _timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
         _audio?.StopAll();
+        _loops.Clear();
 
         ViewerLog.Write(
             "audio",
@@ -5062,6 +5063,9 @@ internal class MainForm : Form
     /// <summary>Which sounds are due, as playback moves.</summary>
     private SoundSchedule? _soundSchedule;
 
+    /// <summary>The looping sounds in flight, re-attenuated each frame as the listener moves.</summary>
+    private readonly ActiveLoops _loops = new();
+
     /// <summary>Decoded sounds, kept because a demo plays the same footstep hundreds of times.</summary>
     /// <remarks>
     /// **A null value is a remembered failure, not an absent one.** A sound the install cannot open
@@ -5091,18 +5095,15 @@ internal class MainForm : Form
         IReadOnlyList<SceneSound> starting = schedule.Advance(_transport.CurrentTick);
 
         // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
-        // just left, and letting them finish plays the old place over the new one.
+        // just left, and letting them finish plays the old place over the new one. The loops go
+        // with them: those voices no longer exist, so following them would re-attenuate nothing.
         if (schedule.Jumped)
         {
             output.StopAll();
+            _loops.Clear();
         }
 
         output.Reclaim();
-
-        if (starting.Count == 0)
-        {
-            return;
-        }
 
         // The listener is wherever the camera is, which is the eye in first person and the free
         // camera otherwise. Valve's right vector for a yaw, from which the pan follows.
@@ -5117,6 +5118,23 @@ internal class MainForm : Form
         (float X, float Y, float Z) right = (MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
         (float X, float Y, float Z) listener = (ears.Origin.X, ears.Origin.Y, ears.Origin.Z);
 
+        // **Every frame, before the early exit below, because this is the whole of B169.** A loop
+        // is started once and runs for the match, so its attenuation has to follow the listener or
+        // it keeps whatever the camera implied at the instant it began — which made the map's
+        // ambience inaudible. Ordering matters: this must not sit after a `starting.Count == 0`
+        // return, or the loops would only be re-attenuated on the frames something else happened
+        // to start, which is most obviously wrong exactly when the map is quiet.
+        foreach ((int entity, int channel, float loopGain) in
+            _loops.GainsAt(listener.X, listener.Y, listener.Z))
+        {
+            output.SetGain(entity, channel, loopGain);
+        }
+
+        if (starting.Count == 0)
+        {
+            return;
+        }
+
         foreach (SceneSound sound in starting)
         {
             // **A stop silences a channel rather than starting anything, and dropping it is
@@ -5128,6 +5146,7 @@ internal class MainForm : Form
             if (sound.IsStop)
             {
                 output.Stop(sound.EntityIndex, sound.Channel);
+                _loops.Forget(sound.EntityIndex, sound.Channel);
                 continue;
             }
 
@@ -5167,7 +5186,12 @@ internal class MainForm : Form
             // audible is indistinguishable from a working feature until somebody listens.
             float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance);
 
-            if (gain <= 0f)
+            // **A loop is started even when it is currently inaudible, and a one-shot is not.**
+            // Silence now is permanent for a one-shot, so skipping it saves a buffer nobody hears.
+            // A loop that is out of range at the moment it starts is the ordinary case — the map's
+            // ambience begins on the first tick, wherever the camera happens to be — and refusing
+            // it would mean the sound never exists to be turned up when the listener walks over.
+            if (gain <= 0f && !sample.Loops)
             {
                 continue;
             }
@@ -5175,10 +5199,14 @@ internal class MainForm : Form
             (float left, float rightGain) = SoundGain.Pan(
                 SoundGain.Rightward(listener, right, source));
 
+            // **Pan and gain go separately now.** The pan is baked into the samples and fixed for
+            // the life of the sound; the gain is a scalar on the source and is what SetGain moves
+            // as the listener travels (B169).
             output.Play(
                 sample,
-                left * gain,
-                rightGain * gain,
+                left,
+                rightGain,
+                gain,
 
                 // TF2 sends a percentage where 100 is unshifted. Measured across a real match: 100
                 // dominates with a spread of 95..99 around it, which is the engine's own random
@@ -5190,6 +5218,18 @@ internal class MainForm : Form
                 // own meaning — the engine picks the channel and the sound is meant to overlap.
                 sound.EntityIndex,
                 sound.Channel);
+
+            // **Followed from here so it can be re-attenuated as the listener moves.** Only loops:
+            // a one-shot is over before the listener has travelled far enough for its gain to be
+            // wrong, and tracking hundreds of them would be a per-frame walk for nothing.
+            //
+            // CHAN_AUTO loops are tracked too even though Stop cannot reach them, because the gain
+            // update keys on the same pair and an untracked loop is the bug either way. They end
+            // when the demo does.
+            if (sample.Loops)
+            {
+                _loops.Track(sound);
+            }
         }
     }
 
