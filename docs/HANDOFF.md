@@ -1,147 +1,170 @@
-# Handoff — the audio, decompilation and logging session
+# Handoff — the stall hunt, the HUD backbone, and weapons in hands
 
 Written 2026-08-24 at the end of a very long session. **Everything is committed and pushed**; `main`
-is at `914875d`. Gate green: **core 1497, cli 74, logging 17, audio 142, presentation 116, content
-649, corpus 109, viewer 627** — 3,231 across eight projects — plus 14 UI.
+is at `9ae1f45`. Gate green across **nine** projects, D1..D87 each used once:
 
-Supersedes the 2026-08-21 overlay handoff for anything about audio, logging or CI.
-`docs/HANDOFF-viewmodel.md` still stands for the first-person work.
+| project | count | | project | count |
+|---|---|---|---|---|
+| core | 1497 | | content | 666 |
+| cli | 74 | | corpus | 109 |
+| logging | 17 | | viewer | 641 |
+| fonts | 7 | | presentation | 135 |
+| audio | 142 | | | |
 
----
-
-## Start here
-
-### 1. Nothing is waiting on a human check
-
-Every change this session was verified — by the gate, by the owner's ears, or by reading the
-viewer's log against a pre-change run. There is no unreviewed rendering change of the kind the last
-handoff opened with.
-
-### 2. The one thing in flight
-
-**B174, the FPS overlay, was just started and NOTHING is written.** The survey got as far as: the
-viewer already measures frames per second and the longest frame (`MainForm._longestFrameSeconds`,
-around `MainForm.cs:4909`) and logs them per second under `[render]`. The work is to draw that in a
-corner rather than only log it — off by default, bound like everything else (D69), with the demo's
-own tick rate beside it so the comparison is possible.
-
-It matters because of **B163**: the owner reports stuttery playback and *cannot tell which of three
-things is stuttering* — the recording, the timeline interpolation, or the frame rate. His words:
-*"i have no idea what fps we are rendering at and cant tell stutter in the demo from stutter in the
-decode, from stutter in fps"*. B163's hypothesis (missing interpolation) is currently uncheckable.
+Supersedes the earlier handoff for anything about rendering, logging or performance.
 
 ---
 
-## What this session closed
+## 1. Start here: the owner wants B181 done, first
+
+**This is the reason this handoff exists.** Read `docs/RISKS.md` B181 in full before anything else.
+It is a work order, not an observation, and the owner said so:
+
+> *"im not leaving it, im going to compact you and have the next session fix that fuck up"*
+
+In short: `EntityModelSet.Instances` has one ~150-line loop body doing six jobs. Split it, then
+replace the bone-merge depth sort with Valve's recursion (`C_BaseAnimating::DrawModel`), then delete
+the D86 subsection that currently blesses the departure.
+
+**Do not defend the depth sort.** The argument that was made for it — that matching Valve would mean
+restructuring a big loop body — is an argument for fixing the loop body, and the owner said so
+immediately. That reasoning is recorded in D86 precisely so it is not repeated.
+
+B180 is adjacent and easiest to settle while that code is open: a chained child may be merging onto
+its parent's *unmerged* bones, because `boneToWorld` is the prop's own posed skeleton while `bones`
+is what the merge rewrites.
+
+---
+
+## 2. What this session closed
 
 | | |
 |---|---|
-| **B142** | The distance gain curve, read out of `engine.dll`. Ours had attenuation missing from the distance term entirely, plus an invented fade. |
-| **B173** | Soundscapes — four separate audio defects, all verified by the owner listening. |
-| **B177** | Soundscape selection now reads the map's PVS, as `CSoundscapeSystem` does. |
-| **B178** | The viewer test host crashed in ~half of all runs. Windows Forms were being constructed concurrently off the STA. |
-| **B179** | The UI suite could not pass in CI. Fixed as a side effect of a null-map crash. |
-| **D82** | Departures from Valve: bounded by size and justification, sequenced after parity unless structural. |
-| **D83** | The full DI logging conversion. `ViewerLog` is deleted; 193 call sites take injected loggers. |
+| **B174** | The frame rate meter, copied from `vgui_fpspanel.cpp`. `cl_showfps`, F8, 17 conformance tests. |
+| **B163** | The playback stall. Four causes, all measured — see below. |
+| **D84** | The HUD is drawn in Direct3D as VGUI draws it, rasterised with GDI in its own project. |
+| **D85** | User content is IMPORTED into our folder, never read live out of TF2. `tf/custom/` is the boundary. |
+| **D86** | PROJECT RULE: a departure from Valve must be DECLARED where it is made. |
+| **D87** | PROJECT RULE: load at load time, not on sight. |
+| — | Weapons in other players' hands, holstered ones hidden, attachment chains ordered. |
+| — | Autoplay, which had regressed silently. |
 
-Plus: package updates (SonarAnalyzer 10.33, Test.Sdk 18.9.0), the `.editorconfig` naming rule that
-was flooding VS2026 with errors, four badly-slack CI floors, and Content's CI coverage floor.
-
----
-
-## Open, with the reasoning already done
-
-- **B174** — FPS overlay. Filed, not started. See above.
-- **B175** — Scoreboard. **Every field is already decoded**; `DemoTimeline` reads
-  `CTFPlayerResource` for team and class at `DemoTimeline.cs:216`, and the rest are siblings in the
-  same table. The filing lists them with widths and SDK citations. One trap: `m_szName` is
-  **commented out** in `DT_PlayerResource` — names come from the `userinfo` string table, and a
-  scoreboard looking for them on the resource entity would render a table of blanks with correct
-  numbers.
-- **B176** — Ambient loops keep playing while paused. **Measured: TF2 does the same.** The owner
-  wants it fixed anyway (D82), but sequenced *after* parity work, not before.
-- **B163** — Stuttery playback. Blocked on B174 for diagnosis.
-- **B162** — 15 lcor corpus failures; four are recovered protocol 21/22 specimens and the container
-  test still allows only `[11, 14, 15, 16, 24]`.
-- **B170** — Washed-out viewmodels on modern demos. Unmeasured.
-- **Per-category log filtering** — the natural follow-up to D83. "Everything from `assets`, warnings
-  only from `render`" is the shape people want, and it belongs behind `ILoggerFactory` rather than
-  in the file sink.
+Plus: Valve's cvar vocabulary (`fps_max`, `mat_vsync`, `cl_showfps`, `mat_fullscreen_mode`,
+`cl_screenshot_folder`, `developer`), a new `Tf2DemoSalvage.Fonts` project, and CI which was running
+six of eight test projects.
 
 ---
 
-## Things that will bite you, all hit for real today
+## 3. The stall, because the instruments were the story
+
+The owner: *"everything freezes for a half a second to maybe a second"* while the frame rate never
+dropped. **Nothing could be found until two instruments were fixed.**
+
+- **`longest` was clamped at 100 ms** by `MaximumFrameSeconds` — the *camera's* stall guard applied
+  to the *measurement*. A 500 ms freeze logged as exactly `longest 100 ms`, which reads like a number
+  somebody measured. A saturating instrument is worse than a missing one.
+- **`CountFrame()` counted frames `RenderFrame()` declined to draw**, so a map read reported
+  `186 frames a second, longest 0 ms, drawing 0 ms` — the speed of an empty loop.
+
+Then four real causes:
+
+| cause | cost | fix |
+|---|---|---|
+| Vertex buffer rebuilt whole per model added | 193–231 ms × 25 in 1m43s | per-model static meshes |
+| Model geometry packed on first sight | 385–425 ms | precache at load, 691 ms once |
+| Per-frame logging | ~1,280 lines/s, 8.2 MB | change-detection + rate limits |
+| Overhead projection nobody drew | 615 ms of a 679 ms frame | deleted |
+
+Result: log 8.2 MB → 1.4 MB, worst frame 193 ms → 21 ms. **GC and sound decode were ruled out by
+measurement** — gen0 only, ~10 ms/s; the sound instrument was built on a hypothesis and recorded
+nothing.
+
+**The lesson that generalised** is D87: every one of those was work deferred until a frame needed it.
+A frame has a deadline; RAM does not. Async loading is explicitly *not* the fix — it moves the hitch.
+
+---
+
+## 4. Things that will bite you
 
 ### The build silently tests a stale binary if the viewer is running
 
-`dotnet build` cannot copy into `bin/` while `tf2demoview.exe` holds the DLLs. It reports this as
-**MSB3026 warnings, not errors** — so a grep for `error` says the build is clean while `bin/` still
-holds the previous binary. Worse, once `obj/` is newer than `bin/`, the *next* incremental build
-finds nothing to do and the stale copy persists.
+`dotnet build` cannot copy into `bin/` while `tf2demoview.exe` holds the DLLs, and it reports this as
+**MSB3026 warnings, not errors**. Hit repeatedly this session. Close the viewer, then build. If a
+change seems not to have taken, check the DLL timestamp — and remember `.NET` string literals are
+UTF-16, so `grep -a "text"` on a DLL gives a false negative; use `grep -a "t.e.x.t"`.
 
-This cost two launches of drawing conclusions from old code. **Close the viewer, then build, and
-check the DLL timestamp if a change seems not to have taken.** `-t:Rebuild` forces it.
+### The console under-reports test counts
 
-### A null-object default hides a missed wiring, and no test can see it
+Measured again this session: Content console 650 against a `.trx` total of 666; Audio console 139
+against 142. `build/assert-test-count.sh` reads the `.trx`, which is correct. Never set a floor from
+the console.
 
-After converting 193 log sites, the viewer logged **13 `assets` lines and zero warnings** against
-215 and 16 before — with the entire gate green. `MainForm` was calling `MapAssets.Load`,
-`MapWorldBuilder.Build` and `EntityModelSet` without passing its factory; each parameter is optional
-and each fell back silently.
+### Two load paths, and a fix in one of them does nothing
 
-No test could catch it, because the tests pass no factory *on purpose*. Recorded in
-`docs/memory/a-null-object-default-hides-a-missed-wiring.md`.
+`LoadDemoAsync` is the playlist's route; `LoadDemo` is the command line's, `--shot`'s and the tests'.
+The model precache went into only the first and did nothing at all — the 425 ms stall was still in
+the log. Anything that must happen per demo belongs in `Apply`, which both go through.
 
-### CI coverage for Content is not a measure of Content's tests
+### `--first-person` does not switch the view
 
-**85.0% locally, 53.2% in CI**, same commit. CI has no TF2, so ~250 Content tests skip and every
-VTF/VMT/MDL reader is uncovered. The CI floor measures the device-free subset, and that fraction
-*falls* as the project adds game-dependent readers. Do not chase it with fixture-only tests. The
-workflow says all this beside the number.
+It only sets the flag for `--shot` captures. The live camera is untouched. Press **V**.
 
-### An explanation that blames the environment will outlive the bug
+### A fake that does not model state is blind by construction
 
-`build/gate.sh` carried "Test Run Aborted is probably the desktop, not the code" for four days. It
-was written after one abort, never tested, and was wrong — the cause was B178. Such a note cannot
-fail, so it survives indefinitely. Both it and the `AssemblyTestPolicy` comment that said "none of
-them constructs a form at all" (six do) are corrected in place, with the failure mode named.
-
-### Decompilation is cheap here and mostly already done
-
-Ghidra 12.1.2 is at `D:\ghidra_12.1.2_PUBLIC`, projects at `D:\ghidra-proj`, with TF2 engine and
-client binaries for 2007–live already imported and analysed. **Check `D:\ghidra-proj\out\` before
-running anything** — most of what is needed is there.
-
-The gain-curve hunt failed four times before today because of two traps, both recorded in
-`~/.claude/memory/ghidra-is-installed-on-d.md`: a cvar name string has no code xref (it is a
-constructor argument), and a reader loads `base + 0x2c`, not `base`. An empty result from Ghidra's
-database is a fact about the analysis, not about the binary.
+`FakeElapsedTime.Seconds` was a plain settable property, so it reported time passing after `Reset`
+stopped it. The real `StopwatchTime` does not — and that difference *is* the autoplay bug. No
+phrasing of any test against that fake could have caught it. Fixed; all 135 pass and nothing was
+relying on the old behaviour.
 
 ---
 
-## Owner directions recorded this session
+## 5. Owner directions recorded this session
 
-All are in `docs/DECISIONS.md` with his words:
+All in `docs/DECISIONS.md` with his words. The ones most likely to be re-litigated:
 
-- **D82** — departures from Valve are bounded by SIZE and JUSTIFICATION, and sequenced *after*
-  parity unless the departure is structural (baking is the counter-example; it had to come first
-  because later work was built on it).
-- **D83** — full DI conversion over a facade, overruling the assistant's recommendation: *"we do the
-  full di conversion because its the correct thing to do, its a massive rewrite but weve done them
-  before"*.
-- **CA1873 suppression** — his call, *"A is a lot of generated code too, so i think im fine with C"*.
-  Justified by frequency, not by enablement — he falsified the first justification himself.
-- **UI tests do not gate** — *"we basically check nothing with ui tests"*. Run them, read them, fix
-  what they find, but red there does not block a merge.
+- **D86** — a departure must be DECLARED. `a54e61e` introduced one packed vertex buffer without
+  mentioning Valve at all, so the choice never appeared as a choice and could not be refused.
+- **D87** — precache; games trade size for speed.
+- **D85** — `tf/custom/` is the boundary: user content is imported, game content is read live. The
+  live read of `tf/cfg` is still there and is still wrong.
+- **No back-compat for our own settings names** — *"we dont need backward compat to our own code, we
+  have never had a release"*.
+- **Old maps do not need matching.** Valve revises maps in place, but updates ADD geometry, so an old
+  demo on a current map is correct everywhere the players went. A period-map archive would be wasted
+  effort.
+- **UI tests do not gate**, and playback is not covered by them at all — which is how autoplay
+  regressed unnoticed.
 
 ---
 
-## Process notes on the assistant, kept because they recurred
+## 6. Open, in the owner's priority order
 
-- **Scripted edits were used repeatedly despite the standing rule**, and bit twice — a mangled
-  `OffscreenTarget` and a corrupted interpolated string. Both caught by the compiler; that is luck,
-  not method. Use Read/Edit/Write.
-- **"Green" was reported once from runs that never executed** — `dotnet` was broken by a mid-session
-  toolchain upgrade and the floor check read a stale `.trx`. Read the counts, never the absence of a
-  failure string.
-- **The viewer was killed twice while the owner was listening to it.** Ask first.
+1. **B181** — split the pose loop, then recursion. See §1. He wants this first.
+2. **Projectiles and bullets.** Not started. His reasoning for doing weapons first was *"it will be
+   weird to see projectiles flying without the weapons"* — that half is done now.
+3. **The weapon attachment drawing as the magenta chequer.** A missing MATERIAL, not placement —
+   distinct from B180.
+4. **Shutter doors animate in free cam but not POV.** Brush entities; unmeasured.
+5. **B180** — chained bones may be the parent's unmerged ones.
+6. **B175** scoreboard, **B176** ambience while paused, **B162** lcor protocol 21/22, **B170**
+   washed-out viewmodels.
+
+**Frame rate is secondary, on his instruction**, but the measurement exists: sampling ~180 ms +
+posing ~420 ms + drawing ~290 ms of every second, so the loop is ~89% busy. Lighting is ~200 ms of
+the posing, and `LightAt` walks all 477 world lights per moving model per frame to pick the strongest
+four — the engine bakes static lights into the ambient cube and reserves `locallight[4]` for dynamic
+ones. The lighting cache keys on exact position, so props hit it and players never do.
+
+---
+
+## 7. Process notes on the assistant
+
+Kept because they recurred, and because the owner corrected each one.
+
+- **Inference before measurement, twice in one hour.** On the weapons: first that the parent was
+  missing from the wire (nothing was asking for it), then that reordering alone would fix it. A
+  counter settled it in one run. His standing line: *"measurement beats all"*.
+- **Scripted edits again**, despite the rule. `sed -i` for a rename. Use Read/Edit/Write.
+- **The viewer was killed three times while he was using it**, once by a background timer I set. No
+  auto-close timers on anything he might be looking at.
+- **A weak justification dressed as a design trade-off** — the depth sort. See §1.

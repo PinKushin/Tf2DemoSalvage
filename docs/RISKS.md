@@ -10023,26 +10023,80 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
-### B181 — the entity pose loop is one ~150-line body doing five jobs — OPEN
+### B181 — split the entity pose loop, then replace the depth sort with recursion — OPEN, OWNER WANTS THIS DONE
 
-**Filed 2026-08-24**, by the owner, on being shown the depth-sort that orders bone merging:
+**This is a work order, not an observation.** The owner, on the depth sort being kept:
 
 > *"a loop body of 150 fucking lines is a massive code smell as it is"*
+>
+> *"im going to regret letting you make that depth sort thing"*
+>
+> *"make a note of what needs to be changed about that, because im not leaving it, im going to
+> compact you and have the next session fix that fuck up"*
 
-`EntityModelSet.Instances` has a single loop body that poses the model, merges it onto its wearer's
-bones, resolves an attachment point, samples the lighting, records its bones for anything hanging
-off it, and emits the instance. That is five responsibilities, and the block is long enough that
-several of the session's bugs lived in it unnoticed — the bone record was an `else if` on the merge
-branch, so nothing could hang off an attached prop, and it read as deliberate.
+So the depth sort is **temporary and is to be removed**, not defended. The D86 declaration that
+currently blesses it (see "Declared departure: bone-merge ordering is a depth sort, not recursion")
+**should be deleted when this is done**, not amended.
 
-**It is also what blocks matching Valve structurally.** The engine orders bone setup by RECURSING up
-the follow chain (`C_BaseAnimating::DrawModel`), and a recursive version needs the body to be a
-function that can call itself. It is a loop body, so the ordering had to be done as a separate pass
-instead — declared as a departure under D86. Splitting this is the prerequisite for closing that
-departure, if it is ever worth closing.
+#### Why the departure exists, and why that reason is not good enough
 
-Suggested seams, each already a paragraph with its own comment block: pose, merge, place at an
-attachment, light, record, emit.
+The assistant argued for the depth sort on the grounds that converting to Valve's recursion would
+mean restructuring a ~150-line loop body. The owner identified in the same breath that this is an
+argument for fixing the loop body, not for deviating from the engine — a structural problem buying
+itself a permanent exemption. That reasoning is the thing to avoid repeating, and it is why the
+justification is recorded rather than quietly dropped.
+
+#### What to change, in order
+
+**1. Split `EntityModelSet.Instances`** (`managed/Tf2DemoSalvage.Scene/EntityModels.cs`). One loop
+body currently does six jobs, each already its own commented paragraph:
+
+| job | what it does |
+|---|---|
+| pose | choose the sequence and frame, build the skeleton, set `bones` and `boneToWorld` |
+| merge | take the wearer's matrices by bone name, set `transform` from the wearer |
+| place | resolve `AttachmentPoint` against the wearer's attachment table |
+| light | sample the ambient cube and the sun AT THE WEARER's position, not the prop's |
+| record | write `_wearerBones[entity]` so anything hanging off this can find it |
+| emit | append the `ModelInstance` |
+
+The block is long enough that bugs lived in it unseen: the record step was an `else if` on the merge
+branch, so nothing could hang off an attached prop, and it read as deliberate for weeks.
+
+**2. Then replace the ordering with recursion**, matching `C_BaseAnimating::DrawModel`:
+
+```cpp
+C_BaseAnimating *follow = FindFollowedEntity();
+if ( follow )
+{
+    int baseDrawn = follow->DrawModel( 0 );   // flags 0: set up bones, do not render
+    if ( baseDrawn )
+        drawn = InternalDrawModel( STUDIO_RENDER|extraFlags );
+}
+```
+
+Pose-with-parent becomes a function that calls itself for the parent first. Valve pairs this with
+`m_iMostRecentModelBoneCounter`, a per-frame cache so a parent shared by several children is built
+once — **that cache is required**, or a player wearing six items poses six times. The depth sort got
+that free, which is the one thing the recursion must not lose.
+
+#### Traps, all paid for once already
+
+- **The bone record must come AFTER the merge.** What a chained child needs is where its parent
+  actually ended up, not the rest pose it arrived with.
+- **Only draw if the parent drew.** Valve's `if ( baseDrawn )`; ours is the `continue` on a missing
+  `_wearerBones` entry. Keep it — it is what stops a hat hanging in the air at the map origin.
+- **Bound the walk.** A malformed demo could carry a parent cycle; the current `Depth` stops at the
+  prop count. Recursion needs the same guard or it blows the stack on a file this project exists to
+  open.
+- **`boneToWorld` is not what the merge rewrites** — see B180, which may be a real defect and is
+  easiest to settle while this code is open.
+
+#### What must stay green
+
+`build/gate.sh`, nine projects, D1..D87 — in particular `viewer 641` and `content 666`, which cover
+the pose path. And the observable check the owner already made by eye: weapons in other players'
+hands, holstered ones absent, wearables (Mantreads, demo shields, Razorback) present.
 
 ### B180 — a weapon attachment's chained bones may be the parent's own, not its merged ones — OPEN
 

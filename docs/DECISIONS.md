@@ -4759,9 +4759,19 @@ while preserving the undeclared departure that caused it. Overruled — *"so we 
 which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
 
 
-### Declared departure: bone-merge ordering is a depth sort, not recursion
+### Declared departure: bone-merge ordering is a depth sort, not recursion — PROVISIONAL, TO BE REMOVED
 
 The first thing D86 governs, declared rather than assumed.
+
+**This departure is not settled and is scheduled for removal — see B181.** The owner accepted it to
+ship the weapon work and then said plainly: *"im going to regret letting you make that depth sort
+thing"* and *"im not leaving it, im going to compact you and have the next session fix that fuck
+up"*. When B181 is done, delete this subsection rather than amending it.
+
+**The reason it is being removed is the reason it was allowed**, which is worth keeping even after
+the code changes: the justification offered was that matching Valve would mean restructuring a
+150-line loop body. That is an argument for fixing the loop body. A structural problem was allowed
+to buy itself a permanent exemption from D86, by the same assistant that had just written D86.
 
 **What Valve does.** `C_BaseAnimating::DrawModel` recurses up the follow chain:
 
