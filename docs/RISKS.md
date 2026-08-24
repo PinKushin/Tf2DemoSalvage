@@ -9913,6 +9913,50 @@ Worth separating before any work: frame pacing (are we presenting at a steady ra
 interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
 cycle advance smoothly). Three different causes, one appearance.
 
+### B166 — the viewmodel cvars are unimplemented, and 54 is right by coincidence — OPEN
+
+The owner, watching the viewer draw a viewmodel: *"im actually a little surprised the viewmodels are
+actually showing right now at all, because we are technically suppose to be using my real tf2 config
+as a base... i dont use viewmodels for basically any class, but maybe because im not technically
+booting as a class but as a spec with the demo, the vioewmodel switcher doesnt fire."*
+
+**The hypothesis was right, and the SDK says why.** `ShouldDrawViewModel`
+(`clientmode_tf.cpp:582`) gates on `r_drawviewmodel`, which is declared `"1"` and `FCVAR_DONTRECORD`
+(`viewrender.cpp:116`). The owner's config never sets it directly — the `vm_off` alias in
+`viewmodels.cfg` does, and that alias is invoked from class-selection scripts that do not run while
+spectating a demo. So even in real TF2 the viewmodel would be drawn here.
+
+**Two cvars this viewer does not implement at all:**
+
+- `r_drawviewmodel` — nothing in `managed/` references it. It is the switch the owner actually uses.
+- `viewmodel_fov_demo` — and this one is the interesting half:
+
+```cpp
+ConVar v_viewmodel_fov_demo( "viewmodel_fov_demo", "54", FCVAR_ARCHIVE );
+float ClientModeTFNormal::GetViewModelFOV( void )
+{
+    // If we're playing back a demo, we clamp the viewmodel fov
+    if ( engine->IsPlayingDemo() )
+        return v_viewmodel_fov_demo.GetFloat();
+    return v_viewmodel_fov.GetFloat();
+}
+```
+
+**During demo playback TF2 ignores `viewmodel_fov` entirely.** This viewer reads `viewmodel_fov` and
+clamps it to `[54, 70]`, so the owner's stored `viewmodel_fov "0.100000"` becomes 54 — which is the
+number `viewmodel_fov_demo` defaults to. **The output is correct and the reasoning is wrong**, which
+is the failure mode this project keeps meeting: nothing looks broken, so nothing gets checked.
+
+The clamp is wrong on its own terms too. `viewmodel_fov` is declared with FOUR bounds —
+`true, 0.1, true, 179.9, true, 54, true, 70` (`view.cpp:111`) — a hard range of 0.1..179.9 and a
+competitive range of 54..70. 0.1 is a legal value, which is why the owner's config holds it; this
+viewer applies the competitive range as though it were the only one.
+
+`TF_COND_ZOOMED` also hides the viewmodel in the same function, and is likewise unimplemented.
+
+Belongs with B165 and D78: these are Valve cvars with Valve names, so they arrive through the config
+rather than as viewer settings invented here.
+
 ### B165 — the view keys are constants in menu items, not binds — OPEN
 
 D78 is the direction; this is the work. Every debug view, lighting mode, wireframe, reflection,
