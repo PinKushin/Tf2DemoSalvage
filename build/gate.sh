@@ -158,7 +158,11 @@ run Tf2DemoSalvage.Content.Tests  content   635
 # (B145). The conformance suite for it is hand-built from the measured shape of that demo, so it
 # cannot say whether a real timeline cycles sensibly; these three can, and one of them proves the
 # SourceTV camera is never landed on across 222 cycles.
-run Tf2DemoSalvage.Corpus.Tests   corpus     101
+# 103: CorpusWeaponOwnershipTests. One asks whether m_hOwnerEntity reaches us at all for weapons —
+# the "did the data arrive" check that was skipped while four fixes were aimed at the rule using it.
+# The other pins that no first-person arms model is tracked as a world prop, which is what caught a
+# carried weapon's m_nModelIndex being its VIEW model (B160).
+run Tf2DemoSalvage.Corpus.Tests   corpus     103
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

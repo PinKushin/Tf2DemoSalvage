@@ -9825,3 +9825,74 @@ picture supports a claim about what it shows, and each time it was promoted to a
 system. The two instruments that finally produced facts — the first-person keep-list and the
 viewmodel prop names — are both one log line each, and both were added after the fourth wrong guess
 rather than before the first.
+
+### B160 RESOLVED (2026-08-23): a carried weapon's m_nModelIndex is its VIEW model
+
+Not a visibility rule, not the viewmodel pass, not bodygroups, not the include merge. A weapon
+carries TWO model indices and this reader used the wrong one, so every weapon a player held resolved
+to that player's first-person ARMS and was drawn in the world at their hand — several copies of one
+model, stacked, on top of the real viewmodel.
+
+`m_iWorldModelIndex` is its own networked property (`basecombatweapon_shared.cpp:2870`) and is what
+the client draws the world model from (`tf_weaponbase.cpp:2144`). Measured before and after on
+movement-test-pov-cp_process:
+
+    entity 376 CTFShotgun_Soldier   c_soldier_arms.mdl  ->  c_shotgun.mdl
+    entity 380 CTFShovel            c_soldier_arms.mdl  ->  c_pickaxe.mdl
+
+Every confusing detail of the report follows from it: both recording types affected because nothing
+about it is a camera; stopping on death because the hand empties; the duplicate being untextured
+because it is arms, whose materials are first-person content; and the soldier's separate oddity
+being the rocket that finding 33 shows lives inside the arms with no bodygroup to hide it.
+
+Full account in `docs/findings/34-a-carried-weapon-is-two-models.md`, including the eight theories
+this killed and why the screenshots supported all of them.
+
+**The ownership work committed alongside is correct and is kept.** `C_BaseCombatWeapon::ShouldDraw`
+does hide a weapon owned by the watched player, `m_hOwnerEntity` does arrive (3 of 4 weapon tracks
+measured), and `FirstPersonVisibility` now applies it. It simply never addressed this.
+
+**Still open, and deliberately not folded into this entry:** whether the first-person view is now
+correct is a question for the owner's eyes, not for an assertion. The corpus tests can say no arms
+model is tracked as a world prop; they cannot say the picture looks right.
+
+### B162 — fifteen corpus tests fail on lcor, and the gate cannot see any of them
+
+Measured 2026-08-23, twice, seventeen and nineteen minutes: `dotnet test
+tests/Tf2DemoSalvage.Corpus.Tests` over the full local corpus reports **15 failed / 127 passed / 1
+skipped of 143**. `build/gate.sh` defaults to `TF2DEMOSALVAGE_GCOR_ONLY=1` and is green, so none of
+these has ever reddened a merge.
+
+Found incidentally: the run was a control for B160, comparing the failure set before and after a
+decode change. The two sets were identical, which is what the control was for — and the fifteen are
+a finding in their own right, so they are filed rather than mentioned.
+
+    Container_EveryCorpusDemo_WalksCleanlyAndAgreesWithItsHeader   x4
+    EntityRoundTrip_TheCorpus_IsReported
+    EveryDemo_CompilesBackToItsOwnBytes
+    EveryDemo_TracesWithoutAnUnreadableBlock
+    EverySpeexFrame_DecodesToPcm
+    EveryWritableMessage_ReproducesItsOwnBitsExactly
+    Fog_AcrossTheCorpus_IsDecodedFromEveryDemo
+    NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock
+    PayloadRoundTrip_TheCorpus_IsReported
+    RunningForward_DrivesMoveXPositive
+    VoiceInit_EraSpecimens2007To2013_DeclareSpeex
+    WearableTracks_Cosmetics_NameTheirWearer
+
+**At least one is not a defect but an unfiled specimen.** The container test asserts the protocol is
+one of `[11, 14, 15, 16, 24]` and `20120707-0042-koth_idioteque_a3.dem` reports **22** — an era the
+timeline lists as an unmeasured gap (17–23). lcor therefore already contains at least one protocol
+the era table says nobody has, which is worth more than the test failure is worth fixing. Date it
+from the client that wrote it and extend `docs/TIMELINE.md` before touching the assertion.
+
+Others carry real numbers worth reading rather than clearing: the voice test finds `steam` where it
+predicted `vaudio_speex`; `NetTick` measures a spread of 790 against a bound of 64; `RunningForward`
+finds 2 of 9 sampled ticks with a negative `move_x` while the recorded input holds IN_FORWARD; and
+the payload round trip is missing `GameEvent` (13,082) and `SetPause` (6).
+
+**Do not fix these by lowering the assertions.** Every one predicts an exact value, which is why
+they can fail at all — and `decode-must-be-total` says anything not reading at 100% is our defect.
+The gcor default is right for the merge gate (28 seconds against 30 minutes); what is wrong is that
+nothing runs the superset on any schedule, so the split hides work rather than deferring it. The
+measurement boxes exist for exactly this shape of job.

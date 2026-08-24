@@ -121,3 +121,4 @@
 - [A pass must establish its own state](a-pass-must-establish-its-own-state.md) — DrawDecals left blending on and every static prop inherited it; the symptom appeared in the code that moved.
 - [A ledger must cover every exit](a-ledger-must-cover-every-exit.md) — a counter wired into two of three skips reported a clean bill of health; count on the way out, never the way in.
 - [A picture is assertable](a-picture-is-assertable.md) — "it needs a person to look" was overstated; a specific visual property needs no reference, and a golden image needs one person once.
+- [A carried weapon has two model indices](a-carried-weapon-has-two-model-indices.md) — m_nModelIndex is the VIEW model; the world model is m_iWorldModelIndex, and the wrong one draws arms as scenery.
