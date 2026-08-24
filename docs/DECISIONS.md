@@ -4578,29 +4578,64 @@ approximation until it is, and the approximation must be labelled as one rather 
 
 ### Layering, which the reversal constrains
 
-**Scheme parsing stays in `Tf2DemoSalvage.Content` and rasterisation goes in
-`Tf2DemoSalvage.Render`.** Not tidiness: Content's suites run on the Linux measurement boxes for
-mutation testing, so putting `System.Drawing` in Content would break those runs — and it would break
-them as a build failure that Stryker scores as a surviving mutant rather than reports as an error.
-Render is already Windows-only through Direct3D, so it costs nothing there.
+**Scheme parsing stays in `Tf2DemoSalvage.Content`.** Not tidiness: Content's suites run on the
+Linux measurement boxes for mutation testing, so putting `System.Drawing` in Content would break
+those runs — and it would break them as a build failure that Stryker scores as a surviving mutant
+rather than reports as an error.
+
+**The rasteriser gets its OWN project, `Tf2DemoSalvage.Fonts`, on `net10.0-windows`.** It went
+through two wrong homes first and both are worth recording, because each was wrong for a different
+reason.
+
+*Wrong home one, `Render`.* The assistant wrote "Render is already Windows-only through Direct3D, so
+it costs nothing there" — plausible, and false. `Render` targets plain `net10.0` deliberately
+(D60/D61), and
+`PngWriter` exists *only* because `System.Drawing.Common` was the last thing keeping it on
+`net10.0-windows`. Its own project file states the rule: *"Anything doing DllImport on user32 or
+kernel32 belongs in Viewer3D however portable its project file looks."* Putting GDI back in `Render`
+would have quietly undone a decision taken two days earlier and thrown away a hand-written PNG
+encoder's whole reason for existing.
+
+Worth keeping as an example of the shape: **"it's already platform-specific" is a claim about a
+project that has to be CHECKED, not inferred from what it happens to call.** Direct3D 11 is
+Windows-only at runtime; the project referencing it is not Windows-only at compile time, and the
+difference is the entire point of the split.
+
+*Wrong home two, `Viewer3D`.* Corrected by the owner: *"it might not becuase of MVP, it might need
+its own project"*. `Viewer3D` is the **View**. A glyph rasteriser is not view logic — it is
+infrastructure that happens to need a Windows API, the same category as `Render` and `Logging`, both
+of which were split out for exactly this reason. Folding it into the shell would put a testable
+service inside a WinForms application project and blur the one boundary this architecture is built
+on.
+
+**And the enforcement is the point, not the tidiness.** The owner: *"we want the compile time safety
+from MVP"*. A layering rule written in a document is a rule someone breaks by accident; a layering
+rule expressed as a project reference is a rule the compiler refuses. This is the argument `Render`
+already makes about itself — *"nothing in this project can quietly reach for a Form"* — applied
+once more. With `Fonts` separate, no amount of carelessness can put GDI in the decode path, the
+render path or the presenter, because none of them reference it.
 
 **Rasterisation sits behind an interface, on the owner's direction:** *"we want to be able to test
 this so a interface is probably not a bad idea, its SOLID if nothing else"*. The assistant had
 talked itself out of one a minute earlier as speculative generality — one implementation, extract
 when a second appears — and that reasoning was wrong here, because the second consumer is a test.
 
-It also decides the split cleanly, and the split is better than either half suggested:
+It also decides the split cleanly, and the split is better than any of the three suggestions:
 
-| lives in | what | portable? |
+| lives in | framework | what |
 |---|---|---|
-| `Content` | `SchemeFont`, the scheme reader, `IGlyphRasteriser`, glyph metrics, atlas packing, text layout | yes — testable on the Linux boxes against a fake rasteriser |
-| `Render` | `GdiGlyphRasteriser`, the atlas texture, the HUD draw call | no, and does not need to be |
+| `Content` | `net10.0` | `SchemeFont`, the scheme reader, `IGlyphRasteriser`, glyph metrics, atlas packing, text layout |
+| `Fonts` | `net10.0-windows` | `GdiGlyphRasteriser` and nothing else — the only project in the tree allowed to know what a font file is |
+| `Render` | `net10.0` | the atlas texture and the HUD draw call, in terms of pixels and quads |
+| `Viewer3D` | `net10.0-windows` | composition: builds the atlas, hands it to the renderer |
 
 So the ARITHMETIC of a HUD — where each glyph lands, how wide a string is, how the atlas packs — is
 deterministic, Linux-testable and needs no font installed, while only the glyph bitmaps themselves
 are Windows-bound. That is the part worth testing anyway: a wrong advance width is a bug, and a
 one-pixel difference in antialiasing is not.
 
-The abstraction lives in `Content` and the implementation in `Render`, which is the direction
-dependency inversion asks for — `Render` already references `Content`.
+The abstraction lives in `Content` and the implementation in `Fonts`, which is the direction
+dependency inversion asks for: the low, stable, portable project owns the interface, and the
+high, volatile, platform-bound one implements it. Nothing references `Fonts` except the composition
+root.
 

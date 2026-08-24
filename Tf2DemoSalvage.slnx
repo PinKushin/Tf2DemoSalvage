@@ -5,6 +5,7 @@
     <Project Path="managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Scene/Tf2DemoSalvage.Scene.csproj" />
+    <Project Path="managed/Tf2DemoSalvage.Fonts/Tf2DemoSalvage.Fonts.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Render/Tf2DemoSalvage.Render.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Presentation/Tf2DemoSalvage.Presentation.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Presentation.Tests/Tf2DemoSalvage.Presentation.Tests.csproj" />
@@ -23,5 +24,6 @@
     <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Audio.Tests/Tf2DemoSalvage.Audio.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.SdkReference/Tf2DemoSalvage.SdkReference.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Fonts.Tests/Tf2DemoSalvage.Fonts.Tests.csproj" />
   </Folder>
 </Solution>

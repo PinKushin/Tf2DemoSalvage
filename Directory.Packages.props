@@ -46,6 +46,12 @@
     <!-- The 7-Zip SDK, for the compressed-lump reader. LZMA is how every BSP lump is packed. -->
     <PackageVersion Include="LZMA-SDK" Version="22.1.1" />
 
+    <!-- Glyph rasterisation for the HUD, referenced by Tf2DemoSalvage.Fonts ALONE (D84). It is
+         Windows-only by design since .NET 7, which is why that project exists at all: keeping this
+         reference in one leaf project is what stops it reaching Render (D60/D61) or Content, whose
+         suites run on the Linux measurement boxes. -->
+    <PackageVersion Include="System.Drawing.Common" Version="10.0.11" />
+
     <!-- Voice: CELT and Speex come from tools/native-audio; libopus is the managed binding. -->
     <PackageVersion Include="libopus" Version="1.6.1.3" />
 

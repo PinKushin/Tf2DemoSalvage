@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Glyph rasterisation, and nothing else (D84).
+
+    **The only project in this tree allowed to know what a font file is.** It implements
+    `IGlyphRasteriser`, which is declared in Content, and nothing references it except the
+    composition root in Viewer3D. So the interface lives in the low, stable, portable project and
+    the implementation in the high, volatile, platform-bound one - which is the direction dependency
+    inversion asks for.
+
+    **It is its own project rather than part of Viewer3D on the owner's direction**: "it might not
+    becuase of MVP, it might need its own project", and then the reason - "we want the compile time
+    safety from MVP". Viewer3D is the View; a rasteriser is infrastructure that happens to need a
+    Windows API, the same category as Render and Logging, both of which were split out for exactly
+    this reason. A layering rule in a document is a rule someone breaks by accident; a layering rule
+    expressed as a project reference is one the compiler refuses.
+
+    **net10.0-windows, and that is the whole reason the project exists.** System.Drawing.Common is
+    Windows-only by design since .NET 7. Putting it in Render would have undone D60/D61 and thrown
+    away the reason PngWriter was hand-written; putting it in Content would have broken the Linux
+    measurement boxes, and broken them as a build failure that Stryker scores as a SURVIVING MUTANT
+    rather than reporting as an error.
+
+    **What is here is an approximation until vguimatsurface is decompiled**, and it says so at the
+    call sites rather than claiming parity it has not earned. In VGUI an outline is not a font
+    feature - it is Valve's own post-process over the GDI bitmap, along with blur, dropshadow and
+    scanlines - and that code is not in source-sdk-2013.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Fonts</RootNamespace>
+    <UseWindowsForms>false</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Fonts.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+  </ItemGroup>
+
+</Project>

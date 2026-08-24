@@ -114,6 +114,24 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # IO failure that must cost its lines and nothing else. Device-free and net10.0, so it runs on the
 # Linux measurement boxes — which is half the reason the sink left the viewer at all.
 run Tf2DemoSalvage.Logging.Tests  logging    17
+
+# 7: the GDI glyph rasteriser (D84). Only what genuinely needs a real font — that a face produces
+# ink, that a space has none and still advances, and that the scheme's `outline` reaches the pixels.
+# Everything about a HUD that is arithmetic is tested in Content.Tests against a fake rasteriser.
+#
+# The space test earned its place immediately: StringFormat.GenericTypographic does not measure
+# trailing spaces and a lone space is entirely trailing, so every space in every HUD string had a
+# zero advance. Invisible to every other test here, because they all measure glyphs with ink.
+#
+# Skips rather than measuring a fallback when Lucida Console is absent. GDI substitutes a default
+# face for a missing family instead of failing, so without the skip these would pass having measured
+# a font nobody asked for.
+#
+# **The floor cannot see that**, and it is worth knowing rather than assuming otherwise: this script
+# reads `total` from the .trx, which counts skipped tests. Seven skips satisfy a floor of seven. That
+# is the standing hazard in docs/memory/a-skip-is-not-a-pass-or-a-failure.md, not a new one — the
+# skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
+run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -210,10 +228,16 @@ run Tf2DemoSalvage.Presentation.Tests presentation 133
 # 649: BspVisibilityConformanceTests (7). The visibility lump's run-length encoding, checked against
 # Valve's own CompressVis by round-tripping through a transcription of it — plus the two malformed
 # cases DecompressVis guards, a run that overruns the row and a zero repeat count.
-# 655: SchemeFontConformanceTests (6). VGUI's font declaration, read from the shipped
-# platform/Resource/SourceScheme.res because vguimatsurface is not in the SDK — the numbered
+# 666: SchemeFontConformanceTests (6) and GlyphAtlasTests (11), the portable half of the HUD (D84).
+# The scheme reader takes VGUI's font declaration from the shipped
+# platform/Resource/SourceScheme.res, because vguimatsurface is not in the SDK — the numbered
 # candidates, their yres ranges, and the same font declared twice as a #base override produces.
-run Tf2DemoSalvage.Content.Tests  content   655
+# The atlas tests are the arithmetic of a HUD — packing, bearings, advances — measured against a
+# fake rasteriser, so they need no font and run on the Linux measurement boxes.
+#
+# Read from the .trx, which said 666 while the console said 650:
+# docs/memory/read-the-trx-total-not-the-console.md, hit again today.
+run Tf2DemoSalvage.Content.Tests  content   666
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
