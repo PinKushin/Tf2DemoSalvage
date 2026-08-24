@@ -4330,3 +4330,59 @@ rule stands and the engine's behaviour wins, including where it looks like a bug
 and becomes a footnote. It is still worth knowing — it belongs in `docs/findings/` either way, and
 "Valve does the same" is precisely the kind of thing that gets confidently misremembered — but the
 implementation proceeds regardless of the answer.
+
+**Measured the same day, and the answer was the one that made this decision necessary.** The owner
+paused a demo in TF2: *"nope tf2 plays the ambience and lets all the active sounds play out"*. The
+engine does exactly what this viewer does, so B176 was never a defect in our reproduction — it is a
+faithful reproduction of a defect.
+
+Worth noting what that costs, because it is the price of every departure taken under this decision:
+**there is now no reference implementation for the fixed behaviour.** Everywhere else, a
+disagreement about audio is settled by reading the SDK or the binary. Here nothing can adjudicate,
+so the design is ours and so is any bug in it — which is a further reason the licence is bounded to
+small departures with very good reason.
+
+### A departure is sequenced AFTER parity, never before it
+
+**The owner, on being told the engine behaves identically:** *"that means the fix comes after
+parity though, not before"*.
+
+This is the operational half of the decision and it is what stops the licence corroding. A
+departure has to be built on a baseline that already matches, for a reason that is about
+measurement rather than tidiness: **once the viewer differs deliberately, every remaining difference
+becomes ambiguous.** A wrong sound afterwards could be a decode fault, a wiring fault, or the
+departure working as designed, and there is no longer an engine to compare against to tell them
+apart — the one instrument that settled every audio question this session.
+
+The order is therefore: reach parity, confirm it, and only then diverge from a known-matching
+baseline, so the delta is exactly the change and nothing else. The same reasoning as
+`docs/memory/two-recordings-of-one-value.md` — a comparison is only worth what the control is worth.
+
+Applied to B176: it is filed and reasoned but does not get built while other audio parity work is
+outstanding.
+
+**The rule does not cover every departure, and the owner drew the line immediately:**
+
+> *"for things like this that rule works, for baking it wouldnt have, we needed to have baking setup
+> to guide later stuff, at least by my understanding of what would have been the best decision"*
+
+So the sequencing depends on what KIND of departure it is, and there are two:
+
+- **A behavioural departure** — B176 — changes what the viewer does at one moment. Nothing is built
+  on top of it, so deferring it costs nothing and sequencing it after parity buys the unambiguous
+  control described above.
+- **A structural departure** — baking (B150) — decides how everything downstream is written.
+  Prop drawing, bone merging, the skinning path and the frame budget were all built against it.
+  Deferring that until parity was complete would have meant reaching parity on an architecture
+  chosen to be thrown away, and then rewriting all of it. The departure has to come first precisely
+  BECAUSE later work is guided by it.
+
+**The test is whether anything is built on top of it.** If a departure is a leaf, it waits for
+parity. If it is load-bearing, it goes in early and the parity work is done against it — and then
+the cost is that the engine is no longer a clean control for that subsystem, which is exactly the
+price B150 is still paying: baking caused the bone-merge defect, and what it bought has never been
+measured.
+
+Recorded with the owner's hedge intact — *"at least by my understanding of what would have been the
+best decision"* — because it is a judgement about a decision taken earlier and partly from memory,
+not a claim of fact.

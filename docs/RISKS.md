@@ -10046,9 +10046,15 @@ input to occlusion culling, and B163's rendering cost is unmeasured.
 Note what it is NOT: a fix for the fade restarting. That was `AddLoopingSound`'s slot reuse, and it
 is already implemented.
 
-### B176 — a pause does not stop the ambient loops, so they drift out of sync
+### B176 — a pause does not stop the ambient loops, so they drift out of sync — DEFERRED BEHIND PARITY
 
-**Filed 2026-08-24, not started.** Pausing stops the transport, so no new sound starts — but every
+**Filed 2026-08-24, not started, and deliberately not next.** The owner, once it was measured that
+the engine behaves the same way: *"that means the fix comes after parity though, not before"*. The
+reasoning is in D82 — a deliberate departure built on a baseline that does not yet match makes every
+remaining difference ambiguous, because the engine stops being usable as the control. Do the
+outstanding parity work first; this is a known, reasoned, waiting item rather than a queue jumper.
+
+ Pausing stops the transport, so no new sound starts — but every
 looping voice already in the sink keeps running, soundscape loops included. The soundscape fade
 keeps advancing too, since `_audioClock` is a wall-clock `Stopwatch` and deliberately so
 (`soundscape_fadetime` is three seconds of real time in the engine).
@@ -10065,15 +10071,24 @@ because of the obvious desync"*. The workaround is the evidence — if makers al
 the ambience off and lay music over the result, the behaviour was never tolerated, it was routed
 around at the cost of everything the map sounds like.
 
-So measuring what the engine does is now a footnote rather than a gate. Still worth doing, because
-"Valve does the same" is exactly the sort of claim that gets confidently misremembered, and it
-belongs in `docs/findings/` either way — but it does not block the work. It is cheap: pause a demo
-in TF2 and listen.
+**Measured 2026-08-24, by the owner pausing a demo in TF2 and listening:** *"nope tf2 plays the
+ambience and lets all the active sounds play out"*. So the engine behaves exactly as this viewer
+does, and there was no decode or wiring fault here at all — this viewer reproduced the engine
+faithfully and the engine is what is wrong.
 
-Not guessed at meanwhile: `demo_pause` freezes `gpGlobals->frametime`, which would stop the fade
-advancing, but whether the mixer's already-playing voices are silenced is a question for the closed
-sound engine — `snd_dma.cpp` is not in the SDK. [[ghidra-is-installed-on-d]] has the setup if
-listening turns out to be ambiguous.
+That was worth measuring even though D82 had already removed it as a gate. It converts the entry
+from "we may differ from the game" into "we match the game and are choosing not to", which is a
+different claim to defend and the only one that is true. It also means the fix has no reference
+implementation to copy: **whatever is built here is ours**, and nothing in the SDK or the binary can
+adjudicate it.
+
+No decompiler work is needed. `snd_dma.cpp` is closed, but the question it would have answered is
+now answered by ear.
+
+The shape of the work, then: the transport already knows whether it is paused, and the audio pass
+already runs every frame. What is missing is that looping voices are not tied to it — and
+`SoundSchedule.LiveAt` exists precisely so that resuming can re-establish whatever should be
+sounding at the destination tick.
 
 Note the interaction with B163: if pausing silences loops, resuming has to re-establish them, which
 is exactly what `SoundSchedule.LiveAt` was built for.
