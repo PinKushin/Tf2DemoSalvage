@@ -36,6 +36,10 @@ public enum WaveFormat
 /// <param name="SampleRate">Samples per second.</param>
 /// <param name="BitsPerSample">Bits per sample per channel.</param>
 /// <param name="Data">The <c>data</c> chunk's bytes, undecoded.</param>
+/// <param name="LoopStart">
+/// The sample the loop returns to, or -1 when the file does not loop. Source marks a looping wave
+/// with a <c>cue </c> chunk (<c>tier2/riff.h:187</c>), so its presence IS the loop.
+/// </param>
 /// <remarks>
 /// **The chunks are WALKED, never assumed.** A reader that takes the format at offset 20 works on
 /// most files and produces a plausible wrong answer on the rest: Valve ships its own <c>VDAT</c>
@@ -57,8 +61,16 @@ public readonly record struct RiffWave(
     int Channels,
     int SampleRate,
     int BitsPerSample,
-    ReadOnlyMemory<byte> Data)
+    ReadOnlyMemory<byte> Data,
+    int LoopStart = -1)
 {
+    /// <summary>Whether the file is marked as looping.</summary>
+    /// <remarks>
+    /// A <c>cue </c> chunk is Source's loop marker, so its presence is the answer — see the walk in
+    /// <c>Read</c>. -1 means the file carries none and plays once.
+    /// </remarks>
+    public bool Loops => LoopStart >= 0;
+
     /// <summary>Whether the samples can be used directly, without a decoder.</summary>
     public bool IsPcm => Format == WaveFormat.Pcm;
 
@@ -84,6 +96,7 @@ public readonly record struct RiffWave(
         int rate = 0;
         int bits = 0;
         ReadOnlyMemory<byte> data = default;
+        int loopStart = -1;
         bool sawFormat = false;
         bool sawData = false;
 
@@ -132,6 +145,24 @@ public readonly record struct RiffWave(
                 data = file.Slice(body, size);
                 sawData = true;
             }
+            else if (id.SequenceEqual("cue "u8) &&
+                size >= 4 &&
+                BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(body, 4)) is > 0 and { } points &&
+                size >= 4 + (24 * (long)points))
+            {
+                // **`cue ` is how Source marks a looping sound**, `WAVE_CUE` in `tier2/riff.h:187`
+                // and `soundcombiner.cpp:361`. Its presence is the loop; the first cue point's
+                // sample offset is where the loop returns to.
+                //
+                // Without this a looping ambient plays its file once and the map falls silent —
+                // six machine hums start at the beginning of cp_process and are meant to run for
+                // the whole match (B169).
+                //
+                // Layout: a four-byte count, then 24 bytes per point. The sample offset is the last
+                // field of the point, at +20. A count that does not fit the chunk is ignored rather
+                // than read, since the count is a length a stranger controls.
+                loopStart = BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(body + 4 + 20, 4));
+            }
 
             // **The pad byte.** RIFF aligns chunks to even offsets and the size excludes the pad,
             // so an odd size advances by one more than it says.
@@ -143,6 +174,6 @@ public readonly record struct RiffWave(
             return null;
         }
 
-        return new RiffWave(format, channels, rate, bits, data);
+        return new RiffWave(format, channels, rate, bits, data, loopStart);
     }
 }

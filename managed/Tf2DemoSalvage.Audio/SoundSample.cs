@@ -24,7 +24,15 @@ namespace Tf2DemoSalvage.Audio;
 /// departure from D51 — reproducing Valve's mixing is about the gains and the attenuation, not about
 /// the width of the accumulator.
 /// </remarks>
-public readonly record struct SoundSample(int SampleRate, int Channels, ReadOnlyMemory<float> Samples)
+/// <param name="Loops">
+/// Whether the sound repeats until it is stopped, from the wave's <c>cue </c> chunk. Ambience
+/// relies on it: a loop played once leaves the map silent within seconds (B169).
+/// </param>
+public readonly record struct SoundSample(
+    int SampleRate,
+    int Channels,
+    ReadOnlyMemory<float> Samples,
+    bool Loops = false)
 {
     /// <summary>How long this sound lasts.</summary>
     /// <remarks>
@@ -138,10 +146,14 @@ public static class SoundSampleReader
 
         return wave.BitsPerSample switch
         {
+            // Loops carried through from the wave's `cue ` chunk: an ambient that does not loop
+            // plays once and the map falls silent (B169).
             16 => SoundSampleResult.Decoded(
-                new SoundSample(wave.SampleRate, wave.Channels, Sixteen(wave.Data.Span))),
+                new SoundSample(
+                    wave.SampleRate, wave.Channels, Sixteen(wave.Data.Span), wave.Loops)),
             8 => SoundSampleResult.Decoded(
-                new SoundSample(wave.SampleRate, wave.Channels, Eight(wave.Data.Span))),
+                new SoundSample(
+                    wave.SampleRate, wave.Channels, Eight(wave.Data.Span), wave.Loops)),
             _ => SoundSampleResult.Refused($"unsupported bit depth {wave.BitsPerSample}"),
         };
     }

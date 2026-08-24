@@ -4172,3 +4172,37 @@ this viewer's settings, a real config keeps working, and a launch option keeps w
 earlier observation that "a lot of valves launch options are real config options". A viewer with its
 own vocabulary would have to document and teach all of it, and would still fail the one requirement
 that a paste of a real config works.
+
+## D80 — Audio output is Silk.NET.OpenAL, used as a dumb stereo sink
+
+Chosen by the owner from three options while wiring B168. Silk.NET.OpenAL over NAudio and over raw
+WASAPI, on the grounds that **it is the same generated package family the renderer already uses** —
+`Silk.NET.Direct3D11`, `Silk.NET.DXGI` and `Silk.NET.Maths` are all pinned together at 2.23.0 for a
+reason this repo already documents, and the marshalling conventions are ones it already knows. It is
+also the only one of the three that is not Windows-only.
+
+`Silk.NET.OpenAL.Soft.Native` comes with it because `openal32.dll` is not present on Windows by
+default, unlike `d3d11.dll`: the binding is P/Invoke over a library that has to be shipped.
+
+**OpenAL's own 3D audio is switched OFF, and that is the substantive half of this decision.**
+
+This project already implements Valve's spatialisation — `SoundGain` and `SoundAttenuation`, written
+against the SDK and against measured engine constants (`snd_refdist` 36, `snd_refdb` 60, per
+`docs/memory/a-convar-default-sits-beside-its-name.md`). OpenAL has a distance model of its own and
+applies it per source by default. Enabling both would either double-attenuate or, worse, quietly
+substitute OpenAL's curve for Valve's.
+
+Neither failure looks like an error. Sound would come out, it would fall off with distance, and it
+would be wrong in a way nobody could hear as a defect — which is precisely the class of silent
+divergence D79 was written to prevent, and precisely how three no-ops shipped here with a green
+suite in one session.
+
+So the sink is deliberately stupid: it receives finished stereo samples and plays them.
+`AL_SOURCE_RELATIVE` with the distance model set to none means OpenAL never computes a gain of its
+own, and **the only spatialisation in the program stays the one that can be compared against
+Valve's**.
+
+**The consequence worth stating for later:** anything OpenAL offers for free — Doppler, cones,
+reverb, HRTF — is off limits on the same reasoning unless Valve's own behaviour is implemented first
+and the library is merely being asked to reproduce it. A feature that sounds good and is not what
+the demo recorded is not a feature of this project.

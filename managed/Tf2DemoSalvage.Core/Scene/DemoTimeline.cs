@@ -266,6 +266,8 @@ public sealed class DemoTimeline
     /// </remarks>
     private readonly List<(int Tick, SceneFog Fog)> _fog = [];
 
+    private readonly List<SceneSound> _sounds = [];
+
     /// <summary>Whether any viewmodel in this demo names an owner.</summary>
     /// <remarks>
     /// **This is what separates a point-of-view recording from a SourceTV one**, and it is a
@@ -282,11 +284,13 @@ public sealed class DemoTimeline
         List<ScenePropTrack>? playerTracks = null,
         List<(int Tick, RecordedView View)>? recordedViews = null,
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null,
-        List<(int Tick, SceneFog Fog)>? fog = null)
+        List<(int Tick, SceneFog Fog)>? fog = null,
+        List<SceneSound>? sounds = null)
     {
         _recordedViews = recordedViews ?? [];
         _viewmodels = viewmodels ?? [];
         _fog = fog ?? [];
+        _sounds = sounds ?? [];
 
         _viewmodelsNameOwners =
             _viewmodels.Exists(recorded => recorded.Weapon.OwnerEntityIndex is not null);
@@ -310,6 +314,15 @@ public sealed class DemoTimeline
 
     /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
     public IReadOnlyList<ScenePropTrack> Props => _props;
+
+    /// <summary>Every sound the recording plays, in tick order.</summary>
+    /// <remarks>
+    /// **A flat list rather than tracks, because a sound is an instant and not a state.** There is
+    /// no "what is entity 12 sounding like at tick 4000" to answer — it made a noise at a tick and
+    /// the player owns it from there. Kept in tick order so playback walks a cursor forward and a
+    /// seek is a binary search, rather than a scan per frame.
+    /// </remarks>
+    public IReadOnlyList<SceneSound> Sounds => _sounds;
 
     /// <summary>Every player, with the pose the interpolator works from.</summary>
     /// <remarks>
@@ -647,6 +660,12 @@ public sealed class DemoTimeline
         ModelPrecache precache = new();
         int protocol = header.NetworkProtocol;
 
+        // **The sounds the recording plays, and the table that names them.** Both are needed
+        // together: svc_Sounds carries a NUMBER, and the number is an index into this demo's own
+        // soundprecache, so a decoder without the table produces sounds nobody can open (B168).
+        SoundNames soundNames = new();
+        List<SceneSound> sounds = [];
+
         // Live tracks by slot, plus every track ever started. A slot is reused when its occupant
         // is destroyed, so the two are not the same list - keeping only the live ones would lose
         // every rocket the moment the next one took its index.
@@ -727,6 +746,51 @@ public sealed class DemoTimeline
                     // model resolves to nothing and the scene is players on an empty map.
                     case CreateStringTableMessage { Name: ModelPrecache.TableName } models:
                         precache.Apply(models.Entries);
+                        continue;
+
+                    // **The same arrangement for sounds, and it needs both messages.** A table is
+                    // created once and then updated as the round goes on — a sound first played
+                    // mid-match is added by an update, so handling only the create resolves the
+                    // opening minute and nothing after it.
+                    case CreateStringTableMessage { Name: SoundNames.TableName } soundTable:
+                        soundNames.Add(soundTable);
+                        continue;
+
+                    case UpdateStringTableMessage soundUpdate
+                        when state.StringTableName(soundUpdate.TableId) == SoundNames.TableName:
+                        soundNames.Add(soundUpdate, SoundNames.TableName);
+                        continue;
+
+                    // **Every sound the server plays, placed at the tick it was sent on.** Decoded
+                    // here rather than at playback because the body is a delta-compressed bit
+                    // stream: each sound is written against the one before it, so it can only be
+                    // read in order and only once.
+                    case SoundsMessage { Count: > 0 } played:
+                        foreach (DecodedSound sound in SoundDecoder.Decode(
+                            played.Body.Span, played.Count, played.BodyBits, (ushort)protocol))
+                        {
+                            sounds.Add(new SceneSound(
+                                command.Tick,
+
+                                // Empty rather than dropped when the number names nothing: an
+                                // unresolvable sound still happened, and discarding it would make a
+                                // gap in the table look like silence in the recording.
+                                soundNames.Resolve(sound.SoundNumber) ?? string.Empty,
+                                sound.SoundNumber,
+                                sound.EntityIndex,
+                                sound.Channel,
+                                sound.Volume,
+                                sound.SoundLevel,
+                                sound.Pitch,
+                                sound.DelaySeconds,
+                                sound.OriginX,
+                                sound.OriginY,
+                                sound.OriginZ,
+                                sound.IsAmbient,
+                                (sound.Flags & SoundDecoder.StopFlag) != 0,
+                                command.Type == DemoCommandType.Signon));
+                        }
+
                         continue;
 
                     case UpdateStringTableMessage update
@@ -1023,7 +1087,51 @@ public sealed class DemoTimeline
 
         Backfill(frames);
 
-        return new DemoTimeline(frames, props, playerTracks, recordedViews, viewmodels, fogSamples)
+        // **The signon's sounds are the ambience already playing, and its clock is not the
+        // recording's.** Measured on movement-test-pov-cp_process: six )ambient/machine_hum.wav
+        // arrive from the signon stamped tick 4654 while every packet sound runs from 30 upward, so
+        // the signon carries the server's tick at the moment recording began. Left alone, the map's
+        // hum starts seventy seconds in and sorting by the stated tick buries the opening minute
+        // behind it.
+        //
+        // Moved to the first tick anything else happens on, because that is when a viewer starts
+        // hearing the map — not to zero, since a demo's ticks do not start at zero
+        // (docs/memory/demo-ticks-do-not-start-at-zero.md) and zero would sort before a recording
+        // that opens at 30 and leave a gap nothing fills.
+        if (sounds.Count > 0)
+        {
+            int firstPacketTick = int.MaxValue;
+
+            foreach (SceneSound sound in sounds)
+            {
+                if (!sound.FromSignon && sound.Tick < firstPacketTick)
+                {
+                    firstPacketTick = sound.Tick;
+                }
+            }
+
+            if (firstPacketTick < int.MaxValue)
+            {
+                for (int index = 0; index < sounds.Count; index++)
+                {
+                    if (sounds[index].FromSignon)
+                    {
+                        sounds[index] = sounds[index] with { Tick = firstPacketTick };
+                    }
+                }
+            }
+
+            // **A stable sort, so sounds sent in one message keep the order the server wrote them
+            // in.** Within a tick that order is the engine's own, and several sounds on one channel
+            // replace each other — reordering them would change which one survives.
+            List<SceneSound> ordered = [.. sounds.OrderBy(sound => sound.Tick)];
+
+            sounds.Clear();
+            sounds.AddRange(ordered);
+        }
+
+        return new DemoTimeline(
+            frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds)
         {
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,

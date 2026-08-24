@@ -601,6 +601,18 @@ internal class MainForm : Form
         LoadUserConfig();
         _console.Triggered += OnConsoleAction;
 
+        // **Opened once, here, and null is a normal answer.** The measurement boxes and CI have no
+        // sound card, and neither does a machine with audio disabled — a viewer that refused to
+        // start over that would be worse than one that draws in silence. Reported either way, so
+        // "there is no sound" and "the sound is not working" are distinguishable in the log.
+        _audio = AudioOutput.TryCreate();
+
+        ViewerLog.Write(
+            "audio",
+            _audio is null
+                ? "no audio device could be opened; playback will be silent"
+                : "audio output opened");
+
         Text = "TF2 Demo Salvage";
         Name = "MainWindow";
         AccessibleName = "TF2 Demo Salvage viewer";
@@ -4176,6 +4188,17 @@ internal class MainForm : Form
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
+        // **The sounds this recording plays, ready before the first frame asks.** Rebuilt per demo
+        // rather than kept: a schedule holds a cursor into one timeline's list, and carrying it
+        // across a load would index the previous demo's sounds.
+        _soundSchedule = _timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
+        _audio?.StopAll();
+
+        ViewerLog.Write(
+            "audio",
+            $"{_timeline?.Sounds.Count ?? 0} sounds on the timeline; " +
+            (_audio is null ? "no audio device, so none will play" : "output is open"));
+
         _transport.SetDemoLength(_demo.LastTick);
 
         // The weapon roles are NOT built here, and the first attempt was. See EnsureWeaponRoles:
@@ -5033,6 +5056,193 @@ internal class MainForm : Form
         UploadCamera();
     }
 
+    /// <summary>The audio device, or null when the machine has none.</summary>
+    private AudioOutput? _audio;
+
+    /// <summary>Which sounds are due, as playback moves.</summary>
+    private SoundSchedule? _soundSchedule;
+
+    /// <summary>Decoded sounds, kept because a demo plays the same footstep hundreds of times.</summary>
+    /// <remarks>
+    /// **A null value is a remembered failure, not an absent one.** A sound the install cannot open
+    /// would otherwise be looked up, searched for across every container and logged on every one of
+    /// the hundreds of times it is played.
+    /// </remarks>
+    private readonly Dictionary<string, SoundSample?> _soundCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many sounds could not be opened, reported once rather than per play.</summary>
+    private int _soundsUnopened;
+
+    /// <summary>Starts whatever the recording plays at this tick.</summary>
+    /// <remarks>
+    /// **The spatialisation is Valve's and stays Valve's (D80).** The gain comes from
+    /// <c>SoundGain.AtDistance</c> against the sound's own <c>SNDLVL</c>, and the pan from
+    /// <c>SoundGain.Pan</c> — the sink is handed finished stereo and applies no distance model of
+    /// its own. Anything else would replace a curve this project can compare against the engine
+    /// with one it cannot.
+    /// </remarks>
+    private void PlaySounds()
+    {
+        if (_audio is not { } output || _soundSchedule is not { } schedule)
+        {
+            return;
+        }
+
+        IReadOnlyList<SceneSound> starting = schedule.Advance(_transport.CurrentTick);
+
+        // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
+        // just left, and letting them finish plays the old place over the new one.
+        if (schedule.Jumped)
+        {
+            output.StopAll();
+        }
+
+        output.Reclaim();
+
+        if (starting.Count == 0)
+        {
+            return;
+        }
+
+        // The listener is wherever the camera is, which is the eye in first person and the free
+        // camera otherwise. Valve's right vector for a yaw, from which the pan follows.
+        FreeCamera? camera = _firstPerson ? FirstPersonCamera() : FreeLookCamera();
+
+        if (camera is not { } ears)
+        {
+            return;
+        }
+
+        float yaw = ears.Angles.Yaw * (MathF.PI / 180f);
+        (float X, float Y, float Z) right = (MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
+        (float X, float Y, float Z) listener = (ears.Origin.X, ears.Origin.Y, ears.Origin.Z);
+
+        foreach (SceneSound sound in starting)
+        {
+            // **A stop silences a channel rather than starting anything, and dropping it is
+            // audible.** Measured: 15 of movement-test-pov-cp_process's 89 sounds are stops, and
+            // they name the looping ones — doors/door_metal_rusty_move five times against eight
+            // starts, metal_box_scrape_rough_loop four, )ambient/machine_hum six. Unhonoured, each
+            // loop runs the length of its file, which the owner heard as "gate sounds are either
+            // playing too slow or just playing too long".
+            if (sound.IsStop)
+            {
+                output.Stop(sound.EntityIndex, sound.Channel);
+                continue;
+            }
+
+            if (sound.Name.Length == 0)
+            {
+                continue;
+            }
+
+            if (Sample(sound.Name) is not { } sample)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z) source = (sound.OriginX, sound.OriginY, sound.OriginZ);
+
+            float distance = MathF.Sqrt(
+                ((source.X - listener.X) * (source.X - listener.X)) +
+                ((source.Y - listener.Y) * (source.Y - listener.Y)) +
+                ((source.Z - listener.Z) * (source.Z - listener.Z)));
+
+            // **Attenuation comes from the SOUNDLEVEL, for every sound, with no special case.**
+            //
+            // This first read `bIsAmbient` as "plays at full volume everywhere", and the owner heard
+            // exactly what that produces: "the ambient sounds were way way too loud compared to
+            // everything else, and started playing at the start of the demo even though i was in
+            // free cam and no one was in the spawn room".
+            //
+            // It was invented. `bIsAmbient` is written and read on the wire (`soundinfo.h:185`) and
+            // **no published client or engine code reads it for gain** — it is a routing hint for
+            // the ambient channel. What Valve actually uses is the soundlevel, and `AtDistance`
+            // already implements the one case that matters: SNDLVL_NONE means no attenuation, so a
+            // genuinely global sound is global because its own data says so. `)ambient/machine_hum`
+            // is not one of those — it is a room sound with a real soundlevel, and it should fade
+            // with distance like everything else.
+            //
+            // The general lesson is D80's, one layer up: a special case that makes something
+            // audible is indistinguishable from a working feature until somebody listens.
+            float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance);
+
+            if (gain <= 0f)
+            {
+                continue;
+            }
+
+            (float left, float rightGain) = SoundGain.Pan(
+                SoundGain.Rightward(listener, right, source));
+
+            output.Play(
+                sample,
+                left * gain,
+                rightGain * gain,
+
+                // TF2 sends a percentage where 100 is unshifted. Measured across a real match: 100
+                // dominates with a spread of 95..99 around it, which is the engine's own random
+                // variation and not a decode fault.
+                sound.Pitch > 0 ? sound.Pitch / 100f : 1f,
+
+                // **The channel is what makes a stop possible and a voice line replace itself.**
+                // Passed through rather than defaulted, because CHAN_AUTO is a real value with its
+                // own meaning — the engine picks the channel and the sound is meant to overlap.
+                sound.EntityIndex,
+                sound.Channel);
+        }
+    }
+
+    /// <summary>Decodes a named sound, once.</summary>
+    private SoundSample? Sample(string name)
+    {
+        if (_soundCache.TryGetValue(name, out SoundSample? cached))
+        {
+            return cached;
+        }
+
+        SoundSample? sample = null;
+
+        if (_archives is { } archives)
+        {
+            // **The soundchars come off first.** A precached name carries Valve's prefixes — ')'
+            // for spatialised, '#' for a stream, '*' and the rest — and they are instructions to
+            // the engine rather than part of the path. Left on, every one of them is a file that
+            // does not exist.
+            Tf2DemoSalvage.Core.Net.SoundName parsed =
+                Tf2DemoSalvage.Core.Net.SoundName.Parse(name);
+
+            if (SoundFile.Open("sound/" + parsed.Path, archives.Read) is { } opened)
+            {
+                SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
+
+                sample = result.Sample;
+
+                if (!result.Succeeded)
+                {
+                    ViewerLog.Warn("audio", $"{opened.Path}: {result.Refusal}");
+                }
+            }
+            else
+            {
+                // **Counted and named, once per sound rather than once per play.** The cache means
+                // a name reaches here exactly once, so this is a list of what the install could not
+                // supply rather than a stream of the same failure. Silence with no explanation is
+                // the outcome this exists to prevent.
+                _soundsUnopened++;
+
+                ViewerLog.Warn(
+                    "audio",
+                    $"could not open '{parsed.Path}' (from '{name}'); " +
+                    $"{_soundsUnopened.ToString(CultureInfo.InvariantCulture)} unopened so far");
+            }
+        }
+
+        _soundCache[name] = sample;
+
+        return sample;
+    }
+
     private void RenderFrame()
     {
         // **Nothing is drawn while a map is being read on another thread (B146).** That read
@@ -5047,6 +5257,8 @@ internal class MainForm : Form
         {
             return;
         }
+
+        PlaySounds();
 
         FlyCamera();
 
@@ -5692,6 +5904,11 @@ internal class MainForm : Form
 
             _device?.Dispose();
             _device = null;
+
+            // Before the log line below, so a device that hangs on close is visible as a shutdown
+            // that stalled here rather than as one that never reached the end.
+            _audio?.Dispose();
+            _audio = null;
 
             ViewerLog.Write(
                 "render",
