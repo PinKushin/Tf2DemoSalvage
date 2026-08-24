@@ -149,7 +149,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # it for the soldier (finding 33).
 # 637: ViewmodelSchemeConformanceTests (2) — model_hands for all nine classes, and the demoman's
 # pinned exactly. It is what decides whether a first-person weapon is one model or two.
-run Tf2DemoSalvage.Content.Tests  content   637
+# 638: ViewmodelBoneMergeTests (1) — which of a weapon's bones the arms can supply. It is what
+# showed the Original merges cleanly (1 bone, weapon_bone, provided), killing the bone-name theory
+# for why it draws too large before any code was changed.
+run Tf2DemoSalvage.Content.Tests  content   638
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

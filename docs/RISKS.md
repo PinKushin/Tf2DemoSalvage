@@ -9913,6 +9913,27 @@ Worth separating before any work: frame pacing (are we presenting at a steady ra
 interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
 cycle advance smoothly). Three different causes, one appearance.
 
+### B165 — the view keys are constants in menu items, not binds — OPEN
+
+D78 is the direction; this is the work. Every debug view, lighting mode, wireframe, reflection,
+surface-colour, full-screen and capture key is a literal `ShortcutKeys = Keys.Fn` in `MainForm`,
+while movement, camera and playback already arrive as binds from a config file.
+
+**It has already cost a real defect.** `Keys.F11` was written twice — full screen at `MainForm.cs:790`
+and the leaf-box view at `1033` — and WinForms gave the key to the later registration. Full screen
+stopped working, three UI tests went red and stayed red, and the cause was invisible in both places
+because neither site can see the other. The owner found it by eye: *"the app never went full screen,
+it did seem to try to start the leaf debug though"*.
+
+A bind table cannot hide that: it can be listed, printed to the log and checked for duplicates. Two
+`Keys.F11` literals in a 5,000-line form cannot.
+
+Shape, from D78: Valve's own cvar names (`mat_leafvis`, `mat_drawflat`, `mat_fullbright`, …), reached
+by `bind` in D69's existing console vocabulary, defaults as the F-keys are today, stored in our own
+config beside TF2's rather than in the game's.
+
+**A duplicate-binding check belongs with it, and should fail the build rather than the eye.**
+
 ### B164 — the era verification so far covers one class
 
 The 2007 specimen was checked by eye after the viewmodel-scheme fix and looks right, but the owner

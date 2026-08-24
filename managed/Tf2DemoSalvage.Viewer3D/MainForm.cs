@@ -1030,7 +1030,22 @@ internal class MainForm : Form
             ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
             ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
             ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4),
-            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.F11),
+            // **Not F11, which is full screen — this collided and full screen lost.** The debug
+            // group runs F1..F4 and every remaining function key was already taken (F5..F7
+            // lighting, F8 reflections, F9 surface colours, F10 wireframe, F11 full screen, F12
+            // capture), so this one reached for F11 without checking. WinForms dispatches a
+            // duplicate shortcut to one item, and the later registration won: pressing F11 toggled
+            // the leaf box and the window never went full screen.
+            //
+            // **Three UI tests went red the moment it landed and stayed red**, which is the part
+            // worth keeping. The owner spotted it by eye — "the app never went full screen, it did
+            // seem to try to start the leaf debug though" — and that sentence names both halves of
+            // a collision that no single test could describe.
+            //
+            // Off the function-key run rather than onto Shift+F11, deliberately: a modified twin of
+            // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
+            // for leaf, and the menu shows the binding.
+            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L),
         })
         {
             string which = cvar;
