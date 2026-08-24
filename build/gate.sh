@@ -334,7 +334,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # (7) moved to Logging.Tests with FileRetention itself (D83), which is where it belongs now that the
 # type lives beside the log writer rather than in Scene. Nothing was deleted: viewer -7 is exactly
 # the 7 the new logging floor gained, on top of its own 9.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    627
+# 641, measured: 627 -> 634 by the Valve cvar vocabulary (cl_showfps parsing and the fps_max floor
+# departure), then -> 641 by HudRendererTests, which check the screen-to-clip arithmetic without a
+# device. The floor had also drifted below CI's 634 for the same suite, which is the failure
+# docs/memory/a-floor-must-track-the-number-it-guards.md describes: two copies of one number.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    641
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

@@ -44,6 +44,11 @@
     <ProjectReference Include="..\Tf2DemoSalvage.Render\Tf2DemoSalvage.Render.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Presentation\Tf2DemoSalvage.Presentation.csproj" />
 
+    <!-- Glyph rasterisation (D84). This is the ONLY project that references Fonts, because it is
+         the composition root: Fonts implements an interface declared in Content, and nothing
+         between them needs to know GDI exists. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Fonts\Tf2DemoSalvage.Fonts.csproj" />
+
     <!-- B168. This reference is the whole of what was missing: the audio project was finished,
          tested and unreachable — nothing outside it named its namespace, so 102 passing tests
          covered a subsystem that had never made a sound. -->

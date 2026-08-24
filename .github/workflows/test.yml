@@ -341,7 +341,7 @@ jobs:
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 116 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
-          ./build/assert-test-count.sh '**/viewer.trx' 634 Viewer
+          ./build/assert-test-count.sh '**/viewer.trx' 641 Viewer
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 106 Corpus
 

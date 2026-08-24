@@ -4639,3 +4639,66 @@ dependency inversion asks for: the low, stable, portable project owns the interf
 high, volatile, platform-bound one implements it. Nothing references `Fonts` except the composition
 root.
 
+## D85 — User content is IMPORTED into our folder, never read live out of TF2
+
+**This corrects how D69 was built, not what D69 said.** The owner, on finding the viewer reading
+`tf/cfg` directly at startup:
+
+> *"btw when i talked about using a players config, i wasnt talking about using it directly from the
+> tf2 cfg folder, because movie makers probably play with a different config than they make videos
+> with, i want to enable us to import the players config, and match everything we need from it
+> basically. i figure the player can either copy paste their tf2 config into our config folder or we
+> have a ui import path or option to auto import from the tf2 folder"*
+
+and then: *"yea i think i should have made that more obvious from the get go because we kinda
+implemented to config too strongly"*.
+
+**The requirement was always "a real config works wholesale". The implementation read that as "read
+the real config, in place", which is a different and worse thing.** A person who plays with a
+competitive config and records with a movie config has two, and the viewer silently picking whichever
+one `tf/cfg` holds is not a feature. Worse, live reading makes the game's folder an input the viewer
+depends on: reinstall TF2, or verify files, and the viewer's controls change under it.
+
+So: **TF2's folder is an import SOURCE, and our own folder is the truth.** Three routes, all landing
+in the same place:
+
+1. copy a file in by hand,
+2. import from the TF2 install on request,
+3. import from a zip.
+
+**And the same rule covers HUDs**, on the owner's direction: *"the hud is another one of those places
+where we should allow the user to add it manually to our files, or import from there tf2, or import
+from a zip"*. That is exactly how TF2's own HUD community works — a custom HUD ships as a zip that
+gets dropped into `tf/custom/`, so "import from a zip" is not an extra convenience, it is the native
+distribution format.
+
+### The general rule, and where the line falls
+
+The owner generalised it past configs and HUDs:
+
+> *"yea bascially everything we inport from tf2 which can be user changed should be handeled like
+> that, i know the models and stuff cant be, because they are vpks and change when valve updates,
+> but configs, huds, basically everything in the custom folder now lol"*
+
+**So the boundary is `tf/custom/`, and it is a good boundary because Valve drew it.** That folder
+exists precisely to hold what a player added; everything else in `tf/` is what Valve shipped.
+
+| kind | example | how we read it | why |
+|---|---|---|---|
+| **user content** | configs, HUDs, anything under `tf/custom/` | **imported** into our folder | it is the player's, it varies per purpose, and it must not change under us when they reinstall |
+| **game content** | models, materials, sounds in the VPKs | **read live** | Valve rewrites it on every update, so a copy is a copy that goes stale — and it is gigabytes |
+
+The asymmetry is not inconsistency. A stale config is *wrong* — the viewer would silently use
+controls the player has abandoned. A stale model is *wrong in the other direction* — a demo from
+today wants today's assets, and a snapshot taken at import would drift from the game the demo was
+recorded against.
+
+**Nothing in the reading layer has to change for any of this, which is worth stating because it is
+the test of whether the layering was right.** `SchemeFonts.Find` takes a `ReadOnlySpan<byte>` and
+`ConfigConsole.Load` takes strings; neither knows what a folder is. The work is entirely in
+acquisition — where bytes come from — and none of it reaches the parsers.
+
+**Not built yet.** What exists today is the live read this entry says is wrong. Filed rather than
+fixed in passing, because it is a UI feature (an import path, a picker, a zip reader) rather than a
+one-line change, and the frame rate meter was the task in hand.
+

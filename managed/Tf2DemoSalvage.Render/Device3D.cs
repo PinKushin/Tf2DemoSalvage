@@ -47,6 +47,10 @@ public sealed unsafe class Device3D : IDisposable
     private ComPtr<IDXGISwapChain> _swapChain;
     private PointRenderer? _points;
     private WorldRenderer? _world;
+
+    /// <summary>Draws HUD text, once an atlas has been given to it (D84).</summary>
+    private HudRenderer? _hud;
+
     private int _width;
     private int _height;
 
@@ -513,6 +517,28 @@ public sealed unsafe class Device3D : IDisposable
             _debug);
     }
 
+    /// <summary>Gives the HUD its glyph atlas, replacing whichever one it had.</summary>
+    /// <param name="pixels">RGBA, <c>width * height * 4</c> bytes, row-major.</param>
+    /// <param name="width">Atlas width in pixels.</param>
+    /// <param name="height">Atlas height in pixels.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **Separate from drawing because an atlas is built once and drawn every frame.** Rasterising
+    /// a hundred glyphs and packing them is startup work; uploading it per frame would be the same
+    /// mistake as re-decompressing a lump per resize
+    /// (`docs/memory/per-item-apis-hide-quadratic-reads.md`).
+    ///
+    /// The renderer is created on the first call rather than with the device, so a session that
+    /// never turns a HUD element on never compiles the shaders.
+    /// </remarks>
+    public void SetHudAtlas(ReadOnlySpan<byte> pixels, int width, int height)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _hud ??= HudRenderer.Create(_device);
+        _hud.SetAtlas(_device, pixels, width, height);
+    }
+
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
@@ -527,6 +553,9 @@ public sealed unsafe class Device3D : IDisposable
     /// </param>
     /// <param name="viewmodelCamera">
     /// The projection that pass uses, or null when there is nothing to draw in it.
+    /// </param>
+    /// <param name="hud">
+    /// HUD quads in screen pixels, or null to draw none. Requires <see cref="SetHudAtlas"/>.
     /// </param>
     /// <remarks>
     /// The map goes down first so the players draw over it. There is no depth buffer and none is
@@ -552,7 +581,8 @@ public sealed unsafe class Device3D : IDisposable
         IReadOnlyList<ScenePoint> points,
         IReadOnlyList<ModelInstance>? models = null,
         IReadOnlyList<ModelInstance>? viewmodels = null,
-        float[]? viewmodelCamera = null)
+        float[]? viewmodelCamera = null,
+        IReadOnlyList<HudQuad>? hud = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -675,6 +705,28 @@ public sealed unsafe class Device3D : IDisposable
 
             _points.DrawLines(_device, _context, mapLines, 0.55f, 0.62f, 0.74f);
             _points.Draw(_device, _context, points);
+        }
+
+        // **The HUD is drawn OUTSIDE the block above, and that is deliberate.** Everything in there
+        // is skipped when there is no map and nothing to plot — which is exactly the state the frame
+        // rate meter is most wanted in, since a viewer sitting on an empty viewport is one that may
+        // be struggling to load something.
+        //
+        // Last, so it is over everything, with depth off because a HUD is not in the world. Before
+        // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
+        // the back buffer afterwards.
+        if (hud is { Count: > 0 } && _hud is { HasAtlas: true })
+        {
+            Viewport hudViewport = new(0f, 0f, _width, _height, 0f, 1f);
+            _context.RSSetViewports(1, in hudViewport);
+            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+            _context.OMSetDepthStencilState(_depthOff, 0);
+
+            _hud.Draw(_device, _context, hud, _width, _height);
+
+            // The HUD sets an alpha blend and the world expects none, so it is put back rather than
+            // left for whatever draws first next frame to discover.
+            WorldRenderer.ResetBlend(_context);
         }
 
         // **Synced to the display, which is also what paces the render loop.** The loop draws for
@@ -1130,6 +1182,7 @@ public sealed unsafe class Device3D : IDisposable
         }
 
         _world?.Dispose();
+        _hud?.Dispose();
         _points?.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();

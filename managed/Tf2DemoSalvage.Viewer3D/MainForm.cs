@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -83,6 +84,9 @@ internal class MainForm : Form
 
     /// <summary>Automation id of the brush outline toggle.</summary>
     public const string WireframeItemId = "WireframeMenuItem";
+
+    /// <summary>Automation id of the frame rate meter toggle — Valve's <c>cl_showfps</c>.</summary>
+    public const string FrameRateItemId = "FrameRateMenuItem";
 
     /// <summary>Automation id of the reflections toggle — Valve's <c>mat_specular</c>.</summary>
     public const string SpecularItemId = "SpecularMenuItem";
@@ -447,6 +451,10 @@ internal class MainForm : Form
     /// clutter that hides the thing it was standing in for.
     /// </remarks>
     private readonly ToolStripMenuItem _wireframe;
+
+    /// <summary>TF2's <c>cl_showfps</c>, on F8 (B174).</summary>
+    private readonly ToolStripMenuItem _frameRate;
+
     private readonly ToolStripMenuItem _specular;
     private readonly ToolStripMenuItem _fullbrightMenu;
     private readonly ToolStripMenuItem _drawWorld;
@@ -966,6 +974,44 @@ internal class MainForm : Form
             _worldIsStale = true;
         };
 
+        // **A menu item as well as the cvar, because a cvar nobody can find is a cvar nobody uses.**
+        // The owner's words are the requirement: "we need a fps overlay too, we dont have one so i
+        // have no idea what fps we are rendering at and cant tell stutter in the demo from stutter
+        // in the decode, from stutter in fps" — and later, "we might have a fps overlay i just dont
+        // normally turn on, which you launching for me to check the sounds would have allowed me to
+        // check". Something reached for mid-investigation has to be one keypress away.
+        //
+        // **It sets `cl_showfps 2`, not 1**, because the smoothed meter is the one that answers his
+        // question. Mode 1 is an instantaneous rate that jumps every frame; mode 2 carries the worst
+        // and best single frame beside the average, and an occasional long frame against a healthy
+        // average is exactly what stutter looks like.
+        //
+        // **F8, which is free.** F9 is surface colours, F10 wireframe, F11 full screen and F12 the
+        // screenshot — and F11 colliding with full screen silently broke it for days (B165), so a
+        // new shortcut gets checked against the four already here rather than assumed spare.
+        _frameRate = new ToolStripMenuItem("&Frame rate")
+        {
+            Name = FrameRateItemId,
+            CheckOnClick = true,
+            Checked = _settings.ShowFrameRate != 0,
+            ShortcutKeys = Keys.F8,
+            AccessibleName = "Frame rate",
+            AccessibleDescription =
+                "Draws TF2's own frame rate meter in the top right: the average, the worst and best " +
+                "single frame in brackets, and how long this frame took.",
+        };
+
+        _frameRate.CheckedChanged += (_, _) =>
+        {
+            // Written back into the settings rather than held beside them, so the config file, a
+            // launch option and this menu are one value rather than three that can disagree.
+            _settings = _settings with { ShowFrameRate = _frameRate.Checked ? 2 : 0 };
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
+        };
+
         // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
         // outline drew precomputed BSP edge segments as an overlay — 60,764 of them, built for the
         // overhead view and, as the owner put it, "like an ortho overlay". It could not answer the
@@ -1216,6 +1262,7 @@ internal class MainForm : Form
         view.DropDownItems.Add(_drawEntities);
         view.DropDownItems.Add(_debugMenu);
         view.DropDownItems.Add(_surfaceColours);
+        view.DropDownItems.Add(_frameRate);
         view.DropDownItems.Add(_fullScreen);
         view.DropDownItems.Add(fullScreenMode);
         view.DropDownItems.Add(textureQuality);
@@ -4909,6 +4956,64 @@ internal class MainForm : Form
     /// <summary>The longest frame since the rate was last reported, in seconds.</summary>
     private double _longestFrameSeconds;
 
+    /// <summary>How long the last frame took, in seconds.</summary>
+    /// <remarks>
+    /// **The meter reads this rather than keeping its own clock** (B174). Two clocks measuring the
+    /// frame rate is two answers to the question the meter exists to settle, and the camera's is
+    /// already the authoritative one — it is what the flight speed is scaled by.
+    /// </remarks>
+    private double _lastFrameSeconds;
+
+    /// <summary>TF2's frame rate meter, off unless <c>cl_showfps</c> says otherwise.</summary>
+    private readonly FpsMeter _fpsMeter = new();
+
+    /// <summary>The HUD font's glyphs, packed; null until the first HUD element is wanted.</summary>
+    /// <remarks>
+    /// **Built lazily, because most sessions never turn a HUD element on.** Rasterising a hundred
+    /// glyphs is cheap but not free, and it needs a device to upload to — which does not exist until
+    /// the viewport panel has a window handle.
+    /// </remarks>
+    private GlyphAtlas? _hudAtlas;
+
+    /// <summary>Every character the HUD atlas carries: printable ASCII.</summary>
+    /// <remarks>
+    /// **Enough for the frame rate meter and not enough for a scoreboard**, which is a limit worth
+    /// stating rather than discovering. Player names are UTF-8 and routinely are not ASCII at all —
+    /// `docs/memory/international-names-are-required.md` — so B175 will need the atlas built from
+    /// the characters actually present, or built on demand. The meter's own text is digits, letters
+    /// and punctuation, all of which are here.
+    /// </remarks>
+    private const string HudCharacters =
+        " !\"#$%&'()*+,-./0123456789:;<=>?@" +
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`" +
+        "abcdefghijklmnopqrstuvwxyz{|}~";
+
+    /// <summary>
+    /// The font TF2 draws its frame rate meter with.
+    /// </summary>
+    /// <remarks>
+    /// **Read from `platform/Resource/SourceScheme.res`, which is where `DefaultFixedOutline`
+    /// actually lives** — not `tf/resource/ClientScheme.res` and not hl2's, which is why every
+    /// Source game's meter looks the same:
+    ///
+    /// <code>
+    /// "DefaultFixedOutline" { "1" { "name" "Lucida Console" "tall" "10" "weight" "0" "outline" "1" } }
+    /// </code>
+    ///
+    /// **A constant rather than a live read of the game's folder, and that is D85 rather than
+    /// laziness.** TF2's files are an import SOURCE, not something this viewer reads in place, so
+    /// reading a scheme out of the install at startup would be the exact pattern that decision was
+    /// written to stop. Once importing exists, a user's own scheme replaces this; until then it is
+    /// Valve's values, cited.
+    /// </remarks>
+    private static readonly SchemeFont MeterFont = new()
+    {
+        Name = "Lucida Console",
+        Tall = 10,
+        Weight = 0,
+        Outline = true,
+    };
+
     /// <summary>Stopwatch ticks spent sampling the timeline since the last report.</summary>
     /// <remarks>
     /// **Split from posing because twenty milliseconds is a budget, not an answer** (B99). Paused,
@@ -5166,6 +5271,96 @@ internal class MainForm : Form
             _heightCut);
     }
 
+    /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
+    /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
+    /// <remarks>
+    /// **The meter is sampled every frame whatever its mode**, because <see cref="FpsMeter"/> owns
+    /// the "first frame after being shown draws nothing" rule and the watermarks that go with it.
+    /// Sampling only while visible would hand it a frame duration covering however long it was off.
+    ///
+    /// **Top right, as `CFPSPanel::ComputeSize` places it**: `x = wide - FPS_PANEL_WIDTH` with the
+    /// text at panel-local (2, 2), so two pixels in from a panel 300 wide. Reproduced as a right
+    /// edge rather than a fixed 300-pixel panel, because ours has no panel to size — the effect is
+    /// the same for any line shorter than 300 and better for a longer one, which would otherwise
+    /// run off Valve's panel.
+    /// </remarks>
+    private IReadOnlyList<HudQuad> BuildHud()
+    {
+        // Assigned every frame rather than on a change event, because the setter is what notices a
+        // transition into being shown and resets the watermarks — and assigning the same value is a
+        // no-op for that check. One place, so `cl_showfps` from a config, from a launch option and
+        // from the menu all arrive the same way.
+        _fpsMeter.Mode = _settings.ShowFrameRate;
+
+        if (_fpsMeter.Mode != FpsMeter.Hidden)
+        {
+            EnsureHudAtlas();
+        }
+
+        FpsReading? reading = _fpsMeter.Sample(_lastFrameSeconds);
+
+        if (reading is not { } meter || _hudAtlas is not { } atlas)
+        {
+            return [];
+        }
+
+        // `V_GetFileName( engine->GetLevelName() )` keeps the extension, so TF2 shows
+        // `cp_process_f12.bsp`. Ours is stored without one, so it is put back rather than the line
+        // quietly differing from the game's.
+        string map = _demo?.MapName is { Length: > 0 } named ? named + ".bsp" : "no map";
+
+        string line = meter.Text(map);
+
+        (byte Red, byte Green, byte Blue) colour = meter.Colour;
+
+        const int Margin = 2;
+        const int PanelWidth = 300;
+
+        int right = Math.Max(0, _viewport.ClientSize.Width - PanelWidth) + Margin;
+
+        return HudText.Quads(atlas, line, right, Margin, colour.Red, colour.Green, colour.Blue);
+    }
+
+    /// <summary>Rasterises the HUD font and gives it to the device, once.</summary>
+    /// <remarks>
+    /// **Called when a HUD element is first wanted rather than at startup**, so a session that never
+    /// switches one on never pays for it and never compiles the HUD shaders.
+    ///
+    /// A failure costs the HUD and nothing else. A viewer that refuses to play a demo because a font
+    /// would not rasterise has its priorities backwards — the same argument the file logger is built
+    /// around.
+    /// </remarks>
+    private void EnsureHudAtlas()
+    {
+        if (_hudAtlas is not null || _device is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using GdiGlyphRasteriser rasteriser = new();
+
+            GlyphAtlas atlas = GlyphAtlas.Build(rasteriser, MeterFont, HudCharacters);
+
+            _device.SetHudAtlas(atlas.Pixels, atlas.Width, atlas.Height);
+            _hudAtlas = atlas;
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"hud font {MeterFont.Name} {MeterFont.Tall}px" +
+                    $"{(MeterFont.Outline ? " outlined" : string.Empty)}: " +
+                    $"{HudCharacters.Length} glyphs in a {atlas.Width}x{atlas.Height} atlas"));
+        }
+        catch (Exception failure) when (
+            failure is InvalidOperationException or ArgumentException or ExternalException)
+        {
+            _renderLog.LogWarning(failure, "rasterising the hud font");
+        }
+    }
+
     /// <summary>Flies the camera by however long the last frame took.</summary>
     /// <remarks>
     /// **Here rather than in the key handler, which is the whole of B97.** A message-driven camera
@@ -5178,8 +5373,10 @@ internal class MainForm : Form
         double seconds = _flyWatch.IsRunning ? _flyWatch.Elapsed.TotalSeconds : 0d;
         _flyWatch.Restart();
 
-        // Every frame's duration passes through here, so this is where the worst one is noticed.
+        // Every frame's duration passes through here, so this is where the worst one is noticed —
+        // and where the meter takes its reading, rather than starting a second clock (B174).
         _longestFrameSeconds = Math.Max(_longestFrameSeconds, Math.Min(seconds, MaximumFrameSeconds));
+        _lastFrameSeconds = seconds;
 
         if (!_freeLook)
         {
@@ -5802,6 +5999,8 @@ internal class MainForm : Form
         // B148.** After a demo switch the viewer reports 20 frames a second with sampling, posing
         // and lighting all at zero — so the hundred milliseconds are somewhere none of those three
         // counters could see, and this is the only step left.
+        IReadOnlyList<HudQuad> hud = BuildHud();
+
         long drewAt = Stopwatch.GetTimestamp();
 
         _device?.DrawFrame(
@@ -5821,7 +6020,8 @@ internal class MainForm : Form
             _scene,
             _instances,
             _viewmodelInstances,
-            _viewmodelCamera?.ToMatrix());
+            _viewmodelCamera?.ToMatrix(),
+            hud);
 
         _drawTicks += Stopwatch.GetTimestamp() - drewAt;
 
@@ -6434,6 +6634,7 @@ internal class MainForm : Form
             _downloader?.Dispose();
             _overlay?.Dispose();
             _wireframe.Dispose();
+            _frameRate.Dispose();
             _specular.Dispose();
 
             // Disposing the submenu disposes the three items it owns.
