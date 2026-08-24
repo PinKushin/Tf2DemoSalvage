@@ -131,3 +131,4 @@
 - [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — a demo's protocol bounds its date not at all; this corpus is the counterexample, and protocol windows are estimates from changelogs.
 - [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — twice in one feature; when the engine refuses a case, refuse it too.
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING now, not what happened at this tick.
+- [A null-object default hides a missed wiring](a-null-object-default-hides-a-missed-wiring.md) — 193 sites converted, suite green, and the log lost 202 lines.

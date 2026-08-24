@@ -4463,3 +4463,41 @@ has absorbed several conversions of comparable reach.
 
 Staged project by project — Render (15 calls), Scene (75), Viewer3D (103) — gating between, so the
 tree is never far from green.
+
+### Done, 2026-08-24. What it cost beyond renaming, and what nearly went wrong
+
+`ViewerLog` is deleted. Gate green at 3,231 across eight projects.
+
+**The parts a rename would not have covered:**
+
+- **A class writing to more than one area takes a FACTORY, not a logger** — `WorldRenderer`,
+  `EntityModelSet`, `MapWorldBuilder`, and `MainForm` with eight. Folding categories together would
+  quietly reclassify lines people grep for.
+- **Static methods have no field to inject into**, so the logger is threaded as a parameter:
+  `WritePng`, `UploadCube`, `Decode`, `Superseded`, `Walk`, `PackLighting`, `LoadPlacedCubemaps`,
+  `Resolve`, `Register`, `LoadOne`, `LoadFrames`.
+- **`MainForm` keeps a `(params string[])` overload** delegating to the factory one, because
+  `params` cannot follow an optional parameter and thirty tests construct it directly.
+- **`GameArchives` and `DecodeLog` needed no change at all.** Both already took delegates rather
+  than reaching for a static — better inverted than they looked. `LoggerAdapters.LogTo` bridges
+  them.
+
+**The analyzers caught a bug the conversion introduced.** S6668 flagged nine calls where
+`ViewerLog.Warn(area, what, failure)` had become `LogWarning(what, failure)` — `ILogger` takes the
+exception FIRST, so the exception was being passed as a template argument and its type and message
+would have vanished from every caught-and-handled failure in the viewer.
+
+**Reading the output caught one the tests could not, and it is the lesson worth keeping.** After the
+conversion the viewer logged 13 `assets` lines and zero warnings, against 215 and 16 before.
+`MainForm` was calling `MapAssets.Load`, `MapWorldBuilder.Build` and `EntityModelSet` without
+passing its factory, so each fell back to the null logger.
+
+Nothing failed. The suite was green throughout, because **the null-object default that makes the
+tests convenient is also what makes a missed wiring silent** — the same shape as every other defect
+in `docs/memory/output-level-assertion-or-it-is-not-done.md`. It was found by launching the viewer
+and comparing category counts against a pre-conversion log: `assets` 215, `map` 58, `config` 16,
+`demo` 8 all match exactly.
+
+**The CLI needed no work.** It already used `ILoggerFactory` with a console provider, so the
+divergence is resolved by both halves speaking `ILogger` with different providers — which is what
+the abstraction is for, and what the facade would not have achieved.
