@@ -40,12 +40,24 @@ them were additionally dated *before* the client was ever launched, by reading t
 out of `bin/engine.dll` — see `DECISIONS.md` D30, which also explains why that costs 4 MB rather
 than a 3–5 GB download when the archive is a ZIP.
 
-**Two gaps remain, and both are narrow:**
+**The gaps, as of 2026-08-24:**
 
 | Gap | Window | Width |
 |---|---|---|
 | **12–13** | 9 Oct 2007 → 15 Nov 2007 | five weeks, both inside it |
-| **17–23** | 15 Jun 2011 → 25 Mar 2013 | twenty-one months |
+| **17–20, 23** | 15 Jun 2011 → 25 Mar 2013 | the 17–23 span, less 21 and 22 |
+
+**21 and 22 now have specimens, and the 17–23 gap is no longer unbroken.** Four demos recovered
+from GotFrag MediaFire links still live fourteen years later (`TF2DEMOSALVAGE-LOG.md`, 2026-08-22):
+`leeko_badlands_4_63800.dem` at protocol **21**, and `20120707-0042-koth_idioteque_a3.dem`,
+`20120909_1804_cp_gullywash_final1_red_fags.dem` and `hackermgereddit.dem` at **22**.
+
+**They are dated only by their own metadata so far, which is why the table above still reads as a
+window rather than as two measured rows.** Every other entry here was dated by running a period
+client and reading `version`; these have not been. Until that is done they are specimens of a
+protocol rather than points on the era axis — the distinction this document exists to keep, and the
+one `docs/memory/z1800-is-modern-not-2015.md` was written about. Dating them is what promotes them
+into the table and lets `CorpusContainerTests` widen its protocol list honestly.
 
 Protocol 11 at launch was a surprise. The March 2008 build reports 14, and the launch build was
 expected to report 14 as well — three protocol versions came and went in TF2's first five months,

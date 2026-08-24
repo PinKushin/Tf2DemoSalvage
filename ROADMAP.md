@@ -358,10 +358,27 @@ the same cvar the game already uses.
 ### Valve's debug draws (owner-stated, 2026-08-23)
 
 **Implement Valve's debug visualisations under Valve's names**, as development instruments rather
-than as features for the end user. `mat_wireframe`, `mat_specular` and the category view exist;
-`mat_fullbright`, `mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`,
-`mat_showlowresimage`, `r_drawworld`, `r_drawentities` and `mat_leafvis` do not. **Tracked as B153,
-decided as D75.**
+than as features for the end user. **Done, 2026-08-24 — B153 is closed.** `mat_wireframe`,
+`mat_specular`, `mat_fullbright` (all three states), `mat_drawflat`, `mat_luxels`,
+`mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`, `mat_showlowresimage`, `r_drawworld` and
+`r_drawentities` all exist, alongside the category view and B156's FGD entity colours. **Decided as
+D75.**
+
+**They are retail cvars rather than a Hammer facility, which was checked rather than assumed** — the
+strings are in the shipped `materialsystem.dll`, `engine.dll` and `client.dll`. That result became
+the general rule in **D79**: every setting is a cvar, Valve's name where one exists and Valve's style
+where none does.
+
+`mat_showlowresimage` was last because it was the only one needing an ASSET rather than a shader
+branch — every VTF's thumbnail had been skipped on the way past. Retaining it also pinned a
+load-bearing assumption nothing had checked: the skip is sized as DXT1 unconditionally, so a
+thumbnail in any other format would misplace every mip in the file.
+
+**Two defects came out of the work itself**, which is the argument for having done it: the leaf-box
+view was bound to `Keys.F11`, which full screen already had, and had silently broken full screen for
+days with three UI tests red and no single failure able to say why (B165, and D78 on making every
+control bindable); and the category view drew overlays white — the absence of a colour rather than a
+colour — which cost two turns of misreading during the B154 hunt.
 
 The justification is a measurement rather than a preference: the B154 blend-state leak took two days
 and four cleared hypotheses, each costing a rebuild and a manual flight to the same spot, and was

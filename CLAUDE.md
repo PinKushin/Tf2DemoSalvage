@@ -27,7 +27,14 @@ A standalone TF2 `.dem` parser that works across TF2's full history, including d
 Two corpora, and the distinction matters when you are told to add a demo:
 
 - **gcor** — `tools/corpus/demos/`, committed, one specimen per era × point of view. It grows **only for a new generation**, because GitHub's free Git LFS tier is 1 GiB/month and every CI job pays for it. Era specimens are kept to 2–4 minutes deliberately (`manifest.json` notes).
-- **lcor** — `tools/corpus/local/`, git-ignored, currently 14 demos / 774 MB. Modern matches, extra specimens, anything for volume. Tests pick it up automatically, so a local run is a superset of CI. **"Add these demos" means lcor unless the demo is a new protocol.**
+- **lcor** — `tools/corpus/local/`, git-ignored, currently **49 demos**. Modern matches, extra specimens, anything for volume. Tests pick it up automatically, so a local run is a superset of CI. **"Add these demos" means lcor unless the demo is a new protocol.**
+
+**Both of these are about to change, and D81 is why.** The corpus is moving to archive.org and will
+be fetched rather than committed. The gcor/lcor split exists because GitHub's free Git LFS tier is
+1 GiB/month and every CI job pays it — that bill is the reason era specimens are trimmed to 2–4
+minutes and the reason protocols 21 and 22 currently sit in lcor while filling a measured gap.
+Fetching removes it, after which the distinction that earns its keep is **fast tier vs deep pool**
+rather than committed vs local.
 
 **`TF2DEMOSALVAGE_GCOR_ONLY=1` runs against gcor alone, and it is what you want most of the time.**
 The corpus suite over lcor takes about **30 minutes**; over gcor it takes **28 seconds**, because
@@ -50,8 +57,19 @@ bash build/gate.sh
 pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 ```
 
-The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-18:
-**2,062 across six assemblies**, plus 8 UI.
+The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-24:
+**3,162 across seven assemblies**, plus 14 UI.
+
+| assembly | count | | assembly | count |
+|---|---|---|---|---|
+| core | 1,497 | | content | 640 |
+| cli | 74 | | corpus | 106 |
+| audio | 109 | | viewer | 628 |
+| presentation | 108 | | | |
+
+The seventh is `Tf2DemoSalvage.Audio.Tests`, which became part of the gate when the audio project
+stopped being unreachable (B168). The UI suite went from 8 to 14 and is worth running: it caught the
+F11 collision that silently broke full screen for days (B165).
 
 **`build/gate.sh` replaced a solution-wide `dotnet test --filter`, and the reasons are worth knowing
 because both bit.**
@@ -76,7 +94,15 @@ the committed era specimens are the owner's own SOLO recordings, so they carry n
 no worn items at all — the 2013 badlands POV has 11 props and zero wearables. A cosmetics test
 redirected onto one would pass while measuring nothing, which is worse than skipping.
 
-Remaining gaps on the era axis: protocols **12–13** and **17–23**.
+Remaining gaps on the era axis: protocols **12–13** and **17–20, 23**.
+
+**21 and 22 are covered, locally.** Four demos recovered by the `tf2-comp-archive` agent from
+GotFrag MediaFire links still live fourteen years later — `leeko_badlands_4_63800.dem` at protocol
+21, and three at 22 — fill the middle of the range where TF2 changed fastest. They are in **lcor**,
+so CI and a fresh clone do not see them, and the container test still allows only
+`[11, 14, 15, 16, 24]` and therefore reports all four as failures (B162). **Do not widen that list
+to make it green:** protocol numbers date nothing on their own, so 21 and 22 need real build dates
+in `docs/TIMELINE.md` first, and the assertion should follow the measurement rather than lead it.
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
 
