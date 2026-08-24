@@ -423,6 +423,47 @@ public sealed class EntityState
     /// </remarks>
     public int? ViewmodelModelIndex() => Integer($"{ViewModelTable}.{ModelIndexProperty}");
 
+    /// <summary>The model a weapon shows in the world, or <c>null</c> when this is not a weapon.</summary>
+    /// <remarks>
+    /// **A carried weapon's <c>m_nModelIndex</c> is its VIEW model, not its world model**, and that
+    /// is the whole of B160. The two are separate networked properties and always have been:
+    ///
+    /// <code>
+    /// m_iViewModelIndex  = CBaseEntity::PrecacheModel( GetViewModel() );
+    /// m_iWorldModelIndex = CBaseEntity::PrecacheModel( GetWorldModel() );
+    ///   (basecombatweapon_shared.cpp:290-299)
+    ///
+    /// SendPropModelIndex( SENDINFO(m_iWorldModelIndex) ),
+    ///   (basecombatweapon_shared.cpp:2870)
+    /// </code>
+    ///
+    /// and the client draws the world one from exactly this handle —
+    /// <c>modelinfo->GetModel( m_iWorldModelIndex )</c>, <c>tf_weaponbase.cpp:2144</c>.
+    ///
+    /// **Measured, and the symptom was nothing like the cause.** On
+    /// <c>movement-test-pov-cp_process</c>, reading <c>m_nModelIndex</c> gave every one of the
+    /// soldier's three weapons the same model:
+    ///
+    /// <code>
+    /// entity 228 CTFRocketLauncher   -> models/weapons/c_models/c_soldier_arms.mdl
+    /// entity 376 CTFShotgun_Soldier  -> models/weapons/c_models/c_soldier_arms.mdl
+    /// entity 380 CTFShovel           -> models/weapons/c_models/c_soldier_arms.mdl
+    /// </code>
+    ///
+    /// Three different weapons drawing one pair of first-person arms, in the world, at the owner's
+    /// hand. That is the "2 sticky launchers overlapping each other" the owner reported, and it is
+    /// why it happened in SourceTV recordings as well as point-of-view ones: nothing about it is a
+    /// camera or a visibility rule.
+    ///
+    /// Null rather than falling back here — the caller decides, because "this entity is not a
+    /// weapon" and "this weapon sent no world model" want different answers and merging them is how
+    /// the wrong index got read in the first place.
+    /// </remarks>
+    public int? WorldModelIndex() => Integer($"{WeaponTable}.m_iWorldModelIndex");
+
+    /// <summary>The table a weapon's own properties arrive under.</summary>
+    private const string WeaponTable = "DT_BaseCombatWeapon";
+
     /// <summary>Which player a viewmodel belongs to, or <c>null</c> when this is not one.</summary>
     /// <remarks>
     /// **<c>m_hOwner</c>, not <c>m_hOwnerEntity</c>** — a different property in a different table
@@ -532,6 +573,33 @@ public sealed class EntityState
     /// perfectly ordinary-looking slot number. Masking before testing turns "no owner" into
     /// "owned by entity 2047".
     /// </remarks>
+    /// <summary>Which entity OWNS this one, whatever it is attached to.</summary>
+    /// <returns>The owner's entity slot, or null when it has none.</returns>
+    /// <remarks>
+    /// **Ownership and attachment are different questions, and <see cref="Attachment"/> answers the
+    /// other one.** That method reports where an entity is DRAWN — a parent outright, or an owner
+    /// when the entity also asked to be bone-merged — because an owner alone says nothing about
+    /// position. This one reports who it BELONGS to, which is what the engine keys visibility on.
+    ///
+    /// <c>C_BaseCombatWeapon::ShouldDraw</c> is the case that needs it:
+    ///
+    /// <code>
+    /// C_BaseCombatCharacter *pOwner = GetOwner();
+    /// if ( !pOwner ) return true;                  // unowned, always drawn
+    /// if ( pOwner == pLocalPlayer ) {
+    ///     if ( !bIsActive ) return false;          // only ever the active weapon
+    ///     ...
+    ///     return false;                            // first person: the viewmodel draws it
+    /// }
+    /// </code>
+    ///
+    /// A carried weapon that sends its own origin is owned by its carrier and parented to nobody,
+    /// so asking `Attachment` whether it belongs to the player answers null and it is drawn in the
+    /// first-person view alongside the viewmodel — two sticky launchers overlapping, which is what
+    /// this was found as.
+    /// </remarks>
+    public int? Owner() => Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
+
     public int? Attachment()
     {
         // The parent is attachment outright - an entity only has one because something set it.

@@ -9689,8 +9689,24 @@ wrong rather than one.
 **Two entries of this risk have now been written from a single screenshot and both were too broad**
 — first "the pass is unwired", then "the placement is unimplemented". Both were general claims from
 one image, and the general claims were wrong. The specific question is why ONE model sits higher
-than the game puts it, which is a question about that model's own attachment or offset rather than
-about the viewmodel path.
+than the game puts it.
+
+**And the next step is to find out whether it is ours at all.** The owner: "broken demos will do
+this glitch too actually, if i remember correctly." That is a real alternative and it is cheaper to
+rule out than to chase — a demo carrying a wrong sequence index, or a weapon change the recording
+missed, would pose the viewmodel from the wrong animation and put it anywhere.
+
+**The discriminating experiment**, before any code changes: watch the same weapon in a DIFFERENT
+demo. `tools/corpus/local` carries fourteen. If the Original is misplaced everywhere it appears, the
+fault is ours; if only in this recording, the demo is telling us something wrong and the viewer is
+faithfully drawing it. One is a rendering bug and the other is a decoding question, and they have
+nothing in common.
+
+**A note on the instrument, because it misled me once here.** The `sequences <model>` log prints a
+PREFIX of the merged table, not all of it — 98 merged, eight names shown. Reading those eight as the
+whole table produced a confident and wrong conclusion that the arms were merged with only one
+weapon. If that list is going to be used for diagnosis it should say how many it is showing, the way
+the drop ledger and the material census do.
 
 **One mechanical assertion belongs with the fix**, because the capture test rendered this picture
 and passed: the viewmodel pass draws more than zero instances when first person is on. That would
@@ -9765,3 +9781,216 @@ tick, the same eye, the same field of view and the same viewport, and a disagree
 reads as a rendering difference. So the first version should compare a STILL from a fixed tick in
 the recorded camera, where both sides take their view from the demo rather than from a person
 flying — which is the one camera the two are guaranteed to agree on.
+
+### B160, measured at last: two defects stacked (2026-08-23)
+
+Five aimed changes were made at this entry today and four fixed nothing, every one reasoned from a
+screenshot. Two screenshots taken a second apart — alive, then dead — settle it, and the reason no
+single-cause theory worked is that there are two:
+
+| | weapons drawn | appearance |
+|---|---|---|
+| alive | two, overlapping | one WHITE and untextured, one correctly textured |
+| dead | one | correctly textured |
+
+**That reading is INVERTED, and the owner corrected it**: "i think the world model gets dropped to
+the ground, so the viewmodel we see is not the world model i dont think, its ours". A dead player's
+weapon leaves their hand — TF2 drops it — so the weapon still in view after death is the VIEWMODEL,
+drawn correctly, and the one that VANISHED was the world weapon in the hand.
+
+So it is one defect, not two: the followed player's world weapon is drawn in the first-person view,
+untextured, on top of a correct viewmodel. It disappears on death because the weapon itself is gone
+from the hand, not because anything about the drawing changed.
+
+**Why it draws white is the second half of the question.** White is not our missing-material signal
+— that is Valve's magenta chequer — so it is not an unresolved material falling back. Something else
+produces white, and whatever route puts this weapon on screen may be the same thing that leaves it
+untextured.
+
+**The rule it is breaking.** `C_BaseCombatWeapon::ShouldDraw`
+hides a weapon owned by the player whose eyes you are in, because the viewmodel draws it instead.
+Today's ownership change threaded `m_hOwnerEntity` onto `SceneProp` and taught
+`FirstPersonVisibility` to hide by owner — correct per the SDK, and it did not fix this, because the
+first-person keep-list shows no weapon prop surviving at all. So the world weapon reaches the screen
+by some route other than `_drawn`, and finding that route is the next step rather than another
+guess at the rule.
+
+**What is NOT the cause, established rather than assumed:** it is not POV-specific (the STV half of
+the same matched pair does it too), not demo-specific, not a regression (the modern STV demo on the
+current binary is correct where it was correct before), and not the viewmodel pass being unwired (it
+builds two props and two instances every frame).
+
+**Do not aim another change at this without an instrument.** The pattern that cost the day: a
+picture supports a claim about what it shows, and each time it was promoted to a claim about the
+system. The two instruments that finally produced facts — the first-person keep-list and the
+viewmodel prop names — are both one log line each, and both were added after the fourth wrong guess
+rather than before the first.
+
+### B160 RESOLVED (2026-08-23): a carried weapon's m_nModelIndex is its VIEW model
+
+Not a visibility rule, not the viewmodel pass, not bodygroups, not the include merge. A weapon
+carries TWO model indices and this reader used the wrong one, so every weapon a player held resolved
+to that player's first-person ARMS and was drawn in the world at their hand — several copies of one
+model, stacked, on top of the real viewmodel.
+
+`m_iWorldModelIndex` is its own networked property (`basecombatweapon_shared.cpp:2870`) and is what
+the client draws the world model from (`tf_weaponbase.cpp:2144`). Measured before and after on
+movement-test-pov-cp_process:
+
+    entity 376 CTFShotgun_Soldier   c_soldier_arms.mdl  ->  c_shotgun.mdl
+    entity 380 CTFShovel            c_soldier_arms.mdl  ->  c_pickaxe.mdl
+
+Every confusing detail of the report follows from it: both recording types affected because nothing
+about it is a camera; stopping on death because the hand empties; the duplicate being untextured
+because it is arms, whose materials are first-person content; and the soldier's separate oddity
+being the rocket that finding 33 shows lives inside the arms with no bodygroup to hide it.
+
+Full account in `docs/findings/34-a-carried-weapon-is-two-models.md`, including the eight theories
+this killed and why the screenshots supported all of them.
+
+**The ownership work committed alongside is correct and is kept.** `C_BaseCombatWeapon::ShouldDraw`
+does hide a weapon owned by the watched player, `m_hOwnerEntity` does arrive (3 of 4 weapon tracks
+measured), and `FirstPersonVisibility` now applies it. It simply never addressed this.
+
+**Still open, and deliberately not folded into this entry:** whether the first-person view is now
+correct is a question for the owner's eyes, not for an assertion. The corpus tests can say no arms
+model is tracked as a world prop; they cannot say the picture looks right.
+
+### B162 — fifteen corpus tests fail on lcor, and the gate cannot see any of them
+
+Measured 2026-08-23, twice, seventeen and nineteen minutes: `dotnet test
+tests/Tf2DemoSalvage.Corpus.Tests` over the full local corpus reports **15 failed / 127 passed / 1
+skipped of 143**. `build/gate.sh` defaults to `TF2DEMOSALVAGE_GCOR_ONLY=1` and is green, so none of
+these has ever reddened a merge.
+
+Found incidentally: the run was a control for B160, comparing the failure set before and after a
+decode change. The two sets were identical, which is what the control was for — and the fifteen are
+a finding in their own right, so they are filed rather than mentioned.
+
+    Container_EveryCorpusDemo_WalksCleanlyAndAgreesWithItsHeader   x4
+    EntityRoundTrip_TheCorpus_IsReported
+    EveryDemo_CompilesBackToItsOwnBytes
+    EveryDemo_TracesWithoutAnUnreadableBlock
+    EverySpeexFrame_DecodesToPcm
+    EveryWritableMessage_ReproducesItsOwnBitsExactly
+    Fog_AcrossTheCorpus_IsDecodedFromEveryDemo
+    NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock
+    PayloadRoundTrip_TheCorpus_IsReported
+    RunningForward_DrivesMoveXPositive
+    VoiceInit_EraSpecimens2007To2013_DeclareSpeex
+    WearableTracks_Cosmetics_NameTheirWearer
+
+**At least one is not a defect but an unfiled specimen.** The container test asserts the protocol is
+one of `[11, 14, 15, 16, 24]` and `20120707-0042-koth_idioteque_a3.dem` reports **22** — an era the
+timeline lists as an unmeasured gap (17–23). lcor therefore already contains at least one protocol
+the era table says nobody has, which is worth more than the test failure is worth fixing. Date it
+from the client that wrote it and extend `docs/TIMELINE.md` before touching the assertion.
+
+Others carry real numbers worth reading rather than clearing: the voice test finds `steam` where it
+predicted `vaudio_speex`; `NetTick` measures a spread of 790 against a bound of 64; `RunningForward`
+finds 2 of 9 sampled ticks with a negative `move_x` while the recorded input holds IN_FORWARD; and
+the payload round trip is missing `GameEvent` (13,082) and `SetPause` (6).
+
+**Do not fix these by lowering the assertions.** Every one predicts an exact value, which is why
+they can fail at all — and `decode-must-be-total` says anything not reading at 100% is our defect.
+The gcor default is right for the merge gate (28 seconds against 30 minutes); what is wrong is that
+nothing runs the superset on any schedule, so the split hides work rather than deferring it. The
+measurement boxes exist for exactly this shape of job.
+
+### B163 — the first-person view stutters
+
+Owner, on the 2011 viaduct POV once the doubled weapon was fixed: *"the rendering is very stuttery
+right now, but i think thats the lack of interp"*.
+
+Unmeasured, and the attribution is the owner's hypothesis rather than a finding — recorded as one so
+it is not later quoted as a diagnosis. What is known: the demo declares 8,288 ticks and the timeline
+holds **2,429 recorded moments**, so roughly one moment per 3.4 ticks. Positions between moments are
+interpolated for players; whether the FIRST-PERSON camera and the viewmodel pose take that same path
+has never been checked, and a camera that snaps between recorded moments while the world interpolates
+would look exactly like this.
+
+Worth separating before any work: frame pacing (are we presenting at a steady rate at all), camera
+interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
+cycle advance smoothly). Three different causes, one appearance.
+
+### B166 — the viewmodel cvars are unimplemented, and 54 is right by coincidence — OPEN
+
+The owner, watching the viewer draw a viewmodel: *"im actually a little surprised the viewmodels are
+actually showing right now at all, because we are technically suppose to be using my real tf2 config
+as a base... i dont use viewmodels for basically any class, but maybe because im not technically
+booting as a class but as a spec with the demo, the vioewmodel switcher doesnt fire."*
+
+**The hypothesis was right, and the SDK says why.** `ShouldDrawViewModel`
+(`clientmode_tf.cpp:582`) gates on `r_drawviewmodel`, which is declared `"1"` and `FCVAR_DONTRECORD`
+(`viewrender.cpp:116`). The owner's config never sets it directly — the `vm_off` alias in
+`viewmodels.cfg` does, and that alias is invoked from class-selection scripts that do not run while
+spectating a demo. So even in real TF2 the viewmodel would be drawn here.
+
+**Two cvars this viewer does not implement at all:**
+
+- `r_drawviewmodel` — nothing in `managed/` references it. It is the switch the owner actually uses.
+- `viewmodel_fov_demo` — and this one is the interesting half:
+
+```cpp
+ConVar v_viewmodel_fov_demo( "viewmodel_fov_demo", "54", FCVAR_ARCHIVE );
+float ClientModeTFNormal::GetViewModelFOV( void )
+{
+    // If we're playing back a demo, we clamp the viewmodel fov
+    if ( engine->IsPlayingDemo() )
+        return v_viewmodel_fov_demo.GetFloat();
+    return v_viewmodel_fov.GetFloat();
+}
+```
+
+**During demo playback TF2 ignores `viewmodel_fov` entirely.** This viewer reads `viewmodel_fov` and
+clamps it to `[54, 70]`, so the owner's stored `viewmodel_fov "0.100000"` becomes 54 — which is the
+number `viewmodel_fov_demo` defaults to. **The output is correct and the reasoning is wrong**, which
+is the failure mode this project keeps meeting: nothing looks broken, so nothing gets checked.
+
+The clamp is wrong on its own terms too. `viewmodel_fov` is declared with FOUR bounds —
+`true, 0.1, true, 179.9, true, 54, true, 70` (`view.cpp:111`) — a hard range of 0.1..179.9 and a
+competitive range of 54..70. 0.1 is a legal value, which is why the owner's config holds it; this
+viewer applies the competitive range as though it were the only one.
+
+`TF_COND_ZOOMED` also hides the viewmodel in the same function, and is likewise unimplemented.
+
+Belongs with B165 and D78: these are Valve cvars with Valve names, so they arrive through the config
+rather than as viewer settings invented here.
+
+### B165 — the view keys are constants in menu items, not binds — OPEN
+
+D78 is the direction; this is the work. Every debug view, lighting mode, wireframe, reflection,
+surface-colour, full-screen and capture key is a literal `ShortcutKeys = Keys.Fn` in `MainForm`,
+while movement, camera and playback already arrive as binds from a config file.
+
+**It has already cost a real defect.** `Keys.F11` was written twice — full screen at `MainForm.cs:790`
+and the leaf-box view at `1033` — and WinForms gave the key to the later registration. Full screen
+stopped working, three UI tests went red and stayed red, and the cause was invisible in both places
+because neither site can see the other. The owner found it by eye: *"the app never went full screen,
+it did seem to try to start the leaf debug though"*.
+
+A bind table cannot hide that: it can be listed, printed to the log and checked for duplicates. Two
+`Keys.F11` literals in a 5,000-line form cannot.
+
+Shape, from D78: Valve's own cvar names (`mat_leafvis`, `mat_drawflat`, `mat_fullbright`, …), reached
+by `bind` in D69's existing console vocabulary, defaults as the F-keys are today, stored in our own
+config beside TF2's rather than in the game's.
+
+**A duplicate-binding check belongs with it, and should fail the build rather than the eye.**
+
+### B164 — the era verification so far covers one class
+
+The 2007 specimen was checked by eye after the viewmodel-scheme fix and looks right, but the owner
+noted the limit immediately: *"i only played scout in it though"*. So protocol 11 is confirmed for
+**one class and its weapons**, not for the era.
+
+That matters more than it sounds, because the bug this checked for is per-item: whether a weapon is
+one model or two is decided per weapon, and a class whose weapons all took the same branch cannot
+show a branch that is wrong for another. The demoman is the class the original report came from and
+is not in that recording.
+
+The recordings are the owner's own solo sessions, so extending this means recording more, not finding
+more — and that is the same constraint `docs/DECISIONS.md` D5 describes. **A related limit worth
+stating with it:** the period clients have no internet connection, so a modern item cannot be loaded
+into an era client to compare against. Where an era question cannot be answered by playing one, it
+has to be answered from the shipped data and the SDK.

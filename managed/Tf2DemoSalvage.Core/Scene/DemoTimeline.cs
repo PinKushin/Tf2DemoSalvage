@@ -221,6 +221,7 @@ public sealed class DemoTimeline
     /// <summary>The entity that carries the atmosphere.</summary>
     private const string FogControllerClass = "CFogController";
 
+
     private static readonly string[] TeamProperties =
     [
         "DT_BaseEntity.m_iTeamNum",
@@ -1120,9 +1121,22 @@ public sealed class DemoTimeline
             return string.Empty;
         }
 
+        // **A weapon in the world is its WORLD model, which is a different property.** A carried
+        // weapon's m_nModelIndex holds the VIEW model, so reading it here drew the owner's
+        // first-person arms as scenery — every weapon the player carried, all resolving to
+        // c_soldier_arms.mdl, stacked at the hand on top of the real viewmodel (B160).
+        //
+        // m_iWorldModelIndex is sent by DT_BaseCombatWeapon (basecombatweapon_shared.cpp:2870) and
+        // is what the client draws the world model from (tf_weaponbase.cpp:2144).
+        //
+        // Preferred rather than exclusive: an entity that is not a weapon does not declare the
+        // table at all, and a weapon that somehow sent no world model still has its base index to
+        // fall back on, which is no worse than what it had before.
+        int? index = state.WorldModelIndex() ?? state.ModelIndex();
+
         // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
         // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
-        return state.ModelIndex() is { } rawIndex
+        return index is { } rawIndex
             ? precache.Path(ModelPrecache.Unpack(rawIndex, protocol))
             : null;
     }
@@ -1161,6 +1175,53 @@ public sealed class DemoTimeline
         }
 
         if (!entities.TryGet(entity.EntityIndex, out EntityState? state))
+        {
+            return;
+        }
+
+        // **A viewmodel is never scenery, and the engine says so in the demo case specifically.**
+        // C_BaseViewModel::ShouldDraw, c_baseviewmodel.cpp:277:
+        //
+        //     if ( engine->IsHLTV() )
+        //     {
+        //         return ( HLTVCamera()->GetMode() == OBS_MODE_IN_EYE &&
+        //                  HLTVCamera()->GetPrimaryTarget() == GetOwner() );
+        //     }
+        //
+        // In eye, and owned by the player being watched — otherwise not drawn at all. There is no
+        // camera from which one of these is part of the world, so it does not belong in the prop
+        // list at all; the viewmodel pass resolves its own models through ViewmodelAt.
+        //
+        // **Left in, it draws the weapon twice.** Measured on movement-test-pov-cp_process: three
+        // tracks carrying c_soldier_arms.mdl, a model that exists only to sit in front of a
+        // first-person camera. Those instances land at the player's eye alongside the ones the
+        // viewmodel pass puts there, which is the "2 sticky launchers overlapping each other" the
+        // owner reported — and it happens in SourceTV recordings as well, because the branch above
+        // is the HLTV branch.
+        //
+        // **Keyed on the TABLE rather than on the model path**, which matters: a viewmodel declares
+        // DT_BaseViewModel and nothing else does, whereas an arms model is merely the most obvious
+        // symptom. Excluding by name would leave every weapon viewmodel behind — those carry the
+        // same c_ model as the world weapon and are indistinguishable by path.
+        // **A viewmodel is never scenery, and the engine says so in the demo case specifically.**
+        // C_BaseViewModel::ShouldDraw, c_baseviewmodel.cpp:277:
+        //
+        //     if ( engine->IsHLTV() )
+        //     {
+        //         return ( HLTVCamera()->GetMode() == OBS_MODE_IN_EYE &&
+        //                  HLTVCamera()->GetPrimaryTarget() == GetOwner() );
+        //     }
+        //
+        // In eye, and owned by the player being watched — otherwise not drawn at all. There is no
+        // camera from which one of these is part of the world, and the viewmodel pass resolves its
+        // own models through ViewmodelAt.
+        //
+        // **Belt and braces rather than the load-bearing guard.** DT_BaseViewModel is
+        // BEGIN_NETWORK_TABLE_NOBASE, so a viewmodel sends no origin and no parent and is already
+        // dropped by the transform check below. This states the rule where it belongs anyway, so
+        // that a later change giving these entities a position does not silently put them in the
+        // world.
+        if (state.ViewmodelModelIndex() is not null)
         {
             return;
         }
@@ -1236,6 +1297,10 @@ public sealed class DemoTimeline
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
         track.AttachedTo = attachedTo;
+
+        // Ownership regardless of attachment, because the first-person view hides a followed
+        // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
+        track.OwnedBy = state.Owner();
 
         // **Which point on the wearer, for the items that hang from one rather than merging.**
         // Kept current for the same reason the wearer is: it can arrive on a later delta than the
@@ -1415,7 +1480,7 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo, track.AttachmentPoint));
+                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy));
             }
         }
     }

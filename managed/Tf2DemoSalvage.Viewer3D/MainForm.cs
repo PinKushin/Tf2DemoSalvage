@@ -225,6 +225,9 @@ internal class MainForm : Form
     /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
     private BspLeafTree? _leaves;
 
+    /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
+    private int? _lastFirstPersonReport;
+
     /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
     private IReadOnlyList<AmbientSamples> _ambient = [];
 
@@ -1027,7 +1030,22 @@ internal class MainForm : Form
             ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
             ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
             ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4),
-            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.F11),
+            // **Not F11, which is full screen — this collided and full screen lost.** The debug
+            // group runs F1..F4 and every remaining function key was already taken (F5..F7
+            // lighting, F8 reflections, F9 surface colours, F10 wireframe, F11 full screen, F12
+            // capture), so this one reached for F11 without checking. WinForms dispatches a
+            // duplicate shortcut to one item, and the later registration won: pressing F11 toggled
+            // the leaf box and the window never went full screen.
+            //
+            // **Three UI tests went red the moment it landed and stayed red**, which is the part
+            // worth keeping. The owner spotted it by eye — "the app never went full screen, it did
+            // seem to try to start the leaf debug though" — and that sentence names both halves of
+            // a collision that no single test could describe.
+            //
+            // Off the function-key run rather than onto Shift+F11, deliberately: a modified twin of
+            // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
+            // for leaf, and the menu shows the binding.
+            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L),
         })
         {
             string which = cvar;
@@ -2748,7 +2766,51 @@ internal class MainForm : Form
         // Drawn at the viewmodel's own transform because that is where the engine puts it: the
         // attachment is parented with SetLocalOrigin( vec3_origin ) and bone-merged, so its bones
         // take the arms' outright. Mirrored with them for the same reason they are.
-        if (WeaponModelFor(follower) is { Length: > 0 } held)
+        // **Two schemes, and they are exclusive — this is the whole of the doubled weapon.**
+        // `CTFWeaponBase::GetViewModel` (tf_weaponbase.cpp:651):
+        //
+        //     if ( pPlayer && pItem->IsValid() && pItem->GetStaticData()->ShouldAttachToHands() )
+        //     {
+        //         const char *pszHandModel = pPlayer->GetPlayerClass()->GetHandModelName( ... );
+        //         return pszHandModel;
+        //     }
+        //     return GetTFWpnData().szViewModel;
+        //
+        // When the item attaches to hands the viewmodel IS the hands and the gun is a separate
+        // attachment — two models. When it does not, the viewmodel is the weapon's own `v_` model,
+        // which has the hands modelled into it — ONE model, and adding an attachment draws the gun
+        // twice. Measured on a 2011 recording of koth_viaduct: `v_stickybomb_launcher_demo` and
+        // `c_stickybomb_launcher` at one point in space, which is the owner's "2 sticky launchers
+        // overlapping each other".
+        //
+        // **Decided from the DEMO, not from the installed item schema.** `attach_to_hands` is a
+        // property of the item as it is TODAY: the stickybomb launcher attaches to hands now and did
+        // not in 2011, so asking items_game.txt about a 2011 demo returns a confident wrong answer
+        // and keeps the bug on exactly the files this project exists for. What the recording itself
+        // says is which model was networked as the viewmodel, and that is the branch the engine
+        // took at the time. See docs/memory/the-demo-dates-its-own-fields.md.
+        //
+        // The hands come from shipped class data — `model_hands` in scripts/playerclasses/<class>,
+        // which tf_classdata.cpp:149 reads into the m_szHandModelName that GetHandModelName returns.
+        string? hands = PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
+            ? _classModels?.Hands(playerClass)
+            : null;
+
+        bool attachesToHands =
+            hands is { Length: > 0 } &&
+            string.Equals(
+                weapon.ModelPath.Replace('\\', '/'),
+                hands.Replace('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+
+        ViewerLog.Write(
+            "render",
+            $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
+            (attachesToHands
+                ? "attaches to hands, so the weapon is a second model"
+                : "the viewmodel is the weapon's own model, so no attachment is drawn"));
+
+        if (attachesToHands && WeaponModelFor(follower) is { Length: > 0 } held)
         {
             // **Bone-merged onto the arms, not posed beside them.** The engine parents the
             // attachment with `SetLocalOrigin( vec3_origin )` and blends it through
@@ -2831,6 +2893,15 @@ internal class MainForm : Form
         // then the weapon into the same list threw the arms away and drew the gun alone — a bug
         // that reads as "the arms do not work" and was invisible next to a viewmodel that was not
         // on screen for other reasons anyway.
+        // **Names each viewmodel prop, because the count says two and cannot say two of WHAT.**
+        // The merged arms model already carries a weapon part — c_soldier_arms pairs as hands,
+        // sleeves and w_rocketlauncher — so a second prop naming the same geometry draws the gun
+        // twice, which is what "2 sticky launchers overlapping" looks like.
+        foreach (SceneProp shown in viewmodelProps)
+        {
+            ViewerLog.Write("render", $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
+        }
+
         _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
 
         // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
@@ -3488,6 +3559,31 @@ internal class MainForm : Form
         // exactly what the first capture showed. See FirstPersonVisibility.
         if (_firstPerson && FollowedEntity() is { } looking)
         {
+            // **Says what it is deciding about, because three fixes have now been aimed at this
+            // from a screenshot.** The question is never "is something wrong" — it is which prop is
+            // still drawn and what it claims about its owner, and no count can answer that.
+            if (_lastFirstPersonReport != looking)
+            {
+                _lastFirstPersonReport = looking;
+
+                foreach (SceneProp prop in _drawn)
+                {
+                    if (prop.EntityIndex == looking ||
+                        prop.AttachedTo == looking ||
+                        prop.OwnedBy == looking)
+                    {
+                        continue;
+                    }
+
+                    ViewerLog.Write(
+                        "render",
+                        $"first person keeps entity {prop.EntityIndex} '{prop.ModelPath}' " +
+                        $"attachedTo={prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
+                        $"ownedBy={prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
+                        $"(following {looking})");
+                }
+            }
+
             IReadOnlyList<SceneProp> visible = FirstPersonVisibility.Visible(_drawn, looking);
 
             if (visible.Count != _drawn.Count)

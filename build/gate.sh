@@ -143,7 +143,16 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # audio floor gained, so nothing was deleted.
 # 623: VtfBlockAgreementTests (1) and its sibling, which read 400 of the game's own textures out of
 # tf2_textures_dir.vpk and assert the block path and the expanded path produce identical bytes.
-run Tf2DemoSalvage.Content.Tests  content   630
+# 635: ViewmodelArmsContentTests (5) — what a first-person arms or weapon model actually contains,
+# read out of tf2_misc_dir.vpk rather than from a fixture. Two TestCases cover the demoman's weapons,
+# and the suite is what killed the "the arms carry the second weapon" theory for him while confirming
+# it for the soldier (finding 33).
+# 637: ViewmodelSchemeConformanceTests (2) — model_hands for all nine classes, and the demoman's
+# pinned exactly. It is what decides whether a first-person weapon is one model or two.
+# 638: ViewmodelBoneMergeTests (1) — which of a weapon's bones the arms can supply. It is what
+# showed the Original merges cleanly (1 bone, weapon_bone, provided), killing the bone-name theory
+# for why it draws too large before any code was changed.
+run Tf2DemoSalvage.Content.Tests  content   638
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -154,7 +163,11 @@ run Tf2DemoSalvage.Content.Tests  content   630
 # (B145). The conformance suite for it is hand-built from the measured shape of that demo, so it
 # cannot say whether a real timeline cycles sensibly; these three can, and one of them proves the
 # SourceTV camera is never landed on across 222 cycles.
-run Tf2DemoSalvage.Corpus.Tests   corpus     101
+# 103: CorpusWeaponOwnershipTests. One asks whether m_hOwnerEntity reaches us at all for weapons —
+# the "did the data arrive" check that was skipped while four fixes were aimed at the rule using it.
+# The other pins that no first-person arms model is tracked as a world prop, which is what caught a
+# carried weapon's m_nModelIndex being its VIEW model (B160).
+run Tf2DemoSalvage.Corpus.Tests   corpus     103
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
