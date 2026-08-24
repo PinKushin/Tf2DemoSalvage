@@ -113,7 +113,7 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # lines into 37 MB, retention that raced its siblings into 207 files against a limit of 50, and an
 # IO failure that must cost its lines and nothing else. Device-free and net10.0, so it runs on the
 # Linux measurement boxes — which is half the reason the sink left the viewer at all.
-run Tf2DemoSalvage.Logging.Tests  logging    16
+run Tf2DemoSalvage.Logging.Tests  logging    17
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

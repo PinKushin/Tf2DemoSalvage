@@ -183,6 +183,38 @@ public sealed class FileLoggerProviderTests
     }
 
     [Test]
+    public void Minimum_RaisedToWarning_KeepsTheFallbacksAndDropsTheProgress()
+    {
+        // **The thing the static logger could not do at all, and the reason it matters.** The owner,
+        // on how much this solution logs: "we are going to want to disable most of this logging when
+        // we go to production, we are not going to need production logs to be quite this verbose".
+        //
+        // `ViewerLog.Write` had no level and no filter — the only way to make it quieter was to
+        // delete calls. This is the half of the conversion that buys something rather than tidying
+        // something.
+        using FileLoggerProvider provider = new(_folder, "viewer", minimum: LogLevel.Warning);
+
+        ILogger assets = provider.CreateLogger("assets");
+
+        assets.LogInformation("entity palette: 673 classes");
+        assets.LogWarning("material TOOLSHURT.vmt was not found");
+
+        string[] lines = ReadLines(provider.Path);
+
+        // The progress line is gone and the degraded fallback survives, which is the split that
+        // makes a quiet production log still worth reading when something is wrong.
+        lines.Length.ShouldBe(1);
+        lines[0].ShouldContain("material TOOLSHURT.vmt was not found");
+
+        // And it is live rather than fixed at construction: a viewer that must be restarted to go
+        // quiet is a viewer nobody turns down.
+        provider.Minimum = LogLevel.Information;
+        assets.LogInformation("now audible again");
+
+        ReadLines(provider.Path).Length.ShouldBe(2);
+    }
+
+    [Test]
     public void Time_AnOperation_LogsHowLongItTook()
     {
         using FileLoggerProvider provider = new(_folder, "viewer");

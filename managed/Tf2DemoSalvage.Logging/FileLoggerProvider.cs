@@ -32,26 +32,54 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// <param name="prefix">The file name's leading part, such as <c>viewer</c>.</param>
     /// <param name="banner">A first line naming what is running, or <c>null</c>.</param>
     /// <param name="kept">How many runs' logs to keep.</param>
-    public FileLoggerProvider(string folder, string prefix, string? banner = null, int kept = 50)
-        : this(new FileLogWriter(folder, prefix, banner, kept), owned: true)
+    /// <param name="minimum">The quietest level that reaches the file.</param>
+    public FileLoggerProvider(
+        string folder,
+        string prefix,
+        string? banner = null,
+        int kept = 50,
+        LogLevel minimum = LogLevel.Information)
+        : this(new FileLogWriter(folder, prefix, banner, kept), owned: true, minimum)
     {
     }
 
     /// <summary>Creates a provider over a writer somebody else owns.</summary>
     /// <param name="writer">The open log.</param>
     /// <param name="owned">Whether disposing this provider should close the writer.</param>
+    /// <param name="minimum">The quietest level that reaches the file.</param>
     /// <exception cref="ArgumentNullException"><paramref name="writer"/> is null.</exception>
     /// <remarks>
     /// **Two processes-worth of loggers can share one file**, which is what the viewer needs: the
     /// form, the scene and the renderer all log into the run's single log rather than one file each.
     /// </remarks>
-    public FileLoggerProvider(FileLogWriter writer, bool owned = false)
+    public FileLoggerProvider(
+        FileLogWriter writer, bool owned = false, LogLevel minimum = LogLevel.Information)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
         _writer = writer;
         _owned = owned;
+        Minimum = minimum;
     }
+
+    /// <summary>The quietest level that reaches the file.</summary>
+    /// <remarks>
+    /// **Settable so a shipped build can be quiet without editing 193 call sites.** The owner, on
+    /// seeing how much this solution logs: *"we are going to want to disable most of this logging
+    /// when we go to production, we are not going to need production logs to be quite this
+    /// verbose"*. Raising this to Warning turns every progress line into a no-op while leaving
+    /// every degraded fallback — which is the half that matters when something is wrong.
+    ///
+    /// **This is what the static logger could not express at all.** `ViewerLog.Write` had no level
+    /// and no filter: the only way to make it quieter was to delete calls. Being able to turn the
+    /// volume down without touching the code is a concrete thing the conversion bought (D83), not
+    /// just tidier plumbing.
+    ///
+    /// Per-CATEGORY filtering is not implemented here and is the obvious next step — "everything
+    /// from assets, warnings only from render" is the shape people actually want. It belongs behind
+    /// `ILoggerFactory`'s own filtering rather than in this sink.
+    /// </remarks>
+    public LogLevel Minimum { get; set; }
 
     /// <summary>Where this run's log is written.</summary>
     public string Path => _writer.Path;
@@ -61,7 +89,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
     /// <inheritdoc/>
     public ILogger CreateLogger(string categoryName) =>
-        _loggers.GetOrAdd(categoryName ?? string.Empty, name => new FileLogger(name, _writer));
+        _loggers.GetOrAdd(categoryName ?? string.Empty, name => new FileLogger(name, _writer, this));
 
     /// <inheritdoc/>
     public void Dispose()
@@ -82,7 +110,8 @@ public sealed class FileLoggerProvider : ILoggerProvider
 /// Error and Critical get their own words rather than being folded into Warning, which the old
 /// logger could not express at all.
 /// </remarks>
-internal sealed class FileLogger(string category, FileLogWriter writer) : ILogger
+internal sealed class FileLogger(string category, FileLogWriter writer, FileLoggerProvider provider)
+    : ILogger
 {
     /// <inheritdoc/>
     public IDisposable? BeginScope<TState>(TState state)
@@ -90,12 +119,15 @@ internal sealed class FileLogger(string category, FileLogWriter writer) : ILogge
 
     /// <inheritdoc/>
     /// <remarks>
-    /// **Everything at Information and above, and nothing below.** The viewer's log is read by
-    /// people diagnosing a run, and `Debug`/`Trace` in a per-frame renderer is how a 37 MB log
-    /// happens — which it did, once, at 450,157 lines. A caller that wants those can filter them in
-    /// rather than out.
+    /// **Read from the provider on every call rather than captured**, so the level can be turned
+    /// down while the program is running — a viewer that has to be restarted to go quiet is a
+    /// viewer nobody turns down.
+    ///
+    /// The default is Information, so `Debug` and `Trace` cost nothing until somebody asks for
+    /// them. That default is not arbitrary: `Debug` in a per-frame renderer is how a 37 MB log
+    /// happens, which it did once, at 450,157 lines.
     /// </remarks>
-    public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+    public bool IsEnabled(LogLevel logLevel) => logLevel >= provider.Minimum;
 
     /// <inheritdoc/>
     public void Log<TState>(

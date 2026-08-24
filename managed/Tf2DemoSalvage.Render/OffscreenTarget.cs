@@ -3,6 +3,9 @@ using System.IO;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
@@ -44,7 +47,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     private PointRenderer? _points;
     private WorldRenderer? _world;
 
+    /// <summary>The factory this hands to WorldRenderer, so an offscreen draw logs like an onscreen one.</summary>
+    private readonly ILoggerFactory _loggers;
+
     private OffscreenTarget(
+        ILoggerFactory loggers,
         D3D11 d3d,
         int width,
         int height,
@@ -56,6 +63,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ComPtr<ID3D11Texture2D> depthTexture,
         ComPtr<ID3D11DepthStencilView> depthView)
     {
+        _loggers = loggers;
         _d3d = d3d;
         _width = width;
         _height = height;
@@ -71,13 +79,20 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>Creates a target, or returns null if no Direct3D 11 device can be made at all.</summary>
     /// <param name="width">Width in pixels.</param>
     /// <param name="height">Height in pixels.</param>
+    /// <param name="loggers">
+    /// Where the renderer this drives reports what it drew, or <c>null</c> for none. **Optional
+    /// with a null-object default rather than required (D83)**, because every caller is a test that
+    /// wants a picture and not a log — making it required would have edited fifty test call sites
+    /// to pass something none of them reads.
+    /// </param>
     /// <returns>The target, or <c>null</c> when even WARP is unavailable.</returns>
     /// <remarks>
     /// Null rather than an exception because "this machine has no Direct3D" is a reason to skip a
     /// test, not to fail one. A missing GPU is a property of the machine; a wrongly drawn pixel is
     /// a property of the code.
     /// </remarks>
-    public static OffscreenTarget? TryCreate(int width, int height)
+    public static OffscreenTarget? TryCreate(
+        int width, int height, ILoggerFactory? loggers = null)
     {
         D3D11 d3d = D3D11.GetApi(null);
 
@@ -102,7 +117,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
             if (result >= 0)
             {
-                return Build(d3d, width, height, device, context);
+                return Build(
+                    loggers ?? NullLoggerFactory.Instance, d3d, width, height, device, context);
             }
         }
 
@@ -170,7 +186,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(assets);
 
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
         _world.DrawDetail = detail;
         _world.DrawBumped = bumped;
         _world.DrawWorld = drawWorld;
@@ -229,7 +245,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         const string Posed = "offscreen/posed.mdl";
 
-        _world ??= WorldRenderer.Create(_device);
+        _world ??= WorldRenderer.Create(_device, _loggers);
         _world.Seconds = Seconds;
 
         _world.UploadTextures(_device, _context, assets);
@@ -395,6 +411,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     }
 
     private static OffscreenTarget Build(
+        ILoggerFactory loggers,
         D3D11 d3d,
         int width,
         int height,
@@ -457,6 +474,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             depthTexture, ref Unsafe.NullRef<DepthStencilViewDesc>(), ref depthView));
 
         return new OffscreenTarget(
+            loggers,
             d3d, width, height, device, context, texture, staging, view, depthTexture, depthView);
     }
 }

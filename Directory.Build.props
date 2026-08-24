@@ -24,6 +24,56 @@
     <AnalysisMode>All</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
 
+    <!-- **CA1873 is suppressed, and this is a deliberate exception to Zero Warnings (D83).**
+
+         **What the rule is really about**, because a suppression with a vague reason is one that
+         gets relaxed later for a bad one: arguments to ILogger are evaluated BEFORE the level is
+         consulted. `Log()` is handed finished values and only then asks IsEnabled. So there are two
+         costs, and the second is the one that makes it fire on a plain local:
+
+           1. computing the argument - `new FileInfo(path).Length`, `string.Join`, a LINQ count;
+           2. the ALLOCATION - LogInformation(string, params object?[]) has no arity-specific
+              overloads, so every call allocates an object[] and boxes each int and bool, whether
+              or not anything will read the line.
+
+         The bug it exists to catch is debug logging left in a hot path, shipped disabled, still
+         paying in full for lines nobody reads.
+
+         **Why it does not apply here - and the first version of this comment got the reason wrong,
+         which is worth keeping.** It argued that the sink is always enabled at Information so a
+         guard could never save anything. The owner pointed out that this will not stay true: "we
+         are going to want to disable most of this logging when we go to production... because we
+         are logging like everything". Once a minimum level is configurable, a filtered-out call
+         still evaluates its arguments and still allocates the params array - which is precisely the
+         waste this rule describes.
+
+         The real reason is about FREQUENCY, not about enablement. A disabled call only costs
+         something if it runs often, and almost every log site in this solution is once per load or
+         once per event: opening a demo, reading a map, resolving a material set. One small array
+         per map load is nothing whether or not anybody reads the line.
+
+         The sites that genuinely run hot - the viewmodel pass, the prop census, the material joins
+         - carry hand-written IsEnabled guards, and those are the ones the rule is actually for.
+         That split is the whole justification: suppressing the rule is not the same as ignoring
+         what it warns about, and a blanket guard everywhere would have made the expensive cases
+         indistinguishable from the trivial ones.
+
+         **Revisit this if a per-frame log is ever added.** A new call inside a draw or update path
+         needs its own guard, and nothing here will tell you so.
+
+         Satisfying it regardless would mean an `if (log.IsEnabled(...))` around all 193 log calls
+         in this solution, or a [LoggerMessage] partial declaration for each. The owner's call,
+         2026-08-24: "A is a lot of generated code too, so i think im fine with C".
+
+         **What is NOT suppressed is the case the rule is actually for.** Where an argument is
+         genuinely expensive - a filesystem call, `string.Join` over a material set, a LINQ count
+         over a collection - the call keeps an explicit `IsEnabled` guard, written by hand and
+         commented. Those are in Device3D and WorldRenderer today. Suppressing the rule is not the
+         same as ignoring what it is warning about, and the difference is the point: a blanket
+         guard everywhere would have made the expensive cases indistinguishable from the trivial
+         ones. -->
+    <NoWarn>$(NoWarn);CA1873</NoWarn>
+
     <!-- **Dependency advisories fail the restore, transitive ones included.**
 
          Stated explicitly rather than left to the SDK default, which has historically covered
