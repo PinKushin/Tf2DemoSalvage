@@ -48,6 +48,14 @@ public sealed unsafe class Device3D : IDisposable
     private PointRenderer? _points;
     private WorldRenderer? _world;
 
+    /// <summary>Each model's own vertices and rebased runs, built once per model (D86).</summary>
+    /// <remarks>
+    /// Cleared with the world, because the packed set is rebuilt for a new map and the paths in it
+    /// would otherwise resolve to the previous map's geometry.
+    /// </remarks>
+    private readonly Dictionary<string, PackedModel> _packedModels =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Draws HUD text, once an atlas has been given to it (D84).</summary>
     private HudRenderer? _hud;
 
@@ -216,15 +224,88 @@ public sealed unsafe class Device3D : IDisposable
         // empty buffer, with every count in the log looking correct.
         _world ??= WorldRenderer.Create(_device, _loggers);
 
-        Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> batches =
-            new(StringComparer.OrdinalIgnoreCase);
+        // **The seam where a shared pack becomes per-model meshes** (D86). `EntityModelSet` keeps
+        // every model's vertices in one list and records batch offsets into it; a static mesh per
+        // model wants its own vertices with its offsets rebased to zero. Doing that here means the
+        // renderer never learns that a shared list existed.
+        //
+        // **A model's vertices are contiguous**, which is what makes a slice correct rather than a
+        // gather: `EntityModelSet.Add` takes one model, groups its corners by material, and appends
+        // every group before moving to the next model. So the span from its lowest batch start to
+        // its highest end contains that model and nothing else.
+        // **Cached per path, because slicing is O(total) and would undo half the fix.** The buffers
+        // below are created once each, but this loop was rebuilding every model's vertex array and
+        // rebasing every batch on every call — so the GPU work became O(added) while the CPU work
+        // stayed O(the whole set). Measured: uploads fell from 193-231 ms to 35-53 ms rather than to
+        // nothing, and the residue was exactly this.
+        //
+        // Safe for the same reason the renderer's own skip is: a model path maps to fixed geometry
+        // for the life of a map, and `ClearWorld` empties this with the buffers it feeds.
+        Dictionary<string, PackedModel> packed = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string path in models.Paths)
         {
-            batches[path] = models.AllFrames(path);
+            if (_packedModels.TryGetValue(path, out PackedModel? already))
+            {
+                packed[path] = already;
+                continue;
+            }
+
+            IReadOnlyList<IReadOnlyList<WorldBatch>> frames = models.AllFrames(path);
+
+            int lowest = int.MaxValue;
+            int highest = 0;
+
+            foreach (IReadOnlyList<WorldBatch> frame in frames)
+            {
+                foreach (WorldBatch batch in frame)
+                {
+                    lowest = Math.Min(lowest, batch.FirstVertex);
+                    highest = Math.Max(highest, batch.FirstVertex + batch.VertexCount);
+                }
+            }
+
+            if (lowest == int.MaxValue || highest <= lowest)
+            {
+                // No geometry packed for this path. Recorded with empty vertices rather than
+                // skipped, so its batches still reach the renderer and the "posed but no geometry"
+                // report stays the one that fires.
+                //
+                // **Deliberately NOT cached**, because this is the one state that changes: a model
+                // with nothing packed yet may have geometry on a later frame, and caching the empty
+                // answer would make that permanent.
+                packed[path] = new PackedModel([], frames);
+                continue;
+            }
+
+            WorldVertex[] own = new WorldVertex[highest - lowest];
+
+            for (int at = 0; at < own.Length; at++)
+            {
+                own[at] = models.Vertices[lowest + at];
+            }
+
+            List<IReadOnlyList<WorldBatch>> rebased = [];
+
+            foreach (IReadOnlyList<WorldBatch> frame in frames)
+            {
+                List<WorldBatch> local = [];
+
+                foreach (WorldBatch batch in frame)
+                {
+                    local.Add(batch with { FirstVertex = batch.FirstVertex - lowest });
+                }
+
+                rebased.Add(local);
+            }
+
+            PackedModel built = new(own, rebased);
+
+            _packedModels[path] = built;
+            packed[path] = built;
         }
 
-        _world.UploadModels(_device, models.Vertices, batches);
+        _world.UploadModels(_device, packed);
     }
 
     /// <summary>Writes the next presented frame to a PNG.</summary>
@@ -396,11 +477,17 @@ public sealed unsafe class Device3D : IDisposable
             // **Which of the three, because they are different faults.** No renderer, nothing to
             // draw, or no camera — and a pass that silently does nothing looks exactly like a pass
             // that drew something invisible, which is the confusion this whole feature has lived in.
-            _render.LogInformation(
-                "viewmodel pass skipped: world {World}, instances {Instances}, camera {Camera}",
-                _world is not null,
-                viewmodels?.Count ?? -1,
-                camera is not null);
+            // Rate limited for the same reason as the line below: a first-person view with nothing
+            // to draw reports this EVERY frame otherwise, and a fault that persists does not become
+            // more true for being said a hundred times a second.
+            if (ViewmodelReportIsDue())
+            {
+                _render.LogInformation(
+                    "viewmodel pass skipped: world {World}, instances {Instances}, camera {Camera}",
+                    _world is not null,
+                    viewmodels?.Count ?? -1,
+                    camera is not null);
+            }
 
             return;
         }
@@ -410,7 +497,13 @@ public sealed unsafe class Device3D : IDisposable
         // somewhere off screen" and "drawn nowhere" look identical from every one of them.
         // Guarded: the join below walks every viewmodel and formats nine numbers each, which is
         // exactly the work CA1873 keeps out of a disabled log.
-        if (_render.IsEnabled(LogLevel.Information))
+        //
+        // **And rate limited, because the guard above only asks whether anyone is listening.**
+        // Measured 2026-08-24: this printed 6,534 times in two minutes — once per frame — as part of
+        // a log reaching 64,425 lines and 8.2 MB at roughly 1,280 writes a second. What it answers
+        // is "where did the viewmodel end up", which is a question about a PLACE and does not need
+        // a fresh answer sixty times a second.
+        if (_render.IsEnabled(LogLevel.Information) && ViewmodelReportIsDue())
         {
             _render.LogInformation(
                 "viewmodel pass: drawing {Count} at {Where}",
@@ -451,6 +544,7 @@ public sealed unsafe class Device3D : IDisposable
 
             _world.DrawModel(
                 _context,
+                instance.ModelPath,
                 instance.Matrix,
                 _world.ModelBatches(instance.ModelPath, instance.Frame),
                 instance.Light,
@@ -475,6 +569,32 @@ public sealed unsafe class Device3D : IDisposable
         _context.RSSetViewports(1, in whole);
 
         ReapplyCamera();
+    }
+
+    /// <summary>When the viewmodel pass last reported, so it cannot report per frame.</summary>
+    private long _viewmodelReportedAt;
+
+    /// <summary>Whether a second has passed since the viewmodel pass last said anything.</summary>
+    /// <remarks>
+    /// **A rate limit rather than a level, because these lines are wanted by DEFAULT.** They answer
+    /// "did the viewmodel draw, and where" — the questions this feature has spent its whole life
+    /// failing to answer — so hiding them behind `developer 1` would take away the thing that made
+    /// them worth writing. What was wrong was the frequency, not the level: 6,534 identical lines in
+    /// two minutes, one per frame, in a log that reached 64,425 lines and 8.2 MB.
+    ///
+    /// One a second keeps the answer available and costs nothing measurable.
+    /// </remarks>
+    private bool ViewmodelReportIsDue()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        if (now - _viewmodelReportedAt < System.Diagnostics.Stopwatch.Frequency)
+        {
+            return false;
+        }
+
+        _viewmodelReportedAt = now;
+        return true;
     }
 
     /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>
@@ -647,6 +767,7 @@ public sealed unsafe class Device3D : IDisposable
 
                     _world.DrawModel(
                         _context,
+                        instance.ModelPath,
                         instance.Matrix,
                         _world.ModelBatches(instance.ModelPath, instance.Frame),
                         instance.Light,
@@ -678,6 +799,7 @@ public sealed unsafe class Device3D : IDisposable
 
                     _world.DrawModel(
                         _context,
+                        instance.ModelPath,
                         instance.Matrix,
                         _world.ModelBatches(instance.ModelPath, instance.Frame),
                         instance.Light,
@@ -996,6 +1118,10 @@ public sealed unsafe class Device3D : IDisposable
 
         _world?.Dispose();
         _world = null;
+
+        // The renderer's buffers went with it, so the slices that fed them must go too — otherwise
+        // a path from the previous map resolves to geometry nothing holds any more.
+        _packedModels.Clear();
     }
 
     /// <summary>Whether a textured map is loaded.</summary>

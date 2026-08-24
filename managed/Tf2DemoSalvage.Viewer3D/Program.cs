@@ -71,6 +71,15 @@ internal static class Program
         // or dropping a folder on the executable all arrive here as paths, and all go through the
         // same library code the Open buttons use.
         using MainForm shell = new(loggers, args);
+
+        // **The `developer` cvar's other end.** The sink has always filtered on a settable Minimum
+        // and nothing could set it, so Debug was unreachable and demoting a noisy line to Debug was
+        // deletion wearing a comment. The form knows the setting — from the config or `+developer 1`
+        // — and this is the only place that holds the provider, so the switch is handed over rather
+        // than the provider being reached for from inside.
+        shell.SetLogVerbosity = level => logs.Minimum = level;
+        shell.ApplyLogVerbosity();
+
         Application.Run(shell);
     }
 }

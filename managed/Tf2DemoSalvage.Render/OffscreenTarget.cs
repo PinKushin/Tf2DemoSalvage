@@ -249,12 +249,21 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.Seconds = Seconds;
 
         _world.UploadTextures(_device, _context, assets);
+        // **Cleared first, because this target reuses one NAME for different geometry.** Every other
+        // caller maps a model path to fixed vertices for the life of a map, which is what lets the
+        // upload skip anything it already holds; here each Render is a different model under
+        // `offscreen/posed.mdl`, so without this the second render draws the first one's mesh.
+        _world.ClearModels();
+
+        // One model, so its vertices are already its own and its offsets already start at zero —
+        // which is exactly the shape a per-model static mesh wants (D86). The offscreen path was
+        // always giving the renderer one model's worth; it is only the production path that had to
+        // slice a shared pack apart.
         _world.UploadModels(
             _device,
-            vertices,
-            new Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>>(StringComparer.Ordinal)
+            new Dictionary<string, PackedModel>(StringComparer.Ordinal)
             {
-                [Posed] = new[] { batches },
+                [Posed] = new PackedModel(vertices, new[] { batches }),
             });
 
         _world.SetCamera(_device, _context, camera);
@@ -266,7 +275,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
         _world.DrawModel(
-            _context, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides);
+            _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides);
     }
 
     /// <summary>

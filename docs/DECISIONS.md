@@ -4702,3 +4702,116 @@ acquisition — where bytes come from — and none of it reaches the parsers.
 fixed in passing, because it is a UI feature (an import path, a picker, a zip reader) rather than a
 one-line change, and the frame rate meter was the task in hand.
 
+
+## D86 — PROJECT RULE: a departure from Valve must be DECLARED where it is made
+
+**The owner, on discovering that the model upload had never matched the engine:**
+
+> *"when that commit was made it was not explained that it was a departure or i would have never
+> approved it, it might have been something you said was closed off, but its obviously not"*
+
+D82 already says departures are bounded by size and justification. It assumed they would be
+**visible**. This one was not, and an undeclared departure cannot be bounded, argued with, or
+rejected — it is simply absorbed as though it were the design.
+
+### The case that produced the rule
+
+`a54e61e` (2026-08-13) introduced one packed vertex buffer holding every entity model, rebuilt
+whenever the set grew. Its commit message reasons entirely from first principles:
+
+> *"Two buffers rather than one because the lifetimes differ: the map's geometry is rebuilt when the
+> world is, while this grows only when the demo shows a model it has not shown before."*
+
+**Valve is not mentioned anywhere in it.** Not as a comparison, not as a rejected option, not as
+something unknowable. So there was nothing for the owner to approve or refuse — the choice never
+appeared as a choice.
+
+And the engine's answer was two greps away in *published* headers.
+`public/materialsystem/imaterialsystem.h` declares `CreateStaticMesh` / `DestroyStaticMesh`: one
+mesh per model, created once, destroyed once. `CBaseEntity::PrecacheModel` behind
+`IsPrecacheAllowed()` says when. Nothing here was closed; nobody checked. That is the failure
+`docs/memory/nothing-is-closed.md` exists for, and the reason
+`docs/memory/conformance-test-before-implementation.md` asks for the parity question to be answered
+*before* the code that would bias the answer.
+
+**What it cost:** roughly 200 ms of frozen application every time a model came into view, 25 times
+in 1 minute 43 seconds of one match, for eleven days — invisible to every counter, because the cost
+sat outside both the posing and drawing timers.
+
+### The rule
+
+1. **Before implementing anything the engine also does, find out how the engine does it.** The menu
+   in `CLAUDE.md` is a menu: go to the source that holds the answer. For rendering structure that is
+   the material system headers, which are published even though the implementation is not.
+2. **If the design differs, say so IN THE COMMIT MESSAGE**, in the form: what the engine does, what
+   we are doing, and why. Not in a code comment alone — a commit message is what gets reviewed.
+3. **"I could not find out what Valve does" is a claim that must be shown**, not assumed. It is
+   almost always false; when it is true the binaries are decompilable.
+4. **A comment asserting our arrangement is cheap is not evidence and must not be written as
+   though it were.** The one here — *"rare and bounded … known within a few seconds of playback"* —
+   was measured at 25 rebuilds over 1m43s. Confident, specific and unchecked is the worst
+   combination, because it reads as though somebody verified it and stops the question being asked
+   again.
+
+**The assistant's first proposal for the FIX repeated the original mistake** and is kept here as the
+worked example: it suggested keeping the packed buffer and appending to it, which addresses the cost
+while preserving the undeclared departure that caused it. Overruled — *"so we switch to valves,
+which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
+
+
+## D87 — PROJECT RULE: load at load time, not on sight
+
+**The owner, after three stalls in one session all turned out to be the same shape:**
+
+> *"yea i think most things in this project should probably not lazy load, i dont think video games
+> use lazy loading too often, because they need execution speed over size"*
+
+Right, and the engine says so in its own API. `CBaseEntity::PrecacheModel` is guarded by
+`IsPrecacheAllowed()` and carries the comment *"Warn on out of order precache"* — Source does not
+merely prefer loading at level load, it **complains when you do it later**. Sounds, models and
+materials all go through a precache pass before play begins.
+
+### Why a game does this and a general-purpose program does not
+
+Lazy loading trades a bounded, one-off cost at start-up for an unbounded cost at an unpredictable
+moment. That is a good trade when the deadline is a human's patience and a bad one when the deadline
+is 6.9 ms. **A frame has a deadline; RAM does not.**
+
+It is also the worse trade in the other direction here: a demo viewer is going to show what the demo
+contains, so almost nothing loaded eagerly is wasted. The set is known before the first frame,
+because the recording already happened.
+
+### What this cost, measured on 2026-08-24
+
+Every stall found in one session was the same mistake wearing different clothes:
+
+| what was lazy | cost | fixed by |
+|---|---|---|
+| the packed vertex buffer, rebuilt on every addition | 193-231 ms, 25 times in 1m43s | per-model static meshes (D86) |
+| model geometry PACKED when a prop first appears | 385 ms in one frame | precache from the timeline |
+| slices and rebased batches, rebuilt per call | 40-53 ms | cached per path |
+
+And the owner's report was the same each time — *"everything freezes for a half a second to maybe a
+second"* — while the frame rate never dropped, because a stall is not a slow frame rate.
+
+### The rule
+
+1. **Anything the demo will need, load before playback starts.** The timeline knows every model
+   before the first frame; the string tables know every sound and material. There is no reason to
+   discover them by being surprised.
+2. **Do it on the worker that already reads the map**, behind the `_readingMap` barrier, so it costs
+   nothing on the UI thread and shows up as load time rather than as a hitch.
+3. **Asynchronous loading is NOT the fix and must not be mistaken for it.** Loading a model off-
+   thread when a prop appears still leaves the first appearance wrong — either it hitches waiting or
+   it pops in late. Precaching removes the event; async only moves it.
+4. **A cache keyed on something that changes every frame is not a cache.** The lighting cache keys
+   on exact position, so static props hit it and players — who move every tick — never do.
+
+### Still lazy, and known
+
+- **Sound decode.** `Sample()` reads from the VPK and decodes on first play. Instrumented on
+  suspicion during this session and it recorded nothing, so it is not a current stall — but it is
+  the same shape, and the demo carries a `soundprecache` table naming every sound. Filed.
+- **The map itself**, deliberately: 33.5 seconds, already off the UI thread, and a viewer that
+  waited for every map on disk would never start.
+
