@@ -4501,3 +4501,106 @@ and comparing category counts against a pre-conversion log: `assets` 215, `map` 
 **The CLI needed no work.** It already used `ILoggerFactory` with a console provider, so the
 divergence is resolved by both halves speaking `ILogger` with different providers — which is what
 the abstraction is for, and what the facade would not have achieved.
+
+## D84 — The HUD is drawn in Direct3D as VGUI draws it, and rasterised with GDI for pixel parity
+
+**The owner, on seeing a WinForms overlay being built for the frame rate meter:** *"how does valve
+display it? i dont mind this stuff being dx, since its stuff tf2 has too, i dont expect it to be in
+winforms"*. And immediately after, on scope: *"yea we are going to implement huds, so we should
+setup this backbone now"*.
+
+So this is a backbone decision rather than a detail of B174. The frame rate meter is the first
+consumer; the scoreboard (B175) is the second.
+
+### What Valve does
+
+`CFPSPanel` is a `vgui::Panel` whose `Paint` calls
+`g_pMatSystemSurface->DrawColoredText( m_hFont, x, y, r, g, b, a, ... )` — the material system's 2D
+surface, composited into the same frame as the world. Not an OS window. The font is the scheme's
+`DefaultFixedOutline`, and finding that took one wrong turn worth recording: it is in neither
+`tf/resource/ClientScheme.res` nor `hl2/resource/ClientScheme.res` but in
+`platform/Resource/SourceScheme.res`, which is why every Source game's meter looks alike.
+
+```
+"DefaultFixedOutline" { "1" { "name" "Lucida Console"  "tall" "10"  "weight" "0"  "outline" "1" } }
+```
+
+### What was nearly built instead, and why it was wrong
+
+An owned borderless `Form` hosting a `Label`, following the transport bar's `OverlayWindow`. That
+pattern exists for a real reason — a child HWND over a `FLIP_DISCARD` swap chain does not composite
+reliably — and the reason it was reached for is a real constraint too: text drawn inside Direct3D is
+invisible to UIA and therefore to any UI test.
+
+It was still wrong. The viewer is imitating a game HUD, and a HUD that is an operating-system window
+cannot be captured in a screenshot of the viewport, cannot be positioned in viewport coordinates,
+and would not survive into any later video capture. The UIA objection is real and the answer is that
+HUD content gets asserted by picture rather than by tree — `docs/memory/a-picture-is-assertable.md`.
+
+### REVERSAL — the rasteriser, from SkiaSharp to GDI
+
+**The assistant recommended SkiaSharp and was overruled.** Both positions, because the losing one
+was argued at length and is the kind that gets repeated:
+
+- **Assistant:** one rasteriser on both platforms, because the point of the Linux box is testing, and
+  a test result only transfers if the box runs the same program. Valve's own answer is platform-split
+  — GDI on Windows, FreeType on Linux — so copying Valve would mean the Linux box exercised a
+  rasteriser the Windows build never runs. Also argued that pixel parity was unreachable anyway.
+- **Owner:** *"we will go for windows pixel parity, and just know we cant really test it on linux,
+  which is fine because the viewer cant go opn linux either, but it means another project that cant
+  if its a new project, which idk if this should be or if its a part of the viewer.3d project anyway
+  so going skia actually doesnt get us anything anyway"*.
+
+**What kills the assistant's argument is the consumer, and it is not a close call.** `Render` is
+Direct3D 11 and the host is WinForms — this code cannot run on Linux under any rasteriser. So Skia's
+cross-platform property was buying protection against a divergence that cannot occur, at the cost of
+the one thing that was actually achievable. The Linux box was never going to run the HUD; it was only
+ever going to run a rasteriser in isolation, which measures nothing anyone cares about.
+
+Generalised, because it is a trap worth naming: **a portability argument is about the CONSUMER, not
+about the library.** Choosing a cross-platform dependency for a component that only a Windows-only
+consumer can call buys nothing and costs the platform-specific capability.
+
+### What pixel parity actually costs, stated so it is not discovered later
+
+Reachable on Windows, and not free:
+
+1. **`vguimatsurface` is closed.** It is not in `source-sdk-2013` — only `fontabc.h` and
+   `BitmapFontFile.h` are. The DLL ships, so it is decompilable under the usual rule (output outside
+   every git tree), but it is a decompile rather than a read.
+2. **`outline` is not a font feature.** It is Valve's own post-process over the GDI glyph bitmap, as
+   are `blur`, `dropshadow` and `scanlines`. Matching them means recovering that code.
+3. **TF2 is not pixel-identical to itself across platforms**, since its Linux build uses FreeType.
+   "Pixel-identical to TF2" is therefore a per-platform target by construction.
+
+Parity with the Windows build is the target. The decompile is not done, so anything below is an
+approximation until it is, and the approximation must be labelled as one rather than claimed.
+
+### Layering, which the reversal constrains
+
+**Scheme parsing stays in `Tf2DemoSalvage.Content` and rasterisation goes in
+`Tf2DemoSalvage.Render`.** Not tidiness: Content's suites run on the Linux measurement boxes for
+mutation testing, so putting `System.Drawing` in Content would break those runs — and it would break
+them as a build failure that Stryker scores as a surviving mutant rather than reports as an error.
+Render is already Windows-only through Direct3D, so it costs nothing there.
+
+**Rasterisation sits behind an interface, on the owner's direction:** *"we want to be able to test
+this so a interface is probably not a bad idea, its SOLID if nothing else"*. The assistant had
+talked itself out of one a minute earlier as speculative generality — one implementation, extract
+when a second appears — and that reasoning was wrong here, because the second consumer is a test.
+
+It also decides the split cleanly, and the split is better than either half suggested:
+
+| lives in | what | portable? |
+|---|---|---|
+| `Content` | `SchemeFont`, the scheme reader, `IGlyphRasteriser`, glyph metrics, atlas packing, text layout | yes — testable on the Linux boxes against a fake rasteriser |
+| `Render` | `GdiGlyphRasteriser`, the atlas texture, the HUD draw call | no, and does not need to be |
+
+So the ARITHMETIC of a HUD — where each glyph lands, how wide a string is, how the atlas packs — is
+deterministic, Linux-testable and needs no font installed, while only the glyph bitmaps themselves
+are Windows-bound. That is the part worth testing anyway: a wrong advance width is a bug, and a
+one-pixel difference in antialiasing is not.
+
+The abstraction lives in `Content` and the implementation in `Render`, which is the direction
+dependency inversion asks for — `Render` already references `Content`.
+

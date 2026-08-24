@@ -210,7 +210,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 133
 # 649: BspVisibilityConformanceTests (7). The visibility lump's run-length encoding, checked against
 # Valve's own CompressVis by round-tripping through a transcription of it — plus the two malformed
 # cases DecompressVis guards, a run that overruns the row and a zero repeat count.
-run Tf2DemoSalvage.Content.Tests  content   649
+# 655: SchemeFontConformanceTests (6). VGUI's font declaration, read from the shipped
+# platform/Resource/SourceScheme.res because vguimatsurface is not in the SDK — the numbered
+# candidates, their yres ranges, and the same font declared twice as a #base override produces.
+run Tf2DemoSalvage.Content.Tests  content   655
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

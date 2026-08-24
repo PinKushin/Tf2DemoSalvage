@@ -3993,8 +3993,8 @@ internal class MainForm : Form
     /// </remarks>
     /// <summary>Where captures are written; beside the log unless told otherwise.</summary>
     /// <remarks>
-    /// **A setting, not an environment variable** — <c>screenshot_folder</c> in the config, or
-    /// <c>+screenshot_folder &lt;path&gt;</c> at startup, which is Source's own convention for
+    /// **A setting, not an environment variable** — <c>cl_screenshot_folder</c> in the config, or
+    /// <c>+cl_screenshot_folder &lt;path&gt;</c> at startup, which is Source's own convention for
     /// setting a cvar from the command line. The variable this replaced had to be exported in the
     /// shell that launched the viewer, so it was lost on every terminal restart and absent whenever
     /// a demo was opened by double-clicking it — which is the ordinary way to open one.
