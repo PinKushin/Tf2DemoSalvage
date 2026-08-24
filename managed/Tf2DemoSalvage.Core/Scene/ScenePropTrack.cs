@@ -274,6 +274,13 @@ public readonly record struct ScenePose
 /// the second — `C_BaseCombatWeapon::ShouldDraw` hides a weapon owned by the player whose eyes you
 /// are in, because the viewmodel draws it instead.
 /// </param>
+/// <param name="WeaponState">
+/// A combat weapon's carry state — 0 on the ground, 1 carried, 2 active (<c>shareddefs.h:296</c>) —
+/// or <c>null</c> when this is not a combat weapon at all. Null is the meaningful case as often as
+/// not: <c>m_iState</c> comes from <c>DT_BaseCombatWeapon</c>, so a <c>CTFWearable</c> such as the
+/// Mantreads or a demoman's shield never sends it, and those are worn whatever is in the player's
+/// hands. See <see cref="ScenePropTrack.WeaponState"/>.
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -297,7 +304,16 @@ public readonly record struct SceneProp(
     // visibility on ownership (C_BaseCombatWeapon::ShouldDraw), and a weapon that sends its own
     // origin is owned by its carrier while being parented to nobody — so AttachedTo cannot answer
     // the question the first-person view has to ask.
-    int? OwnedBy = null);
+    int? OwnedBy = null,
+
+    // **A combat weapon's carry state, null for anything that is not one.** The engine draws a
+    // player's holstered weapons not at all and their wearables always, and the two are told apart
+    // by whether `DT_BaseCombatWeapon` was declared — see ScenePropTrack.WeaponState.
+    //
+    // Appended rather than inserted: every parameter here is positional, so putting it beside the
+    // other attachment fields would silently re-map every call site that passes OwnedBy by
+    // position.
+    int? WeaponState = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -420,6 +436,29 @@ public sealed class ScenePropTrack
     /// this says who it belongs to. The engine keys a carried weapon's visibility on the second.
     /// </remarks>
     public int? OwnedBy { get; internal set; }
+
+    /// <summary>A combat weapon's carry state, or null when this is not a combat weapon.</summary>
+    /// <remarks>
+    /// **Null is the answer to "is this a weapon at all", and that is Valve's own distinction
+    /// rather than one invented here.** `m_iState` is declared by `DT_BaseCombatWeapon`
+    /// (<c>basecombatweapon_shared.cpp:2871</c>), so an entity that never derives from
+    /// `CBaseCombatWeapon` does not send it — and a `CTFWearable` is exactly that. The Mantreads,
+    /// a demoman's shield and a sniper's Razorback are wearables, and they are worn and visible
+    /// whether or not anything is "active".
+    ///
+    /// That matters because the visibility rule differs by class.
+    /// `C_BaseCombatWeapon::ShouldDraw` (<c>c_basecombatweapon.cpp:399</c>) reduces, for a weapon
+    /// owned by another player, to <c>return bIsActive</c> — so a player's holstered weapons are
+    /// not drawn. Applying that to wearables would strip the shields off every demoman.
+    ///
+    /// Values are <c>WEAPON_NOT_CARRIED 0</c>, <c>WEAPON_IS_CARRIED_BY_PLAYER 1</c> and
+    /// <c>WEAPON_IS_ACTIVE 2</c> (<c>shareddefs.h:296-298</c>).
+    ///
+    /// Carried on the track so a prop describes itself, rather than the renderer guessing from a
+    /// model path — which would be wrong in both directions here, since `c_rocketboots_soldier`
+    /// lives under <c>models/weapons/</c> and is a wearable.
+    /// </remarks>
+    public int? WeaponState { get; internal set; }
 
     /// <summary>Which named point on its wearer this hangs from, one-based, or null.</summary>
     /// <remarks>

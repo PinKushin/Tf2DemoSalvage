@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Diagnostics;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
 
@@ -1472,17 +1473,32 @@ public sealed class DemoTimeline
         // all 37 live CTFWearable entities carry a model, an owner, a skin and a team, and no
         // position whatsoever. They are recorded at the origin because that is literally what
         // SetLocalOrigin( vec3_origin ) put there; the owner is what says where to draw them.
+        // **Attachment is asked FIRST, and the order is the whole of B173's weapon half.** A
+        // networked origin is a LOCAL origin — relative to the parent when there is one — so for an
+        // attached entity it says nothing about where the thing is in the world. `FollowEntity`
+        // ends with `SetLocalOrigin( vec3_origin )` (baseentity_shared.cpp:2371), so a carried
+        // weapon sends an origin, and that origin is exactly (0,0,0).
+        //
+        // Tested the other way round, that zero satisfied the first branch and `Attachment` was
+        // never called at all. Measured in the viewer: 17 weapons in the scene, 17 instanced, 14
+        // owned, **0 attached, 14 at the world origin** — every carried weapon piled on the map's
+        // origin while the three unowned ones, which send a real position, drew correctly.
+        //
+        // Cosmetics escaped it only by accident: a `CTFWearable` sends no origin whatsoever, so it
+        // fell through to the attachment branch and worked. That is why hats were fixed and weapons
+        // were not, and why the comment above — "the owner is what says where to draw them" —
+        // described a rule the code did not follow.
         int? attachedTo = null;
         (float X, float Y, float Z) origin;
 
-        if (state.Origin() is { } placed)
-        {
-            origin = placed;
-        }
-        else if (state.Attachment() is { } owner)
+        if (state.Attachment() is { } owner)
         {
             attachedTo = owner;
             origin = (0f, 0f, 0f);
+        }
+        else if (state.Origin() is { } placed)
+        {
+            origin = placed;
         }
         else
         {
@@ -1537,6 +1553,11 @@ public sealed class DemoTimeline
         // Ownership regardless of attachment, because the first-person view hides a followed
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
         track.OwnedBy = state.Owner();
+
+        // Kept current for the same reason as the others: a weapon is holstered and drawn again as
+        // the player switches, so a state fixed at the first delta would freeze whichever weapon
+        // happened to be out when the track began.
+        track.WeaponState = state.WeaponState();
 
         // **Which point on the wearer, for the items that hang from one rather than merging.**
         // Kept current for the same reason the wearer is: it can arrive on a later delta than the
@@ -1716,7 +1737,7 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy));
+                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState));
             }
         }
     }

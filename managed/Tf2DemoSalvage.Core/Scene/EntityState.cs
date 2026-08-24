@@ -528,6 +528,50 @@ public sealed class EntityState
     /// </remarks>
     public int? WorldModelIndex() => Integer($"{WeaponTable}.m_iWorldModelIndex");
 
+    /// <summary>A weapon on the ground.</summary>
+    /// <remarks><c>#define WEAPON_NOT_CARRIED 0</c>, <c>game/shared/shareddefs.h:296</c>.</remarks>
+    public const int WeaponNotCarried = 0;
+
+    /// <summary>A weapon a player is carrying but not holding.</summary>
+    /// <remarks><c>#define WEAPON_IS_CARRIED_BY_PLAYER 1</c>, <c>shareddefs.h:297</c>.</remarks>
+    public const int WeaponCarried = 1;
+
+    /// <summary>The weapon a player currently has out.</summary>
+    /// <remarks>
+    /// <c>#define WEAPON_IS_ACTIVE 2</c> — *"This client is carrying this weapon and it's the
+    /// currently held weapon"*, <c>shareddefs.h:298</c>.
+    /// </remarks>
+    public const int WeaponActive = 2;
+
+    /// <summary>Whether a weapon is on the ground, carried, or held — or null if not a weapon.</summary>
+    /// <remarks>
+    /// **The one property the engine's visibility rule turns on for everybody but you.**
+    /// <c>C_BaseCombatWeapon::ShouldDraw</c> (<c>c_basecombatweapon.cpp:399</c>) reduces, for a
+    /// weapon owned by another player, to a single line:
+    ///
+    /// <code>
+    /// if ( pOwner->IsPlayer() )
+    /// {
+    ///     // Show it if it's active...
+    ///     return bIsActive;
+    /// }
+    /// </code>
+    ///
+    /// where <c>bIsActive = ( m_iState == WEAPON_IS_ACTIVE )</c>. So a player's other two weapons
+    /// are carried and not drawn, and without this every player wears all three at once in the same
+    /// hand.
+    ///
+    /// **Sent on the same table and the very next line to the world model index we already read** —
+    /// <c>SendPropInt( SENDINFO(m_iState), 8, SPROP_UNSIGNED )</c>,
+    /// <c>basecombatweapon_shared.cpp:2871</c>, against <c>m_iWorldModelIndex</c> at 2870. It was
+    /// simply never decoded.
+    ///
+    /// Null rather than a default, because "not a weapon" and "a weapon that sent no state" are
+    /// different answers and the caller decides — the same reason
+    /// <see cref="WorldModelIndex"/> refuses to fall back.
+    /// </remarks>
+    public int? WeaponState() => Integer($"{WeaponTable}.m_iState");
+
     /// <summary>The table a weapon's own properties arrive under.</summary>
     private const string WeaponTable = "DT_BaseCombatWeapon";
 

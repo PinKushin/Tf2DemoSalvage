@@ -64,10 +64,35 @@ internal sealed class FakePlaybackView : IPlaybackView
 /// reset. With a real <c>Stopwatch</c> the only way to observe those rules is to wait, which turns
 /// a deterministic check into a probabilistic one.
 /// </remarks>
+/// <remarks>
+/// **This models STOPPED as well as elapsed, and it did not, which made it blind to a shipped
+/// bug.** `Seconds` used to be a plain settable property, so the fake reported time passing even
+/// after `Reset` had stopped it. The real <c>StopwatchTime</c> wraps a `Stopwatch`, whose `Elapsed`
+/// does not advance while it is not running — and that difference is the whole mechanism of the
+/// autoplay regression: the flag said playing, the clock was never started, and `Advance` saw zero
+/// elapsed for ever.
+///
+/// A test written against the old fake could not fail on that no matter how it was phrased, because
+/// the fake's elapsed time did not depend on the state the bug turned on. That is the "wrong
+/// instrument" case from the testing standards: the measurement was not faithful to the variable.
+/// </remarks>
 internal sealed class FakeElapsedTime : IElapsedTime
 {
+    private double _seconds;
+
+    /// <summary>Whether the clock is running, as a real stopwatch tracks.</summary>
+    private bool _running;
+
     /// <inheritdoc />
-    public double Seconds { get; set; }
+    /// <remarks>
+    /// Zero while stopped, whatever the test set. Setting it is how a test makes time pass, but
+    /// only a started clock reports any.
+    /// </remarks>
+    public double Seconds
+    {
+        get => _running ? _seconds : 0d;
+        set => _seconds = value;
+    }
 
     /// <summary>How many times <see cref="Restart"/> was called.</summary>
     public int Restarts { get; private set; }
@@ -79,13 +104,15 @@ internal sealed class FakeElapsedTime : IElapsedTime
     public void Restart()
     {
         Restarts++;
-        Seconds = 0;
+        _seconds = 0;
+        _running = true;
     }
 
     /// <inheritdoc />
     public void Reset()
     {
         Resets++;
-        Seconds = 0;
+        _seconds = 0;
+        _running = false;
     }
 }
