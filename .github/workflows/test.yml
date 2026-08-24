@@ -127,8 +127,26 @@ jobs:
       # to match local would mean fetching the LFS blobs into this job**, which costs bandwidth
       # against a 1 GiB monthly budget to gate a number, and is not worth it.
       #
-      # Content's floor is provisional: its number has never printed, because the first version of
-      # this step stopped at Cli's failure. Tightened once a run reports it.
+      # **Content's floor was provisional and is now measured: 55 -> 53 on 2026-08-24.** The note
+      # here said its number had never printed, because the first version of this step stopped at
+      # Cli's failure, and to tighten it once a run reported one. A run has now reported four, and
+      # 55 was simply a guess that was never true: 52.9, 52.9, 53.2, 53.2.
+      #
+      # **The important part is WHY this number is low, because it looks like rotted tests and is
+      # not.** Measured the same day on the same commit:
+      #
+      #     locally, with TF2 installed:  85.0% line
+      #     here, with no TF2:            53.2% line
+      #
+      # CI skips ~250 Content tests because the game is absent, so every reader that needs a real
+      # VTF, VMT or MDL is uncovered here however well tested it is. This floor therefore measures
+      # "how much of Content can be exercised without the game", and that fraction FALLS as the
+      # project adds game-dependent readers — which is most of what Content is for.
+      #
+      # So do not read a drop here as tests being lost, and do not chase it by writing tests against
+      # hand-built fixtures purely to move it. The number that says whether Content is tested is the
+      # 85% from a developer machine. This one is a floor under the device-free subset, and it will
+      # need lowering again as that subset shrinks relative to the whole.
       #
       # Deliberately a "don't regress off a cliff" line rather than a target. The owner's framing
       # (D50) is that implementations are being taken fast, so this must not become a tax on
@@ -148,7 +166,7 @@ jobs:
             tf2demosalvage 78 83 || failed=1
           ./build/assert-coverage.sh \
             "$(find coverage/content -name coverage.cobertura.xml | head -1)" \
-            Tf2DemoSalvage.Content 55 45 || failed=1
+            Tf2DemoSalvage.Content 53 45 || failed=1
           exit $failed
 
       - uses: actions/upload-artifact@v7
