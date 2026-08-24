@@ -10023,6 +10023,64 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
+### B182 — the pose path has no denominator, so nobody can say how far it diverged — OPEN
+
+**Filed 2026-08-24.** The owner, on the bone-merge loop:
+
+> *"that loop just reeks and i dont trust how far its deverged from valves implementation"*
+
+That is a bigger question than B181's shape complaint, and **nothing in this repository can currently
+answer it.** `SdkCoverageTests` generates a denominator from the SDK for shader parameters (489), BSP
+lumps (66) and studio structures (54), so a missing one cannot hide. The animation and bone pipeline
+has no such denominator, and it is the subsystem with the most engine behaviour per line.
+
+#### The denominator, read from the SDK
+
+`C_BaseAnimating::StandardBlendingRules` (`game/client/c_baseanimating.cpp:1953`) runs these in
+order:
+
+```cpp
+boneSetup.InitPose( pos, q );
+boneSetup.AccumulatePose( pos, q, GetSequence(), fCycle, 1.0, currentTime, m_pIk );
+MaintainSequenceTransitions( boneSetup, fCycle, pos, q );
+AccumulateLayers( boneSetup, pos, q, currentTime );
+boneSetup.CalcAutoplaySequences( pos, q, currentTime, &auto_ik );
+boneSetup.CalcBoneAdj( pos, q, controllers );
+UnragdollBlend( hdr, pos, q, currentTime );
+```
+
+and `SetupBones` then runs `BuildTransformations` (the parent-chain concatenation),
+`CalculateIKLocks` and `SetupBones_AttachmentHelper`.
+
+#### What we appear to have, and the honest confidence on each
+
+Counted by searching for any equivalent, so this is a **starting inventory and not a verdict** —
+several of these need reading before the column is trustworthy.
+
+| stage | ours | confidence |
+|---|---|---|
+| `InitPose` / `AccumulatePose` | sequence + frame + pose parameters | named only in comments; no stage boundary exists |
+| `MaintainSequenceTransitions` | none found | high — a sequence change appears to snap |
+| `AccumulateLayers` | `StudioGestureWeights` exists | low — TF2 leans on layers for aiming and reloading |
+| `CalcAutoplaySequences` | none found | medium |
+| `CalcBoneAdj` (bone controllers) | **nothing** | high |
+| `UnragdollBlend` | not applicable — no ragdolls yet | high |
+| `BuildTransformations` | parent concatenation exists | medium |
+| `CalculateIKLocks` | **nothing** | high — feet do not plant |
+| attachments | `StudioAttachment`, used for worn items | medium |
+
+#### What to do
+
+Follow the pattern that already works here rather than inventing one: **generate the denominator
+from the SDK and let a test carry it**, the way `SdkCoverageTests` does for lumps and shader
+parameters. Then each stage is either implemented, deliberately skipped with a reason, or a filed
+gap — and the list cannot go stale, because it is read from `c_baseanimating.cpp` rather than typed
+here.
+
+**Do this before or alongside B181, not after.** B181 splits the loop into stages; knowing the
+engine's stage list first means splitting along the engine's seams rather than along whatever the
+current code happens to do — which is exactly the divergence being complained about.
+
 ### B181 — split the entity pose loop, then replace the depth sort with recursion — OPEN, OWNER WANTS THIS DONE
 
 **This is a work order, not an observation.** The owner, on the depth sort being kept:

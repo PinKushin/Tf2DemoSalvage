@@ -15,7 +15,28 @@ Supersedes the earlier handoff for anything about rendering, logging or performa
 
 ---
 
-## 1. Start here: the owner wants B181 done, first
+## 0. The bigger worry behind B181: B182
+
+The owner's actual concern is not that the loop is ugly:
+
+> *"that loop just reeks and i dont trust how far its deverged from valves implementation"*
+
+**Nothing here can answer that today**, and that is B182. `SdkCoverageTests` generates a denominator
+from the SDK for shader parameters, BSP lumps and studio structures, so a missing one cannot hide.
+The animation and bone pipeline — the subsystem with the most engine behaviour per line — has none.
+
+The denominator is `C_BaseAnimating::StandardBlendingRules`, seven ordered stages, plus
+`BuildTransformations`, `CalculateIKLocks` and `SetupBones_AttachmentHelper`. A first inventory is in
+B182; the honest headline is that **bone controllers (`CalcBoneAdj`) and IK locks
+(`CalculateIKLocks`) appear to be entirely absent**, and sequence transitions look like they snap.
+
+**Do B182 before or alongside B181.** B181 splits the loop into stages; knowing the engine's stage
+list first means splitting along the engine's seams instead of along whatever the current code
+happens to do — which is the divergence being complained about in the first place.
+
+---
+
+## 1. Then B181: split the loop, then recursion
 
 **This is the reason this handoff exists.** Read `docs/RISKS.md` B181 in full before anything else.
 It is a work order, not an observation, and the owner said so:
@@ -139,7 +160,8 @@ All in `docs/DECISIONS.md` with his words. The ones most likely to be re-litigat
 
 ## 6. Open, in the owner's priority order
 
-1. **B181** — split the pose loop, then recursion. See §1. He wants this first.
+1. **B182** — give the pose path a denominator from the SDK. See §0; do this before or alongside B181.
+2. **B181** — split the pose loop, then recursion. See §1. He wants this done.
 2. **Projectiles and bullets.** Not started. His reasoning for doing weapons first was *"it will be
    weird to see projectiles flying without the weapons"* — that half is done now.
 3. **The weapon attachment drawing as the magenta chequer.** A missing MATERIAL, not placement —
