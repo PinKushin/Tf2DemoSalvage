@@ -4386,3 +4386,45 @@ measured.
 Recorded with the owner's hedge intact — *"at least by my understanding of what would have been the
 best decision"* — because it is a judgement about a decision taken earlier and partly from memory,
 not a claim of fact.
+
+## D83 — Two logging systems, and why the viewer's was hand-rolled was never written down
+
+**The owner, 2026-08-24, on seeing `Microsoft.Extensions.Logging` referenced only by the CLI:**
+*"logging should basically be everywhere too, are we not logging the viewer and the rest of the
+projects?"* and then *"why did viewer custom roll a log class?"*
+
+Measured rather than assumed:
+
+| project | logging |
+|---|---|
+| `Core`, `Content`, `Audio`, `Presentation` | none |
+| `Scene` (6 files), `Render` (2), `Viewer3D` (2) | `ViewerLog`, a hand-rolled static |
+| `Cli` (2 files) | `ILogger` |
+
+**The library silence is deliberate and stays.** Those four return structured refusals instead of
+logging — `SoundSampleReader` reports why a sound would not decode, `BspVisibility` throws naming
+the cluster and the reason, `SoundScriptCatalog` hands back what it resolved. A library that logs
+picks a sink on its consumer's behalf, which is the concretion D6's dependency-inversion rule warns
+about. It is also why this session's audio defects were diagnosable at all: the viewer could report
+what the decoder told it.
+
+**Why `ViewerLog` is hand-rolled is NOT recorded, and this entry does not invent a reason.** Its own
+remarks justify the LOGGING — three defects that were invisible rather than hard, fallbacks that
+must announce themselves, a file rather than a console because a WinForms app has none, and never
+failing the caller over a log line. None of that explains build-versus-buy.
+
+The strongest reconstruction, offered as reconstruction: **`Microsoft.Extensions.Logging` ships no
+file provider.** Console, Debug, EventSource and EventLog are the built-ins, so "just use `ILogger`"
+would have meant taking Serilog or NLog for a sink the viewer's whole purpose depends on. Against
+roughly a hundred lines of writer for one desktop application, hand-rolling is defensible. But
+nobody wrote that down at the time and it may not be the reason.
+
+**What is genuinely open**, and not decided here:
+
+- **`ViewerLog` is a static.** That is the concretion the DI rule argues against, and it has a
+  concrete cost: library code cannot log even where logging would be right, because reaching for a
+  static in `Core` would drag `Scene` in behind it.
+- **The CLI and the viewer diverge**, so a future shared component has no obvious way to report.
+
+Neither is a defect today. Recorded so the next person asking "why two?" finds the measurement and
+the honest gap rather than reconstructing it again — which is what just happened.
