@@ -1,38 +1,27 @@
 ---
 name: research-before-code
-description: Check Valve's source before writing or changing anything, and let it outrank every other authority including the owner's recollection and mine.
+description: Guess, verify against a source, then code — skipping the verify step is what costs. Corroborated by this project's own history — the decoder worked correctly before a specimen ever existed to check it against.
 metadata:
-  type: feedback
+  type: project
 ---
 
-**Check the source first, every time, before doing anything.** The loop is: hypothesis, research
-from first sources or decomp, refine, confirm the sources do not already answer it, then test.
+The working method: form a hypothesis, verify it against a published source (SDK, changelog, shipped
+binary), only then write the code. Skipping straight to code on a guess is what has cost sessions
+here.
 
-**The source outranks everything else, including the owner's assertions and my own reasoning.** The
-owner's instruction, verbatim in intent: if they say something wrong or misremembered, say so and do
-the right thing. Deference to a stated belief that the code contradicts is not politeness, it is a
-defect waiting to ship.
+**Confirmed by the project's own history in the strongest possible way.** Owner, 2026-08-24: *"i was
+going to make this with or without demo examples, and pray it worked for untested demos, because
+there is plenty of information available to reverse the changes and account for them without
+actually having to have a demo from every protocol, or client ever. we did most of our demo decode
+work before we ever had a launch tf2 client, but it worked as soon as we passed a demo in because the
+changes had all been documented online or by referencing earlier sdk's."*
 
-A local clone lives at `F:\src\source-sdk-2013` — outside every repository, per the rule that
-Valve's source and decompiler output never enter this tree or its history. Grep it; it answers in
-one command what several web fetches could not.
+The decode logic was built and believed correct **before any demo existed to test it against**, from
+published changelogs and earlier SDK branches — and it worked on the first real file. The corpus
+never taught the parser anything; it corroborated a design already correct by construction. See
+`docs/DECISIONS.md` D5.
 
-**Measured cases, all from one session:**
-
-- The owner said loose files override VPKs. `gameinfo.txt` lists the VPKs above the loose mod path,
-  and the folklore is half-right for a different reason — `tf/custom/*` is listed FIRST, which is
-  why HUDs win. Working code was nearly inverted to match the recollection. They corrected it
-  themselves; the point is that the file already had the answer before anyone spoke.
-- Props drew at half brightness. A measurement said props averaged 0.2309 against the world's
-  0.4704, and that was explained as a missing gamma step, because `0.23 ^ (1/2.2)` is 0.495 and also
-  lands near 0.47. The shader settles it: `cOverbright 2.0f`, and the ratio was 2.04. Two curves
-  through one point, and only the source distinguishes them.
-- Displacement lightmap coordinates are ASSIGNED from the corner ordering, never projected through
-  `lightmapVecs`. Projecting looked obviously right and put 219 of 578 faces outside their own
-  lightmap.
-
-**How to apply:** before writing an expected value, ask what program WROTE the file and whether that
-program is published — prefer the encoder to the decoder. State the hypothesis, find the passage
-that settles it, then code. Related: [[decode-must-be-total]],
-[[read-the-encoder-not-the-decoder]], [[valve-publishes-bitbuf]],
-[[binaries-answer-what-the-sdk-cannot]].
+**How to apply:** a corpus or dating gap is not blocked work. The schema-driven read (D1/D2) is the
+actual bet, not insurance against not having a specimen — treating an open corpus gap as blocking is
+the category error this memory exists to prevent. Related: [[era-axis-is-measured]],
+[[a-client-dates-a-protocol-a-demo-does-not]].

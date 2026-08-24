@@ -9,11 +9,18 @@ scale as they are confirmed — a row never silently improves.
 
 ## What the dates are FOR, and the precision that is actually achievable
 
-**Dating serves the write-up, not the parser.** The decoder is schema-driven: it reads whatever
-`SendTables` each file carries, so it never needs to know what year a demo is from. Nothing in the
-codebase blocks on a row here. The value of this document is that Valve publishes *what* changed
-between protocols and never *when*, so the era axis is original research worth having — and it is
-research, not a dependency.
+**Dating serves the write-up, not the parser, and was never the plan's dependency.** The owner,
+2026-08-24: *"the dating gap was never blocking, never was the corpus gap really, i was going to
+make this with or without demo examples... we did most of our demo decode work before we ever had
+a launch tf2 client, but it worked as soon as we passed a demo in because the changes had all been
+documented online or by referencing earlier sdk's."* See `docs/DECISIONS.md` D5 for the fuller
+account — this project's own history is the proof: the decode was correct before a specimen ever
+existed to check it against, built from published changelogs and earlier SDK branches.
+
+The decoder is schema-driven: it reads whatever `SendTables` each file carries, so it never needs to
+know what year a demo is from. Nothing in the codebase blocks on a row here. The value of this
+document is that Valve publishes *what* changed between protocols and never *when*, so the era axis
+is original research worth having — corroboration, not a dependency.
 
 **Week-level precision is not achievable and is not being attempted.** The owner, 2026-08-24: *"we
 will always only be estimating the time periods any given protocol was actually used, because tf2

@@ -158,6 +158,26 @@ What changed is the count. We believed we had one mid-2010s specimen; we have no
 
 - **The one-byte-short `dem_stop` is not a salvage fixture.** It was recorded as one; two further demos showed every TF2 demo ends that way, so it is the normal terminator (`SPEC.md`).
 
+**Restated 2026-08-24, because D5 had framed this as a hedge against scarcity rather than as the
+design.** The owner: *"the dating gap was never blocking, never was the corpus gap really, i was
+going to make this with or without demo examples, and pray it worked for untested demos, because
+there is plenty of information available to reverse the changes and account for them without
+actually having to have a demo from every protocol, or client ever. we did most of our demo decode
+work before we ever had a launch tf2 client, but it worked as soon as we passed a demo in because
+the changes had all been documented online or by referencing earlier sdk's."*
+
+That is the plan, stated before this project had a name, and it is confirmed by its own history:
+the decode work was done and correct **before** a launch client was ever obtained, from published
+changelogs and earlier SDK branches, and it worked the moment a real demo was finally passed in.
+The corpus did not teach the parser anything it did not already know — it corroborated a design
+already believed correct by construction.
+
+So: **a demo is a specimen to corroborate the design, never an input the design depends on.** The
+schema-driven read (D1/D2) is not insurance against not having one; it is the actual bet. Every
+corpus and dating gap this project has filed — 12–13, 17–20/23, the un-dated recovered demos — is
+notable and worth closing, but none of it has ever been blocking, and treating an open one as
+blocked work is a category error the project has made before and should not make again.
+
 ## D6. Engineering practice: TDD, SOLID, DRY — applied everywhere, not just talked about
 
 Owner's standing global preference for all work, not specific to this project, but worth stating concretely here since it should shape how Claude Code actually implements Phase 1 onward:
