@@ -10147,7 +10147,39 @@ already-destroyed context on the next call. That is a hypothesis and it is writt
 only thing catching it — a 208-of-634 abort still prints `Passed!` on the line above `Test Run
 Aborted`, which is precisely why the floors exist (B104).
 
-### B177 — soundscape selection ignores PVS, so every entity on the map contends
+### B177 — CLOSED 2026-08-24. Soundscape selection reads the PVS, as the engine does
+
+**`BspVisibility` reads the visibility lump and `Choose` filters on it.** Measured on cp_process:
+from the far spawn's cluster (2196 of 2238), **6 of 44 placements are reachable** — everything else
+is now never considered and never traced to, which is what `m_soundscapesInCluster` achieves at map
+load.
+
+**Valve's algorithm, and where this deliberately differs.** `LevelInitPostEntity` takes each
+soundscape's cluster, gets ITS PVS, and adds the soundscape to every visible cluster's list, clipped
+by radius against each cluster's bounding box. This asks the transpose — is the placement's cluster
+visible from the LISTENER's — which is equivalent because `vvis` computes mutual visibility, and
+needs one decompressed row per listener rather than one per soundscape. The radius clip is not
+implemented; cp_process uses `-1` (unlimited) on all 44 entities, so it would be inert there, and
+`Choose` still applies the radius test per placement afterwards.
+
+**Three ways of not knowing all fall through to considering the placement** — no vis data, a
+listener in solid space, a placement with no cluster. Dropping on missing information would make a
+map compiled without vis silent, which is far worse than the over-wide selection this narrows.
+
+**A trap worth keeping, because it made the filter silently inert.** The engine selects at
+`pPlayer->EarPosition()`, not at the player's origin. The owner's `soundscape_dumpclient` captures
+are origins, and `(-4816, -1280, 576)` resolves into leaf 3991 with cluster **−1** — a point exactly
+on the floor lands in the solid leaf beneath it. Cluster −1 disables filtering, so a test written at
+that coordinate would have reported "the PVS does nothing" while the PVS was fine. Raising by
+`VEC_VIEW` (64) gives cluster 2196. The viewer never hits this — its listener is the camera, already
+at eye height.
+
+**The seven captures are now a regression test for this**, run with the filter ON: all still resolve
+to what the client picked. That proves the filter is safe and proves nothing about whether it acts,
+which is why the 6-of-44 measurement is a separate test — the captures would pass identically if
+`Reachable` always returned true.
+
+### The original filing, kept for the reasoning
 
 **Filed 2026-08-24, not started.** `CSoundscapeSystem::Update` only lets soundscapes in the
 listener's own visibility cluster contend — `m_soundscapesInCluster[clusterIndex]`, built from the
