@@ -109,10 +109,16 @@ was current. A demo can be a legitimate protocol-22 specimen with no known date.
 to dating would have left four known-good demos red indefinitely, because **these are scrims and
 pugs rather than league matches** and there is no ESEA or ETF2L record to date them from.
 
-Dating stays worth doing and is not blocked either — two of the four carry a date in the filename
-(`20120707`, `20120909`), map versions have known release windows, and `proto_version.h` names the
-build boundaries to check a candidate against. That belongs in `docs/TIMELINE.md`, on its own
-schedule, and the era table should keep saying "undated" until it happens.
+**And note what a demo can and cannot establish, because it is easy to blur.** Running a period
+client dates a **protocol** — a build of known date reports a `version`. It never dates a demo, and
+a demo never dates a protocol: one speaking protocol 22 was recorded somewhere inside protocol 22's
+lifetime and inherits that window rather than defining it.
+
+So there are two gaps and these demos close only one. The **specimen** gap for 21 and 22 is now
+closed; the **dating** gap for that protocol range is still open and needs a period *client* stamped
+inside 17–23, which is what `docs/TIMELINE.md` has been chasing all along. Filenames (`20120707`,
+`20120909`) and map release windows do constrain it from the other end, but they are inferred bounds
+and belong in the timeline marked as such, never in the same column as a `version` reading.
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
 
