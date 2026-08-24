@@ -139,7 +139,11 @@ jobs:
           # appears on a runner too. Confirm against the next green run's .trx and tighten if it
           # disagrees — the standing rule here is that an arithmetic floor is a guess wearing a
           # number, and this one is only safe because the added tests read no game files.
-          ./build/assert-test-count.sh '**/content.trx' 645 Content
+          # 645 -> 656 is ARITHMETIC again: 11 tests added on 2026-08-24 (BonePipelineStructTests 10,
+          # BonePipelineStructProbe 1). All eleven need source-sdk-2013, which a runner does not
+          # have, so all eleven Assert.Ignore here — and a .trx total counts skipped tests, so they
+          # still appear. Confirm against the next green run and tighten if it disagrees.
+          ./build/assert-test-count.sh '**/content.trx' 656 Content
           ./build/assert-test-count.sh '**/presentation.trx' 135 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts

@@ -156,6 +156,125 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>poseToBone</c>: a 3×4 matrix, the skinning bind pose.</summary>
     public const int BonePoseToBoneOffset = 96;
 
+    /// <summary>Byte offset of <c>bonecontroller[6]</c>: which controller drives each axis.</summary>
+    /// <remarks>
+    /// Six signed integers, one per degree of freedom (X, Y, Z, XR, YR, ZR), each the index of a
+    /// <c>mstudiobonecontroller_t</c> or −1. This is the lookup <c>CalcBoneAdj</c> walks.
+    /// </remarks>
+    public const int BoneControllerListOffset = 8;
+
+    /// <summary>How many controller slots a bone carries.</summary>
+    public const int BoneControllerSlots = 6;
+
+    /// <summary>Byte offset of <c>flags</c>: the <c>BONE_USED_BY_*</c> mask (B182).</summary>
+    /// <remarks>
+    /// **The field the whole engine pipeline is gated on**, and the reader has never read it. Every
+    /// <c>C_BaseAnimating</c> entry point takes a <c>boneMask</c> and matches it against this;
+    /// <c>BuildTransformations</c> skips a bone outright when the two do not intersect. See
+    /// <see cref="StudioBoneFlags"/>.
+    /// </remarks>
+    public const int BoneFlagsOffset = 160;
+
+    /// <summary>Byte offset of <c>proctype</c>: which rule computes this bone, or 0 for none.</summary>
+    public const int BoneProcedureTypeOffset = 164;
+
+    /// <summary>Byte offset of <c>procindex</c>: where that rule's data sits, relative to the bone.</summary>
+    /// <remarks>
+    /// **Relative to the BONE, not to the file.** <c>pProcedure()</c> is
+    /// <c>((byte *)this) + procindex</c>, and it returns null when <c>procindex</c> is zero — so
+    /// zero means "no rule" rather than "at the start of the file", which is the reading that would
+    /// decode the header as a jiggle bone.
+    /// </remarks>
+    public const int BoneProcedureIndexOffset = 168;
+
+    /// <summary>Byte offset of <c>numbonecontrollers</c> in the header.</summary>
+    public const int HeaderBoneControllerCountOffset = 164;
+
+    /// <summary>Byte offset of <c>bonecontrollerindex</c>.</summary>
+    public const int HeaderBoneControllerIndexOffset = 168;
+
+    /// <summary>Byte offset of <c>numikchains</c> in the header.</summary>
+    public const int HeaderIkChainCountOffset = 284;
+
+    /// <summary>Byte offset of <c>ikchainindex</c>.</summary>
+    public const int HeaderIkChainIndexOffset = 288;
+
+    /// <summary>Bytes per <c>mstudiobonecontroller_t</c>.</summary>
+    public const int BoneControllerStride = 56;
+
+    /// <summary>Byte offset of <c>bone</c>: which bone this controller drives.</summary>
+    public const int BoneControllerBoneOffset = 0;
+
+    /// <summary>Byte offset of <c>type</c>: which axis, plus the wrapping bit.</summary>
+    public const int BoneControllerTypeOffset = 4;
+
+    /// <summary>Byte offset of <c>start</c>: the value the encoded 0 maps to.</summary>
+    public const int BoneControllerStartOffset = 8;
+
+    /// <summary>Byte offset of <c>end</c>: the value the encoded 1 maps to.</summary>
+    /// <remarks>
+    /// **The pair is what makes the wire value meaningful.** <c>m_flEncodedController</c> is sent
+    /// as eleven bits over 0..1 (<c>baseanimating.cpp:248</c>), so the demo carries a fraction and
+    /// the model carries what that fraction means. Neither is usable alone.
+    /// </remarks>
+    public const int BoneControllerEndOffset = 12;
+
+    /// <summary>Bytes per <c>mstudioikchain_t</c>.</summary>
+    /// <remarks>
+    /// Sixteen, with no trailing padding. Where every neighbouring structure ends in an
+    /// <c>int unused[]</c> tail, this one carries a Valve to-do note saying those entries still need
+    /// adding — so the usual shape is exactly what it does NOT have. Assuming it would add 32 bytes
+    /// and read every chain after the first from the wrong place.
+    /// </remarks>
+    public const int IkChainStride = 16;
+
+    /// <summary>Byte offset of <c>sznameindex</c>: the chain's name, such as <c>rfoot</c>.</summary>
+    public const int IkChainNameOffset = 0;
+
+    /// <summary>Byte offset of <c>linktype</c>.</summary>
+    public const int IkChainLinkTypeOffset = 4;
+
+    /// <summary>Byte offset of <c>numlinks</c>: usually three — hip, knee, foot.</summary>
+    public const int IkChainLinkCountOffset = 8;
+
+    /// <summary>Byte offset of <c>linkindex</c>, relative to the chain.</summary>
+    public const int IkChainLinkIndexOffset = 12;
+
+    /// <summary>Bytes per <c>mstudioiklink_t</c>.</summary>
+    public const int IkLinkStride = 28;
+
+    /// <summary>Byte offset of <c>bone</c> in a link.</summary>
+    public const int IkLinkBoneOffset = 0;
+
+    /// <summary>Byte offset of <c>kneeDir</c>: which way the joint bends.</summary>
+    /// <remarks>
+    /// Zero on most links and meaningful on the middle one, which is what stops a two-bone solve
+    /// from choosing a knee that bends backwards.
+    /// </remarks>
+    public const int IkLinkKneeDirectionOffset = 4;
+
+    /// <summary>Bytes per <c>mstudiojigglebone_t</c>.</summary>
+    /// <remarks>
+    /// **140, derived rather than counted.** It is thirty-five consecutive floats after the flags
+    /// word, and hand-counting a run that long has no error signal — a stride one field short reads
+    /// every subsequent jiggle bone from the wrong place and produces springy nonsense rather than
+    /// an exception. <c>BonePipelineStructProbe</c> measured it out of <c>studio.h</c> and
+    /// <c>BonePipelineStructTests</c> holds it there.
+    /// </remarks>
+    public const int JiggleBoneStride = 140;
+
+    /// <summary>Byte offset of the jiggle bone's <c>flags</c>: the <c>JIGGLE_*</c> bits.</summary>
+    public const int JiggleFlagsOffset = 0;
+
+    /// <summary>Bytes per <c>mstudiolocalhierarchy_t</c>.</summary>
+    public const int LocalHierarchyStride = 48;
+
+    /// <summary>Byte offset of <c>iBone</c>: the bone being reparented.</summary>
+    public const int LocalHierarchyBoneOffset = 0;
+
+    /// <summary>Byte offset of <c>iNewParent</c>: what it is reparented to.</summary>
+    public const int LocalHierarchyNewParentOffset = 4;
+
     /// <summary>Bytes per <c>mstudioseqdesc_t</c>.</summary>
     public const int SequenceStride = 212;
 

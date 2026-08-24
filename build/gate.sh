@@ -259,7 +259,17 @@ run Tf2DemoSalvage.Presentation.Tests presentation 135
 #
 # Read from the .trx, which said 666 while the console said 650:
 # docs/memory/read-the-trx-total-not-the-console.md, hit again today.
-run Tf2DemoSalvage.Content.Tests  content   666
+# 677, measured: BonePipelineStructTests (10) and BonePipelineStructProbe (1, [Explicit]). The
+# structures Valve's bone pipeline reads and this reader never has — bone controllers, IK chains and
+# links, jiggle bones, local hierarchy, and the three fields of mstudiobone_t that gate the whole
+# engine pipeline: flags, proctype, procindex. Derived from studio.h through CStruct rather than
+# counted, and the probe exists because mstudiojigglebone_t is thirty-five consecutive floats.
+#
+# The jiggle count assertion caught its own author on the first run — 36 against a measured 35, the
+# number you get from reading the declaration's comment groups instead of its members. A stride of
+# 140 and a member count are now asserted against each other, which is why that disagreed rather
+# than passing.
+run Tf2DemoSalvage.Content.Tests  content   677
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
