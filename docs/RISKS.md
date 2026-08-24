@@ -9319,16 +9319,46 @@ on", and competitive players — the owner among them — run without it and exp
 
 So: implement `sky_camera`, then expose `r_3dsky` and `r_skybox` as toggles with Valve's defaults.
 
-## B153 — Valve's debug draws, of which three exist — OPEN
+## B153 — CLOSED 2026-08-23. Valve's debug draws, all of them
 
 The owner's direction, 2026-08-23: "we need to do all of those debug draws, because they are very
 important for testing and debugging." The reason is not tidiness. Four separate hypotheses were
 cleared during one bug hunt by build-and-look cycles that a debug view would have answered in
 seconds, and the bug was finally found by two screenshots of one view under two different draws.
 
-Done: `mat_wireframe`, `mat_specular`, and the pre-existing category view.
+**Every one is now implemented**: `mat_wireframe`, `mat_specular`, `mat_fullbright` (all three
+states), `mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`,
+`r_drawworld`, `r_drawentities`, `mat_showlowresimage`, plus the category view and B156's FGD
+entity colours.
 
-Not done, with Valve's names and where they are declared:
+**They are retail cvars, not a Hammer facility, and that was checked rather than assumed.** The
+owner raised the doubt — "idk if they only exist in hammer though" — and the shipped binaries
+settle it: `mat_drawflat` and `mat_normalmaps` in `materialsystem.dll`, `mat_leafvis`,
+`mat_luxels` and `mat_bumpbasis` in `engine.dll`, `mat_fullbright` in all three,
+`mat_showlowresimage` in `materialsystem.dll`. So offering these names is parity with something a
+player can type today. D79 makes that a rule.
+
+**`mat_showlowresimage` was left last because it was the only one needing DATA.** Every VTF stores
+a thumbnail between its header and its mip chain, and this reader had always skipped past it
+correctly and never kept it. Retaining it also pinned a load-bearing assumption nothing had ever
+checked: the skip is sized as DXT1 unconditionally, so a thumbnail in another format would misplace
+every mip in the file. Measured across shipped textures — including a Dxt5 texture with a Dxt1
+thumbnail, which is the case that proves the two formats are independent.
+
+**Its honest value is lower than the rest of the set, and that is recorded next to it** in
+`DebugModes`. The others each answer a question a textured picture cannot; this one mostly answers
+what the thumbnail looks like. Built for parity on the owner's call, after the conformance test had
+already captured the part that mattered.
+
+**Two defects came out of the work itself**, which is worth keeping:
+
+- The leaf-box view was bound to `Keys.F11`, which full screen already had. WinForms gave the key to
+  the later registration, full screen silently stopped working, and three UI tests were red for it
+  with no one able to see why from any single failure. See B165 and D78.
+- The category view drew overlays white — the absence of a colour rather than a colour — which cost
+  two turns of misreading during the B154 hunt. Overlays now have their own violet.
+
+Historic list, kept because the citations are useful:
 
 | cvar | what it answers |
 |---|---|

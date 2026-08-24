@@ -152,7 +152,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # 638: ViewmodelBoneMergeTests (1) — which of a weapon's bones the arms can supply. It is what
 # showed the Original merges cleanly (1 bone, weapon_bone, provided), killing the bone-name theory
 # for why it draws too large before any code was changed.
-run Tf2DemoSalvage.Content.Tests  content   638
+# 640: VtfLowResolutionConformanceTests (2). The thumbnail every VTF carries, which
+# mat_showlowresimage draws — and the claim the reader's skip has always encoded without checking:
+# it is always DXT1, whatever the texture's own format is.
+run Tf2DemoSalvage.Content.Tests  content   640
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -231,7 +234,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     103
 # the prop ignores its texture's alpha — the leak that made every static prop translucent (B154).
 # 627: WornModelSkinningTests (2). A model flagged as worn must skin however few bones it has, and
 # the stock rocket launcher is the control that says the change stayed narrow (B167).
-run Tf2DemoSalvage.Viewer3D.Tests viewer    627
+# 628: LowResImageRenderTests (1). The output-level assertion for mat_showlowresimage — the flag
+# reaching the constant buffer and the texture being bound are separately true and separately
+# useless, and only a pixel can say the substitution happened.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    628
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

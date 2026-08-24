@@ -155,6 +155,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // w: mat_bumpbasis — which of the three lightmap basis vectors the surface leans on,
             //    as red, green and blue. Grey means it leans evenly, which is what flat looks like.
             float4 debugModes;
+
+            // **The fifth float4, and the budget says that is still Valve's shape.**
+            // `common_vs_fxc.h` gives a shader twelve of its own; this is the fifth used here, so
+            // there was no reason to conflate two independent cvars into one component to save a
+            // register we have. The owner confirmed the ceiling: "the float4s can get up to 12 i
+            // think before we are matching valve".
+            //
+            // x: mat_showlowresimage — the material is drawn from the tiny copy of itself that
+            //    every VTF stores ahead of its mip chain, rather than from the texture.
+            // y, z, w: unused, and left named rather than removed so the next debug mode costs an
+            //    assignment instead of a constant-buffer change on both sides.
+            float4 debugModes2;
         };
 
         // **The model transform, which is Valve's own shape.** IMaterialSystem::LoadBoneMatrix
@@ -354,6 +366,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // this one at the LIGHTMAP coordinate, so a cell is a baked sample rather than a texture
         // tile — and one texture cannot be both.
         Texture2D    luxelMap    : register(t8);
+
+        // **The material's own thumbnail, for `mat_showlowresimage`.** Per material rather than per
+        // frame, unlike devMap and luxelMap: every texture carries a different one, so this is the
+        // only debug substitution that has to be rebound with the material.
+        Texture2D    lowResMap   : register(t9);
 
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
@@ -828,6 +845,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (debugModes.x > 0.5f)
             {
                 albedo.rgb = float3(1.0f, 1.0f, 1.0f);
+            }
+
+            // **mat_showlowresimage: the material drawn from its own thumbnail.** Sampled at the
+            // ordinary texture coordinate, so it tiles exactly as the material does and the picture
+            // differs only in resolution — which is the comparison the view exists to make.
+            //
+            // After mat_drawflat rather than before, so that with both on the more specific one
+            // wins. Valve's are independent cvars and says nothing about the combination; the
+            // choice is ours, and "the one carrying real data beats flat white" is the useful way
+            // round.
+            //
+            // A material with no thumbnail keeps its texture rather than turning black. Every
+            // shipped VTF measured carries one, but a VTF is allowed not to, and a debug view that
+            // silently blanks a surface would be reporting a defect it invented.
+            if (debugModes2.x > 0.5f)
+            {
+                float4 thumbnail = lowResMap.Sample(wrapSampler, input.uv);
+
+                if (thumbnail.a > 0.0f)
+                {
+                    albedo.rgb = thumbnail.rgb;
+                }
             }
 
             // **mat_normalmaps: the normal drawn as colour instead of lit with.** The standard
@@ -1355,6 +1394,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11ShaderResourceView> _luxelGrid;
 
     /// <summary>The detail pattern for each material, empty where it has none.</summary>
+    /// <summary>Each material's VTF thumbnail, for <c>mat_showlowresimage</c>.</summary>
+    /// <remarks>
+    /// Indexed by material like <see cref="_textures"/>, with a default handle where the file
+    /// carried no thumbnail. Kept as its own list rather than folded into the texture list because
+    /// the two are bound to different slots and only one of them is ever drawn.
+    /// </remarks>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _thumbnails = [];
+
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _details = [];
 
     /// <summary>The bump map for each material, empty where it has none.</summary>
@@ -1939,6 +1986,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
 
             _textures.Add(uploaded);
+
+            // **The material's thumbnail, for `mat_showlowresimage`.** Uploaded beside the texture
+            // rather than lazily when the mode is first switched on: the mode is a debug view and
+            // building a few hundred 16x16 textures at that moment would stall the frame it was
+            // asked for, which is the frame somebody is looking at.
+            //
+            // A default handle when the VTF carried none — every shipped texture measured has one,
+            // but the format allows its absence, and the shader keeps the material's own texture
+            // rather than blanking the surface.
+            _thumbnails.Add(
+                texture is { Thumbnail: { } thumbnail }
+                    ? CreateTexture(
+                        device, context, thumbnail.Width, thumbnail.Height, thumbnail.Image)
+                    : default);
 
             if (texture is { IsNoCull: true })
             {
@@ -2662,6 +2723,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
             debug.Luxels ? 1f : 0f,
             debug.NormalMaps ? 1f : 0f,
             debug.BumpBasis ? 1f : 0f,
+
+            // debugModes2: mat_showlowresimage, then three spare components. Written even when off
+            // for the reason the comment below gives — the tail of a mapped buffer holds whatever
+            // the last frame put there, so a component that is sometimes not written is a mode that
+            // sometimes turns itself on.
+            debug.ShowLowResImage ? 1f : 0f,
+            0f,
+            0f,
+            0f,
         ];
 
         MappedSubresource mapped = default;
@@ -2897,7 +2967,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// mode takes a component of the existing word rather than a register of its own — a register
     /// per feature would run out at a dozen features, and Valve never needed to.
     /// </remarks>
-    private const int CameraConstants = 16 + 4 + 4 + 4;
+    private const int CameraConstants = 16 + 4 + 4 + 4 + 4;
 
     /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
     private const int BoneConstants = MaxBones * 3 * 4;
@@ -3235,6 +3305,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _luxelGrid.Handle is not null ? _luxelGrid : _white;
 
         context.PSSetShaderResources(8, 1, ref luxels);
+
+        // **The material's own thumbnail, which is why this one is per material at all.** devMap
+        // and luxelMap are the same image for every surface; this differs per texture, so
+        // `mat_showlowresimage` is the only debug substitution that has to be rebound here.
+        //
+        // **Falls back to an unbound slot, and NOT to `_white`.** `_white` in this renderer is
+        // Valve's magenta-and-black chequer, so binding it here would chequer every material whose
+        // VTF carried no thumbnail — a defect the debug view would have invented, and exactly the
+        // trap `docs/memory/a-neutral-default-must-be-neutral.md` was written about.
+        //
+        // A null SRV samples as (0,0,0,0) in D3D11, so alpha is zero, and the shader's alpha test
+        // keeps the material's own texture. "No thumbnail" therefore reads as "nothing to
+        // substitute" rather than as any colour at all.
+        ComPtr<ID3D11ShaderResourceView> thumbnail =
+            materialIndex >= 0 && materialIndex < _thumbnails.Count
+                ? _thumbnails[materialIndex]
+                : default;
+
+        context.PSSetShaderResources(9, 1, ref thumbnail);
 
         // **The material carries its own depth state, which is the engine's arrangement (B135).**
         // A shader in Source declares its render state in a SHADOW_STATE block and the material
@@ -3633,13 +3722,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
-                     .Concat(_placedCubemaps).Concat(_lightWarps)
+                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_thumbnails)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
         }
 
         _textures.Clear();
+        _thumbnails.Clear();
         _blendTextures.Clear();
         _details.Clear();
         _bumps.Clear();

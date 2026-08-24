@@ -23,6 +23,10 @@ namespace Tf2DemoSalvage.Scene;
 /// over exactly what it exists to shade.
 /// </param>
 /// <param name="IsModulateTwice">Whether that multiply doubles, so mid grey changes nothing.</param>
+/// <param name="Thumbnail">
+/// The VTF's own low-resolution copy of itself, which <c>mat_showlowresimage</c> draws in place of
+/// the material. Null when the file carried none, which is legal.
+/// </param>
 /// <param name="IsDecal">
 /// Whether the material MARKS a surface rather than being one — <c>$decal</c>,
 /// <c>MATERIAL_VAR_DECAL</c>. Carried per material because that is where the engine keeps render
@@ -78,7 +82,24 @@ public readonly record struct MapTexture(
     // Carried per material because that is where the engine keeps render state — a shader declares
     // its own in a SHADOW_STATE block and the material system applies it on bind, so no pass ever
     // inherits anything (B135).
-    bool IsDecal = false);
+    bool IsDecal = false,
+
+    // **The VTF's own thumbnail, for `mat_showlowresimage`.** Present only on a base texture and
+    // only when the file carried one — a VTF is allowed not to, so null means "nothing to show"
+    // rather than "not loaded yet".
+    MapThumbnail? Thumbnail = null);
+
+/// <summary>The tiny copy of itself that a VTF stores ahead of its mip chain.</summary>
+/// <param name="Width">From <c>lowResImageWidth</c>; 16 or less in every shipped texture measured.</param>
+/// <param name="Height">From <c>lowResImageHeight</c>.</param>
+/// <param name="Image">Decoded to RGBA, like every other texture here.</param>
+/// <remarks>
+/// **What <c>mat_showlowresimage</c> draws in place of the material.** It is a distinct asset rather
+/// than the smallest mip: a separate DXT1 image the compiler wrote, always DXT1 whatever the
+/// texture's own format is (`VtfLowResolutionConformanceTests` measures a Dxt5 texture with a Dxt1
+/// thumbnail). Showing the last mip instead would look similar and answer a different question.
+/// </remarks>
+public readonly record struct MapThumbnail(int Width, int Height, TextureImage Image);
 
 /// <summary>A material's detail texture and the numbers that say how to combine it.</summary>
 /// <param name="Texture">The detail pattern itself.</param>
@@ -1518,7 +1539,17 @@ public sealed class MapAssets
                     // can tell "no modulation" from "modulation that happens to be the identity"
                     // and the census can report the parameter as consumed only where it is.
                     material.IsModulated ? material.Modulation : null,
-                    material.IsDecal);
+                    material.IsDecal,
+
+                    // **The thumbnail Valve's mat_showlowresimage draws.** Carried only on the base
+                    // texture, because that is the one the debug view substitutes for — a bump map
+                    // or a detail texture has a thumbnail too and nothing ever shows it.
+                    decoded.LowResolutionPixels.Length > 0
+                        ? new MapThumbnail(
+                            decoded.LowResolutionWidth,
+                            decoded.LowResolutionHeight,
+                            TextureImage.Rgba(decoded.LowResolutionPixels))
+                        : null);
             }
             catch (InvalidDataException failure)
             {
