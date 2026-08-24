@@ -147,7 +147,9 @@ jobs:
           # BoneFlagContentProbe 1). The reader tests build their own bytes and run anywhere; the
           # content ones need TF2 installed and Assert.Ignore on a runner, which still counts in the
           # .trx total.
-          ./build/assert-test-count.sh '**/content.trx' 673 Content
+          # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
+          # guard). All but one IK test build their own bytes and run anywhere.
+          ./build/assert-test-count.sh '**/content.trx' 686 Content
           ./build/assert-test-count.sh '**/presentation.trx' 135 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts

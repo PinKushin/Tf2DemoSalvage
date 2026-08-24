@@ -281,7 +281,16 @@ run Tf2DemoSalvage.Presentation.Tests presentation 135
 #
 # Verified by sabotage rather than by reading: BoneFlagsOffset - 4 reddens 9 of the 18, and the
 # precise inverse edit restores them.
-run Tf2DemoSalvage.Content.Tests  content   694
+# 707: the IK chain and bone controller TABLES are read now (12), plus a capacity guard (1).
+#
+# heavy.mdl declares four chains — rhand, lhand, rfoot, lfoot, three links each. The hands were the
+# surprise: TF2 uses IK to pin an off-hand grip to a weapon, so this is not only about feet planting.
+#
+# Verified by sabotage with the exact mistake the comments warn about — IkChainStride 16 -> 48, the
+# int unused[8] tail every neighbouring struct has and this one does not. It reddens 2 of 17, and
+# WHICH two is the useful part: the SDK stride assertion, and the multi-chain test. A single-chain
+# fixture sits at offset 0 under either stride and cannot see it.
+run Tf2DemoSalvage.Content.Tests  content   707
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
