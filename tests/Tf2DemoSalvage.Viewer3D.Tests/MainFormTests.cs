@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Threading;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Viewer3D;
@@ -23,9 +22,9 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// </remarks>
 [TestFixture]
 
-// STA and serial, because this constructs a Windows Form — see B178.
+// Serial, because this constructs a Windows Form — see B178. NOT [Apartment(STA)]: that was
+// tried and broke CI, and the fix is serialisation.
 [NonParallelizable]
-[Apartment(ApartmentState.STA)]
 public sealed class MainFormTests
 {
     [Test]

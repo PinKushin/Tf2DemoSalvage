@@ -10068,9 +10068,25 @@ concurrently on MTA worker threads. Windows Forms requires STA. That is undefine
 explains what nothing else could: crashes at three *unrelated* native sites, because the victim was
 whichever native call happened to be running.
 
-Fixed by marking those six `[NonParallelizable]` and `[Apartment(ApartmentState.STA)]` — which is
-what the assembly policy already prescribed for a fixture needing serial execution. **The policy was
-never wrong and did not change.**
+Fixed by marking those six `[NonParallelizable]` — which is what the assembly policy already
+prescribed for a fixture needing serial execution. **The policy was never wrong and did not change.**
+
+**`[Apartment(ApartmentState.STA)]` was applied with it, and had to be taken back out.** "WinForms
+needs STA" is the textbook answer and it went in beside the real fix without being tested on its
+own. It broke CI in a way that cannot happen on this machine: NUnit's STA support installs a
+`SingleThreadedTestSynchronizationContext`, `MainForm` decodes demos off the UI thread and posts
+back to it (D73), and a load still in flight when the fixture's context shuts down throws
+`System.InvalidOperationException: This SingleThreadedTestSynchronizationContext has been shut down`
+on a pool thread — unhandled, so the host dies. The hosted runner is slower, so the load outlived
+the fixture there and never did here.
+
+**It wore the same symptom as the bug it was meant to fix** — `Test Run Aborted`, a truncated total
+(604 of 634), and `Passed!` printed on the line above. Only the count floor distinguished them.
+
+Serialisation alone is sufficient: measured, three clean local runs of 633 with no apartment
+attribute. **The methodological lesson is the durable part** — two plausible remedies were applied
+in one step, one was unnecessary, and the unnecessary one introduced a fresh fault disguised as the
+old one. One manipulation at a time, or a green run proves nothing about which change earned it.
 
 | | aborts | complete runs |
 |---|---|---|

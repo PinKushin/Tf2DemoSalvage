@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Core.Container;
@@ -17,9 +16,8 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// and what is being tested here is "the header reached the transport bar", which needs no real
 /// recording at all.
 /// </remarks>
-/// <remarks>STA and serial, because this constructs a Windows Form — see B178.</remarks>
+/// <remarks>Serial, because this constructs a Windows Form — see B178. NOT `[Apartment(STA)]`: that was tried and broke CI, and the fix is serialisation.</remarks>
 [NonParallelizable]
-[Apartment(ApartmentState.STA)]
 public sealed class LoadedDemoTests
 {
     private string _folder = string.Empty;
