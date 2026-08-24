@@ -131,7 +131,7 @@ jobs:
           # disagrees — the standing rule here is that an arithmetic floor is a guess wearing a
           # number, and this one is only safe because the added tests read no game files.
           ./build/assert-test-count.sh '**/content.trx' 645 Content
-          ./build/assert-test-count.sh '**/presentation.trx' 133 Presentation
+          ./build/assert-test-count.sh '**/presentation.trx' 135 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate

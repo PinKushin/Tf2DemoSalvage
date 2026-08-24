@@ -193,7 +193,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     142
 # `cl_showfps` panel — the smoothing weight, the watermark pair, the colour thresholds and both
 # format strings — against `vgui_fpspanel.cpp`. Copied rather than invented because the meter exists
 # to tell three stutters apart, and an instrument nobody already trusts cannot settle that.
-run Tf2DemoSalvage.Presentation.Tests presentation 133
+# 135: PlaybackPresenter.Play (2). Setting the view's Playing flag does not start playback — the
+# transport's setter deliberately does not raise, so the elapsed clock stayed stopped and the viewer
+# sat at tick zero insisting it was playing. Finding it also required making FakeElapsedTime model
+# STOPPED: it reported time passing after Reset, which made the fixture blind to the whole class.
+run Tf2DemoSalvage.Presentation.Tests presentation 135
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

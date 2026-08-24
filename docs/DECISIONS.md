@@ -4759,6 +4759,57 @@ while preserving the undeclared departure that caused it. Overruled — *"so we 
 which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
 
 
+### Declared departure: bone-merge ordering is a depth sort, not recursion
+
+The first thing D86 governs, declared rather than assumed.
+
+**What Valve does.** `C_BaseAnimating::DrawModel` recurses up the follow chain:
+
+```cpp
+C_BaseAnimating *follow = FindFollowedEntity();
+if ( follow )
+{
+    // recompute master entity bone structure
+    int baseDrawn = follow->DrawModel( 0 );   // flags 0: set up bones, do not render
+    if ( baseDrawn )
+        drawn = InternalDrawModel( STUDIO_RENDER|extraFlags );
+}
+```
+
+Two mechanisms, not one: the recursion orders the work, and `m_iMostRecentModelBoneCounter` caches
+per frame so a parent shared by several children is not rebuilt for each of them.
+
+**What we do.** Sort the attached props by attachment DEPTH — computed by walking up the parent
+links iteratively, bounded by the prop count — then make a single pass. Same order, and the
+deduplication is free: a player wearing five cosmetics with a weapon and an attachment on it has
+their bones built once by construction, so no counter is needed.
+
+**Why the departure is allowed here.** The outputs are identical, and the one place the two differ
+is not observable: Valve computes a parent's bones even when the parent will not render and then
+declines to draw the child, while we drop the child when the parent is not in the drawn set. A child
+of an undrawn parent is not drawn either way.
+
+Against it, honestly: it is a different structure from the engine, and this project's bugs are
+overwhelmingly where it differs. That is the whole reason D86 exists, and it is why this is written
+down instead of left to be discovered.
+
+**The owner's call**, when the alternative was offered: *"keep the depth sort, declare it under
+D86"*. Converting to Valve's shape would mean restructuring the pose loop into a recursive function
+for identical pixels.
+
+**What replaced what.** The ordering used to be a two-way split — unattached first, attached second
+— which is exactly one link of chain. A weapon attachment is two: `CTFWeaponAttachmentModel::Init`
+parents to the WEAPON (`tf_weaponbase.cpp:6960`) and the weapon parents to the player, so the
+attachment was reached before its parent had been posed and was dropped as "the wearer is not being
+drawn". An attached prop also never recorded its own bones, so nothing could hang off it at all.
+
+**Filed against it: the pose loop body is about 150 lines.** The owner: *"a loop body of 150 fucking
+lines is a massive code smell as it is"*. It is — it poses, merges, resolves attachment points,
+lights, records bones and emits an instance, which is at least five responsibilities in one block,
+and the depth ordering only exists as a separate pass because the body is too large to nest. Splitting
+it is a prerequisite for ever matching Valve's structure, since a recursive version needs the body to
+be a function in the first place.
+
 ## D87 — PROJECT RULE: load at load time, not on sight
 
 **The owner, after three stalls in one session all turned out to be the same shape:**

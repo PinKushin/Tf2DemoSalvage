@@ -3905,6 +3905,19 @@ internal class MainForm : Form
             }
         }
 
+        // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a
+        // player's holstered weapons from everybody — it is a property of the weapon rather than of
+        // who is looking — so this sits outside the first-person block above. A player carries
+        // three and holds one; without it all three bone-merge into the same hand.
+        IReadOnlyList<SceneProp> carried = WeaponVisibility.Visible(_drawn);
+
+        if (carried.Count != _drawn.Count)
+        {
+            List<SceneProp> held = [.. carried];
+            _drawn.Clear();
+            _drawn.AddRange(held);
+        }
+
         // **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an
         // MDL the first time a model path appears, and the upload below rebuilds the whole packed
         // vertex buffer — both on the UI thread, both in one frame, and both OUTSIDE `_posingTicks`
@@ -4040,6 +4053,8 @@ internal class MainForm : Form
         AddViewmodel(seconds);
 
         _posingTicks += Stopwatch.GetTimestamp() - posedAt;
+
+        ReportWeapons();
 
         if (_instances.Count != _lastInstanceCount)
         {
@@ -4580,7 +4595,17 @@ internal class MainForm : Form
             // not exist, and the demo sat still until the user paused and played again.
             if (Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 })
             {
-                _transport.Playing = true;
+                // **Through the presenter, not by assigning the flag** — which is what this line
+                // used to do, and it did not start anything. `TransportBar.Playing`'s setter
+                // deliberately does not raise `PlayPauseToggled` (it would make the presenter
+                // re-enter its own handler), so assigning it relabelled the button and left the
+                // elapsed clock stopped. The owner: "the ui says its playing but the demo is not
+                // actually playing, no ticks go by, i have to 'pause' which does nothing then hit
+                // play again to get it started".
+                //
+                // The remark below this was already about that fault being found once. It came back
+                // because nothing tested it — "we dont actually check playback in the ui tests".
+                _playback.Play();
 
                 _demoLog.LogInformation("{Message}", $"{AutoPlayVariable} is set; playback started at load");
             }
@@ -5494,6 +5519,113 @@ internal class MainForm : Form
             ViewMatrix(MapCamera()),
             _surfaceColours.Checked,
             _heightCut);
+    }
+
+    /// <summary>When the weapon report last printed.</summary>
+    private long _weaponReportedAt;
+
+    /// <summary>Says how many carried weapons reached the scene, and how many reached the GPU.</summary>
+    /// <remarks>
+    /// **Written because the owner's answer was "i think nothing … but measurement beats all".**
+    /// Weapons in other players' hands are not drawn, and everything upstream says they should be:
+    /// `HeldWeaponProbe` reports 16 held weapons with 16 resolved world models on a six-class demo,
+    /// and the viewer's own log shows `c_sniperrifle`, `c_directhit`, `c_quadball` and the rest
+    /// being packed. So the loss is between the timeline and the screen, and this says which side.
+    ///
+    /// **Three numbers, because they separate three different faults.** In the scene but not
+    /// instanced is a posing or visibility fault; instanced but invisible is a transform fault, and
+    /// the position says which — a weapon at its owner's feet is a bone merge falling back to the
+    /// entity origin, and one at (0,0,0) never got a transform at all.
+    ///
+    /// Matched on the path rather than on a kind, because a weapon has no kind of its own: it is
+    /// `Studio` exactly like a player or a health pack.
+    /// </remarks>
+    private void ReportWeapons()
+    {
+        long now = Stopwatch.GetTimestamp();
+
+        if (now - _weaponReportedAt < Stopwatch.Frequency)
+        {
+            return;
+        }
+
+        _weaponReportedAt = now;
+
+        static bool IsWeapon(string path) =>
+            path.Contains("/weapons/", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("\\weapons\\", StringComparison.OrdinalIgnoreCase);
+
+        int inScene = 0;
+        int atOrigin = 0;
+        int owned = 0;
+        int attached = 0;
+        string first = "none";
+
+        foreach (SceneProp prop in _drawn)
+        {
+            if (!IsWeapon(prop.ModelPath))
+            {
+                continue;
+            }
+
+            inScene++;
+
+            if (prop.OwnedBy is not null)
+            {
+                owned++;
+            }
+
+            if (prop.AttachedTo is not null)
+            {
+                attached++;
+            }
+
+            // The signature of a carried weapon that never got a transform: an owner, no
+            // attachment, and the world origin.
+            if (prop.Pose is { X: 0f, Y: 0f, Z: 0f })
+            {
+                atOrigin++;
+
+                if (first == "none")
+                {
+                    first = string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{System.IO.Path.GetFileNameWithoutExtension(prop.ModelPath)}" +
+                        $" entity {prop.EntityIndex}" +
+                        $" owner {prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"}" +
+                        $" attached {prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
+                }
+            }
+        }
+
+        int instanced = 0;
+        string drawn = "none";
+
+        foreach (ModelInstance instance in _instances)
+        {
+            if (!IsWeapon(instance.ModelPath))
+            {
+                continue;
+            }
+
+            instanced++;
+
+            if (drawn == "none")
+            {
+                drawn = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)}" +
+                    $" at ({instance.Matrix[12]:0}, {instance.Matrix[13]:0}, {instance.Matrix[14]:0})");
+            }
+        }
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"weapons: {inScene} in the scene, {instanced} instanced, " +
+                $"{owned} owned, {attached} attached, {atOrigin} AT THE ORIGIN; " +
+                $"first at origin {first}; first instanced {drawn}"));
     }
 
     /// <summary>Names where a slow frame's time went, phase by phase.</summary>

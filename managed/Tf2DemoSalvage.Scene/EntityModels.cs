@@ -208,6 +208,35 @@ public sealed class EntityModelSet
     /// <summary>This frame's drawn entities that something else is merged onto, by entity index.</summary>
     private readonly Dictionary<int, Worn> _wearerBones = [];
 
+    /// <summary>Each drawn entity's parent, so an attachment chain can be measured.</summary>
+    private readonly Dictionary<int, int?> _parents = [];
+
+    /// <summary>How many attachment links separate a prop from something standing on its own.</summary>
+    /// <remarks>
+    /// Zero for an unattached prop, one for a hat on a player, two for an attachment on a weapon on
+    /// a player. Bounded by the number of props so a cycle cannot spin: the wire should never carry
+    /// one, and a demo this project exists to open may carry anything.
+    /// </remarks>
+    private int Depth(SceneProp prop)
+    {
+        int depth = 0;
+        int? at = prop.AttachedTo;
+
+        while (at is { } parent && depth <= _parents.Count)
+        {
+            depth++;
+
+            if (!_parents.TryGetValue(parent, out int? next))
+            {
+                break;
+            }
+
+            at = next;
+        }
+
+        return depth;
+    }
+
     /// <summary>Bone name matches, keyed by worn model and wearer model together.</summary>
     private readonly Dictionary<string, int[]> _mergeMaps = new(StringComparer.OrdinalIgnoreCase);
 
@@ -685,15 +714,42 @@ public sealed class EntityModelSet
         // **Owners are posed before the things hanging off them.** A bone-merged entity has no
         // pose of its own — it takes its parent's matrices for every bone they share by NAME — so
         // the parent's must already exist when the child is reached, and nothing orders the list.
-        // So they are ordered here — wearers first, worn second — rather than the loop below being
-        // run twice or nested. One pass over a reordered list keeps the body a single block.
+        //
+        // **Ordered by DEPTH rather than in two groups, because chains are three deep and more.**
+        // This split the list once — unattached first, attached second — which is exactly enough
+        // for a hat on a player and one short for anything hanging off the hat. A weapon attachment
+        // is the case that exposed it: `CTFWeaponAttachmentModel::Init` parents to the WEAPON
+        // (tf_weaponbase.cpp:6960), and the weapon parents to the player, so the attachment was
+        // reached while its parent had not been posed and was dropped as "the wearer is not being
+        // drawn". The owner: *"i think a lot of merges should be recursive becasue valve adds items
+        // and stuff like that sometimes"*.
+        //
+        // Depth is computed by walking up the attachment links, so any chain works and no case has
+        // to be named. A cycle — which the wire should never carry but a corrupt demo might —
+        // stops at the entity count rather than looping for ever.
         _ordered.Clear();
         _worn.Clear();
+        _parents.Clear();
 
         foreach (SceneProp prop in props)
         {
-            (prop.AttachedTo is null ? _ordered : _worn).Add(prop);
+            _parents[prop.EntityIndex] = prop.AttachedTo;
         }
+
+        foreach (SceneProp prop in props)
+        {
+            if (prop.AttachedTo is null)
+            {
+                _ordered.Add(prop);
+            }
+            else
+            {
+                _worn.Add(prop);
+            }
+        }
+
+        // Stable within a depth, so two items on one wearer keep the order the scene gave them.
+        _worn.Sort((left, right) => Depth(left).CompareTo(Depth(right)));
 
         _ordered.AddRange(_worn);
         _wearerBones.Clear();
@@ -1076,13 +1132,25 @@ public sealed class EntityModelSet
 
                 (lightX, lightY, lightZ) = (worn.LightX, worn.LightY, worn.LightZ);
             }
-            else if (_wanted.Contains(prop.EntityIndex))
+
+            // **Recorded for anything something else hangs off, INCLUDING props that hang off
+            // something themselves.** This was an `else if` on the branch above, so only a prop
+            // standing on its own origin could be a wearer — which is one link of chain and no
+            // more. A weapon attachment hangs off a weapon that hangs off a player, so it looked up
+            // the weapon, found nothing recorded, and took the `continue` above as "the wearer is
+            // not being drawn".
+            //
+            // Placed after the merge rather than beside it so the bones recorded are the MERGED
+            // ones: what the next link needs is where this prop actually ended up, not the rest
+            // pose it arrived with.
+            //
+            // **Recorded even with no bones, which is not a detail.** A wearer cheap enough to have
+            // been baked has no skeleton here, and requiring one would drop every item on it —
+            // silently, since the wearer itself still draws and only the hat vanishes. Merge handles
+            // the boneless case by keeping the item's own pose and taking only the transform, so it
+            // moves with the wearer even without following a bone.
+            if (_wanted.Contains(prop.EntityIndex))
             {
-                // **Recorded even with no bones, which is not a detail.** A wearer cheap enough to
-                // have been baked has no skeleton here, and requiring one would drop every item on
-                // it - silently, since the wearer itself still draws and only the hat vanishes.
-                // Merge handles the boneless case by keeping the item's own pose and taking only
-                // the transform, so it moves with the wearer even without following a bone.
                 _wearerBones[prop.EntityIndex] = new Worn(
                     prop.ModelPath, boneToWorld ?? [], transform, lightX, lightY, lightZ);
             }

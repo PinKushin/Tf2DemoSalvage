@@ -10023,6 +10023,42 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
+### B181 — the entity pose loop is one ~150-line body doing five jobs — OPEN
+
+**Filed 2026-08-24**, by the owner, on being shown the depth-sort that orders bone merging:
+
+> *"a loop body of 150 fucking lines is a massive code smell as it is"*
+
+`EntityModelSet.Instances` has a single loop body that poses the model, merges it onto its wearer's
+bones, resolves an attachment point, samples the lighting, records its bones for anything hanging
+off it, and emits the instance. That is five responsibilities, and the block is long enough that
+several of the session's bugs lived in it unnoticed — the bone record was an `else if` on the merge
+branch, so nothing could hang off an attached prop, and it read as deliberate.
+
+**It is also what blocks matching Valve structurally.** The engine orders bone setup by RECURSING up
+the follow chain (`C_BaseAnimating::DrawModel`), and a recursive version needs the body to be a
+function that can call itself. It is a loop body, so the ordering had to be done as a separate pass
+instead — declared as a departure under D86. Splitting this is the prerequisite for closing that
+departure, if it is ever worth closing.
+
+Suggested seams, each already a paragraph with its own comment block: pose, merge, place at an
+attachment, light, record, emit.
+
+### B180 — a weapon attachment's chained bones may be the parent's own, not its merged ones — OPEN
+
+**Filed 2026-08-24, unverified and stated as such.** With the depth sort in place, a prop hanging off
+another prop now finds its parent recorded. What is recorded is `boneToWorld`, which is assigned from
+`posed.BoneToWorld` — the prop's OWN posed skeleton — while `bones` is what the merge rewrites. So a
+chained child may be merging onto its parent's unmerged bone positions placed at the parent's
+transform.
+
+That is right or nearly right for a weapon, whose bones are in its own model space and whose
+transform is the player's, and it may be visibly wrong for anything whose parent is itself deformed.
+
+**No measurement either way yet**, which is why this is filed rather than fixed: the observable test
+is whether a weapon attachment sits correctly on a weapon, and the attachment that prompted it is
+currently drawing as the missing-material chequer, so it cannot be judged by looking.
+
 ### B179 — the UI suite runs in CI, where the game it needs cannot exist
 
 **Filed 2026-08-24.** `Tf2DemoSalvage.Viewer3D.UiTests` runs on GitHub's `windows-latest`, and

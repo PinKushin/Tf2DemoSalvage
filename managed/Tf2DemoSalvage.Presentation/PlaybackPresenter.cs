@@ -85,6 +85,38 @@ public sealed class PlaybackPresenter
         }
     }
 
+    /// <summary>Starts playback, as pressing Play does.</summary>
+    /// <remarks>
+    /// **Because assigning the view's flag is not the same thing, and the difference shipped as a
+    /// bug.** `TransportBar.Playing`'s setter deliberately does not raise `PlayPauseToggled` — it
+    /// would make this presenter re-enter its own handler through the control it had just updated —
+    /// so setting the property relabels the button and tells the clock nothing. The elapsed timer
+    /// stays stopped, `Advance` returns on a non-positive elapsed for ever, and the viewer sits at
+    /// tick zero insisting it is playing.
+    ///
+    /// The owner met exactly that: *"the ui says its playing but the demo is not actually playing,
+    /// no ticks go by, i have to 'pause' which does nothing then hit play again to get it
+    /// started"*. Pause-then-play works because the button goes through the user path, which raises.
+    ///
+    /// **So there has to be a way to say "play" that is not a property assignment**, and it belongs
+    /// here rather than in the host: the presenter owns the clock (D62), and the host cannot start
+    /// one it cannot see. `MainForm` had reinvented it as an assignment, and the comment beside that
+    /// assignment records the same fault being found and fixed once before.
+    ///
+    /// Silent when nothing is loaded, because the startup path calls it before it knows whether a
+    /// timeline was decoded.
+    /// </remarks>
+    public void Play()
+    {
+        if (_clock is null)
+        {
+            return;
+        }
+
+        _view.Playing = true;
+        _elapsed.Restart();
+    }
+
     /// <summary>Moves playback on by however long has passed since the last frame.</summary>
     /// <remarks>
     /// Called once per frame by the host's render loop. Does nothing unless playing, so the caller

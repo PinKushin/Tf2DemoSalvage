@@ -276,6 +276,75 @@ public sealed class PlaybackPresenterTests
     }
 
     /// <summary>A presenter wired to a fake view and a controllable clock, with a demo loaded.</summary>
+    /// <summary>
+    /// Setting the view's flag does not start playback; only telling the presenter does.
+    /// </summary>
+    /// <remarks>
+    /// **The regression this pins shipped and the owner lived with it:** *"the ui says its playing
+    /// but the demo is not actually playing, no ticks go by, i have to 'pause' which does nothing
+    /// then hit play again to get it started"*.
+    ///
+    /// The cause is a correct decision meeting a caller that did not know about it.
+    /// `TransportBar.Playing`'s setter deliberately does NOT raise `PlayPauseToggled`, because the
+    /// presenter assigns it when playback reaches an end and a raising setter made the presenter
+    /// re-enter its own handler. So assigning the property is not "start playing" — it is "show
+    /// that we are playing" — and the elapsed clock, which only `OnPlayPauseToggled` starts, stayed
+    /// stopped. `Advance` then returns on a non-positive elapsed for ever.
+    ///
+    /// **The first half of this test is the state the bug produced** and must keep failing to
+    /// advance: a caller that only sets the flag gets nothing, which is the contract the setter's
+    /// own remarks describe. The second half is what a caller is supposed to do instead.
+    ///
+    /// The comment in `MainForm` says this exact fault was found and fixed once before — *"the
+    /// button showed playing while no time was fed to a clock that did not exist, and the demo sat
+    /// still until the user paused and played again"* — and it came back, because nothing tested it.
+    /// The owner: *"idk when it regressed, we dont actually check playback in the ui tests"*.
+    /// </remarks>
+    [Test]
+    public void Play_RatherThanAssigningTheFlag_IsWhatStartsTheClock()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+
+        // What the autoplay path used to do: set the flag, which relabels the button and tells the
+        // presenter nothing.
+        view.Playing = true;
+        time.Seconds = 0.5d;
+
+        presenter.Advance();
+
+        view.LastShownTick.ShouldBe(
+            -1,
+            "assigning the flag is a display change, so nothing has been fed to the clock");
+
+        // What it must do instead.
+        presenter.Play();
+
+        time.Seconds = 0.5d;
+        presenter.Advance();
+
+        view.Playing.ShouldBeTrue();
+        view.LastShownTick.ShouldBeGreaterThan(0, "half a second of a demo is some ticks");
+    }
+
+    /// <summary>Playing a presenter with no demo loaded does nothing rather than throwing.</summary>
+    /// <remarks>
+    /// The startup path calls this before it is certain a timeline was decoded — a file with no
+    /// schema still opens and still has a length — so "no clock" is an ordinary state here rather
+    /// than a caller's mistake.
+    /// </remarks>
+    [Test]
+    public void Play_WithNoDemoLoaded_DoesNothing()
+    {
+        FakePlaybackView view = new();
+        FakeElapsedTime time = new();
+        PlaybackPresenter presenter = new(view, time);
+
+        Should.NotThrow(presenter.Play);
+
+        view.Playing.ShouldBeFalse("there is nothing to play");
+        time.Restarts.ShouldBe(0);
+    }
+
     private static (PlaybackPresenter Presenter, FakePlaybackView View, FakeElapsedTime Time) Wired(
         int lastTick = 1000)
     {
