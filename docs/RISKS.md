@@ -10023,6 +10023,42 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
+### B178 — the viewer test host crashes intermittently, and it is NOT the desktop
+
+**Filed 2026-08-24, attributed but not diagnosed.** `Tf2DemoSalvage.Viewer3D.Tests` aborts partway
+through with `Test host process crashed : Fatal error`, roughly one run in three. Measured today:
+
+| run | executed of 634 | crash site |
+|---|---|---|
+| gate | 198 | `Device3D.CreateBackBufferView()` ← `MainForm.OnViewportHandleCreated` |
+| re-run | 634 | completed, 1 failed: `ReflectionRender_AModelWithNoCubemap_DoesNotChangeWithItsPlacement` drew `(0,0,0)` |
+| re-run | 208 | `AudioOutput.Dispose()` ← `MainForm.Dispose(Boolean)` |
+
+Every abort is inside `FullScreenTests`, which creates and disposes real windows and D3D devices in
+a tight loop.
+
+**It is not this session's audio work, and that was established by experiment rather than argued.**
+Checked out at `36c916b`, before any of it, `FullScreenTests` aborted once in four runs — the same
+rate as at HEAD. The audio changes make the viewer start many more voices, so the suspicion was
+reasonable; it is simply wrong.
+
+**It is also not the "another app holds the GPU" explanation `build/gate.sh` records.** That note
+was written after a single abort in August while a video player was in exclusive full screen, and it
+has been the standing explanation since. The first abort today fit it — TF2 was running. The third
+did not: nothing else held the GPU, no viewer was open, and no `testhost` or `vstest.console` was
+left over. **That explanation should be treated as unproven** rather than as the known cause; it is
+comfortable, it excuses a crash, and it has never been tested.
+
+**Two different crash sites after the same operation is the shape of native heap damage**, not of an
+ordinary bug — a device teardown or an OpenAL teardown corrupting state that the next allocation
+trips over. `AudioOutput.Dispose` sets `_disposed = true` LAST, after `DestroyContext` and
+`CloseDevice`, so a Dispose that throws part way leaves an object that will happily destroy an
+already-destroyed context on the next call. That is a hypothesis and it is written down as one.
+
+**This is a defect, not flake, and it must not be retried into a green run.** The count floor is the
+only thing catching it — a 208-of-634 abort still prints `Passed!` on the line above `Test Run
+Aborted`, which is precisely why the floors exist (B104).
+
 ### B177 — soundscape selection ignores PVS, so every entity on the map contends
 
 **Filed 2026-08-24, not started.** `CSoundscapeSystem::Update` only lets soundscapes in the
