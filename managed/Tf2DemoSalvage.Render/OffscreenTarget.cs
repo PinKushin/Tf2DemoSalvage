@@ -134,6 +134,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="fullbright">Which <c>mat_fullbright</c> substitution to draw with.</param>
     /// <param name="drawWorld">Whether world surfaces and overlays draw — <c>r_drawworld</c>.</param>
     /// <param name="drawEntities">Whether props and models draw — <c>r_drawentities</c>.</param>
+    /// <param name="debug">
+    /// Valve's per-surface debug substitutions, so a test can assert on what one of them actually
+    /// draws rather than only on the flag reaching the constant buffer.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -158,7 +162,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         IReadOnlyList<WorldBatch>? props = null,
         Fullbright fullbright = Fullbright.Off,
         bool drawWorld = true,
-        bool drawEntities = true)
+        bool drawEntities = true,
+        DebugModes debug = default)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -177,7 +182,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.UploadTextures(_device, _context, assets);
         _world.UploadGeometry(_device, vertices, batches, decals, props);
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, heightCut, specular: true, fullbright);
+            _device, _context, matrix, surfaceColours, heightCut, specular: true, fullbright,
+            debug);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

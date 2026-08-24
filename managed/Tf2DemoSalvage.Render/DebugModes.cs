@@ -22,6 +22,20 @@ namespace Tf2DemoSalvage.Render;
 /// is not a per-surface substitution: it is an annotation, so it is drawn as lines rather than in
 /// the pixel shader and takes no register.
 /// </param>
+/// <param name="ShowLowResImage">
+/// <c>mat_showlowresimage</c> — the material is drawn from the tiny copy of itself that every VTF
+/// stores ahead of its mip chain, rather than from the texture. The only one of these that needed
+/// DATA rather than a shader branch, which is why it was implemented last: the thumbnail had always
+/// been skipped on the way past.
+/// <para>
+/// **Its honest value here is lower than the rest of the set**, and that is worth saying next to it.
+/// The others each answer a question a textured picture cannot — geometry against texture, lightmap
+/// coarseness, a bad tangent decode. This one mostly answers what the thumbnail looks like, and the
+/// load-bearing fact about the thumbnail (that it is always DXT1, so the skip past it is the right
+/// size) is pinned by <c>VtfLowResolutionConformanceTests</c> rather than by looking. Implemented
+/// for parity with Valve's set, on the owner's call, having already read the data.
+/// </para>
+/// </param>
 /// <param name="BumpBasis">
 /// <c>mat_bumpbasis</c> — which of Valve's three lightmap basis vectors a surface leans on, as red,
 /// green and blue. Uses the weights the bumped lighting already computes (`bumpvects.h`), so it
@@ -44,11 +58,13 @@ public readonly record struct DebugModes(
     bool Luxels = false,
     bool NormalMaps = false,
     bool BumpBasis = false,
-    bool LeafVis = false)
+    bool LeafVis = false,
+    bool ShowLowResImage = false)
 {
     /// <summary>Everything off, which is what the viewer draws normally.</summary>
     public static DebugModes None => default;
 
     /// <summary>Whether any mode is on, so callers can skip work the modes make pointless.</summary>
-    public bool Any => DrawFlat || Luxels || NormalMaps || BumpBasis || LeafVis;
+    public bool Any =>
+        DrawFlat || Luxels || NormalMaps || BumpBasis || LeafVis || ShowLowResImage;
 }

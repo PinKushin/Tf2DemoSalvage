@@ -1046,6 +1046,13 @@ internal class MainForm : Form
             // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
             // for leaf, and the menu shows the binding.
             ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L),
+
+            // **Ctrl+T, and for the same reason as Ctrl+L above: the function keys are full.** The
+            // last of B153's set, and the only one that needed the asset rather than a shader
+            // branch — every VTF's thumbnail had been skipped on the way past until now.
+            ("Low-res &image (mat_showlowresimage)",
+                nameof(DebugModes.ShowLowResImage),
+                Keys.Control | Keys.T),
         })
         {
             string which = cvar;
