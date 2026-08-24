@@ -116,7 +116,11 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # class — Valve's cutoff is compared against the SDK, while the falloff shape and the pan law are this
 # project's (B142) and so assert PROPERTIES any acceptable curve must hold rather than pinned values
 # that a recovered formula would redden.
-run Tf2DemoSalvage.Audio.Tests    audio     102
+# 107: AudioOutputMixTests (5). The only part of the OpenAL sink with a decision in it — mono spread
+# across two gains, stereo keeping its own image, and saturation on both sides of the clamp. Written
+# device-free deliberately: CI and the measurement boxes have no sound card, and a test that needed
+# one would skip exactly where it matters.
+run Tf2DemoSalvage.Audio.Tests    audio     107
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so

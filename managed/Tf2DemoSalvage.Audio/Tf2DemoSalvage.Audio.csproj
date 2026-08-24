@@ -23,6 +23,21 @@
          snd_mixahead budget, and it is managed so it needs no native build step per architecture.
          See docs/findings/31-game-audio.md. -->
     <PackageReference Include="NLayer" />
+
+    <!-- Playback (D80). Silk.NET's OpenAL binding, the same generated package family the renderer
+         already uses for D3D11, so the marshalling conventions and versioning story are ones this
+         repo already knows.
+
+         **The output is a dumb stereo sink and OpenAL's own 3D audio is switched OFF.** This
+         project already implements Valve's falloff - SoundGain and SoundAttenuation, checked
+         against snd_refdist 36 and snd_refdb 60 - so letting OpenAL apply a distance model as well
+         would either double-attenuate or quietly replace Valve's curve with OpenAL's. Either is
+         the silent divergence D79 exists to prevent, and neither would look like an error.
+
+         Soft.Native is separate because openal32.dll is not present on Windows by default, unlike
+         d3d11.dll: the binding is P/Invoke over a library that has to be shipped. -->
+    <PackageReference Include="Silk.NET.OpenAL" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
   </ItemGroup>
 
   <ItemGroup>
