@@ -100,9 +100,19 @@ Remaining gaps on the era axis: protocols **12–13** and **17–20, 23**.
 GotFrag MediaFire links still live fourteen years later — `leeko_badlands_4_63800.dem` at protocol
 21, and three at 22 — fill the middle of the range where TF2 changed fastest. They are in **lcor**,
 so CI and a fresh clone do not see them, and the container test still allows only
-`[11, 14, 15, 16, 24]` and therefore reports all four as failures (B162). **Do not widen that list
-to make it green:** protocol numbers date nothing on their own, so 21 and 22 need real build dates
-in `docs/TIMELINE.md` first, and the assertion should follow the measurement rather than lead it.
+`[11, 14, 15, 16, 24]` and therefore reports all four as failures (B162).
+
+**Widen that list — it is a fact about the files, not a claim about history.** An earlier version of
+this note said to date them first, which conflated two independent questions: the container test
+asks whether a header parses to a plausible protocol, and `docs/TIMELINE.md` asks when that protocol
+was current. A demo can be a legitimate protocol-22 specimen with no known date. Tying the assertion
+to dating would have left four known-good demos red indefinitely, because **these are scrims and
+pugs rather than league matches** and there is no ESEA or ETF2L record to date them from.
+
+Dating stays worth doing and is not blocked either — two of the four carry a date in the filename
+(`20120707`, `20120909`), map versions have known release windows, and `proto_version.h` names the
+build boundaries to check a candidate against. That belongs in `docs/TIMELINE.md`, on its own
+schedule, and the era table should keep saying "undated" until it happens.
 
 Do not assume a broad multi-era test corpus exists or will exist soon. TF2's pre-2013 competitive scene mostly used live Mumble casts rather than recorded demos, and there was no centralized archive before demos.tf, so older specimens are genuinely rare (`docs/DECISIONS.md` D5). Build defensively (schema-driven, not hardcoded) *because* of this, not despite it. If/when more demos surface (community outreach is a parallel, non-blocking effort), add them to `tools/corpus/manifest.json` and give each one a regression fixture in `tests/`.
 

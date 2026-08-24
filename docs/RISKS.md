@@ -9924,10 +9924,18 @@ That agent checked this corpus before claiming a gap and found 53 demos covering
 24 — **with nothing at 21 or 22**, the middle of the range where TF2 changed fastest. So the worst
 part of the 17–23 gap is now covered and the test is reporting it as breakage.
 
-**Extend the list only after dating them**, not to stop a red run. Protocol numbers date nothing on
-their own (`docs/memory/z1800-is-modern-not-2015.md`); the era table's dates come from running
-period clients, so 21 and 22 need real build dates in `docs/TIMELINE.md` beside them. Then the
-assertion becomes a description of measured reality rather than a loosened bound.
+**Extend the list. It is a fact about the files.** This entry first said to date them first, and the
+owner corrected it: *"we can only date them if we find the esea matches they are associated with,
+but benroad's demos are scrims not esea, maybe pugs"*. There is no league record for a scrim, so
+that precondition could never be met and four known-good demos would have stayed red for ever.
+
+The mistake was conflating two independent questions. The container test asks whether a header
+parses to a plausible protocol; `docs/TIMELINE.md` asks when a protocol was current. A demo can be a
+legitimate protocol-22 specimen with no known date, and the assertion should follow the files.
+
+Dating remains worth doing on its own schedule and is not blocked either — the filenames carry dates
+for two of them, map versions bound the rest, and `proto_version.h` names the build boundaries. It
+just belongs in the timeline rather than in a test's allow-list.
 
 **Still genuinely open at 12–13 and 17–20, 23.** And one more thing that entry offers which nothing
 here exercises: fourteen PACKED demos (twelve `.7z`, a `.zip`, a `.rar`). Every file in this corpus

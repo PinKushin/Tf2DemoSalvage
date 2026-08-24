@@ -52,12 +52,32 @@ from GotFrag MediaFire links still live fourteen years later (`TF2DEMOSALVAGE-LO
 `leeko_badlands_4_63800.dem` at protocol **21**, and `20120707-0042-koth_idioteque_a3.dem`,
 `20120909_1804_cp_gullywash_final1_red_fags.dem` and `hackermgereddit.dem` at **22**.
 
-**They are dated only by their own metadata so far, which is why the table above still reads as a
-window rather than as two measured rows.** Every other entry here was dated by running a period
-client and reading `version`; these have not been. Until that is done they are specimens of a
-protocol rather than points on the era axis — the distinction this document exists to keep, and the
-one `docs/memory/z1800-is-modern-not-2015.md` was written about. Dating them is what promotes them
-into the table and lets `CorpusContainerTests` widen its protocol list honestly.
+**They are undated, which is why the table above still reads as a window rather than as two measured
+rows.** Every other entry here was dated by running a period client and reading `version`; these
+have not been. Until then they are specimens of a protocol rather than points on the era axis — the
+distinction this document exists to keep, and the one
+`docs/memory/z1800-is-modern-not-2015.md` was written about.
+
+**That does not hold up `CorpusContainerTests`, and an earlier version of this note wrongly said it
+did.** The container test asks whether a header parses to a plausible protocol; this document asks
+when a protocol was current. They are independent, and coupling them would have left four known-good
+demos red indefinitely — **these are scrims and pugs, so there is no ESEA or ETF2L record to date
+them from.** The protocol list is a fact about the files and should follow them.
+
+**Dating is still possible, just not from league metadata.** Three routes, none needing a period
+client:
+
+- **The filenames.** `20120707-0042-koth_idioteque_a3` and `20120909_1804_cp_gullywash_final1` carry
+  their own dates, which is a stronger claim than anything derived from the protocol number.
+- **Map versions.** `koth_idioteque_a3`, `cp_gullywash_final1` and `cp_snakewater_b9` each have a
+  known release window, and a demo cannot predate the map it was recorded on. That gives a hard
+  lower bound even where the filename says nothing.
+- **`proto_version.h`**, which names the last build WITHOUT each change
+  (`docs/memory/proto-version-h-enumerates-the-boundaries.md`), so a candidate date can be checked
+  against the boundary rather than assumed.
+
+A date established that way is weaker evidence than `version` output and should be marked as such
+when it lands here — interpolated or inferred, never *measured*.
 
 Protocol 11 at launch was a surprise. The March 2008 build reports 14, and the launch build was
 expected to report 14 as well — three protocol versions came and went in TF2's first five months,
