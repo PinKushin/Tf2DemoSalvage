@@ -123,7 +123,10 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # 109: WaveLoopConformanceTests (2). A wave loops if it carries a `cue ` chunk (tier2/riff.h:187),
 # with a one-shot as the control — a reader that always looped would pass the first assertion and
 # turn every gunshot in the game into a drone.
-run Tf2DemoSalvage.Audio.Tests    audio     109
+# 116: ActiveLoopsTests (7). A loop has to be re-attenuated as the listener moves, or it keeps the
+# gain implied by wherever the camera stood when it started (B169). Device-free, so it runs where
+# there is no sound card — which is everywhere the gate runs.
+run Tf2DemoSalvage.Audio.Tests    audio     116
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so

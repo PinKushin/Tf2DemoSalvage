@@ -9997,7 +9997,40 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
-### B169 — looping sounds are played once, so ambience never persists — OPEN
+### B173 — soundscapes are not implemented at all — OPEN
+
+The owner, after B169 was fixed: *"computer hum is right, i have no ac hum from the spawn though."*
+
+**One class of ambience works and another does not, and they are different mechanisms.** That split
+is the whole diagnosis:
+
+| Sound | How it reaches the client | Works |
+|---|---|---|
+| the computer hum | `ambient_generic` → `svc_Sounds` → a named wave | yes |
+| a spawn room's AC hum | `env_soundscape` → an INDEX → a client-side script | no |
+
+**A soundscape never appears in `svc_Sounds`.** `soundscape.cpp:215` puts
+`audio.soundscapeIndex = m_soundscapeIndex` into the player's audio params, and
+`playernet_vars.h:118` declares it `CNetworkVar( int, soundscapeIndex ); // index of the current
+soundscape from soundscape.txt`, networked through `DT_Local`
+(`player.cpp:8119`, `SENDINFO_DT(m_Local)`). The client then plays the loops that index names, from
+scripts TF2 ships — `soundscapes_manifest.txt` plus a file per map (`soundscapes_2fort`,
+`soundscapes_badlands`, and the rest), all present in `tf2_misc_dir.vpk`.
+
+Nothing in `managed/` mentions soundscapes. The index is not read, the scripts are not parsed, and
+the loops are not played.
+
+**The index is the awkward part and should be understood before any code is written.** It is a
+position in the server's load order, not a name — so resolving it means loading the same scripts in
+the same order the server did, via the manifest. That is the same hazard as the sound precache table
+but with a worse failure mode: a mismatched order plays the *wrong* ambience rather than none, which
+is a plausible sound rather than an error.
+
+A soundscape entry is also more than a filename: `playlooping`, `playrandom`, per-sound volume,
+pitch, position, and `dsp`, with `soundscape_fadetime` crossfading between them
+(`c_soundscape.cpp:42`). Reproducing it faithfully is a feature, not a wiring job.
+
+### B169 — CLOSED 2026-08-24. Looping sounds are re-attenuated as the listener moves
 
 **Nothing in this repository reads a WAV's loop points.** `RiffWave` parses no `cue ` or `smpl`
 chunk, `SoundSample` carries no loop flag, and `AudioOutput` never sets `AL_LOOPING`. A looping
@@ -10025,6 +10058,9 @@ now read and verified against the shipped files (`ambient/machine_hum.wav` loops
 `items/gunpickup2.wav` does not, as the control), `AL_LOOPING` is set, and the owner still reports
 "i didnt hear the ambient sounds that time either".
 
+**Fixed and confirmed by ear**: *"computer hum is right"*. The remaining absence the owner reported
+in the same breath — no AC hum in spawn — is a different mechanism entirely and is filed as B173.
+
 **The cause is that a loop is spatialised ONCE, and the owner's description is what identifies it.**
 
 I had assumed the six signon sounds were being skipped by the schedule's cursor. The owner ruled
@@ -10042,10 +10078,36 @@ into the spawn room later cannot make it louder.
 Distance was ruled out separately, also by the owner: *"the sounds are not playing in pov view when
 the players are at spwn, so its not a distance thing"*. Both observations point at the same gap.
 
-Work: keep the live looping voices, and recompute each one's gain and pan per frame from the
-listener's current position and the source's own. `AudioOutput` needs a way to set the gains of a
-voice already playing, and the caller needs to remember where each looping sound is. The one-shot
-path stays exactly as it is.
+**Done, and the design flaw was worse than "the gain is not updated".** `ToStereo16` baked
+`pan x distanceGain` into the SAMPLES and set the source's own gain to a constant 1. A buffer's
+samples cannot change once uploaded, so nothing about a playing sound could ever be adjusted — fine
+while every sound was a one-shot under a second, fatal for a hum meant to run a whole match.
+
+The fix splits the two: the **pan stays baked** into the samples, and the **distance gain moves onto
+the source**, where `AudioOutput.SetGain` can move it per frame. Composed per ear that is the same
+`pan x gain` product as before, with the second factor now live, and OpenAL still contributes no
+attenuation of its own since the source sits at the listener's own position (D80).
+
+`ActiveLoops` (in the audio project, where `SoundGain` lives) follows the few looping voices and
+answers what each should be attenuated to from a given listener position. It holds no device and no
+samples, which is what makes it testable where there is no sound card.
+
+Three behaviours worth knowing, each one a decision rather than an accident:
+
+- **A loop starts even when it is currently inaudible.** The map's ambience begins on the first tick
+  wherever the camera happens to be; refusing a zero-gain start would mean the sound never exists to
+  be turned up when the listener walks over. One-shots still skip, since silence now is permanent
+  for them.
+- **The re-attenuation runs before the "nothing started this frame" exit.** After it, loops would
+  only update on frames something else happened to start — most obviously wrong exactly when the map
+  is quiet.
+- **A seek clears the tracking** along with `StopAll`, because those voices no longer exist.
+
+**Remaining approximation, stated rather than hidden: a loop's PAN does not follow the listener.**
+Orbit a hum and the left/right balance stays as it started; only distance moves. Distance is what
+makes ambience appear and disappear, so it is the half that mattered — but a listener circling a
+source will hear it from the wrong side, and fixing that needs either a re-uploaded buffer or two
+mono voices panned hard and gained separately.
 
 **Also worth recording for whoever checks it**, because it sets the expectation for what "fixed"
 sounds like. The owner: *"theres ambient sounds all over the place not just in spawn, spawn is an ac

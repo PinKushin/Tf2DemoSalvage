@@ -111,8 +111,13 @@ public sealed unsafe class AudioOutput : IDisposable
 
     /// <summary>Plays one sound, already mixed and already attenuated.</summary>
     /// <param name="sample">The decoded sound.</param>
-    /// <param name="leftGain">Gain for the left ear, from <see cref="SoundGain.Pan"/>.</param>
-    /// <param name="rightGain">Gain for the right ear.</param>
+    /// <param name="leftPan">The left ear's share of the image, from <see cref="SoundGain.Pan"/>.</param>
+    /// <param name="rightPan">The right ear's share.</param>
+    /// <param name="gain">
+    /// Valve's distance attenuation, from <see cref="SoundGain.AtDistance"/> times the sound's own
+    /// volume. Kept separate from the pan because this one can be updated while the sound plays —
+    /// see <see cref="SetGain"/> — and a loop is unlistenable without that.
+    /// </param>
     /// <param name="pitch">Playback rate, 1 being unshifted.</param>
     /// <param name="entity">Which entity is making it, which with the channel forms the key.</param>
     /// <param name="channel">
@@ -131,8 +136,9 @@ public sealed unsafe class AudioOutput : IDisposable
     /// </remarks>
     public void Play(
         SoundSample sample,
-        float leftGain,
-        float rightGain,
+        float leftPan,
+        float rightPan,
+        float gain = 1f,
         float pitch = 1f,
         int entity = 0,
         int channel = AutoChannel)
@@ -150,7 +156,15 @@ public sealed unsafe class AudioOutput : IDisposable
         // definition: the engine allocates a free channel for those, so they are meant to overlap.
         Stop(entity, channel);
 
-        short[] stereo = ToStereo16(sample, leftGain, rightGain);
+        // **The PAN is baked into the samples; the distance gain is not.** Once a buffer is
+        // uploaded its samples cannot change, so anything baked in is fixed for the life of the
+        // sound. That was fine while every sound was a one-shot lasting under a second, and wrong
+        // the moment loops arrived: a hum started across the map kept that distance's gain for the
+        // whole match, and walking up to it could not make it louder (B169).
+        //
+        // Splitting them puts the half that must follow the listener — the scalar attenuation —
+        // where it can be set per frame, and leaves the stereo image where it costs nothing.
+        short[] stereo = ToStereo16(sample, leftPan, rightPan);
 
         if (stereo.Length == 0)
         {
@@ -183,7 +197,14 @@ public sealed unsafe class AudioOutput : IDisposable
         // unshifted; the caller has already divided. Clamped only against nonsense, because a
         // demo's pitch is data and refusing an unusual one would silence a sound the game played.
         _al.SetSourceProperty(source, SourceFloat.Pitch, pitch > 0f ? pitch : 1f);
-        _al.SetSourceProperty(source, SourceFloat.Gain, 1f);
+
+        // **Valve's distance attenuation, and the only part of the mix that can still change.**
+        // OpenAL applies this as a plain scalar over the whole source, which is exactly what a
+        // distance curve is — so the composed result per ear is `pan x gain`, the same product that
+        // used to be baked into the samples, with the second factor now live. OpenAL still computes
+        // no attenuation of its own: the source sits at the listener's own position (above), where
+        // every distance model returns one.
+        _al.SetSourceProperty(source, SourceFloat.Gain, gain < 0f ? 0f : gain);
 
         // **A looping sound runs until its channel is stopped, which is what makes ambience work.**
         // Six machine hums start at the beginning of cp_process and are meant to run for the whole
@@ -199,6 +220,45 @@ public sealed unsafe class AudioOutput : IDisposable
         _al.SourcePlay(source);
 
         _playing.Add(new Voice(source, buffer, entity, channel));
+    }
+
+    /// <summary>Re-attenuates a sound that is already playing.</summary>
+    /// <param name="entity">The entity the sound belongs to.</param>
+    /// <param name="channel">The channel it is playing on.</param>
+    /// <param name="gain">Valve's distance attenuation for the listener's current position.</param>
+    /// <returns>Whether a voice was found and updated.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    /// <remarks>
+    /// **This is what makes a loop follow the listener, and its absence is what B169 was.** A sound
+    /// is spatialised once when it starts, which is correct for a one-shot lasting under a second
+    /// and useless for ambience meant to run for a whole match: the owner reported the map's hums
+    /// as inaudible, and the reason was that each one kept whatever gain the camera's position
+    /// implied at the instant it began.
+    ///
+    /// **Only the scalar moves; the stereo image does not.** The pan is baked into the samples at
+    /// <see cref="Play"/> and cannot be changed without re-uploading the buffer, so a loop orbited
+    /// by the listener keeps the left/right balance it started with. Distance is the part that
+    /// makes ambience appear and disappear, and it is the part that is now live — the remaining
+    /// error is second-order and stated rather than hidden.
+    /// </remarks>
+    public bool SetGain(int entity, int channel, float gain)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        bool found = false;
+
+        foreach (Voice voice in _playing)
+        {
+            if (voice.Entity != entity || voice.Channel != channel)
+            {
+                continue;
+            }
+
+            _al.SetSourceProperty(voice.Source, SourceFloat.Gain, gain < 0f ? 0f : gain);
+            found = true;
+        }
+
+        return found;
     }
 
     /// <summary>Silences whatever an entity is playing on a channel.</summary>
