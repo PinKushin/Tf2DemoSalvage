@@ -9913,6 +9913,35 @@ Worth separating before any work: frame pacing (are we presenting at a steady ra
 interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
 cycle advance smoothly). Three different causes, one appearance.
 
+### B168 — the audio project is finished and entirely unwired — OPEN
+
+The owner, 2026-08-23: *"i think we still need to wire in the game audio too, we started all that
+before the MVP reform and didnt wire it in because we needed to so the migration first or we would
+be doubling work."*
+
+**Measured rather than taken on trust, and it is exactly as described:**
+
+- `Tf2DemoSalvage.Viewer3D.csproj` carries **no ProjectReference** to `Tf2DemoSalvage.Audio`.
+- **No file** anywhere in `managed/` outside that project names the `Tf2DemoSalvage.Audio` namespace.
+
+So the whole subsystem is reachable only from its own tests: `CeltVoiceDecoder`, `OpusVoiceDecoder`,
+`NativeSpeex`, `RiffWave`, `SoundAttenuation`, `SoundGain`, `SoundSample`, `SoundScript`,
+`SoundFile`, and 102 passing tests behind them. Nothing has ever made a sound.
+
+**This is the shape `docs/memory/output-level-assertion-or-it-is-not-done.md` was written about**,
+at subsystem scale rather than method scale: every component is tested, every test passes, and
+production calls none of it. The difference from the three no-ops that memory records is that this
+one was deferred **deliberately** and the reason was good — wiring it before the MVP restructure
+would have meant wiring it twice.
+
+The deferral is over: the restructure landed, `Presentation` exists, and the transport already knows
+the tick. What is missing is the sink — something that plays a sample at a time — plus the decision
+about where sound belongs in the presenter split.
+
+**Do not treat the green audio suite as evidence the feature works.** It says the decoders agree with
+Valve's formats. Whether a demo produces audio is a question no test in this repository currently
+asks, and the first thing to add alongside the wiring is one that does.
+
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
 The Original ("the quake launcher") drew far too high and filled the screen, on every demo since

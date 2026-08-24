@@ -132,7 +132,11 @@ public sealed class VtfTexture
         byte[] pixels,
         int level,
         uint flags,
-        IReadOnlyList<ReadOnlyMemory<byte>> levels)
+        IReadOnlyList<ReadOnlyMemory<byte>> levels,
+        VtfFormat lowResolutionFormat = VtfFormat.None,
+        int lowResolutionWidth = 0,
+        int lowResolutionHeight = 0,
+        byte[]? lowResolutionPixels = null)
     {
         Width = width;
         Height = height;
@@ -142,7 +146,40 @@ public sealed class VtfTexture
         Level = level;
         Flags = flags;
         Levels = levels;
+        LowResolutionFormat = lowResolutionFormat;
+        LowResolutionWidth = lowResolutionWidth;
+        LowResolutionHeight = lowResolutionHeight;
+        LowResolutionPixels = lowResolutionPixels ?? [];
     }
+
+    /// <summary>Format the thumbnail is stored in, or <see cref="VtfFormat.None"/> when absent.</summary>
+    /// <remarks>
+    /// **Always DXT1 in practice, and the reader depends on it.** The skip past the thumbnail is
+    /// sized as DXT1 unconditionally, so a file storing one in any other format would put every mip
+    /// after it at the wrong offset — a picture assembled from the wrong bytes rather than an error.
+    /// `VtfLowResolutionConformanceTests` checks that against shipped textures rather than leaving
+    /// it on a comment.
+    /// </remarks>
+    public VtfFormat LowResolutionFormat { get; }
+
+    /// <summary>Width of the thumbnail, from <c>lowResImageWidth</c>.</summary>
+    public int LowResolutionWidth { get; }
+
+    /// <summary>Height of the thumbnail, from <c>lowResImageHeight</c>.</summary>
+    public int LowResolutionHeight { get; }
+
+    /// <summary>The thumbnail decoded to RGBA, or empty when the file carries none.</summary>
+    /// <remarks>
+    /// What <c>mat_showlowresimage</c> draws in place of the texture. Empty rather than null so a
+    /// caller can bind it without a branch, and so "no thumbnail" reads as nothing to draw rather
+    /// than as a failure — a VTF is allowed not to have one.
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Performance",
+        "CA1819:Properties should not return arrays",
+        Justification = "Uploaded to the GPU like Pixels, and for the same reason: a defensive " +
+                        "copy would exist only to be copied again into a texture.")]
+    public byte[] LowResolutionPixels { get; }
 
     /// <summary>Width of the decoded image.</summary>
     public int Width { get; }
@@ -387,11 +424,32 @@ public sealed class VtfTexture
         }
 
         // The thumbnail sits between the header and the images, and is always DXT1 when present.
+        //
+        // **Kept now rather than skipped, because `mat_showlowresimage` draws it** — Valve's own
+        // debug view for which image is resident, and a retail cvar rather than a Hammer facility
+        // (the string is in the shipped materialsystem.dll; D79). It is the one debug draw that
+        // needed data instead of a shader branch, which is why it was last of B153.
+        //
+        // Decoded eagerly and unconditionally: a thumbnail is at most 16x16, so 1 KiB expanded
+        // against a texture measured in megabytes. Deferring it would mean holding the file alive
+        // to decode from later, which costs far more than the pixels do.
         int at = headerSize;
+        byte[] thumbnail = [];
 
         if (lowResFormat is not VtfFormat.None && lowResWidth > 0 && lowResHeight > 0)
         {
-            at += SizeOf(VtfFormat.Dxt1, lowResWidth, lowResHeight);
+            int thumbnailBytes = SizeOf(VtfFormat.Dxt1, lowResWidth, lowResHeight);
+
+            // Bounds-checked rather than assumed. A truncated VTF is input here, not a mistake —
+            // D32 puts a model inside a downloaded map — and the thumbnail is the first thing after
+            // a header whose own size field the file supplied.
+            if (at >= 0 && (long)at + thumbnailBytes <= span.Length)
+            {
+                thumbnail = Expand(
+                    span.Slice(at, thumbnailBytes), VtfFormat.Dxt1, lowResWidth, lowResHeight);
+            }
+
+            at += thumbnailBytes;
         }
 
         // **Seven faces when the envmap flag is set, one otherwise**, and the count multiplies every
@@ -469,12 +527,15 @@ public sealed class VtfTexture
             }
 
             return new VtfTexture(
-                levelWidth, levelHeight, format, mipCount, [], level, flags, chain);
+                levelWidth, levelHeight, format, mipCount, [], level, flags, chain,
+                lowResFormat, lowResWidth, lowResHeight, thumbnail);
         }
 
         byte[] pixels = Expand(span.Slice(at, bytes), format, levelWidth, levelHeight);
 
-        return new VtfTexture(levelWidth, levelHeight, format, mipCount, pixels, level, flags, []);
+        return new VtfTexture(
+            levelWidth, levelHeight, format, mipCount, pixels, level, flags, [],
+            lowResFormat, lowResWidth, lowResHeight, thumbnail);
     }
 
     /// <summary>Picks the smallest mip whose longest edge still reaches a size.</summary>
