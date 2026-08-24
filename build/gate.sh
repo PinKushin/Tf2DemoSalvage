@@ -255,7 +255,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     106
 # 628: LowResImageRenderTests (1). The output-level assertion for mat_showlowresimage — the flag
 # reaching the constant buffer and the texture being bound are separately true and separately
 # useless, and only a pixel can say the substitution happened.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    628
+# 634: SpectatorTargetConformanceTests (6). CBasePlayer::IsValidObserverTarget has four clauses and
+# only the team one was implemented, so cycling landed on corpses (B171). Includes the control that
+# a living player is still chosen — a filter refusing everyone would satisfy the exclusions alone.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    634
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

@@ -10124,7 +10124,45 @@ It also raises the stakes on the per-frame work above rather than lowering them:
 that fall off quickly, almost every one of them is inaudible from wherever the camera happened to be
 when it started, and a gain computed once is wrong for nearly all of them nearly all the time.
 
-### B171 — following some players does not enter first person — OPEN
+### B171 — CLOSED 2026-08-24. Cycling landed on dead players, who are not observer targets
+
+Confirmed fixed by the owner: *"1st person works on everyone now"*.
+
+**The owner's own hypothesis was right**: *"b171 might be the pov cam grabbing spectators/players
+who are dead"*. Spectators were already excluded, by team. Dead players were not — **a dead player
+is still on RED or BLU** — so the cycle walked straight onto corpses.
+
+`CBasePlayer::IsValidObserverTarget` (`player.cpp`) has four clauses and only the first was
+implemented:
+
+```cpp
+if ( !target->IsPlayer() )                        return false;
+if ( player == this )                             return false;
+if ( player->IsEffectActive( EF_NODRAW ) )        return false;  // don't watch invisible players
+if ( player->m_lifeState == LIFE_RESPAWNABLE )    return false;  // dead, waiting for respawn
+if ( player->m_lifeState == LIFE_DEAD || player->m_lifeState == LIFE_DYING ) { ...3s... }
+```
+
+**One cause, all three reported symptoms.** Landing on a corpse puts the camera at a dead player's
+stale position, leaves no viewmodel because a dead player has no active weapon to draw, and produces
+a view that reads as "a 3rd person cam, but bad and not the right one" — which is precisely what it
+is. Nothing about the first-person path was broken; it was being pointed at somebody unwatchable.
+
+Everything needed was already decoded — `ScenePlayer.Drawn` and `ScenePlayer.IsAlive` — the filter
+simply never asked. Measured on z1800 at mid-match: **25 entities, 24 on a team, 20 observable.**
+
+**Two existing corpus tests failed on the fix and were right to**, which is the third instance of
+`docs/memory/a-test-can-outlive-its-design.md` in two days. They counted the denominator as
+`Team is 2 or 3` — the old filter — and then demanded the cycle visit all 24. Fixed by having them
+ask `SpectatorTarget.CanObserve` rather than restate the rule, so the cycle and its denominator
+cannot drift apart.
+
+**Not implemented, and stated rather than left to be found:** the engine keeps a target valid for
+three seconds after death (`m_flDeathTime + DEATH_ANIMATION_TIME`) so the death animation is
+watchable. Nothing here decodes `m_flDeathTime`, so a target is dropped at the instant of death
+instead. A smaller wrongness than following a corpse for the rest of the round.
+
+### B171 — following some players does not enter first person — CLOSED, see above
 
 The owner, 2026-08-24: *"some players when you switch to them its not actually going into 1st
 person, no viewmodel is drawn and you can see the player model sometimes, depending on where the cam
