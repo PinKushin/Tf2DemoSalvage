@@ -68,6 +68,17 @@ public sealed class FileLogWriter : IDisposable
     /// <summary>Where this run's log is written.</summary>
     public string Path { get; }
 
+    /// <summary>The folder this application's logs and captures live in.</summary>
+    /// <remarks>
+    /// **Here rather than in the viewer, because two writers share it and only one of them used to
+    /// prune.** Logs and screenshots go to the same directory, and `FileRetention` beside this type
+    /// keeps both — the measured failure was 233 screenshots at 203 MB with no retention code at
+    /// all, alongside 207 logs against a stated limit of 50.
+    /// </remarks>
+    public static string DefaultFolder => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Tf2DemoSalvage");
+
     /// <summary>Whether writing has been abandoned after an IO failure.</summary>
     /// <remarks>
     /// Exposed so a caller can say so once rather than discovering it from an empty file. Nothing

@@ -10,6 +10,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
@@ -235,6 +238,35 @@ internal class MainForm : Form
     /// </remarks>
     private BspVisibility? _visibility;
 
+    /// <summary>The factory, kept so the pieces this builds get their own categories (D83).</summary>
+    private readonly ILoggerFactory _loggers;
+
+    /// <summary>One logger per area ViewerLog used to take as a string argument.</summary>
+    /// <remarks>
+    /// **Nine of them, because this type genuinely writes to nine areas.** A logger's category is
+    /// exactly the old area string, so `_assetLog.LogInformation(...)` produces the same
+    /// `[assets]` line `_assetLog.LogInformation("{Message}", ...)` did — which matters because the UI suite
+    /// counts literal substrings in that file and several diagnostics here are greps over it.
+    ///
+    /// Fields rather than a lookup by name: a dictionary would move the area from a compile-time
+    /// fact to a runtime string, which is the direction this conversion is travelling away from.
+    /// </remarks>
+    private readonly ILogger _log;
+
+    private readonly ILogger _mapLog;
+
+    private readonly ILogger _assetLog;
+
+    private readonly ILogger _renderLog;
+
+    private readonly ILogger _demoLog;
+
+    private readonly ILogger _audioLog;
+
+    private readonly ILogger _spectateLog;
+
+    private readonly ILogger _configLog;
+
     /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
     private int? _lastFirstPersonReport;
 
@@ -258,7 +290,8 @@ internal class MainForm : Form
     private readonly List<SceneProp> _props = [];
 
     /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
-    private readonly EntityModelSet _models = new();
+    // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
+    private readonly EntityModelSet _models;
 
     private readonly List<ModelInstance> _instances = [];
 
@@ -474,20 +507,20 @@ internal class MainForm : Form
             catch (Exception failure) when (
                 failure is IOException or UnauthorizedAccessException)
             {
-                ViewerLog.Warn("assets", $"reading {path}", failure);
+                _assetLog.LogWarning(failure, "{Message}", $"reading {path}");
             }
         }
 
         if (read.Count == 0)
         {
-            ViewerLog.Write("assets", $"no FGD files in {bin}; entities draw as brushwork");
+            _assetLog.LogInformation("{Message}", $"no FGD files in {bin}; entities draw as brushwork");
             return;
         }
 
         _entityClasses = FgdClasses.Parse([.. read]);
 
-        ViewerLog.Write(
-            "assets",
+        _assetLog.LogInformation(
+            "{Message}",
             $"entity palette: {_entityClasses.Count} classes from {read.Count} FGD files");
     }
 
@@ -543,7 +576,7 @@ internal class MainForm : Form
             }
         }
 
-        ViewerLog.Write("render", $"mat_fullbright {(int)mode}");
+        _renderLog.LogInformation("{Message}", $"mat_fullbright {(int)mode}");
 
         if (_device is { } device)
         {
@@ -591,8 +624,39 @@ internal class MainForm : Form
     /// the difference would only show up for whichever one is used less. There is one entry
     /// point, <see cref="AddToLibrary"/>, and both callers use it.
     /// </remarks>
+    /// <summary>Opens the window with no logging, for a test that wants a form and not a log.</summary>
+    /// <remarks>
+    /// **An overload rather than an optional parameter, because `params` cannot follow one.**
+    /// `MainForm(ILoggerFactory? loggers = null, params string[] paths)` would bind
+    /// `new MainForm("a.dem")` to the factory and fail. Thirty test call sites construct this
+    /// directly and none of them wants a log, so the shape they already use keeps working.
+    /// </remarks>
     public MainForm(params string[] initialPaths)
+        : this(NullLoggerFactory.Instance, initialPaths)
     {
+    }
+
+    /// <summary>Opens the window, reporting through the given loggers.</summary>
+    /// <param name="loggers">Where the viewer reports what it did (D83).</param>
+    /// <param name="initialPaths">Files or folders to open.</param>
+    public MainForm(ILoggerFactory loggers, params string[] initialPaths)
+    {
+        ArgumentNullException.ThrowIfNull(loggers);
+
+        // **Eight areas, so a factory rather than a logger.** MainForm is the one type here that
+        // writes to most of them — map, assets, render, demo, audio, spectate, viewer, config — and
+        // each keeps the category ViewerLog used as its area string, so the log format is unchanged.
+        _loggers = loggers;
+        _models = new EntityModelSet(loggers);
+        _log = loggers.CreateLogger("viewer");
+        _mapLog = loggers.CreateLogger("map");
+        _assetLog = loggers.CreateLogger("assets");
+        _renderLog = loggers.CreateLogger("render");
+        _demoLog = loggers.CreateLogger("demo");
+        _audioLog = loggers.CreateLogger("audio");
+        _spectateLog = loggers.CreateLogger("spectate");
+        _configLog = loggers.CreateLogger("config");
+
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
         // describing it, which is slow for them and leaves the loop dependent on someone being at
@@ -617,8 +681,8 @@ internal class MainForm : Form
         // "there is no sound" and "the sound is not working" are distinguishable in the log.
         _audio = AudioOutput.TryCreate();
 
-        ViewerLog.Write(
-            "audio",
+        _audioLog.LogInformation(
+            "{Message}",
             _audio is null
                 ? "no audio device could be opened; playback will be silent"
                 : "audio output opened");
@@ -889,8 +953,8 @@ internal class MainForm : Form
             // **The legend goes in the log, because a colour nobody can name is not an answer.**
             // Violet was read as "the sign" and white as "an uncoloured surface" during the B154
             // hunt, both wrong, and there was nowhere to look it up.
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 _surfaceColours.Checked
                     ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
                       "violet overlays, Valve's magenta chequer where a material resolved to " +
@@ -925,7 +989,7 @@ internal class MainForm : Form
 
         _wireframe.CheckedChanged += (_, _) =>
         {
-            ViewerLog.Write("render", $"mat_wireframe {(_wireframe.Checked ? 1 : 0)}");
+            _renderLog.LogInformation("{Message}", $"mat_wireframe {(_wireframe.Checked ? 1 : 0)}");
 
             if (_device is { } device)
             {
@@ -1001,7 +1065,7 @@ internal class MainForm : Form
 
         _drawWorld.CheckedChanged += (_, _) =>
         {
-            ViewerLog.Write("render", $"r_drawworld {(_drawWorld.Checked ? 1 : 0)}");
+            _renderLog.LogInformation("{Message}", $"r_drawworld {(_drawWorld.Checked ? 1 : 0)}");
 
             if (_device is { } world)
             {
@@ -1022,7 +1086,7 @@ internal class MainForm : Form
 
         _drawEntities.CheckedChanged += (_, _) =>
         {
-            ViewerLog.Write("render", $"r_drawentities {(_drawEntities.Checked ? 1 : 0)}");
+            _renderLog.LogInformation("{Message}", $"r_drawentities {(_drawEntities.Checked ? 1 : 0)}");
 
             if (_device is { } entities)
             {
@@ -1102,7 +1166,7 @@ internal class MainForm : Form
                     _ => _debug with { LeafVis = toggled.Checked },
                 };
 
-                ViewerLog.Write("render", $"debug views: {_debug}");
+                _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
 
                 if (_device is { } device)
                 {
@@ -1121,7 +1185,7 @@ internal class MainForm : Form
 
         _specular.CheckedChanged += (_, _) =>
         {
-            ViewerLog.Write("render", $"mat_specular {(_specular.Checked ? 1 : 0)}");
+            _renderLog.LogInformation("{Message}", $"mat_specular {(_specular.Checked ? 1 : 0)}");
 
             if (_device is { } device)
             {
@@ -1404,12 +1468,12 @@ internal class MainForm : Form
             // Not on this machine. Fetch it the way joining a server would - in the background,
             // because a 40 MB download must not freeze the window, and the demo is watchable
             // without a map anyway.
-            ViewerLog.Write("map", $"{mapName} is not installed; fetching it");
+            _mapLog.LogInformation("{Message}", $"{mapName} is not installed; fetching it");
             _ = DownloadMapAsync(mapName);
             return false;
         }
 
-        ViewerLog.Write("map", $"found {path}");
+        _mapLog.LogInformation("{Message}", $"found {path}");
 
         return ReadMap(mapName, path);
     }
@@ -1461,13 +1525,13 @@ internal class MainForm : Form
         {
             byte[] bytes = File.ReadAllBytes(path);
 
-            ViewerLog.Write("map", $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
+            _mapLog.LogInformation("{Message}", $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
 
             BspGeometry geometry = BspGeometry.Read(bytes);
             _map = MapOutline.FromFaces(geometry.OverheadFaces);
 
-            ViewerLog.Write(
-                "map",
+            _mapLog.LogInformation(
+                "{Message}",
                 $"{geometry.Faces.Count} faces, {geometry.OverheadFaces.Count} overhead, " +
                 $"{_map.Segments.Count} outline segments");
 
@@ -1478,12 +1542,12 @@ internal class MainForm : Form
                 if (_archives is null)
                 {
                     string? game = FindGameFolder();
-                    ViewerLog.Write("assets", $"game folder: {game ?? "not found"}");
+                    _assetLog.LogInformation("{Message}", $"game folder: {game ?? "not found"}");
                     _archives = GameArchives.Open(game);
 
                     LoadEntityPalette(game);
-                    ViewerLog.Write(
-                        "assets",
+                    _assetLog.LogInformation(
+                        "{Message}",
                         $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
 
                     // **The class scripts, which is where a player's model actually comes from.**
@@ -1491,8 +1555,8 @@ internal class MainForm : Form
                     // a player's model path unless the server overrode it.
                     _classModels = PlayerClassModels.Read(_archives.Read);
 
-                    ViewerLog.Write(
-                        "assets",
+                    _assetLog.LogInformation(
+                        "{Message}",
                         $"class models: {string.Join(", ", ClassModelPaths())}");
                 }
 
@@ -1509,7 +1573,7 @@ internal class MainForm : Form
                 catch (InvalidDataException failure)
                 {
                     _terrain = null;
-                    ViewerLog.Warn("assets", "reading the map's terrain", failure);
+                    _assetLog.LogWarning(failure, "{Message}", "reading the map's terrain");
                 }
 
                 try
@@ -1547,15 +1611,15 @@ internal class MainForm : Form
                     _soundscapeMixer.Clear();
                     _soundscapeVoices.Clear();
 
-                    ViewerLog.Write(
-                        "audio",
+                    _audioLog.LogInformation(
+                        "{Message}",
                         _visibility is { HasData: true } pvs
                             ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
                               "clusters, so soundscape selection is restricted to what the listener can see"
                             : "no visibility data, so every soundscape on the map contends");
 
-                    ViewerLog.Write(
-                        "audio",
+                    _audioLog.LogInformation(
+                        "{Message}",
                         _soundscapes is { } placed
                             ? $"{placed.Placements.Count} soundscape placements, " +
                               string.Join(
@@ -1581,8 +1645,8 @@ internal class MainForm : Form
                         }
                     }
 
-                    ViewerLog.Write(
-                        "assets",
+                    _assetLog.LogInformation(
+                        "{Message}",
                         $"{_brushModelClasses.Count} brush entities named a class");
                 }
                 catch (InvalidDataException failure)
@@ -1590,10 +1654,10 @@ internal class MainForm : Form
                     // Costs the decals, not the map. Reported rather than swallowed: the engine
                     // reads this lump on every map it opens.
                     _overlays = null;
-                    ViewerLog.Warn("assets", "reading the map's decals", failure);
+                    _assetLog.LogWarning(failure, "{Message}", "reading the map's decals");
                 }
 
-                using (ViewerLog.Time("assets", "reading surfaces and textures"))
+                using (_assetLog.Time("reading surfaces and textures"))
                 {
                     _surfaceList = BspSurfaces.Read(bytes);
 
@@ -1658,7 +1722,14 @@ internal class MainForm : Form
                         // (B123). Usable here because the leaves and the ambient samples were read
                         // a few lines above, before any asset is loaded — the ordering is what
                         // makes this a delegate rather than a second pass.
-                        LightAt);
+                        LightAt,
+
+                        // **Passed explicitly, and forgetting it is silent (D83).** The parameter
+                        // defaults to a null logger so tests need not supply one — which means an
+                        // omission here costs every asset line in the run and nothing reports it.
+                        // Caught by reading the log after the conversion: 13 assets lines and zero
+                        // warnings, against dozens of each before.
+                        _loggers);
                 }
 
                 int displacements = 0;
@@ -1668,8 +1739,8 @@ internal class MainForm : Form
                     displacements += surface.IsDisplacement ? 1 : 0;
                 }
 
-                ViewerLog.Write(
-                    "assets",
+                _assetLog.LogInformation(
+                    "{Message}",
                     $"{_surfaceList.Count} surfaces ({displacements} displacements), " +
                     $"{_assets.Resolved} materials resolved, {_assets.Missing} missing, " +
                     $"lightmap atlas {_assets.Lightmaps.Width}x{_assets.Lightmaps.Height}, " +
@@ -1677,8 +1748,8 @@ internal class MainForm : Form
 
                 (double seconds, long count) = Tf2DemoSalvage.Content.Assets.VtfTexture.DecodeCost;
 
-                ViewerLog.Write(
-                    "assets",
+                _assetLog.LogInformation(
+                    "{Message}",
                     string.Create(
                         CultureInfo.InvariantCulture,
                         $"VTF decode so far: {seconds:F2}s CPU over {count} textures " +
@@ -1690,7 +1761,7 @@ internal class MainForm : Form
                 _surfaceList = [];
                 _assets = null;
                 _mapProblem = "Map content unavailable: " + failure.Message;
-                ViewerLog.Warn("assets", "reading the map's content", failure);
+                _assetLog.LogWarning(failure, "{Message}", "reading the map's content");
             }
 
             // Filled from the main cluster only. Outside it is the 3D skybox room, which is
@@ -1733,28 +1804,28 @@ internal class MainForm : Form
 
             if (game is null)
             {
-                ViewerLog.Write("config", "no TF2 install found; using the built-in bindings");
+                _configLog.LogInformation("{Message}", "no TF2 install found; using the built-in bindings");
                 return;
             }
 
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, ViewerLog.Write);
+            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, _loggers.LogTo());
 
             if (configs.Count == 0)
             {
-                ViewerLog.Write("config", $"no configs under {game}; using the built-in bindings");
+                _configLog.LogInformation("{Message}", $"no configs under {game}; using the built-in bindings");
                 return;
             }
 
             _console.Load(configs);
             _bindings = _console.Bindings();
 
-            ViewerLog.Write(
-                "config",
+            _configLog.LogInformation(
+                "{Message}",
                 $"{configs.Count} files, {_console.Applied} of {_console.Bound} binds applied");
 
             foreach ((ViewerAction action, string key) in _bindings.All())
             {
-                ViewerLog.Write("config", $"  {action,-20} {key}");
+                _configLog.LogInformation("{Message}", $"  {action,-20} {key}");
             }
 
             // **The controls their config left unreachable, named rather than left to be noticed.**
@@ -1763,8 +1834,8 @@ internal class MainForm : Form
             // symptom is a control that silently does nothing.
             if (_console.Unbound() is { Count: > 0 } unbound)
             {
-                ViewerLog.Write(
-                    "config",
+                _configLog.LogInformation(
+                    "{Message}",
                     $"no key reaches: {string.Join(", ", unbound)} " +
                     "(their config bound those keys to commands this viewer has no equivalent for)");
             }
@@ -1772,7 +1843,7 @@ internal class MainForm : Form
         catch (Exception failure) when (failure is IOException or ArgumentException
                                             or UnauthorizedAccessException or NotSupportedException)
         {
-            ViewerLog.Write("config", $"could not read the TF2 configs: {failure.Message}");
+            _configLog.LogInformation(failure, "could not read the TF2 configs");
         }
     }
 
@@ -1875,7 +1946,7 @@ internal class MainForm : Form
                 // a resize needs new vertices and nothing else - see UploadWorldGeometry.
                 if (!_texturesUploaded || !_device.HasWorldTextures)
                 {
-                    using (ViewerLog.Time("render", "uploading textures"))
+                    using (_renderLog.Time("uploading textures"))
                     {
                         _device.UploadWorldTextures(assets);
                     }
@@ -1900,8 +1971,8 @@ internal class MainForm : Form
                 // Counting these against "building the world" lines is what proves the geometry
                 // survived a viewport change rather than being quietly rebuilt: many camera lines
                 // and one build line is the fix working, and one of each per resize is not.
-                ViewerLog.Write(
-                    "render",
+                _renderLog.LogInformation(
+                    "{Message}",
                     $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
 
                 if (_device.HasWorld)
@@ -1911,7 +1982,7 @@ internal class MainForm : Form
 
                 MapWorld built;
 
-                using (ViewerLog.Time("render", "building the world"))
+                using (_renderLog.Time("building the world"))
                 {
                     // Recorded before the build so MapCamera can project height on the very first
                     // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
@@ -1954,11 +2025,12 @@ internal class MainForm : Form
                         area: null,
                         _surfaceColours.Checked,
                         _overlays,
-                        _brushModels);
+                        _brushModels,
+                        _loggers);
                 }
 
-                ViewerLog.Write(
-                    "render",
+                _renderLog.LogInformation(
+                    "{Message}",
                     $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
                     $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
 
@@ -1970,7 +2042,7 @@ internal class MainForm : Form
                 _device.ClearWorld();
                 _texturesUploaded = false;
                 _status.Text = "Textures unavailable: " + failure.Message;
-                ViewerLog.Warn("render", "uploading the textured world", failure);
+                _renderLog.LogWarning(failure, "{Message}", "uploading the textured world");
             }
         }
     }
@@ -2046,8 +2118,8 @@ internal class MainForm : Form
             return;
         }
 
-        ViewerLog.Write(
-            "render",
+        _renderLog.LogInformation(
+            "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
@@ -2170,8 +2242,8 @@ internal class MainForm : Form
 
         _weaponRoles = WeaponRoles.Read(archives.Read, held);
 
-        ViewerLog.Write(
-            "demo",
+        _demoLog.LogInformation(
+            "{Message}",
             "weapon roles: " + string.Join(
                 ", ",
                 held.OrderBy(pair => pair.Weapon, StringComparer.Ordinal)
@@ -2352,7 +2424,7 @@ internal class MainForm : Form
                     continue;
                 }
 
-                ViewerLog.Warn("viewer", $"--look {x} {y} is not a position; ignoring it");
+                _log.LogWarning("{Message}", $"--look {x} {y} is not a position; ignoring it");
                 continue;
             }
 
@@ -2384,7 +2456,7 @@ internal class MainForm : Form
                     string.Create(CultureInfo.InvariantCulture, $"{command} \"{value}\""),
                     onto: _settings);
 
-                ViewerLog.Write("viewer", $"{command} {value} (from the command line)");
+                _log.LogInformation("{Message}", $"{command} {value} (from the command line)");
                 continue;
             }
 
@@ -2409,7 +2481,7 @@ internal class MainForm : Form
                     continue;
                 }
 
-                ViewerLog.Warn("viewer", $"--zoom {value} is not a number; ignoring it");
+                _log.LogWarning("{Message}", $"--zoom {value} is not a number; ignoring it");
                 continue;
             }
 
@@ -2429,7 +2501,7 @@ internal class MainForm : Form
                     continue;
                 }
 
-                ViewerLog.Warn("viewer", $"--spectate {value} is not a number; ignoring it");
+                _log.LogWarning("{Message}", $"--spectate {value} is not a number; ignoring it");
                 continue;
             }
 
@@ -2446,7 +2518,7 @@ internal class MainForm : Form
 
                 // Not silent: a mistyped tick that quietly captures tick zero is a picture of the
                 // wrong moment, which is worse than no picture.
-                ViewerLog.Warn("viewer", $"--tick {value} is not a number; capturing tick 0");
+                _log.LogWarning("{Message}", $"--tick {value} is not a number; capturing tick 0");
                 continue;
             }
 
@@ -2533,7 +2605,7 @@ internal class MainForm : Form
         _transport.ShowTick(_shotTick);
         ShowMoment(_shotTick);
 
-        ViewerLog.Write("viewer", $"opening state applied at tick {_shotTick}");
+        _log.LogInformation("{Message}", $"opening state applied at tick {_shotTick}");
 
         if (_shotSurfaceColours)
         {
@@ -2694,14 +2766,14 @@ internal class MainForm : Form
             _cameraMode = CameraMode.Free;
             _worldIsStale = true;
             _viewport.Invalidate();
-            ViewerLog.Write("render", "first person off, back to the free camera");
+            _renderLog.LogInformation("{Message}", "first person off, back to the free camera");
             return true;
         }
 
         if (FirstPersonCamera() is null)
         {
-            ViewerLog.Warn(
-                "render",
+            _renderLog.LogWarning(
+                "{Message}",
                 "first person unavailable: this demo has no recorded camera and no player to " +
                 "follow at this tick");
 
@@ -2713,8 +2785,8 @@ internal class MainForm : Form
         _worldIsStale = true;
         _viewport.Invalidate();
 
-        ViewerLog.Write(
-            "render",
+        _renderLog.LogInformation(
+            "{Message}",
             _timeline?.HasRecordedView == true
                 ? "first person on, following the recording's own camera"
                 : "first person on, spectating a player (this demo has no recorded camera)");
@@ -2760,8 +2832,8 @@ internal class MainForm : Form
 
         if (timeline.ViewmodelAt(_transport.CurrentTick, follower) is not { } weapon)
         {
-            ViewerLog.Warn(
-                "render",
+            _renderLog.LogWarning(
+                "{Message}",
                 $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
             return;
         }
@@ -2820,8 +2892,8 @@ internal class MainForm : Form
         // merged from two models and 98 sequences deep, so the two might disagree silently. They do
         // not: 34 plays a correct spy knife pose on z1800. Worth re-checking on any model whose
         // merge is a different shape, since the failure would be a plausible wrong animation.
-        ViewerLog.Write(
-            "render",
+        _renderLog.LogInformation(
+            "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"viewmodel sequence: demo says {weapon.Sequence}, " +
@@ -2876,8 +2948,8 @@ internal class MainForm : Form
                 hands.Replace('\\', '/'),
                 StringComparison.OrdinalIgnoreCase);
 
-        ViewerLog.Write(
-            "render",
+        _renderLog.LogInformation(
+            "{Message}",
             $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
             (attachesToHands
                 ? "attaches to hands, so the weapon is a second model"
@@ -2946,8 +3018,8 @@ internal class MainForm : Form
             viewmodelProps.Add(watch);
 
             // The recorded sequence, like the main hand: nothing is substituted here either.
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"off hand {offHand.ModelPath} seq {offHand.Sequence} at tick " +
                 $"{_transport.CurrentTick}");
         }
@@ -2956,8 +3028,8 @@ internal class MainForm : Form
         {
             packed.UploadModels(_models);
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"viewmodel models uploaded: {_models.Count} packed, " +
                 $"{_models.Vertices.Count} vertices");
         }
@@ -2972,7 +3044,7 @@ internal class MainForm : Form
         // twice, which is what "2 sticky launchers overlapping" looks like.
         foreach (SceneProp shown in viewmodelProps)
         {
-            ViewerLog.Write("render", $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
+            _renderLog.LogInformation("{Message}", $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
         }
 
         _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
@@ -2980,8 +3052,8 @@ internal class MainForm : Form
         // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
         // and then yields no instance is indistinguishable on screen from one that was never
         // looked up — and that distinction is exactly what went wrong the first time this ran.
-        ViewerLog.Write(
-            "render",
+        _renderLog.LogInformation(
+            "{Message}",
             $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
             $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
             $"{_viewmodelInstances.Count} instances");
@@ -3081,12 +3153,12 @@ internal class MainForm : Form
             // Recorded so the eight-megabyte read is not attempted every frame, and reported once
             // so a viewer with no weapons in hand says why.
             _itemSchemaMissing = true;
-            ViewerLog.Warn("render", "no items_game.txt, so no weapon models in first person");
+            _renderLog.LogWarning("{Message}", "no items_game.txt, so no weapon models in first person");
             return null;
         }
 
         _itemSchema = ItemSchema.Read(bytes);
-        ViewerLog.Write("render", "item schema read");
+        _renderLog.LogInformation("{Message}", "item schema read");
 
         return _itemSchema;
     }
@@ -3192,8 +3264,8 @@ internal class MainForm : Form
                 }
             }
 
-            ViewerLog.Warn(
-                "viewer",
+            _log.LogWarning(
+                "{Message}",
                 $"--spectate {wanted} is not playing at tick {tick}; following the default");
         }
 
@@ -3309,8 +3381,8 @@ internal class MainForm : Form
             _freeOrigin = placed.Origin;
             _freeAngles = (placed.Pitch, placed.Yaw);
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"free camera placed from {CameraVariable} at " +
                 $"({placed.Origin.X:0.##},{placed.Origin.Y:0.##},{placed.Origin.Z:0.##}) " +
                 $"pitch {placed.Pitch:0.##} yaw {placed.Yaw:0.##}");
@@ -3340,8 +3412,8 @@ internal class MainForm : Form
             _freeOrigin = origin;
             _freeAngles = (pitch, yaw);
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"free camera placed overhead at ({origin.X:0.##},{origin.Y:0.##},{origin.Z:0.##}) " +
                 $"pitch {pitch:0.##}, framing {_map.MainBounds.MaxX - _map.MainBounds.MinX:0.##} x " +
                 $"{_map.MainBounds.MaxY - _map.MainBounds.MinY:0.##}");
@@ -3670,8 +3742,8 @@ internal class MainForm : Form
                         continue;
                     }
 
-                    ViewerLog.Write(
-                        "render",
+                    _renderLog.LogInformation(
+                        "{Message}",
                         $"first person keeps entity {prop.EntityIndex} '{prop.ModelPath}' " +
                         $"attachedTo={prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
                         $"ownedBy={prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
@@ -3753,8 +3825,8 @@ internal class MainForm : Form
             // **Logged because a model that draws nothing looks exactly like one that was never
             // uploaded.** The counts separate the two: no vertices means the packing failed, and
             // vertices with no instances means the posing did.
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
 
             // **Named, not counted.** A count says how many arrived and nothing about which are
@@ -3765,8 +3837,8 @@ internal class MainForm : Form
                     ", ",
                     _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
 
-                ViewerLog.Write(
-                    "render",
+                _renderLog.LogInformation(
+                    "{Message}",
                     $"  packed {path}: {indices} of {_assets?.Textures.Count ?? 0} textures");
             }
         }
@@ -3805,8 +3877,8 @@ internal class MainForm : Form
             // whether the leaf lookup found anything, without anyone having to judge by eye.
             int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
 
             // The first medkit's actual transform. A model posed with a zero scale collapses to a
@@ -3934,7 +4006,9 @@ internal class MainForm : Form
     {
         get
         {
-            string beside = Path.GetDirectoryName(ViewerLog.Path) ?? ".";
+            // The log's folder, which is also where captures go — one directory, one retention
+            // policy (D83). FileLogWriter owns the path so both writers agree on it.
+            string beside = FileLogWriter.DefaultFolder;
             string? wanted = _settings.ScreenshotFolder;
 
             if (string.IsNullOrWhiteSpace(wanted))
@@ -3951,7 +4025,7 @@ internal class MainForm : Form
                 failure is IOException or UnauthorizedAccessException or ArgumentException
                     or NotSupportedException)
             {
-                ViewerLog.Warn("render", $"cannot write captures to {wanted}", failure);
+                _renderLog.LogWarning(failure, "{Message}", $"cannot write captures to {wanted}");
                 return beside;
             }
         }
@@ -4038,7 +4112,7 @@ internal class MainForm : Form
 
         try
         {
-            return Apply(Decode(path));
+            return Apply(Decode(_demoLog, path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -4079,11 +4153,12 @@ internal class MainForm : Form
 
         try
         {
-            Decoded decoded = await Task.Run(() => Decode(path)).ConfigureAwait(false);
+            ILogger demoLog = _demoLog;
+            Decoded decoded = await Task.Run(() => Decode(demoLog, path)).ConfigureAwait(false);
 
             if (ticket != _loadsRequested)
             {
-                return OnUi(() => Superseded(path));
+                return OnUi(() => Superseded(_demoLog, path));
             }
 
             // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
@@ -4119,22 +4194,23 @@ internal class MainForm : Form
 
             return OnUi(() => ticket == _loadsRequested
                 ? Apply(decoded, read)
-                : Superseded(path));
+                : Superseded(_demoLog, path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
             return OnUi(() => ticket == _loadsRequested
                 ? CouldNotOpen(path, failure)
-                : Superseded(path));
+                : Superseded(_demoLog, path));
         }
     }
 
     /// <summary>Says a load was overtaken, without touching anything.</summary>
-    private static DemoLoadResult Superseded(string path)
+    // The logger is a parameter because this is static (D83).
+    private static DemoLoadResult Superseded(ILogger demoLog, string path)
     {
         string message = $"discarding {Path.GetFileName(path)}: a newer demo was asked for";
 
-        ViewerLog.Write("demo", message);
+        demoLog.LogInformation("{Message}", message);
 
         return new DemoLoadResult(DemoLoadOutcome.Superseded, message);
     }
@@ -4171,14 +4247,16 @@ internal class MainForm : Form
     ///
     /// Logging is fine from here: <c>ViewerLog</c> takes a lock and never throws at its caller.
     /// </remarks>
-    private static Decoded Decode(string path)
+    // The logger is a parameter because this is static (D83): Decode runs on a worker thread via
+    // Task.Run and must not reach for form state.
+    private static Decoded Decode(ILogger demoLog, string path)
     {
-        ViewerLog.Write("demo", $"opening {Path.GetFileName(path)}");
+        demoLog.LogInformation("{Message}", $"opening {Path.GetFileName(path)}");
 
         LoadedDemo demo = LoadedDemo.Load(path);
 
-        ViewerLog.Write(
-            "demo",
+        demoLog.LogInformation(
+            "{Message}",
             $"{demo.MapName}, {demo.LastTick} ticks, protocol {demo.NetworkProtocol}" +
             (demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
 
@@ -4189,13 +4267,13 @@ internal class MainForm : Form
         // showing - so a failure here costs the player positions and nothing else.
         try
         {
-            using (ViewerLog.Time("demo", "building the position timeline"))
+            using (demoLog.Time("building the position timeline"))
             {
                 timeline = DemoTimeline.Build(File.ReadAllBytes(path));
             }
 
-            ViewerLog.Write(
-                "demo",
+            demoLog.LogInformation(
+                "{Message}",
                 $"{timeline.Frames.Count} recorded moments, ticks {timeline.FirstTick} to " +
                 $"{timeline.LastTick}");
 
@@ -4207,8 +4285,8 @@ internal class MainForm : Form
                 ? "from svc_ServerInfo"
                 : "the engine default - the demo never said";
 
-            ViewerLog.Write(
-                "demo",
+            demoLog.LogInformation(
+                "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"{interval:F6}s per tick ({1f / interval:F1} per second), {source}"));
@@ -4225,8 +4303,8 @@ internal class MainForm : Form
                     .Select(group => group.First()),
             ];
 
-            ViewerLog.Write(
-                "demo",
+            demoLog.LogInformation(
+                "{Message}",
                 $"roster: {roster.Count(p => p.Team == SceneTeams.Red)} red, " +
                 $"{roster.Count(p => p.Team == SceneTeams.Blu)} blu, " +
                 $"{roster.Count(p => p.Team is SceneTeams.Spectator or SceneTeams.Unassigned)} watching, " +
@@ -4238,13 +4316,13 @@ internal class MainForm : Form
                 : timeline.PlayersAt(timeline.Frames[timeline.Frames.Count / 2].Tick)
                     .Count(player => player.IsPlaying);
 
-            ViewerLog.Write("demo", $"{drawn} players drawn at the midpoint of the demo");
+            demoLog.LogInformation("{Message}", $"{drawn} players drawn at the midpoint of the demo");
         }
         catch (Exception failure) when (
             failure is ArgumentException or InvalidDataException or IOException)
         {
             timeline = null;
-            ViewerLog.Warn("demo", "building the position timeline", failure);
+            demoLog.LogWarning(failure, "{Message}", "building the position timeline");
         }
 
         return new Decoded(demo, timeline);
@@ -4271,8 +4349,8 @@ internal class MainForm : Form
         _audio?.StopAll();
         _loops.Clear();
 
-        ViewerLog.Write(
-            "audio",
+        _audioLog.LogInformation(
+            "{Message}",
             $"{_timeline?.Sounds.Count ?? 0} sounds on the timeline; " +
             (_audio is null ? "no audio device, so none will play" : "output is open"));
 
@@ -4307,7 +4385,7 @@ internal class MainForm : Form
             {
                 _transport.Playing = true;
 
-                ViewerLog.Write("demo", $"{AutoPlayVariable} is set; playback started at load");
+                _demoLog.LogInformation("{Message}", $"{AutoPlayVariable} is set; playback started at load");
             }
         }
         else
@@ -4354,7 +4432,7 @@ internal class MainForm : Form
         _transport.SetDemoLength(0);
         _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
 
-        ViewerLog.Warn("demo", $"opening {System.IO.Path.GetFileName(path)}", failure);
+        _demoLog.LogWarning(failure, "{Message}", $"opening {System.IO.Path.GetFileName(path)}");
 
         return new DemoLoadResult(DemoLoadOutcome.Failed, _status.Text);
     }
@@ -4560,7 +4638,7 @@ internal class MainForm : Form
             // SetForegroundWindow is refused rather than obeyed for a process that is not already
             // foreground, so Activate can return having done nothing at all — and the symptom is
             // keys going to another application, which looks like the viewer ignoring them.
-            ViewerLog.Write("render", "full screen: " + ForegroundProbe.Describe(Handle) + FocusHere());
+            _renderLog.LogInformation("{Message}", "full screen: " + ForegroundProbe.Describe(Handle) + FocusHere());
 
             BeginInvoke(() =>
             {
@@ -4585,8 +4663,8 @@ internal class MainForm : Form
                 ActiveControl = null;
                 _ = Focus();
 
-                ViewerLog.Write(
-                    "render",
+                _renderLog.LogInformation(
+                    "{Message}",
                     "full screen after Activate: " + ForegroundProbe.Describe(Handle) + FocusHere());
             });
 
@@ -4648,15 +4726,19 @@ internal class MainForm : Form
         // application (opening files, reading a trace) still works without a device.
         try
         {
-            _device = Device3D.Create(_viewport.Handle, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
+            _device = Device3D.Create(
+                _viewport.Handle,
+                _viewport.ClientSize.Width,
+                _viewport.ClientSize.Height,
+                _loggers);
             _device.VerticalSync = _settings.VerticalSync;
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"frame rate limit {(_settings.FrameRateLimit > 0 ? _settings.FrameRateLimit + " a second" : "none")}, " +
                 $"vertical sync {(_settings.VerticalSync ? "on" : "off")}");
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 $"device created for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
 
             // **Only if there is nothing better to say.** The handle is created after the
@@ -4691,7 +4773,7 @@ internal class MainForm : Form
         catch (Exception failure) when (failure is InvalidOperationException or ArgumentException)
         {
             _status.Text = "Direct3D unavailable: " + failure.Message;
-            ViewerLog.Warn("render", "creating the Direct3D device", failure);
+            _renderLog.LogWarning(failure, "{Message}", "creating the Direct3D device");
         }
     }
 
@@ -5029,8 +5111,8 @@ internal class MainForm : Form
         // it.** Flying the camera used to re-project the whole map every frame (B98); the average
         // barely moved while the longest frame in each second grew enormously, which is exactly
         // what stutter is. A rate on its own could not have shown that, and did not.
-        ViewerLog.Write(
-            "render",
+        _renderLog.LogInformation(
+            "{Message}",
             $"{_framesDrawn / elapsed:0.#} frames a second, " +
             $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
             (_transport.Playing ? ", playing" : ", paused") +
@@ -5271,8 +5353,8 @@ internal class MainForm : Form
 
             _loopAudible[(entity, channel)] = audible;
 
-            ViewerLog.Write(
-                "audio",
+            _audioLog.LogInformation(
+                "{Message}",
                 $"loop entity {entity.ToString(CultureInfo.InvariantCulture)} chan " +
                 $"{channel.ToString(CultureInfo.InvariantCulture)} is now " +
                 $"{(audible ? "audible" : "silent")} at gain " +
@@ -5400,8 +5482,8 @@ internal class MainForm : Form
             // and it costs a line per loop rather than per sound.
             if (sample.Loops)
             {
-                ViewerLog.Write(
-                    "audio",
+                _audioLog.LogInformation(
+                    "{Message}",
                     $"loop '{sound.Name}' entity " +
                     $"{sound.EntityIndex.ToString(CultureInfo.InvariantCulture)} chan " +
                     $"{sound.Channel.ToString(CultureInfo.InvariantCulture)} at tick " +
@@ -5494,8 +5576,8 @@ internal class MainForm : Form
                                     : sound.Wave)) + ")"
                     : "NO DEFINITION in the catalog";
 
-                ViewerLog.Write(
-                    "audio",
+                _audioLog.LogInformation(
+                    "{Message}",
                     chosen is { } next
                         ? $"soundscape {next.Index.ToString(CultureInfo.InvariantCulture)} " +
                           $"'{next.Name}' from placement " +
@@ -5533,13 +5615,13 @@ internal class MainForm : Form
             {
                 // Remembered as started even when it could not be opened, so a missing file is
                 // looked up once rather than every frame of a three-second fade.
-                ViewerLog.Warn("audio", $"soundscape loop '{voice.Wave}' would not open");
+                _audioLog.LogWarning("{Message}", $"soundscape loop '{voice.Wave}' would not open");
                 _soundscapeVoices.Add(voice.Key);
                 continue;
             }
 
-            ViewerLog.Write(
-                "audio",
+            _audioLog.LogInformation(
+                "{Message}",
                 $"soundscape loop '{voice.Wave}' starting at gain " +
                 $"{Gain(voice, listener).ToString("0.###", CultureInfo.InvariantCulture)}" +
                 (voice.Position is null ? " (at the listener)" : " (positioned)"));
@@ -5637,7 +5719,7 @@ internal class MainForm : Form
 
                 if (!result.Succeeded)
                 {
-                    ViewerLog.Warn("audio", $"{opened.Path}: {result.Refusal}");
+                    _audioLog.LogWarning("{Message}", $"{opened.Path}: {result.Refusal}");
                 }
             }
             else
@@ -5648,8 +5730,8 @@ internal class MainForm : Form
                 // the outcome this exists to prevent.
                 _soundsUnopened++;
 
-                ViewerLog.Warn(
-                    "audio",
+                _audioLog.LogWarning(
+                    "{Message}",
                     $"could not open '{parsed.Path}' (from '{name}'); " +
                     $"{_soundsUnopened.ToString(CultureInfo.InvariantCulture)} unopened so far");
             }
@@ -5755,8 +5837,8 @@ internal class MainForm : Form
         {
             _fullScreenClock = null;
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"full screen {(IsFullScreen ? "on" : "off")} took " +
@@ -5983,7 +6065,7 @@ internal class MainForm : Form
 
         if (SpectatorTarget.Next(players, _spectating ?? FollowedEntity(), reverse) is not { } next)
         {
-            ViewerLog.Write("spectate", "nobody else to follow at this tick");
+            _spectateLog.LogInformation("{Message}", "nobody else to follow at this tick");
             return;
         }
 
@@ -5991,8 +6073,8 @@ internal class MainForm : Form
         _worldIsStale = true;
         _viewport.Invalidate();
 
-        ViewerLog.Write(
-            "spectate",
+        _spectateLog.LogInformation(
+            "{Message}",
             $"following entity {next.EntityIndex} (team {next.Team}) " +
             $"of {players.Count} at tick {_transport.CurrentTick}");
     }
@@ -6043,8 +6125,8 @@ internal class MainForm : Form
 
             _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
 
@@ -6103,7 +6185,7 @@ internal class MainForm : Form
             // or "free camera off, back to the map view", and both are now false: there is one
             // camera and this key does not switch anything. A log that names the wrong quantity
             // misdirects with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
-            ViewerLog.Write("render", "camera reset to the overhead placement");
+            _renderLog.LogInformation("{Message}", "camera reset to the overhead placement");
 
             return true;
         }
@@ -6120,8 +6202,8 @@ internal class MainForm : Form
         // going to whichever window took the foreground. Only a line written here separates them.
         if (keyData is Keys.Escape or Keys.F11)
         {
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"{keyData} reached the form; full screen is {IsFullScreen}"));
@@ -6327,8 +6409,8 @@ internal class MainForm : Form
             _audio?.Dispose();
             _audio = null;
 
-            ViewerLog.Write(
-                "render",
+            _renderLog.LogInformation(
+                "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"shutdown: idle stopped after {idleStopped.TotalMilliseconds:F0} ms, " +

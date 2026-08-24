@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -62,10 +66,22 @@ internal static class MapSceneReader
     /// <param name="maximumTextureSize">Largest texture edge; zero for full size, as the viewer uses.</param>
     /// <returns>The scene.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="mapPath"/> is null.</exception>
+    /// <param name="loggers">
+    /// Where reading reports what it could not use. **A factory rather than a logger, because the
+    /// work below spans areas (D83)**: this method's own refusals are `assets`, and everything it
+    /// calls into — the material set, the props, the terrain — reports under its own name.
+    /// Optional, so a test that wants a scene rather than a log passes nothing.
+    /// </param>
     public static MapScene Read(
-        string mapPath, string? gameFolder, int maximumTextureSize = 0)
+        string mapPath,
+        string? gameFolder,
+        int maximumTextureSize = 0,
+        ILoggerFactory? loggers = null)
     {
         ArgumentNullException.ThrowIfNull(mapPath);
+
+        ILoggerFactory factory = loggers ?? NullLoggerFactory.Instance;
+        ILogger assets = factory.CreateLogger("assets");
 
         ReadOnlyMemory<byte> bytes = System.IO.File.ReadAllBytes(mapPath);
 
@@ -77,7 +93,7 @@ internal static class MapSceneReader
         }
         catch (System.IO.InvalidDataException failure)
         {
-            ViewerLog.Warn("assets", "reading the map's terrain", failure);
+            assets.LogWarning(failure, "reading the map's terrain");
         }
 
         IReadOnlyList<BspOverlay> overlays = [];
@@ -88,13 +104,17 @@ internal static class MapSceneReader
         }
         catch (System.IO.InvalidDataException failure)
         {
-            ViewerLog.Warn("assets", "reading the map's decals", failure);
+            assets.LogWarning(failure, "reading the map's decals");
         }
 
         return new MapScene(
             bytes,
             MapOutline.FromFaces(BspGeometry.Read(bytes).Faces),
-            MapAssets.Load(bytes, GameArchives.Open(gameFolder, ViewerLog.Write), maximumTextureSize),
+            MapAssets.Load(
+                bytes,
+                GameArchives.Open(gameFolder, factory.LogTo()),
+                maximumTextureSize,
+                loggers: factory),
             BspSurfaces.Read(bytes),
             terrain,
             overlays);

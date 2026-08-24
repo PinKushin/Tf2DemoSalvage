@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
@@ -52,6 +55,11 @@ public static class MapWorldBuilder
     /// <param name="overlays">The map decals, or null to draw none.</param>
     /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
     /// <param name="models">The map's models, so entity brushwork can be counted apart from the world.</param>
+    /// <param name="loggers">
+    /// Where the build reports what it made and dropped, or <c>null</c> for nowhere. A factory
+    /// because this writes to two areas (D83): what was BUILT is `render`, where decals landed is
+    /// `map`.
+    /// </param>
     /// <returns>The triangles and their batches.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -71,12 +79,17 @@ public static class MapWorldBuilder
         MapBounds? area,
         bool categoryColours = false,
         IReadOnlyList<BspOverlay>? overlays = null,
-        IReadOnlyList<BspModel>? models = null)
+        IReadOnlyList<BspModel>? models = null,
+        ILoggerFactory? loggers = null)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
         ArgumentNullException.ThrowIfNull(atlas);
         ArgumentNullException.ThrowIfNull(props);
+
+        // Two areas: what was BUILT is render, where decals landed is map (D83).
+        ILoggerFactory factory = loggers ?? NullLoggerFactory.Instance;
+        ILogger render = factory.CreateLogger("render");
 
         // The height range is no longer needed here: the vertices carry world Z and the camera
         // projects it (D35). MainForm reads the same range through HeightRange to build the
@@ -293,8 +306,8 @@ public static class MapWorldBuilder
         // Counted rather than assumed, because the question decided what to build next and the
         // answer was not in evidence. Now counted BY the skip rather than by a second pass over
         // the same list: two loops asking one question is where the two answers drift apart.
-        ViewerLog.Write(
-            "render",
+        render.LogInformation(
+            "{Message}",
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
             $"{propTriangles} of {props.Count / 3} prop triangles drawn, reaching " +
             $"{furthestPropX:0} x {furthestPropY:0} from the origin, " +
@@ -321,12 +334,14 @@ public static class MapWorldBuilder
                 ? materials[material].Name
                 : "<no material>";
 
-            ViewerLog.Write("render", $"  built {faces} x {kind} '{name}' (material {material})");
+            render.LogInformation(
+                "  built {Faces} x {Kind} '{Name}' (material {Material})",
+                faces, kind, name, material);
         }
 
         foreach ((string what, int count) in dropped.OrderByDescending(entry => entry.Value))
         {
-            ViewerLog.Write("render", $"  dropped {count} x {what}");
+            render.LogInformation("  dropped {Count} x {What}", count, what);
         }
 
         List<WorldVertex> all = [];
@@ -344,6 +359,7 @@ public static class MapWorldBuilder
         }
 
         List<WorldBatch> decals = AppendDecals(
+            factory.CreateLogger("map"),
             all, overlays, materials, surfaces, atlas, area, categoryColours);
 
         // **After the decals in the buffer as well as in the pass list**, so the three runs read in
@@ -382,7 +398,9 @@ public static class MapWorldBuilder
     /// wrapping a corner names faces on both sides, and lighting the whole quad from one of them is
     /// the same approximation as not clipping it.
     /// </remarks>
+    // The map logger is a parameter because this is static (D83).
     private static List<WorldBatch> AppendDecals(
+        ILogger map,
         List<WorldVertex> all,
         IReadOnlyList<BspOverlay>? overlays,
         IReadOnlyList<BspMaterial> materials,
@@ -586,8 +604,8 @@ public static class MapWorldBuilder
         // an orientation filter that refused 108 of cp_process's 634 named faces still reported all
         // 222 overlays as "placed" — every one of them kept at least one face. The count that would
         // have shown the loss was the one nobody logged.
-        ViewerLog.Write(
-            "map",
+        map.LogInformation(
+            "{Message}",
             $"{placed} decals placed across {decals.Count} materials, {totalFragments} fragments " +
             $"over {namedFaces} faces named by {overlays?.Count ?? 0} overlays, " +
             $"{unlit} lying flat on nothing");
@@ -601,7 +619,7 @@ public static class MapWorldBuilder
                 ? materials[material].Name
                 : "none";
 
-            ViewerLog.Write("map", $"  decal material {material} {name}");
+            map.LogInformation("  decal material {Material} {Name}", material, name);
         }
 
         return decals;

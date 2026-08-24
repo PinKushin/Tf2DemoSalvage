@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>
@@ -47,6 +50,19 @@ public sealed class DemoLibrary
     private readonly List<string> _roots = [];
     private readonly List<DemoEntry> _entries = [];
 
+    /// <summary>Where an unreadable folder is reported (D83).</summary>
+    /// <remarks>
+    /// **Optional with a null-object default**, because most callers are tests that want a list of
+    /// files rather than a log. The one line this writes matters though: a folder refused for
+    /// permissions is indistinguishable from a folder with no demos in it, and somebody whose
+    /// recordings sit behind that would conclude the viewer cannot read them.
+    /// </remarks>
+    private readonly ILogger _library;
+
+    /// <summary>Creates an empty library.</summary>
+    /// <param name="library">Where an unreadable folder is reported, or <c>null</c> for nowhere.</param>
+    public DemoLibrary(ILogger? library = null) => _library = library ?? NullLogger.Instance;
+
     /// <summary>The files and folders that have been opened, in the order they were opened.</summary>
     public IReadOnlyList<string> Roots => _roots;
 
@@ -87,7 +103,7 @@ public sealed class DemoLibrary
 
         _roots.Add(full);
 
-        foreach (string file in Walk(full))
+        foreach (string file in Walk(full, _library))
         {
             Add(file);
         }
@@ -121,7 +137,8 @@ public sealed class DemoLibrary
     /// Unreadable directories are skipped rather than fatal: a permission-denied folder somewhere
     /// under a chosen root should not lose the demos found everywhere else.
     /// </remarks>
-    private static IEnumerable<string> Walk(string directory)
+    // The logger is a parameter because this is static and the class it belongs to is not (D83).
+    private static IEnumerable<string> Walk(string directory, ILogger library)
     {
         Queue<string> pending = new();
         pending.Enqueue(directory);
@@ -143,7 +160,7 @@ public sealed class DemoLibrary
                 // indistinguishably from a folder that has none - so someone whose recordings sit
                 // behind a permission problem sees an empty list and concludes the viewer cannot
                 // read their demos.
-                ViewerLog.Warn("library", $"listing {current}", failure);
+                library.LogWarning(failure, "listing {Directory}", current);
 
                 continue;
             }
