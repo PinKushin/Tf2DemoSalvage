@@ -268,6 +268,8 @@ public sealed class DemoTimeline
 
     private readonly List<SceneSound> _sounds = [];
 
+    private readonly List<(int Tick, SceneSoundscape Soundscape)> _soundscapes = [];
+
     /// <summary>Whether any viewmodel in this demo names an owner.</summary>
     /// <remarks>
     /// **This is what separates a point-of-view recording from a SourceTV one**, and it is a
@@ -285,8 +287,10 @@ public sealed class DemoTimeline
         List<(int Tick, RecordedView View)>? recordedViews = null,
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null,
         List<(int Tick, SceneFog Fog)>? fog = null,
-        List<SceneSound>? sounds = null)
+        List<SceneSound>? sounds = null,
+        List<(int Tick, SceneSoundscape Soundscape)>? soundscapes = null)
     {
+        _soundscapes = soundscapes ?? [];
         _recordedViews = recordedViews ?? [];
         _viewmodels = viewmodels ?? [];
         _fog = fog ?? [];
@@ -343,6 +347,39 @@ public sealed class DemoTimeline
     /// the tick I asked about". That distinction cost a diagnosis here.
     /// </remarks>
     public IReadOnlyList<(int Tick, SceneFog Fog)> FogSamples => _fog;
+
+    /// <summary>Every soundscape change the recording carries, in tick order.</summary>
+    /// <remarks>
+    /// **Empty for a SourceTV recording, and that is the format rather than a gap.** `m_audio` is
+    /// sent only to the player who owns the entity, so a SourceTV demo — which owns no player —
+    /// carries nobody's. See <see cref="SceneSoundscape"/>.
+    /// </remarks>
+    public IReadOnlyList<(int Tick, SceneSoundscape Soundscape)> Soundscapes => _soundscapes;
+
+    /// <summary>The soundscape in force at a tick, or <c>null</c> before the first sample.</summary>
+    /// <param name="tick">The tick to ask about.</param>
+    /// <returns>The soundscape, or <c>null</c>.</returns>
+    /// <remarks>
+    /// Walks forward keeping the last sample at or before the tick, the same way fog and viewmodels
+    /// are read: a soundscape persists until the player enters another one, so the absence of a
+    /// sample means "unchanged", never "none".
+    /// </remarks>
+    public SceneSoundscape? SoundscapeAt(int tick)
+    {
+        SceneSoundscape? found = null;
+
+        foreach ((int at, SceneSoundscape soundscape) in _soundscapes)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            found = soundscape;
+        }
+
+        return found;
+    }
 
     /// <summary>How many times a fog controller was seen in the entity table, across all packets.</summary>
     /// <remarks>
@@ -666,6 +703,10 @@ public sealed class DemoTimeline
         SoundNames soundNames = new();
         List<SceneSound> sounds = [];
 
+        // Sampled on change like fog, and present only in a point-of-view recording — see
+        // SceneSoundscape for why a SourceTV demo carries nobody's (B173).
+        List<(int Tick, SceneSoundscape Soundscape)> soundscapes = [];
+
         // Live tracks by slot, plus every track ever started. A slot is reused when its occupant
         // is destroyed, so the two are not the same list - keeping only the live ones would lose
         // every rocket the moment the next one took its index.
@@ -852,6 +893,25 @@ public sealed class DemoTimeline
                     // Zero here while a trace of the same demo shows the entity entering with
                     // fifteen properties is the whole finding, and it is cheap enough to keep.
                     fogProperties = Math.Max(fogProperties, entity.Properties.Count);
+                }
+
+                // **The soundscape a player is standing in, sampled the same way and for the same
+                // reason.** It is per-player private data — `m_audio` lives in `DT_Local`, sent
+                // through `SendProxy_SendLocalDataTable`'s `SetOnly( objectID - 1 )` — so at most
+                // one entity in a recording carries it, and only a point-of-view recording has one
+                // at all. Whichever entity has it is the one whose ears the demo was recorded from.
+                if (entity.SoundscapeIndex() is { } soundscape)
+                {
+                    SceneSoundscape sampled = new(
+                        soundscape,
+                        entity.SoundscapePositionBits() ?? 0,
+                        Positions(entity),
+                        entity.SoundscapeEntity() ?? -1);
+
+                    if (soundscapes.Count == 0 || soundscapes[^1].Soundscape != sampled)
+                    {
+                        soundscapes.Add((command.Tick, sampled));
+                    }
                 }
 
                 if (entity.Fog() is not { } fog)
@@ -1131,7 +1191,7 @@ public sealed class DemoTimeline
         }
 
         return new DemoTimeline(
-            frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds)
+            frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds, soundscapes)
         {
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,
@@ -1247,6 +1307,24 @@ public sealed class DemoTimeline
         return index is { } rawIndex
             ? precache.Path(ModelPrecache.Unpack(rawIndex, protocol))
             : null;
+    }
+
+    /// <summary>The eight <c>localSound</c> slots an entity carries, in order.</summary>
+    /// <remarks>
+    /// All eight always, rather than only the ones <c>localBits</c> marks used: the bits and the
+    /// vectors are separate properties and either can arrive without the other, so keeping the raw
+    /// slots lets a reader see that rather than having it decided here.
+    /// </remarks>
+    private static (float X, float Y, float Z)?[] Positions(EntityState entity)
+    {
+        (float X, float Y, float Z)?[] slots = new (float X, float Y, float Z)?[8];
+
+        for (int slot = 0; slot < slots.Length; slot++)
+        {
+            slots[slot] = entity.SoundscapePosition(slot);
+        }
+
+        return slots;
     }
 
     private static void RecordProp(

@@ -47,4 +47,14 @@
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
+  <!-- **A capture from a running TF2 client, not a fixture written here (B173).** The soundscape
+       index a demo carries is a position in the client's load order, so the expectation has to come
+       from the engine or the test is only checking this project against itself. This is the output
+       of `cl_soundscape_printdebuginfo`, which prints every entry as `- %d: %s`. -->
+  <ItemGroup>
+    <None Update="Data\client-soundscapes.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

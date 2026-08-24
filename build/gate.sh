@@ -126,7 +126,10 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # 116: ActiveLoopsTests (7). A loop has to be re-attenuated as the listener moves, or it keeps the
 # gain implied by wherever the camera stood when it started (B169). Device-free, so it runs where
 # there is no sound card — which is everywhere the gate runs.
-run Tf2DemoSalvage.Audio.Tests    audio     116
+# 121: SoundscapeCatalogConformanceTests (5). The soundscape list rebuilt from the shipped manifest
+# and diffed entry-by-entry against one a running TF2 client printed — 153 for 153. The index is a
+# position in that list, so a mis-order plays the wrong ambience rather than none (B173).
+run Tf2DemoSalvage.Audio.Tests    audio     121
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -168,7 +171,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 108
 # 640: VtfLowResolutionConformanceTests (2). The thumbnail every VTF carries, which
 # mat_showlowresimage draws — and the claim the reader's skip has always encoded without checking:
 # it is always DXT1, whatever the texture's own format is.
-run Tf2DemoSalvage.Content.Tests  content   640
+# 642: the two soundscape probes, both [Explicit] — SoundscapeManifestProbe reports the shipped
+# manifest and its load order, EnvSoundscapeProbe reports a map's env_soundscape entities. They are
+# what turned B173 from a guess into a mechanism.
+run Tf2DemoSalvage.Content.Tests  content   642
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -188,7 +194,10 @@ run Tf2DemoSalvage.Content.Tests  content   640
 # 106: SoundPopulationProbe (2 cases, [Explicit]). It reports what a demo actually plays, by name,
 # soundlevel, pitch, stop and origin — and answered three questions in one run that were
 # indistinguishable from the speakers.
-run Tf2DemoSalvage.Corpus.Tests   corpus     106
+# 109: SoundscapeWireProbe (3 cases, [Explicit]). Which demo kinds carry m_audio at all — the
+# measurement that showed an STV recording carries the SourceTV CAMERA's soundscape rather than any
+# player's, which is why the map's own entities are needed rather than the wire (B173).
+run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
