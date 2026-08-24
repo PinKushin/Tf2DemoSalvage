@@ -1,145 +1,147 @@
-# Handoff — the overlay session, and what it left open
+# Handoff — the audio, decompilation and logging session
 
-Written 2026-08-21 at the end of a very long session. Everything below is committed and the gate is
-green: **core 1461, cli 68, audio 28, content 606, corpus 95, viewer 568**, plus 12 UI. Nothing is
-pushed.
+Written 2026-08-24 at the end of a very long session. **Everything is committed and pushed**; `main`
+is at `914875d`. Gate green: **core 1497, cli 74, logging 17, audio 142, presentation 116, content
+649, corpus 109, viewer 627** — 3,231 across eight projects — plus 14 UI.
 
-The previous handoff described the fog/decode work and is superseded for anything about rendering;
-`docs/HANDOFF-viewmodel.md` covers the first-person work and still stands.
-
----
-
-## Start here, in this order
-
-### 1. Look at the current build before changing anything
-
-Three rendering changes went in that the owner has **not** seen: render state moved onto the material,
-the overlay pass culling back faces, and the slope-scaled depth bias restored. Each was verified by
-test; none by eye.
-
-```bash
-pwsh run-exclusive.ps1 ./managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem
-```
-
-What to check, and what each answer means:
-
-| look at | if wrong |
-|---|---|
-| stripes on walls, moving the camera | shimmer means the slope bias is not enough; **do not add a constant one**, see B135 |
-| pipes and light fixtures at BLU spawn | behind the stripes means the pass order regressed |
-| REDSTONE CARGO lettering on its silo | readable through the tower means the cull is not applying |
-| the mid shipping containers | rocks showing through means depth writes are off for props again |
-
-### 2. B135 — finish or close it
-
-**Open.** `docs/RISKS.md`. What is done: props draw after overlays; overlays cull back faces, write
-no depth, compare `LessEqual`, and carry only the slope-scaled bias; depth state is chosen per
-material from `$decal` rather than per pass.
-
-What is **not** done: the owner last reported stripes shimmering with all bias at zero. The
-slope-scaled term was restored in response and has not been looked at since. If it still shimmers,
-the answer is **not** a constant bias — that is what pulled overlays through walls twice — it is that
-`ClipFaceToOverlay` is producing geometry that is not exactly coplanar, which is a real defect worth
-finding.
-
-### 3. The conformance sweep — about 45 tests
-
-**This is the highest-value work left, and it is mechanical.** `docs/CONFORMANCE.md` carries the
-audit and the classification. The short version:
-
-- 29 files / 107 tests import the SDK helper and **no production namespace**, so they cannot fail for
-  any reason concerning this renderer.
-- Of those, ~34 are gap markers with a legitimate job (D45) and 5 test the SDK helper itself.
-- **~45 are value pins that assert an SDK constant and never compare it to ours.** Those are the work.
-
-The change is one line per test: parse Valve's value, assert **our** constant equals it. Where the
-two differ deliberately — the decal bias, a D3D9 value that does not carry to D3D11 — assert the
-difference so the divergence is recorded rather than merely absent.
-
-### 4. B136 — the height cut is a depth cut
-
-**Open**, and independent of everything else. The shader clips `SV_POSITION.z`, which is NDC depth,
-against a 0..1 fraction. "Depth is height" holds looking straight down through an orthographic
-projection and nowhere else, so under the free camera it cuts by distance from the eye. `wpos` is
-already in the same shader struct. The second half of that report — overlays surviving the cut — is
-filed as **unexplained** and should be measured, not guessed.
+Supersedes the 2026-08-21 overlay handoff for anything about audio, logging or CI.
+`docs/HANDOFF-viewmodel.md` still stands for the first-person work.
 
 ---
 
-## Filed, understood, not started
+## Start here
+
+### 1. Nothing is waiting on a human check
+
+Every change this session was verified — by the gate, by the owner's ears, or by reading the
+viewer's log against a pre-change run. There is no unreviewed rendering change of the kind the last
+handoff opened with.
+
+### 2. The one thing in flight
+
+**B174, the FPS overlay, was just started and NOTHING is written.** The survey got as far as: the
+viewer already measures frames per second and the longest frame (`MainForm._longestFrameSeconds`,
+around `MainForm.cs:4909`) and logs them per second under `[render]`. The work is to draw that in a
+corner rather than only log it — off by default, bound like everything else (D69), with the demo's
+own tick rate beside it so the comparison is possible.
+
+It matters because of **B163**: the owner reports stuttery playback and *cannot tell which of three
+things is stuttering* — the recording, the timeline interpolation, or the frame rate. His words:
+*"i have no idea what fps we are rendering at and cant tell stutter in the demo from stutter in the
+decode, from stutter in fps"*. B163's hypothesis (missing interpolation) is currently uncheckable.
+
+---
+
+## What this session closed
 
 | | |
 |---|---|
-| **overlay render order** | four layers packed into `m_nFaceCountAndRenderOrder`; parsed and ignored. Matters now that depth writes are off, because overlapping overlays both draw and blend, so order decides the result |
-| **overlay fade** | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), with `r_overlayfadeenable/min/max`. Lump not read at all |
-| **render state per material, the rest of it** | depth state moved onto the material; **blend and rasteriser state are still per pass**. Until they move too, a reordering can still break something |
-| **B126** | no reflections under the ortho camera. Moot if D49 lands |
-| **D49** | remove the ortho camera, make the overhead view a free-camera placement. Build the placement first so there is a reference to match |
+| **B142** | The distance gain curve, read out of `engine.dll`. Ours had attenuation missing from the distance term entirely, plus an invented fade. |
+| **B173** | Soundscapes — four separate audio defects, all verified by the owner listening. |
+| **B177** | Soundscape selection now reads the map's PVS, as `CSoundscapeSystem` does. |
+| **B178** | The viewer test host crashed in ~half of all runs. Windows Forms were being constructed concurrently off the STA. |
+| **B179** | The UI suite could not pass in CI. Fixed as a side effect of a null-map crash. |
+| **D82** | Departures from Valve: bounded by size and justification, sequenced after parity unless structural. |
+| **D83** | The full DI logging conversion. `ViewerLog` is deleted; 193 call sites take injected loggers. |
+
+Plus: package updates (SonarAnalyzer 10.33, Test.Sdk 18.9.0), the `.editorconfig` naming rule that
+was flooding VS2026 with errors, four badly-slack CI floors, and Content's CI coverage floor.
 
 ---
 
-## Claims still unsourced
+## Open, with the reasoning already done
 
-**Settled this session:** `$decal` → `MATERIAL_VAR_DECAL` is bit 16, read out of `materialsystem.dll`
-(`docs/findings/18-decals.md`). Four keys, one base, every one on its documented bit.
-
-**Still not sourced — and one of them is a divergence to FIX, not just a gap to fill:**
-
-- **B137: depth writes are decided by our own convention.** `SetMaterial` uses one blanket rule —
-  "does it blend" decides "does it write depth" — where Valve decides per shader inside each
-  `SHADOW_STATE` block, starting from `SetInitialShadowState()` and turning writes off on specific
-  paths behind `bNoWriteZ`. Blending and depth writing are two decisions there and one here.
-
-  **The picture is currently right, which is the danger.** Every material drawn today happens to want
-  writes off exactly when it blends; the first that wants one without the other gets the wrong state,
-  and the symptom will look like somebody else's bug. That is the same shape as the decal bias (right
-  until a perspective camera existed) and the height cut (right until the camera was not overhead).
-  D46 applies: our code changes.
-- **What `MATERIAL_VAR_DECAL` causes.** Both published reads only set
-  `MATERIAL_VAR_NO_DEBUG_OVERRIDE`. The rest is in the surface renderer — a second decompilation
-  target, and the same divergence wearing a different name: this project decides what a marking needs
-  by its own reasoning.
-- **The overlay fragment builder** (B134). `engine/Overlay.cpp` is unpublished and nothing in
-  source-sdk-2013 touches the lump outside vbsp. `COverlayMgr::RenderOverlays` is located at
-  `FUN_1010ce60` in `engine-live-x86.dll` if it needs settling.
-
-**The decompiler is set up and the paths are in memory** —
-`docs/memory/where-the-game-and-clients-live.md`. One script plus one import answered `$decal` in
-twenty minutes, against a project that already existed. It had been carried as an inference for
-months for want of trying.
+- **B174** — FPS overlay. Filed, not started. See above.
+- **B175** — Scoreboard. **Every field is already decoded**; `DemoTimeline` reads
+  `CTFPlayerResource` for team and class at `DemoTimeline.cs:216`, and the rest are siblings in the
+  same table. The filing lists them with widths and SDK citations. One trap: `m_szName` is
+  **commented out** in `DT_PlayerResource` — names come from the `userinfo` string table, and a
+  scoreboard looking for them on the resource entity would render a table of blanks with correct
+  numbers.
+- **B176** — Ambient loops keep playing while paused. **Measured: TF2 does the same.** The owner
+  wants it fixed anyway (D82), but sequenced *after* parity work, not before.
+- **B163** — Stuttery playback. Blocked on B174 for diagnosis.
+- **B162** — 15 lcor corpus failures; four are recovered protocol 21/22 specimens and the container
+  test still allows only `[11, 14, 15, 16, 24]`.
+- **B170** — Washed-out viewmodels on modern demos. Unmeasured.
+- **Per-category log filtering** — the natural follow-up to D83. "Everything from `assets`, warnings
+  only from `render`" is the shape people want, and it belongs behind `ILoggerFactory` rather than
+  in the file sink.
 
 ---
 
-## Process corrections from this session, all recorded
+## Things that will bite you, all hit for real today
 
-These cost real time and are written down because they will otherwise recur.
+### The build silently tests a stale binary if the viewer is running
 
-- **Conformance test first, and the reason is enumeration.** Writing the test forces the engine's
-  behaviour to be read across the whole feature; reacting to a screenshot finds one thing at a time.
-  B135 was four divergences found one per screenshot across an evening — and two more appeared in the
-  minute it took to start writing the conformance test. `docs/memory/conformance-test-before-implementation.md`
-- **A conformance test must compare against OURS.** Retesting the unchanging SDK is worthless: Valve
-  tested that code. `docs/CONFORMANCE.md`
-- **Name the trade before "fixing" Valve's code**, and check whether the trade was against D3D9 or a
-  console. `docs/memory/name-the-trade-before-fixing-valve.md`, D46
-- **Do not discard work that was asked for, works, and should already have been committed.** The fix
-  for "should I revert this?" is usually "this should have been a commit an hour ago".
-  `docs/memory/never-revert-without-asking.md`
-- **A wrong-looking screenshot is a question, not a verdict** — I misread one and asserted a fix that
-  was not there.
+`dotnet build` cannot copy into `bin/` while `tf2demoview.exe` holds the DLLs. It reports this as
+**MSB3026 warnings, not errors** — so a grep for `error` says the build is clean while `bin/` still
+holds the previous binary. Worse, once `obj/` is newer than `bin/`, the *next* incremental build
+finds nothing to do and the stale copy persists.
+
+This cost two launches of drawing conclusions from old code. **Close the viewer, then build, and
+check the DLL timestamp if a change seems not to have taken.** `-t:Rebuild` forces it.
+
+### A null-object default hides a missed wiring, and no test can see it
+
+After converting 193 log sites, the viewer logged **13 `assets` lines and zero warnings** against
+215 and 16 before — with the entire gate green. `MainForm` was calling `MapAssets.Load`,
+`MapWorldBuilder.Build` and `EntityModelSet` without passing its factory; each parameter is optional
+and each fell back silently.
+
+No test could catch it, because the tests pass no factory *on purpose*. Recorded in
+`docs/memory/a-null-object-default-hides-a-missed-wiring.md`.
+
+### CI coverage for Content is not a measure of Content's tests
+
+**85.0% locally, 53.2% in CI**, same commit. CI has no TF2, so ~250 Content tests skip and every
+VTF/VMT/MDL reader is uncovered. The CI floor measures the device-free subset, and that fraction
+*falls* as the project adds game-dependent readers. Do not chase it with fixture-only tests. The
+workflow says all this beside the number.
+
+### An explanation that blames the environment will outlive the bug
+
+`build/gate.sh` carried "Test Run Aborted is probably the desktop, not the code" for four days. It
+was written after one abort, never tested, and was wrong — the cause was B178. Such a note cannot
+fail, so it survives indefinitely. Both it and the `AssemblyTestPolicy` comment that said "none of
+them constructs a form at all" (six do) are corrected in place, with the failure mode named.
+
+### Decompilation is cheap here and mostly already done
+
+Ghidra 12.1.2 is at `D:\ghidra_12.1.2_PUBLIC`, projects at `D:\ghidra-proj`, with TF2 engine and
+client binaries for 2007–live already imported and analysed. **Check `D:\ghidra-proj\out\` before
+running anything** — most of what is needed is there.
+
+The gain-curve hunt failed four times before today because of two traps, both recorded in
+`~/.claude/memory/ghidra-is-installed-on-d.md`: a cvar name string has no code xref (it is a
+constructor argument), and a reader loads `base + 0x2c`, not `base`. An empty result from Ghidra's
+database is a fact about the analysis, not about the binary.
 
 ---
 
-## What landed
+## Owner directions recorded this session
 
-| | |
-|---|---|
-| `1469815` | B132 — an entity is its baseline plus what the snapshot said |
-| `eb76edf` | B131 — a brush entity takes the lightmap vrad baked for it |
-| `36f157f` | B134 — clip the face to the overlay, not the overlay to the face |
-| `54d715e` | D48 — match the engine's depth buffer format |
-| `6ccae07` `4fa81b1` `6000461` | D46/D49 — the Valve-standard reasoning, and the ortho camera's provenance |
-| `e7b95cf` | draw static props after the overlays |
-| `1a5b0a1` | cull the overlay pass; enumerate the rest of the divergences |
-| `8b1897a` | render state per material; a conformance test that can actually fail |
-| `253380d` | `$decal` settled from the binary; the conformance audit classified |
+All are in `docs/DECISIONS.md` with his words:
+
+- **D82** — departures from Valve are bounded by SIZE and JUSTIFICATION, and sequenced *after*
+  parity unless the departure is structural (baking is the counter-example; it had to come first
+  because later work was built on it).
+- **D83** — full DI conversion over a facade, overruling the assistant's recommendation: *"we do the
+  full di conversion because its the correct thing to do, its a massive rewrite but weve done them
+  before"*.
+- **CA1873 suppression** — his call, *"A is a lot of generated code too, so i think im fine with C"*.
+  Justified by frequency, not by enablement — he falsified the first justification himself.
+- **UI tests do not gate** — *"we basically check nothing with ui tests"*. Run them, read them, fix
+  what they find, but red there does not block a merge.
+
+---
+
+## Process notes on the assistant, kept because they recurred
+
+- **Scripted edits were used repeatedly despite the standing rule**, and bit twice — a mangled
+  `OffscreenTarget` and a corrupted interpolated string. Both caught by the compiler; that is luck,
+  not method. Use Read/Edit/Write.
+- **"Green" was reported once from runs that never executed** — `dotnet` was broken by a mid-session
+  toolchain upgrade and the floor check read a stale `.trx`. Read the counts, never the absence of a
+  failure string.
+- **The viewer was killed twice while the owner was listening to it.** Ask first.
