@@ -9972,6 +9972,113 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
+### B169 — looping sounds are played once, so ambience never persists — OPEN
+
+**Nothing in this repository reads a WAV's loop points.** `RiffWave` parses no `cue ` or `smpl`
+chunk, `SoundSample` carries no loop flag, and `AudioOutput` never sets `AL_LOOPING`. A looping
+sound therefore plays its file once and stops.
+
+That is most of the map's atmosphere. `)ambient/machine_hum` is an `ambient_generic` loop, and the
+demo starts it once — six of them on cp_process, at the recording's first tick — expecting it to run
+for the whole match. Played once, it is over within seconds and the map is silent afterwards.
+
+**It was hidden by a bug and surfaced when the bug was fixed.** While ambience was wrongly played at
+full volume everywhere (B168), a single pass through the file was audible from anywhere and sounded
+like it was working. With attenuation applied correctly the owner reported "now i dont hear the
+ambient at all" — the same behaviour, no longer masked. Worth recording because the fix looked like
+a regression and was not one.
+
+The origins are not the problem and were checked first: these sounds carry real positions
+(`-3944, -1248, 656` and so on), not an unsent `(0,0,0)`.
+
+Work: read the loop marker where Valve puts it, carry it on `SoundSample`, and set `AL_LOOPING` on
+the source. A looping voice then only ends when `SND_STOP` names its channel, which B168 now
+honours — so the two features meet exactly where they should.
+
+**Done, and the ambience is still not audible — so there is a second cause.** The `cue ` chunk is
+now read and verified against the shipped files (`ambient/machine_hum.wav` loops with loop start 0;
+`items/gunpickup2.wav` does not, as the control), `AL_LOOPING` is set, and the owner still reports
+"i didnt hear the ambient sounds that time either".
+
+**The cause is that a loop is spatialised ONCE, and the owner's description is what identifies it.**
+
+I had assumed the six signon sounds were being skipped by the schedule's cursor. The owner ruled
+that out with a fact about the game rather than about our code: *"even if it skips the signon it
+should still play the hum will come and go in game depending on if you are in spawn or not, its just
+not very loud at all"*.
+
+A hum that comes and goes as the listener moves is one the engine **re-evaluates every frame**. It
+is started once and spatialised continuously thereafter. This implementation computes gain and pan
+once, inside `AudioOutput.Play`, and never touches them again — which is correct for a one-shot,
+since it is over in under a second, and wrong for anything that loops. A hum started at tick 30
+keeps the gain implied by wherever the camera stood at tick 30 for the rest of the demo, and walking
+into the spawn room later cannot make it louder.
+
+Distance was ruled out separately, also by the owner: *"the sounds are not playing in pov view when
+the players are at spwn, so its not a distance thing"*. Both observations point at the same gap.
+
+Work: keep the live looping voices, and recompute each one's gain and pan per frame from the
+listener's current position and the source's own. `AudioOutput` needs a way to set the gains of a
+voice already playing, and the caller needs to remember where each looping sound is. The one-shot
+path stays exactly as it is.
+
+**Also worth recording for whoever checks it:** the owner notes the hum "is just not very loud at
+all" even when correct, so a faint result is the expected one and is not evidence of a second fault.
+
+### B171 — following some players does not enter first person — OPEN
+
+The owner, 2026-08-24: *"some players when you switch to them its not actually going into 1st
+person, no viewmodel is drawn and you can see the player model sometimes, depending on where the cam
+is, its like its a 3rd person cam, but bad and not the right one."*
+
+Three symptoms that are probably one cause: no viewmodel, the followed player's own model visible,
+and a camera that is near them rather than in them. All three are what a first-person view looks
+like when the **eye position is not resolved** — `AddViewmodel` returns early when
+`FirstPersonCamera()` is null, `FirstPersonVisibility` only hides the viewed player when it is told
+who that is, and the camera then falls back.
+
+**"Some players" is the useful half of the report.** It works for others in the same demo, so this is
+per-player data rather than a broken mode: a player with no recorded view, an unresolved class (the
+eye height comes from the class), or a spectator/SourceTV entity being followed as though it were a
+player. The first thing to measure is which players it fails for and what those have in common —
+`docs/memory/ask-whether-the-data-arrived.md`, before anything about cameras.
+
+### B172 — footsteps and landing sounds are absent from every demo — OPEN, and may be unfixable as such
+
+The owner, after the audio wiring: *"footsteps still are not played either, and neither are landing
+sounds, except for maybe voice lines if it had fall damage"*.
+
+**Measured, and they are not in the recording.** `SoundPopulationProbe` reports
+`footstep-like names: 0` on both a solo POV and a full STV match, and the top of the population is
+ambience, physics impacts, doors and voice lines. TF2 predicts these on the client and never
+networks them — `svc_Sounds` carries what the SERVER chose to send. The owner's own observation fits
+exactly: the fall-damage voice line IS heard, because that one is server-sent.
+
+So this is not a decode fault and not a playback fault. Reproducing it would mean **synthesising
+audio the demo does not contain** — deriving a footstep from a player's movement, surface and speed,
+the way the client does. That is a real feature and a defensible one for a viewer whose stated bar
+is "at least as good as the demo originally looked" (D77), but it is authoring rather than replay
+and should be decided deliberately rather than slipped in.
+
+Filed here so nobody spends another session looking for a bug in the sound path.
+
+### B170 — some viewmodels on modern demos are washed out — OPEN
+
+The owner, 2026-08-23: *"some of the new demo viewmodels are not displaying right either, they are
+basically washed out, like the old demos weapon models that were drawing on top for that demo that
+was on the transition."*
+
+Unmeasured. Recorded now because the comparison in it is the useful part and would be lost: the same
+washed-out appearance was seen on the *world* weapon models that were being drawn over the viewmodel
+before B160 was fixed — the ones that turned out to be first-person ARMS drawn as scenery, whose
+materials the world path could not resolve.
+
+That suggests a material resolution failure rather than a lighting one, and it gives a concrete first
+question: are these viewmodels resolving their materials at all, or falling back to something
+untextured? The B160 investigation established that our missing-material signal is Valve's magenta
+chequer, so "washed out" is NOT that fallback and is something else again — worth knowing before
+anyone assumes it is the same bug.
+
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
 The Original ("the quake launcher") drew far too high and filled the screen, on every demo since

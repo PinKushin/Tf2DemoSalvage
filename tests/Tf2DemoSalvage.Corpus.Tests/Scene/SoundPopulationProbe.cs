@@ -96,6 +96,31 @@ public sealed class SoundPopulationProbe
                 ", ",
                 stopped.Take(6).Select(group =>
                     $"{group.Key} x{group.Count().ToString(CultureInfo.InvariantCulture)}")));
+
+        // **Where the sounds claim to be, which decides whether they can be heard at all.** A
+        // sound at the origin is a sound at the map's centre, and a listener anywhere else is
+        // thousands of units from it — so an unsent origin and a genuinely central sound produce
+        // the same silence through any distance curve. Asked here because removing an ambient
+        // special case made ambience inaudible, and that is the first thing that could explain it.
+        int atOrigin = timeline.Sounds.Count(sound =>
+            sound.OriginX == 0f && sound.OriginY == 0f && sound.OriginZ == 0f);
+
+        TestContext.Out.WriteLine(
+            $"  at (0,0,0): {atOrigin.ToString(CultureInfo.InvariantCulture)} of " +
+            $"{timeline.Sounds.Count.ToString(CultureInfo.InvariantCulture)}");
+
+        foreach (SceneSound sound in timeline.Sounds
+            .Where(sound => sound.IsAmbient || sound.Name.Contains("ambient", StringComparison.OrdinalIgnoreCase))
+            .Take(4))
+        {
+            TestContext.Out.WriteLine(
+                $"    ambient '{sound.Name}' entity {sound.EntityIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"sndlvl {sound.SoundLevel.ToString(CultureInfo.InvariantCulture)} " +
+                $"at ({sound.OriginX.ToString("0.#", CultureInfo.InvariantCulture)}, " +
+                $"{sound.OriginY.ToString("0.#", CultureInfo.InvariantCulture)}, " +
+                $"{sound.OriginZ.ToString("0.#", CultureInfo.InvariantCulture)}) " +
+                $"IsAmbient {sound.IsAmbient}");
+        }
     }
 
     /// <summary>A sound's name with any trailing variation digits removed.</summary>

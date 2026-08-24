@@ -185,6 +185,17 @@ public sealed unsafe class AudioOutput : IDisposable
         _al.SetSourceProperty(source, SourceFloat.Pitch, pitch > 0f ? pitch : 1f);
         _al.SetSourceProperty(source, SourceFloat.Gain, 1f);
 
+        // **A looping sound runs until its channel is stopped, which is what makes ambience work.**
+        // Six machine hums start at the beginning of cp_process and are meant to run for the whole
+        // match; played once each, the map is silent seconds later (B169). The two halves meet
+        // exactly here: SND_STOP is what ends them, and B168 now honours it.
+        //
+        // **Whole-buffer looping, which is an approximation where the loop start is not zero.**
+        // Valve returns to the `cue ` point rather than to the beginning, and OpenAL's AL_LOOPING
+        // has no way to say that — a sound with an intro would replay the intro. Seamless ambience,
+        // which is what this is for, loops from zero and is exact.
+        _al.SetSourceProperty(source, SourceBoolean.Looping, sample.Loops);
+
         _al.SourcePlay(source);
 
         _playing.Add(new Voice(source, buffer, entity, channel));

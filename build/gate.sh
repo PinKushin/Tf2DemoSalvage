@@ -120,7 +120,10 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # across two gains, stereo keeping its own image, and saturation on both sides of the clamp. Written
 # device-free deliberately: CI and the measurement boxes have no sound card, and a test that needed
 # one would skip exactly where it matters.
-run Tf2DemoSalvage.Audio.Tests    audio     107
+# 109: WaveLoopConformanceTests (2). A wave loops if it carries a `cue ` chunk (tier2/riff.h:187),
+# with a one-shot as the control — a reader that always looped would pass the first assertion and
+# turn every gunshot in the game into a drone.
+run Tf2DemoSalvage.Audio.Tests    audio     109
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -179,7 +182,10 @@ run Tf2DemoSalvage.Content.Tests  content   640
 # carried weapon's m_nModelIndex being its VIEW model (B160).
 # 104: CorpusTimelineSoundTests. svc_Sounds now reaches the timeline with names and ticks, which is
 # the first of B168's three pieces and the only one testable without an audio device.
-run Tf2DemoSalvage.Corpus.Tests   corpus     104
+# 106: SoundPopulationProbe (2 cases, [Explicit]). It reports what a demo actually plays, by name,
+# soundlevel, pitch, stop and origin — and answered three questions in one run that were
+# indistinguishable from the speakers.
+run Tf2DemoSalvage.Corpus.Tests   corpus     106
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
