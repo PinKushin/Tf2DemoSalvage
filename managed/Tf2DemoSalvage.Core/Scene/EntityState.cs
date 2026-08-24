@@ -532,6 +532,33 @@ public sealed class EntityState
     /// perfectly ordinary-looking slot number. Masking before testing turns "no owner" into
     /// "owned by entity 2047".
     /// </remarks>
+    /// <summary>Which entity OWNS this one, whatever it is attached to.</summary>
+    /// <returns>The owner's entity slot, or null when it has none.</returns>
+    /// <remarks>
+    /// **Ownership and attachment are different questions, and <see cref="Attachment"/> answers the
+    /// other one.** That method reports where an entity is DRAWN — a parent outright, or an owner
+    /// when the entity also asked to be bone-merged — because an owner alone says nothing about
+    /// position. This one reports who it BELONGS to, which is what the engine keys visibility on.
+    ///
+    /// <c>C_BaseCombatWeapon::ShouldDraw</c> is the case that needs it:
+    ///
+    /// <code>
+    /// C_BaseCombatCharacter *pOwner = GetOwner();
+    /// if ( !pOwner ) return true;                  // unowned, always drawn
+    /// if ( pOwner == pLocalPlayer ) {
+    ///     if ( !bIsActive ) return false;          // only ever the active weapon
+    ///     ...
+    ///     return false;                            // first person: the viewmodel draws it
+    /// }
+    /// </code>
+    ///
+    /// A carried weapon that sends its own origin is owned by its carrier and parented to nobody,
+    /// so asking `Attachment` whether it belongs to the player answers null and it is drawn in the
+    /// first-person view alongside the viewmodel — two sticky launchers overlapping, which is what
+    /// this was found as.
+    /// </remarks>
+    public int? Owner() => Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
+
     public int? Attachment()
     {
         // The parent is attachment outright - an entity only has one because something set it.

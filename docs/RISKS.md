@@ -9689,8 +9689,24 @@ wrong rather than one.
 **Two entries of this risk have now been written from a single screenshot and both were too broad**
 — first "the pass is unwired", then "the placement is unimplemented". Both were general claims from
 one image, and the general claims were wrong. The specific question is why ONE model sits higher
-than the game puts it, which is a question about that model's own attachment or offset rather than
-about the viewmodel path.
+than the game puts it.
+
+**And the next step is to find out whether it is ours at all.** The owner: "broken demos will do
+this glitch too actually, if i remember correctly." That is a real alternative and it is cheaper to
+rule out than to chase — a demo carrying a wrong sequence index, or a weapon change the recording
+missed, would pose the viewmodel from the wrong animation and put it anywhere.
+
+**The discriminating experiment**, before any code changes: watch the same weapon in a DIFFERENT
+demo. `tools/corpus/local` carries fourteen. If the Original is misplaced everywhere it appears, the
+fault is ours; if only in this recording, the demo is telling us something wrong and the viewer is
+faithfully drawing it. One is a rendering bug and the other is a decoding question, and they have
+nothing in common.
+
+**A note on the instrument, because it misled me once here.** The `sequences <model>` log prints a
+PREFIX of the merged table, not all of it — 98 merged, eight names shown. Reading those eight as the
+whole table produced a confident and wrong conclusion that the arms were merged with only one
+weapon. If that list is going to be used for diagnosis it should say how many it is showing, the way
+the drop ledger and the material census do.
 
 **One mechanical assertion belongs with the fix**, because the capture test rendered this picture
 and passed: the viewmodel pass draws more than zero instances when first person is on. That would
@@ -9765,3 +9781,47 @@ tick, the same eye, the same field of view and the same viewport, and a disagree
 reads as a rendering difference. So the first version should compare a STILL from a fixed tick in
 the recorded camera, where both sides take their view from the demo rather than from a person
 flying — which is the one camera the two are guaranteed to agree on.
+
+### B160, measured at last: two defects stacked (2026-08-23)
+
+Five aimed changes were made at this entry today and four fixed nothing, every one reasoned from a
+screenshot. Two screenshots taken a second apart — alive, then dead — settle it, and the reason no
+single-cause theory worked is that there are two:
+
+| | weapons drawn | appearance |
+|---|---|---|
+| alive | two, overlapping | one WHITE and untextured, one correctly textured |
+| dead | one | correctly textured |
+
+**That reading is INVERTED, and the owner corrected it**: "i think the world model gets dropped to
+the ground, so the viewmodel we see is not the world model i dont think, its ours". A dead player's
+weapon leaves their hand — TF2 drops it — so the weapon still in view after death is the VIEWMODEL,
+drawn correctly, and the one that VANISHED was the world weapon in the hand.
+
+So it is one defect, not two: the followed player's world weapon is drawn in the first-person view,
+untextured, on top of a correct viewmodel. It disappears on death because the weapon itself is gone
+from the hand, not because anything about the drawing changed.
+
+**Why it draws white is the second half of the question.** White is not our missing-material signal
+— that is Valve's magenta chequer — so it is not an unresolved material falling back. Something else
+produces white, and whatever route puts this weapon on screen may be the same thing that leaves it
+untextured.
+
+**The rule it is breaking.** `C_BaseCombatWeapon::ShouldDraw`
+hides a weapon owned by the player whose eyes you are in, because the viewmodel draws it instead.
+Today's ownership change threaded `m_hOwnerEntity` onto `SceneProp` and taught
+`FirstPersonVisibility` to hide by owner — correct per the SDK, and it did not fix this, because the
+first-person keep-list shows no weapon prop surviving at all. So the world weapon reaches the screen
+by some route other than `_drawn`, and finding that route is the next step rather than another
+guess at the rule.
+
+**What is NOT the cause, established rather than assumed:** it is not POV-specific (the STV half of
+the same matched pair does it too), not demo-specific, not a regression (the modern STV demo on the
+current binary is correct where it was correct before), and not the viewmodel pass being unwired (it
+builds two props and two instances every frame).
+
+**Do not aim another change at this without an instrument.** The pattern that cost the day: a
+picture supports a claim about what it shows, and each time it was promoted to a claim about the
+system. The two instruments that finally produced facts — the first-person keep-list and the
+viewmodel prop names — are both one log line each, and both were added after the fourth wrong guess
+rather than before the first.

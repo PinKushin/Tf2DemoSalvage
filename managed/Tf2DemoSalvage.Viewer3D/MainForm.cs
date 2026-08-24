@@ -225,6 +225,9 @@ internal class MainForm : Form
     /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
     private BspLeafTree? _leaves;
 
+    /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
+    private int? _lastFirstPersonReport;
+
     /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
     private IReadOnlyList<AmbientSamples> _ambient = [];
 
@@ -2831,6 +2834,15 @@ internal class MainForm : Form
         // then the weapon into the same list threw the arms away and drew the gun alone — a bug
         // that reads as "the arms do not work" and was invisible next to a viewmodel that was not
         // on screen for other reasons anyway.
+        // **Names each viewmodel prop, because the count says two and cannot say two of WHAT.**
+        // The merged arms model already carries a weapon part — c_soldier_arms pairs as hands,
+        // sleeves and w_rocketlauncher — so a second prop naming the same geometry draws the gun
+        // twice, which is what "2 sticky launchers overlapping" looks like.
+        foreach (SceneProp shown in viewmodelProps)
+        {
+            ViewerLog.Write("render", $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
+        }
+
         _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
 
         // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
@@ -3488,6 +3500,31 @@ internal class MainForm : Form
         // exactly what the first capture showed. See FirstPersonVisibility.
         if (_firstPerson && FollowedEntity() is { } looking)
         {
+            // **Says what it is deciding about, because three fixes have now been aimed at this
+            // from a screenshot.** The question is never "is something wrong" — it is which prop is
+            // still drawn and what it claims about its owner, and no count can answer that.
+            if (_lastFirstPersonReport != looking)
+            {
+                _lastFirstPersonReport = looking;
+
+                foreach (SceneProp prop in _drawn)
+                {
+                    if (prop.EntityIndex == looking ||
+                        prop.AttachedTo == looking ||
+                        prop.OwnedBy == looking)
+                    {
+                        continue;
+                    }
+
+                    ViewerLog.Write(
+                        "render",
+                        $"first person keeps entity {prop.EntityIndex} '{prop.ModelPath}' " +
+                        $"attachedTo={prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
+                        $"ownedBy={prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
+                        $"(following {looking})");
+                }
+            }
+
             IReadOnlyList<SceneProp> visible = FirstPersonVisibility.Visible(_drawn, looking);
 
             if (visible.Count != _drawn.Count)

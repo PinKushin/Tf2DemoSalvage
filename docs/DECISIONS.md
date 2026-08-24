@@ -4050,3 +4050,31 @@ the downward-normal cull and the decal bias — see B155.
 `sky_camera` transform puts a miniature copy of the surroundings far outside the level at its literal
 scale. That is what the file contains. Tracked as B152, and a visible wrong thing is a better base to
 build the transform on than an invisible one.
+
+## D77 — a defect in the demo is in scope, because recovery is the point
+
+**Owner's direction, 2026-08-23.** The case that prompted it turned out NOT to be a demo glitch —
+the stock rocket launcher draws centred where TF2 holds it to the right, which is ours — but the
+principle was stated in general and stands on its own:
+
+> "we need to fix it either way, thats a demo glitch i want to fix, because the whole point in this
+> is to recover demos and make them look at least as good as they did originally."
+
+**This retires a triage question that was about to become a habit.** The instinct on finding that a
+demo carries a wrong sequence index, a missed weapon change or a truncated field is to establish
+whose fault it is and close the entry if the answer is "the recording's". That instinct is right for
+a renderer and wrong for this project: a viewer whose job is to play back demos the live client can
+no longer play does not get to hand the defect back to the file. The file is the input, and the
+input is damaged — that is the premise of the whole thing, not an exception to it.
+
+**The distinction still matters, but it decides HOW rather than WHETHER.** A rendering fault is
+fixed in the renderer and must not be papered over at the decode layer, where it would corrupt every
+other consumer. A demo fault is fixed by reconstructing what the recording failed to say — the same
+work as `docs/memory/the-client-builds-what-the-demo-omits.md`, where the first-person weapon is a
+client-side entity no demo contains and the item index plus `items_game.txt` rebuilds it. So the
+question "is it ours or the demo's" is still worth answering first; it just never answers "leave
+it".
+
+**The bar it sets is explicit and is higher than "does not crash":** at least as good as the demo
+originally looked. Not our best guess at plausible, and not a blank where the data was bad — what a
+player watching it in the live client at the time would have seen.

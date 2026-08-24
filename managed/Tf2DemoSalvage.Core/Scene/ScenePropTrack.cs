@@ -267,6 +267,13 @@ public readonly record struct ScenePose
 /// <param name="AttachedTo">
 /// The entity whose skeleton carries this one, or <c>null</c> when it stands on its own origin.
 /// </param>
+/// <param name="OwnedBy">
+/// Which entity OWNS this one, whatever it hangs from, or <c>null</c>. Separate from
+/// <paramref name="AttachedTo"/> because they answer different questions: that one says where the
+/// prop is DRAWN, and this says who it belongs to. The engine keys a carried weapon's visibility on
+/// the second — `C_BaseCombatWeapon::ShouldDraw` hides a weapon owned by the player whose eyes you
+/// are in, because the viewmodel draws it instead.
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -284,7 +291,13 @@ public readonly record struct SceneProp(
     SceneModelKind Kind,
     ScenePose Pose,
     int? AttachedTo = null,
-    int? AttachmentPoint = null);
+    int? AttachmentPoint = null,
+
+    // **Who it BELONGS to, which is not who it hangs from.** The engine keys a carried weapon's
+    // visibility on ownership (C_BaseCombatWeapon::ShouldDraw), and a weapon that sends its own
+    // origin is owned by its carrier while being parented to nobody — so AttachedTo cannot answer
+    // the question the first-person view has to ask.
+    int? OwnedBy = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -400,6 +413,13 @@ public sealed class ScenePropTrack
     /// cosmetic for however long that takes.
     /// </remarks>
     public int? AttachedTo { get; internal set; }
+
+    /// <summary>Which entity owns this one, whatever it hangs from.</summary>
+    /// <remarks>
+    /// Kept apart from <see cref="AttachedTo"/> deliberately: that says where the prop is DRAWN and
+    /// this says who it belongs to. The engine keys a carried weapon's visibility on the second.
+    /// </remarks>
+    public int? OwnedBy { get; internal set; }
 
     /// <summary>Which named point on its wearer this hangs from, one-based, or null.</summary>
     /// <remarks>

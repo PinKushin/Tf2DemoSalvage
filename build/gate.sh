@@ -143,7 +143,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 101
 # audio floor gained, so nothing was deleted.
 # 623: VtfBlockAgreementTests (1) and its sibling, which read 400 of the game's own textures out of
 # tf2_textures_dir.vpk and assert the block path and the expanded path produce identical bytes.
-run Tf2DemoSalvage.Content.Tests  content   630
+# 635: ViewmodelArmsContentTests (5) — what a first-person arms or weapon model actually contains,
+# read out of tf2_misc_dir.vpk rather than from a fixture. Two TestCases cover the demoman's weapons,
+# and the suite is what killed the "the arms carry the second weapon" theory for him while confirming
+# it for the soldier (finding 33).
+run Tf2DemoSalvage.Content.Tests  content   635
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

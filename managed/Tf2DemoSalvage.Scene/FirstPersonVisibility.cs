@@ -57,7 +57,24 @@ public static class FirstPersonVisibility
 
         foreach (SceneProp prop in scene)
         {
-            if (prop.EntityIndex == hidden || prop.AttachedTo == hidden)
+            // **Owned counts as well as attached, and the engine keys on OWNED.**
+            // `C_BaseCombatWeapon::ShouldDraw`:
+            //
+            //     C_BaseCombatCharacter *pOwner = GetOwner();
+            //     if ( !pOwner ) return true;             // unowned, always drawn
+            //     if ( pOwner == pLocalPlayer ) {
+            //         ...
+            //         return false;                        // first person: the viewmodel draws it
+            //     }
+            //
+            // Attachment could not answer this. It reports where a prop is DRAWN — a parent, or an
+            // owner when the prop also asked to be bone-merged — so a carried weapon that sends its
+            // own origin is owned by its carrier and parented to nobody, and reads as attached to
+            // nothing. It was therefore drawn in the first-person view alongside the viewmodel:
+            // two sticky launchers overlapping, and a soldier's rocket launcher across the lens.
+            if (prop.EntityIndex == hidden ||
+                prop.AttachedTo == hidden ||
+                prop.OwnedBy == hidden)
             {
                 continue;
             }
