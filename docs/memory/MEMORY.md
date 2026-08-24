@@ -128,4 +128,4 @@
 - [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — `&& bones.Count > 1` vetoed mustSkin, so a one-bone worn model never merged.
 - [Do not rerun a green gate](do-not-rerun-a-green-gate.md) — floors and docs cannot change a test result; take the counts from the run in hand.
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps and landings are client-predicted and in no demo; reproducing them is authoring, not replay.
-- [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — three separate questions: do we hold a specimen, when was the protocol current, when was this demo recorded.
+- [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — a demo's protocol bounds its date not at all; this corpus is the counterexample, and protocol windows are estimates from changelogs.

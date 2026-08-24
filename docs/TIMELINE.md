@@ -52,11 +52,18 @@ from GotFrag MediaFire links still live fourteen years later (`TF2DEMOSALVAGE-LO
 `leeko_badlands_4_63800.dem` at protocol **21**, and `20120707-0042-koth_idioteque_a3.dem`,
 `20120909_1804_cp_gullywash_final1_red_fags.dem` and `hackermgereddit.dem` at **22**.
 
-**They do not date protocols 21 and 22, and no demo could.** This is worth stating plainly because
-it is easy to blur, and was blurred here: **running a period client dates a PROTOCOL, never a
-demo.** A build of known date reports a `version`, and that establishes which protocol was current
-when. A demo speaking protocol 22 was recorded somewhere inside protocol 22's lifetime — it inherits
-the window rather than supplying a date to it.
+**They do not date protocols 21 and 22, and no demo could.** Worth stating plainly because it is
+easy to blur and was blurred here twice.
+
+**A demo's protocol says which protocol it speaks, and nothing else.** It does not bound the
+recording date even loosely, because an old client still runs and still records. **The counterexample
+is this corpus.** Every era specimen in gcor was recorded on a period client in 2026:
+`tf2-2007-build3258-pov-cp_granary.dem` speaks protocol 11 and is weeks old. The method this document
+describes is itself the thing that breaks the inference.
+
+So a demo cannot date a protocol, and a protocol cannot date a demo. The dates in the table above
+come from **builds** — a client of known stamp reporting a `version` — and the windows between them
+are estimated from changelogs and forum posts rather than measured.
 
 So the corpus has two different gaps and only one of them just closed:
 
@@ -79,22 +86,26 @@ when a protocol was current. They are independent, and coupling them would have 
 demos red indefinitely — **these are scrims and pugs, so there is no ESEA or ETF2L record to date
 them from.** The protocol list is a fact about the files and should follow them.
 
-**Dating the individual demos is possible and would narrow the protocol window from the other end.**
-None of it needs a client:
+**Dating the individual demos is possible, from their CONTENT and never from their protocol.** None
+of it needs a client:
 
 - **The filenames.** `20120707-0042-koth_idioteque_a3` and `20120909_1804_cp_gullywash_final1` carry
-  their own dates. A protocol-22 demo recorded on 7 July 2012 puts protocol 22 in use on that date,
-  which is a real constraint on the window even though it does not fix its edges.
+  their own dates — the strongest evidence available for these two, and evidence about the demo
+  rather than about the protocol.
 - **Map versions.** `koth_idioteque_a3`, `cp_gullywash_final1` and `cp_snakewater_b9` each have a
   known release window, and a demo cannot predate the map it was recorded on — a hard lower bound
   where the filename says nothing.
-- **`proto_version.h`**, which names the last build WITHOUT each change
-  (`docs/memory/proto-version-h-enumerates-the-boundaries.md`), so a candidate can be checked
-  against the boundary rather than assumed.
+- **Seasonal and event content**, which is how `z1800.dem` was eventually dated after its protocol
+  number had already mis-dated it by five years.
 
-**That is evidence about the protocol's window, not a substitute for a client.** A demo says "this
-protocol existed by this date"; a client says "this build speaks this protocol". Bounds from demos
-should land here marked *inferred*, and never in the same column as a `version` reading.
+**A demo dated this way still says little about the protocol**, and that is the trap. If these are
+period recordings then 22 was in use in July 2012; if someone recorded them on an old client — as
+this project routinely does — then they say nothing about the protocol at all. The inference only
+runs when the demo is independently known to be contemporaneous, which for a recovered scrim it is
+not.
+
+Anything landing here from that route belongs marked **inferred**, never in the same column as a
+`version` reading from a build.
 
 Protocol 11 at launch was a surprise. The March 2008 build reports 14, and the launch build was
 expected to report 14 as well — three protocol versions came and went in TF2's first five months,
