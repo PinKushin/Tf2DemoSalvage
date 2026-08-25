@@ -10334,11 +10334,30 @@ takes the system mutex for a listener that usually is not there.
 Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
 and unrelated.
 
-### B193 — Nothing catches the view failing to hand the scene its weapon roles — OPEN
+### B193 — Nothing catches the view failing to hand the scene a source it needs — OPEN
 
-**Found by nearly shipping it.** Moving `ShowMoment` out of `MainForm` dropped the
-`EnsureWeaponRoles()` call, and only an analyzer noticing the method had become unreachable caught
-it. Nothing else would have.
+**Twice in three commits, and the second one SHIPPED.** This is the defect class of the whole
+refactor: a scene that is handed its collaborators cannot tell "nobody wired this" from "the demo
+genuinely has none", and every symptom is silent.
+
+| occurrence | what was dropped | caught by | shipped? |
+|---|---|---|---|
+| 1 | `EnsureWeaponRoles()`, so every weapon suffix answered null | an analyzer noticing the method had become unreachable | no |
+| 2 | `MomentScene.Viewmodels` was never assigned at all | reading the wiring two commits later, by eye | **yes** |
+
+The second is the worse one and is worth stating plainly: when the scene rebuild moved out of the
+form, nothing set `Viewmodels`, so `AddViewmodel` returned on its first guard and **the
+first-person weapon never drew at all**. The viewer suite reported 620/620 across that commit and
+the one after it.
+
+**Both are now reported rather than silent** — `no player appearance` and `no viewmodel source`,
+each once rather than per frame, each with a test. And every per-demo source is assigned in ONE
+place, where the demo arrives, rather than wherever each collaborator happened to be constructed.
+
+**The original finding, kept because it is the measurement:** the wiring was broken deliberately —
+`_moment.Appearance = new GameAppearance(_classModels, null)` — and the viewer suite reported
+**Passed: 566, Skipped: 54, Total: 620**. All green, on a defect that gives every player the wrong
+weapon animation.
 
 **Measured, not assumed.** With the wiring deliberately broken —
 `_moment.Appearance = new GameAppearance(_classModels, null)` — the viewer suite reported
