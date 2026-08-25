@@ -230,6 +230,57 @@ public sealed class MomentSceneTests
     }
 
     [Test]
+    public void Build_WithGeometryToPackAndNoUpload_SaysNothingEverReachedTheDevice()
+    {
+        // **The worst of the three wiring regressions, and it shipped** (B193). Nothing assigned
+        // `Upload`, so `Pack` returned before uploading and NO entity geometry ever reached the GPU:
+        // every model packed, posed, transformed correctly and submitted against a vertex buffer the
+        // renderer never received. That is B148's symptom, and B148 took a 37 MB log to find.
+        //
+        // The guard is right — a viewer whose viewport has no handle yet has no device — but it must
+        // not be silent once there is geometry to hand over.
+        RecordingLogger log = new();
+        MomentScene scene = new(
+            new EntityModelSet { Geometry = OneTriangle }, new ViewmodelScene(), log);
+
+        scene.Build([], [Prop("models/props/crate.mdl")], Info());
+
+        log.Count("no model upload").ShouldBe(1);
+    }
+
+    [Test]
+    public void Build_WithNothingToPackAndNoUpload_SaysNothing()
+    {
+        // **The control.** Before a demo is open there is nothing to upload, so an absent device is
+        // not yet a fault — and a warning per frame from an idle viewer is how a real warning stops
+        // being read.
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);
+
+        scene.Build([], [], Info());
+
+        log.Count("no model upload").ShouldBe(0);
+    }
+
+    [Test]
+    public void Build_WithGeometryAndAnUpload_SaysNothing()
+    {
+        // The other control: a correctly wired scene must be silent, or the line is noise.
+        RecordingLogger log = new();
+        MomentScene scene = new(
+            new EntityModelSet { Geometry = OneTriangle },
+            new ViewmodelScene(),
+            log)
+        {
+            Upload = new Uploads(),
+        };
+
+        scene.Build([], [Prop("models/props/crate.mdl")], Info());
+
+        log.Count("no model upload").ShouldBe(0);
+    }
+
+    [Test]
     public void Build_ReportsThePhasesItSpentTimeIn()
     {
         // **A ledger with a residual, not a threshold on one event.** Every direct column being
@@ -355,6 +406,25 @@ public sealed class MomentSceneTests
             PlayerClass: SoldierClass);
 
     private const int SoldierClass = 3;
+
+    /// <summary>Geometry for any path, so a prop actually packs to something.</summary>
+    /// <remarks>
+    /// Needed by the upload cases: with no geometry the set never grows, so "did not upload" and
+    /// "had nothing to upload" are the same observation.
+    /// </remarks>
+    private static PropModels.ModelFrames? OneTriangle(string path) =>
+        new(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true]);
 
     private static SceneProp Prop(string model, int entity = 1) =>
         new(entity, model, ScenePropTrack.Classify(model), new ScenePose(), null);
