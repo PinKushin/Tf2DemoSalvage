@@ -295,7 +295,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     151
 # transport's setter deliberately does not raise, so the elapsed clock stayed stopped and the viewer
 # sat at tick zero insisting it was playing. Finding it also required making FakeElapsedTime model
 # STOPPED: it reported time passing after Reset, which made the fixture blind to the whole class.
-run Tf2DemoSalvage.Presentation.Tests presentation 135
+run Tf2DemoSalvage.Presentation.Tests presentation 139
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -490,7 +490,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 #                                              by both the frame rate and reflections.
 # Lowered 645 -> 625: twenty tests moved to Scene.Tests with their subjects, which is the +20 there.
 # Nothing was deleted, and the two numbers are checked against each other rather than separately.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    625
+# 625 -> 621 on 2026-08-25: CameraPlacementTests (4) moved to Presentation.Tests with
+# FreeCameraController (B188, B184). Nothing was deleted — presentation went 135 -> 139, which is
+# exactly the four, and that arithmetic is the check that a move did not lose anything.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    621
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

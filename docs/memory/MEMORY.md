@@ -138,3 +138,4 @@
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six timers at 3 ms, remainder at 126; it was one log line taking a machine-wide mutex.
 - [Refactors are when to check parity](refactors-are-when-to-check-parity.md) — a divergence written into a new type is harder to see than one left in an old method.
 - [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — three days of rework; answer both questions before the code exists.
+- [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — several huds at once is a deliberate step BEYOND TF2; do not "fix" it toward parity.

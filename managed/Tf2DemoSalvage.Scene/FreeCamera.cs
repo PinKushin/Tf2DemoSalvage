@@ -49,9 +49,16 @@ public sealed class FreeCamera
     /// <summary>Horizontal field of view in degrees.</summary>
     /// <remarks>
     /// TF2's default is 75 for a player and 90 for the SourceTV camera; the engine's own default
-    /// <c>CViewSetup</c> is 75. Frame-makers change it, so it is a value rather than a constant.
+    /// <c>CViewSetup</c> is 75, and `ConVar default_fov( "default_fov", "75", FCVAR_CHEAT )` is at
+    /// <c>hl2_clientmode.cpp:17</c>. Frame-makers change it, so it is a value rather than a
+    /// constant.
+    ///
+    /// **This viewer starts at 90 rather than 75, declared in D91** — see
+    /// <see cref="ViewerSettings.DefaultFieldOfView"/> for the owner's reason. The default here
+    /// follows it so a camera constructed without one does not silently disagree with every camera
+    /// the viewer actually makes.
     /// </remarks>
-    public float FieldOfView { get; init; } = 75f;
+    public float FieldOfView { get; init; } = ViewerSettings.DefaultFieldOfView;
 
     /// <summary>Nearest and furthest drawn distance.</summary>
     /// <remarks>

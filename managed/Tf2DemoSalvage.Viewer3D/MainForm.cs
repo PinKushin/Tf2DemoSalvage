@@ -366,7 +366,16 @@ internal class MainForm : Form
     /// shows mostly wall, and the first thing anyone wants from this view is to see whether the
     /// players are standing up.
     /// </remarks>
-    private (float Pitch, float Yaw) _freeAngles = (35f, 0f);
+    /// <remarks>
+    /// **The state itself moved to <see cref="FreeCameraController"/> on 2026-08-25** (D90). These
+    /// two are accessors onto it, so the flight and drag handlers that live in this window — which
+    /// genuinely are input handling — read and write one place.
+    /// </remarks>
+    private (float Pitch, float Yaw) _freeAngles
+    {
+        get => _freeCamera.Angles;
+        set => _freeCamera.Angles = value;
+    }
 
     // FreeEntryDistance (800 units) went with the orbit placement on 2026-08-22 (D67). The camera
     // no longer sits a fixed distance from a focus point — it is placed above the map at whatever
@@ -383,7 +392,14 @@ internal class MainForm : Form
     /// So the camera flies. The orbit maths is still what PLACES it on entry, which keeps whatever
     /// the map view was centred on in the middle of the first frame.
     /// </remarks>
-    private (float X, float Y, float Z)? _freeOrigin;
+    private (float X, float Y, float Z)? _freeOrigin
+    {
+        get => _freeCamera.Origin;
+        set => _freeCamera.Origin = value;
+    }
+
+    /// <summary>Where the free camera is and how it is placed.</summary>
+    private readonly FreeCameraController _freeCamera;
 
     /// <summary>Degrees the free camera turns per pixel dragged.</summary>
     /// <remarks>
@@ -712,6 +728,7 @@ internal class MainForm : Form
         // and somewhere to report. Its map-dependent state arrives when a map is read.
         _soundscape = new SoundscapeSystem(_loops, Sample, _audioLog);
         _sound = new SoundPresenter(_soundscape, _loops, Sample, _audioLog);
+        _freeCamera = new FreeCameraController(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -3261,123 +3278,30 @@ internal class MainForm : Form
     private static bool Ducking(ScenePlayer? player) =>
         player?.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0;
 
+    /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
+    /// <remarks>
+    /// **All that is left here is the aspect ratio** (D90). Placing a camera, parsing a placement
+    /// and framing a map are presenter work and moved to <see cref="FreeCameraController"/>; the
+    /// viewport's width over its height is the only part that needs a window, and it is one float.
+    /// </remarks>
     private FreeCamera FreeLookCamera()
     {
-        float aspect = Math.Max(1, _viewport.ClientSize.Width) /
-            (float)Math.Max(1, _viewport.ClientSize.Height);
+        // **Read from the settings every time, not captured once.** A config can be reloaded while
+        // the viewer runs, and a field of view latched at construction would ignore it — which is
+        // the shape of no-op this project keeps catching: the setting exists, the config is read,
+        // and nothing downstream asks.
+        _freeCamera.FieldOfView = _settings.FieldOfView;
 
-        // **A camera placed from the environment, for comparing against a capture from the game.**
-        // TF2's `pos` and `ang` readouts give an exact viewpoint, and reproducing one by hand with
-        // mouse and keys is neither quick nor repeatable. Parity work keeps needing the same frame
-        // twice — once from the engine and once from here — so the coordinates are worth taking as
-        // input. Applied once, like the orbit below, so the camera still flies afterwards.
-        if (_freeOrigin is null &&
-            Environment.GetEnvironmentVariable(CameraVariable) is { Length: > 0 } placement &&
-            ParseCamera(placement) is { } placed)
-        {
-            _freeOrigin = placed.Origin;
-            _freeAngles = (placed.Pitch, placed.Yaw);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                $"free camera placed from {CameraVariable} at " +
-                $"({placed.Origin.X:0.##},{placed.Origin.Y:0.##},{placed.Origin.Z:0.##}) " +
-                $"pitch {placed.Pitch:0.##} yaw {placed.Yaw:0.##}");
-        }
-
-        // **Placed above the map looking down, which is D49's replacement for the ortho camera.**
-        //
-        // It used to orbit `FreeFocus()`, and that put the camera UNDER the map on real maps: the
-        // focus was anchored to `_heightRange.Lowest` — the lowest drawn geometry anywhere in the
-        // file — which on anything with a basement or a deep skybox is far below where anybody
-        // stands. Orbiting a point down there starts the camera down there.
-        //
-        // `OverheadPlacement` anchors to the HIGHEST geometry instead, plus clearance, and takes
-        // whichever is greater of that and the distance needed to frame the play area — so the
-        // camera is above the map on a tall one and far enough back on a wide one (D66).
-        if (_freeOrigin is null && _map is not null)
-        {
-            ((float X, float Y, float Z) origin, float pitch, float yaw) = OverheadPlacement.For(
-                _map.MainBounds.MinX,
-                _map.MainBounds.MinY,
-                _map.MainBounds.MaxX,
-                _map.MainBounds.MaxY,
-                _heightRange is { } range ? range.Highest : 0f,
-                fieldOfView: 75f,
-                aspect: aspect);
-
-            _freeOrigin = origin;
-            _freeAngles = (pitch, yaw);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                $"free camera placed overhead at ({origin.X:0.##},{origin.Y:0.##},{origin.Z:0.##}) " +
-                $"pitch {pitch:0.##}, framing {_map.MainBounds.MaxX - _map.MainBounds.MinX:0.##} x " +
-                $"{_map.MainBounds.MaxY - _map.MainBounds.MinY:0.##}");
-        }
-
-        // No map yet — a demo whose map failed to load still has to draw something rather than
-        // dividing by a bounds that does not exist.
-        _freeOrigin ??= (0f, 0f, OverheadPlacement.ClearanceAboveGeometry);
-
-        return new FreeCamera
-        {
-            Origin = _freeOrigin.Value,
-            Angles = (_freeAngles.Pitch, _freeAngles.Yaw, 0f),
-            Aspect = aspect,
-        };
+        return _freeCamera.Camera(
+            Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
+            _map,
+            _heightRange is { } range ? range.Highest : 0f);
     }
 
-    /// <summary>Reads a camera placement, or null when the text is not five numbers.</summary>
-    /// <param name="text">Whitespace or comma separated <c>x y z pitch yaw</c>.</param>
-    /// <returns>The placement, or <c>null</c>.</returns>
-    /// <remarks>
-    /// Null rather than a default placement, because a mistyped variable that silently put the
-    /// camera at the origin would look like the viewer ignoring it — and the whole point is to be
-    /// somewhere specific. The log line only prints when a placement was actually read.
-    /// </remarks>
-    internal static ((float X, float Y, float Z) Origin, float Pitch, float Yaw)? ParseCamera(
-        string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
-
-        string[] parts = text.Split(
-            [' ', ',', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        if (parts.Length < 5)
-        {
-            return null;
-        }
-
-        Span<float> values = stackalloc float[5];
-
-        for (int index = 0; index < 5; index++)
-        {
-            if (!float.TryParse(
-                    parts[index], NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out values[index]))
-            {
-                return null;
-            }
-        }
-
-        // **Pitch is clamped to the same ±89 the mouse drag uses**, and this was missing. The drag
-        // clamps because the camera basis is degenerate looking exactly along the world's up axis;
-        // this path did not, so a placement of pitch 90 — which is a perfectly ordinary thing to
-        // copy out of the game's own `ang` readout — put the camera in that degenerate state.
-        //
-        // The visible consequence was in flight rather than here: forward and up cancel at pitch
-        // 90, and the residue left by `cos(90°)` was normalised up to full speed, sending the
-        // camera 300 units sideways. Fixed at both ends (D65) — the movement guards its own
-        // division, and this stops producing an angle the rest of the viewer treats as impossible.
-        return (
-            (values[0], values[1], values[2]),
-            Math.Clamp(values[3], -89f, 89f),
-            values[4]);
-    }
+    // **Placing the free camera and parsing a placement moved to FreeCameraController on
+    // 2026-08-25** (D90). Both are presenter work — the only thing either needed from a window was
+    // the viewport's aspect ratio, which is one float and is now an argument. Their test moved with
+    // them, out of the Windows-pinned suite (B184).
 
     // FreeFocus was deleted here on 2026-08-22 (D66). It anchored the free camera's entry placement
     // to `_heightRange.Lowest` plus an eye height, on the reasoning that the middle of a map's

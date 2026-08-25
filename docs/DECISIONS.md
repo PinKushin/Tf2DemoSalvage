@@ -5075,3 +5075,54 @@ and `SoundPresenter`; the viewer's own presenter work joins it or gets a sibling
 dependencies (Scene, Render) make that cleaner. What stays behind is what genuinely cannot compile
 without a window.
 
+## D91 — Settings are config-settable, and `custom/` holds configs and MORE THAN ONE hud
+
+**2026-08-25**, recorded while the world field of view was being taken out of three hardcoded
+constants. Two separate things, and the second is a deliberate step BEYOND TF2 rather than toward it.
+
+### Every setting a player can change in the game is settable here
+
+The owner, on being asked whether 90 or 75 was the right default:
+
+> "its an easy change to change the default so i doesnt matter, but that is exactly why i want our
+> settings to be settable from a config file, it makes changing them and changing defaults free."
+
+**That is the argument, and it is better than the number.** A value compiled in has to be argued
+about; a value in a config is tried. The field of view had been compiled into three separate places
+— `FreeCamera.FieldOfView`, `OverheadPlacement.For`'s default and the call site — so nobody could
+try anything, and the discussion about 75 versus 90 could only be settled by a rebuild.
+
+This restates `docs/findings/13-settings-parity.md` with its reason attached: the miss it exists to
+catch is not a wrong number, it is a **choice taken away**.
+
+### `custom/`, and huds are chosen rather than installed — AFTER parity
+
+**Scheduled after parity, and recorded now because it constrains decisions being made now.** The
+owner: *"its a after parity goal, but it might effect some earlier design decisions, so it needs to
+be kept in mind"*. So nothing below is work in flight; it is a shape the current settings and asset
+code must not make impossible.
+
+> "our program is suppose to/going to be able to import a users config, or allow a user to paste
+> their config into our folder structure somewhere, likely a custom folder like modern tf2, along
+> with a hud or huds, im going to go for being able to choose huds on demand, meaning more than one
+> hud can be in custom and you can choose which one to use, which is something tf2 doesnt do, the
+> user will be allowed to just import huds too, so they dont have to find our folders to put it in
+> the right place."
+
+Three commitments, and the middle one is the departure:
+
+1. **A `custom/` folder, laid out as modern TF2 lays it out**, so a config or a hud that works in the
+   game works here by being put in the same place. Parity, and it costs nothing.
+2. **Several huds may sit in `custom/` at once and one is CHOSEN at runtime.** TF2 cannot do this —
+   a hud is installed by being the one present. **This is deliberate and must not be "corrected"
+   toward parity under D89.** D89 governs how the ENGINE's behaviour is reproduced; it does not
+   forbid the viewer offering something the game does not, and a demo viewer is a tool for looking
+   at recordings rather than a client that has to behave like one.
+3. **Importing, so nobody has to find the folder.** The layout is parity for people who already know
+   it; the importer is for everyone else.
+
+**What this means for settings work now**, which is why it is written down today rather than when
+the feature is built: the config reader must keep ignoring what it does not implement (D69), keep
+using Valve's own cvar names, and never assume one config file — a `custom/` tree is several, and a
+hud carries its own.
+

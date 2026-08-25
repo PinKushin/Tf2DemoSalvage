@@ -170,6 +170,59 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ViewmodelFieldOfViewCommand = "viewmodel_fov";
 
+    /// <summary>Command name for the player's world field of view.</summary>
+    /// <remarks>
+    /// What a real config sets, so a pasted one works (D69).
+    /// </remarks>
+    public const string FieldOfViewCommand = "fov_desired";
+
+    /// <summary>Command name for the field of view used while playing a demo.</summary>
+    /// <remarks>
+    /// **Valve's own cvar for exactly this program's job**, and finding it was the point of
+    /// checking: `ConVar demo_fov_override( "demo_fov_override", "0", FCVAR_CLIENTDLL |
+    /// FCVAR_DONTRECORD, "If nonzero, this value will be used to override FOV during demo
+    /// playback." )` — <c>c_baseplayer.cpp:120</c>.
+    ///
+    /// **It wins over <see cref="FieldOfViewCommand"/> when nonzero, which is the engine's own
+    /// precedence** (<c>:2438</c>): the engine asks whether a demo is playing and the override is
+    /// greater than zero, and only then uses it.
+    /// </remarks>
+    public const string DemoFieldOfViewCommand = "demo_fov_override";
+
+    /// <summary>The narrowest and widest field of view a demo may be watched at.</summary>
+    /// <remarks>
+    /// `clamp( demo_fov_override.GetFloat(), 10.0f, 90.0f )` — <c>c_baseplayer.cpp:2444</c>.
+    /// </remarks>
+    public const float MinimumFieldOfView = 10f;
+
+    /// <inheritdoc cref="MinimumFieldOfView"/>
+    public const float MaximumFieldOfView = 90f;
+
+    /// <summary>The world field of view this viewer starts at, in degrees.</summary>
+    /// <remarks>
+    /// **90, which is the TOP of Valve's own demo-playback clamp rather than a departure from it.**
+    /// The owner: *"we shouldnt have a hardcoded fov, but we should be defaulting to 90 not 75,
+    /// even though tf2 does default to 75, but every comp player uses 90, and really every good
+    /// player period uses 90"*.
+    ///
+    /// **Checked, and the check changed the answer.** TF2's LIVE default really is 75 — `ConVar
+    /// default_fov( "default_fov", "75", FCVAR_CHEAT )`, <c>hl2_clientmode.cpp:17</c>. But for DEMO
+    /// PLAYBACK the engine offers <see cref="DemoFieldOfViewCommand"/> and allows 10..90, so 90 is
+    /// the widest the game itself will watch a demo at. The only thing this does differently is
+    /// default that override ON; the value is Valve's own ceiling.
+    ///
+    /// **And it applies to the free camera, which was worth confirming rather than assuming.**
+    /// `CalcRoamingView` — the engine's free-roaming spectator view — ends with `fov = GetFOV();`
+    /// (<c>c_baseplayer.cpp:1646</c>), and `GetFOV` is where the demo override is applied. So a
+    /// field of view is not a first-person-only setting.
+    ///
+    /// **The hardcoding was the worse half of the fault.** Three separate 75s were compiled in —
+    /// `FreeCamera.FieldOfView`, `OverheadPlacement.For`'s default, and the call site — so the
+    /// choice was nobody's. That is the miss `docs/findings/13-settings-parity.md` exists to catch:
+    /// the number was right and the choice was taken away.
+    /// </remarks>
+    public const float DefaultFieldOfView = 90f;
+
     /// <summary>This viewer's frame cap, in frames a second.</summary>
     /// <remarks>
     /// **This was called `SourceFrameRateLimit` and documented as "Source's own <c>fps_max</c>
@@ -311,6 +364,21 @@ public sealed record ViewerSettings
     /// </remarks>
     public float ViewmodelFieldOfView { get; init; } = ViewmodelPass.LargestFieldOfView;
 
+    /// <summary>The world field of view, in degrees.</summary>
+    /// <remarks>
+    /// **Settable because the game lets a player set it, which is the whole rule** (D69,
+    /// <c>docs/findings/13-settings-parity.md</c>). It was compiled in three separate places before
+    /// — <see cref="FreeCamera.FieldOfView"/>, <c>OverheadPlacement.For</c>'s default and the call
+    /// site — so the choice belonged to nobody. The owner's point when this came up: *"that is
+    /// exactly why i want our settings to be settable from a config file, it makes changing them and
+    /// changing defaults free"*.
+    ///
+    /// Two names are honoured and the demo one wins, which is the engine's own precedence — see
+    /// <see cref="DemoFieldOfViewCommand"/>. Clamped to 10..90, the range the engine allows a demo
+    /// to be watched at.
+    /// </remarks>
+    public float FieldOfView { get; init; } = DefaultFieldOfView;
+
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>
     /// **Off by default, deliberately.** It adds latency, and a machine whose driver disables it
@@ -421,6 +489,30 @@ public sealed record ViewerSettings
                     viewmodelFov,
                     ViewmodelPass.SmallestFieldOfView,
                     ViewmodelPass.LargestFieldOfView),
+            };
+        }
+
+        // **Both names, and the demo one wins, which is the engine's own precedence.** A config
+        // pasted from TF2 sets `fov_desired`; `demo_fov_override` exists specifically to override
+        // FOV during demo playback and the engine prefers it when nonzero
+        // (`c_baseplayer.cpp:2438`). This viewer is always in the demo case, so honouring only one
+        // would either ignore a real config or ignore the setting made for exactly this program.
+        //
+        // Clamped rather than refused, like the viewmodel above: 10..90 is what
+        // `clamp( demo_fov_override.GetFloat(), 10.0f, 90.0f )` allows (`:2444`).
+        if (ReadNumber(values, FieldOfViewCommand) is { } desiredFov)
+        {
+            settings = settings with
+            {
+                FieldOfView = Math.Clamp(desiredFov, MinimumFieldOfView, MaximumFieldOfView),
+            };
+        }
+
+        if (ReadNumber(values, DemoFieldOfViewCommand) is { } demoFov and > 0f)
+        {
+            settings = settings with
+            {
+                FieldOfView = Math.Clamp(demoFov, MinimumFieldOfView, MaximumFieldOfView),
             };
         }
 
@@ -585,6 +677,16 @@ public sealed record ViewerSettings
             // Compared with a tolerance, because this one is a float and a config round-trips it
             // through two decimal places. An exact comparison would call 70 "chosen" after a save.
             Math.Abs(ViewmodelFieldOfView - Defaults.ViewmodelFieldOfView) < 0.005f);
+        text.AppendLine();
+        text.AppendLine("// Field of view for the world, in degrees. The game allows 10 to 90 while");
+        text.AppendLine("// a demo plays and defaults to 75 in live play; this viewer defaults to 90,");
+        text.AppendLine("// which is the widest the game itself will watch a demo at and what most");
+        text.AppendLine("// players use. `demo_fov_override` overrides this when set, as in game.");
+        Setting(
+            text,
+            FieldOfViewCommand,
+            FieldOfView.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(FieldOfView - Defaults.FieldOfView) < 0.005f);
         text.AppendLine();
         text.AppendLine("// Where screenshots go. Empty writes them beside this file's folder.");
         text.AppendLine("// Point it at another drive to keep a long history without spending the");

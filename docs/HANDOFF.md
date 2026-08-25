@@ -1,192 +1,214 @@
-# Handoff — the stall hunt, the HUD backbone, and weapons in hands
+# Handoff — the stall's real cause, and thinning the view
 
-Written 2026-08-24 at the end of a very long session. **Everything is committed and pushed**; `main`
-is at `9ae1f45`. Gate green across **nine** projects, D1..D87 each used once:
+Written 2026-08-25 at the end of a very long session. Gate green across **eleven** projects,
+D1..D91 each used once, plus **14 UI**:
 
 | project | count | | project | count |
 |---|---|---|---|---|
-| core | 1497 | | content | 666 |
+| core | 1503 | | content | 707 |
 | cli | 74 | | corpus | 109 |
-| logging | 17 | | viewer | 641 |
-| fonts | 7 | | presentation | 135 |
-| audio | 142 | | | |
+| logging | 17 | | viewer | 621 |
+| fonts | 7 | | presentation | 139 |
+| animation | 41 | | scene | 76 |
+| audio | 151 | | | |
 
-Supersedes the earlier handoff for anything about rendering, logging or performance.
-
----
-
-## 0. The bigger worry behind B181: B182
-
-The owner's actual concern is not that the loop is ugly:
-
-> *"that loop just reeks and i dont trust how far its deverged from valves implementation"*
-
-**Nothing here can answer that today**, and that is B182. `SdkCoverageTests` generates a denominator
-from the SDK for shader parameters, BSP lumps and studio structures, so a missing one cannot hide.
-The animation and bone pipeline — the subsystem with the most engine behaviour per line — has none.
-
-The denominator is `C_BaseAnimating::StandardBlendingRules`, seven ordered stages, plus
-`BuildTransformations`, `CalculateIKLocks` and `SetupBones_AttachmentHelper`. A first inventory is in
-B182; the honest headline is that **bone controllers (`CalcBoneAdj`) and IK locks
-(`CalculateIKLocks`) appear to be entirely absent**, and sequence transitions look like they snap.
-
-**Do B182 before or alongside B181.** B181 splits the loop into stages; knowing the engine's stage
-list first means splitting along the engine's seams instead of along whatever the current code
-happens to do — which is the divergence being complained about in the first place.
+Supersedes the earlier handoff for anything about performance, audio or the viewer's structure.
 
 ---
 
-## 1. Then B181: split the loop, then recursion
+## 0. Read this first: WHY the refactor is happening
 
-**This is the reason this handoff exists.** Read `docs/RISKS.md` B181 in full before anything else.
-It is a work order, not an observation, and the owner said so:
+Three days went into refactoring rather than features, and the owner named the cause exactly:
 
-> *"im not leaving it, im going to compact you and have the next session fix that fuck up"*
+> "every time we implement a couple of new things, we have to go back and fix all the archetectural
+> and parity issues, the going back over and over is the annoying part."
 
-In short: `EntityModelSet.Instances` has one ~150-line loop body doing six jobs. Split it, then
-replace the bone-merge depth sort with Valve's recursion (`C_BaseAnimating::DrawModel`), then delete
-the D86 subsection that currently blesses the departure.
+**That is the defect to fix, not the code.** It is recorded under D89 as a rule: before writing a new
+piece, answer two questions and put the answers in the commit —
 
-**Do not defend the depth sort.** The argument that was made for it — that matching Valve would mean
-restructuring a big loop body — is an argument for fixing the loop body, and the owner said so
-immediately. That reasoning is recorded in D86 precisely so it is not repeated.
+1. **What is the engine's arrangement for this job?** One grep of `F:/src/source-sdk-2013`. If Valve
+   models it as a game system, a presenter or a per-frame pass, take that shape and preferably that
+   NAME, so the parity is checkable by the next reader rather than rediscoverable.
+2. **Which project does it belong in, and can it be tested there?** "The viewer, because that is
+   where the caller lives" is the drift starting.
 
-B180 is adjacent and easiest to settle while that code is open: a chained child may be merging onto
-its parent's *unmerged* bones, because `boneToWorld` is the prop's own posed skeleton while `bones`
-is what the merge rewrites.
+The project already required a conformance test with its citation before implementation, and that
+works. Nothing said the same about STRUCTURE, so both questions got answered by proximity.
+
+### The three goals the separation serves
+
+- **SOLID**, and single-responsibility in particular. `MainForm` had five jobs in one method more
+  than once.
+- **MVP** (D54, D62): the boundary is a **compiler error**, not a convention. A presenter in a
+  `net10.0` project cannot reference WinForms.
+- **Swapping the frontend later with the least friction** — see §4.
 
 ---
 
-## 2. What this session closed
+## 1. What the stall actually was (B191, closed)
 
-| | |
+The owner's "every handful of seconds" freeze was **one log line taking a machine-wide lock**, then
+**a disk flush per line**.
+
+The chain, each step narrowing the last:
+
+| split | result |
 |---|---|
-| **B174** | The frame rate meter, copied from `vgui_fpspanel.cpp`. `cl_showfps`, F8, 17 conformance tests. |
-| **B163** | The playback stall. Four causes, all measured — see below. |
-| **D84** | The HUD is drawn in Direct3D as VGUI draws it, rasterised with GDI in its own project. |
-| **D85** | User content is IMPORTED into our folder, never read live out of TF2. `tf/custom/` is the boundary. |
-| **D86** | PROJECT RULE: a departure from Valve must be DECLARED where it is made. |
-| **D87** | PROJECT RULE: load at load time, not on sight. |
-| — | Weapons in other players' hands, holstered ones hidden, attachment chains ordered. |
-| — | Autoplay, which had regressed silently. |
+| frame ledger | `advance` 130 ms — but that is all of `ShowMoment` |
+| `SLOW MOMENT` | `pose` 130 ms |
+| lighting/viewmodel/simulate/wornlight/setup/skin | ~3 ms combined |
+| `rest`, by subtraction | 126 ms |
+| `reports` | 129 ms of a 133 ms pose |
+| `sink` | **120.6 of 120.6 ms** |
 
-Plus: Valve's cvar vocabulary (`fps_max`, `mat_vsync`, `cl_showfps`, `mat_fullscreen_mode`,
-`cl_screenshot_folder`, `developer`), a new `Tf2DemoSalvage.Fonts` project, and CI which was running
-six of eight test projects.
+Fixed by moving every per-frame diagnostic to `Debug` (which `developer 0` does not admit) and
+guarding the WORK as well as the write — `ReportPosedExtents` was building a second full skeleton to
+produce a line nobody would read.
+
+**Measured:** slow moments ~150 over 1,470 s → 3, all in the first 8 seconds. Worst frame in a
+second 120.66 ms → 13–16 ms. Log volume 431 KB → 345 KB over four minutes.
+
+**Two lessons worth keeping, both now memories:**
+
+- **The fat column is the subtracted one.** Every direct timer read ~1 ms while the remainder held
+  126. Each new timer moved the fat column to whatever was still being subtracted; that pattern was
+  the signal and was read as noise for several rounds.
+- **A threshold instrument cannot see a sum.** Six frames froze on sound decode while the per-decode
+  stall log fired once, because three sub-30 ms decodes in one frame never crossed the threshold.
+  Time the PHASE, not the event.
+
+**Still open: B192.** Moments still reach 60–125 ms with every measured column under 1.6 ms and
+`rest` holding all of it. **Do not guess the next suspect** — in B191 five hypotheses died that way.
+Time the remaining calls in the `Instances` loop individually.
 
 ---
 
-## 3. The stall, because the instruments were the story
+## 2. Where the `MainForm` refactor stands
 
-The owner: *"everything freezes for a half a second to maybe a second"* while the frame rate never
-dropped. **Nothing could be found until two instruments were fixed.**
+**7,409 → 6,697 lines this session.** Everything below is committed.
 
-- **`longest` was clamped at 100 ms** by `MaximumFrameSeconds` — the *camera's* stall guard applied
-  to the *measurement*. A 500 ms freeze logged as exactly `longest 100 ms`, which reads like a number
-  somebody measured. A saturating instrument is worse than a missing one.
-- **`CountFrame()` counted frames `RenderFrame()` declined to draw**, so a map read reported
-  `186 frames a second, longest 0 ms, drawing 0 ms` — the speed of an empty loop.
+### Done
 
-Then four real causes:
-
-| cause | cost | fix |
+| moved | to | why that home |
 |---|---|---|
-| Vertex buffer rebuilt whole per model added | 193–231 ms × 25 in 1m43s | per-model static meshes |
-| Model geometry packed on first sight | 385–425 ms | precache at load, 691 ms once |
-| Per-frame logging | ~1,280 lines/s, 8.2 MB | change-detection + rate limits |
-| Overhead projection nobody drew | 615 ms of a 679 ms frame | deleted |
+| `AddViewmodel` → `ViewmodelScene` | Scene | (earlier session) |
+| `PlayerProps` (players → props) | Scene | Valve has **no** equivalent step — a player is already a `C_BaseAnimating` in the renderables list. Ours exists only because `DemoTimeline` splits `PlayerTracks` from `Props`. Our invention, so it needed its own tests. |
+| `UpdateClientSideAnimations` | Scene (`EntityModelSet`) | **Valve's own name.** `C_BaseAnimating::UpdateClientSideAnimations()` is a static batch walk (`c_baseanimating.cpp:6368`), run BEFORE simulate and bones (`cdll_client_int.cpp:2188-2210`). Ours already was. |
+| `DrawList.KeepOnly` | Scene | six duplicated lines whose intermediate copy is load-bearing |
+| `PoseCounters` | Scene | 13 report parameters → 10; 24 lines of locals → 3 |
+| `SoundscapeSystem` | Audio | `C_SoundscapeSystem : CBaseGameSystemPerFrame` (`c_soundscape.cpp:78`) |
+| `SoundPresenter` | Presentation | `CSoundEmitterSystem : CBaseGameSystem` (`SoundEmitterSystem.cpp:134`), calling through an interface as Valve calls through `enginesound` |
+| `MapLevel` | Scene | `IGameSystem::LevelInitPreEntity` (`igamesystem.h:39`) — each system initialises itself from the level |
+| `FreeCameraController` | Presentation | needs `MapOutline` (Scene) and `OverheadPlacement` (Presentation); the only window input was one float |
 
-Result: log 8.2 MB → 1.4 MB, worst frame 193 ms → 21 ms. **GC and sound decode were ruled out by
-measurement** — gen0 only, ~10 ms/s; the sound instrument was built on a hypothesis and recorded
-nothing.
+### Remaining in `MainForm`, by role
 
-**The lesson that generalised** is D87: every one of those was work deferred until a frame needed it.
-A frame has a deadline; RAM does not. Async loading is explicitly *not* the fix — it moves the hitch.
+| member | lines | role |
+|---|---|---|
+| constructor (menus, layout, wiring) | 733 | **view — stays** |
+| `ShowMoment` | 287 | presenter (thin now; mostly ledger + device upload) |
+| `ReadMap` | 224 | presenter |
+| `SetFullScreen` | 198 | **view — stays** |
+| `ProjectMap` | 168 | presenter |
+| `RenderFrame` | 162 | mixed — pump is view, orchestration is presenter |
+| `ReportWeapons` | 147 | presenter (diagnostics) |
+| `ReadCaptureOptions` | 139 | presenter |
+| `ProcessCmdKey` | 116 | **view — stays** |
+| `FirstPersonCamera`, `FlyCamera`, `ViewMatrix` | ~300 | presenter |
 
----
-
-## 4. Things that will bite you
-
-### The build silently tests a stale binary if the viewer is running
-
-`dotnet build` cannot copy into `bin/` while `tf2demoview.exe` holds the DLLs, and it reports this as
-**MSB3026 warnings, not errors**. Hit repeatedly this session. Close the viewer, then build. If a
-change seems not to have taken, check the DLL timestamp — and remember `.NET` string literals are
-UTF-16, so `grep -a "text"` on a DLL gives a false negative; use `grep -a "t.e.x.t"`.
-
-### The console under-reports test counts
-
-Measured again this session: Content console 650 against a `.trx` total of 666; Audio console 139
-against 142. `build/assert-test-count.sh` reads the `.trx`, which is correct. Never set a floor from
-the console.
-
-### Two load paths, and a fix in one of them does nothing
-
-`LoadDemoAsync` is the playlist's route; `LoadDemo` is the command line's, `--shot`'s and the tests'.
-The model precache went into only the first and did nothing at all — the 425 ms stall was still in
-the log. Anything that must happen per demo belongs in `Apply`, which both go through.
-
-### `--first-person` does not switch the view
-
-It only sets the flag for `--shot` captures. The live camera is untouched. Press **V**.
-
-### A fake that does not model state is blind by construction
-
-`FakeElapsedTime.Seconds` was a plain settable property, so it reported time passing after `Reset`
-stopped it. The real `StopwatchTime` does not — and that difference *is* the autoplay bug. No
-phrasing of any test against that fake could have caught it. Fixed; all 135 pass and nothing was
-relying on the old behaviour.
+**The owner's instruction: finish `MainForm.cs` before touching the rest of `Viewer3D`** — *"we will
+forget about mainforms if you switched I guarantee it lol"*. Other files in the project have the same
+fault; they wait.
 
 ---
 
-## 5. Owner directions recorded this session
+## 3. Valve parity auditing — keep doing this
 
-All in `docs/DECISIONS.md` with his words. The ones most likely to be re-litigated:
+The owner asked repeatedly, and it paid every time. **A refactor is when the check is cheapest**
+(D89): the code is being moved anyway, and a divergence written into a NEW type reads as deliberate,
+which is harder to spot later than one left in an old method.
 
-- **D86** — a departure must be DECLARED. `a54e61e` introduced one packed vertex buffer without
-  mentioning Valve at all, so the choice never appeared as a choice and could not be refused.
-- **D87** — precache; games trade size for speed.
-- **D85** — `tf/custom/` is the boundary: user content is imported, game content is read live. The
-  live read of `tf/cfg` is still there and is still wrong.
-- **No back-compat for our own settings names** — *"we dont need backward compat to our own code, we
-  have never had a release"*.
-- **Old maps do not need matching.** Valve revises maps in place, but updates ADD geometry, so an old
-  demo on a current map is correct everywhere the players went. A period-map archive would be wasted
-  effort.
-- **UI tests do not gate**, and playback is not covered by them at all — which is how autoplay
-  regressed unnoticed.
+Found this session, purely by checking while moving:
 
----
+- **Soundscape choose interval was 0.25 with no citation.** Valve's is **0.2** —
+  `SetNextThink( gpGlobals->curtime + 0.2 )`, `soundscape.cpp:534` and `:549`.
+- **`C_SoundscapeSystem::Update` does not choose at all.** It fades loops and picks random sounds; a
+  live client is TOLD its soundscape via `audioparams_t` in private player data. Choosing is
+  `CEnvSoundscape`'s job on the SERVER — which is exactly why our class must exist, since a SourceTV
+  recording carries no player's audio params (B173).
+- **FOV applies to the free camera**, not just POV: `CalcRoamingView` ends `fov = GetFOV();`
+  (`c_baseplayer.cpp:1646`).
+- **`demo_fov_override` exists for exactly this program** — *"If nonzero, this value will be used to
+  override FOV during demo playback"* (`c_baseplayer.cpp:120`), clamped **10..90** (`:2444`). So our
+  default of 90 is the widest the game itself will watch a demo at, not a departure.
+- **`SetupRenderInfo_t` carries the render origin and forward** (`clientleafsystem.h:75`) — Valve's
+  renderables-list builder is TOLD where the camera is. `ShowMoment(tick)` reads it off the form,
+  which is the coupling that makes it need a window. **That is the direction the rest should move.**
 
-## 6. Open, in the owner's priority order
-
-1. **B182** — give the pose path a denominator from the SDK. See §0; do this before or alongside B181.
-2. **B181** — split the pose loop, then recursion. See §1. He wants this done.
-2. **Projectiles and bullets.** Not started. His reasoning for doing weapons first was *"it will be
-   weird to see projectiles flying without the weapons"* — that half is done now.
-3. **The weapon attachment drawing as the magenta chequer.** A missing MATERIAL, not placement —
-   distinct from B180.
-4. **Shutter doors animate in free cam but not POV.** Brush entities; unmeasured.
-5. **B180** — chained bones may be the parent's unmerged ones.
-6. **B175** scoreboard, **B176** ambience while paused, **B162** lcor protocol 21/22, **B170**
-   washed-out viewmodels.
-
-**Frame rate is secondary, on his instruction**, but the measurement exists: sampling ~180 ms +
-posing ~420 ms + drawing ~290 ms of every second, so the loop is ~89% busy. Lighting is ~200 ms of
-the posing, and `LightAt` walks all 477 world lights per moving model per frame to pick the strongest
-four — the engine bakes static lights into the ambient cube and reserves `locallight[4]` for dynamic
-ones. The lighting cache keys on exact position, so props hit it and players never do.
+**Also caught by reading rather than by tests:** my extracted `FreeCameraController.Parse` had
+dropped the ±89 pitch clamp that `MainForm.ParseCamera` had. Pitch 90 is an ordinary thing to paste
+out of the game's `ang` readout and makes the camera basis degenerate (D65). Restored. **A move is
+not automatically faithful — diff the behaviour, not just the shape.**
 
 ---
 
-## 7. Process notes on the assistant
+## 4. The frontend-swap goal (D90), and the ImGui question
 
-Kept because they recurred, and because the owner corrected each one.
+The acceptance test for all of this, in the owner's words:
 
-- **Inference before measurement, twice in one hour.** On the weapons: first that the parent was
-  missing from the wire (nothing was asking for it), then that reordering alone would fix it. A
-  counter settled it in one run. His standing line: *"measurement beats all"*.
-- **Scripted edits again**, despite the rule. `sed -i` for a rename. Use Read/Edit/Write.
-- **The viewer was killed three times while he was using it**, once by a background timer I set. No
-  auto-close timers on anything he might be looking at.
-- **A weak justification dressed as a design trade-off** — the depth sort. See §1.
+> "we should be easily able to replace the view with something that runs on linux… and not have to
+> touch anything outside the winforms view and d3d"
+
+**Only two projects carry a `-windows` TFM:**
+
+| Windows-pinned | everything else |
+|---|---|
+| `Tf2DemoSalvage.Viewer3D` (WinForms) | Core, Content, Scene, Animation, Audio, Presentation, **Render**, Logging, Cli |
+| `Tf2DemoSalvage.Fonts` (GDI rasteriser) | |
+
+`Render` is `net10.0` — D3D11 arrives through Silk.NET, a runtime dependency rather than a
+compile-time one. A port therefore needs a frontend, a different backend through the same Silk.NET
+family, and FreeType instead of GDI. **What it must not need is a reimplementation of the viewer**,
+and every line of presenter logic still in `Viewer3D` is exactly that.
+
+**Open question the owner raised, not decided:**
+
+> "Heck im partially tempted to get rid of the winforms form completely and just go with ImGUI right
+> now so we have nothing to switch there for linux, but thats a massive change, and winforms is just
+> soo easy to design and layout compared to ImGUI."
+
+Both halves are true and it is genuinely balanced. **Nothing in the current work forecloses either
+choice** — thinning the view helps a WinForms-forever world and an ImGui world identically, because
+in both the presenter logic has to leave the form. Deciding it is not urgent and should not be
+rushed for tidiness.
+
+---
+
+## 5. Context the owner has given that must not be lost
+
+- **`custom/` and choosable huds (D91) — AFTER parity, but it constrains design now.** A `custom/`
+  folder laid out as modern TF2 lays it out; several huds in it at once with one **chosen at
+  runtime**, which TF2 cannot do; and an importer so nobody has to find the folder. **The hud choice
+  is a deliberate step BEYOND the game and must not be "corrected" toward parity under D89.**
+- **Every setting a player can change in the game is settable here** — *"it makes changing them and
+  changing defaults free"*. A compiled-in value has to be argued about; a config value gets tried.
+  The world FOV was compiled into three places until today.
+- **A real config must work wholesale** (D69): Valve's own cvar names, and ignoring unknown commands
+  is the primary feature, not an afterthought.
+- **Parity is the FIRST principle (D89)** — performance never buys a departure, and every measured
+  win on this viewer has been a move TOWARD the engine.
+
+---
+
+## 6. Housekeeping notes worth knowing
+
+- **Kill the viewer before building.** Three builds this session failed on a file lock, and one was
+  followed by a launch that measured a **stale binary**. Numbers from it were discarded. Same silent
+  failure as `--no-build`.
+- **The UI suite takes the desktop.** A failure while the owner is typing is not a regression — it
+  happened once here and a clean run was 14/14. Do not retry-until-green; run once cleanly.
+- **CI floors had drifted below the local gate again** (B179's defect) and were corrected: core
+  1497→1503, content 686→707, audio 116→151, corpus 106→109. **Watch the next CI run** — it builds
+  Release, and if a count legitimately differs there, the floors are now strict enough to say so.
+- **`+developer 1`** is needed to see per-frame lines now that they are `Debug`; the UI suite passes
+  it automatically because it reads the log as its instrument.
