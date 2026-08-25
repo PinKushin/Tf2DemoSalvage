@@ -3627,28 +3627,14 @@ internal class MainForm : Form
                 }
             }
 
-            IReadOnlyList<SceneProp> visible = FirstPersonVisibility.Visible(_drawn, looking);
-
-            if (visible.Count != _drawn.Count)
-            {
-                List<SceneProp> kept = [.. visible];
-                _drawn.Clear();
-                _drawn.AddRange(kept);
-            }
+            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, looking));
         }
 
         // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a
         // player's holstered weapons from everybody — it is a property of the weapon rather than of
         // who is looking — so this sits outside the first-person block above. A player carries
         // three and holds one; without it all three bone-merge into the same hand.
-        IReadOnlyList<SceneProp> carried = WeaponVisibility.Visible(_drawn);
-
-        if (carried.Count != _drawn.Count)
-        {
-            List<SceneProp> held = [.. carried];
-            _drawn.Clear();
-            _drawn.AddRange(held);
-        }
+        DrawList.KeepOnly(_drawn, WeaponVisibility.Visible(_drawn));
 
         // **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an
         // MDL the first time a model path appears, and the upload below rebuilds the whole packed
