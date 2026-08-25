@@ -10336,6 +10336,54 @@ and the reason B188 wants the view thinned before any of them is chased.
 its second pose overwrite the first, since both instances hold the same array. Whether anything is
 drawn twice has not been checked.
 
+**Narrowed by the owner the same evening, and this is the whole finding:**
+
+> *"the only viewmodel that is dropping its draw is the demoman, and its while the sticky launcher
+> is building power i think"*
+
+So it is **not** intermittent in the sense of random — it is **conditional on charging a
+stickybomb launcher**, which is one class, one weapon, one activity. That converts the bug from
+"sometimes viewmodels vanish" into a case that can be reproduced on demand by seeking to a charge,
+and it points squarely at the sequence the charge plays rather than at the draw in general.
+
+What that suggests, none of it yet measured:
+
+- **The charge is a pose-parameter blend, not a plain sequence.** `CTFPipebombLauncher` charges over
+  `m_flChargeBeginTime`, and a charge-up is normally driven through a pose parameter or a blended
+  sequence — which is the one path in `SkinnedModel.Locals` that calls `PoseOf` three times and
+  `StudioPoseBlend.Blend` twice. Every other viewmodel takes the single-`PoseOf` path.
+- **A sequence the model does not have reads as empty rather than as an error.**
+  `Sequences.At(sequence)` returning null makes `Locals` return `[]`, which leaves the skeleton at
+  its REST pose rather than reporting anything. A rest-pose viewmodel is not the same as a missing
+  one, so if the model genuinely disappears the fault is more likely in what gets ADDED to the
+  scene than in what pose it is given.
+- **Worth checking first**, because it is one grep: whether the viewmodel pass logs `2 props, 2
+  instances` or `1` during a charge. The pass line already reports both counts, so the log from a
+  run that reproduced it answers whether the instance was dropped or drawn-and-invisible — and
+  those two have nothing in common as bugs.
+
+**Answered, from the run the owner reproduced it in.** The instance is **dropped from the scene**,
+and the draw is innocent:
+
+```
+viewmodel at tick 8787: 2 props, 2 instances
+  viewmodel prop 'models/weapons/c_models/c_demo_arms.mdl' seq 1
+viewmodel at tick 8792: 1 props, 1 instances
+viewmodel pass: drawing 1 at c_demo_arms at (0, 0, 0) tip36 (36, 0, 0)
+```
+
+Twenty pass lines report `drawing 1` against 127 reporting `drawing 2`. **The ARMS survive and the
+WEAPON is the one that goes** — `c_demo_arms` is what remains, and the stickybomb launcher is absent
+from the scene entirely rather than present and invisible.
+
+So this is **not** in the viewmodel draw, and it is not in B170/B186/B187's seam after all. It is in
+what `ViewmodelScene.Build` is handed or what it returns — the weapon's `SceneViewmodel` stops being
+reported for the duration of the charge. That also clears the skinning-buffer suspicion above: a
+shared buffer would draw a WRONG pose, never one fewer instance.
+
+Next step is `TimelineViewmodels` and the `m_hViewModel` / `m_iViewModelIndex` decode across a
+charge, not the renderer.
+
 ### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — OPEN
 
 **The owner, 2026-08-24**, on being told B186, B187 and B170 all point at the viewmodel pass:

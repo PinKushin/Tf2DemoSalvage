@@ -51,6 +51,21 @@ public sealed class SkeletonPose : IBonePose
         }
     }
 
+    /// <summary>Diagnostic: what every skeleton has spent decoding and blending animation.</summary>
+    /// <remarks>
+    /// **Static because the question is about the whole pose phase, not one skeleton**, and
+    /// plumbing a per-instance total up through AnimatingEntity and EntityModelSet to reach the one
+    /// caller that reads it would be a lot of surface for a number that exists to answer one
+    /// question: does a 131 ms pose spike come from MORE animation calls or SLOWER ones (B189)?
+    ///
+    /// Read as a delta either side of a call, the way LightingTicks is. Single-threaded today; if
+    /// the threaded bone setup of D88 lands, this needs to become per-thread or go.
+    /// </remarks>
+    public static long AnimationTicks { get; set; }
+
+    /// <summary>Diagnostic: how many times the animation callback has been asked for a pose.</summary>
+    public static int AnimationCalls { get; set; }
+
     /// <summary>Which entry of the animation overrides each bone, or −1.</summary>
     /// <remarks>
     /// Allocated once per entity and refilled per build, per D87: the size is known when the model
@@ -143,7 +158,12 @@ public sealed class SkeletonPose : IBonePose
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(alreadyWritten);
 
+        long animatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, PoseValues);
+
+        AnimationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - animatedAt;
+        AnimationCalls++;
 
         // **Indexed once, not searched per bone — and the first version of this did the latter.**
         // It set a `bool` here and then scanned `animated` again INSIDE the per-bone loop, which is

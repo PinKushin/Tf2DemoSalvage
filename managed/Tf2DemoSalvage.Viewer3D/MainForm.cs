@@ -3865,12 +3865,36 @@ internal class MainForm : Form
         // — but posing spiking to 168 ms on one moment and 3 ms on the next is invisible in a
         // per-second sum. This splits the one moment that was slow.
         long lightingBefore = _models.LightingTicks;
+        int builtBefore = _models.EntitiesBuilt;
+        long animationBefore = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationTicks;
+        int animationCallsBefore = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationCalls;
+        long setupBefore = _models.SetupTicks;
+        long skinBefore = _models.SkinTicks;
+        long simulateBefore = _models.SimulateTicks;
+        long wornLightBefore = _models.WornLightTicks;
 
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
 
         long momentLightingTicks = _models.LightingTicks - lightingBefore;
+        int momentBuilt = _models.EntitiesBuilt - builtBefore;
+        long momentAnimationTicks = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationTicks - animationBefore;
+        int momentAnimationCalls = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationCalls - animationCallsBefore;
+
+        // **Split out because it was being reported as bone work and is not.** `pose` spans
+        // Instances AND this, while the lighting, animation and built counters are all read across
+        // Instances alone — so every millisecond spent building the viewmodel scene was landing in
+        // the "bones" column, which is arrived at by subtraction. A derived column inherits every
+        // error of the ones it is derived from.
+        long momentSetupTicks = _models.SetupTicks - setupBefore;
+        long momentSkinTicks = _models.SkinTicks - skinBefore;
+        long momentSimulateTicks = _models.SimulateTicks - simulateBefore;
+        long momentWornLightTicks = _models.WornLightTicks - wornLightBefore;
+
+        long viewmodelAt = Stopwatch.GetTimestamp();
 
         AddViewmodel(seconds);
+
+        long momentViewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
 
         _posingTicks += Stopwatch.GetTimestamp() - posedAt;
 
@@ -3911,7 +3935,9 @@ internal class MainForm : Form
 
         ReportSlowMoment(
             momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
-            momentReportedAt, Stopwatch.GetTimestamp(), momentLightingTicks);
+            momentReportedAt, Stopwatch.GetTimestamp(), momentLightingTicks, momentBuilt,
+            _drawn.Count, momentAnimationTicks, momentAnimationCalls, momentViewmodelTicks,
+            momentSetupTicks, momentSkinTicks, momentSimulateTicks, momentWornLightTicks);
     }
 
     /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
@@ -3925,6 +3951,33 @@ internal class MainForm : Form
     /// <param name="lightingTicks">
     /// What the pose phase spent sampling light, read across the call rather than per second — the
     /// per-second total cannot tell one 168 ms moment from fifty even ones.
+    /// </param>
+    /// <param name="built">
+    /// How many animating entities were constructed during this moment. The only per-moment
+    /// discontinuity in the pose path, so a spike that correlates with it is first-sight work and a
+    /// spike that does not is the steady path getting more of it (B189).
+    /// </param>
+    /// <param name="drawn">
+    /// How many props were posed, which is the control for <paramref name="built"/> — without it,
+    /// "more entities arrived" and "the same entities cost more" are indistinguishable.
+    /// </param>
+    /// <param name="animationTicks">What the pose phase spent decoding and blending animation.</param>
+    /// <param name="animationCalls">
+    /// How many poses were asked for, which is what separates "more calls" from "slower calls" —
+    /// the two want completely different fixes and the total alone cannot tell them apart.
+    /// </param>
+    /// <param name="viewmodelTicks">
+    /// What <c>AddViewmodel</c> cost. Inside the pose phase but outside every other counter here,
+    /// so until it was split out it was being reported as bone work by subtraction.
+    /// </param>
+    /// <param name="setupTicks">What <c>SetupBones</c> cost — the pose and any merge it drives.</param>
+    /// <param name="skinTicks">What composing the skinning matrices cost.</param>
+    /// <param name="simulateTicks">
+    /// What bringing every entity's state up to date cost — Valve's first phase, over every prop
+    /// rather than only the animated ones.
+    /// </param>
+    /// <param name="wornLightTicks">
+    /// What sampling light for worn items cost, on the path that bypasses the lighting cache.
     /// </param>
     /// <remarks>
     /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
@@ -3943,7 +3996,16 @@ internal class MainForm : Form
         long posedAt,
         long reportedAt,
         long finishedAt,
-        long lightingTicks)
+        long lightingTicks,
+        int built,
+        int drawn,
+        long animationTicks,
+        int animationCalls,
+        long viewmodelTicks,
+        long setupTicks,
+        long skinTicks,
+        long simulateTicks,
+        long wornLightTicks)
     {
         double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
 
@@ -3960,6 +4022,7 @@ internal class MainForm : Form
             Ms(uploadedAt, posedAt) + Ms(posedAt, reportedAt) + Ms(reportedAt, finishedAt);
 
         double lighting = lightingTicks / (double)Stopwatch.Frequency * 1000d;
+        double viewmodel = viewmodelTicks / (double)Stopwatch.Frequency * 1000d;
 
         _renderLog.LogWarning(
             "{Message}",
@@ -3969,7 +4032,20 @@ internal class MainForm : Form
                 $", roles {Ms(sampledAt, rolesAt):0.#}" +
                 $", models {Ms(rolesAt, uploadedAt):0.#}" +
                 $", pose {Ms(uploadedAt, posedAt):0.#}" +
-                $" (lighting {lighting:0.#}, bones {Ms(uploadedAt, posedAt) - lighting:0.#})" +
+                $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
+                $", simulate {simulateTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", wornlight {wornLightTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", setup {setupTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", skin {skinTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", rest {Ms(uploadedAt, posedAt) - lighting - viewmodel
+                    - (simulateTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (wornLightTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (setupTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (skinTicks / (double)Stopwatch.Frequency * 1000d):0.#}" +
+                $", built {built.ToString(CultureInfo.InvariantCulture)}" +
+                $" of {drawn.ToString(CultureInfo.InvariantCulture)}" +
+                $", anim {animationTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $" over {animationCalls.ToString(CultureInfo.InvariantCulture)})" +
                 $", weapons {Ms(posedAt, reportedAt):0.#}" +
                 $", players {Ms(reportedAt, finishedAt):0.#}" +
                 $"; unaccounted {(total * 1000d) - named:0.#} ms"));
