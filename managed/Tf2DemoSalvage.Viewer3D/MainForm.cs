@@ -186,16 +186,16 @@ internal class MainForm : Form
     /// <summary>Fetches maps that are not installed; created on first need.</summary>
     private MapDownloader? _downloader;
 
-    /// <summary>The game's content, opened once and reused for every map.</summary>
-    private GameArchives? _archives;
-
-    /// <summary>Which model each class wears, read from the game's own class scripts.</summary>
+    /// <summary>What the installed game provides, opened once and reused for every map.</summary>
     /// <remarks>
-    /// **Read from the install, not hardcoded.** Only <c>m_iszCustomModel</c> is networked; a
-    /// player's ordinary model is resolved locally by <c>CTFPlayerClassShared::GetModelName</c>
-    /// from <c>m_iClass</c>, so a viewer has to do the same lookup the client does.
+    /// **`_archives`, `_classModels` and `_entityClasses` were three fields opened inside the first
+    /// map read** (B188, D90). None of them is per-map: they are what the INSTALL supplies, and
+    /// they sat there because that is where the first caller happened to be.
+    ///
+    /// Null until a map is read, because locating the install is the one thing that waits for a
+    /// reason to happen.
     /// </remarks>
-    private PlayerClassModels? _classModels;
+    private GameContent? _game;
 
     /// <summary>Which activity suffix each weapon in this demo drives.</summary>
     /// <remarks>
@@ -536,8 +536,9 @@ internal class MainForm : Form
     /// <summary>Which of Valve's per-surface debug views are showing.</summary>
     private DebugModes _debug = DebugModes.None;
 
-    /// <summary>Valve's entity palette, read from the FGDs the game ships, or null.</summary>
-    private FgdClasses? _entityClasses;
+    // `_entityClasses` was here until 2026-08-25, with `LoadEntityPalette` beside it. Valve's entity
+    // palette is `GameContent.EntityClasses` — read from the FGDs the game ships, which makes it
+    // install data rather than window state (B188, D90).
 
     // `_brushModelClasses` was here until 2026-08-25. It is `_level.BrushModelClasses` — the form
     // was copying the record's dictionary into a field of its own, entry by entry, on every map
@@ -551,60 +552,10 @@ internal class MainForm : Form
     /// grey" where the truth is "nobody said", which is the sentinel-shaped mistake this project has
     /// made before. The caller draws such an entity as ordinary brushwork.
     /// </remarks>
-    /// <summary>Reads Valve's entity palette out of the FGDs beside the game.</summary>
-    /// <param name="game">The <c>tf</c> folder, whose sibling <c>bin</c> holds the FGDs.</param>
-    /// <remarks>
-    /// **Best effort, and silent about being absent rather than about failing.** The FGDs are
-    /// editor data: a game install has them, and a dedicated-server or content-only copy may not.
-    /// Losing them costs one colour in one diagnostic view, so it must not interrupt opening a
-    /// demo — but a file that exists and will not parse is a different thing and says so.
-    /// </remarks>
-    private void LoadEntityPalette(string? game)
-    {
-        if (game is null || Path.GetDirectoryName(game) is not { } install)
-        {
-            return;
-        }
-
-        string bin = Path.Combine(install, "bin");
-        List<string> read = [];
-
-        // In mount order, so a later file's redefinition wins — which is what tf.fgd's own
-        // `@include "base.fgd"` amounts to without needing to resolve includes.
-        foreach (string name in new[] { "base.fgd", "halflife2.fgd", "tf.fgd" })
-        {
-            string path = Path.Combine(bin, name);
-
-            try
-            {
-                if (File.Exists(path))
-                {
-                    read.Add(File.ReadAllText(path));
-                }
-            }
-            catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException)
-            {
-                _assetLog.LogWarning(failure, "{Message}", $"reading {path}");
-            }
-        }
-
-        if (read.Count == 0)
-        {
-            _assetLog.LogInformation("{Message}", $"no FGD files in {bin}; entities draw as brushwork");
-            return;
-        }
-
-        _entityClasses = FgdClasses.Parse([.. read]);
-
-        _assetLog.LogInformation(
-            "{Message}",
-            $"entity palette: {_entityClasses.Count} classes from {read.Count} FGD files");
-    }
 
     private (float Red, float Green, float Blue)? EntityTint(int model)
     {
-        if (_entityClasses is not { } classes ||
+        if (_game?.EntityClasses is not { } classes ||
             _level is not { } level ||
             !level.BrushModelClasses.TryGetValue(model, out string? classname))
         {
@@ -1710,37 +1661,28 @@ internal class MainForm : Form
             // here costs the textures, not the map - the outline still draws.
             try
             {
-                if (_archives is null)
+                if (_game is null)
                 {
-                    string? game = FindGameFolder();
-                    _assetLog.LogInformation("{Message}", $"game folder: {game ?? "not found"}");
-                    _archives = GameArchives.Open(game);
+                    // **Opened once, and everything it provides is set together.** The archives, the
+                    // editor palette, the class scripts and the item schema all come off disk here
+                    // and are asked on every frame afterwards — none of it is per-map, and none of
+                    // it was ever window work (B188, D90).
+                    //
+                    // **Every source it feeds is assigned in this one block**, because assignments
+                    // scattered across a method are how three of them were missed separately
+                    // (B193). If a collaborator needs something from the install, it is wired here.
+                    _game = GameContent.Open(FindGameFolder(), _loggers);
 
-                    // **Where sounds are read from, set once when the archives open.** The engine
-                    // reaches its sample cache through `IEngineSound` rather than being handed a
-                    // reader per call (`IEngineSound.h:89-91`), and doing the same is what let
-                    // `Sample` leave the window rather than shrink to a wrapper (D90).
-                    _sounds.Read = _archives.Read;
-
-                    // **Both holders, in one place.** The load set asks this and so does the draw
-                    // path; setting only one is the disagreement that leaves a weapon resolved and
-                    // undrawable.
-                    _weapons = new WeaponModels(_archives.Read, _renderLog);
+                    _sounds.Read = _game.Archives.Read;
+                    _weapons = _game.Weapons;
                     _moment.Weapons = _weapons;
 
-                    LoadEntityPalette(game);
-                    _assetLog.LogInformation(
-                        "{Message}",
-                        $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
-
-                    // **The class scripts, which is where a player's model actually comes from.**
-                    // They are ICE-encrypted KeyValues in the install; nothing in the demo carries
-                    // a player's model path unless the server overrode it.
-                    _classModels = PlayerClassModels.Read(_archives.Read);
-
-                    _assetLog.LogInformation(
-                        "{Message}",
-                        $"class models: {string.Join(", ", ClassModelPaths())}");
+                    // The soundscape catalog reads from the same archives but belongs to the audio
+                    // layer, so `GameContent` deliberately does not hold it — Scene would have to
+                    // reference Audio for an edge that forbids nothing (D92).
+                    _soundscape.Catalog = _game.Archives.IsEmpty
+                        ? null
+                        : SoundscapeCatalog.Load(_game.Archives.Read);
                 }
 
                 _texturesUploaded = false;
@@ -1762,10 +1704,10 @@ internal class MainForm : Form
                 // **The soundscape system is handed the level, not built from lumps here.** That is
                 // the LevelInitPreEntity shape: the window says "here is the map", and the system
                 // decides what it needs from it (B173, B177).
-                _soundscape.Catalog = _archives is { } soundArchives
-                    ? SoundscapeCatalog.Load(soundArchives.Read)
-                    : null;
-
+                // **The catalog is install data and is set with the install, once.** It was
+                // reassigned on every map read, which was harmless and wrong in the same way the
+                // eight unpacked fields were: `scripts/soundscapes.txt` does not change between
+                // maps. The PLACEMENTS do, because they come from this map's entity lump.
                 _soundscape.Placements = _soundscape.Catalog is { } loaded
                     ? SoundscapePlacements.From(level.Entities, loaded, level.Leaves)
                     : null;
@@ -1809,7 +1751,7 @@ internal class MainForm : Form
                     // force a re-upload mid-match.
                     _assets = MapAssets.Load(
                         bytes,
-                        _archives,
+                        _game.Archives,
                         (int)_settings.TextureQuality,
                         DemoModelPaths(),
                         WornModelPaths(),
@@ -2198,35 +2140,9 @@ internal class MainForm : Form
     // The lookup is `MapAssets.Geometry` and the renderer reads it through `EntityModelSet.Geometry`
     // — an interface pointer set at map load, which is how the client reaches `modelinfo`
     // (`IVModelInfo.h:146`) rather than being handed a source at every call.
-
-    /// <summary>The model every playable class wears.</summary>
-    /// <remarks>
-    /// **Read from the install rather than listed here.** <c>CTFPlayerClassShared::GetModelName</c>
-    /// returns <c>m_iszCustomModel</c> when a server has overridden it and otherwise
-    /// <c>GetPlayerClassData( m_iClass )-&gt;GetModelName()</c>, which is the class script - so the
-    /// class number is the only thing a demo needs to carry, and it does.
-    ///
-    /// The custom model is networked and is NOT honoured yet: nothing decodes
-    /// <c>m_iszCustomModel</c>, so a server that replaced a player's model draws the stock one.
-    /// Rare outside events and plugins, and stated rather than hidden.
-    /// </remarks>
-    private IEnumerable<string> ClassModelPaths()
-    {
-        if (_classModels is not { } models)
-        {
-            yield break;
-        }
-
-        for (int playerClass = PlayerClassModels.FirstClass;
-            playerClass <= PlayerClassModels.LastPlayingClass;
-            playerClass++)
-        {
-            if (models.Model(playerClass) is { } model)
-            {
-                yield return model;
-            }
-        }
-    }
+    //
+    // `ClassModelPaths` is `GameContent.ModelPaths` now, beside the class scripts it reads. It is
+    // what the install says, not what the window knows.
 
     /// <summary>Reads each weapon's animation role, once both the demo and the game are open.</summary>
     /// <remarks>
@@ -2242,7 +2158,7 @@ internal class MainForm : Form
     /// </remarks>
     private void EnsureWeaponRoles()
     {
-        if (_weaponRoles is not null || _archives is not { } archives || _timeline is not { } timeline)
+        if (_weaponRoles is not null || _game is not { } game || _timeline is not { } timeline)
         {
             return;
         }
@@ -2264,14 +2180,14 @@ internal class MainForm : Form
             }
         }
 
-        _weaponRoles = WeaponRoles.Read(archives.Read, held);
+        _weaponRoles = WeaponRoles.Read(game.Archives.Read, held);
 
         // **Handed on the moment they exist, because `GameAppearance` captures them.** It is a
         // record built from the two values, so a scene holding one made before the roles were read
         // keeps answering null for every weapon suffix — which does not fail, it silently falls back
         // to the primary forms and draws the wrong animation. Rebuilt HERE rather than per frame,
         // since this method populates the roles exactly once.
-        _moment.Appearance = new GameAppearance(_classModels, _weaponRoles);
+        _moment.Appearance = new GameAppearance(_game?.Classes, _weaponRoles);
 
         _demoLog.LogInformation(
             "{Message}",
@@ -2300,7 +2216,7 @@ internal class MainForm : Form
     /// sides is how a player ends up with both a body and a dot on top of it.
     /// </remarks>
     private string? PlayerModel(ScenePlayer player) =>
-        PlayerProps.ModelFor(player, new GameAppearance(_classModels, _weaponRoles));
+        PlayerProps.ModelFor(player, new GameAppearance(_game?.Classes, _weaponRoles));
 
     /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
     /// <remarks>
@@ -2315,7 +2231,7 @@ internal class MainForm : Form
         // any moment in a match, so a set built from who is playing now is missing whatever they
         // change to - and a model absent from this set is never packed, so the player would simply
         // vanish mid-round. Nine models is the whole roster and it is loaded once.
-        foreach (string model in ClassModelPaths())
+        foreach (string model in _game?.ModelPaths() ?? [])
         {
             paths.Add(model);
         }
@@ -4609,7 +4525,7 @@ internal class MainForm : Form
             // **The class models too, because a player's model is chosen at runtime.** Nothing on
             // the wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class
             // script — so a player track's own path may not name every model that player will wear.
-            foreach (string model in ClassModelPaths())
+            foreach (string model in _game?.ModelPaths() ?? [])
             {
                 paths.Add(model);
             }
@@ -4663,7 +4579,7 @@ internal class MainForm : Form
     /// </remarks>
     private void PrecacheSounds(DemoTimeline? timeline)
     {
-        if (timeline is null || _archives is null)
+        if (timeline is null || _game is null)
         {
             return;
         }

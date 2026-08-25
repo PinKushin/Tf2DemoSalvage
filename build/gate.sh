@@ -271,7 +271,9 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # they now report actually shipped (B193).
 # 138: the three model-upload cases, added after an audit found `MomentScene.Upload` was assigned
 # NOWHERE — so no entity geometry ever reached the GPU (B193, third occurrence).
-run Tf2DemoSalvage.Scene.Tests    scene     138
+# 142: GameInstallTests (4), out of ReadMap first-map-only branch. Every case runs WITHOUT TF2,
+# which is the path a fresh clone takes and the one that had no test at all.
+run Tf2DemoSalvage.Scene.Tests    scene     142
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
