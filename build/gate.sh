@@ -229,7 +229,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 #
 # This is the rule B184 records, applied: a piece's test moves in the same commit as the piece, or
 # the Windows pin is recreated one file at a time. That is how it reached 115 of 119.
-run Tf2DemoSalvage.Scene.Tests    scene      54
+run Tf2DemoSalvage.Scene.Tests    scene      73
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

@@ -2384,10 +2384,14 @@ internal class MainForm : Form
     /// and they did: the markers were still being drawn over the models the moment those started
     /// working, which hid whether the models were there at all.
     /// </remarks>
+    /// <remarks>
+    /// **Delegates rather than repeating the rule** (B188). This and <c>PlayerProps.Add</c> were the
+    /// same three conditions written twice: the draw loop adds a model for a player, and the marker
+    /// pass draws a DOT for a player with no model. Two copies of one question asked from opposite
+    /// sides is how a player ends up with both a body and a dot on top of it.
+    /// </remarks>
     private string? PlayerModel(ScenePlayer player) =>
-        player.IsPlaying && player.Drawn && player.PlayerClass is { } playerClass
-            ? _classModels?.Model(playerClass)
-            : null;
+        PlayerProps.ModelFor(player, new GameAppearance(_classModels, _weaponRoles));
 
     /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
     /// <remarks>
@@ -3582,95 +3586,15 @@ internal class MainForm : Form
         // game's archives are certain to be open.
         EnsureWeaponRoles();
 
-        foreach (ScenePlayer player in _players)
-        {
-            if (PlayerModel(player) is not { } model)
-            {
-                continue;
-            }
-
-            _drawn.Add(new SceneProp(
-                player.EntityIndex,
-                model,
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = player.X,
-                    Y = player.Y,
-                    Z = player.Z,
-
-                    // **Yaw only.** A player model stands upright however far the eyes are pitched
-                    // - the server feeds pitch to the animation state to aim the torso, not to tip
-                    // the whole body (tf_player.cpp:2689). Rolling a player by their view would
-                    // lay them on their side every time they looked up.
-                    Yaw = player.Yaw,
-                    Scale = 1f,
-
-                    // Left unset here and chosen below, once the model is loaded. Choosing it now
-                    // asks a set that has not been given this model yet, which answers -1 - and
-                    // -1 is a real answer meaning "no such sequence", so it looks like a lookup
-                    // that failed rather than one that ran too early.
-                    Speed = player.Speed,
-
-                    // **The crouch and ground bits, for choosing an activity.** Carried on the pose
-                    // because the model has not been read yet and the activity lookup needs it, so
-                    // the choice happens in a second pass below.
-                    Flags = player.Flags,
-
-                    // **Which weapon they are holding, as the suffix it drives.** Same reason as
-                    // the flags: resolved here where the player is known, used a pass later where
-                    // the model is.
-                    Slot = _weaponRoles?.Suffix(player.WeaponClass, player.PlayerClass),
-
-                    // The jump clock, for the push-off versus the float.
-                    AirborneSeconds = player.AirborneSeconds,
-
-                    // Where they are looking, which aims the torso through body_pitch.
-                    EyePitch = player.EyePitch,
-
-                    // The eyes and the twist. Yaw above is the FEET, which is what the body is
-                    // drawn at; these two carry where the player is actually looking and how far
-                    // the torso is turned to get there.
-                    EyeYaw = player.EyeYaw,
-                    AimYaw = player.AimYaw,
-
-                    // Waist deep is where a jump becomes a swim.
-                    WaterLevel = player.WaterLevel,
-
-                    // **Both halves of the air-walk meet here.** The timeline says the player rose
-                    // fast enough to start one; the class script says whether their class does it
-                    // at all, and only the medic opts out. Neither layer can answer both.
-                    Airwalking = player.Airwalking &&
-                        (player.PlayerClass is not { } airwalkClass ||
-                         _classModels?.Airwalks(airwalkClass) != false),
-
-                    // **Which way the legs run.** A movement sequence is a blend grid and these
-                    // are its coordinates; without them the grid's corner is taken, which is one
-                    // fixed direction regardless of facing.
-                    MoveX = player.MoveX,
-                    MoveY = player.MoveY,
-
-                    // **RED is skin 0 and BLU is skin 1**, which is the game's own convention:
-                    // m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1. Without it every player draws in
-                    // the model's first family, which is red - both teams in red.
-                    //
-                    // **Deliberately computed here rather than read from the entity, and that stays
-                    // true now that m_nSkin IS retained by the scene layer.** For a player the
-                    // client computes this itself: c_tf_player.cpp:712-719 assigns m_nSkin from
-                    // m_iTeam while setting the model, and the field is marked FTYPEDESC_PRIVATE in
-                    // the prediction data. It is client state derived from team, not a value the
-                    // server sends for players.
-                    //
-                    // So this line is not made redundant by retaining the property - checked, on
-                    // exactly the suspicion that it had been. Props are the opposite case: a
-                    // capture point's skin comes from ownership on the server and must be read.
-                    //
-                    // Not reproduced here: the client's two skin OVERRIDES, applied straight after
-                    // the lines above - AdjustSkinIndexForZombie for Halloween, and the gold
-                    // ragdoll from TF_DMG_CUSTOM_GOLD_WRENCH.
-                    Skin = PlayerSkin.ForTeam(player.Team),
-                }));
-        }
+        // **Ninety lines that were never about a window** (B188, B184). Every reason a player is or
+        // is not drawn, and every field their pose carries, is scene logic — and none of it could
+        // be asserted while it lived here, because reaching it meant constructing a MainForm, which
+        // needs the STA, a device and the desktop lock.
+        //
+        // It now has nine tests in a plain net10.0 project, including the controls that matter: a
+        // spectator and a corpse must NOT appear, and a red and a blu player must take different
+        // skins — a single team cannot tell "computed from team" from "always zero".
+        PlayerProps.Add(_players, _drawn, new GameAppearance(_classModels, _weaponRoles));
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge
         // onto their wearer's bones, so the hat goes with them. Without this the first-person view
@@ -3703,28 +3627,14 @@ internal class MainForm : Form
                 }
             }
 
-            IReadOnlyList<SceneProp> visible = FirstPersonVisibility.Visible(_drawn, looking);
-
-            if (visible.Count != _drawn.Count)
-            {
-                List<SceneProp> kept = [.. visible];
-                _drawn.Clear();
-                _drawn.AddRange(kept);
-            }
+            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, looking));
         }
 
         // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a
         // player's holstered weapons from everybody — it is a property of the weapon rather than of
         // who is looking — so this sits outside the first-person block above. A player carries
         // three and holds one; without it all three bone-merge into the same hand.
-        IReadOnlyList<SceneProp> carried = WeaponVisibility.Visible(_drawn);
-
-        if (carried.Count != _drawn.Count)
-        {
-            List<SceneProp> held = [.. carried];
-            _drawn.Clear();
-            _drawn.AddRange(held);
-        }
+        DrawList.KeepOnly(_drawn, WeaponVisibility.Visible(_drawn));
 
         // **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an
         // MDL the first time a model path appears, and the upload below rebuilds the whole packed
@@ -3749,46 +3659,12 @@ internal class MainForm : Form
                     $"({_models.Count} packed); this frame is a freeze"));
         }
 
-        // **Now the models are loaded, so a player's sequence can be chosen.** Nothing on the wire
-        // carries one, and picking it needs the model's own merged sequence table - which only
-        // exists after the model has been read.
-        for (int index = 0; index < _drawn.Count; index++)
-        {
-            SceneProp prop = _drawn[index];
-
-            if (prop.Pose.Speed is { } speed &&
-                _models.SequenceFor(
-                    prop.ModelPath,
-                    speed,
-                    prop.Pose.Flags,
-
-                    // **True because the dead never reach here, not because death is ignored.**
-                    // PlayerModel refuses a player the engine would not draw, and TF2 turns a dead
-                    // player off with EF_NODRAW while a separate CTFRagdoll becomes the corpse.
-                    //
-                    // This comment previously claimed a ragdoll was already doing that job, which
-                    // was false in both directions: nothing here draws ragdolls, and dead players
-                    // WERE reaching this call. With their ground flag clear they were then given
-                    // ACT_MP_JUMP_FLOAT, so seventeen seconds of a respawn drew a soldier falling
-                    // through the air.
-                    alive: true,
-
-                    // The weapon's suffix, or the primary forms when nothing resolved it — which is
-                    // what the engine falls back to as well.
-                    slot: prop.Pose.Slot ?? "PRIMARY",
-
-                    // Splits the jump into its push-off and its float.
-                    airborneSeconds: prop.Pose.AirborneSeconds,
-
-                    // Supersedes the jump for a fast-rising player.
-                    airwalking: prop.Pose.Airwalking,
-
-                    // Waist deep turns a jump into a swim.
-                    waterLevel: prop.Pose.WaterLevel) is var chosen and >= 0)
-            {
-                _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
-            }
-        }
+        // **Valve's own pass, under Valve's own name** (B188). `UpdateClientSideAnimations` →
+        // `SimulateEntities` → `ThreadedBoneSetup` is the engine's order
+        // (`cdll_client_int.cpp:2188-2210`), and ours is the same: this, then `Instances`, which
+        // simulates and then builds bones. It has to follow `Add` because nothing on the wire
+        // carries a player's sequence and choosing one needs the model's merged sequence table.
+        _models.UpdateClientSideAnimations(_drawn);
 
         // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
         // for the life of the form, so after a switch it already holds what the new demo needs and
@@ -3864,36 +3740,16 @@ internal class MainForm : Form
         // per-second line already reports lighting, and it says lighting is about a third of posing
         // — but posing spiking to 168 ms on one moment and 3 ms on the next is invisible in a
         // per-second sum. This splits the one moment that was slow.
-        long lightingBefore = _models.LightingTicks;
-        int builtBefore = _models.EntitiesBuilt;
-        long animationBefore = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationTicks;
-        int animationCallsBefore = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationCalls;
-        long setupBefore = _models.SetupTicks;
-        long skinBefore = _models.SkinTicks;
-        long simulateBefore = _models.SimulateTicks;
-        long wornLightBefore = _models.WornLightTicks;
-        long reportBefore = _models.ReportTicks;
-        long reportLogBefore = _models.ReportLogTicks;
+        EntityModelSet.PoseCounters before = _models.Counters;
 
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
 
-        long momentLightingTicks = _models.LightingTicks - lightingBefore;
-        int momentBuilt = _models.EntitiesBuilt - builtBefore;
-        long momentAnimationTicks = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationTicks - animationBefore;
-        int momentAnimationCalls = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationCalls - animationCallsBefore;
+        EntityModelSet.PoseCounters moment = _models.Counters.Since(before);
 
-        // **Split out because it was being reported as bone work and is not.** `pose` spans
-        // Instances AND this, while the lighting, animation and built counters are all read across
-        // Instances alone — so every millisecond spent building the viewmodel scene was landing in
-        // the "bones" column, which is arrived at by subtraction. A derived column inherits every
-        // error of the ones it is derived from.
-        long momentSetupTicks = _models.SetupTicks - setupBefore;
-        long momentSkinTicks = _models.SkinTicks - skinBefore;
-        long momentSimulateTicks = _models.SimulateTicks - simulateBefore;
-        long momentWornLightTicks = _models.WornLightTicks - wornLightBefore;
-        long momentReportTicks = _models.ReportTicks - reportBefore;
-        long momentReportLogTicks = _models.ReportLogTicks - reportLogBefore;
-
+        // **Timed apart from the counters above, because `pose` spans this too.** They are read
+        // across `Instances` alone, so every millisecond spent building the viewmodel scene was
+        // landing in the "bones" column — which is arrived at by subtraction, and a derived column
+        // inherits every error of the ones it is derived from (B191).
         long viewmodelAt = Stopwatch.GetTimestamp();
 
         AddViewmodel(seconds);
@@ -3942,10 +3798,7 @@ internal class MainForm : Form
 
         ReportSlowMoment(
             momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
-            momentReportedAt, Stopwatch.GetTimestamp(), momentLightingTicks, momentBuilt,
-            _drawn.Count, momentAnimationTicks, momentAnimationCalls, momentViewmodelTicks,
-            momentSetupTicks, momentSkinTicks, momentSimulateTicks, momentWornLightTicks,
-            momentReportTicks, momentReportLogTicks);
+            momentReportedAt, Stopwatch.GetTimestamp(), moment, _drawn.Count, momentViewmodelTicks);
     }
 
     /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
@@ -3956,50 +3809,31 @@ internal class MainForm : Form
     /// <param name="posedAt">After posing and the viewmodel.</param>
     /// <param name="reportedAt">After the weapon report.</param>
     /// <param name="finishedAt">After ShowPlayers.</param>
-    /// <param name="lightingTicks">
-    /// What the pose phase spent sampling light, read across the call rather than per second — the
-    /// per-second total cannot tell one 168 ms moment from fifty even ones.
-    /// </param>
-    /// <param name="built">
-    /// How many animating entities were constructed during this moment. The only per-moment
-    /// discontinuity in the pose path, so a spike that correlates with it is first-sight work and a
-    /// spike that does not is the steady path getting more of it (B189).
+    /// <param name="pose">
+    /// Every pose-phase counter for THIS moment, already differenced. Read across the call rather
+    /// than per second, because a per-second total cannot tell one 168 ms moment from fifty even
+    /// ones — it says how much was spent, never whether it was spent all at once.
     /// </param>
     /// <param name="drawn">
-    /// How many props were posed, which is the control for <paramref name="built"/> — without it,
-    /// "more entities arrived" and "the same entities cost more" are indistinguishable.
-    /// </param>
-    /// <param name="animationTicks">What the pose phase spent decoding and blending animation.</param>
-    /// <param name="animationCalls">
-    /// How many poses were asked for, which is what separates "more calls" from "slower calls" —
-    /// the two want completely different fixes and the total alone cannot tell them apart.
+    /// How many props were posed, which is the control for <c>pose.Built</c> — without it, "more
+    /// entities arrived" and "the same entities cost more" are indistinguishable.
     /// </param>
     /// <param name="viewmodelTicks">
-    /// What <c>AddViewmodel</c> cost. Inside the pose phase but outside every other counter here,
-    /// so until it was split out it was being reported as bone work by subtraction.
-    /// </param>
-    /// <param name="setupTicks">What <c>SetupBones</c> cost — the pose and any merge it drives.</param>
-    /// <param name="skinTicks">What composing the skinning matrices cost.</param>
-    /// <param name="simulateTicks">
-    /// What bringing every entity's state up to date cost — Valve's first phase, over every prop
-    /// rather than only the animated ones.
-    /// </param>
-    /// <param name="wornLightTicks">
-    /// What sampling light for worn items cost, on the path that bypasses the lighting cache.
-    /// </param>
-    /// <param name="reportTicks">What per-prop reporting cost — three calls per prop per frame.</param>
-    /// <param name="reportLogTicks">
-    /// How much of <paramref name="reportTicks"/> was inside the log sink. Every report is guarded
-    /// and early-outs after its first line, so if these two are equal the sink is what blocks.
+    /// What <c>AddViewmodel</c> cost. Inside the pose phase but outside every counter in
+    /// <paramref name="pose"/>, so until it was split out it was reported as bone work by
+    /// subtraction.
     /// </param>
     /// <remarks>
     /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
-    /// slow frame now names a phase and then a sub-phase rather than a range of 350 lines.
+    /// slow frame names a phase and then a sub-phase rather than a range of 350 lines.
     ///
     /// Three of these had no timer at all before: the weapon-role and visibility stretch, the weapon
-    /// report, and ShowPlayers. `_samplingTicks` and `_posingTicks` existed but were per-second
-    /// totals, which cannot attribute a single freeze — a total says how much was spent, never
-    /// whether it was spent all at once.
+    /// report, and ShowPlayers. That mattered: `reports` turned out to hold 129 ms of a 133 ms pose,
+    /// and its `sink` half held all of it (B191).
+    ///
+    /// **The bone column is a residual and the rest are measured**, which is worth knowing when
+    /// reading a line: every direct column being small while `bones` is large means the cost is in
+    /// something still unmeasured, not in bone work. That pattern is what found B191.
     /// </remarks>
     private void ReportSlowMoment(
         long momentAt,
@@ -4009,18 +3843,9 @@ internal class MainForm : Form
         long posedAt,
         long reportedAt,
         long finishedAt,
-        long lightingTicks,
-        int built,
+        EntityModelSet.PoseCounters pose,
         int drawn,
-        long animationTicks,
-        int animationCalls,
-        long viewmodelTicks,
-        long setupTicks,
-        long skinTicks,
-        long simulateTicks,
-        long wornLightTicks,
-        long reportTicks,
-        long reportLogTicks)
+        long viewmodelTicks)
     {
         double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
 
@@ -4036,8 +3861,19 @@ internal class MainForm : Form
             Ms(momentAt, sampledAt) + Ms(sampledAt, rolesAt) + Ms(rolesAt, uploadedAt) +
             Ms(uploadedAt, posedAt) + Ms(posedAt, reportedAt) + Ms(reportedAt, finishedAt);
 
-        double lighting = lightingTicks / (double)Stopwatch.Frequency * 1000d;
-        double viewmodel = viewmodelTicks / (double)Stopwatch.Frequency * 1000d;
+        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
+
+        double lighting = Of(pose.Lighting);
+        double viewmodel = Of(viewmodelTicks);
+        double simulate = Of(pose.Simulate);
+        double wornLight = Of(pose.WornLight);
+        double reports = Of(pose.Report);
+        double setup = Of(pose.Setup);
+        double skin = Of(pose.Skin);
+
+        double rest =
+            Ms(uploadedAt, posedAt) - lighting - viewmodel - simulate - wornLight - reports
+            - setup - skin;
 
         _renderLog.LogWarning(
             "{Message}",
@@ -4048,22 +3884,17 @@ internal class MainForm : Form
                 $", models {Ms(rolesAt, uploadedAt):0.#}" +
                 $", pose {Ms(uploadedAt, posedAt):0.#}" +
                 $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
-                $", simulate {simulateTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
-                $", wornlight {wornLightTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
-                $", reports {reportTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
-                $" (sink {reportLogTicks / (double)Stopwatch.Frequency * 1000d:0.#})" +
-                $", setup {setupTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
-                $", skin {skinTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
-                $", rest {Ms(uploadedAt, posedAt) - lighting - viewmodel
-                    - (simulateTicks / (double)Stopwatch.Frequency * 1000d)
-                    - (wornLightTicks / (double)Stopwatch.Frequency * 1000d)
-                    - (reportTicks / (double)Stopwatch.Frequency * 1000d)
-                    - (setupTicks / (double)Stopwatch.Frequency * 1000d)
-                    - (skinTicks / (double)Stopwatch.Frequency * 1000d):0.#}" +
-                $", built {built.ToString(CultureInfo.InvariantCulture)}" +
+                $", simulate {simulate:0.#}" +
+                $", wornlight {wornLight:0.#}" +
+                $", reports {reports:0.#}" +
+                $" (sink {Of(pose.ReportLog):0.#})" +
+                $", setup {setup:0.#}" +
+                $", skin {skin:0.#}" +
+                $", rest {rest:0.#}" +
+                $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
                 $" of {drawn.ToString(CultureInfo.InvariantCulture)}" +
-                $", anim {animationTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
-                $" over {animationCalls.ToString(CultureInfo.InvariantCulture)})" +
+                $", anim {Of(pose.Animation):0.#}" +
+                $" over {pose.AnimationCalls.ToString(CultureInfo.InvariantCulture)})" +
                 $", weapons {Ms(posedAt, reportedAt):0.#}" +
                 $", players {Ms(reportedAt, finishedAt):0.#}" +
                 $"; unaccounted {(total * 1000d) - named:0.#} ms"));
@@ -5533,6 +5364,21 @@ internal class MainForm : Form
     /// </remarks>
     private void ReportWeapons()
     {
+        // **Nothing at all unless someone is listening** (B191). Everything below walks every
+        // instance, formats nine numbers per weapon and joins them — work CA1873 exists to keep out
+        // of a disabled log — and then writes a line, which is a disk flush.
+        //
+        // Measured 2026-08-25 on the moment ledger: `weapons 193.6` of a 198 ms scene rebuild, with
+        // every other column at a millisecond or less. The rate limit below already held it to once
+        // a second; once a second is still enough to be the worst frame in that second.
+        //
+        // Debug rather than Information, because this is per-frame detail and `developer 0` admits
+        // Information. Same reasoning as the brush, viewmodel-pass and instance-count lines.
+        if (!_renderLog.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
         long now = Stopwatch.GetTimestamp();
 
         if (now - _weaponReportedAt < Stopwatch.Frequency)
@@ -5629,7 +5475,7 @@ internal class MainForm : Form
             }
         }
 
-        _renderLog.LogInformation(
+        _renderLog.LogDebug(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,

@@ -140,7 +140,10 @@ public sealed class DrawTally
         _last = state;
         _reportedAt = now;
 
-        _props.LogInformation(
+        // Debug: written from the draw loop, once a second at most but still during play, and every
+        // line is a disk flush (B191). The change guard above limits how OFTEN, never whether a
+        // production run pays at all.
+        _props.LogDebug(
             "{Message}",
             $"asked for {_askedFor}, produced {_drawn}; " +
             $"skipped {_notStudio} not-studio [{Named(_notStudioBy)}], " +

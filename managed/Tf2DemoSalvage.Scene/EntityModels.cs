@@ -137,6 +137,59 @@ public sealed class EntityModelSet
     /// <summary>What bringing every entity's state up to date has cost, ever.</summary>
     public long SimulateTicks { get; set; }
 
+    /// <summary>Every pose-phase counter at one instant, for diffing across a call.</summary>
+    /// <remarks>
+    /// **One value instead of ten out-parameters.** Each counter is a running total, so a caller
+    /// wanting "what did THIS call cost" reads them either side and subtracts — which was ten pairs
+    /// of local variables at the call site and thirteen parameters on the report that consumed
+    /// them. The arithmetic is identical; only the bookkeeping moves.
+    ///
+    /// A per-second total cannot attribute a single freeze: it says how much was spent, never
+    /// whether it was spent all at once. That is why these are read per call rather than reported
+    /// per second (B189, B191).
+    /// </remarks>
+    public readonly record struct PoseCounters(
+        long Lighting,
+        long Simulate,
+        long WornLight,
+        long Report,
+        long ReportLog,
+        long Setup,
+        long Skin,
+        long Animation,
+        int AnimationCalls,
+        int Built)
+    {
+        /// <summary>What happened between an earlier snapshot and this one.</summary>
+        /// <param name="before">The earlier snapshot.</param>
+        /// <returns>The difference, field by field.</returns>
+        public PoseCounters Since(PoseCounters before) =>
+            new(
+                Lighting - before.Lighting,
+                Simulate - before.Simulate,
+                WornLight - before.WornLight,
+                Report - before.Report,
+                ReportLog - before.ReportLog,
+                Setup - before.Setup,
+                Skin - before.Skin,
+                Animation - before.Animation,
+                AnimationCalls - before.AnimationCalls,
+                Built - before.Built);
+    }
+
+    /// <summary>Every pose-phase counter as it stands now.</summary>
+    public PoseCounters Counters => new(
+        _lighting.Ticks,
+        SimulateTicks,
+        WornLightTicks,
+        ReportTicks,
+        _reports.LogTicks,
+        SetupTicks,
+        SkinTicks,
+        SkeletonPose.AnimationTicks,
+        SkeletonPose.AnimationCalls,
+        EntitiesBuilt);
+
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
 
@@ -327,9 +380,12 @@ public sealed class EntityModelSet
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
             posed.EntityTransform = PlacementOf(prop);
 
-            if (_reportedFrames.Add(prop.ModelPath + "#skin"))
+            // **IsEnabled first, because the KEY allocates.** `path + "#skin"` builds a string per
+            // prop per frame before the set is even consulted, and this sits in Simulate, which
+            // walks every prop (B191).
+            if (_render.IsEnabled(LogLevel.Debug) && _reportedFrames.Add(prop.ModelPath + "#skin"))
             {
-                _render.LogInformation(
+                _render.LogDebug(
                     "{Message}",
                     $"skinned {prop.ModelPath}: sequence {sequence}" +
                     $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
@@ -427,9 +483,9 @@ public sealed class EntityModelSet
                 PropTransform.Identity.ToMatrix(),
                 attachment.IsWorldAligned));
 
-        if (_reportedPoses.Add(prop.ModelPath + "#attached"))
+        if (_props.IsEnabled(LogLevel.Debug) && _reportedPoses.Add(prop.ModelPath + "#attached"))
         {
-            _props.LogInformation(
+            _props.LogDebug(
                 "{Message}",
                 $"attached {prop.ModelPath} to {attachment.Name} " +
                 $"(point {point}, bone {attachment.Bone}) on {wearerModel}");
@@ -690,7 +746,12 @@ public sealed class EntityModelSet
               $"at ({first[3]:0.#}, {first[7]:0.#}, {first[11]:0.#})"
             : "root none";
 
-        _props.LogInformation(
+        // **Debug, and this one had the largest volume of the lot** — 338 lines in four minutes,
+        // because it fires the first time each model, each worn item and each corner comparison is
+        // posed, and models keep first appearing throughout a match. Each line is a disk flush
+        // (B191), and this call also does real work to produce it: extents over every corner, plus
+        // a second full skeleton built for the CORNER comparison.
+        _props.LogDebug(
             "{Message}",
             $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
             $"{bones.Count} bones, x {minimumX:0.#}..{maximumX:0.#} " +
@@ -767,6 +828,84 @@ public sealed class EntityModelSet
         }
 
         return skinned.SequenceByActivity(fragment);
+    }
+
+    /// <summary>Chooses each drawn player's sequence, now that their models are loaded.</summary>
+    /// <param name="drawn">The draw list, updated in place.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="drawn"/> is null.</exception>
+    /// <remarks>
+    /// **Named for Valve's own pass, because it IS Valve's own pass.**
+    /// <c>C_BaseAnimating::UpdateClientSideAnimations()</c> (<c>c_baseanimating.cpp:6368</c>) is a
+    /// static batch walk over <c>g_ClientSideAnimationList</c> calling
+    /// <c>UpdateClientSideAnimation()</c> on each — a loop over a list, exactly this shape, rather
+    /// than something each entity does for itself. Per entity it reaches
+    /// <c>CMultiPlayerAnimState::ComputeMainSequence</c> (<c>multiplayer_animstate.cpp:1125</c>),
+    /// which is what <see cref="SequenceFor"/> stands in for.
+    ///
+    /// **And the ORDER is Valve's too**, which is worth stating because it is the part that is easy
+    /// to get wrong later. `cdll_client_int.cpp:2188-2210` runs
+    /// `UpdateClientSideAnimations()` → `SimulateEntities()` → `ThreadedBoneSetup()`, so sequence
+    /// selection happens BEFORE simulation and before any bone is built. Ours matches: this runs
+    /// before <see cref="Instances"/>, which does <c>Simulate</c> and then the bones.
+    ///
+    /// **After the models are loaded, and that is a real constraint rather than a convenience.**
+    /// Nothing on the wire carries a player's sequence, and choosing one needs the model's merged
+    /// sequence table — which does not exist until <see cref="Add"/> has read it. Asked earlier it
+    /// answers -1, and -1 is a real answer meaning "no such sequence", so an early call looks like a
+    /// lookup that failed rather than one that ran too soon.
+    ///
+    /// Lived in <c>MainForm.ShowMoment</c> until 2026-08-25 (B188).
+    /// </remarks>
+    public void UpdateClientSideAnimations(IList<SceneProp> drawn)
+    {
+        ArgumentNullException.ThrowIfNull(drawn);
+
+        for (int index = 0; index < drawn.Count; index++)
+        {
+            SceneProp prop = drawn[index];
+
+            if (prop.Pose.Speed is not { } speed)
+            {
+                continue;
+            }
+
+            int chosen = SequenceFor(
+                prop.ModelPath,
+                speed,
+                prop.Pose.Flags,
+
+                // **True because the dead never reach here, not because death is ignored.**
+                // `PlayerProps.ModelFor` refuses a player the engine would not draw, and TF2 turns
+                // a dead player off with EF_NODRAW while a separate CTFRagdoll becomes the corpse.
+                //
+                // An earlier comment claimed a ragdoll was already doing that job, which was false
+                // in both directions: nothing here draws ragdolls, and dead players WERE reaching
+                // this call. With their ground flag clear they were then given ACT_MP_JUMP_FLOAT,
+                // so seventeen seconds of a respawn drew a soldier falling through the air.
+                alive: true,
+
+                // The weapon's suffix, or the primary forms when nothing resolved it — which is
+                // what the engine falls back to as well.
+                slot: prop.Pose.Slot ?? "PRIMARY",
+
+                // Splits the jump into its push-off and its float.
+                airborneSeconds: prop.Pose.AirborneSeconds,
+
+                // Supersedes the jump for a fast-rising player.
+                airwalking: prop.Pose.Airwalking,
+
+                // Waist deep turns a jump into a swim.
+                waterLevel: prop.Pose.WaterLevel);
+
+            // **A negative answer is left alone rather than written.** -1 means "this model has no
+            // such sequence", and storing it would replace a working sequence with one that decodes
+            // to nothing — a model frozen on frame zero, which reads as a broken animation rather
+            // than as a failed lookup.
+            if (chosen >= 0)
+            {
+                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+            }
+        }
     }
 
     /// <summary>Which sequence a player of this model should play.</summary>
@@ -1005,7 +1144,9 @@ public sealed class EntityModelSet
                         alternatives = Math.Max(alternatives, alternative + 1);
                     }
 
-                    _render.LogInformation(
+                    // Debug: fires from the draw path as models are first seen, and every line is a
+                    // disk flush (B191).
+                    _render.LogDebug(
                         "{Message}",
                         $"bodygroups {prop.ModelPath}: {model.BodyParts.Count} parts, " +
                         $"{batches.Count} batches spanning {alternatives} alternatives");
@@ -1046,7 +1187,9 @@ public sealed class EntityModelSet
             //
             // This is the overlogging failure in miniature: a line that measured the right thing
             // for one kind of model and kept its wording when a second kind arrived.
-            _props.LogInformation(
+            // Debug, like every other line this loop writes: it fires as models are first drawn,
+            // which is a stream through a match rather than a burst at load, and each is a flush.
+            _props.LogDebug(
                 "{Message}",
                 model.IsSkinned
                     ? $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
@@ -1214,7 +1357,13 @@ public sealed class EntityModelSet
             // an overhead camera cannot tell them apart. If these extents stand the model up, the
             // pose is right and the fault is in the drawing; if they do not, the pose is the
             // fault and the shader is innocent.
-            if (bones is { Count: > 0 } && !_reportedPoses.Contains(prop.ModelPath))
+            // **The IsEnabled guard covers the WORK, not just the write** (B191, CA1873). Below
+            // this, extents are walked over every corner and a SECOND full skeleton is built for
+            // the corner comparison — both purely to produce a diagnostic line. A production run
+            // was paying for both and then discarding the result.
+            if (bones is { Count: > 0 } &&
+                _props.IsEnabled(LogLevel.Debug) &&
+                !_reportedPoses.Contains(prop.ModelPath))
             {
                 _reportedPoses.Add(prop.ModelPath);
                 ReportPosedExtents(prop.ModelPath, bones);
@@ -1286,7 +1435,11 @@ public sealed class EntityModelSet
                     WornLightTicks += System.Diagnostics.Stopwatch.GetTimestamp() - wornAt;
                 }
 
-                if (bones is { Count: > 0 } && _reports.FirstTime(prop.ModelPath + "#worn"))
+                // Guarded before `FirstTime`, so a production run does not even build the
+                // `path + "#worn"` key — a string allocated per worn prop per frame (B191).
+                if (bones is { Count: > 0 } &&
+                    _props.IsEnabled(LogLevel.Debug) &&
+                    _reports.FirstTime(prop.ModelPath + "#worn"))
                 {
                     ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
                 }
