@@ -269,14 +269,13 @@ internal class MainForm : Form
     /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
     private int? _lastFirstPersonReport;
 
-    /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
-    private IReadOnlyList<AmbientSamples> _ambient = [];
-
-    /// <summary>The map's sun, when it has one.</summary>
-    private BspWorldLight? _sun;
-
-    /// <summary>Every light the map compiled, for the direct term a model receives.</summary>
-    private IReadOnlyList<BspWorldLight> _worldLights = [];
+    /// <summary>What light the map casts, which the models and the asset loader both ask.</summary>
+    /// <remarks>
+    /// **The engine's <c>ComputeLighting</c>, behind an interface** (<c>cdll_int.h:392</c>). The
+    /// ambient samples, the world lights and the sun were three fields here, read by nothing but the
+    /// two methods that have moved onto this type (B188, D90).
+    /// </remarks>
+    private LevelLighting _lighting;
 
     /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
     private (float Lowest, float Highest)? _heightRange;
@@ -729,6 +728,11 @@ internal class MainForm : Form
         _soundscape = new SoundscapeSystem(_loops, Sample, _audioLog);
         _sound = new SoundPresenter(_soundscape, _loops, Sample, _audioLog);
         _freeCamera = new FreeCameraController(_renderLog);
+
+        // **A real source that answers unlit, rather than a null field checked at every call.** The
+        // asset loader and the model set both take it as a delegate, and a null there is the shape
+        // that hid a missed wiring across 193 call sites once already (D83).
+        _lighting = LevelLighting.Unlit(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -1764,9 +1768,10 @@ internal class MainForm : Form
                         : "no archives, so no soundscapes");
 
                 _surfaceList = level.Surfaces;
-                _ambient = level.Ambient;
-                _worldLights = level.WorldLights;
-                _sun = level.Sun;
+                // **Handed the level, the same way the soundscape system is** — each system
+                // initialises itself from the map rather than the window unpacking lumps into
+                // fields for it (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`).
+                _lighting = LevelLighting.From(level, _renderLog);
 
                 using (_assetLog.Time("reading textures"))
                 {
@@ -1811,10 +1816,10 @@ internal class MainForm : Form
                             _surfaceColours.Checked ? EntityTint : null),
 
                         // **The light cache, for props whose baked lighting is absent or refused**
-                        // (B123). Usable here because the leaves and the ambient samples were read
-                        // a few lines above, before any asset is loaded — the ordering is what
-                        // makes this a delegate rather than a second pass.
-                        LightAt,
+                        // (B123). Usable here because the level was read a few lines above, before
+                        // any asset is loaded — the ordering is what makes this a delegate rather
+                        // than a second pass.
+                        _lighting.ComputeLighting,
 
                         // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                         // defaults to a null logger so tests need not supply one — which means an
@@ -2138,122 +2143,12 @@ internal class MainForm : Form
         }
     }
 
-    /// <summary>
-    /// Frames the map proper, not its full extent.
-    /// </summary>
-    /// <remarks>
-    /// <c>MainBounds</c> rather than <c>Bounds</c>: a TF2 map carries its 3D skybox as ordinary
-    /// world geometry placed far outside the playable space, and fitting to that pushed
-    /// cp_process_final into a third of the viewport with an empty expanse beside it.
-    /// </remarks>
-    /// <summary>The ambient light at a world position.</summary>
-    /// <remarks>
-    /// **The leaf decides, which is how the engine does it.** A model takes the light measured
-    /// inside the leaf it stands in, so two crates either side of a doorway are lit differently
-    /// without either carrying a lightmap.
-    ///
-    /// An unlit answer is returned as a default cube, which the shader reads as "no cube supplied"
-    /// and draws at full brightness rather than black - a model lit by a measurement nobody made
-    /// is worse than one that is merely too bright.
-    /// </remarks>
-    private AmbientCube LightAt(float x, float y, float z)
-    {
-        if (_leaves is not { } tree || _ambient.Count == 0)
-        {
-            return default;
-        }
-
-        int leaf = tree.LeafAt(x, y, z);
-
-        // **Blended, as Mod_LeafAmbientColorAtPos blends it.** vrad thins a leaf's samples down to
-        // the ones an inverse-squared-distance average cannot already predict, so the stored set
-        // only reconstructs the original lighting when it is interpolated. Taking the nearest read
-        // back whichever survivor of that thinning was closest, which is why one capture point on
-        // cp_process drew at 0.10 while its mirror image on a symmetric map drew at 0.39.
-        AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count
-            ? _ambient[leaf].At(x, y, z)
-            : default;
-
-        // **And the direct term, which is the other half of what the engine gives a model.**
-        // istudiorender.h describes the cube as "ambient, and lights that aren't in locallight[]",
-        // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
-        // every light past the nearest four. Without this a prop out of daylight is lit by the
-        // bounce alone, which is why anything indoors read as though it were in shade (B95).
-        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z);
-
-        // **The two terms reported apart, because one number cannot say which is missing.** Every
-        // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
-        // and the single figure is consistent with two unrelated faults: no light near enough to be
-        // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
-        // the total makes those indistinguishable — see
-        // docs/memory/a-log-must-name-what-it-measured.md.
-        ReportLightTerms(bounced, lit, x, y, z);
-
-        return lit;
-    }
-
-    /// <summary>Says what the bounce gave and what the direct lights added, once per place.</summary>
-    /// <remarks>
-    /// Sampled rather than per call: this runs for every model every time one moves, and the
-    /// question it answers is about a PLACE rather than about a frame.
-    /// </remarks>
-    private void ReportLightTerms(AmbientCube bounced, AmbientCube lit, float x, float y, float z)
-    {
-        if (_worldLights.Count == 0 || !_reportedLightTerms.Add(((int)x, (int)y, (int)z)))
-        {
-            return;
-        }
-
-        if (_reportedLightTerms.Count > LightTermReportLimit)
-        {
-            return;
-        }
-
-        _renderLog.LogInformation(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
-                $"with direct {AmbientCube.Luminance(lit):0.####}, " +
-                $"{_worldLights.Count} world lights on the map"));
-    }
-
-    /// <summary>Places already reported, so the line does not repeat per frame.</summary>
-    private readonly HashSet<(int X, int Y, int Z)> _reportedLightTerms = [];
-
-    /// <summary>How many places to report before falling silent.</summary>
-    private const int LightTermReportLimit = 40;
-
-    /// <summary>The sun reaching a world position, or null when it does not.</summary>
-    /// <remarks>
-    /// **The trace is the feature, not an optimisation.** Valve describes a sky light as a
-    /// "directional light with no falloff (surface must trace to SKY texture)" — applied without
-    /// that condition it lights the inside of every building, which is worse than the shade this
-    /// is meant to fix.
-    ///
-    /// Traced towards the sun, which is against the direction its light travels.
-    /// </remarks>
-    private SunLight? SunAt(float x, float y, float z)
-    {
-        if (_sun is not { } sun || _leaves is not { } tree)
-        {
-            return null;
-        }
-
-        if (!tree.SeesSky(x, y, z, -sun.Normal.X, -sun.Normal.Y, -sun.Normal.Z))
-        {
-            return null;
-        }
-
-        return new SunLight(
-            sun.Intensity.Red,
-            sun.Intensity.Green,
-            sun.Intensity.Blue,
-            sun.Normal.X,
-            sun.Normal.Y,
-            sun.Normal.Z);
-    }
-
+    // `LightAt`, `SunAt`, `ReportLightTerms` and their two report fields were here until
+    // 2026-08-25. They are `LevelLighting` in the Scene project now (B188, D90): the engine answers
+    // this query through `IVEngineClient::ComputeLighting` (`cdll_int.h:392`) rather than the window
+    // owning the map's lighting lumps, and away from a form they can finally be tested — a control
+    // pair for the leaf lookup, one for the sun's sky trace, and one asserting the per-place report
+    // is `Debug` so a release run never pays for it (B191).
     /// <summary>One model's triangles, from the set preloaded with the map.</summary>
     /// <remarks>
     /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
@@ -2998,7 +2893,12 @@ internal class MainForm : Form
 
         // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
         // arms and then the weapon into the same list threw the arms away and drew the gun alone.
-        _models.Instances(scene.Props, _viewmodelInstances, LightAt, SunAt, seconds);
+        _models.Instances(
+            scene.Props,
+            _viewmodelInstances,
+            _lighting.ComputeLighting,
+            _lighting.SunAt,
+            seconds);
 
         if (changed)
         {
@@ -3618,7 +3518,8 @@ internal class MainForm : Form
         // per-second sum. This splits the one moment that was slow.
         EntityModelSet.PoseCounters before = _models.Counters;
 
-        _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
+        _models.Instances(
+            _drawn, _instances, _lighting.ComputeLighting, _lighting.SunAt, seconds);
 
         EntityModelSet.PoseCounters moment = _models.Counters.Since(before);
 
