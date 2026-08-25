@@ -146,6 +146,52 @@ public sealed class SkeletonPoseContentTests
         }
     }
 
+    [Test]
+    public void SetupBones_AHatOnAScoutStandingAwayFromTheOrigin_NeedsNoTransformOfItsOwn()
+    {
+        // **The property that deletes a whole category of bookkeeping.** Valve's bone-to-world is
+        // WORLD space: BuildTransformations concatenates the entity's placement into every root
+        // bone (c_baseanimating.cpp:1591) and children inherit it. So a merged item's bones are
+        // already where the wearer is, and the item is never told where its wearer stands.
+        //
+        // The arrangement this replaces carried the wearer's transform ALONGSIDE the bones and
+        // applied it at draw time, which is the bookkeeping that let a three-deep chain mix two
+        // spaces (B180).
+        AnimatingEntity scout = Entity("models/player/scout.mdl", out IReadOnlyList<StudioBone> scoutBones);
+        AnimatingEntity hat = Entity("models/player/items/scout/scout_cap.mdl", out IReadOnlyList<StudioBone> hatBones);
+
+        // A thousand units along X, which no bind pose is anywhere near — so a bone that arrives
+        // near 1000 got there through the wearer and a bone near 0 did not.
+        Placed(scout).EntityTransform =
+            [1f, 0f, 0f, 1000f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
+
+        hat.Follows = scout;
+        hat.SetupBones(Vertices, 0d).ShouldBeTrue();
+
+        string shared = hatBones
+            .Select(bone => bone.Name)
+            .First(name => scoutBones.Any(other => string.Equals(other.Name, name, StringComparison.OrdinalIgnoreCase)));
+
+        // The hat's EntityTransform was never set — it is still null. If the bone is out at 1000
+        // anyway, it got there entirely through the merge, which is the claim.
+        hat.Bones.Bone(IndexOf(hatBones, shared))[3].ShouldBeGreaterThan(900f);
+
+        // The control: without the wearer's placement the same bone sits near the model origin, so
+        // this is measuring the transform rather than something the bind pose already did.
+        AnimatingEntity alone = Entity("models/player/items/scout/scout_cap.mdl", out IReadOnlyList<StudioBone> aloneBones);
+
+        alone.SetupBones(Vertices, 0d).ShouldBeTrue();
+        alone.Bones.Bone(IndexOf(aloneBones, shared))[3].ShouldBeLessThan(100f);
+    }
+
+    /// <summary>The pose source behind an entity, for a test that needs to drive it.</summary>
+    /// <remarks>
+    /// **Not a lookup table keyed by entity**, which was the first shape and is the same shared
+    /// mutable state that leaked a bone name across parallel fixtures earlier in this suite's
+    /// history. The entity exposes what it was built over, so nothing has to be remembered.
+    /// </remarks>
+    private static SkeletonPose Placed(AnimatingEntity entity) => (SkeletonPose)entity.Pose;
+
     private static int IndexOf(IReadOnlyList<StudioBone> bones, string name)
     {
         for (int bone = 0; bone < bones.Count; bone++)

@@ -67,6 +67,14 @@ public sealed class AnimatingEntity
     /// <summary>This entity's bone matrices.</summary>
     public BoneAccessor Bones => _accessor;
 
+    /// <summary>What builds this entity's bones.</summary>
+    /// <remarks>
+    /// Exposed so a caller can set the animation state it owns — sequence, frame, pose parameters,
+    /// placement — which the engine keeps on the entity for the same reason: <c>SetupBones</c> can
+    /// be reached through a merge from a child that knows nothing about what its wearer is doing.
+    /// </remarks>
+    public IBonePose Pose => _pose;
+
     /// <summary>How deep a follow chain may run before it is treated as malformed.</summary>
     /// <remarks>
     /// **Valve has no such bound and this needs one.** The engine's parent links are built by the

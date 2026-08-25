@@ -189,7 +189,7 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # The control test measures along Y, not Z, and that is not a typo: the BIND pose is Y-up, and Z-up
 # is what an animation produces. Asserting Z first measured -1.43 and read as "the head is at the
 # feet" when it means "the head is where the artist modelled it".
-run Tf2DemoSalvage.Animation.Tests animation 36
+run Tf2DemoSalvage.Animation.Tests animation 37
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

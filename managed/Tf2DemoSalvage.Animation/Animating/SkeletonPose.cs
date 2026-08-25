@@ -73,6 +73,25 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<float> PoseValues { get; set; } = [];
 
+    /// <summary>Where this entity stands, as a row-major 3×4, or null to build in model space.</summary>
+    /// <remarks>
+    /// **This is what makes the result WORLD space, and it is what makes a merge need no transform
+    /// bookkeeping at all.** <c>BuildTransformations</c> concatenates it into every ROOT bone —
+    /// <c>ConcatTransforms( cameraTransform, bonematrix, GetBoneForWrite( i ) )</c> at
+    /// <c>c_baseanimating.cpp:1591</c>, where <c>cameraTransform</c> came from
+    /// <c>AngleMatrix( GetRenderAngles(), GetRenderOrigin(), parentTransform )</c> — and children
+    /// inherit it through their parents.
+    ///
+    /// So a bone-merged item does not need its wearer's origin passed to it, or stored beside its
+    /// bones, or applied afterwards: the matrices it copies are already in world space. The
+    /// arrangement this replaces carried the wearer's transform alongside the bones and applied it
+    /// at draw time, which is the bookkeeping that made a three-deep chain mix two spaces (B180).
+    ///
+    /// **Null means model space**, which is what a caller wants when it is measuring a skeleton
+    /// rather than drawing it — the bind-pose tests do exactly that.
+    /// </remarks>
+    public IReadOnlyList<float>? EntityTransform { get; set; }
+
     /// <summary>Scratch space for one bone's local transform, reused across frames.</summary>
     /// <remarks>
     /// Allocated once per entity, per D87. This runs once per bone per entity per frame, and a
@@ -163,6 +182,13 @@ public sealed class SkeletonPose : IBonePose
             {
                 StudioBones.Concatenate(into.Bone(rest.Parent), _local[bone], destination);
             }
+            else if (EntityTransform is { Count: 12 } placement)
+            {
+                // A ROOT bone, and the only place the entity's own position enters. Everything
+                // below it inherits world space through its parent — which is why a merged item
+                // needs no transform of its own.
+                StudioBones.Concatenate(AsSpan(placement), _local[bone], destination);
+            }
             else
             {
                 _local[bone].CopyTo(destination, 0);
@@ -171,4 +197,28 @@ public sealed class SkeletonPose : IBonePose
             alreadyWritten.Mark(bone);
         }
     }
+
+    /// <summary>The entity transform as a span, copied only when it is not already an array.</summary>
+    /// <remarks>
+    /// A <c>float[]</c> passes through without allocating, which is what every caller on the draw
+    /// path supplies. The copy exists so the property can take any list, and it costs twelve floats
+    /// on a path nobody hot uses.
+    /// </remarks>
+    private ReadOnlySpan<float> AsSpan(IReadOnlyList<float> placement)
+    {
+        if (placement is float[] array)
+        {
+            return array;
+        }
+
+        for (int cell = 0; cell < 12; cell++)
+        {
+            _placement[cell] = placement[cell];
+        }
+
+        return _placement;
+    }
+
+    /// <summary>Scratch for the entity transform when it arrives as something other than an array.</summary>
+    private readonly float[] _placement = new float[12];
 }
