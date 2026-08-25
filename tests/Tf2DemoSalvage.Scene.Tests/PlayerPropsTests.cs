@@ -175,5 +175,8 @@ public sealed class PlayerPropsTests
             weaponClass is null ? null : "PRIMARY";
 
         public bool Airwalks(int playerClass) => playerClass != MedicClass;
+
+        public string? Hands(int playerClass) =>
+            playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
     }
 }

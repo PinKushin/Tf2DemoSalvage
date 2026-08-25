@@ -346,5 +346,8 @@ public sealed class MomentSceneTests
             RolesKnown && weaponClass is not null ? "PRIMARY" : null;
 
         public bool Airwalks(int playerClass) => true;
+
+        public string? Hands(int playerClass) =>
+            playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
     }
 }

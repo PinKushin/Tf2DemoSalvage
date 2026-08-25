@@ -282,6 +282,15 @@ internal class MainForm : Form
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
+    /// <summary>What model is in a player's hands, from the game's own item schema.</summary>
+    /// <remarks>
+    /// Replaced when the archives open, so the schema is read from the install rather than answering
+    /// nothing. Held here as well as on <see cref="_moment"/> because the load set asks it too — the
+    /// set decides which models are packed and the draw path decides which is shown, and the two
+    /// disagreeing is a weapon that resolves and cannot be drawn.
+    /// </remarks>
+    private WeaponModels _weapons;
+
     /// <summary>Assembles what one moment draws: the draw list, the packing, the poses.</summary>
     /// <remarks>
     /// **`ShowMoment` and the four members it drove** (B188, D90). It is told the tick, the camera
@@ -728,9 +737,12 @@ internal class MainForm : Form
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
+        _weapons = WeaponModels.None(_renderLog);
+
         _moment = new MomentScene(_models, _viewmodelScene, _renderLog)
         {
             Lighting = LevelLighting.Unlit(_renderLog),
+            Weapons = _weapons,
         };
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
@@ -1695,6 +1707,12 @@ internal class MainForm : Form
                     // `Sample` leave the window rather than shrink to a wrapper (D90).
                     _sounds.Read = _archives.Read;
 
+                    // **Both holders, in one place.** The load set asks this and so does the draw
+                    // path; setting only one is the disagreement that leaves a weapon resolved and
+                    // undrawable.
+                    _weapons = new WeaponModels(_archives.Read, _renderLog);
+                    _moment.Weapons = _weapons;
+
                     LoadEntityPalette(game);
                     _assetLog.LogInformation(
                         "{Message}",
@@ -2318,7 +2336,7 @@ internal class MainForm : Form
             paths.Add(arms);
         }
 
-        foreach (string weapon in HeldWeaponModels(timeline))
+        foreach (string weapon in _weapons.AllIn(timeline))
         {
             paths.Add(weapon);
         }
@@ -2326,40 +2344,10 @@ internal class MainForm : Form
         return paths;
     }
 
-    /// <summary>Every weapon model any player holds at any point in the demo.</summary>
-    /// <remarks>
-    /// **Resolved up front for the same reason the class models are.** A player switches weapon
-    /// constantly and a set built from what is held right now is missing whatever they draw next —
-    /// which does not fail loudly, it just leaves an empty hand.
-    ///
-    /// Distinct pairs rather than distinct players: a whole match resolves to a few dozen models.
-    /// </remarks>
-    private IEnumerable<string> HeldWeaponModels(DemoTimeline timeline)
-    {
-        if (ItemDefinitions() is null)
-        {
-            yield break;
-        }
-
-        HashSet<(int? Item, string? Weapon, int Class)> seen = [];
-
-        foreach (TimelineFrame frame in timeline.Frames)
-        {
-            foreach (ScenePlayer player in frame.Players)
-            {
-                if (player.ActiveWeapon is null ||
-                    !seen.Add((player.WeaponItem, player.WeaponClass, player.PlayerClass ?? 0)))
-                {
-                    continue;
-                }
-
-                if (WeaponModel(player) is { Length: > 0 } model)
-                {
-                    yield return model;
-                }
-            }
-        }
-    }
+    // `HeldWeaponModels` is `WeaponModels.AllIn` now (B188, D90), beside the `For` it shares with
+    // the draw path — which is the point: the set decides which models are packed and the draw path
+    // decides which is shown, so the two answering differently is a weapon that resolves and cannot
+    // be drawn.
 
     /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
     /// <remarks>
@@ -2369,7 +2357,7 @@ internal class MainForm : Form
     /// </remarks>
     private HashSet<string> WornModelPaths() =>
         _timeline is { } timeline
-            ? WornModels.From(timeline.Props, HeldWeaponModels(timeline))
+            ? WornModels.From(timeline.Props, _weapons.AllIn(timeline))
             : [];
 
     /// <summary>Where to write an automatic capture, when one was asked for.</summary>
@@ -2815,93 +2803,9 @@ internal class MainForm : Form
     // `MomentScene.ViewmodelCamera`, set by the pass that decides whether anything is drawn in it at
     // all — which is what makes "null means draw none" one fact rather than two that can disagree.
 
-    /// <summary>The model of the weapon in a player's hands, or <c>null</c>.</summary>
-    /// <param name="player">The player being followed.</param>
-    /// <remarks>
-    /// **Two routes, and the second is needed more often than it looks.** A demo names the item the
-    /// player holds — <c>m_iItemDefinitionIndex</c> — and the schema turns that into a model. But
-    /// measured on z1800, 22 of 56 held weapons never send one, so the weapon's own class is used
-    /// to find the stock item for it instead. Together they answered for 56 of 56.
-    ///
-    /// Both are lookups into <c>items_game.txt</c>, which is read once and kept: it is eight
-    /// megabytes, and this is asked every frame.
-    /// </remarks>
-    private string? WeaponModelFor(int player) =>
-        PlayerAt(_transport.CurrentTick, player) is { } holder ? WeaponModel(holder) : null;
-
-    /// <summary>The model of the weapon a player is holding, or <c>null</c>.</summary>
-    /// <param name="holder">The player, at whichever tick they were read.</param>
-    /// <remarks>
-    /// Shared by the draw path and by the load set, deliberately: the set decides which models are
-    /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
-    /// that resolves and cannot be drawn — which is exactly the failure this feature already had
-    /// once, from the other direction.
-    /// </remarks>
-    private string? WeaponModel(ScenePlayer holder)
-    {
-        if (ItemDefinitions() is not { } schema)
-        {
-            return null;
-        }
-
-        int playerClass = holder.PlayerClass ?? 0;
-
-        if (holder.WeaponItem is { } item &&
-            schema.ModelFor(item, playerClass) is { Length: > 0 } named)
-        {
-            return named;
-        }
-
-        if (holder.WeaponClass is not { } weaponClass)
-        {
-            return null;
-        }
-
-        foreach (string candidate in WeaponScriptName.Candidates(weaponClass, holder.PlayerClass))
-        {
-            if (schema.ModelForClass(candidate, playerClass) is { Length: > 0 } stock)
-            {
-                return stock;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>TF2's item schema, read from the installed game once.</summary>
-    /// <remarks>
-    /// Null when the game is not installed or the file is not where it should be, which is the
-    /// same condition every other asset lookup here already tolerates — the viewer draws what it
-    /// can find and says what it could not.
-    /// </remarks>
-    private ItemSchema? ItemDefinitions()
-    {
-        if (_itemSchema is not null || _itemSchemaMissing)
-        {
-            return _itemSchema;
-        }
-
-        if (_archives?.Read("scripts/items/items_game.txt") is not { } bytes)
-        {
-            // Recorded so the eight-megabyte read is not attempted every frame, and reported once
-            // so a viewer with no weapons in hand says why.
-            _itemSchemaMissing = true;
-            _renderLog.LogWarning("{Message}", "no items_game.txt, so no weapon models in first person");
-            return null;
-        }
-
-        _itemSchema = ItemSchema.Read(bytes);
-        _renderLog.LogInformation("{Message}", "item schema read");
-
-        return _itemSchema;
-    }
-
-    /// <summary>The item schema, once read.</summary>
-    private ItemSchema? _itemSchema;
-
-    /// <summary>Whether the schema was looked for and not found.</summary>
-    private bool _itemSchemaMissing;
-
+    // `WeaponModelFor`, `WeaponModel`, `ItemDefinitions` and the two fields that cached the schema
+    // are `WeaponModels` in Scene (B188, D90). None of it was window work — it is two lookups into
+    // items_game.txt — and none of it had a test, because reaching it meant constructing a form.
 
     // The viewmodel's instance list moved with the pass that fills it (B188, D90). It is
     // `MomentScene.ViewmodelInstances`, still reused between frames rather than allocated.
@@ -3242,9 +3146,7 @@ internal class MainForm : Form
                 FollowedEntity(),
                 _firstPerson ? FirstPersonCamera() : null,
                 timeline.IntervalPerTick,
-                _settings.ViewmodelFieldOfView,
-                HandsForFollowed(),
-                FollowedEntity() is { } held ? WeaponModelFor(held) : null));
+                _settings.ViewmodelFieldOfView));
 
         _samplingTicks += phases.DrawList;
         _posingTicks += phases.Pose;
@@ -3254,18 +3156,10 @@ internal class MainForm : Form
         ReportSlowMoment(phases);
     }
 
-    /// <summary>The arms model the followed player wears, or null when nobody is followed.</summary>
-    /// <remarks>
-    /// **Still here because the weapon-model resolver still is** — <c>WeaponModelFor</c>,
-    /// <c>WeaponModel</c> and <c>ItemDefinitions</c> are a cluster of their own and move together,
-    /// not with the scene rebuild. Named rather than inlined so the remaining coupling is one line
-    /// that a search finds, instead of an expression buried in an argument list.
-    /// </remarks>
-    private string? HandsForFollowed() =>
-        FollowedEntity() is { } follower &&
-        PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
-            ? _classModels?.Hands(playerClass)
-            : null;
+    // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
+    // was: a shim kept because the weapon-model resolver had not moved yet. Both are gone — the
+    // scene holds the roster this moment sampled, so it finds the followed player and asks
+    // `IPlayerAppearance.Hands` and `WeaponModels` itself (B188, D90).
 
     /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
     /// <param name="phases">What <see cref="MomentScene.Build"/> measured.</param>

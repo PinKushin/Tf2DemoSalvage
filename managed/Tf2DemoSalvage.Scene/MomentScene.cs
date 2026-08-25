@@ -120,6 +120,15 @@ public sealed class MomentScene
     /// <summary>Where first-person weapons come from, set when a demo is loaded.</summary>
     public IViewmodelSource? Viewmodels { get; set; }
 
+    /// <summary>What model is in a player's hands, from the game's item schema.</summary>
+    /// <remarks>
+    /// **Asked here rather than handed in, which is what deleted the last shim.** `MainForm` was
+    /// computing the arms model and the held weapon to fill in two `MomentInfo` fields — but the
+    /// scene already has the players list, so it can find the followed one and resolve both without
+    /// the window knowing either question exists (B188, D90).
+    /// </remarks>
+    public WeaponModels Weapons { get; set; } = WeaponModels.None(NullLogger.Instance);
+
     /// <summary>What this moment draws, after every visibility rule.</summary>
     public IReadOnlyList<SceneProp> Drawn => _drawn;
 
@@ -200,7 +209,7 @@ public sealed class MomentScene
         // inherits every error of the ones it is derived from (B191).
         long viewmodelAt = Stopwatch.GetTimestamp();
 
-        AddViewmodel(info);
+        AddViewmodel(players, info);
 
         long viewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
         long posedAt = Stopwatch.GetTimestamp();
@@ -328,7 +337,7 @@ public sealed class MomentScene
     /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
     /// wrong does not fail, it draws the weapon inside out.
     /// </remarks>
-    private void AddViewmodel(in MomentInfo info)
+    private void AddViewmodel(IReadOnlyList<ScenePlayer> players, in MomentInfo info)
     {
         if (!info.FirstPerson ||
             Viewmodels is not { } source ||
@@ -342,6 +351,24 @@ public sealed class MomentScene
             return;
         }
 
+        // **Resolved from the players this moment already sampled**, rather than being handed in.
+        // The arms come from the class script exactly as the body does, and the weapon from the item
+        // schema — both questions the scene can answer for itself now that it holds the roster.
+        ScenePlayer? held = null;
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == follower)
+            {
+                held = player;
+                break;
+            }
+        }
+
+        string? hands = held is { PlayerClass: { } playerClass }
+            ? Appearance.Hands(playerClass)
+            : null;
+
         ViewmodelSceneResult scene = _viewmodels.Build(
             source,
             info.CurrentTick,
@@ -353,8 +380,8 @@ public sealed class MomentScene
                 camera.Angles.Pitch,
                 camera.Angles.Yaw,
                 camera.Angles.Roll),
-            info.Hands,
-            info.HeldWeapon);
+            hands,
+            held is { } holder ? Weapons.For(holder) : null);
 
         if (scene.Props.Count == 0)
         {
@@ -681,4 +708,7 @@ internal sealed class NoAppearance : IPlayerAppearance
     /// absent install rather than by the demo.
     /// </remarks>
     public bool Airwalks(int playerClass) => true;
+
+    /// <inheritdoc/>
+    public string? Hands(int playerClass) => null;
 }
