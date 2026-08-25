@@ -301,7 +301,16 @@ rushed for tidiness.
   followed by a launch that measured a **stale binary**. Numbers from it were discarded. Same silent
   failure as `--no-build`.
 - **The UI suite takes the desktop.** A failure while the owner is typing is not a regression — it
-  happened once here and a clean run was 14/14. Do not retry-until-green; run once cleanly.
+  happened once here and a clean run was 14/14. Do not retry-until-green; run once cleanly. **19/19
+  in 17 s on 2026-08-25**, including the five wiring tests.
+- **`pwsh run-exclusive.ps1 …` FAILS GREEN, and the command in `CLAUDE.md` is the bare form.** The
+  script lives at the PinKushin root rather than in this repo, so a bare filename is not found —
+  and `pwsh` responds by printing its usage banner and **exiting 0**. A wrong invocation is
+  indistinguishable from a passing run in every way except the output nobody reads. Use:
+
+  ```bash
+  pwsh -File "C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1" dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
+  ```
 - **CI floors had drifted below the local gate again** (B179's defect) and were corrected: core
   1497→1503, content 686→707, audio 116→151, corpus 106→109. **Watch the next CI run** — it builds
   Release, and if a count legitimately differs there, the floors are now strict enough to say so.
