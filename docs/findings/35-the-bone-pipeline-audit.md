@@ -307,6 +307,35 @@ The recursion needs a depth bound. Valve does not have one because the engine's 
 built by the engine; a demo this project exists to open may carry a cycle, and the current `Depth`
 already guards against it by stopping at the prop count.
 
+### 7a. Where `poseToBone` is applied, which decides a boundary
+
+Worth settling before the loop is rewired, because getting it wrong puts a multiply in the pose path
+that does not belong there.
+
+**`IStudioRender::DrawModel` takes `matrix3x4_t *pBoneToWorld`** (`public/istudiorender.h:329`), and
+so do `AddDecal` and `GetTriangles`. The engine hands the renderer bone-to-world matrices and
+nothing else. `poseToBone` appears in the published SDK only in `studio.h`'s declaration and in
+`Studio_CalcBoneToBoneTransform` (`bone_setup.cpp:1775`), which uses it for a bone-space conversion
+rather than for skinning — the skinning composition lives inside `studiorender`, which is closed.
+
+So the split is:
+
+| layer | works in |
+|---|---|
+| entity — attachments, hitboxes, bone merge, IK, `GetBone` | **bone-to-world** |
+| renderer — vertex skinning | bone-to-world **×** `poseToBone` |
+
+`BoneAccessor` holding bone-to-world is therefore the engine's arrangement rather than a compromise,
+and composing with `poseToBone` at the emit is not new work: that multiply already happens once per
+bone in `StudioBones.RestPose` and again in `MergeOnto`. It is the same count, moved to the boundary
+that owns it.
+
+**And the ambiguity it removes is what B180 was.** `StudioSkeleton` carries both arrays, so every
+consumer has to know which one it wants — and the code recorded the wrong one. One array per entity
+plus one composition at the render boundary leaves nothing to choose wrongly.
+
+*Evidence class: read from published source.*
+
 ---
 
 ## 8. The threading is a speculative prefetch, not a parallel draw loop
