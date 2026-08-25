@@ -182,8 +182,24 @@ public sealed class SkeletonPose : IBonePose
             {
                 StudioBones.Concatenate(into.Bone(rest.Parent), _local[bone], destination);
             }
-            else if (EntityTransform is { Count: 12 } placement)
+            else if (EntityTransform is { } placement)
             {
+                // **Refused rather than ignored, and that distinction cost a crash to learn.** This
+                // read `is { Count: 12 }`, so a matrix of the wrong shape simply did not apply — the
+                // model would build in its own space and draw at the map origin, with nothing said
+                // anywhere. A caller handed it a sixteen-float MODEL matrix on the first night this
+                // existed (D88); the length check that caught that one was somewhere else, by luck.
+                //
+                // A silent skip on a wrong-shaped input is the failure mode this whole project keeps
+                // meeting. Twelve or an exception.
+                if (placement.Count != 12)
+                {
+                    throw new InvalidOperationException(
+                        $"An entity placement is a matrix3x4_t of twelve floats, not " +
+                        $"{placement.Count}. A sixteen-float model matrix goes through " +
+                        $"MatrixConvention.ToBoneMatrix first.");
+                }
+
                 // A ROOT bone, and the only place the entity's own position enters. Everything
                 // below it inherits world space through its parent — which is why a merged item
                 // needs no transform of its own.

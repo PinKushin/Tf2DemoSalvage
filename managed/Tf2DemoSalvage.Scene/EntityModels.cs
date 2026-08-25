@@ -97,7 +97,11 @@ public sealed class EntityModelSet
         _lighting = new ModelLighting(IlluminationPoint, _render);
         _reports = new ModelReports(_render);
         _tally = new DrawTally(_props);
+        _loggers = factory;
     }
+
+    /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
+    private readonly ILoggerFactory _loggers;
 
     /// <summary>The ambient cube and sun each model draws with.</summary>
     private readonly ModelLighting _lighting;
@@ -238,6 +242,15 @@ public sealed class EntityModelSet
     /// </remarks>
     private void Simulate(IReadOnlyList<SceneProp> props, double seconds)
     {
+        // **Indexed first, because a placement follows its parent chain up** and the chain can
+        // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
+        _propsByEntity.Clear();
+
+        foreach (SceneProp prop in props)
+        {
+            _propsByEntity[prop.EntityIndex] = prop;
+        }
+
         foreach (SceneProp prop in props)
         {
             if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
@@ -363,11 +376,15 @@ public sealed class EntityModelSet
 
         // Identity for the wearer's own transform, because its bones are already in world space —
         // the placement it used to need is folded into them (finding 35 section 7a).
-        posed.EntityTransform = AttachmentPlacement.Matrix(
-            wearer.Bones.Bone(attachment.Bone).ToArray(),
-            attachment.Local,
-            PropTransform.Identity.ToMatrix(),
-            attachment.IsWorldAligned);
+        //
+        // Back through MatrixConvention, because AttachmentPlacement returns a MODEL matrix and an
+        // entity placement is a matrix3x4_t. Same boundary as PlacementOf, same one crossing point.
+        posed.EntityTransform = MatrixConvention.ToBoneMatrix(
+            AttachmentPlacement.Matrix(
+                wearer.Bones.Bone(attachment.Bone).ToArray(),
+                attachment.Local,
+                PropTransform.Identity.ToMatrix(),
+                attachment.IsWorldAligned));
 
         if (_reportedPoses.Add(prop.ModelPath + "#attached"))
         {
@@ -410,8 +427,11 @@ public sealed class EntityModelSet
             return existing;
         }
 
+        // The factory rather than nothing, so the bone-merge pairing reaches the log. That line was
+        // deleted with EntityModelSet.Merge and its absence left a viewer run unable to say whether
+        // weapons had paired with the players holding them.
         AnimatingEntity animating = new(
-            new SkeletonPose(skinned.Bones, skinned.Locals), _boneFrames);
+            new SkeletonPose(skinned.Bones, skinned.Locals), _boneFrames, _loggers);
 
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;
@@ -420,6 +440,36 @@ public sealed class EntityModelSet
     }
 
     /// <summary>Where a prop stands, as a row-major 3×4, reusing the array it had last frame.</summary>
+    /// <remarks>
+    /// **A bone-merged entity takes its PARENT's placement, and that is Valve's, not bookkeeping.**
+    /// <c>CalcAbsolutePosition</c> branches on it explicitly:
+    ///
+    /// <code>
+    /// if ( IsEffectActive(EF_BONEMERGE) )
+    /// {
+    ///     MoveToAimEnt();
+    ///     return;
+    /// }
+    /// </code>
+    ///
+    /// at <c>c_baseentity.cpp:4387</c>, and <c>MoveToAimEnt</c> is
+    /// <c>GetAimEntOrigin( GetMoveParent(), … )</c> followed by <c>SetAbsOrigin</c> /
+    /// <c>SetAbsAngles</c> (<c>:4294</c>). So a followed entity's ABSOLUTE origin is its parent's,
+    /// while its LOCAL origin is the zero <c>FollowEntity</c> wrote — and <c>SetupBones</c> builds
+    /// its <c>parentTransform</c> from <c>GetRenderOrigin()</c>, which is the absolute one.
+    ///
+    /// **This was deleted on 2026-08-24 and put back the same night**, which is the part worth
+    /// recording. The old code did it as <c>transform = worn.Where</c> and D88 removed it as
+    /// leftover bookkeeping, on the strength of having read <c>BuildTransformations</c> and not
+    /// <c>CalcAbsolutePosition</c>. The result was eight of nine weapons drawn at the map origin:
+    /// a weapon shares few or no bone names with a player, so the merge places little, and what is
+    /// left builds at the entity's own placement — which for a followed entity is (0,0,0) unless
+    /// this resolves it.
+    ///
+    /// The owner's diagnosis was the right one and arrived before the reading did: *"if everything
+    /// was following valve then it would work"*. It was not following Valve. It had deleted a piece
+    /// of Valve while believing the opposite.
+    /// </remarks>
     private float[] PlacementOf(SceneProp prop)
     {
         if (!_placements.TryGetValue(prop.EntityIndex, out float[]? placement))
@@ -428,14 +478,48 @@ public sealed class EntityModelSet
             _placements[prop.EntityIndex] = placement;
         }
 
-        ScenePose pose = prop.Pose;
+        ScenePose pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
 
-        new PropTransform(pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale)
-            .ToMatrix()
+        // **Through MatrixConvention, because the two forms are not the same shape OR the same
+        // layout.** ToMatrix is the shader's row-vector 4×4 with translation in the last ROW;
+        // EntityTransform is Valve's matrix3x4_t with translation in column 3. Crossing that by
+        // hand is what threw `Destination array was not long enough` on the first frame of
+        // playback — and the length was the lucky half, since a transpose of the same size would
+        // have drawn a plausible wrong pose instead of failing.
+        MatrixConvention.ToBoneMatrix(
+                new PropTransform(
+                    pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale).ToMatrix())
             .CopyTo(placement, 0);
 
         return placement;
     }
+
+    /// <summary>The pose a prop is actually AT, following its parent chain up.</summary>
+    /// <remarks>
+    /// **<c>CalcAbsolutePosition</c>'s bone-merge branch** (<c>c_baseentity.cpp:4387</c>): a
+    /// followed entity's absolute origin and angles are its parent's, however deep the chain runs.
+    /// An attachment on a weapon on a player therefore ends up at the player, which is what lets
+    /// its unmatched bones land somewhere sensible.
+    ///
+    /// Bounded by the same depth <see cref="AnimatingEntity"/> uses, for the same reason: the wire
+    /// should never carry a cycle and a demo this project exists to open may carry anything. A
+    /// chain that runs past it keeps the prop's own pose, which draws it in the wrong place rather
+    /// than not at all — the milder of the two failures, and the one that leaves something to see.
+    /// </remarks>
+    private ScenePose Absolute(SceneProp prop, int budget)
+    {
+        if (prop.AttachedTo is not { } wearer || budget <= 0)
+        {
+            return prop.Pose;
+        }
+
+        return _propsByEntity.TryGetValue(wearer, out SceneProp parent)
+            ? Absolute(parent, budget - 1)
+            : prop.Pose;
+    }
+
+    /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
+    private readonly Dictionary<int, SceneProp> _propsByEntity = [];
 
     /// <summary>Bone-to-world folded with the model's bind pose, which is what the shader skins by.</summary>
     /// <remarks>

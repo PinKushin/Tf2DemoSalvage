@@ -1102,12 +1102,19 @@ internal class MainForm : Form
         // reads as geometry that was never drawn. Surface colours returns from the shader before
         // the reflection is added, which is why a surface can be invisible in the textured view
         // and present in the category view: the same triangles, coloured differently.
+        // **No shortcut, because F8 was already the frame rate's and every function key is taken.**
+        // This carried ShortcutKeys = Keys.F8 alongside the frame-rate item, so two menu items
+        // claimed one key and one of them silently did nothing — the same defect as F12, found in
+        // the same audit, and the third instance of it in this file after B165's F11.
+        //
+        // The frame rate keeps F8 because it has a stated reason: it mirrors TF2's own cl_showfps
+        // (B174). Reflections is a debug toggle with no such claim, and inventing Ctrl+F8 for it
+        // would be an arbitrary answer to a question nobody asked. The menu still reaches it.
         _specular = new ToolStripMenuItem("&Reflections")
         {
             Name = SpecularItemId,
             CheckOnClick = true,
             Checked = true,
-            ShortcutKeys = Keys.F8,
             AccessibleName = "Reflections",
             AccessibleDescription =
                 "Adds cubemap reflections to surfaces that ask for them. Turn off to see whether " +
@@ -1295,10 +1302,18 @@ internal class MainForm : Form
             _viewport.Invalidate();
         };
 
+        // **F12 is bound ONCE, in ProcessCmdKey, and this item only DISPLAYS it.** It carried
+        // ShortcutKeys = Keys.F12 as well, so the key was registered twice — by the menu and by the
+        // form — and pressing it did nothing at all: no file, no log line, no error. The owner spotted
+        // the shape immediately: "if f12 is double bound it wont work".
+        //
+        // This is the second time in this file. B165 was the same mistake on F11, which silently
+        // broke full screen for days. A shortcut belongs to one owner; the other one says so in
+        // text.
         ToolStripMenuItem screenshot = new("Save a &screenshot")
         {
             Name = ScreenshotItemId,
-            ShortcutKeys = Keys.F12,
+            ShortcutKeyDisplayString = "F12",
             AccessibleName = ScreenshotItemName,
             AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
         };
@@ -5599,6 +5614,7 @@ internal class MainForm : Form
         }
 
         int instanced = 0;
+        int drawnAtOrigin = 0;
         string drawn = "none";
 
         foreach (ModelInstance instance in _instances)
@@ -5610,12 +5626,30 @@ internal class MainForm : Form
 
             instanced++;
 
+            // **Where it actually DRAWS, which is its bones and not its matrix** (D88). A skinned
+            // model's bones are in world space and its model matrix is deliberately identity, so
+            // reading the matrix reports (0,0,0) for every correctly placed weapon in the game.
+            //
+            // This line said "9 AT THE ORIGIN" on a demo where all nine had merged onto their
+            // owners correctly — 2 of 5 bones on weapon_bone, confirmed in the same log. An
+            // instrument that reports a defect which is not there costs exactly what a missing one
+            // does, and this one nearly bought a second night of chasing.
+            (float x, float y, float z) = instance.Bones is { Count: > 0 } bones
+                ? (bones[0][3], bones[0][7], bones[0][11])
+                : (instance.Matrix[12], instance.Matrix[13], instance.Matrix[14]);
+
+            if (x == 0f && y == 0f && z == 0f)
+            {
+                drawnAtOrigin++;
+            }
+
             if (drawn == "none")
             {
                 drawn = string.Create(
                     CultureInfo.InvariantCulture,
                     $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)}" +
-                    $" at ({instance.Matrix[12]:0}, {instance.Matrix[13]:0}, {instance.Matrix[14]:0})");
+                    $" at ({x:0}, {y:0}, {z:0})" +
+                    $" [{(instance.Bones is { Count: > 0 } ? "bone" : "matrix")}]");
             }
         }
 
@@ -5624,8 +5658,10 @@ internal class MainForm : Form
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"weapons: {inScene} in the scene, {instanced} instanced, " +
-                $"{owned} owned, {attached} attached, {atOrigin} AT THE ORIGIN; " +
-                $"first at origin {first}; first instanced {drawn}"));
+                $"{owned} owned, {attached} attached; " +
+                $"{atOrigin} sent no origin of their own, which is what a bone merge looks like; " +
+                $"{drawnAtOrigin} DRAWN AT THE ORIGIN; " +
+                $"first without an origin {first}; first instanced {drawn}"));
     }
 
     /// <summary>Names where a slow frame's time went, phase by phase.</summary>

@@ -189,7 +189,12 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # The control test measures along Y, not Z, and that is not a typo: the BIND pose is Y-up, and Z-up
 # is what an animation produces. Asserting Z first measured -1.43 and read as "the head is at the
 # feet" when it means "the head is where the artist modelled it".
-run Tf2DemoSalvage.Animation.Tests animation 37
+# 41: WeaponMergeContentTests (4) — whether a weapon actually pairs with the class holding it, on
+# the models TF2 ships. Measured: c_stickybomb_launcher shares weapon_bone and weapon_bone_1 with
+# demo.mdl, 2 of 5. Written because the viewer put weapons in the wrong place and the log could not
+# say whether they had paired — the diagnostic for the thing that broke had been deleted with the
+# code it lived in, and is now back in BoneMergeCache where it belongs.
+run Tf2DemoSalvage.Animation.Tests animation 41
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -431,7 +436,24 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # departure), then -> 641 by HudRendererTests, which check the screen-to-clip arithmetic without a
 # device. The floor had also drifted below CI's 634 for the same suite, which is the failure
 # docs/memory/a-floor-must-track-the-number-it-guards.md describes: two copies of one number.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    641
+# 645: four that exist because a viewer launch found what 641 could not.
+#
+#   Instances_ASkinnedModel_…                  nothing had EVER driven Instances() with a skinned
+#                                              model. Every other case here loads a BAKED fake, so
+#                                              the whole pose path was reachable only by launching.
+#                                              It reproduces the ArgumentException that crashed
+#                                              playback on the first frame.
+#   Instances_AWeaponMergedOntoAPlayer_…       the merge through the wiring rather than through
+#                                              AnimatingEntity directly.
+#   Instances_AWornItemSharingNoBoneName_…     the only shape that can see an unresolved entity
+#                                              placement. Its first two versions PASSED with the
+#                                              defect reverted — a merged bone takes the wearer's
+#                                              matrix and an unmatched CHILD rides its merged
+#                                              parent, so only an unmatched ROOT exposes it.
+#   Shortcuts_EveryMenuItem_…                  no key claimed twice. Third instance in one file
+#                                              after B165's F11: F12 was dead, and F8 was claimed
+#                                              by both the frame rate and reflections.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    645
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

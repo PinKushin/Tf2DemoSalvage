@@ -10275,6 +10275,30 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B187 — the debug views do not apply to viewmodels — OPEN
+
+**Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone
+work rather than being caused by it: *"the dubug views not applying to viewmodels"*.
+
+`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_fullbright` and the wireframe
+all change the world and leave the first-person weapon alone. So the one view where a texture
+problem is most visible — B170's washed-out viewmodels — cannot be inspected with the tools built
+for exactly that job.
+
+**Likely the same root as B186**: the viewmodel pass is a separate draw with its own state, and
+whatever carries the debug mode into the world pass is not carried into it. Worth checking together,
+and worth checking BEFORE B170 — a debug view that worked would probably diagnose B170 in one run.
+
+### B186 — attachments do not show in first person — OPEN
+
+**Reported by the owner 2026-08-24**: *"the attachments not showing in first person"*. Distinct from
+B180 and from the magenta chequer: those are about where an attachment lands and what it is painted
+with, and this is about it not being drawn at all when the camera is the wearer.
+
+Unmeasured. The obvious suspects are the first-person visibility filter, which decides what a player
+sees of their own body, and the viewmodel pass being a separate draw that may not receive attached
+entities at all — the same seam as B187.
+
 ### B185 — the viewer suite peaks at 21 GB, so any concurrent load OOMs it — OPEN
 
 **Measured 2026-08-24**, while diagnosing what looked like a regression and was not.

@@ -183,7 +183,15 @@ public sealed class AnimatingEntity
         // doing it the other way round.
         if (Follows is { } parent)
         {
-            _merge ??= new BoneMergeCache(_pose);
+            if (_merge is null)
+            {
+                _merge = new BoneMergeCache(_pose);
+
+                // So the pairing reports where the old EntityModelSet.Merge reported. Its absence
+                // is what left a viewer run unable to say whether weapons had paired at all.
+                _merge.ReportsTo(_log);
+            }
+
             _merge.UpdateCache(parent._pose);
 
             // **The parent is asked HERE, with the merge's own mask** — bone_merge_cache.cpp:130.

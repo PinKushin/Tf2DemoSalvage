@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+
+using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -122,7 +125,56 @@ public sealed class BoneMergeCache
         // Valve slams the mask to zero when nothing matched, so a chain of unrelated models does
         // not make its parent build anything at all.
         FollowBoneSetupMask = pairs.Count == 0 ? 0 : mask;
+
+        Report(wearer, pairs);
     }
+
+    /// <summary>Says what paired, once per pairing.</summary>
+    /// <remarks>
+    /// **Restored on 2026-08-24 after being deleted with the code it lived in.** The old
+    /// <c>EntityModelSet.Merge</c> logged <c>bone merge X onto Y: N of M bones matched</c>, and D88
+    /// removed the method and the line together. The very next viewer run showed weapons in the
+    /// wrong place, and the log could not say whether they had paired — the diagnostic for the
+    /// thing that broke was removed by the change that broke it.
+    ///
+    /// **A count that matches nothing looks identical to one that works**: both draw the item, only
+    /// one puts it on the wearer. The names matter as much as the number — an item matching 1 bone
+    /// of 8 is correct when that one is <c>bip_head</c> and is an item on the floor when it is a
+    /// root both skeletons happen to share.
+    ///
+    /// Once per pairing rather than per frame, because <see cref="UpdateCache"/> only runs when the
+    /// followed entity or either model changes.
+    /// </remarks>
+    private void Report(IBonePose wearer, List<(int Mine, int Theirs)> pairs)
+    {
+        if (_log is null)
+        {
+            return;
+        }
+
+        string matched = pairs.Count == 0
+            ? "nothing"
+            : string.Join(", ", pairs.Take(6).Select(pair => _worn.NameOf(pair.Mine)));
+
+        _log.LogInformation(
+            "{Message}",
+            $"bone merge: {pairs.Count} of {_worn.BoneCount} bones matched onto a " +
+            $"{wearer.BoneCount}-bone wearer; matched {matched}; " +
+            $"wearer setup mask 0x{FollowBoneSetupMask:X}");
+    }
+
+    /// <summary>Where pairings are reported, or null for nowhere.</summary>
+    private ILogger? _log;
+
+    /// <summary>Sets where this reports, for a caller that has a logger to give it.</summary>
+    /// <param name="log">The logger, under <c>render</c> as the old line was.</param>
+    /// <remarks>
+    /// A property rather than a constructor argument because the cache is built lazily by
+    /// <see cref="AnimatingEntity"/> at the moment a merge first happens, and that is a place with
+    /// no logger to hand. Optional, so every test that builds one gets geometry rather than
+    /// commentary.
+    /// </remarks>
+    public void ReportsTo(ILogger? log) => _log = log;
 
     /// <summary>Copies the wearer's matched matrices into the worn model's bone array.</summary>
     /// <param name="wearerBones">The wearer's finished bones.</param>
