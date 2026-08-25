@@ -208,25 +208,25 @@ internal class MainForm : Form
     // `_drawn` moved with the rebuild that fills it (B188, D90). It is `MomentScene.Drawn`, still a
     // field there so the per-frame allocation happens once rather than per tick.
 
-    /// <summary>The loaded map's surfaces, kept so the world can be rebuilt on resize.</summary>
-    private IReadOnlyList<BspSurface> _surfaceList = [];
+    // `_surfaceList` was here until 2026-08-25. It is `_level.Surfaces` — the field was a copy of
+    // one property of a record the form was already holding, and keeping both is how they come to
+    // disagree: the catch below cleared the copy and left the record.
 
     /// <summary>The loaded map's textures and lighting.</summary>
     private MapAssets? _assets;
 
-    /// <summary>The loaded map's bytes, kept for reading displacement terrain on re-projection.</summary>
-    /// <summary>The map's displacement lumps, read once rather than once per face.</summary>
-    private BspTerrain? _terrain;
-
-    /// <summary>The map's decals, read once and reused across every rebuild.</summary>
-    private IReadOnlyList<BspOverlay>? _overlays;
-
-    /// <summary>The map's models: the world, then one per piece of moving brushwork.</summary>
-    private IReadOnlyList<BspModel>? _brushModels;
-
-    /// <summary>Where every player stood, for every moment the demo recorded.</summary>
-    /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
-    private BspLeafTree? _leaves;
+    /// <summary>Every lump the loaded map carries, kept as the record it was read into.</summary>
+    /// <remarks>
+    /// **Six fields until 2026-08-25, and all six were this record unpacked** — the terrain, the
+    /// decals, the brush models, the BSP tree, the surfaces and the brush-model classes. Nothing
+    /// transformed them on the way out; `ReadMap` assigned them straight across and `ProjectMap`
+    /// read them straight back.
+    ///
+    /// **That is the answer to "should maps be their own project" (D92): no, because the problem
+    /// was never a missing boundary.** A cluster of ten fields that came out of one type is fixed by
+    /// keeping the type, not by building a project around the fields.
+    /// </remarks>
+    private MapLevel? _level;
 
     // The PVS was a field here until 2026-08-25 (B188). It is read at map load and handed to
     // SoundscapeSystem, which is the only thing that ever asked it anything — so it is a local in
@@ -539,8 +539,9 @@ internal class MainForm : Form
     /// <summary>Valve's entity palette, read from the FGDs the game ships, or null.</summary>
     private FgdClasses? _entityClasses;
 
-    /// <summary>Which brush model belongs to which entity class, from the map's entity lump.</summary>
-    private readonly Dictionary<int, string> _brushModelClasses = [];
+    // `_brushModelClasses` was here until 2026-08-25. It is `_level.BrushModelClasses` — the form
+    // was copying the record's dictionary into a field of its own, entry by entry, on every map
+    // read. `MapLevel` already built that join from the entity lump, which is where it belongs.
 
     /// <summary>Valve's colour for the class a brush model belongs to, 0..1, or null.</summary>
     /// <remarks>
@@ -604,7 +605,8 @@ internal class MainForm : Form
     private (float Red, float Green, float Blue)? EntityTint(int model)
     {
         if (_entityClasses is not { } classes ||
-            !_brushModelClasses.TryGetValue(model, out string? classname))
+            _level is not { } level ||
+            !level.BrushModelClasses.TryGetValue(model, out string? classname))
         {
             // Not an entity at all, or the map named no class for it. Ordinary brushwork.
             return null;
@@ -1582,11 +1584,15 @@ internal class MainForm : Form
     private void ClearMap()
     {
         _map = null;
-        _surfaceList = [];
         _assets = null;
         _models.Geometry = EntityModelSet.NoGeometry;
-        _terrain = null;
-        _overlays = null;
+
+        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
+        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
+        // the previous map's lumps until the next read replaced them. Nothing read them in between —
+        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
+        // methods away" is the kind of thing a record makes impossible to get wrong.
+        _level = null;
         _texturesUploaded = false;
         _mapProblem = null;
 
@@ -1751,17 +1757,7 @@ internal class MainForm : Form
                     level = MapLevel.Read(bytes, _assetLog);
                 }
 
-                _terrain = level.Terrain;
-                _overlays = level.Overlays;
-                _brushModels = level.BrushModels;
-                _leaves = level.Leaves;
-
-                _brushModelClasses.Clear();
-
-                foreach ((int model, string classname) in level.BrushModelClasses)
-                {
-                    _brushModelClasses[model] = classname;
-                }
+                _level = level;
 
                 // **The soundscape system is handed the level, not built from lumps here.** That is
                 // the LevelInitPreEntity shape: the window says "here is the map", and the system
@@ -1797,13 +1793,9 @@ internal class MainForm : Form
                                   .Select(group => $"{group.Count()}x {group.Key}"))
                         : "no archives, so no soundscapes");
 
-                _surfaceList = level.Surfaces;
                 // **Handed the level, the same way the soundscape system is** — each system
                 // initialises itself from the map rather than the window unpacking lumps into
                 // fields for it (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`).
-                // **Handed to the scene, the same way the soundscape system is handed the level.**
-                // Each system initialises itself from the map rather than the window keeping a copy
-                // for it (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`).
                 LevelLighting lighting = LevelLighting.From(level, _renderLog);
 
                 _moment.Lighting = lighting;
@@ -1837,8 +1829,8 @@ internal class MainForm : Form
                         // atlas as the wall's, so the geometry cannot be built before it exists
                         // (B131).
                         atlas => BrushModels.Build(
-                            _brushModels ?? [],
-                            _surfaceList,
+                            level.BrushModels ?? [],
+                            level.Surfaces,
                             atlas,
 
                             // **Valve's colour for the entity's class, and only in the category
@@ -1872,14 +1864,14 @@ internal class MainForm : Form
 
                 int displacements = 0;
 
-                foreach (BspSurface surface in _surfaceList)
+                foreach (BspSurface surface in level.Surfaces)
                 {
                     displacements += surface.IsDisplacement ? 1 : 0;
                 }
 
                 _assetLog.LogInformation(
                     "{Message}",
-                    $"{_surfaceList.Count} surfaces ({displacements} displacements), " +
+                    $"{level.Surfaces.Count} surfaces ({displacements} displacements), " +
                     $"{_assets.Resolved} materials resolved, {_assets.Missing} missing, " +
                     $"lightmap atlas {_assets.Lightmaps.Width}x{_assets.Lightmaps.Height}, " +
                     $"texture quality {_settings.TextureQuality}");
@@ -1896,7 +1888,10 @@ internal class MainForm : Form
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
-                _surfaceList = [];
+                // **The level goes too, and it did not before.** `_surfaceList` was cleared here
+                // while the six other lumps were left pointing at whatever had been read — a
+                // half-cleared map that nothing happened to read. One field cannot be half-cleared.
+                _level = null;
                 _assets = null;
                 _models.Geometry = EntityModelSet.NoGeometry;
                 _mapProblem = "Map content unavailable: " + failure.Message;
@@ -2076,7 +2071,13 @@ internal class MainForm : Form
         // The textured world is projected through the SAME camera, then uploaded. It is rebuilt on
         // a resize because the projection is baked into the vertices - which is what keeps the
         // shader a sample and a multiply.
-        if (_assets is { } assets && _surfaceList.Count > 0 && _device is not null)
+        // **`_level` joins the guard rather than being read through `?.` below.** The three were
+        // always set together and cleared together; making that a condition says so once instead of
+        // leaving four null-conditionals to imply it.
+        if (_assets is { } assets &&
+            _level is { } level &&
+            level.Surfaces.Count > 0 &&
+            _device is not null)
         {
             try
             {
@@ -2124,7 +2125,7 @@ internal class MainForm : Form
                 {
                     // Recorded before the build so MapCamera can project height on the very first
                     // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
-                    _heightRange = MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds);
+                    _heightRange = MapWorldBuilder.HeightRange(level.Surfaces, _map.MainBounds);
 
                     // **No decal bias is set here any more, and its removal is the point (B135).**
                     // This called SetDecalBias with the map's height range, which DISPOSED the
@@ -2135,8 +2136,8 @@ internal class MainForm : Form
                     // in effect. The bias now lives in exactly one place, where it is created.
 
                     built = MapWorldBuilder.Build(
-                        _terrain,
-                        _surfaceList,
+                        level.Terrain,
+                        level.Surfaces,
                         assets.Materials,
                         assets.Lightmaps,
                         assets.Props,
@@ -2162,8 +2163,8 @@ internal class MainForm : Form
                         // an invisible one.
                         area: null,
                         _surfaceColours.Checked,
-                        _overlays,
-                        _brushModels,
+                        level.Overlays,
+                        level.BrushModels,
                         _loggers);
                 }
 
@@ -2694,7 +2695,7 @@ internal class MainForm : Form
     private List<((float X, float Y) From, (float X, float Y) To)> LeafBoxLines(
         float[] matrix)
     {
-        if (!_debug.LeafVis || _leaves is not { } tree)
+        if (!_debug.LeafVis || _level?.Leaves is not { } tree)
         {
             return [];
         }
