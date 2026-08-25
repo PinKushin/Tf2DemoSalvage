@@ -282,14 +282,10 @@ internal class MainForm : Form
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
-    /// <summary>What model is in a player's hands, from the game's own item schema.</summary>
-    /// <remarks>
-    /// Replaced when the archives open, so the schema is read from the install rather than answering
-    /// nothing. Held here as well as on <see cref="_moment"/> because the load set asks it too — the
-    /// set decides which models are packed and the draw path decides which is shown, and the two
-    /// disagreeing is a weapon that resolves and cannot be drawn.
-    /// </remarks>
-    private WeaponModels _weapons;
+    // `_weapons` was here until the load set stopped asking the window for it. The form held a
+    // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
+    // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
+    // install itself now, so there is one holder and nothing to keep in step.
 
     /// <summary>Whose eyes the first-person view is using, and where they are.</summary>
     /// <remarks>
@@ -698,13 +694,12 @@ internal class MainForm : Form
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
-        _weapons = WeaponModels.None(_renderLog);
         _spectator = new SpectatorView(_spectateLog);
 
         _moment = new MomentScene(_models, _viewmodelScene, _renderLog)
         {
             Lighting = LevelLighting.Unlit(_renderLog),
-            Weapons = _weapons,
+            Weapons = WeaponModels.None(_renderLog),
         };
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
@@ -1674,8 +1669,7 @@ internal class MainForm : Form
                     _game = GameContent.Open(FindGameFolder(), _loggers);
 
                     _sounds.Read = _game.Archives.Read;
-                    _weapons = _game.Weapons;
-                    _moment.Weapons = _weapons;
+                    _moment.Weapons = _game.Weapons;
 
                     // The soundscape catalog reads from the same archives but belongs to the audio
                     // layer, so `GameContent` deliberately does not hold it — Scene would have to
@@ -1753,8 +1747,8 @@ internal class MainForm : Form
                         bytes,
                         _game.Archives,
                         (int)_settings.TextureQuality,
-                        DemoModelPaths(),
-                        WornModelPaths(),
+                        DemoModels.Needed(_timeline, _game),
+                        DemoModels.Worn(_timeline, _game),
 
                         // Built from the surfaces just read rather than from a second pass over
                         // the file: the models lump names face RANGES, so it needs the same
@@ -2218,73 +2212,9 @@ internal class MainForm : Form
     private string? PlayerModel(ScenePlayer player) =>
         PlayerProps.ModelFor(player, new GameAppearance(_game?.Classes, _weaponRoles));
 
-    /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
-    /// <remarks>
-    /// Brush models and sprites are excluded: a <c>*N</c> is map geometry and a sprite is a
-    /// camera-facing quad, and neither is a <c>.mdl</c> the studio loader can read.
-    /// </remarks>
-    private HashSet<string> DemoModelPaths()
-    {
-        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-
-        // **Every class, not only the ones standing at tick zero.** A player can switch class at
-        // any moment in a match, so a set built from who is playing now is missing whatever they
-        // change to - and a model absent from this set is never packed, so the player would simply
-        // vanish mid-round. Nine models is the whole roster and it is loaded once.
-        foreach (string model in _game?.ModelPaths() ?? [])
-        {
-            paths.Add(model);
-        }
-
-        if (_timeline is not { } timeline)
-        {
-            return paths;
-        }
-
-        foreach (ScenePropTrack track in timeline.Props)
-        {
-            if (track.Kind == SceneModelKind.Studio)
-            {
-                paths.Add(track.ModelPath);
-            }
-        }
-
-        // **The first-person models, which are in neither of the sets above.** A viewmodel is not a
-        // prop — it has no origin, so the timeline deliberately keeps it out of Props — and the
-        // weapon in its hands is not an entity at all. Both are loaded here or they are never
-        // loaded: this set is what MapAssets is given, and the loader is a dictionary lookup rather
-        // than an on-demand read, so a model absent from it packs to nothing for ever.
-        //
-        // It cost a whole feature. The viewer resolved c_demo_arms.mdl, packed it, reported "0
-        // instances" and drew nothing, with the model sitting in the archive the entire time.
-        foreach (string arms in timeline.ViewmodelModels)
-        {
-            paths.Add(arms);
-        }
-
-        foreach (string weapon in _weapons.AllIn(timeline))
-        {
-            paths.Add(weapon);
-        }
-
-        return paths;
-    }
-
-    // `HeldWeaponModels` is `WeaponModels.AllIn` now (B188, D90), beside the `For` it shares with
-    // the draw path — which is the point: the set decides which models are packed and the draw path
-    // decides which is shown, so the two answering differently is a weapon that resolves and cannot
-    // be drawn.
-
-    /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
-    /// <remarks>
-    /// The rule itself is <see cref="WornModels.From"/>, which is where its reasoning and its tests
-    /// live. This supplies the two sources: the demo's own prop tracks, and the first-person weapons,
-    /// which are built by the viewer and appear in no timeline.
-    /// </remarks>
-    private HashSet<string> WornModelPaths() =>
-        _timeline is { } timeline
-            ? WornModels.From(timeline.Props, _weapons.AllIn(timeline))
-            : [];
+    // `DemoModelPaths` and `WornModelPaths` are `DemoModels.Needed` and `DemoModels.Worn` (B188,
+    // D90) — a question about a demo and an install, asked from a window that had nothing to do
+    // with either.
 
     /// <summary>Where to write an automatic capture, when one was asked for.</summary>
     private string? _shotPath;
